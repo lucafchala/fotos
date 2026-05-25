@@ -5,102 +5,108 @@
 - [ ] Adicionar link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
 - [ ] Adicionar na homepage pessoal (lucafchala.com)
 
-## Corrigir depois
+---
 
-### ~~Métricas~~ ✅ Resolvido
-- Bug corrigido: `ctx.waitUntil()` garante que o view count seja salvo após o Worker retornar
-- Dashboard agora também exibe coluna "Abriu Drive" (cliques no botão do Google Drive)
+## ✅ Concluído
 
-### ~~E-mail (Resend)~~ ✅ Resolvido
-- `RESEND_API_KEY` configurada como secret no Cloudflare Worker (Settings → Variables)
-- Domínio `lucafchala.com` verificado no Resend
-- E-mails de notificação ao admin e confirmação ao solicitante funcionando
-
-### Formulário de avaliações
-- Adicionar modal para visitantes deixarem avaliação do evento (estrelas + texto)
-- Mostrar avaliações no dashboard
-- Opcional: exibir média de estrelas no card da galeria ou na página do evento
+- **Métricas:** corrigido bug do view count (`ctx.waitUntil()`); contagem de cliques no botão Drive adicionada
+- **Resend:** API key configurada como secret no Worker; domínio verificado; e-mails de notificação e confirmação funcionando
+- **Modo "Em breve":** toggle no dashboard, oculta cover photo na galeria e na página, botão Drive vira "As fotos virão em breve"
+- **WhatsApp:** botão de compartilhamento no footer das páginas de evento
+- **LGPD:** aviso de privacidade no rodapé do modal de remoção
+- **E-mail de remoção atendida:** ao marcar como resolvido no dashboard, solicitante recebe e-mail confirmando
 
 ---
 
-## Próximas etapas (do plano)
+## Próximas etapas planejadas
 
 ### Etapa 3 — Segurança
 - [ ] **Rate limiting** em `/api/removal-request` (máx. N por IP por hora)
 - [ ] **Backup do KV**: endpoint `/api/backup` protegido (admin) exporta todos os dados como JSON
 - [ ] **Recuperação de senha** via e-mail (link de reset via Resend)
 
-### Etapa 4 — Novos recursos
-- [ ] Formulário de avaliações (estrelas + texto)
+### Etapa 4 — Recursos
+- [ ] Formulário de avaliações (estrelas + texto, mostradas no dashboard)
 - [ ] Senha por evento (acesso privado)
-- [ ] Modo "em breve" (card desfocado + data de publicação)
 - [ ] Ordenação manual dos eventos no dashboard
+
+### Etapa 5 — Longo prazo
+- [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
+- [ ] Portfólio público `/portfolio` com curadoria das melhores fotos
+- [ ] PWA (dashboard instalável no celular)
+- [ ] Cloudflare Web Analytics
+- [ ] Filtros por tag/categoria
 
 ---
 
-## Recomendações (Claude)
+## Novas ideias (Claude)
 
-### ~~Alta prioridade~~ → parcialmente concluído
+### Operacional — para você se organizar
 
-~~**Backup do KV**~~ → na Etapa 3
+**Notas internas por evento**
+Campo de texto privado em cada evento (só você vê no dashboard) para anotar: nome do cliente, valor cobrado, observações pós-evento, links de contratos, etc. Útil pra não depender da memória.
 
-~~**Rate limiting nas solicitações de remoção**~~ → na Etapa 3
+**Status de produção do evento**
+Adicionar um campo de status: `em-edicao` / `em-revisao` / `entregue` / `arquivado`. Filtrar por status no dashboard. Você sabe na hora o que está parado e o que precisa de atenção.
 
-~~**Recuperação de senha**~~ → na Etapa 3
+**Galeria de QR Code por evento**
+Gerar QR Code da URL de cada evento no próprio dashboard. Útil pra imprimir no convite, no kit do evento, ou mandar fácil pelo WhatsApp do casamento/formatura.
 
-### Melhorias de experiência
+**Lembrete de entrega**
+Campo "data prometida de entrega" no evento. Dashboard destaca eventos atrasados em vermelho. Evita esquecer prazo combinado.
 
-~~**Botão de compartilhamento por WhatsApp**~~ ✅ Implementado
+### Engajamento do visitante
 
-~~**Contador de acessos ao Drive**~~ ✅ Implementado (coluna "Abriu Drive" nas métricas)
+**Sistema de favoritas pelo visitante**
+O visitante marca fotos como favoritas (clique em ❤). Salvo no localStorage. Botão "compartilhar minha seleção" gera um link com as fotos escolhidas. Bom para casamentos onde os convidados querem mostrar só "as fotos deles".
 
-**Aviso de LGPD** ✅ Implementado (rodapé do modal de remoção)
+**Livro de visitas / comentários**
+Campo no final da página do evento onde convidados deixam recado (com moderação no dashboard). Bom para casamentos, aniversários — vira lembrança digital.
 
-**Ordenação manual dos eventos**
-Hoje a galeria ordena por data. Adicionar drag-and-drop no dashboard para definir ordem manual seria útil quando dois eventos têm a mesma data ou você quer destacar um evento mais antigo.
+**Slideshow / apresentação**
+Botão "modo apresentação" que abre o carrossel em tela cheia com transição automática a cada 4 segundos. Bom para projetar num evento ou apresentar fotos para um grupo.
 
-**Senha de acesso por evento**
-Alguns projetos podem ser privados (família, corporativo). Adicionar a opção de proteger um evento com senha — visitante digita antes de ver as fotos e o link do Drive. Simples de implementar com um campo extra no formulário e uma verificação na rota `/:slug`.
+**Stories estilo Instagram**
+Destacar 5-10 fotos como "highlights" do evento na página. Aparecem como círculos no topo, abrem em tela cheia ao tocar. Carrossel mais visual e moderno que o atual.
 
-**Página "em breve" para eventos não publicados**
-Hoje eventos invisíveis simplesmente somem. Seria útil ter um modo "em breve" — o card aparece na galeria mas desfocado/bloqueado, com uma data de publicação. Cria expectativa antes do evento ser entregue.
+### Profissional / portfólio
 
-**Notificação por WhatsApp ao receber solicitação de remoção**
-Além do e-mail, enviar uma mensagem no WhatsApp via API (Twilio, Z-API ou Evolution API) garante que você vê o pedido mesmo sem abrir o e-mail. Mais imediato para algo sensível como remoção.
+**Página /contato com formulário**
+Formulário simples ("seu nome / e-mail / tipo de evento / data / mensagem") que envia via Resend pra você. Captura novos clientes sem precisar do DM no Instagram.
 
-**Tour guiado no primeiro acesso à página de evento**
-Um tooltip ou mini-modal na primeira visita explicando "deslize as fotos", "clique para baixar" etc. reduz dúvidas sem poluir a interface permanentemente. Implementável com localStorage para não repetir.
+**Página /sobre**
+Bio profissional, equipamentos, processo de trabalho, faixa de preços ou link para orçamento. Aumenta credibilidade.
 
-**Galeria com filtro por tag/categoria**
-Adicionar tags aos eventos (ex: "formatura", "aniversário", "corporativo") e um filtro na galeria. Útil quando o portfólio crescer e o visitante quiser ver só um tipo de trabalho.
+**Depoimentos de clientes**
+Após marcar uma remoção/avaliação como "publicável", o texto vira depoimento exibido em `/depoimentos` ou na home. Prova social.
 
-**Lazy loading com skeleton nos cards**
-Os cards da galeria já têm `loading="lazy"` nas imagens, mas enquanto carregam aparece fundo escuro sem indicação de progresso. Adicionar um skeleton animado (brilho suave) melhora a percepção de velocidade.
+**Status "aceitando novos projetos"**
+Badge na home: "📅 Agendando eventos para janeiro/2027" ou "🔴 Agenda fechada até março". Define expectativa de novos clientes.
 
-**Âncora de download direto no modal**
-No modal "Antes de acessar", o botão "Ir para o Google Drive" abre a pasta. Adicionar um segundo botão menor "Baixar todas as fotos" com o link direto de download ZIP (parâmetro `?authuser=0&sz=w2048` no Drive) agiliza para quem sabe o que quer.
+### UX e tecnologia
 
-### Conformidade
+**Magic Link (login sem senha)**
+Substituir senha do dashboard por "digite seu e-mail" → link mágico chega no Gmail. Menos atrito, mais seguro, já temos Resend configurado. Compatível com a feature de recuperação de senha planejada.
 
-**Aviso de LGPD**
-O formulário de remoção coleta e-mail e telefone. Um parágrafo curto de política de privacidade ("seus dados são usados apenas para responder ao pedido e não são compartilhados") é suficiente para conformidade básica — pode ficar no rodapé do modal.
+**Modo claro/escuro automático**
+Detectar preferência do sistema (`prefers-color-scheme`) e adaptar a galeria. Hoje só tem o escuro — algumas pessoas preferem claro pra ver as fotos com fundo neutro.
 
-**Prazo de resposta para solicitações de remoção**
-A LGPD exige resposta em até 15 dias. Adicionar no formulário um texto tipo "Respondemos em até 15 dias úteis" define expectativa e demonstra conformidade.
+**Internacionalização (EN/PT)**
+Suporte a inglês na galeria e páginas de evento — bom para clientes estrangeiros ou para quando quiser internacionalizar o trabalho.
 
-### A longo prazo
+**Acesso por link único nominado**
+Cada convidado de um evento recebe um link tipo `/casamento-ana-joao?guest=marina`. A página mostra "Olá, Marina!" no topo. Toque pessoal sem precisar de login. Útil para entregas exclusivas.
 
-**Migrar imagens para Cloudflare R2**
-Hoje as miniaturas dependem de `lh3.googleusercontent.com` (Google), que pode bloquear ou mudar sem aviso. Subir as capas para um bucket R2 dá controle total e resolve o problema de preview no WhatsApp.
+**Compressão e CDN para as fotos de capa**
+Hoje as capas carregam direto do Google. Cachear elas via Cloudflare (com headers `Cache-Control`) acelera o load das páginas subsequentes.
 
-**Domínio de e-mail dedicado**
-`noreply@lucafchala.com` funciona mas parece automático. Um endereço como `fotos@lucafchala.com` para respostas manuais e `noreply@fotos.lucafchala.com` para transacionais passa mais profissionalismo.
+### Para o futuro distante
 
-**Portfólio público com seleção de fotos favoritas**
-Hoje o site é focado em entrega para clientes. Poderia ter uma seção separada (ex: `/portfolio`) com uma curadoria das melhores fotos de cada projeto, voltada para atrair novos clientes — sem o link do Drive, só as fotos.
+**Integração com Google Drive API**
+Em vez de copiar URL por foto, listar e selecionar direto da pasta do Drive. Reduz fricção pra adicionar evento. Requer OAuth — complexo mas elimina o trabalho manual.
 
-**Analytics mais detalhado**
-Substituir ou complementar o contador de views com Cloudflare Web Analytics (gratuito, sem cookies, compatível com LGPD) para ver de onde vêm os visitantes, quais eventos mais acessados, tempo na página e dispositivos usados.
+**Download em ZIP via Worker**
+Endpoint que baixa todas as fotos do Drive e devolve um ZIP. Visitante não precisa entender o Drive. Pesado em CPU/bandwidth — só vale se Drive ficar problemático para visitantes.
 
-**App de dashboard no celular (PWA)**
-Adicionar um `manifest.json` e um service worker básico torna o dashboard instalável como app no celular (sem precisar da App Store). Útil para ver notificações de remoção e adicionar eventos direto pelo iPhone/Android.
+**App nativo via React Native ou Capacitor**
+Se a operação crescer, app nativo com câmera direta, upload em massa, notificações push. Hoje PWA resolve, mas se virar negócio sério um app dedicado faz sentido.

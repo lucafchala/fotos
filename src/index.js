@@ -3,7 +3,7 @@ import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import {
   getEvents, saveEvents, hashPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, sendRemovalEmail, sendConfirmationEmail,
+  verifySession, escape, validateSlug, generateId, sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail,
 } from './utils.js';
 
 export default {
@@ -421,7 +421,24 @@ async function handleResolveRequest(request, env, id) {
   const requests = await getRemovalRequests(env);
   const idx = requests.findIndex(r => r.id === id);
   if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
-  requests[idx] = { ...requests[idx], resolved: true, resolvedAt: new Date().toISOString() };
+
+  const req = requests[idx];
+
+  // Send "resolved" email to requester
+  let resolvedEmailStatus = null;
+  try {
+    const sent = await sendResolvedEmail(env, req);
+    resolvedEmailStatus = sent ? 'sent' : null;
+  } catch (err) {
+    resolvedEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+  }
+
+  requests[idx] = {
+    ...req,
+    resolved: true,
+    resolvedAt: new Date().toISOString(),
+    resolvedEmailStatus,
+  };
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
   return jsonOk(requests[idx]);
 }
