@@ -187,6 +187,7 @@ async function handleCreateEvent(request, env) {
     eventCredits: String(body.eventCredits || '').slice(0, 200),
     projectUrl: String(body.projectUrl || '').slice(0, 500),
     visible: body.visible !== false,
+    comingSoon: body.comingSoon === true,
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -235,6 +236,7 @@ async function handleUpdateEvent(request, env, path) {
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
     projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
     visible: body.visible !== undefined ? body.visible !== false : existing.visible,
+    comingSoon: body.comingSoon !== undefined ? body.comingSoon === true : (existing.comingSoon === true),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,

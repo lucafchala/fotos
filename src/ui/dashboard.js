@@ -324,6 +324,16 @@ export function dashboardHTML(events) {
             </label>
           </div>
         </div>
+        <div class="field">
+          <div class="toggle-row">
+            <span class="toggle-label">Em breve <span style="color:var(--text3);font-size:.7rem;font-weight:400">(oculta as fotos)</span></span>
+            <label class="toggle">
+              <input type="checkbox" id="f-comingsoon">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="field-hint" style="margin-top:.5rem">Quando ativo: o card na galeria e a página do projeto ficam visíveis, mas as fotos de capa são escondidas e o botão do Drive vira "As fotos virão em breve".</div>
+        </div>
         <div class="field" style="border-top:1px solid var(--border);padding-top:1.125rem;margin-top:.25rem">
           <label>Aviso de novas fotos</label>
           <div class="toggle-row" style="margin-bottom:.75rem">
@@ -427,6 +437,7 @@ export function dashboardHTML(events) {
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
+      document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       const alertActive = e?.photosAlert?.active === true;
       document.getElementById('f-alert-active').checked = alertActive;
       document.getElementById('f-alert-active').dataset.wasActive = alertActive ? '1' : '0';
@@ -553,6 +564,7 @@ export function dashboardHTML(events) {
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
         visible: document.getElementById('f-visible').checked,
+        comingSoon: document.getElementById('f-comingsoon').checked,
         photosAlert: (() => {
           const nowActive = document.getElementById('f-alert-active').checked;
           const wasActive = document.getElementById('f-alert-active').dataset.wasActive === '1';

@@ -8,11 +8,13 @@ export function galleryHTML(events) {
   const cards = visible.length === 0
     ? `<p class="empty">Em breve…</p>`
     : visible.map(e => `
-      <a href="/${escape(e.slug)}" class="card">
+      <a href="/${escape(e.slug)}" class="card${e.comingSoon ? ' card-soon' : ''}">
         <div class="thumb">
-          ${e.thumbnailUrl
-            ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy">`
-            : `<div class="thumb-ph">${iconCamera()}</div>`}
+          ${e.comingSoon
+            ? `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
+            : e.thumbnailUrl
+              ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy">`
+              : `<div class="thumb-ph">${iconCamera()}</div>`}
         </div>
         <div class="info">
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
@@ -43,6 +45,7 @@ export function galleryHTML(events) {
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:#111;border:1px solid #1c1c1c;transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:#2e2e2e}
     .thumb{aspect-ratio:4/3;overflow:hidden;background:#181818;position:relative}
+    .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px)}
     .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
@@ -72,4 +75,8 @@ export function galleryHTML(events) {
 
 function iconCamera() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg>`;
+}
+
+function iconClock() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 }

@@ -21,11 +21,13 @@ export function eventHTML(event) {
     ? new Date(new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000).toISOString()
     : null);
 
-  const heroHTML = photos.length === 0
-    ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
-    : photos.length === 1
-      ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}"></div>`
-      : `<div class="carousel" id="carousel">
+  const heroHTML = event.comingSoon
+    ? `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
+    : photos.length === 0
+      ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
+      : photos.length === 1
+        ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}"></div>`
+        : `<div class="carousel" id="carousel">
           <img id="c-img" src="${escape(photos[0])}" alt="${escape(event.title)}">
           <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
@@ -60,6 +62,10 @@ export function eventHTML(event) {
     .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e}
     .hero img{width:100%;max-height:72vh;object-fit:cover;display:block}
     .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#1e1e1e}
+    .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
+    .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
+    .btn-soon{background:#141414;color:#888;border:1px dashed #2e2e2e;cursor:default}
+    .btn-soon:hover{background:#141414;transform:none}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
     .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
@@ -185,10 +191,15 @@ export function eventHTML(event) {
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
 
     <div class="drive-wrap">
-      <button class="btn-drive" onclick="openModal()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
-        Acessar fotos
-      </button>
+      ${event.comingSoon
+        ? `<div class="btn-drive btn-soon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            As fotos virão em breve
+          </div>`
+        : `<button class="btn-drive" onclick="openModal()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
+            Acessar fotos
+          </button>`}
     </div>
 
     <div class="credits">
@@ -476,4 +487,8 @@ export function eventHTML(event) {
 
 function camIcon(size) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg>`;
+}
+
+function clockIcon(size) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 }
