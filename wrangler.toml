@@ -1,7 +1,8 @@
 name = "fotos"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
+account_id = "e5869d6881e992cf4681ce85583a6ab2"
 
 [[kv_namespaces]]
 binding = "FOTOS"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
