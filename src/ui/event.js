@@ -337,9 +337,9 @@ export function eventHTML(event) {
       const hours = Math.floor(diff / 3600000);
       const days  = Math.floor(diff / 86400000);
       if (mins < 1)       el.textContent = '— agora mesmo';
-      else if (mins < 60) el.textContent = `— há ${mins} minuto${mins !== 1 ? 's' : ''}`;
-      else if (hours < 24)el.textContent = `— há ${hours} hora${hours !== 1 ? 's' : ''}`;
-      else                el.textContent = `— há ${days} dia${days !== 1 ? 's' : ''}`;
+      else if (mins < 60) el.textContent = \`— há \${mins} minuto\${mins !== 1 ? 's' : ''}\`;
+      else if (hours < 24)el.textContent = \`— há \${hours} hora\${hours !== 1 ? 's' : ''}\`;
+      else                el.textContent = \`— há \${days} dia\${days !== 1 ? 's' : ''}\`;
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
     let cur = 0;
