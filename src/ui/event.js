@@ -5,9 +5,10 @@ export function eventHTML(event) {
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
 
-  const photosJSON = JSON.stringify(photos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const driveJSON  = JSON.stringify(event.driveUrl || '');
-  const ogImage    = photos[0] || '';
+  const photosJSON  = JSON.stringify(photos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const driveJSON   = JSON.stringify(event.driveUrl || '');
+  const slugJSON    = JSON.stringify(event.slug || '');
+  const ogImage     = photos[0] || '';
 
   const heroHTML = photos.length === 0
     ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
@@ -64,20 +65,25 @@ export function eventHTML(event) {
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:#555}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 1.75rem}
     .desc{font-size:.95rem;line-height:1.85;color:#bbb;white-space:pre-wrap;word-break:break-word;margin-bottom:2.75rem}
-    /* access button */
     .drive-wrap{margin-bottom:3rem}
     .btn-drive{display:inline-flex;align-items:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.9rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:background .18s,transform .15s;width:100%;justify-content:center}
     @media(min-width:400px){.btn-drive{width:auto}}
     .btn-drive:hover{background:#fff;transform:translateY(-2px)}
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
-    /* credits section */
+    /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
     .credits-list{display:flex;flex-direction:column;gap:.5rem}
     .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#666;text-decoration:none;transition:color .2s;display:block}
     .credits-list a:hover{color:#bbb}
     .credits-note{font-size:.78rem;color:#3a5a3a;margin-top:.875rem;padding:.625rem .875rem;background:#0a140a;border:1px solid #162016;border-radius:7px;line-height:1.55}
-    /* modal */
+    /* footer */
+    footer{text-align:center;padding:1.5rem 1rem .5rem;border-top:1px solid #111;margin-top:2rem}
+    footer a{color:#2e2e2e;font-size:.75rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    footer a:hover{color:#666}
+    .removal-link{display:block;margin-top:1.25rem;padding-bottom:2rem;font-size:.7rem;color:#2a2a2a;cursor:pointer;background:none;border:none;letter-spacing:.04em;transition:color .2s}
+    .removal-link:hover{color:#555}
+    /* shared modal base */
     .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
@@ -87,7 +93,7 @@ export function eventHTML(event) {
     .modal-head h2{font-size:.975rem;font-weight:600}
     .m-close{background:none;border:1px solid #222;color:#555;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
     .m-close:hover{border-color:#444;color:#ccc}
-    /* credit box inside modal */
+    /* drive modal */
     .credit-box{background:#091409;border:1px solid #173017;border-radius:10px;padding:1.125rem 1.25rem;margin-bottom:1.5rem}
     .credit-box-h{font-size:.68rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#4a9a4a;margin-bottom:.75rem}
     .credit-box p{font-size:.875rem;color:#b0d0b0;line-height:1.7;margin-bottom:.35rem}
@@ -95,7 +101,6 @@ export function eventHTML(event) {
     .credit-box a{color:#7ec87e;text-decoration:none}
     .credit-box a:hover{color:#a0e0a0;text-decoration:underline}
     .credit-box .note{font-size:.78rem;color:#507a50;margin-top:.625rem}
-    /* steps inside modal */
     .guide-title{font-size:.68rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:1.125rem}
     .steps{display:flex;flex-direction:column;gap:.875rem;padding-left:0;list-style:none;counter-reset:step}
     .steps li{counter-increment:step;display:grid;grid-template-columns:1.4rem 1fr;gap:.5rem;font-size:.875rem;color:#999;line-height:1.6}
@@ -106,13 +111,30 @@ export function eventHTML(event) {
     .warn-box svg{width:15px;height:15px;flex-shrink:0;color:#c8880a;margin-top:2px}
     .warn-box p{font-size:.8rem;color:#b87e0a;line-height:1.6}
     .warn-box p strong{color:#d89e30}
-    /* drive button inside modal */
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.95rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:1.75rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid #111;margin-top:2rem}
-    footer a{color:#2e2e2e;font-size:.75rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    footer a:hover{color:#666}
+    /* removal modal */
+    .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
+    .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
+    .rem-field label{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#555}
+    .rem-field input[type=text],.rem-field input[type=url],.rem-field input[type=number],.rem-field textarea{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .rem-field input:focus,.rem-field textarea:focus{border-color:#3a3a3a}
+    .rem-field textarea{resize:vertical;min-height:80px;line-height:1.5}
+    .rem-field input[type=file]{color:#888;font-size:.8rem;width:100%}
+    .radio-group{display:flex;flex-direction:column;gap:.5rem}
+    .radio-opt{display:flex;align-items:center;gap:.625rem;cursor:pointer;padding:.5rem .75rem;border:1px solid #1e1e1e;border-radius:8px;transition:border-color .2s}
+    .radio-opt:has(input:checked){border-color:#3a3a3a;background:#111}
+    .radio-opt input[type=radio]{width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0}
+    .radio-opt span{font-size:.875rem;color:#bbb}
+    .rem-sheet-foot{display:flex;gap:.75rem;margin-top:1.5rem}
+    .btn-rem-cancel{flex:1;background:none;border:1px solid #222;color:#888;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:500;cursor:pointer;transition:border-color .2s}
+    .btn-rem-cancel:hover{border-color:#3a3a3a}
+    .btn-rem-submit{flex:2;background:#f0ebe5;color:#0a0a0a;border:none;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .btn-rem-submit:disabled{opacity:.5;cursor:not-allowed}
+    .btn-rem-submit:not(:disabled):hover{opacity:.88}
+    .rem-success{text-align:center;padding:2rem 0;color:#7ec87e;font-size:.9rem;line-height:1.7}
+    .rem-success svg{margin-bottom:.75rem;color:#5aaa5a}
   </style>
 </head>
 <body>
@@ -150,9 +172,12 @@ export function eventHTML(event) {
     </div>
   </main>
 
-  <footer><a href="/">fotos · luca fchala</a></footer>
+  <footer>
+    <a href="/">fotos · luca fchala</a>
+    <button class="removal-link" onclick="openRemModal()">solicitar remoção de foto</button>
+  </footer>
 
-  <!-- MODAL -->
+  <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal" onclick="ovClick(event)">
     <div class="modal-sheet">
       <div class="modal-head">
@@ -161,7 +186,6 @@ export function eventHTML(event) {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-
       <div class="credit-box">
         <div class="credit-box-h">📸 Créditos ao postar</div>
         <p>Ao publicar estas fotos nas redes sociais, mencione sempre:</p>
@@ -169,7 +193,6 @@ export function eventHTML(event) {
         ${event.eventCredits ? `<p>• ${escape(event.eventCredits)}</p>` : ''}
         <p class="note">Isso valoriza o trabalho fotográfico e incentiva novos projetos. ♥</p>
       </div>
-
       <div class="guide-title">Como baixar as fotos</div>
       <ol class="steps">
         <li>Clique em "Ir para o Google Drive" abaixo e abra a pasta.</li>
@@ -181,12 +204,10 @@ export function eventHTML(event) {
           <span><strong>No computador:</strong> selecione tudo com <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd> no Mac) → botão direito → "Fazer download".</span>
         </li>
       </ol>
-
       <div class="warn-box">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais. Prints perdem qualidade e não fazem jus ao trabalho.</p>
+        <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais.</p>
       </div>
-
       <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="closeModal()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Ir para o Google Drive
@@ -194,12 +215,80 @@ export function eventHTML(event) {
     </div>
   </div>
 
+  <!-- REMOVAL MODAL -->
+  <div class="modal-ov" id="rem-modal" onclick="remOvClick(event)">
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <h2>Solicitar remoção de foto</h2>
+        <button class="m-close" onclick="closeRemModal()" aria-label="Fechar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div id="rem-form">
+        <p class="rem-intro">Identificou uma foto que quer remover? Preencha abaixo — analisaremos o pedido em breve.</p>
+
+        <div class="rem-field">
+          <label>Identificar a foto por</label>
+          <div class="radio-group">
+            <label class="radio-opt">
+              <input type="radio" name="rem-method" value="number" checked onchange="updateRemMethod()">
+              <span>Número da foto na pasta do Drive</span>
+            </label>
+            <label class="radio-opt">
+              <input type="radio" name="rem-method" value="url" onchange="updateRemMethod()">
+              <span>Link direto da foto</span>
+            </label>
+            <label class="radio-opt">
+              <input type="radio" name="rem-method" value="upload" onchange="updateRemMethod()">
+              <span>Enviar a foto (até 2 MB)</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="rem-number-field" class="rem-field">
+          <label>Número da foto</label>
+          <input type="number" id="rem-number" min="1" placeholder="Ex: 12">
+        </div>
+        <div id="rem-url-field" class="rem-field" style="display:none">
+          <label>Link da foto</label>
+          <input type="url" id="rem-url" placeholder="https://drive.google.com/...">
+        </div>
+        <div id="rem-upload-field" class="rem-field" style="display:none">
+          <label>Foto</label>
+          <input type="file" id="rem-file" accept="image/*">
+        </div>
+
+        <div class="rem-field">
+          <label>Seu contato <span style="color:#444">(opcional)</span></label>
+          <input type="text" id="rem-contact" placeholder="Nome, e-mail ou @instagram">
+        </div>
+        <div class="rem-field">
+          <label>Motivo <span style="color:#444">(opcional)</span></label>
+          <textarea id="rem-message" placeholder="Descreva o motivo do pedido…"></textarea>
+        </div>
+
+        <div class="rem-sheet-foot">
+          <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
+          <button class="btn-rem-submit" id="rem-submit" onclick="submitRemoval()">Enviar solicitação</button>
+        </div>
+      </div>
+
+      <div id="rem-success" class="rem-success" style="display:none">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+        Solicitação enviada!<br>
+        <span style="font-size:.8rem;color:#507a50">Analisaremos o pedido em breve.</span>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const DRIVE_URL = ${driveJSON};
-    const PHOTOS = ${photosJSON};
+    const DRIVE_URL  = ${driveJSON};
+    const EVENT_SLUG = ${slugJSON};
+    const PHOTOS     = ${photosJSON};
     let cur = 0;
 
-    // modal
+    // ---- Drive modal ----
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       document.getElementById('modal').classList.add('open');
@@ -211,7 +300,7 @@ export function eventHTML(event) {
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
 
-    // carousel
+    // ---- Carousel ----
     function cGoto(n) {
       cur = ((n % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
       const img = document.getElementById('c-img');
@@ -221,16 +310,84 @@ export function eventHTML(event) {
       if (cnt) cnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
     }
     function cGo(dir) { cGoto(cur + dir); }
-
-    // swipe
     const car = document.getElementById('carousel');
     if (car) {
       let tx = 0;
       car.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
-      car.addEventListener('touchend', e => {
-        const dx = tx - e.changedTouches[0].clientX;
-        if (Math.abs(dx) > 40) cGo(dx > 0 ? 1 : -1);
-      });
+      car.addEventListener('touchend', e => { if (Math.abs(tx - e.changedTouches[0].clientX) > 40) cGo(tx > e.changedTouches[0].clientX ? 1 : -1); });
+    }
+
+    // ---- Removal modal ----
+    function openRemModal() {
+      document.getElementById('rem-form').style.display = 'block';
+      document.getElementById('rem-success').style.display = 'none';
+      document.getElementById('rem-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeRemModal() {
+      document.getElementById('rem-modal').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function remOvClick(e) { if (e.target === document.getElementById('rem-modal')) closeRemModal(); }
+
+    function updateRemMethod() {
+      const m = document.querySelector('input[name="rem-method"]:checked').value;
+      document.getElementById('rem-number-field').style.display = m === 'number' ? '' : 'none';
+      document.getElementById('rem-url-field').style.display    = m === 'url'    ? '' : 'none';
+      document.getElementById('rem-upload-field').style.display = m === 'upload' ? '' : 'none';
+    }
+
+    async function submitRemoval() {
+      const method = document.querySelector('input[name="rem-method"]:checked').value;
+      let value = '', fileName = '', fileBase64 = '';
+
+      if (method === 'number') {
+        value = (document.getElementById('rem-number').value || '').trim();
+        if (!value) return alert('Informe o número da foto.');
+        value = 'Foto nº ' + value;
+      } else if (method === 'url') {
+        value = (document.getElementById('rem-url').value || '').trim();
+        if (!value) return alert('Informe o link da foto.');
+      } else {
+        const file = document.getElementById('rem-file').files[0];
+        if (!file) return alert('Selecione uma foto.');
+        if (file.size > 2 * 1024 * 1024) return alert('Foto muito grande (máx. 2 MB). Tente colar o link da foto no Drive.');
+        fileName = file.name;
+        fileBase64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = ev => res(ev.target.result.split(',')[1]);
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+      }
+
+      const btn = document.getElementById('rem-submit');
+      btn.disabled = true;
+      btn.textContent = 'Enviando…';
+
+      try {
+        const resp = await fetch('/api/removal-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            eventSlug: EVENT_SLUG,
+            method,
+            value,
+            contact: (document.getElementById('rem-contact').value || '').trim(),
+            message: (document.getElementById('rem-message').value || '').trim(),
+            fileName,
+            fileBase64,
+          }),
+        });
+        if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || 'Erro ao enviar.'); }
+        document.getElementById('rem-form').style.display = 'none';
+        document.getElementById('rem-success').style.display = 'block';
+      } catch(err) {
+        alert(err.message || 'Erro ao enviar. Tente novamente.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar solicitação';
+      }
     }
   </script>
 </body>

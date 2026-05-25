@@ -175,6 +175,18 @@ export function dashboardHTML(events) {
     .toast.err{border-color:#3a1010;background:#180808;color:#e07070}
     /* empty */
     .empty{text-align:center;color:var(--text3);padding:3rem 0;font-size:.85rem}
+    /* requests */
+    .req-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:1rem;margin-bottom:.625rem}
+    .req-item.resolved{opacity:.45}
+    .req-header{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.5rem}
+    .req-project{font-size:.82rem;font-weight:600}
+    .req-date{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
+    .req-body{font-size:.8rem;color:var(--text2);line-height:1.55;display:flex;flex-direction:column;gap:.2rem}
+    .req-badge{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .55rem;border-radius:4px;background:var(--bg3);color:var(--text3);margin-bottom:.4rem}
+    .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
+    .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
+    .btn-resolve:hover{border-color:var(--green);color:var(--green)}
+    .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
     /* info box */
     .info-box{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1rem 1.125rem;font-size:.78rem;color:var(--text3);line-height:1.65;margin-bottom:1.25rem}
     .info-box strong{color:var(--text2)}
@@ -197,6 +209,7 @@ export function dashboardHTML(events) {
     <button class="tab active" onclick="switchTab('events',this)">Eventos</button>
     <button class="tab" onclick="switchTab('metrics',this)">Métricas</button>
     <button class="tab" onclick="switchTab('settings',this)">Config.</button>
+    <button class="tab" id="tab-btn-requests" onclick="switchTab('requests',this)">Solicitações</button>
   </div>
 
   <!-- EVENTS TAB -->
@@ -232,6 +245,12 @@ export function dashboardHTML(events) {
       </div>
       <button class="btn-primary" style="margin-top:.25rem" onclick="changePassword()">Salvar nova senha</button>
     </div>
+  </div>
+
+  <!-- REQUESTS TAB -->
+  <div id="tab-requests" class="panel">
+    <div class="panel-head"><h2>Solicitações de remoção</h2></div>
+    <div id="requests-body"><p class="empty">Carregando…</p></div>
   </div>
 
   <!-- EVENT FORM OVERLAY -->
@@ -325,6 +344,7 @@ export function dashboardHTML(events) {
       btn.classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
       if (name === 'metrics' && !metricsLoaded) loadMetrics();
+      if (name === 'requests' && !requestsLoaded) loadRequests();
     }
 
     // ---- Event List ----
@@ -547,6 +567,49 @@ export function dashboardHTML(events) {
         events = events.map(ev => ev.id === id ? result : ev);
         renderEventList();
         toast(result.visible !== false ? 'Evento visível.' : 'Evento oculto.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro.', 'err');
+      }
+    }
+
+    // ---- Requests ----
+    let requestsLoaded = false;
+    async function loadRequests() {
+      const body = document.getElementById('requests-body');
+      try {
+        const data = await api('GET', '/api/removal-requests');
+        requestsLoaded = true;
+        const pending = data.filter(r => !r.resolved).length;
+        const btn = document.getElementById('tab-btn-requests');
+        if (btn) btn.innerHTML = 'Solicitações' + (pending > 0 ? \`<span class="tab-badge">\${pending}</span>\` : '');
+        if (!data.length) { body.innerHTML = '<p class="empty">Nenhuma solicitação ainda.</p>'; return; }
+        const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' };
+        body.innerHTML = data.map(r => \`
+          <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${r.id}">
+            <div class="req-header">
+              <span class="req-project">\${esc(r.eventTitle)} <span style="color:var(--text3);font-weight:400">/ \${esc(r.eventSlug)}</span></span>
+              <span class="req-date">\${new Date(r.createdAt).toLocaleDateString('pt-BR')}</span>
+            </div>
+            <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
+            <div class="req-body">
+              <span><strong>Tipo:</strong> \${esc(methodLabel[r.method] || r.method)}</span>
+              \${r.value ? \`<span><strong>Identificação:</strong> \${esc(r.value)}</span>\` : ''}
+              \${r.method === 'upload' ? \`<span><strong>Arquivo:</strong> \${esc(r.fileName || '—')} (enviado por e-mail)</span>\` : ''}
+              \${r.contact ? \`<span><strong>Contato:</strong> \${esc(r.contact)}</span>\` : ''}
+              \${r.message ? \`<span><strong>Mensagem:</strong> \${esc(r.message)}</span>\` : ''}
+            </div>
+            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${r.id}')">✓ Marcar como resolvido</button>\` : ''}
+          </div>\`).join('');
+      } catch(err) {
+        body.innerHTML = '<p class="empty">Erro ao carregar solicitações.</p>';
+      }
+    }
+
+    async function resolveRequest(id) {
+      try {
+        await api('PUT', '/api/removal-requests/' + id + '/resolve');
+        await loadRequests();
+        toast('Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
       }

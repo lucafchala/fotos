@@ -3,7 +3,7 @@ import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import {
   getEvents, saveEvents, hashPassword, generateToken,
-  verifySession, escape, validateSlug, generateId,
+  verifySession, escape, validateSlug, generateId, sendRemovalEmail,
 } from './utils.js';
 
 export default {
@@ -27,6 +27,14 @@ export default {
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
+
+      // Public API
+      if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
+
+      // Admin API — removal requests
+      if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
+      const resolveMatch = path.match(/^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/);
+      if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
 
       // Event detail pages — must be last
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
@@ -287,6 +295,71 @@ async function handleChangePassword(request, env) {
   const hash = await hashPassword(password);
   await env.FOTOS.put('admin_password', hash);
   return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Removal request (public)
+// ---------------------------------------------------------------------------
+async function handleRemovalRequest(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const { eventSlug, method, value, contact, message, fileName, fileBase64 } = body;
+  if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
+  if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
+  if (method !== 'upload' && (!value || !String(value).trim())) return jsonErr('Identificação obrigatória.', 400);
+  if (method === 'upload' && !fileBase64) return jsonErr('Arquivo obrigatório.', 400);
+
+  const events = await getEvents(env);
+  const event  = events.find(e => e.slug === eventSlug);
+
+  const req = {
+    id:         generateId(),
+    eventSlug,
+    eventTitle: event?.title || eventSlug,
+    method,
+    value:      method !== 'upload' ? String(value || '').slice(0, 500) : null,
+    contact:    String(contact || '').slice(0, 200),
+    message:    String(message || '').slice(0, 1000),
+    fileName:   method === 'upload' ? String(fileName || 'foto').slice(0, 200) : null,
+    fileBase64: method === 'upload' ? fileBase64 : null,
+    resolved:   false,
+    createdAt:  new Date().toISOString(),
+  };
+
+  // Store request (without binary file)
+  const requests = await getRemovalRequests(env);
+  requests.push({ ...req, fileBase64: null });
+  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+
+  // Send email (non-blocking — don't fail request if email fails)
+  sendRemovalEmail(env, req).catch(err => console.error('Email error:', err));
+
+  return jsonOk({ ok: true });
+}
+
+async function getRemovalRequests(env) {
+  const data = await env.FOTOS.get('removal_requests');
+  if (!data) return [];
+  try { return JSON.parse(data); } catch { return []; }
+}
+
+async function handleGetRemovalRequests(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const requests = await getRemovalRequests(env);
+  return jsonOk([...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+}
+
+async function handleResolveRequest(request, env, id) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const requests = await getRemovalRequests(env);
+  const idx = requests.findIndex(r => r.id === id);
+  if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
+  requests[idx] = { ...requests[idx], resolved: true, resolvedAt: new Date().toISOString() };
+  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  return jsonOk(requests[idx]);
 }
 
 // ---------------------------------------------------------------------------
