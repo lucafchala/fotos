@@ -261,11 +261,12 @@ export function dashboardHTML(events) {
     </div>
     <div class="filter-row">
       <select id="status-filter" onchange="renderEventList()">
-        <option value="">Todos os status</option>
+        <option value="ativos" selected>Ativos (sem arquivados)</option>
         <option value="em-edicao">Em edição</option>
         <option value="em-revisao">Em revisão</option>
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
+        <option value="todos">Todos</option>
       </select>
     </div>
     <div class="evt-list" id="evt-list"></div>
@@ -461,16 +462,22 @@ export function dashboardHTML(events) {
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
-      const filter = document.getElementById('status-filter')?.value || '';
-      const filtered = filter ? events.filter(e => (e.status || 'entregue') === filter) : events;
+      const filter = document.getElementById('status-filter')?.value || 'ativos';
+      const filtered =
+        filter === 'todos' ? events :
+        filter === 'ativos' ? events.filter(e => (e.status || 'entregue') !== 'arquivado') :
+        events.filter(e => (e.status || 'entregue') === filter);
       const sorted = [...filtered].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      count.textContent = filter
-        ? \`\${sorted.length} \${sorted.length === 1 ? 'evento' : 'eventos'} (filtrado)\`
-        : (events.length === 1 ? '1 evento' : events.length + ' eventos');
+      const noun = n => n === 1 ? 'evento' : 'eventos';
+      count.textContent =
+        filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
+        filter === 'ativos' ? \`\${sorted.length} \${noun(sorted.length)} ativos\` :
+        \`\${sorted.length} \${noun(sorted.length)} (\${STATUS_LABELS[filter]})\`;
       if (sorted.length === 0) {
-        list.innerHTML = filter
-          ? \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`
-          : '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>';
+        list.innerHTML =
+          filter === 'ativos' && events.length > 0 ? '<p class="empty">Nenhum evento ativo — todos foram arquivados.</p>' :
+          (filter === 'todos' || filter === 'ativos') ? '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>' :
+          \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`;
         return;
       }
       list.innerHTML = sorted.map(e => {
