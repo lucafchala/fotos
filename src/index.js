@@ -56,9 +56,11 @@ export default {
 // ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
+const CF_ANALYTICS = 'a3a57a1a84ec45368aed9286b1628132';
+
 async function handleGallery(env) {
   const events = await getEvents(env);
-  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN));
+  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN || CF_ANALYTICS));
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +80,7 @@ async function handleEventPage(request, env, slug, ctx) {
     }).catch(() => {})
   );
 
-  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN));
+  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN || CF_ANALYTICS));
 }
 
 // ---------------------------------------------------------------------------
