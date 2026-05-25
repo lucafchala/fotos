@@ -332,8 +332,14 @@ async function handleRemovalRequest(request, env) {
   requests.push({ ...req, fileBase64: null });
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
-  // Send email (non-blocking — don't fail request if email fails)
-  sendRemovalEmail(env, req).catch(err => console.error('Email error:', err));
+  // Send email — store result for dashboard visibility
+  try {
+    await sendRemovalEmail(env, req);
+    requests[requests.length - 1].emailStatus = 'sent';
+  } catch (err) {
+    requests[requests.length - 1].emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+  }
+  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   return jsonOk({ ok: true });
 }

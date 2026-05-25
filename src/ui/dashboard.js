@@ -597,6 +597,7 @@ export function dashboardHTML(events) {
               \${r.method === 'upload' ? \`<span><strong>Arquivo:</strong> \${esc(r.fileName || '—')} (enviado por e-mail)</span>\` : ''}
               \${r.contact ? \`<span><strong>Contato:</strong> \${esc(r.contact)}</span>\` : ''}
               \${r.message ? \`<span><strong>Mensagem:</strong> \${esc(r.message)}</span>\` : ''}
+              \${r.emailStatus ? \`<span style="font-size:.7rem;margin-top:.25rem;color:\${r.emailStatus === 'sent' ? '#4a9a4a' : '#c0392b'}">📧 \${esc(r.emailStatus)}</span>\` : '<span style="font-size:.7rem;color:#555;margin-top:.25rem">📧 status desconhecido (solicitação antiga)</span>'}
             </div>
             \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${r.id}')">✓ Marcar como resolvido</button>\` : ''}
           </div>\`).join('');
