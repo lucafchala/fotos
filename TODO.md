@@ -51,10 +51,34 @@ As meta tags `og:image` já existem, mas o Google Drive (`lh3.googleusercontent.
 **Ordenação manual dos eventos**
 Hoje a galeria ordena por data. Adicionar drag-and-drop no dashboard para definir ordem manual seria útil quando dois eventos têm a mesma data ou você quer destacar um evento mais antigo.
 
+**Senha de acesso por evento**
+Alguns projetos podem ser privados (família, corporativo). Adicionar a opção de proteger um evento com senha — visitante digita antes de ver as fotos e o link do Drive. Simples de implementar com um campo extra no formulário e uma verificação na rota `/:slug`.
+
+**Página "em breve" para eventos não publicados**
+Hoje eventos invisíveis simplesmente somem. Seria útil ter um modo "em breve" — o card aparece na galeria mas desfocado/bloqueado, com uma data de publicação. Cria expectativa antes do evento ser entregue.
+
+**Notificação por WhatsApp ao receber solicitação de remoção**
+Além do e-mail, enviar uma mensagem no WhatsApp via API (Twilio, Z-API ou Evolution API) garante que você vê o pedido mesmo sem abrir o e-mail. Mais imediato para algo sensível como remoção.
+
+**Tour guiado no primeiro acesso à página de evento**
+Um tooltip ou mini-modal na primeira visita explicando "deslize as fotos", "clique para baixar" etc. reduz dúvidas sem poluir a interface permanentemente. Implementável com localStorage para não repetir.
+
+**Galeria com filtro por tag/categoria**
+Adicionar tags aos eventos (ex: "formatura", "aniversário", "corporativo") e um filtro na galeria. Útil quando o portfólio crescer e o visitante quiser ver só um tipo de trabalho.
+
+**Lazy loading com skeleton nos cards**
+Os cards da galeria já têm `loading="lazy"` nas imagens, mas enquanto carregam aparece fundo escuro sem indicação de progresso. Adicionar um skeleton animado (brilho suave) melhora a percepção de velocidade.
+
+**Âncora de download direto no modal**
+No modal "Antes de acessar", o botão "Ir para o Google Drive" abre a pasta. Adicionar um segundo botão menor "Baixar todas as fotos" com o link direto de download ZIP (parâmetro `?authuser=0&sz=w2048` no Drive) agiliza para quem sabe o que quer.
+
 ### Conformidade
 
 **Aviso de LGPD**
 O formulário de remoção coleta e-mail e telefone. Um parágrafo curto de política de privacidade ("seus dados são usados apenas para responder ao pedido e não são compartilhados") é suficiente para conformidade básica — pode ficar no rodapé do modal.
+
+**Prazo de resposta para solicitações de remoção**
+A LGPD exige resposta em até 15 dias. Adicionar no formulário um texto tipo "Respondemos em até 15 dias úteis" define expectativa e demonstra conformidade.
 
 ### A longo prazo
 
@@ -63,3 +87,12 @@ Hoje as miniaturas dependem de `lh3.googleusercontent.com` (Google), que pode bl
 
 **Domínio de e-mail dedicado**
 `noreply@lucafchala.com` funciona mas parece automático. Um endereço como `fotos@lucafchala.com` para respostas manuais e `noreply@fotos.lucafchala.com` para transacionais passa mais profissionalismo.
+
+**Portfólio público com seleção de fotos favoritas**
+Hoje o site é focado em entrega para clientes. Poderia ter uma seção separada (ex: `/portfolio`) com uma curadoria das melhores fotos de cada projeto, voltada para atrair novos clientes — sem o link do Drive, só as fotos.
+
+**Analytics mais detalhado**
+Substituir ou complementar o contador de views com Cloudflare Web Analytics (gratuito, sem cookies, compatível com LGPD) para ver de onde vêm os visitantes, quais eventos mais acessados, tempo na página e dispositivos usados.
+
+**App de dashboard no celular (PWA)**
+Adicionar um `manifest.json` e um service worker básico torna o dashboard instalável como app no celular (sem precisar da App Store). Útil para ver notificações de remoção e adicionar eventos direto pelo iPhone/Android.
