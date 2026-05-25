@@ -47,7 +47,7 @@ export function loginHTML(opts = {}) {
 </head>
 <body>
   <div class="box">
-    <div class="logo"><span>fotos · <strong>luca f. chala</strong></span></div>
+    <div class="logo"><span>fotos · <strong>Luca F. Chala</strong></span></div>
     <h1>${title}</h1>
     <p class="subtitle">${isSetup ? 'Defina uma senha para proteger o painel.' : 'Entre para gerenciar os projetos.'}</p>
     ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
@@ -202,7 +202,7 @@ export function dashboardHTML(events) {
 </head>
 <body>
   <div class="topbar">
-    <div class="topbar-logo">fotos · <strong>luca f. chala</strong></div>
+    <div class="topbar-logo">fotos · <strong>Luca F. Chala</strong></div>
     <div class="topbar-right">
       <a href="/" target="_blank" class="btn-sm">Ver site</a>
       <form method="POST" action="/dashboard/logout" style="margin:0">
