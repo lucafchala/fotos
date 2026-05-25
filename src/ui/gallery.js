@@ -42,7 +42,7 @@ export function galleryHTML(events) {
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:#111;border:1px solid #1c1c1c;transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:#2e2e2e}
-    .thumb{aspect-ratio:3/4;overflow:hidden;background:#181818;position:relative}
+    .thumb{aspect-ratio:4/3;overflow:hidden;background:#181818;position:relative}
     .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}

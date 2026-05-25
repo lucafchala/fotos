@@ -318,6 +318,27 @@ export function dashboardHTML(events) {
             </label>
           </div>
         </div>
+        <div class="field" style="border-top:1px solid var(--border);padding-top:1.125rem;margin-top:.25rem">
+          <label>Aviso de novas fotos</label>
+          <div class="toggle-row" style="margin-bottom:.75rem">
+            <span style="font-size:.85rem;color:var(--text2)">Mostrar banner na página do projeto</span>
+            <label class="toggle">
+              <input type="checkbox" id="f-alert-active" onchange="toggleAlertOpts(this.checked)">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div id="alert-opts" style="display:none">
+            <div class="field-hint" style="margin-bottom:.625rem">Exibe "Novas fotos adicionadas há X" com o horário atual. Ao reativar o aviso, o contador reinicia.</div>
+            <select id="f-alert-expires" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;-webkit-appearance:none">
+              <option value="0">Não expirar automaticamente</option>
+              <option value="1">Sumir em 1 hora</option>
+              <option value="6">Sumir em 6 horas</option>
+              <option value="24" selected>Sumir em 24 horas</option>
+              <option value="48">Sumir em 2 dias</option>
+              <option value="168">Sumir em 7 dias</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div class="sheet-foot">
         <button class="btn-secondary" onclick="closeForm()">Cancelar</button>
@@ -399,6 +420,11 @@ export function dashboardHTML(events) {
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
+      const alertActive = e?.photosAlert?.active === true;
+      document.getElementById('f-alert-active').checked = alertActive;
+      document.getElementById('f-alert-active').dataset.wasActive = alertActive ? '1' : '0';
+      document.getElementById('f-alert-expires').value = String(e?.photosAlert?.expiresAfterHours ?? 24);
+      toggleAlertOpts(alertActive);
       const initPhotos = e
         ? (Array.isArray(e.photos) && e.photos.length ? e.photos : e.thumbnailUrl ? [e.thumbnailUrl] : [])
         : [];
@@ -417,6 +443,10 @@ export function dashboardHTML(events) {
 
     function overlayClick(e) {
       if (e.target === document.getElementById('overlay')) closeForm();
+    }
+
+    function toggleAlertOpts(on) {
+      document.getElementById('alert-opts').style.display = on ? 'block' : 'none';
     }
 
     // ---- Photo list ----
@@ -516,6 +546,16 @@ export function dashboardHTML(events) {
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
         visible: document.getElementById('f-visible').checked,
+        photosAlert: (() => {
+          const nowActive = document.getElementById('f-alert-active').checked;
+          const wasActive = document.getElementById('f-alert-active').dataset.wasActive === '1';
+          const existingAddedAt = editingId ? events.find(ev => ev.id === editingId)?.photosAlert?.addedAt : null;
+          return {
+            active: nowActive,
+            addedAt: nowActive ? (wasActive && existingAddedAt ? existingAddedAt : new Date().toISOString()) : null,
+            expiresAfterHours: parseInt(document.getElementById('f-alert-expires').value) || 0,
+          };
+        })(),
       };
 
       const btn = document.getElementById('submit-btn');

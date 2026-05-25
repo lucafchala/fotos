@@ -10,6 +10,17 @@ export function eventHTML(event) {
   const slugJSON    = JSON.stringify(event.slug || '');
   const ogImage     = photos[0] || '';
 
+  // Banner de novas fotos
+  const alert = event.photosAlert;
+  const showBanner = alert && alert.active && (() => {
+    if (!alert.expiresAfterHours) return true;
+    return Date.now() < new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000;
+  })();
+  const alertAddedAtJSON  = JSON.stringify(showBanner ? (alert.addedAt || '') : '');
+  const alertExpiresJSON  = JSON.stringify(showBanner && alert.expiresAfterHours
+    ? new Date(new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000).toISOString()
+    : null);
+
   const heroHTML = photos.length === 0
     ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
     : photos.length === 1
@@ -77,6 +88,13 @@ export function eventHTML(event) {
     .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#666;text-decoration:none;transition:color .2s;display:block}
     .credits-list a:hover{color:#bbb}
     .credits-note{font-size:.78rem;color:#3a5a3a;margin-top:.875rem;padding:.625rem .875rem;background:#0a140a;border:1px solid #162016;border-radius:7px;line-height:1.55}
+    /* banner */
+    .photos-banner{background:#0d1a0d;border-bottom:1px solid #1a3a1a;padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:center;gap:.625rem}
+    .banner-inner{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:#8ac88a;max-width:680px;width:100%}
+    .banner-dot{width:7px;height:7px;border-radius:50%;background:#5aaa5a;flex-shrink:0;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .banner-text strong{color:#a8d8a8}
+    .banner-time{color:#6aaa6a}
     /* footer */
     footer{padding:2rem 1.5rem 3rem;border-top:1px solid #111;margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem}
     @media(min-width:560px){footer{flex-direction:row;justify-content:space-between;align-items:center}}
@@ -140,6 +158,13 @@ export function eventHTML(event) {
   </style>
 </head>
 <body>
+  ${showBanner ? `<div class="photos-banner" id="photos-banner">
+    <div class="banner-inner">
+      <span class="banner-dot"></span>
+      <span class="banner-text"><strong>Novas fotos adicionadas</strong> <span class="banner-time" id="banner-time"></span></span>
+    </div>
+  </div>` : ''}
+
   <header>
     <a href="/" class="back">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
@@ -288,9 +313,31 @@ export function eventHTML(event) {
   </div>
 
   <script>
-    const DRIVE_URL  = ${driveJSON};
-    const EVENT_SLUG = ${slugJSON};
-    const PHOTOS     = ${photosJSON};
+    const DRIVE_URL      = ${driveJSON};
+    const EVENT_SLUG     = ${slugJSON};
+    const PHOTOS         = ${photosJSON};
+    const ALERT_ADDED_AT = ${alertAddedAtJSON};
+    const ALERT_EXPIRES  = ${alertExpiresJSON};
+
+    // ---- Banner ----
+    function updateBanner() {
+      const el = document.getElementById('banner-time');
+      const banner = document.getElementById('photos-banner');
+      if (!el || !ALERT_ADDED_AT) return;
+      if (ALERT_EXPIRES && Date.now() > new Date(ALERT_EXPIRES).getTime()) {
+        if (banner) banner.style.display = 'none';
+        return;
+      }
+      const diff = Date.now() - new Date(ALERT_ADDED_AT).getTime();
+      const mins  = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days  = Math.floor(diff / 86400000);
+      if (mins < 1)       el.textContent = '— agora mesmo';
+      else if (mins < 60) el.textContent = `— há ${mins} minuto${mins !== 1 ? 's' : ''}`;
+      else if (hours < 24)el.textContent = `— há ${hours} hora${hours !== 1 ? 's' : ''}`;
+      else                el.textContent = `— há ${days} dia${days !== 1 ? 's' : ''}`;
+    }
+    if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
     let cur = 0;
 
     // ---- Drive modal ----

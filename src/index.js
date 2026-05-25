@@ -184,6 +184,11 @@ async function handleCreateEvent(request, env) {
     eventCredits: String(body.eventCredits || '').slice(0, 200),
     projectUrl: String(body.projectUrl || '').slice(0, 500),
     visible: body.visible !== false,
+    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
+      active: body.photosAlert.active === true,
+      addedAt: body.photosAlert.addedAt || null,
+      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
+    } : { active: false, addedAt: null, expiresAfterHours: 24 },
     createdAt: new Date().toISOString(),
   };
 
@@ -227,6 +232,11 @@ async function handleUpdateEvent(request, env, path) {
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
     projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
     visible: body.visible !== undefined ? body.visible !== false : existing.visible,
+    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
+      active: body.photosAlert.active === true,
+      addedAt: body.photosAlert.addedAt || null,
+      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
+    } : (existing.photosAlert || { active: false, addedAt: null, expiresAfterHours: 24 }),
     updatedAt: new Date().toISOString(),
   };
 
