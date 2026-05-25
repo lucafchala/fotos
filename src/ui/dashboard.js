@@ -441,6 +441,7 @@ export function dashboardHTML(events) {
     let editingId = null;
     let metricsLoaded = false;
     let photoList = [];
+    const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
 
     // ---- Init ----
     renderEventList();
@@ -457,7 +458,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- Event List ----
-    const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
