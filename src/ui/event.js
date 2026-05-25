@@ -78,11 +78,13 @@ export function eventHTML(event) {
     .credits-list a:hover{color:#bbb}
     .credits-note{font-size:.78rem;color:#3a5a3a;margin-top:.875rem;padding:.625rem .875rem;background:#0a140a;border:1px solid #162016;border-radius:7px;line-height:1.55}
     /* footer */
-    footer{text-align:center;padding:1.5rem 1rem .5rem;border-top:1px solid #111;margin-top:2rem}
-    footer a{color:#2e2e2e;font-size:.75rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    footer a:hover{color:#666}
-    .removal-link{display:block;margin-top:1.25rem;padding-bottom:2rem;font-size:.7rem;color:#2a2a2a;cursor:pointer;background:none;border:none;letter-spacing:.04em;transition:color .2s}
-    .removal-link:hover{color:#555}
+    footer{padding:2rem 1.5rem 3rem;border-top:1px solid #111;margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem}
+    @media(min-width:560px){footer{flex-direction:row;justify-content:space-between;align-items:center}}
+    .footer-brand{color:#2e2e2e;font-size:.75rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
+    .footer-brand:hover{color:#666}
+    .removal-link{display:inline-flex;align-items:center;gap:.5rem;background:none;border:1px solid #2a2a2a;color:#888;padding:.6rem 1.1rem;border-radius:8px;font-size:.78rem;font-weight:500;cursor:pointer;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap}
+    .removal-link:hover{border-color:#555;color:#ccc;background:#111}
+    .removal-link svg{width:13px;height:13px;flex-shrink:0}
     /* shared modal base */
     .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
@@ -173,8 +175,11 @@ export function eventHTML(event) {
   </main>
 
   <footer>
-    <a href="/">fotos · luca fchala</a>
-    <button class="removal-link" onclick="openRemModal()">solicitar remoção de foto</button>
+    <a href="/" class="footer-brand">fotos · luca fchala</a>
+    <button class="removal-link" onclick="openRemModal()">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      Solicitar remoção de foto
+    </button>
   </footer>
 
   <!-- DRIVE MODAL -->
