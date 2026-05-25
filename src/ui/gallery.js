@@ -26,7 +26,7 @@ export function galleryHTML(events) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>fotos · luca fchala</title>
+  <title>fotos · luca f. chala</title>
   <meta name="description" content="Galeria de fotos de Luca Fchala">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@ export function galleryHTML(events) {
 </head>
 <body>
   <header>
-    <div class="logo">fotos · <strong>luca fchala</strong></div>
+    <div class="logo">fotos · <strong>luca f. chala</strong></div>
   </header>
   <main>
     <div class="grid">${cards}</div>

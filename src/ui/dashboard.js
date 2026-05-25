@@ -47,7 +47,7 @@ export function loginHTML(opts = {}) {
 </head>
 <body>
   <div class="box">
-    <div class="logo"><span>fotos · <strong>luca fchala</strong></span></div>
+    <div class="logo"><span>fotos · <strong>luca f. chala</strong></span></div>
     <h1>${title}</h1>
     <p class="subtitle">${isSetup ? 'Defina uma senha para proteger o painel.' : 'Entre para gerenciar os projetos.'}</p>
     ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
@@ -179,7 +179,6 @@ export function dashboardHTML(events) {
     .req-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:1rem;margin-bottom:.625rem}
     .req-item.resolved{opacity:.45}
     .req-header{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.5rem}
-    .req-project{font-size:.82rem;font-weight:600}
     .req-date{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
     .req-body{font-size:.8rem;color:var(--text2);line-height:1.55;display:flex;flex-direction:column;gap:.2rem}
     .req-badge{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .55rem;border-radius:4px;background:var(--bg3);color:var(--text3);margin-bottom:.4rem}
@@ -187,6 +186,13 @@ export function dashboardHTML(events) {
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
     .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
+    .req-group{margin-bottom:1.75rem}
+    .req-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:.375rem;padding:.5rem 0;border-bottom:1px solid var(--border);margin-bottom:.75rem}
+    .req-group-title{font-size:.85rem;font-weight:600}
+    .req-group-slug{font-size:.7rem;color:var(--text3);font-family:monospace}
+    .req-pending-badge{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00;font-size:.62rem;font-weight:600;padding:.18rem .5rem;border-radius:4px;margin-left:auto}
+    .req-resolved-toggle{background:none;border:none;cursor:pointer;font-size:.75rem;color:var(--text3);padding:.35rem 0;transition:color .2s;display:inline-flex;align-items:center;gap:.3rem;user-select:none;margin-bottom:.25rem}
+    .req-resolved-toggle:hover{color:var(--text2)}
     /* info box */
     .info-box{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1rem 1.125rem;font-size:.78rem;color:var(--text3);line-height:1.65;margin-bottom:1.25rem}
     .info-box strong{color:var(--text2)}
@@ -196,7 +202,7 @@ export function dashboardHTML(events) {
 </head>
 <body>
   <div class="topbar">
-    <div class="topbar-logo">fotos · <strong>luca fchala</strong></div>
+    <div class="topbar-logo">fotos · <strong>luca f. chala</strong></div>
     <div class="topbar-right">
       <a href="/" target="_blank" class="btn-sm">Ver site</a>
       <form method="POST" action="/dashboard/logout" style="margin:0">
@@ -357,6 +363,7 @@ export function dashboardHTML(events) {
 
     // ---- Init ----
     renderEventList();
+    loadRequests(); // populate badge on load
 
     // ---- Tabs ----
     function switchTab(name, btn) {
@@ -364,7 +371,7 @@ export function dashboardHTML(events) {
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
-      if (name === 'metrics' && !metricsLoaded) loadMetrics();
+      if (name === 'metrics') loadMetrics();
       if (name === 'requests' && !requestsLoaded) loadRequests();
     }
 
@@ -615,35 +622,76 @@ export function dashboardHTML(events) {
     // ---- Requests ----
     let requestsLoaded = false;
     async function loadRequests() {
-      const body = document.getElementById('requests-body');
+      const container = document.getElementById('requests-body');
       try {
         const data = await api('GET', '/api/removal-requests');
         requestsLoaded = true;
         const pending = data.filter(r => !r.resolved).length;
-        const btn = document.getElementById('tab-btn-requests');
-        if (btn) btn.innerHTML = 'Solicitações' + (pending > 0 ? \`<span class="tab-badge">\${pending}</span>\` : '');
-        if (!data.length) { body.innerHTML = '<p class="empty">Nenhuma solicitação ainda.</p>'; return; }
+        const tabBtn = document.getElementById('tab-btn-requests');
+        if (tabBtn) tabBtn.innerHTML = 'Solicitações' + (pending > 0 ? \`<span class="tab-badge">\${pending}</span>\` : '');
+        if (!data.length) { container.innerHTML = '<p class="empty">Nenhuma solicitação ainda.</p>'; return; }
+
         const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' };
-        body.innerHTML = data.map(r => \`
+
+        const renderReq = r => \`
           <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${r.id}">
             <div class="req-header">
-              <span class="req-project">\${esc(r.eventTitle)} <span style="color:var(--text3);font-weight:400">/ \${esc(r.eventSlug)}</span></span>
+              <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
               <span class="req-date">\${new Date(r.createdAt).toLocaleDateString('pt-BR')}</span>
             </div>
-            <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
             <div class="req-body">
               <span><strong>Tipo:</strong> \${esc(methodLabel[r.method] || r.method)}</span>
               \${r.value ? \`<span><strong>Identificação:</strong> \${esc(r.value)}</span>\` : ''}
-              \${r.method === 'upload' ? \`<span><strong>Arquivo:</strong> \${esc(r.fileName || '—')} (enviado por e-mail)</span>\` : ''}
-              \${r.contact ? \`<span><strong>Contato:</strong> \${esc(r.contact)}</span>\` : ''}
+              \${r.method === 'upload' ? \`<span><strong>Arquivo:</strong> \${esc(r.fileName || '—')} (por e-mail)</span>\` : ''}
+              \${r.email ? \`<span><strong>E-mail:</strong> \${esc(r.email)}</span>\` : ''}
+              \${r.phone ? \`<span><strong>Telefone:</strong> \${esc(r.phone)}</span>\` : ''}
+              \${!r.email && !r.phone && r.contact ? \`<span><strong>Contato:</strong> \${esc(r.contact)}</span>\` : ''}
               \${r.message ? \`<span><strong>Mensagem:</strong> \${esc(r.message)}</span>\` : ''}
-              \${r.emailStatus ? \`<span style="font-size:.7rem;margin-top:.25rem;color:\${r.emailStatus === 'sent' ? '#4a9a4a' : '#c0392b'}">📧 \${esc(r.emailStatus)}</span>\` : '<span style="font-size:.7rem;color:#555;margin-top:.25rem">📧 status desconhecido (solicitação antiga)</span>'}
+              \${r.emailStatus ? \`<span style="font-size:.7rem;margin-top:.25rem;color:\${r.emailStatus === 'sent' ? '#4a9a4a' : '#b04040'}">📧 \${esc(r.emailStatus)}</span>\` : ''}
+              \${r.confirmEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
             </div>
             \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${r.id}')">✓ Marcar como resolvido</button>\` : ''}
-          </div>\`).join('');
+          </div>\`;
+
+        // Group by project, sorted by most recent first within each group
+        const byProject = {};
+        const projectOrder = [];
+        [...data].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).forEach(r => {
+          if (!byProject[r.eventSlug]) {
+            byProject[r.eventSlug] = { title: r.eventTitle, slug: r.eventSlug, pending: [], resolved: [] };
+            projectOrder.push(r.eventSlug);
+          }
+          (r.resolved ? byProject[r.eventSlug].resolved : byProject[r.eventSlug].pending).push(r);
+        });
+
+        container.innerHTML = projectOrder.map((slug, gi) => {
+          const g = byProject[slug];
+          const resolvedHTML = g.resolved.length > 0 ? \`
+            <button class="req-resolved-toggle" onclick="toggleResolved(\${gi})" id="rtoggle-\${gi}">▶ \${g.resolved.length} resolvida\${g.resolved.length !== 1 ? 's' : ''}</button>
+            <div id="ritems-\${gi}" style="display:none">\${g.resolved.map(renderReq).join('')}</div>\` : '';
+          return \`<div class="req-group">
+            <div class="req-group-head">
+              <span class="req-group-title">\${esc(g.title)}</span>
+              <span class="req-group-slug">/\${esc(g.slug)}</span>
+              \${g.pending.length > 0 ? \`<span class="req-pending-badge">\${g.pending.length} pendente\${g.pending.length !== 1 ? 's' : ''}</span>\` : ''}
+            </div>
+            \${g.pending.map(renderReq).join('')}
+            \${resolvedHTML}
+          </div>\`;
+        }).join('');
       } catch(err) {
-        body.innerHTML = '<p class="empty">Erro ao carregar solicitações.</p>';
+        container.innerHTML = '<p class="empty">Erro ao carregar solicitações.</p>';
       }
+    }
+
+    function toggleResolved(gi) {
+      const items = document.getElementById('ritems-' + gi);
+      const toggle = document.getElementById('rtoggle-' + gi);
+      if (!items || !toggle) return;
+      const open = items.style.display !== 'none';
+      items.style.display = open ? 'none' : 'block';
+      const txt = toggle.textContent.replace(/^[▶▼] /, '');
+      toggle.textContent = (open ? '▶' : '▼') + ' ' + txt;
     }
 
     async function resolveRequest(id) {

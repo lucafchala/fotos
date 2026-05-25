@@ -138,7 +138,7 @@ export function eventHTML(event) {
     .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
     .rem-field label{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#555}
-    .rem-field input[type=text],.rem-field input[type=url],.rem-field input[type=number],.rem-field textarea{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .rem-field input[type=text],.rem-field input[type=email],.rem-field input[type=tel],.rem-field input[type=url],.rem-field input[type=number],.rem-field textarea{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .rem-field input:focus,.rem-field textarea:focus{border-color:#3a3a3a}
     .rem-field textarea{resize:vertical;min-height:80px;line-height:1.5}
     .rem-field input[type=file]{color:#888;font-size:.8rem;width:100%}
@@ -200,7 +200,7 @@ export function eventHTML(event) {
   </main>
 
   <footer>
-    <a href="/" class="footer-brand">fotos · luca fchala</a>
+    <a href="/" class="footer-brand">fotos · luca f. chala</a>
     <button class="removal-link" onclick="openRemModal()">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
       Solicitar remoção de foto
@@ -256,7 +256,7 @@ export function eventHTML(event) {
       </div>
 
       <div id="rem-form">
-        <p class="rem-intro">Identificou uma foto que quer remover? Preencha abaixo — analisaremos o pedido em breve.</p>
+        <p class="rem-intro">Identificou uma foto que quer remover? Preencha com suas informações de contato — analisaremos o pedido e você receberá uma confirmação por e-mail.</p>
 
         <div class="rem-field">
           <label>Identificar a foto por</label>
@@ -290,8 +290,12 @@ export function eventHTML(event) {
         </div>
 
         <div class="rem-field">
-          <label>Seu contato <span style="color:#444">(opcional)</span></label>
-          <input type="text" id="rem-contact" placeholder="Nome, e-mail ou @instagram">
+          <label>E-mail <span style="color:#c0392b">*</span></label>
+          <input type="email" id="rem-email" placeholder="seu@email.com" autocomplete="email">
+        </div>
+        <div class="rem-field">
+          <label>Telefone <span style="color:#c0392b">*</span> <span style="color:#444;font-size:.65rem">(com DDD)</span></label>
+          <input type="tel" id="rem-phone" placeholder="(11) 99999-9999" autocomplete="tel">
         </div>
         <div class="rem-field">
           <label>Motivo <span style="color:#444">(opcional)</span></label>
@@ -413,6 +417,16 @@ export function eventHTML(event) {
         });
       }
 
+      const email = (document.getElementById('rem-email').value || '').trim();
+      const phone = (document.getElementById('rem-phone').value || '').trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        return alert('Informe um e-mail válido.');
+      }
+      const phoneDigits = phone.replace(/\D/g, '');
+      if (!phone || phoneDigits.length < 10 || phoneDigits.length > 13) {
+        return alert('Informe um telefone válido com DDD (ex: (11) 99999-9999).');
+      }
+
       const btn = document.getElementById('rem-submit');
       btn.disabled = true;
       btn.textContent = 'Enviando…';
@@ -425,7 +439,8 @@ export function eventHTML(event) {
             eventSlug: EVENT_SLUG,
             method,
             value,
-            contact: (document.getElementById('rem-contact').value || '').trim(),
+            email,
+            phone,
             message: (document.getElementById('rem-message').value || '').trim(),
             fileName,
             fileBase64,

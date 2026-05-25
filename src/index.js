@@ -3,7 +3,7 @@ import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import {
   getEvents, saveEvents, hashPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, sendRemovalEmail,
+  verifySession, escape, validateSlug, generateId, sendRemovalEmail, sendConfirmationEmail,
 } from './utils.js';
 
 export default {
@@ -314,11 +314,21 @@ async function handleRemovalRequest(request, env) {
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
-  const { eventSlug, method, value, contact, message, fileName, fileBase64 } = body;
+  const { eventSlug, method, value, email, phone, message, fileName, fileBase64 } = body;
   if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
   if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
   if (method !== 'upload' && (!value || !String(value).trim())) return jsonErr('Identificação obrigatória.', 400);
   if (method === 'upload' && !fileBase64) return jsonErr('Arquivo obrigatório.', 400);
+
+  const emailTrimmed = String(email || '').trim().toLowerCase();
+  if (!emailTrimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailTrimmed)) {
+    return jsonErr('E-mail inválido.', 400);
+  }
+  const phoneTrimmed = String(phone || '').trim();
+  const phoneDigits = phoneTrimmed.replace(/\D/g, '');
+  if (!phoneTrimmed || phoneDigits.length < 10 || phoneDigits.length > 13) {
+    return jsonErr('Número de telefone inválido (inclua o DDD).', 400);
+  }
 
   const events = await getEvents(env);
   const event  = events.find(e => e.slug === eventSlug);
@@ -329,7 +339,9 @@ async function handleRemovalRequest(request, env) {
     eventTitle: event?.title || eventSlug,
     method,
     value:      method !== 'upload' ? String(value || '').slice(0, 500) : null,
-    contact:    String(contact || '').slice(0, 200),
+    email:      emailTrimmed.slice(0, 200),
+    phone:      phoneTrimmed.slice(0, 50),
+    contact:    emailTrimmed.slice(0, 200),
     message:    String(message || '').slice(0, 1000),
     fileName:   method === 'upload' ? String(fileName || 'foto').slice(0, 200) : null,
     fileBase64: method === 'upload' ? fileBase64 : null,
@@ -342,13 +354,22 @@ async function handleRemovalRequest(request, env) {
   requests.push({ ...req, fileBase64: null });
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
-  // Send email — store result for dashboard visibility
+  // Send notification to admin
   try {
-    await sendRemovalEmail(env, req);
-    requests[requests.length - 1].emailStatus = 'sent';
+    const sent = await sendRemovalEmail(env, req);
+    requests[requests.length - 1].emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
   } catch (err) {
     requests[requests.length - 1].emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
   }
+
+  // Send confirmation to requester
+  try {
+    const sent = await sendConfirmationEmail(env, req);
+    requests[requests.length - 1].confirmEmailStatus = sent ? 'sent' : null;
+  } catch (err) {
+    requests[requests.length - 1].confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+  }
+
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   return jsonOk({ ok: true });
