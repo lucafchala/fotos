@@ -714,8 +714,8 @@ export function dashboardHTML(events) {
           body.innerHTML = '<p class="empty">Nenhuma visualização ainda.</p>';
           return;
         }
-        const rows = data.map(m => \`<tr><td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td><td><span class="views-badge">\${m.views}</span></td></tr>\`).join('');
-        body.innerHTML = \`<table class="metrics-table"><thead><tr><th>Projeto</th><th>Visualizações</th></tr></thead><tbody>\${rows}</tbody></table>\`;
+        const rows = data.map(m => \`<tr><td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td><td><span class="views-badge">\${m.views}</span></td><td><span class="views-badge" style="color:#4a7a4a">\${m.driveClicks || 0}</span></td></tr>\`).join('');
+        body.innerHTML = \`<table class="metrics-table"><thead><tr><th>Projeto</th><th>Visualizações</th><th>Abriu Drive</th></tr></thead><tbody>\${rows}</tbody></table>\`;
       } catch(err) {
         body.innerHTML = '<p class="empty">Erro ao carregar métricas.</p>';
       }

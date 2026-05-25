@@ -7,7 +7,7 @@ import {
 } from './utils.js';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = request.method.toUpperCase();
@@ -30,6 +30,7 @@ export default {
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
+      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -38,7 +39,7 @@ export default {
 
       // Event detail pages — must be last
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
-      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1]);
+      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx);
 
       return notFound();
     } catch (err) {
@@ -59,17 +60,19 @@ async function handleGallery(env) {
 // ---------------------------------------------------------------------------
 // Event page
 // ---------------------------------------------------------------------------
-async function handleEventPage(request, env, slug) {
+async function handleEventPage(request, env, slug, ctx) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
-  // Track view (fire-and-forget, don't block the response)
+  // Track view using ctx.waitUntil so the write completes after response is sent
   const viewKey = `views:${slug}`;
-  env.FOTOS.get(viewKey).then(async v => {
-    const count = parseInt(v || '0', 10);
-    await env.FOTOS.put(viewKey, String(count + 1));
-  }).catch(() => {});
+  ctx.waitUntil(
+    env.FOTOS.get(viewKey).then(async v => {
+      const count = parseInt(v || '0', 10);
+      await env.FOTOS.put(viewKey, String(count + 1));
+    }).catch(() => {})
+  );
 
   return html(eventHTML(event));
 }
@@ -280,12 +283,34 @@ async function handleMetrics(request, env) {
   const events = await getEvents(env);
   const metrics = await Promise.all(
     events.map(async e => {
-      const v = await env.FOTOS.get(`views:${e.slug}`);
-      return { slug: e.slug, title: e.title, views: parseInt(v || '0', 10) };
+      const [v, d] = await Promise.all([
+        env.FOTOS.get(`views:${e.slug}`),
+        env.FOTOS.get(`drive_clicks:${e.slug}`),
+      ]);
+      return {
+        slug: e.slug,
+        title: e.title,
+        views: parseInt(v || '0', 10),
+        driveClicks: parseInt(d || '0', 10),
+      };
     })
   );
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
+}
+
+// ---------------------------------------------------------------------------
+// API: Track Drive click (public)
+// ---------------------------------------------------------------------------
+async function handleTrackDrive(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
+  const slug = String(body.slug || '').slice(0, 60);
+  if (!slug) return jsonOk({ ok: true });
+  const key = `drive_clicks:${slug}`;
+  const v = await env.FOTOS.get(key).catch(() => null);
+  await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(() => {});
+  return jsonOk({ ok: true });
 }
 
 // ---------------------------------------------------------------------------
