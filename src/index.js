@@ -159,13 +159,18 @@ async function handleCreateEvent(request, env) {
   const events = await getEvents(env);
   if (events.find(e => e.slug === slug)) return jsonErr('Já existe um evento com essa URL.', 409);
 
+  const photos = Array.isArray(body.photos)
+    ? body.photos.slice(0, 6).map(u => String(u).slice(0, 500)).filter(Boolean)
+    : (body.thumbnailUrl ? [String(body.thumbnailUrl).slice(0, 500)] : []);
+
   const event = {
     id: generateId(),
     slug,
     title: String(title).slice(0, 200),
     shortDescription: String(body.shortDescription || '').slice(0, 300),
     longDescription: String(body.longDescription || '').slice(0, 5000),
-    thumbnailUrl: String(body.thumbnailUrl || '').slice(0, 500),
+    photos,
+    thumbnailUrl: photos[0] || '',
     driveUrl: String(driveUrl).slice(0, 500),
     date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
     eventCredits: String(body.eventCredits || '').slice(0, 200),
@@ -195,12 +200,20 @@ async function handleUpdateEvent(request, env, path) {
   if (idx === -1) return jsonErr('Evento não encontrado.', 404);
 
   const existing = events[idx];
+
+  const newPhotos = body.photos !== undefined
+    ? (Array.isArray(body.photos)
+        ? body.photos.slice(0, 6).map(u => String(u).slice(0, 500)).filter(Boolean)
+        : (existing.photos || []))
+    : (existing.photos || []);
+
   const updated = {
     ...existing,
     title: body.title !== undefined ? String(body.title).slice(0, 200) : existing.title,
     shortDescription: body.shortDescription !== undefined ? String(body.shortDescription).slice(0, 300) : existing.shortDescription,
     longDescription: body.longDescription !== undefined ? String(body.longDescription).slice(0, 5000) : existing.longDescription,
-    thumbnailUrl: body.thumbnailUrl !== undefined ? String(body.thumbnailUrl).slice(0, 500) : existing.thumbnailUrl,
+    photos: newPhotos,
+    thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
     driveUrl: body.driveUrl !== undefined ? String(body.driveUrl).slice(0, 500) : existing.driveUrl,
     date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,

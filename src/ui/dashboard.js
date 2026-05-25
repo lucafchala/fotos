@@ -151,8 +151,16 @@ export function dashboardHTML(events) {
     .toggle-track::after{content:'';position:absolute;width:20px;height:20px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform .2s}
     .toggle input:checked~.toggle-track{background:#4caf50}
     .toggle input:checked~.toggle-track::after{transform:translateX(18px)}
-    /* thumb preview */
-    .thumb-preview{width:100%;aspect-ratio:3/4;max-height:180px;object-fit:cover;border-radius:8px;margin-top:.625rem;display:none;background:var(--bg3)}
+    /* photo list */
+    .photo-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:.625rem}
+    .photo-row-inner{display:flex;align-items:center;gap:.5rem}
+    .photo-num{font-size:.7rem;font-weight:600;color:var(--text3);width:1rem;flex-shrink:0;text-align:center}
+    .photo-row-inner input{flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.65rem .75rem;border-radius:7px;font-size:.82rem;outline:none;transition:border-color .2s;min-width:0}
+    .photo-row-inner input:focus{border-color:#3a3a3a}
+    .photo-mini{width:36px;height:36px;border-radius:5px;object-fit:cover;flex-shrink:0;background:var(--bg3);display:none}
+    .photo-badge{font-size:.65rem;font-weight:500;letter-spacing:.06em;color:#4a8a4a;background:#091409;border:1px solid #162016;padding:.2rem .5rem;border-radius:4px;display:inline-block;margin-top:.3rem;margin-left:1.5rem}
+    .btn-add-photo{display:inline-flex;align-items:center;gap:.4rem;background:none;border:1px dashed var(--border);color:var(--text3);padding:.55rem 1rem;border-radius:7px;font-size:.78rem;font-weight:500;transition:border-color .2s,color .2s;margin-top:.25rem}
+    .btn-add-photo:hover{border-color:#3a3a3a;color:var(--text2)}
     /* buttons */
     .btn-primary{flex:1;background:var(--accent);color:#0a0a0a;border:none;padding:.875rem;border-radius:9px;font-size:.875rem;font-weight:600;transition:opacity .18s}
     .btn-primary:hover{opacity:.88}
@@ -256,13 +264,13 @@ export function dashboardHTML(events) {
           <textarea id="f-long" placeholder="Detalhes sobre o evento, contexto, etc."></textarea>
         </div>
         <div class="field">
-          <label>Miniatura</label>
-          <input type="url" id="f-thumb" placeholder="Cole o link do Google Drive ou qualquer URL de imagem" oninput="updateThumbPreview(this.value)">
-          <div class="field-hint">
-            Para usar imagem do Drive: abra o arquivo → botão direito → "Obter link" → "Qualquer pessoa com o link" → copie.<br>
-            <strong>A URL é convertida automaticamente.</strong>
-          </div>
-          <img id="thumb-preview" class="thumb-preview" alt="Pré-visualização" onerror="this.style.display='none'">
+          <label>Fotos de capa <span style="color:#555">(até 6)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">A primeira foto aparece como miniatura na galeria. Cole links do Drive ou URLs diretas de imagem — a conversão é automática.</div>
+          <div class="photo-list" id="photo-list"></div>
+          <button type="button" class="btn-add-photo" id="btn-add-photo" onclick="addPhotoInput('')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar foto
+          </button>
         </div>
         <div class="field">
           <label>Link da pasta do Google Drive</label>
@@ -305,6 +313,7 @@ export function dashboardHTML(events) {
     let events = ${eventsJSON};
     let editingId = null;
     let metricsLoaded = false;
+    let photoList = [];
 
     // ---- Init ----
     renderEventList();
@@ -365,13 +374,16 @@ export function dashboardHTML(events) {
       document.getElementById('f-title').value = e ? (e.title || '') : '';
       document.getElementById('f-short').value = e ? (e.shortDescription || '') : '';
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
-      document.getElementById('f-thumb').value = e ? (e.thumbnailUrl || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
-      updateThumbPreview(e ? (e.thumbnailUrl || '') : '');
+      const initPhotos = e
+        ? (Array.isArray(e.photos) && e.photos.length ? e.photos : e.thumbnailUrl ? [e.thumbnailUrl] : [])
+        : [];
+      photoList = [...initPhotos];
+      renderPhotoList();
       document.getElementById('overlay').classList.add('open');
       document.body.style.overflow = 'hidden';
       if (!id) setTimeout(() => document.getElementById('f-slug').focus(), 100);
@@ -387,20 +399,60 @@ export function dashboardHTML(events) {
       if (e.target === document.getElementById('overlay')) closeForm();
     }
 
-    // ---- Thumb preview ----
-    function updateThumbPreview(raw) {
-      const url = convertDriveUrl(raw.trim());
-      const input = document.getElementById('f-thumb');
-      const preview = document.getElementById('thumb-preview');
-      if (url !== raw.trim() && raw.trim()) {
-        input.value = url;
-      }
-      if (url) {
-        preview.src = url;
-        preview.style.display = 'block';
+    // ---- Photo list ----
+    function renderPhotoList() {
+      const container = document.getElementById('photo-list');
+      const addBtn = document.getElementById('btn-add-photo');
+      if (photoList.length === 0) {
+        container.innerHTML = '';
       } else {
-        preview.style.display = 'none';
+        container.innerHTML = photoList.map((url, i) => \`
+          <div class="photo-row" id="pr-\${i}">
+            <div class="photo-row-inner">
+              <span class="photo-num">\${i + 1}</span>
+              <input type="url" value="\${esc(url)}" placeholder="URL da foto"
+                oninput="onPhotoInput(\${i}, this)"
+                onblur="onPhotoBlur(\${i}, this)">
+              <img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} onerror="this.style.display='none'" onload="this.style.display='block'">
+              <button type="button" class="icon-btn danger" onclick="removePhotoInput(\${i})" title="Remover">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            \${i === 0 ? '<span class="photo-badge">capa da galeria</span>' : ''}
+          </div>\`).join('');
       }
+      if (addBtn) addBtn.style.display = photoList.length >= 6 ? 'none' : 'inline-flex';
+    }
+
+    function addPhotoInput(url) {
+      if (photoList.length >= 6) return;
+      photoList.push(url || '');
+      renderPhotoList();
+      setTimeout(() => {
+        const inputs = document.querySelectorAll('.photo-row-inner input');
+        if (inputs.length) inputs[inputs.length - 1].focus();
+      }, 50);
+    }
+
+    function removePhotoInput(i) {
+      photoList.splice(i, 1);
+      renderPhotoList();
+    }
+
+    function onPhotoInput(i, el) {
+      photoList[i] = el.value;
+    }
+
+    function onPhotoBlur(i, el) {
+      const converted = convertDriveUrl(el.value.trim());
+      photoList[i] = converted;
+      el.value = converted;
+      const mini = document.getElementById('pm-' + i);
+      if (mini) { mini.src = converted; mini.style.display = converted ? 'block' : 'none'; }
+    }
+
+    function collectPhotos() {
+      return photoList.map(u => convertDriveUrl(u.trim())).filter(Boolean);
     }
 
     function convertDriveUrl(url) {
@@ -431,12 +483,14 @@ export function dashboardHTML(events) {
         if (conflict) return toast('Já existe um evento com essa URL.', 'err');
       }
 
+      const photos = collectPhotos();
       const body = {
         slug,
         title,
         shortDescription: document.getElementById('f-short').value.trim(),
         longDescription: document.getElementById('f-long').value.trim(),
-        thumbnailUrl: document.getElementById('f-thumb').value.trim(),
+        photos,
+        thumbnailUrl: photos[0] || '',
         driveUrl: drive,
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
