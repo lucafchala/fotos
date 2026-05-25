@@ -7,46 +7,54 @@
 
 ## Corrigir depois
 
-### Métricas
-- Investigar por que a aba Métricas não exibe contagens esperadas
-- Verificar se o `views:{slug}` está sendo incrementado no KV ao acessar páginas de evento
-- Possível causa: evento criado antes do rastreamento existir → contagem começa do zero
+### ~~Métricas~~ ✅ Resolvido
+- Bug corrigido: `ctx.waitUntil()` garante que o view count seja salvo após o Worker retornar
+- Dashboard agora também exibe coluna "Abriu Drive" (cliques no botão do Google Drive)
 
-### E-mail (Resend)
-- Verificar domínio `lucafchala.com` no painel do Resend: **Domains → Add Domain → adicionar registros DNS no Cloudflare**
-- Sem isso, `noreply@lucafchala.com` rejeita envios com erro 403
-- Depois de verificar, testar: enviar uma solicitação de remoção e confirmar que aparece no Resend
+### ~~E-mail (Resend)~~ ✅ Resolvido
+- `RESEND_API_KEY` configurada como secret no Cloudflare Worker (Settings → Variables)
+- Domínio `lucafchala.com` verificado no Resend
+- E-mails de notificação ao admin e confirmação ao solicitante funcionando
 
 ### Formulário de avaliações
-- Adicionar página/modal para visitantes deixarem avaliação do evento (estrelas + texto)
+- Adicionar modal para visitantes deixarem avaliação do evento (estrelas + texto)
 - Mostrar avaliações no dashboard
 - Opcional: exibir média de estrelas no card da galeria ou na página do evento
 
 ---
 
+## Próximas etapas (do plano)
+
+### Etapa 3 — Segurança
+- [ ] **Rate limiting** em `/api/removal-request` (máx. N por IP por hora)
+- [ ] **Backup do KV**: endpoint `/api/backup` protegido (admin) exporta todos os dados como JSON
+- [ ] **Recuperação de senha** via e-mail (link de reset via Resend)
+
+### Etapa 4 — Novos recursos
+- [ ] Formulário de avaliações (estrelas + texto)
+- [ ] Senha por evento (acesso privado)
+- [ ] Modo "em breve" (card desfocado + data de publicação)
+- [ ] Ordenação manual dos eventos no dashboard
+
+---
+
 ## Recomendações (Claude)
 
-### Alta prioridade
+### ~~Alta prioridade~~ → parcialmente concluído
 
-**Backup do KV**
-O banco de dados inteiro (eventos, sessões, solicitações) está no Cloudflare KV sem backup automático. Um script de export periódico (`wrangler kv key list` + `get`) ou um endpoint `/api/export` protegido por senha salva muito problema se algo for apagado por acidente.
+~~**Backup do KV**~~ → na Etapa 3
 
-**Rate limiting nas solicitações de remoção**
-O endpoint `/api/removal-request` é público e sem limite. Alguém mal-intencionado pode enviar centenas de pedidos. Solução simples: salvar contagem por IP no KV com TTL de 1 hora e recusar após N tentativas.
+~~**Rate limiting nas solicitações de remoção**~~ → na Etapa 3
 
-**Recuperação de senha**
-Se esquecer a senha do dashboard, não tem como recuperar sem acesso ao Cloudflare KV diretamente. Solução: botão "Esqueci a senha" que envia link de reset por e-mail via Resend (usando o próprio RESEND_API_KEY já configurado).
+~~**Recuperação de senha**~~ → na Etapa 3
 
 ### Melhorias de experiência
 
-**Botão de compartilhamento por WhatsApp**
-Nas páginas de evento, um botão "Compartilhar no WhatsApp" com o link direto da página aumenta muito o alcance. Uma linha de HTML resolve.
+~~**Botão de compartilhamento por WhatsApp**~~ ✅ Implementado
 
-**Contador de acessos ao Drive**
-Atualmente só conta visualizações da página. Contar também cliques em "Ir para o Google Drive" dá uma ideia melhor de quantas pessoas realmente baixaram as fotos. Basta uma chamada `fetch('/api/track-drive?slug=...')` no `onclick` do botão.
+~~**Contador de acessos ao Drive**~~ ✅ Implementado (coluna "Abriu Drive" nas métricas)
 
-**Pré-visualização no WhatsApp/iMessage (OG tags)**
-As meta tags `og:image` já existem, mas o Google Drive (`lh3.googleusercontent.com`) bloqueia crawlers de redes sociais. Para o preview funcionar no WhatsApp, a imagem de capa precisaria estar em um domínio próprio ou num storage público (Cloudflare R2, por exemplo).
+**Aviso de LGPD** ✅ Implementado (rodapé do modal de remoção)
 
 **Ordenação manual dos eventos**
 Hoje a galeria ordena por data. Adicionar drag-and-drop no dashboard para definir ordem manual seria útil quando dois eventos têm a mesma data ou você quer destacar um evento mais antigo.
