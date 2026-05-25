@@ -1,5 +1,10 @@
 # Pendências e Recomendações — fotos.lucafchala.com
 
+## Lembrar
+
+- [ ] Adicionar link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
+- [ ] Adicionar na homepage pessoal (lucafchala.com)
+
 ## Corrigir depois
 
 ### Métricas
