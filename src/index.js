@@ -26,6 +26,7 @@ export default {
       if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
 
       // API routes (require auth)
+      if (path === '/api/events/reorder' && method === 'POST') return handleReorderEvents(request, env);
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
@@ -196,6 +197,7 @@ async function handleCreateEvent(request, env) {
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
+    order: typeof body.order === 'number' ? body.order : Date.now(),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -249,6 +251,7 @@ async function handleUpdateEvent(request, env, path) {
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
     internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
+    order: typeof body.order === 'number' ? body.order : (typeof existing.order === 'number' ? existing.order : Date.now()),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -290,6 +293,28 @@ async function handleDeleteEvent(request, env, path) {
 // ---------------------------------------------------------------------------
 // API: Metrics
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// API: Reorder events
+// ---------------------------------------------------------------------------
+async function handleReorderEvents(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const ids = Array.isArray(body.ids) ? body.ids.filter(s => typeof s === 'string') : [];
+  if (!ids.length) return jsonErr('Lista de IDs vazia.', 400);
+
+  const events = await getEvents(env);
+  const idToOrder = new Map(ids.map((id, i) => [id, ids.length - i]));
+  for (const e of events) {
+    if (idToOrder.has(e.id)) e.order = idToOrder.get(e.id);
+  }
+  await saveEvents(env, events);
+  return jsonOk({ ok: true });
+}
+
 async function handleMetrics(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;

@@ -1,9 +1,12 @@
 import { escape, formatDatePT } from '../utils.js';
 
 export function galleryHTML(events, analyticsToken) {
+  const ord = e => typeof e.order === 'number'
+    ? e.order
+    : (e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime());
   const visible = events
     .filter(e => e.visible !== false)
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    .sort((a, b) => ord(b) - ord(a));
 
   const cards = visible.length === 0
     ? `<p class="empty">Em breve…</p>`

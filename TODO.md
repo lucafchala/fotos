@@ -13,16 +13,17 @@
 - **Resend:** API key configurada como secret no Worker; domínio verificado; e-mails de notificação e confirmação funcionando
 - **Modo "Em breve":** toggle no dashboard, oculta cover photo na galeria e na página, botão Drive vira "As fotos virão em breve"
 - **WhatsApp:** botão de compartilhamento no footer das páginas de evento
-- **LGPD:** aviso de privacidade no rodapé do modal de remoção
+- **LGPD:** aviso de privacidade no rodapé do modal de remoção + SLA de 15 dias úteis
 - **E-mail de remoção atendida:** ao marcar como resolvido no dashboard, solicitante recebe e-mail confirmando
-- **SLA 15 dias úteis:** texto de prazo de resposta no modal de remoção
 - **Skeleton loaders:** shimmer animado nos cards da galeria enquanto a foto carrega
 - **Tour guiado:** modal de boas-vindas no primeiro acesso a uma página de evento (lembrado via localStorage)
 - **Notas privadas:** campo `internalNotes` em cada evento, só visível no dashboard
 - **Status de produção:** dropdown no formulário + badge colorido na lista + filtro acima da lista (em-edição / em-revisão / entregue / arquivado)
+- **Filtro padrão "Ativos":** dashboard esconde arquivados por padrão; opção "Todos" mostra tudo
 - **PWA:** manifest.json + icon.svg + meta tags — dashboard instalável no celular
-- **Cloudflare Web Analytics:** script injetado nas páginas públicas quando `CF_ANALYTICS_TOKEN` está configurado no Worker
-- **QR Code por evento:** botão no dashboard que abre modal com QR code (carrega lib lazy do jsDelivr) + botões "Baixar PNG / Imprimir / Copiar link"
+- **Cloudflare Web Analytics:** script injetado automaticamente nas páginas públicas (token hardcoded)
+- **QR Code por evento:** botão no dashboard que abre modal com QR code (lazy load do jsDelivr) + botões "Baixar PNG / Imprimir / Copiar link"
+- **Ordenação manual:** botões ▲▼ em cada evento no dashboard reordenam os projetos (galeria pública respeita a ordem manual; fallback para data quando não houver ordem manual)
 
 ---
 
@@ -36,13 +37,10 @@
 ### Etapa 4 — Recursos
 - [ ] Formulário de avaliações (estrelas + texto, mostradas no dashboard)
 - [ ] Senha por evento (acesso privado)
-- [ ] Ordenação manual dos eventos no dashboard
 
 ### Etapa 5 — Longo prazo
 - [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
 - [ ] Portfólio público `/portfolio` com curadoria das melhores fotos
-- [ ] PWA (dashboard instalável no celular)
-- [ ] Cloudflare Web Analytics
 - [ ] Filtros por tag/categoria
 
 ---

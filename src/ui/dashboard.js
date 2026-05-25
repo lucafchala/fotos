@@ -119,6 +119,10 @@ export function dashboardHTML(events) {
     .icon-btn.danger:hover{border-color:var(--red);color:var(--red)}
     .icon-btn.muted{opacity:.4}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
+    .reorder-col{display:flex;flex-direction:column;gap:.2rem;flex-shrink:0}
+    .reorder-btn{background:none;border:1px solid var(--border);color:var(--text3);width:26px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,background .15s;padding:0}
+    .reorder-btn:hover:not(:disabled){border-color:#3a3a3a;color:var(--text);background:var(--bg3)}
+    .reorder-btn:disabled{opacity:.25;cursor:not-allowed}
     /* status badge */
     .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
     .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}
@@ -459,6 +463,9 @@ export function dashboardHTML(events) {
     }
 
     // ---- Event List ----
+    const ord = e => typeof e.order === 'number'
+      ? e.order
+      : (e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime());
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
@@ -467,7 +474,8 @@ export function dashboardHTML(events) {
         filter === 'todos' ? events :
         filter === 'ativos' ? events.filter(e => (e.status || 'entregue') !== 'arquivado') :
         events.filter(e => (e.status || 'entregue') === filter);
-      const sorted = [...filtered].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const sorted = [...filtered].sort((a, b) => ord(b) - ord(a));
+      const canReorder = filter === 'todos' || filter === 'ativos';
       const noun = n => n === 1 ? 'evento' : 'eventos';
       count.textContent =
         filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
@@ -480,7 +488,9 @@ export function dashboardHTML(events) {
           \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`;
         return;
       }
-      list.innerHTML = sorted.map(e => {
+      list.innerHTML = sorted.map((e, idx) => {
+        const isFirst = idx === 0;
+        const isLast = idx === sorted.length - 1;
         const thumb = e.thumbnailUrl
           ? \`<img class="evt-thumb" src="\${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">\`
           : \`<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>\`;
@@ -488,7 +498,16 @@ export function dashboardHTML(events) {
           ? \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\`
           : \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>\`;
         const st = e.status || 'entregue';
+        const reorderHTML = canReorder ? \`<div class="reorder-col">
+          <button class="reorder-btn" \${isFirst ? 'disabled' : ''} title="Mover para cima" onclick="moveItem('\${e.id}', -1)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button class="reorder-btn" \${isLast ? 'disabled' : ''} title="Mover para baixo" onclick="moveItem('\${e.id}', 1)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>\` : '';
         return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${e.id}">
+          \${reorderHTML}
           \${thumb}
           <div class="evt-info">
             <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${st}">\${STATUS_LABELS[st]}</span></div>
@@ -841,6 +860,43 @@ export function dashboardHTML(events) {
         toast('Senha alterada com sucesso!', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao alterar senha.', 'err');
+      }
+    }
+
+    // ---- Reorder ----
+    async function moveItem(id, dir) {
+      const filter = document.getElementById('status-filter')?.value || 'ativos';
+      if (filter !== 'todos' && filter !== 'ativos') return;
+
+      const full = [...events].sort((a, b) => ord(b) - ord(a));
+      const filteredView = filter === 'todos'
+        ? full
+        : full.filter(e => (e.status || 'entregue') !== 'arquivado');
+
+      const fIdx = filteredView.findIndex(e => e.id === id);
+      const tFIdx = fIdx + dir;
+      if (tFIdx < 0 || tFIdx >= filteredView.length) return;
+
+      const targetId = filteredView[tFIdx].id;
+      const fullIdx = full.findIndex(e => e.id === id);
+      const fullTargetIdx = full.findIndex(e => e.id === targetId);
+
+      const [item] = full.splice(fullIdx, 1);
+      const newTargetIdx = fullTargetIdx > fullIdx ? fullTargetIdx - 1 : fullTargetIdx;
+      const insertAt = dir < 0 ? newTargetIdx : newTargetIdx + 1;
+      full.splice(insertAt, 0, item);
+
+      const ids = full.map(e => e.id);
+      try {
+        await api('POST', '/api/events/reorder', { ids });
+        const n = ids.length;
+        ids.forEach((eid, i) => {
+          const ev = events.find(e => e.id === eid);
+          if (ev) ev.order = n - i;
+        });
+        renderEventList();
+      } catch(err) {
+        toast(err.message || 'Erro ao reordenar.', 'err');
       }
     }
 
