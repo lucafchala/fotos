@@ -1,6 +1,6 @@
 import { escape, formatDatePT } from '../utils.js';
 
-export function eventHTML(event) {
+export function eventHTML(event, analyticsToken) {
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
@@ -66,6 +66,20 @@ export function eventHTML(event) {
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
     .btn-soon{background:#141414;color:#888;border:1px dashed #2e2e2e;cursor:default}
     .btn-soon:hover{background:#141414;transform:none}
+    /* tour */
+    .tour-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:60;display:none;align-items:flex-end;justify-content:center;padding:1rem;opacity:0;transition:opacity .3s ease}
+    @media(min-width:580px){.tour-modal{align-items:center}}
+    .tour-modal.open{display:flex;opacity:1}
+    .tour-card{background:#0d0d0d;border:1px solid #1e1e1e;width:100%;max-width:420px;border-radius:16px;padding:1.75rem 1.5rem;animation:slideUp .35s ease}
+    @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+    .tour-card h3{font-size:1.1rem;font-weight:600;margin-bottom:.35rem;color:#f0ebe5}
+    .tour-sub{font-size:.85rem;color:#888;margin-bottom:1.25rem;line-height:1.5}
+    .tour-list{list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:.875rem}
+    .tour-list li{display:flex;gap:.75rem;align-items:flex-start;font-size:.875rem;line-height:1.55;color:#bbb}
+    .tour-icon{font-size:1.1rem;flex-shrink:0;width:1.5rem;text-align:center}
+    .tour-list strong{color:#e0d8d0;font-weight:600}
+    .tour-btn{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .tour-btn:hover{opacity:.88}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
     .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
@@ -276,7 +290,7 @@ export function eventHTML(event) {
       </div>
 
       <div id="rem-form">
-        <p class="rem-intro">Identificou uma foto que quer remover? Preencha com suas informações de contato — analisaremos o pedido e você receberá uma confirmação por e-mail.</p>
+        <p class="rem-intro">Identificou uma foto que quer remover? Preencha com suas informações de contato — analisaremos o pedido e você receberá uma confirmação por e-mail. <strong style="color:#999">Respondemos em até 15 dias úteis.</strong></p>
 
         <div class="rem-field">
           <label>Identificar a foto por</label>
@@ -337,6 +351,20 @@ export function eventHTML(event) {
     </div>
   </div>
 
+  ${event.comingSoon ? '' : `<!-- TOUR MODAL -->
+  <div class="tour-modal" id="tour-modal">
+    <div class="tour-card">
+      <h3>Bem-vindo! 👋</h3>
+      <p class="tour-sub">Algumas dicas rápidas pra você aproveitar:</p>
+      <ul class="tour-list">
+        <li><span class="tour-icon">📁</span><span>Toque em <strong>Acessar fotos</strong> para ir ao Google Drive e baixar.</span></li>
+        <li><span class="tour-icon">💬</span><span>Compartilhe esta página por <strong>WhatsApp</strong> usando o botão verde no rodapé.</span></li>
+        <li><span class="tour-icon">🗑</span><span>Apareceu uma foto sua que prefere remover? Use <strong>Solicitar remoção</strong> no rodapé.</span></li>
+      </ul>
+      <button class="tour-btn" onclick="closeTour()">Entendi</button>
+    </div>
+  </div>`}
+
   <script>
     const DRIVE_URL      = ${driveJSON};
     const EVENT_SLUG     = ${slugJSON};
@@ -364,6 +392,21 @@ export function eventHTML(event) {
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
     let cur = 0;
+
+    // ---- Tour (first visit) ----
+    function closeTour() {
+      const m = document.getElementById('tour-modal');
+      if (!m) return;
+      m.classList.remove('open');
+      try { localStorage.setItem('fotos:tour_seen', '1'); } catch(_) {}
+      setTimeout(() => { m.style.display = 'none'; }, 300);
+    }
+    (function maybeShowTour() {
+      const m = document.getElementById('tour-modal');
+      if (!m) return;
+      try { if (localStorage.getItem('fotos:tour_seen')) return; } catch(_) { return; }
+      setTimeout(() => { m.classList.add('open'); }, 800);
+    })();
 
     // ---- Drive modal ----
     function openModal() {
@@ -481,6 +524,7 @@ export function eventHTML(event) {
       }
     }
   </script>
+  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

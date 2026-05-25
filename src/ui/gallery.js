@@ -1,6 +1,6 @@
 import { escape, formatDatePT } from '../utils.js';
 
-export function galleryHTML(events) {
+export function galleryHTML(events, analyticsToken) {
   const visible = events
     .filter(e => e.visible !== false)
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -9,11 +9,11 @@ export function galleryHTML(events) {
     ? `<p class="empty">Em breve…</p>`
     : visible.map(e => `
       <a href="/${escape(e.slug)}" class="card${e.comingSoon ? ' card-soon' : ''}">
-        <div class="thumb">
+        <div class="thumb${e.thumbnailUrl && !e.comingSoon ? ' loading' : ''}">
           ${e.comingSoon
             ? `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
             : e.thumbnailUrl
-              ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy">`
+              ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy" onload="this.parentElement.classList.remove('loading')" onerror="this.parentElement.classList.remove('loading')">`
               : `<div class="thumb-ph">${iconCamera()}</div>`}
         </div>
         <div class="info">
@@ -45,7 +45,11 @@ export function galleryHTML(events) {
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:#111;border:1px solid #1c1c1c;transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:#2e2e2e}
     .thumb{aspect-ratio:4/3;overflow:hidden;background:#181818;position:relative}
-    .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px)}
+    .thumb.loading{background:linear-gradient(90deg,#181818 0%,#222 50%,#181818 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    .thumb.loading img{opacity:0}
+    .thumb img{transition:opacity .25s ease}
+    .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px);z-index:2}
     .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
@@ -69,6 +73,7 @@ export function galleryHTML(events) {
   <footer>
     <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">@lucafchala</a>
   </footer>
+  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

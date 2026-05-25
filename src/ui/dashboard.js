@@ -24,6 +24,10 @@ export function loginHTML(opts = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard · fotos</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
@@ -74,6 +78,10 @@ export function dashboardHTML(events) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard · fotos</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
@@ -111,6 +119,30 @@ export function dashboardHTML(events) {
     .icon-btn.danger:hover{border-color:var(--red);color:var(--red)}
     .icon-btn.muted{opacity:.4}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
+    /* status badge */
+    .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
+    .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}
+    .st-em-revisao{color:#4a8ac8;background:rgba(74,138,200,.08)}
+    .st-entregue{color:#4a9a4a;background:rgba(74,154,74,.08)}
+    .st-arquivado{color:#666;background:rgba(102,102,102,.08)}
+    /* filter row */
+    .filter-row{margin-bottom:1rem}
+    .filter-row select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;-webkit-appearance:none}
+    @media(min-width:600px){.filter-row select{width:auto;min-width:220px}}
+    /* QR modal */
+    .qr-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:150;display:none;align-items:center;justify-content:center;padding:1rem}
+    .qr-modal.open{display:flex}
+    .qr-card{background:#fff;color:#0a0a0a;border-radius:14px;padding:1.75rem 1.5rem;max-width:340px;width:100%;text-align:center}
+    .qr-card h3{font-size:1rem;font-weight:600;margin-bottom:.25rem;color:#0a0a0a}
+    .qr-card .qr-slug{font-size:.72rem;color:#888;margin-bottom:1.25rem;font-family:monospace;word-break:break-all}
+    .qr-canvas-wrap{display:flex;justify-content:center;align-items:center;min-height:260px;margin-bottom:1.25rem;background:#fff}
+    .qr-canvas-wrap canvas{max-width:260px;height:auto;display:block}
+    .qr-actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
+    .qr-btn{flex:1;min-width:90px;background:#0a0a0a;color:#fff;border:none;padding:.65rem .85rem;border-radius:7px;font-size:.78rem;font-weight:500;cursor:pointer;transition:opacity .18s}
+    .qr-btn:hover{opacity:.85}
+    .qr-btn.secondary{background:#fff;color:#0a0a0a;border:1px solid #ddd}
+    .qr-btn.secondary:hover{background:#f5f5f5}
+    @media print{body>*{display:none!important}.qr-modal,.qr-modal *{display:revert!important}.qr-modal{position:static;background:#fff;padding:0}.qr-actions{display:none!important}}
     /* metrics table */
     .metrics-table{width:100%;border-collapse:collapse}
     .metrics-table th{text-align:left;font-size:.7rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:.5rem .75rem;border-bottom:1px solid var(--border)}
@@ -227,6 +259,15 @@ export function dashboardHTML(events) {
         Adicionar
       </button>
     </div>
+    <div class="filter-row">
+      <select id="status-filter" onchange="renderEventList()">
+        <option value="">Todos os status</option>
+        <option value="em-edicao">Em edição</option>
+        <option value="em-revisao">Em revisão</option>
+        <option value="entregue">Entregue</option>
+        <option value="arquivado">Arquivado</option>
+      </select>
+    </div>
     <div class="evt-list" id="evt-list"></div>
   </div>
 
@@ -316,6 +357,19 @@ export function dashboardHTML(events) {
           <input type="url" id="f-purl" placeholder="https://...">
         </div>
         <div class="field">
+          <label>Status de produção</label>
+          <select id="f-status">
+            <option value="em-edicao">Em edição</option>
+            <option value="em-revisao">Em revisão</option>
+            <option value="entregue" selected>Entregue</option>
+            <option value="arquivado">Arquivado</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Notas privadas <span style="color:#555">(só você vê)</span></label>
+          <textarea id="f-notes" placeholder="Cliente, valor cobrado, observações, links de contrato…" rows="3"></textarea>
+        </div>
+        <div class="field">
           <div class="toggle-row">
             <span class="toggle-label">Visível na galeria</span>
             <label class="toggle">
@@ -363,6 +417,23 @@ export function dashboardHTML(events) {
     </div>
   </div>
 
+  <!-- QR CODE MODAL -->
+  <div class="qr-modal" id="qr-modal" onclick="if(event.target.id==='qr-modal')closeQR()">
+    <div class="qr-card">
+      <h3 id="qr-title">QR Code</h3>
+      <p class="qr-slug" id="qr-slug"></p>
+      <div class="qr-canvas-wrap" id="qr-canvas-wrap">
+        <div style="color:#888;font-size:.8rem">Carregando…</div>
+      </div>
+      <div class="qr-actions">
+        <button class="qr-btn secondary" onclick="closeQR()">Fechar</button>
+        <button class="qr-btn secondary" onclick="copyQRLink()">Copiar link</button>
+        <button class="qr-btn secondary" onclick="window.print()">Imprimir</button>
+        <button class="qr-btn" onclick="downloadQR()">Baixar PNG</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -386,13 +457,20 @@ export function dashboardHTML(events) {
     }
 
     // ---- Event List ----
+    const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
-      const sorted = [...events].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      count.textContent = events.length === 1 ? '1 evento' : events.length + ' eventos';
+      const filter = document.getElementById('status-filter')?.value || '';
+      const filtered = filter ? events.filter(e => (e.status || 'entregue') === filter) : events;
+      const sorted = [...filtered].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      count.textContent = filter
+        ? \`\${sorted.length} \${sorted.length === 1 ? 'evento' : 'eventos'} (filtrado)\`
+        : (events.length === 1 ? '1 evento' : events.length + ' eventos');
       if (sorted.length === 0) {
-        list.innerHTML = '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>';
+        list.innerHTML = filter
+          ? \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`
+          : '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>';
         return;
       }
       list.innerHTML = sorted.map(e => {
@@ -402,14 +480,18 @@ export function dashboardHTML(events) {
         const eyeIcon = e.visible !== false
           ? \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\`
           : \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>\`;
+        const st = e.status || 'entregue';
         return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${e.id}">
           \${thumb}
           <div class="evt-info">
-            <div class="evt-name">\${esc(e.title)}</div>
+            <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${st}">\${STATUS_LABELS[st]}</span></div>
             <div class="evt-slug">/\${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
             <button class="icon-btn \${e.visible === false ? 'muted' : ''}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}" onclick="toggleVisible('\${e.id}')">\${eyeIcon}</button>
+            <button class="icon-btn" title="QR Code" onclick="openQR('\${e.id}')">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M17 17h4v4M14 21h3"/></svg>
+            </button>
             <button class="icon-btn" title="Editar" onclick="openForm('\${e.id}')">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
@@ -438,6 +520,8 @@ export function dashboardHTML(events) {
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
+      document.getElementById('f-status').value = e?.status || 'entregue';
+      document.getElementById('f-notes').value = e?.internalNotes || '';
       const alertActive = e?.photosAlert?.active === true;
       document.getElementById('f-alert-active').checked = alertActive;
       document.getElementById('f-alert-active').dataset.wasActive = alertActive ? '1' : '0';
@@ -565,6 +649,8 @@ export function dashboardHTML(events) {
         projectUrl: document.getElementById('f-purl').value.trim(),
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
+        status: document.getElementById('f-status').value,
+        internalNotes: document.getElementById('f-notes').value,
         photosAlert: (() => {
           const nowActive = document.getElementById('f-alert-active').checked;
           const wasActive = document.getElementById('f-alert-active').dataset.wasActive === '1';
@@ -749,6 +835,76 @@ export function dashboardHTML(events) {
       } catch(err) {
         toast(err.message || 'Erro ao alterar senha.', 'err');
       }
+    }
+
+    // ---- QR Code ----
+    let qrLibLoading = null;
+    let currentQRSlug = '';
+    function loadQRLib() {
+      if (window.qrcode) return Promise.resolve(window.qrcode);
+      if (qrLibLoading) return qrLibLoading;
+      qrLibLoading = new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+        s.onload = () => res(window.qrcode);
+        s.onerror = () => rej(new Error('Falha ao carregar lib do QR'));
+        document.head.appendChild(s);
+      });
+      return qrLibLoading;
+    }
+    async function openQR(id) {
+      const e = events.find(ev => ev.id === id);
+      if (!e) return;
+      currentQRSlug = e.slug;
+      const url = location.origin + '/' + e.slug;
+      document.getElementById('qr-title').textContent = e.title;
+      document.getElementById('qr-slug').textContent = url;
+      document.getElementById('qr-modal').classList.add('open');
+      const wrap = document.getElementById('qr-canvas-wrap');
+      wrap.innerHTML = '<div style="color:#888;font-size:.8rem">Carregando…</div>';
+      try {
+        const qrcode = await loadQRLib();
+        const q = qrcode(0, 'M');
+        q.addData(url);
+        q.make();
+        const cellSize = 8;
+        const margin = 4;
+        const size = q.getModuleCount();
+        const canvas = document.createElement('canvas');
+        const dim = (size + margin * 2) * cellSize;
+        canvas.width = dim;
+        canvas.height = dim;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, dim, dim);
+        ctx.fillStyle = '#000';
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            if (q.isDark(r, c)) {
+              ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
+            }
+          }
+        }
+        wrap.innerHTML = '';
+        wrap.appendChild(canvas);
+      } catch(err) {
+        wrap.innerHTML = '<div style="color:#c0392b;font-size:.8rem">Erro: ' + esc(err.message) + '</div>';
+      }
+    }
+    function closeQR() {
+      document.getElementById('qr-modal').classList.remove('open');
+    }
+    function downloadQR() {
+      const canvas = document.querySelector('#qr-canvas-wrap canvas');
+      if (!canvas) return;
+      const link = document.createElement('a');
+      link.download = 'qr-' + currentQRSlug + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+    function copyQRLink() {
+      const url = document.getElementById('qr-slug').textContent;
+      navigator.clipboard.writeText(url).then(() => toast('Link copiado!', 'ok')).catch(() => toast('Erro ao copiar.', 'err'));
     }
 
     // ---- API helper ----

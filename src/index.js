@@ -13,6 +13,10 @@ export default {
     const method = request.method.toUpperCase();
 
     try {
+      // PWA assets
+      if (path === '/manifest.json' && method === 'GET') return handleManifest();
+      if (path === '/icon.svg' && method === 'GET') return handleIcon();
+
       // Gallery index
       if (path === '/' && method === 'GET') return handleGallery(env);
 
@@ -54,7 +58,7 @@ export default {
 // ---------------------------------------------------------------------------
 async function handleGallery(env) {
   const events = await getEvents(env);
-  return html(galleryHTML(events));
+  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN));
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +78,7 @@ async function handleEventPage(request, env, slug, ctx) {
     }).catch(() => {})
   );
 
-  return html(eventHTML(event));
+  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN));
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +192,8 @@ async function handleCreateEvent(request, env) {
     projectUrl: String(body.projectUrl || '').slice(0, 500),
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
+    status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
+    internalNotes: String(body.internalNotes || '').slice(0, 5000),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -237,6 +243,10 @@ async function handleUpdateEvent(request, env, path) {
     projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
     visible: body.visible !== undefined ? body.visible !== false : existing.visible,
     comingSoon: body.comingSoon !== undefined ? body.comingSoon === true : (existing.comingSoon === true),
+    status: body.status !== undefined
+      ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
+      : (existing.status || 'entregue'),
+    internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -474,6 +484,34 @@ function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function handleManifest() {
+  const manifest = {
+    name: 'fotos · Luca F. Chala',
+    short_name: 'fotos',
+    description: 'Galeria de fotos de Luca F. Chala',
+    start_url: '/dashboard',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#0a0a0a',
+    theme_color: '#0a0a0a',
+    icons: [
+      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+    ],
+  };
+  return new Response(JSON.stringify(manifest), {
+    status: 200,
+    headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="48" fill="#0a0a0a"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="140" font-weight="600" fill="#f0ebe5">f.</text></svg>`;
+  return new Response(svg, {
+    status: 200,
+    headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=604800' },
   });
 }
 

@@ -15,6 +15,14 @@
 - **WhatsApp:** botão de compartilhamento no footer das páginas de evento
 - **LGPD:** aviso de privacidade no rodapé do modal de remoção
 - **E-mail de remoção atendida:** ao marcar como resolvido no dashboard, solicitante recebe e-mail confirmando
+- **SLA 15 dias úteis:** texto de prazo de resposta no modal de remoção
+- **Skeleton loaders:** shimmer animado nos cards da galeria enquanto a foto carrega
+- **Tour guiado:** modal de boas-vindas no primeiro acesso a uma página de evento (lembrado via localStorage)
+- **Notas privadas:** campo `internalNotes` em cada evento, só visível no dashboard
+- **Status de produção:** dropdown no formulário + badge colorido na lista + filtro acima da lista (em-edição / em-revisão / entregue / arquivado)
+- **PWA:** manifest.json + icon.svg + meta tags — dashboard instalável no celular
+- **Cloudflare Web Analytics:** script injetado nas páginas públicas quando `CF_ANALYTICS_TOKEN` está configurado no Worker
+- **QR Code por evento:** botão no dashboard que abre modal com QR code (carrega lib lazy do jsDelivr) + botões "Baixar PNG / Imprimir / Copiar link"
 
 ---
 
