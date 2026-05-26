@@ -454,6 +454,9 @@ export function dashboardHTML(events) {
     let editingId = null;
     let metricsLoaded = false;
     let photoList = [];
+    let requestsLoaded = false;
+    let qrLibLoading = null;
+    let currentQRSlug = '';
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
@@ -462,7 +465,7 @@ export function dashboardHTML(events) {
       renderEventList();
     } catch(initErr) {
       const list = document.getElementById('evt-list');
-      if (list) list.innerHTML = '<p style="color:#e07070;padding:1rem;font-size:.8rem">Erro ao carregar eventos: ' + initErr.message + ' — ' + initErr.stack.split('\n')[1] + '</p>';
+      if (list) list.innerHTML = '<p style="color:#e07070;padding:1rem;font-size:.8rem">Erro: ' + String(initErr) + '</p>';
     }
     loadRequests(); // populate badge on load
 
@@ -749,7 +752,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- Requests ----
-    let requestsLoaded = false;
     async function loadRequests() {
       const container = document.getElementById('requests-body');
       try {
@@ -915,8 +917,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- QR Code ----
-    let qrLibLoading = null;
-    let currentQRSlug = '';
     function loadQRLib() {
       if (window.qrcode) return Promise.resolve(window.qrcode);
       if (qrLibLoading) return qrLibLoading;
