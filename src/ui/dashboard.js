@@ -444,6 +444,7 @@ export function dashboardHTML(events) {
     let metricsLoaded = false;
     let photoList = [];
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+    const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
     renderEventList();
@@ -460,7 +461,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- Event List ----
-    const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
