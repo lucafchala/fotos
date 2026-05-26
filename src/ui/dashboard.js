@@ -461,15 +461,11 @@ export function dashboardHTML(events) {
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
+    document.body.insertAdjacentHTML('afterbegin', '<div id="diag" style="background:#1a3a1a;color:#9fe09f;padding:.5rem 1rem;font-size:.75rem;font-family:monospace;border-bottom:1px solid #2a5a2a">JS iniciou. events.length=' + (Array.isArray(events) ? events.length : 'NÃO É ARRAY (' + typeof events + ')') + '</div>');
     try {
       renderEventList();
-      const cnt = document.getElementById('evt-count');
-      if (cnt && events.length === 0) {
-        cnt.textContent += ' [DEBUG: array embebido vazio]';
-      }
     } catch(initErr) {
-      const list = document.getElementById('evt-list');
-      if (list) list.innerHTML = '<p style="color:#e07070;padding:1rem;font-size:.8rem">Erro: ' + String(initErr) + '</p>';
+      document.body.insertAdjacentHTML('afterbegin', '<div style="background:#3a1010;color:#e07070;padding:.5rem 1rem;font-size:.75rem;font-family:monospace;border-bottom:1px solid #5a2020">ERRO: ' + String(initErr) + '</div>');
     }
     loadRequests(); // populate badge on load
 
