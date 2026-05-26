@@ -26,11 +26,13 @@ export default {
       if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
 
       // API routes (require auth)
-      if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
-      if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
-      if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
+      if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env, ctx);
+      if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path, ctx);
+      if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path, ctx);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
+      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
+      if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
@@ -161,7 +163,7 @@ async function handleLogout(request, env) {
 // ---------------------------------------------------------------------------
 // API: Create event
 // ---------------------------------------------------------------------------
-async function handleCreateEvent(request, env) {
+async function handleCreateEvent(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
@@ -207,13 +209,14 @@ async function handleCreateEvent(request, env) {
 
   events.push(event);
   await saveEvents(env, events);
+  ctx.waitUntil(driveUpsertBackup(buildBackup(events), env).catch(() => {}));
   return jsonOk(event, 201);
 }
 
 // ---------------------------------------------------------------------------
 // API: Update event
 // ---------------------------------------------------------------------------
-async function handleUpdateEvent(request, env, path) {
+async function handleUpdateEvent(request, env, path, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
@@ -273,13 +276,14 @@ async function handleUpdateEvent(request, env, path) {
   }
   events[idx] = updated;
   await saveEvents(env, events);
+  ctx.waitUntil(driveUpsertBackup(buildBackup(events), env).catch(() => {}));
   return jsonOk(updated);
 }
 
 // ---------------------------------------------------------------------------
 // API: Delete event
 // ---------------------------------------------------------------------------
-async function handleDeleteEvent(request, env, path) {
+async function handleDeleteEvent(request, env, path, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
@@ -291,6 +295,7 @@ async function handleDeleteEvent(request, env, path) {
   const [removed] = events.splice(idx, 1);
   await saveEvents(env, events);
   await env.FOTOS.delete(`views:${removed.slug}`).catch(() => {});
+  ctx.waitUntil(driveUpsertBackup(buildBackup(events), env).catch(() => {}));
   return jsonOk({ deleted: true });
 }
 
@@ -523,6 +528,117 @@ function handleIcon() {
     status: 200,
     headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=604800' },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Backup — build / merge / Drive upload
+// ---------------------------------------------------------------------------
+function buildBackup(events) {
+  return JSON.stringify({
+    version: 1,
+    backupAt: new Date().toISOString(),
+    eventCount: events.length,
+    events,
+  });
+}
+
+function mergeRestore(current, backupEvents) {
+  const result = [...current];
+  let added = 0, updated = 0;
+  for (const bEv of backupEvents) {
+    const idx = result.findIndex(e => e.id === bEv.id);
+    if (idx === -1) {
+      result.push(bEv);
+      added++;
+    } else {
+      const ct = new Date(result[idx].updatedAt || result[idx].createdAt || 0).getTime();
+      const bt = new Date(bEv.updatedAt || bEv.createdAt || 0).getTime();
+      if (bt > ct) { result[idx] = bEv; updated++; }
+    }
+  }
+  return { events: result, added, updated };
+}
+
+async function getGoogleToken(saKeyJson) {
+  const key = JSON.parse(saKeyJson);
+  const iat = Math.floor(Date.now() / 1000);
+  const b64u = s => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  const hdr = b64u(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const clm = b64u(JSON.stringify({
+    iss: key.client_email,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat, exp: iat + 3600,
+  }));
+  const msg = `${hdr}.${clm}`;
+  const pem = key.private_key.replace(/-----[^-]+-----|\r?\n/g, '');
+  const der = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+  const ck = await crypto.subtle.importKey('pkcs8', der.buffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', ck, new TextEncoder().encode(msg));
+  const jwt = `${msg}.${b64u(String.fromCharCode(...new Uint8Array(sig)))}`;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error('Google token: ' + JSON.stringify(data));
+  return data.access_token;
+}
+
+async function driveUpsertBackup(content, env) {
+  if (!env.GOOGLE_SA_KEY || !env.GOOGLE_DRIVE_FOLDER_ID) return;
+  const token = await getGoogleToken(env.GOOGLE_SA_KEY);
+  const folderId = env.GOOGLE_DRIVE_FOLDER_ID;
+  const fileName = 'fotos-backup.json';
+  const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
+  const search = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const { files } = await search.json();
+  if (files && files.length > 0) {
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${files[0].id}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: content,
+    });
+  } else {
+    const bnd = 'fotos_backup_bnd_271828';
+    const meta = JSON.stringify({ name: fileName, parents: [folderId], mimeType: 'application/json' });
+    const body = `--${bnd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bnd}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${bnd}--`;
+    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary="${bnd}"` },
+      body,
+    });
+  }
+}
+
+async function handleGetBackup(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const events = await getEvents(env);
+  const date = new Date().toISOString().split('T')[0];
+  return new Response(buildBackup(events), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
+    },
+  });
+}
+
+async function handleRestoreBackup(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
+  const current = await getEvents(env);
+  const { events: merged, added, updated } = mergeRestore(current, body.events);
+  await saveEvents(env, merged);
+  return jsonOk({ ok: true, added, updated, total: merged.length });
 }
 
 function notFound() {

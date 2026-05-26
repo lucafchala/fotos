@@ -294,6 +294,17 @@ export function dashboardHTML(events) {
       </div>
       <button class="btn-primary" style="margin-top:.25rem" onclick="changePassword()">Salvar nova senha</button>
     </div>
+    <div class="settings-card">
+      <h3>Backup dos dados</h3>
+      <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
+      <button class="btn-sm" style="margin-bottom:1.25rem" onclick="downloadBackup()">⬇ Baixar backup JSON</button>
+      <div class="field">
+        <label>Restaurar a partir de backup</label>
+        <input type="file" id="restore-file" accept=".json" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:8px;font-size:.82rem;width:100%">
+        <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Nenhum dado atual será excluído. Eventos do backup são mesclados com os existentes.</p>
+      </div>
+      <button class="btn-sm" onclick="restoreBackup()">↩ Restaurar backup</button>
+    </div>
   </div>
 
   <!-- REQUESTS TAB -->
@@ -849,6 +860,33 @@ export function dashboardHTML(events) {
         toast('Senha alterada com sucesso!', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao alterar senha.', 'err');
+      }
+    }
+
+    // ---- Backup ----
+    function downloadBackup() {
+      const a = document.createElement('a');
+      a.href = '/api/backup';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    async function restoreBackup() {
+      const fileInput = document.getElementById('restore-file');
+      const file = fileInput.files[0];
+      if (!file) { toast('Selecione um arquivo de backup.', 'err'); return; }
+      let backup;
+      try { backup = JSON.parse(await file.text()); } catch { toast('Arquivo inválido.', 'err'); return; }
+      if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
+      const n = backup.events.length;
+      const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
+      if (!confirm('Restaurar backup de ' + date + ' com ' + n + ' eventos?\n\nEventos novos serao adicionados sem excluir nenhum dado atual.')) return;
+      try {
+        const res = await api('POST', '/api/backup/restore', backup);
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
+        setTimeout(() => window.location.reload(), 1800);
+      } catch(err) {
+        toast(err.message || 'Erro ao restaurar.', 'err');
       }
     }
 
