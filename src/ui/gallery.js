@@ -31,6 +31,9 @@ export function galleryHTML(events, analyticsToken) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <meta name="theme-color" content="#0a0a0a">
   <title>fotos · Luca F. Chala</title>
   <meta name="description" content="Galeria de fotos de Luca Fchala">
   <link rel="preconnect" href="https://fonts.googleapis.com">

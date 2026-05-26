@@ -44,6 +44,9 @@ export function eventHTML(event, analyticsToken) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
   <meta property="og:title" content="${escape(event.title)}">
   <meta property="og:description" content="${escape(event.shortDescription || '')}">
