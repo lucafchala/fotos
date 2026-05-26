@@ -458,7 +458,12 @@ export function dashboardHTML(events) {
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
-    renderEventList();
+    try {
+      renderEventList();
+    } catch(initErr) {
+      const list = document.getElementById('evt-list');
+      if (list) list.innerHTML = '<p style="color:#e07070;padding:1rem;font-size:.8rem">Erro ao carregar eventos: ' + initErr.message + ' — ' + initErr.stack.split('\n')[1] + '</p>';
+    }
     loadRequests(); // populate badge on load
 
     // ---- Tabs ----
