@@ -99,7 +99,12 @@ async function handleDashboardPage(request, env, url) {
   }
 
   const events = await getEvents(env);
-  return html(dashboardHTML(events));
+  return new Response(dashboardHTML(events), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

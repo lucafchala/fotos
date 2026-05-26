@@ -463,6 +463,10 @@ export function dashboardHTML(events) {
     // ---- Init ----
     try {
       renderEventList();
+      const cnt = document.getElementById('evt-count');
+      if (cnt && events.length === 0) {
+        cnt.textContent += ' [DEBUG: array embebido vazio]';
+      }
     } catch(initErr) {
       const list = document.getElementById('evt-list');
       if (list) list.innerHTML = '<p style="color:#e07070;padding:1rem;font-size:.8rem">Erro: ' + String(initErr) + '</p>';
