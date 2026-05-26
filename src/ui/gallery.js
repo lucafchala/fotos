@@ -1,30 +1,38 @@
 import { escape, formatDatePT } from '../utils.js';
 
 export function galleryHTML(events, analyticsToken) {
-  const ord = e => typeof e.order === 'number'
-    ? e.order
-    : (e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime());
+  const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
   const visible = events
     .filter(e => e.visible !== false)
-    .sort((a, b) => ord(b) - ord(a));
+    .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return byDate(b) - byDate(a);
+    });
 
-  const cards = visible.length === 0
-    ? `<p class="empty">Em breve…</p>`
-    : visible.map(e => `
-      <a href="/${escape(e.slug)}" class="card${e.comingSoon ? ' card-soon' : ''}">
+  const cardHTML = (e) => {
+    const featured = e.pinned === true;
+    return `
+      <a href="/${escape(e.slug)}" class="card${featured ? ' card-featured' : ''}${e.comingSoon ? ' card-soon' : ''}">
         <div class="thumb${e.thumbnailUrl && !e.comingSoon ? ' loading' : ''}">
           ${e.comingSoon
             ? `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
             : e.thumbnailUrl
               ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy" onload="this.parentElement.classList.remove('loading')" onerror="this.parentElement.classList.remove('loading')">`
               : `<div class="thumb-ph">${iconCamera()}</div>`}
+          ${featured ? `<span class="featured-badge">Em destaque</span>` : ''}
         </div>
         <div class="info">
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
           <h2>${escape(e.title)}</h2>
           ${e.shortDescription ? `<p>${escape(e.shortDescription)}</p>` : ''}
         </div>
-      </a>`).join('');
+      </a>`;
+  };
+
+  const cards = visible.length === 0
+    ? `<p class="empty">Em breve…</p>`
+    : visible.map(cardHTML).join('');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -63,6 +71,10 @@ export function galleryHTML(events, analyticsToken) {
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#555}
     .info h2{font-size:.875rem;font-weight:600;margin:.25rem 0 .3rem;line-height:1.3}
     .info p{font-size:.75rem;color:#777;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .card-featured{grid-column:1/-1}
+    .card-featured .thumb{aspect-ratio:16/9}
+    .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
+    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.1rem}.card-featured .info p{-webkit-line-clamp:4}}
     .empty{text-align:center;color:#333;padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
     footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
