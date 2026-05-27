@@ -1,10 +1,11 @@
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
+import { supportHTML } from './ui/support.js';
 import {
   getEvents, saveEvents, hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
 } from './utils.js';
 
 export default {
@@ -27,15 +28,20 @@ export default {
       if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
 
       // API routes (require auth)
-      if (path === '/api/events/reorder' && method === 'POST') return handleReorderEvents(request, env);
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
+      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
+      if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+
+      // Support page
+      if (path === '/suporte' && method === 'GET') return html(supportHTML());
+      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
@@ -100,7 +106,12 @@ async function handleDashboardPage(request, env, url) {
   }
 
   const events = await getEvents(env);
-  return html(dashboardHTML(events));
+  return new Response(dashboardHTML(events), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +213,7 @@ async function handleCreateEvent(request, env) {
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
-    order: typeof body.order === 'number' ? body.order : Date.now(),
+    pinned: body.pinned === true,
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -256,7 +267,7 @@ async function handleUpdateEvent(request, env, path) {
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
     internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
-    order: typeof body.order === 'number' ? body.order : (typeof existing.order === 'number' ? existing.order : Date.now()),
+    pinned: body.pinned !== undefined ? body.pinned === true : (existing.pinned === true),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
       active: body.photosAlert.active === true,
       addedAt: body.photosAlert.addedAt || null,
@@ -272,6 +283,11 @@ async function handleUpdateEvent(request, env, path) {
     updated.slug = body.slug;
   }
 
+  if (updated.pinned) {
+    for (let i = 0; i < events.length; i++) {
+      if (i !== idx) events[i] = { ...events[i], pinned: false };
+    }
+  }
   events[idx] = updated;
   await saveEvents(env, events);
   return jsonOk(updated);
@@ -299,27 +315,6 @@ async function handleDeleteEvent(request, env, path) {
 // API: Metrics
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// API: Reorder events
-// ---------------------------------------------------------------------------
-async function handleReorderEvents(request, env) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
-
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
-
-  const ids = Array.isArray(body.ids) ? body.ids.filter(s => typeof s === 'string') : [];
-  if (!ids.length) return jsonErr('Lista de IDs vazia.', 400);
-
-  const events = await getEvents(env);
-  const idToOrder = new Map(ids.map((id, i) => [id, ids.length - i]));
-  for (const e of events) {
-    if (idToOrder.has(e.id)) e.order = idToOrder.get(e.id);
-  }
-  await saveEvents(env, events);
-  return jsonOk({ ok: true });
-}
-
 async function handleMetrics(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -359,6 +354,45 @@ async function handleTrackDrive(request, env) {
   const v = await env.FOTOS.get(key).catch(() => null);
   await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(() => {});
   return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Support page form submission (public)
+// ---------------------------------------------------------------------------
+async function handleSupportRequest(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
+  if (!allowed) {
+    return html(supportHTML(false, 'Muitas mensagens enviadas. Tente mais tarde.'), 429);
+  }
+
+  let name, email, message;
+  const ct = request.headers.get('Content-Type') || '';
+  if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    const fd = await request.formData().catch(() => null);
+    if (!fd) return html(supportHTML(false, 'Erro ao processar formulário.'), 400);
+    name = String(fd.get('name') || '').trim().slice(0, 120);
+    email = String(fd.get('email') || '').trim().slice(0, 200);
+    message = String(fd.get('message') || '').trim().slice(0, 2000);
+  } else {
+    let body;
+    try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+    name = String(body.name || '').trim().slice(0, 120);
+    email = String(body.email || '').trim().slice(0, 200);
+    message = String(body.message || '').trim().slice(0, 2000);
+  }
+
+  if (!message) {
+    return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
+  }
+
+  try {
+    await sendSupportEmail(env, { name, email, message });
+  } catch (e) {
+    console.error('sendSupportEmail:', e);
+  }
+
+  return html(supportHTML(true));
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +626,60 @@ function handleIcon() {
     status: 200,
     headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=604800' },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Backup — build / merge / Drive upload
+// ---------------------------------------------------------------------------
+function buildBackup(events) {
+  return JSON.stringify({
+    version: 1,
+    backupAt: new Date().toISOString(),
+    eventCount: events.length,
+    events,
+  });
+}
+
+function mergeRestore(current, backupEvents) {
+  const result = [...current];
+  let added = 0, updated = 0;
+  for (const bEv of backupEvents) {
+    const idx = result.findIndex(e => e.id === bEv.id);
+    if (idx === -1) {
+      result.push(bEv);
+      added++;
+    } else {
+      const ct = new Date(result[idx].updatedAt || result[idx].createdAt || 0).getTime();
+      const bt = new Date(bEv.updatedAt || bEv.createdAt || 0).getTime();
+      if (bt > ct) { result[idx] = bEv; updated++; }
+    }
+  }
+  return { events: result, added, updated };
+}
+
+async function handleGetBackup(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const events = await getEvents(env);
+  const date = new Date().toISOString().split('T')[0];
+  return new Response(buildBackup(events), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
+    },
+  });
+}
+
+async function handleRestoreBackup(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
+  const current = await getEvents(env);
+  const { events: merged, added, updated } = mergeRestore(current, body.events);
+  await saveEvents(env, merged);
+  return jsonOk({ ok: true, added, updated, total: merged.length });
 }
 
 function notFound() {

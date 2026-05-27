@@ -169,7 +169,8 @@ export async function sendResolvedEmail(env, req) {
   <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
   <p style="font-size:14px;line-height:1.6;margin-bottom:16px">Olá! Sua solicitação de remoção de foto referente ao projeto <strong>${esc(req.eventTitle)}</strong> foi <strong>atendida</strong>.</p>
   ${req.value ? `<p style="font-size:14px;line-height:1.6;color:#444">Identificação: ${esc(req.value)}</p>` : ''}
-  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">A foto foi removida do arquivo público. Obrigado por avisar — qualquer outra dúvida é só responder a este e-mail.</p>
+  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">A foto foi removida do arquivo público. Obrigado por avisar!</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Qualquer outra dúvida, fale pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou envie um e-mail para <a href="mailto:suport@lucafchala.com" style="color:#888">suport@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 
@@ -180,6 +181,42 @@ export async function sendResolvedEmail(env, req) {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação atendida — ${req.eventTitle}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+export async function sendSupportEmail(env, { name, email, message }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) return false;
+
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">📬 Nova mensagem de suporte</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">Recebida via fotos.lucafchala.com/suporte</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    ${name ? `<tr><td style="padding:8px 0;color:#666;width:80px">Nome</td><td style="padding:8px 0">${esc(name)}</td></tr>` : ''}
+    ${email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0"><a href="mailto:${esc(email)}">${esc(email)}</a></td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0;white-space:pre-wrap">${esc(message)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+</div>`;
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [env.ADMIN_EMAIL],
+      reply_to: email || undefined,
+      subject: `📬 Suporte${name ? ` — ${name}` : ''}`,
       html,
     }),
   });
@@ -208,7 +245,8 @@ export async function sendConfirmationEmail(env, req) {
     ${req.value ? `<tr><td style="padding:8px 0;color:#666">Identificação</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
   </table>
-  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve. Caso seja necessário, entraremos em contato.</p>
+  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve.</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Em caso de dúvidas, entre em contato pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou por <a href="mailto:suport@lucafchala.com" style="color:#888">suport@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 

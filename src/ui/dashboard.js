@@ -69,8 +69,44 @@ export function loginHTML(opts = {}) {
 </html>`;
 }
 
+const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+
 export function dashboardHTML(events) {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+
+  const esc = s => !s ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const byDateSSR = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
+  const sorted = [...events].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return byDateSSR(b) - byDateSSR(a);
+  });
+  const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
+  const noun = n => n === 1 ? 'evento' : 'eventos';
+  const ssrCount = `${active.length} ${noun(active.length)} ativos`;
+  const ssrList = active.length === 0
+    ? '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>'
+    : active.map(e => {
+        const st = e.status || 'entregue';
+        const thumb = e.thumbnailUrl
+          ? `<img class="evt-thumb" src="${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">`
+          : `<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>`;
+        return `<div class="evt-item${e.visible === false ? ' hidden-evt' : ''}" id="evt-${esc(e.id)}">
+          ${thumb}
+          <div class="evt-info">
+            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${st}">${STATUS_LABELS_SSR[st] || st}</span></div>
+            <div class="evt-slug">/${esc(e.slug)}</div>
+          </div>
+          <div class="evt-actions">
+            <button class="icon-btn${e.pinned ? ' pinned' : ''}" data-action="pin" data-id="${esc(e.id)}" title="${e.pinned ? 'Remover destaque' : 'Destacar'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg></button>
+            <button class="icon-btn" data-action="vis" data-id="${esc(e.id)}" title="${e.visible !== false ? 'Ocultar' : 'Mostrar'}">${e.visible !== false ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`}</button>
+            <button class="icon-btn" data-action="qr" data-id="${esc(e.id)}" title="QR Code"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M17 17h4v4M14 21h3"/></svg></button>
+            <button class="icon-btn" data-action="edit" data-id="${esc(e.id)}" title="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="icon-btn danger" data-action="del" data-id="${esc(e.id)}" title="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
+          </div>
+        </div>`;
+      }).join('');
+
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -119,10 +155,7 @@ export function dashboardHTML(events) {
     .icon-btn.danger:hover{border-color:var(--red);color:var(--red)}
     .icon-btn.muted{opacity:.4}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
-    .reorder-col{display:flex;flex-direction:column;gap:.2rem;flex-shrink:0}
-    .reorder-btn{background:none;border:1px solid var(--border);color:var(--text3);width:26px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,background .15s;padding:0}
-    .reorder-btn:hover:not(:disabled){border-color:#3a3a3a;color:var(--text);background:var(--bg3)}
-    .reorder-btn:disabled{opacity:.25;cursor:not-allowed}
+    .icon-btn.pinned{border-color:#c0a060;color:#c0a060}
     /* status badge */
     .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
     .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}
@@ -257,7 +290,7 @@ export function dashboardHTML(events) {
   <!-- EVENTS TAB -->
   <div id="tab-events" class="panel active">
     <div class="panel-head">
-      <h2 id="evt-count"></h2>
+      <h2 id="evt-count">${ssrCount}</h2>
       <button class="btn-add" onclick="openForm()">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Adicionar
@@ -273,7 +306,7 @@ export function dashboardHTML(events) {
         <option value="arquivado">Arquivado</option>
       </select>
     </div>
-    <div class="evt-list" id="evt-list"></div>
+    <div class="evt-list" id="evt-list">${ssrList}</div>
   </div>
 
   <!-- METRICS TAB -->
@@ -296,6 +329,17 @@ export function dashboardHTML(events) {
         <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password">
       </div>
       <button class="btn-primary" style="margin-top:.25rem" onclick="changePassword()">Salvar nova senha</button>
+    </div>
+    <div class="settings-card">
+      <h3>Backup dos dados</h3>
+      <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
+      <button class="btn-sm" style="margin-bottom:1.25rem" onclick="downloadBackup()">⬇ Baixar backup JSON</button>
+      <div class="field">
+        <label>Restaurar a partir de backup</label>
+        <input type="file" id="restore-file" accept=".json" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:8px;font-size:.82rem;width:100%">
+        <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Nenhum dado atual será excluído. Eventos do backup são mesclados com os existentes.</p>
+      </div>
+      <button class="btn-sm" onclick="restoreBackup()">↩ Restaurar backup</button>
     </div>
   </div>
 
@@ -446,11 +490,26 @@ export function dashboardHTML(events) {
     let editingId = null;
     let metricsLoaded = false;
     let photoList = [];
+    let requestsLoaded = false;
+    let qrLibLoading = null;
+    let currentQRSlug = '';
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+    const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
-    renderEventList();
-    loadRequests(); // populate badge on load
+    // Event delegation for evt-list buttons (works for both SSR and JS-rendered items)
+    document.getElementById('evt-list').addEventListener('click', function(ev) {
+      const btn = ev.target.closest('[data-action]');
+      if (!btn) return;
+      const { action, id } = btn.dataset;
+      if (action === 'edit') openForm(id);
+      else if (action === 'del') deleteEvent(id);
+      else if (action === 'pin') togglePin(id);
+      else if (action === 'vis') toggleVisible(id);
+      else if (action === 'qr') openQR(id);
+    });
+    try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
+    loadRequests();
 
     // ---- Tabs ----
     function switchTab(name, btn) {
@@ -463,9 +522,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- Event List ----
-    const ord = e => typeof e.order === 'number'
-      ? e.order
-      : (e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime());
     function renderEventList() {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
@@ -474,8 +530,11 @@ export function dashboardHTML(events) {
         filter === 'todos' ? events :
         filter === 'ativos' ? events.filter(e => (e.status || 'entregue') !== 'arquivado') :
         events.filter(e => (e.status || 'entregue') === filter);
-      const sorted = [...filtered].sort((a, b) => ord(b) - ord(a));
-      const canReorder = filter === 'todos' || filter === 'ativos';
+      const sorted = [...filtered].sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return byDate(b) - byDate(a);
+      });
       const noun = n => n === 1 ? 'evento' : 'eventos';
       count.textContent =
         filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
@@ -488,40 +547,31 @@ export function dashboardHTML(events) {
           \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`;
         return;
       }
-      list.innerHTML = sorted.map((e, idx) => {
-        const isFirst = idx === 0;
-        const isLast = idx === sorted.length - 1;
+      list.innerHTML = sorted.map(e => {
         const thumb = e.thumbnailUrl
           ? \`<img class="evt-thumb" src="\${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">\`
           : \`<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>\`;
         const eyeIcon = e.visible !== false
           ? \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\`
           : \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>\`;
+        const pinIcon = \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="\${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg>\`;
         const st = e.status || 'entregue';
-        const reorderHTML = canReorder ? \`<div class="reorder-col">
-          <button class="reorder-btn" \${isFirst ? 'disabled' : ''} title="Mover para cima" onclick="moveItem('\${e.id}', -1)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
-          </button>
-          <button class="reorder-btn" \${isLast ? 'disabled' : ''} title="Mover para baixo" onclick="moveItem('\${e.id}', 1)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-        </div>\` : '';
         return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${e.id}">
-          \${reorderHTML}
           \${thumb}
           <div class="evt-info">
             <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${st}">\${STATUS_LABELS[st]}</span></div>
             <div class="evt-slug">/\${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
-            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}" onclick="toggleVisible('\${e.id}')">\${eyeIcon}</button>
-            <button class="icon-btn" title="QR Code" onclick="openQR('\${e.id}')">
+            <button class="icon-btn \${e.pinned ? 'pinned' : ''}" data-action="pin" data-id="\${e.id}" title="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}">\${pinIcon}</button>
+            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" data-action="vis" data-id="\${e.id}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}">\${eyeIcon}</button>
+            <button class="icon-btn" data-action="qr" data-id="\${e.id}" title="QR Code">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M17 17h4v4M14 21h3"/></svg>
             </button>
-            <button class="icon-btn" title="Editar" onclick="openForm('\${e.id}')">
+            <button class="icon-btn" data-action="edit" data-id="\${e.id}" title="Editar">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn danger" title="Excluir" onclick="deleteEvent('\${e.id}')">
+            <button class="icon-btn danger" data-action="del" data-id="\${e.id}" title="Excluir">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             </button>
           </div>
@@ -744,7 +794,6 @@ export function dashboardHTML(events) {
     }
 
     // ---- Requests ----
-    let requestsLoaded = false;
     async function loadRequests() {
       const container = document.getElementById('requests-body');
       try {
@@ -863,46 +912,53 @@ export function dashboardHTML(events) {
       }
     }
 
-    // ---- Reorder ----
-    async function moveItem(id, dir) {
-      const filter = document.getElementById('status-filter')?.value || 'ativos';
-      if (filter !== 'todos' && filter !== 'ativos') return;
-
-      const full = [...events].sort((a, b) => ord(b) - ord(a));
-      const filteredView = filter === 'todos'
-        ? full
-        : full.filter(e => (e.status || 'entregue') !== 'arquivado');
-
-      const fIdx = filteredView.findIndex(e => e.id === id);
-      const tFIdx = fIdx + dir;
-      if (tFIdx < 0 || tFIdx >= filteredView.length) return;
-
-      const targetId = filteredView[tFIdx].id;
-      const fullIdx = full.findIndex(e => e.id === id);
-      const fullTargetIdx = full.findIndex(e => e.id === targetId);
-
-      const [item] = full.splice(fullIdx, 1);
-      const newTargetIdx = fullTargetIdx > fullIdx ? fullTargetIdx - 1 : fullTargetIdx;
-      const insertAt = dir < 0 ? newTargetIdx : newTargetIdx + 1;
-      full.splice(insertAt, 0, item);
-
-      const ids = full.map(e => e.id);
+    // ---- Backup ----
+    function downloadBackup() {
+      const a = document.createElement('a');
+      a.href = '/api/backup';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    async function restoreBackup() {
+      const fileInput = document.getElementById('restore-file');
+      const file = fileInput.files[0];
+      if (!file) { toast('Selecione um arquivo de backup.', 'err'); return; }
+      let backup;
+      try { backup = JSON.parse(await file.text()); } catch { toast('Arquivo inválido.', 'err'); return; }
+      if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
+      const n = backup.events.length;
+      const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
+      if (!confirm('Restaurar backup de ' + date + ' com ' + n + ' eventos? Eventos novos serao adicionados sem excluir nenhum dado atual.')) return;
       try {
-        await api('POST', '/api/events/reorder', { ids });
-        const n = ids.length;
-        ids.forEach((eid, i) => {
-          const ev = events.find(e => e.id === eid);
-          if (ev) ev.order = n - i;
-        });
-        renderEventList();
+        const res = await api('POST', '/api/backup/restore', backup);
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
+        setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
-        toast(err.message || 'Erro ao reordenar.', 'err');
+        toast(err.message || 'Erro ao restaurar.', 'err');
+      }
+    }
+
+    // ---- Pin ----
+    async function togglePin(id) {
+      const ev = events.find(e => e.id === id);
+      if (!ev) return;
+      const newPinned = !ev.pinned;
+      try {
+        await api('PUT', \`/api/events/\${id}\`, { pinned: newPinned });
+        if (newPinned) {
+          events.forEach(e => { e.pinned = e.id === id; });
+        } else {
+          ev.pinned = false;
+        }
+        renderEventList();
+        toast(newPinned ? 'Evento destacado na galeria.' : 'Destaque removido.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao alterar destaque.', 'err');
       }
     }
 
     // ---- QR Code ----
-    let qrLibLoading = null;
-    let currentQRSlug = '';
     function loadQRLib() {
       if (window.qrcode) return Promise.resolve(window.qrcode);
       if (qrLibLoading) return qrLibLoading;
