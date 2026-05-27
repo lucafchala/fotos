@@ -26,17 +26,17 @@ export function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-export async function hashPassword(password, saltHex) {
+export async function hashPassword(password, saltHex, iterations = 10_000) {
   const enc = new TextEncoder();
   const salt = saltHex
     ? hexToBytes(saltHex)
     : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 200_000 },
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
     key, 256
   );
-  return `pbkdf2:200000:${bytesToHex(salt)}:${bytesToHex(new Uint8Array(bits))}`;
+  return `pbkdf2:${iterations}:${bytesToHex(salt)}:${bytesToHex(new Uint8Array(bits))}`;
 }
 
 export async function verifyPassword(password, stored) {
@@ -47,9 +47,9 @@ export async function verifyPassword(password, stored) {
     const buf = await crypto.subtle.digest('SHA-256', enc.encode(password));
     return timingSafeEqual(bytesToHex(new Uint8Array(buf)), stored);
   }
-  const parts = stored.split(':');
-  const saltHex = parts[2];
-  const candidate = await hashPassword(password, saltHex);
+  const [, rawIterations, saltHex] = stored.split(':');
+  const iterations = parseInt(rawIterations, 10);
+  const candidate = await hashPassword(password, saltHex, iterations);
   return timingSafeEqual(candidate, stored);
 }
 
