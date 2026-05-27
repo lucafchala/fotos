@@ -929,7 +929,7 @@ export function dashboardHTML(events) {
       if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
       const n = backup.events.length;
       const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
-      if (!confirm('Restaurar backup de ' + date + ' com ' + n + ' eventos?\n\nEventos novos serao adicionados sem excluir nenhum dado atual.')) return;
+      if (!confirm('Restaurar backup de ' + date + ' com ' + n + ' eventos? Eventos novos serao adicionados sem excluir nenhum dado atual.')) return;
       try {
         const res = await api('POST', '/api/backup/restore', backup);
         toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
