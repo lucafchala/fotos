@@ -191,6 +191,42 @@ export async function sendResolvedEmail(env, req) {
   return true;
 }
 
+export async function sendSupportEmail(env, { name, email, message }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) return false;
+
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">📬 Nova mensagem de suporte</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">Recebida via fotos.lucafchala.com/suporte</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    ${name ? `<tr><td style="padding:8px 0;color:#666;width:80px">Nome</td><td style="padding:8px 0">${esc(name)}</td></tr>` : ''}
+    ${email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0"><a href="mailto:${esc(email)}">${esc(email)}</a></td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0;white-space:pre-wrap">${esc(message)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+</div>`;
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [env.ADMIN_EMAIL],
+      reply_to: email || undefined,
+      subject: `📬 Suporte${name ? ` — ${name}` : ''}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
 export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;

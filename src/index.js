@@ -1,10 +1,11 @@
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
+import { supportHTML } from './ui/support.js';
 import {
   getEvents, saveEvents, hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
 } from './utils.js';
 
 export default {
@@ -37,6 +38,10 @@ export default {
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+
+      // Support page
+      if (path === '/suporte' && method === 'GET') return html(supportHTML());
+      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
@@ -349,6 +354,45 @@ async function handleTrackDrive(request, env) {
   const v = await env.FOTOS.get(key).catch(() => null);
   await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(() => {});
   return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Support page form submission (public)
+// ---------------------------------------------------------------------------
+async function handleSupportRequest(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
+  if (!allowed) {
+    return html(supportHTML(false, 'Muitas mensagens enviadas. Tente mais tarde.'), 429);
+  }
+
+  let name, email, message;
+  const ct = request.headers.get('Content-Type') || '';
+  if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    const fd = await request.formData().catch(() => null);
+    if (!fd) return html(supportHTML(false, 'Erro ao processar formulário.'), 400);
+    name = String(fd.get('name') || '').trim().slice(0, 120);
+    email = String(fd.get('email') || '').trim().slice(0, 200);
+    message = String(fd.get('message') || '').trim().slice(0, 2000);
+  } else {
+    let body;
+    try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+    name = String(body.name || '').trim().slice(0, 120);
+    email = String(body.email || '').trim().slice(0, 200);
+    message = String(body.message || '').trim().slice(0, 2000);
+  }
+
+  if (!message) {
+    return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
+  }
+
+  try {
+    await sendSupportEmail(env, { name, email, message });
+  } catch (e) {
+    console.error('sendSupportEmail:', e);
+  }
+
+  return html(supportHTML(true));
 }
 
 // ---------------------------------------------------------------------------
