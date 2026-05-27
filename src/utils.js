@@ -169,7 +169,8 @@ export async function sendResolvedEmail(env, req) {
   <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
   <p style="font-size:14px;line-height:1.6;margin-bottom:16px">Olá! Sua solicitação de remoção de foto referente ao projeto <strong>${esc(req.eventTitle)}</strong> foi <strong>atendida</strong>.</p>
   ${req.value ? `<p style="font-size:14px;line-height:1.6;color:#444">Identificação: ${esc(req.value)}</p>` : ''}
-  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">A foto foi removida do arquivo público. Obrigado por avisar — qualquer outra dúvida é só responder a este e-mail.</p>
+  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">A foto foi removida do arquivo público. Obrigado por avisar!</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Qualquer outra dúvida, fale pelo <strong>WhatsApp</strong> ou envie um e-mail para <a href="mailto:suport@lucafchala.com" style="color:#888">suport@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 
@@ -208,7 +209,8 @@ export async function sendConfirmationEmail(env, req) {
     ${req.value ? `<tr><td style="padding:8px 0;color:#666">Identificação</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
   </table>
-  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve. Caso seja necessário, entraremos em contato.</p>
+  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve.</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Em caso de dúvidas, entre em contato pelo <strong>WhatsApp</strong> ou por <a href="mailto:suport@lucafchala.com" style="color:#888">suport@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 
