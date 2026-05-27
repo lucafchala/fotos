@@ -909,6 +909,8 @@ export function dashboardHTML(events) {
       qrLibLoading = new Promise((res, rej) => {
         const s = document.createElement('script');
         s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+        s.integrity = 'sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs';
+        s.crossOrigin = 'anonymous';
         s.onload = () => res(window.qrcode);
         s.onerror = () => rej(new Error('Falha ao carregar lib do QR'));
         document.head.appendChild(s);

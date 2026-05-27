@@ -8,11 +8,49 @@ export async function saveEvents(env, events) {
   await env.FOTOS.put('events', JSON.stringify(events));
 }
 
-export async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return arr;
+}
+
+function bytesToHex(u8) {
+  return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+export async function hashPassword(password, saltHex) {
+  const enc = new TextEncoder();
+  const salt = saltHex
+    ? hexToBytes(saltHex)
+    : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 200_000 },
+    key, 256
+  );
+  return `pbkdf2:200000:${bytesToHex(salt)}:${bytesToHex(new Uint8Array(bits))}`;
+}
+
+export async function verifyPassword(password, stored) {
+  if (!stored) return false;
+  if (!stored.startsWith('pbkdf2:')) {
+    // Legacy SHA-256 path — only active during the first login after migration
+    const enc = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(password));
+    return timingSafeEqual(bytesToHex(new Uint8Array(buf)), stored);
+  }
+  const parts = stored.split(':');
+  const saltHex = parts[2];
+  const candidate = await hashPassword(password, saltHex);
+  return timingSafeEqual(candidate, stored);
 }
 
 export function generateToken() {
@@ -27,6 +65,15 @@ export async function verifySession(env, request) {
   if (!match) return false;
   const valid = await env.FOTOS.get(`admin_session:${match[1]}`);
   return valid === 'valid';
+}
+
+export async function checkRateLimit(env, ip, key, limit, windowSecs) {
+  const window = Math.floor(Date.now() / (windowSecs * 1000));
+  const kvKey = `ratelimit:${key}:${ip}:${window}`;
+  const count = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  if (count >= limit) return false;
+  await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
+  return true;
 }
 
 export function escape(str) {
@@ -81,7 +128,6 @@ export async function sendRemovalEmail(env, req) {
     ${req.method === 'upload' ? `<tr><td style="padding:8px 0;color:#666">Arquivo</td><td style="padding:8px 0">${esc(req.fileName || 'em anexo')}</td></tr>` : ''}
     ${req.email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0">${esc(req.email)}</td></tr>` : ''}
     ${req.phone ? `<tr><td style="padding:8px 0;color:#666">Telefone</td><td style="padding:8px 0">${esc(req.phone)}</td></tr>` : ''}
-    ${!req.email && req.contact ? `<tr><td style="padding:8px 0;color:#666">Contato</td><td style="padding:8px 0">${esc(req.contact)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date(req.createdAt).toLocaleString('pt-BR')}</td></tr>
   </table>
@@ -90,7 +136,7 @@ export async function sendRemovalEmail(env, req) {
 
   const body = {
     from: 'Fotos <noreply@lucafchala.com>',
-    to: ['lfchala4@gmail.com'],
+    to: [env.ADMIN_EMAIL],
     subject: `🗑 Remoção solicitada — ${req.eventTitle}`,
     html,
   };
