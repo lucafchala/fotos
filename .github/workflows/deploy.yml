@@ -9,7 +9,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: cloudflare/wrangler-action@v3
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Wait for global propagation
+        run: sleep 20
+
+      - name: Smoke tests
+        run: |
+          set -e
+          BASE=https://fotos.lucafchala.com
+
+          check_status() {
+            local label=$1 url=$2 expected=$3
+            local shift=3; shift $shift
+            local actual
+            actual=$(curl -s -o /dev/null -w "%{http_code}" "$@" "$url")
+            if [ "$actual" != "$expected" ]; then
+              echo "FAIL [$label]: expected HTTP $expected, got $actual"
+              exit 1
+            fi
+            echo "OK   [$label]: $actual"
+          }
+
+          # Core pages
+          check_status "gallery"   "$BASE/"             200
+          check_status "dashboard" "$BASE/dashboard"    200
+          check_status "manifest"  "$BASE/manifest.json" 200
+          check_status "icon"      "$BASE/icon.svg"     200
+          check_status "404"       "$BASE/__no_such_route__" 404
+
+          # Health check: verifies KV is reachable and PBKDF2 completes
+          # within the Workers CPU budget. A CPU timeout returns 5xx, failing this step.
+          HEALTH=$(curl -sf "$BASE/api/healthz")
+          echo "Health response: $HEALTH"
+          echo "$HEALTH" | grep -q '"ok":true' || { echo "FAIL [healthz]: unexpected response"; exit 1; }
+
+          HASH_MS=$(echo "$HEALTH" | grep -o '"hashMs":[0-9]*' | cut -d: -f2)
+          echo "OK   [healthz]: hashing took ${HASH_MS}ms"
+          if [ -n "$HASH_MS" ] && [ "$HASH_MS" -gt 200 ]; then
+            echo "FAIL [healthz]: hashing took ${HASH_MS}ms — too slow, login will timeout"
+            exit 1
+          fi
+
+          # Login endpoint: wrong password must redirect (302), never crash (5xx).
+          # A CPU timeout during hashing returns 5xx and fails this check.
+          check_status "login" "$BASE/dashboard/login" 302 \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "password=smoke-check-wrong"
+
+          echo ""
+          echo "All smoke tests passed."

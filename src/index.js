@@ -34,6 +34,9 @@ export default {
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
 
+      // Health check — tests Worker startup, KV connectivity, and hashing performance
+      if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
@@ -503,6 +506,25 @@ async function handleResolveRequest(request, env, id) {
   };
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
   return jsonOk(requests[idx]);
+}
+
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+async function handleHealthz(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
+  if (!allowed) return jsonErr('Too many requests.', 429);
+
+  // KV read — confirms the binding is alive
+  await env.FOTOS.get('__healthz__');
+
+  // PBKDF2 hash — confirms hashing completes within the CPU budget
+  const t0 = Date.now();
+  await hashPassword('healthcheck');
+  const hashMs = Date.now() - t0;
+
+  return jsonOk({ ok: true, hashMs });
 }
 
 // ---------------------------------------------------------------------------
