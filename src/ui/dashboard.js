@@ -69,8 +69,44 @@ export function loginHTML(opts = {}) {
 </html>`;
 }
 
+const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+
 export function dashboardHTML(events) {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+
+  const esc = s => !s ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const byDateSSR = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
+  const sorted = [...events].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return byDateSSR(b) - byDateSSR(a);
+  });
+  const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
+  const noun = n => n === 1 ? 'evento' : 'eventos';
+  const ssrCount = `${active.length} ${noun(active.length)} ativos`;
+  const ssrList = active.length === 0
+    ? '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>'
+    : active.map(e => {
+        const st = e.status || 'entregue';
+        const thumb = e.thumbnailUrl
+          ? `<img class="evt-thumb" src="${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">`
+          : `<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>`;
+        return `<div class="evt-item${e.visible === false ? ' hidden-evt' : ''}" id="evt-${esc(e.id)}">
+          ${thumb}
+          <div class="evt-info">
+            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${st}">${STATUS_LABELS_SSR[st] || st}</span></div>
+            <div class="evt-slug">/${esc(e.slug)}</div>
+          </div>
+          <div class="evt-actions">
+            <button class="icon-btn${e.pinned ? ' pinned' : ''}" onclick="togglePin('${esc(e.id)}')" title="${e.pinned ? 'Remover destaque' : 'Destacar'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg></button>
+            <button class="icon-btn" onclick="toggleVisible('${esc(e.id)}')" title="${e.visible !== false ? 'Ocultar' : 'Mostrar'}">${e.visible !== false ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`}</button>
+            <button class="icon-btn" onclick="openQR('${esc(e.id)}','${esc(e.slug)}','${esc(e.title)}')" title="QR Code"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="3" y="4" width="5" height="5" fill="currentColor" stroke="none"/><rect x="14" y="4" width="5" height="5" fill="currentColor" stroke="none"/><rect x="3" y="15" width="5" height="5" fill="currentColor" stroke="none"/><rect x="16" y="16" width="2" height="2" fill="currentColor" stroke="none"/><rect x="14" y="14" width="2" height="2" fill="currentColor" stroke="none"/><rect x="18" y="14" width="2" height="2" fill="currentColor" stroke="none"/><rect x="14" y="18" width="2" height="2" fill="currentColor" stroke="none"/><rect x="18" y="18" width="2" height="2" fill="currentColor" stroke="none"/><rect x="20" y="16" width="2" height="2" fill="currentColor" stroke="none"/><rect x="16" y="20" width="2" height="2" fill="currentColor" stroke="none"/><rect x="20" y="20" width="2" height="2" fill="currentColor" stroke="none"/></svg></button>
+            <button class="icon-btn" onclick="openForm('${esc(e.id)}')" title="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="icon-btn danger" onclick="deleteEvent('${esc(e.id)}')" title="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
+          </div>
+        </div>`;
+      }).join('');
+
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -254,7 +290,7 @@ export function dashboardHTML(events) {
   <!-- EVENTS TAB -->
   <div id="tab-events" class="panel active">
     <div class="panel-head">
-      <h2 id="evt-count"></h2>
+      <h2 id="evt-count">${ssrCount}</h2>
       <button class="btn-add" onclick="openForm()">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Adicionar
@@ -270,7 +306,7 @@ export function dashboardHTML(events) {
         <option value="todos">Todos</option>
       </select>
     </div>
-    <div class="evt-list" id="evt-list"></div>
+    <div class="evt-list" id="evt-list">${ssrList}</div>
   </div>
 
   <!-- METRICS TAB -->
@@ -461,12 +497,7 @@ export function dashboardHTML(events) {
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
-    document.body.insertAdjacentHTML('afterbegin', '<div id="diag" style="background:#1a3a1a;color:#9fe09f;padding:.5rem 1rem;font-size:.75rem;font-family:monospace;border-bottom:1px solid #2a5a2a">JS iniciou. events.length=' + (Array.isArray(events) ? events.length : 'NÃO É ARRAY (' + typeof events + ')') + '</div>');
-    try {
-      renderEventList();
-    } catch(initErr) {
-      document.body.insertAdjacentHTML('afterbegin', '<div style="background:#3a1010;color:#e07070;padding:.5rem 1rem;font-size:.75rem;font-family:monospace;border-bottom:1px solid #5a2020">ERRO: ' + String(initErr) + '</div>');
-    }
+    renderEventList();
     loadRequests(); // populate badge on load
 
     // ---- Tabs ----
