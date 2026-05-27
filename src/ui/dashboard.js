@@ -265,12 +265,12 @@ export function dashboardHTML(events) {
     </div>
     <div class="filter-row">
       <select id="status-filter" onchange="renderEventList()">
-        <option value="ativos" selected>Ativos (sem arquivados)</option>
+        <option value="todos" selected>Todos</option>
+        <option value="ativos">Ativos (sem arquivados)</option>
         <option value="em-edicao">Em edição</option>
         <option value="em-revisao">Em revisão</option>
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
-        <option value="todos">Todos</option>
       </select>
     </div>
     <div class="evt-list" id="evt-list"></div>
@@ -909,6 +909,8 @@ export function dashboardHTML(events) {
       qrLibLoading = new Promise((res, rej) => {
         const s = document.createElement('script');
         s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+        s.integrity = 'sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs';
+        s.crossOrigin = 'anonymous';
         s.onload = () => res(window.qrcode);
         s.onerror = () => rej(new Error('Falha ao carregar lib do QR'));
         document.head.appendChild(s);

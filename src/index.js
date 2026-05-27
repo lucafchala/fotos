@@ -2,8 +2,9 @@ import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import {
-  getEvents, saveEvents, hashPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail,
+  getEvents, saveEvents, hashPassword, verifyPassword, generateToken,
+  verifySession, escape, validateSlug, generateId, checkRateLimit,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail,
 } from './utils.js';
 
 export default {
@@ -33,6 +34,9 @@ export default {
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
 
+      // Health check — tests Worker startup, KV connectivity, and hashing performance
+      if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
@@ -57,11 +61,9 @@ export default {
 // ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
-const CF_ANALYTICS = 'a3a57a1a84ec45368aed9286b1628132';
-
 async function handleGallery(env) {
   const events = await getEvents(env);
-  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN || CF_ANALYTICS));
+  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +83,7 @@ async function handleEventPage(request, env, slug, ctx) {
     }).catch(() => {})
   );
 
-  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN || CF_ANALYTICS));
+  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN ?? null));
 }
 
 // ---------------------------------------------------------------------------
@@ -122,12 +124,15 @@ async function handleLogin(request, env) {
     // First-run: set the password
     if (isSetup && password !== confirm) return redirect('/dashboard?error=1');
     if (!password || password.length < 6) return redirect('/dashboard?error=1');
-    const hash = await hashPassword(password);
-    await env.FOTOS.put('admin_password', hash);
+    await env.FOTOS.put('admin_password', await hashPassword(password));
   } else {
     // Normal login
-    const hash = await hashPassword(password);
-    if (hash !== stored) return redirect('/dashboard?error=1');
+    const ok = await verifyPassword(password, stored);
+    if (!ok) return redirect('/dashboard?error=1');
+    // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
+    if (!stored.startsWith('pbkdf2:')) {
+      await env.FOTOS.put('admin_password', await hashPassword(password));
+    }
   }
 
   const token = generateToken();
@@ -342,10 +347,14 @@ async function handleMetrics(request, env) {
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
 async function handleTrackDrive(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
+  if (!allowed) return jsonOk({ ok: true });
+
   let body;
   try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
   const slug = String(body.slug || '').slice(0, 60);
-  if (!slug) return jsonOk({ ok: true });
+  if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
   const key = `drive_clicks:${slug}`;
   const v = await env.FOTOS.get(key).catch(() => null);
   await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(() => {});
@@ -375,6 +384,10 @@ async function handleChangePassword(request, env) {
 // API: Removal request (public)
 // ---------------------------------------------------------------------------
 async function handleRemovalRequest(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
+  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
+
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
@@ -383,6 +396,12 @@ async function handleRemovalRequest(request, env) {
   if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
   if (method !== 'upload' && (!value || !String(value).trim())) return jsonErr('Identificação obrigatória.', 400);
   if (method === 'upload' && !fileBase64) return jsonErr('Arquivo obrigatório.', 400);
+  if (method === 'upload' && fileBase64) {
+    // base64 overhead ≈ 4/3; 2 MB raw → ≈ 2.73 MB base64 string
+    if (typeof fileBase64 !== 'string' || fileBase64.length > 2_900_000) {
+      return jsonErr('Arquivo muito grande (máx. 2 MB).', 413);
+    }
+  }
 
   const emailTrimmed = String(email || '').trim().toLowerCase();
   if (!emailTrimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailTrimmed)) {
@@ -405,7 +424,6 @@ async function handleRemovalRequest(request, env) {
     value:      method !== 'upload' ? String(value || '').slice(0, 500) : null,
     email:      emailTrimmed.slice(0, 200),
     phone:      phoneTrimmed.slice(0, 50),
-    contact:    emailTrimmed.slice(0, 200),
     message:    String(message || '').slice(0, 1000),
     fileName:   method === 'upload' ? String(fileName || 'foto').slice(0, 200) : null,
     fileBase64: method === 'upload' ? fileBase64 : null,
@@ -416,6 +434,16 @@ async function handleRemovalRequest(request, env) {
   // Store request (without binary file)
   const requests = await getRemovalRequests(env);
   requests.push({ ...req, fileBase64: null });
+
+  const MAX_REQUESTS = 500;
+  if (requests.length > MAX_REQUESTS) {
+    const unresolved = requests.filter(r => !r.resolved);
+    const resolved = requests.filter(r => r.resolved)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, MAX_REQUESTS - unresolved.length);
+    requests.splice(0, requests.length, ...unresolved, ...resolved);
+  }
+
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   // Send notification to admin
@@ -481,6 +509,25 @@ async function handleResolveRequest(request, env, id) {
 }
 
 // ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+async function handleHealthz(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
+  if (!allowed) return jsonErr('Too many requests.', 429);
+
+  // KV read — confirms the binding is alive
+  await env.FOTOS.get('__healthz__');
+
+  // PBKDF2 hash — confirms hashing completes within the CPU budget
+  const t0 = Date.now();
+  await hashPassword('healthcheck');
+  const hashMs = Date.now() - t0;
+
+  return jsonOk({ ok: true, hashMs });
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 async function checkAuth(request, env) {
@@ -492,7 +539,12 @@ async function checkAuth(request, env) {
 function html(content, status = 200) {
   return new Response(content, {
     status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+    },
   });
 }
 
