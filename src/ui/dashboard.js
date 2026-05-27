@@ -265,12 +265,12 @@ export function dashboardHTML(events) {
     </div>
     <div class="filter-row">
       <select id="status-filter" onchange="renderEventList()">
-        <option value="ativos" selected>Ativos (sem arquivados)</option>
+        <option value="todos" selected>Todos</option>
+        <option value="ativos">Ativos (sem arquivados)</option>
         <option value="em-edicao">Em edição</option>
         <option value="em-revisao">Em revisão</option>
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
-        <option value="todos">Todos</option>
       </select>
     </div>
     <div class="evt-list" id="evt-list"></div>
