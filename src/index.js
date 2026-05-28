@@ -194,8 +194,8 @@ async function handleCreateEvent(request, env) {
   if (events.find(e => e.slug === slug)) return jsonErr('Já existe um evento com essa URL.', 409);
 
   const photos = Array.isArray(body.photos)
-    ? body.photos.slice(0, 6).map(u => String(u).slice(0, 500)).filter(Boolean)
-    : (body.thumbnailUrl ? [String(body.thumbnailUrl).slice(0, 500)] : []);
+    ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
+    : (body.thumbnailUrl ? [toHttps(String(body.thumbnailUrl).slice(0, 500))] : []);
 
   const event = {
     id: generateId(),
@@ -205,7 +205,7 @@ async function handleCreateEvent(request, env) {
     longDescription: String(body.longDescription || '').slice(0, 5000),
     photos,
     thumbnailUrl: photos[0] || '',
-    driveUrl: String(driveUrl).slice(0, 500),
+    driveUrl: toHttps(String(driveUrl).slice(0, 500)),
     date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
     eventCredits: String(body.eventCredits || '').slice(0, 200),
     projectUrl: String(body.projectUrl || '').slice(0, 500),
@@ -246,7 +246,7 @@ async function handleUpdateEvent(request, env, path) {
 
   const newPhotos = body.photos !== undefined
     ? (Array.isArray(body.photos)
-        ? body.photos.slice(0, 6).map(u => String(u).slice(0, 500)).filter(Boolean)
+        ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
         : (existing.photos || []))
     : (existing.photos || []);
 
@@ -257,7 +257,7 @@ async function handleUpdateEvent(request, env, path) {
     longDescription: body.longDescription !== undefined ? String(body.longDescription).slice(0, 5000) : existing.longDescription,
     photos: newPhotos,
     thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
-    driveUrl: body.driveUrl !== undefined ? String(body.driveUrl).slice(0, 500) : existing.driveUrl,
+    driveUrl: body.driveUrl !== undefined ? toHttps(String(body.driveUrl).slice(0, 500)) : existing.driveUrl,
     date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
     projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
@@ -570,6 +570,10 @@ async function checkAuth(request, env) {
   return null;
 }
 
+function toHttps(url) {
+  return url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+}
+
 function html(content, status = 200) {
   return new Response(content, {
     status,
@@ -578,6 +582,7 @@ function html(content, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': 'upgrade-insecure-requests',
     },
   });
 }
