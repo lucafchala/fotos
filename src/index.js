@@ -386,6 +386,10 @@ async function handleSupportRequest(request, env) {
     return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
   }
 
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return html(supportHTML(false, 'E-mail inválido.'), 400);
+  }
+
   try {
     await sendSupportEmail(env, { name, email, message });
   } catch (e) {

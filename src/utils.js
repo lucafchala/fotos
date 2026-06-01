@@ -216,7 +216,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [env.ADMIN_EMAIL],
       reply_to: email || undefined,
-      subject: `📬 Suporte${name ? ` — ${name}` : ''}`,
+      subject: `📬 Suporte${name ? ` — ${name.replace(/[\r\n]/g, ' ')}` : ''}`,
       html,
     }),
   });
