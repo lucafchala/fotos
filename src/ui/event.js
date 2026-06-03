@@ -291,9 +291,9 @@ export function eventHTML(event, analyticsToken) {
       </div>
       <div class="guide-title">Como baixar as fotos</div>
       <ol class="steps">
-        <li>${event.driveUrlInstagram
-          ? `Escolha uma das opções abaixo: <strong>"Resolução completa"</strong> para os arquivos originais, ou <strong>"Para o Instagram"</strong> para versões já redimensionadas — depois abra a pasta.`
-          : `Clique em "Ir para o Google Drive" abaixo e abra a pasta.`}</li>
+        <li><span>${event.driveUrlInstagram
+          ? `Escolha uma das opções abaixo e abra a pasta correspondente.`
+          : `Clique em "Ir para o Google Drive" abaixo e abra a pasta.`}</span></li>
         <li>
           <span><strong>No celular:</strong> toque nos três pontinhos (⋮) de uma foto → "Fazer download".<br>
           Para baixar <em>todas</em>: segure uma foto → selecione todas → ⋮ → "Fazer download".</span>
