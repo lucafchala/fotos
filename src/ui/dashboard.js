@@ -391,6 +391,11 @@ export function dashboardHTML(events) {
           <label>Link da pasta do Google Drive</label>
           <input type="url" id="f-drive" placeholder="https://drive.google.com/drive/folders/...">
         </div>
+        <div class="field">
+          <label>Link do Drive para o Instagram <span style="color:#555">(opcional)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">Pasta com as fotos já redimensionadas e prontas para o Instagram.</div>
+          <input type="url" id="f-drive-ig" placeholder="https://drive.google.com/drive/folders/...">
+        </div>
         <div class="field-row">
           <div class="field">
             <label>Data</label>
@@ -591,6 +596,7 @@ export function dashboardHTML(events) {
       document.getElementById('f-short').value = e ? (e.shortDescription || '') : '';
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
+      document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
@@ -720,6 +726,7 @@ export function dashboardHTML(events) {
         photos,
         thumbnailUrl: photos[0] || '',
         driveUrl: drive,
+        driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),

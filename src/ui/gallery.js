@@ -16,7 +16,9 @@ export function galleryHTML(events, analyticsToken) {
       <a href="/${escape(e.slug)}" class="card${featured ? ' card-featured' : ''}${e.comingSoon ? ' card-soon' : ''}">
         <div class="thumb${e.thumbnailUrl && !e.comingSoon ? ' loading' : ''}">
           ${e.comingSoon
-            ? `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
+            ? e.thumbnailUrl
+              ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span>`
+              : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
             : e.thumbnailUrl
               ? `<img src="${escape(e.thumbnailUrl)}" alt="${escape(e.title)}" loading="lazy" onload="this.parentElement.classList.remove('loading')" onerror="this.parentElement.classList.remove('loading')">`
               : `<div class="thumb-ph">${iconCamera()}</div>`}
@@ -67,14 +69,16 @@ export function galleryHTML(events, analyticsToken) {
     .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
+    .thumb-blur{filter:blur(8px);transform:scale(1.1);width:100%;height:100%;object-fit:cover;display:block}
+    .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
     .info{padding:.75rem .875rem 1rem}
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#555}
     .info h2{font-size:.875rem;font-weight:600;margin:.25rem 0 .3rem;line-height:1.3}
     .info p{font-size:.75rem;color:#777;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .card-featured{grid-column:1/-1}
-    .card-featured .thumb{aspect-ratio:16/9}
+    .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.1rem}.card-featured .info p{-webkit-line-clamp:4}}
+    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.1rem}.card-featured .info p{-webkit-line-clamp:4}}
     .empty{text-align:center;color:#333;padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap}
     footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
