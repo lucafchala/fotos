@@ -139,8 +139,13 @@ export function eventHTML(event, analyticsToken) {
     .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
-    .modal-sheet{background:#0d0d0d;width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1.75rem 1.5rem 2.25rem}
-    @media(min-width:580px){.modal-sheet{border-radius:14px}}
+    .modal-sheet{background:#0d0d0d;width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1.75rem 1.5rem max(2.25rem,calc(1.25rem + env(safe-area-inset-bottom)))}
+    @media(min-width:580px){.modal-sheet{border-radius:14px;padding-bottom:2.25rem}}
+    .scroll-hint{position:absolute;bottom:0;left:0;right:0;height:72px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:max(.875rem,calc(.5rem + env(safe-area-inset-bottom)));background:linear-gradient(transparent,rgba(13,13,13,.92));pointer-events:none;transition:opacity .25s}
+    .scroll-hint.hidden{opacity:0}
+    .scroll-hint svg{color:#555;animation:bounce-d .9s ease-in-out infinite}
+    @keyframes bounce-d{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
+    @media(min-width:580px){.scroll-hint{display:none}}
     .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
     .modal-head h2{font-size:.975rem;font-weight:600}
     .m-close{background:none;border:1px solid #222;color:#555;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
@@ -267,6 +272,9 @@ export function eventHTML(event, analyticsToken) {
 
   <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal" onclick="ovClick(event)">
+    <div class="scroll-hint hidden" id="scroll-hint-drive">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
     <div class="modal-sheet">
       <div class="modal-head">
         <h2>Antes de acessar as fotos</h2>
@@ -394,7 +402,8 @@ export function eventHTML(event, analyticsToken) {
       <h3>Bem-vindo! 👋</h3>
       <p class="tour-sub">Algumas dicas rápidas pra você aproveitar:</p>
       <ul class="tour-list">
-        <li><span class="tour-icon">📁</span><span>Toque em <strong>Acessar fotos</strong> para ir ao Google Drive e baixar.</span></li>
+        <li><span class="tour-icon">📁</span><span>Toque em <strong>Acessar fotos</strong> para baixar pelo Google Drive.</span></li>
+        ${event.driveUrlInstagram ? `<li><span class="tour-icon">🖼</span><span><strong>Resolução completa</strong> — arquivo original, ideal pra guardar, imprimir ou editar.<br><strong>Para o Instagram</strong> — já no tamanho certo pra postar sem perder qualidade.</span></li>` : ''}
         <li><span class="tour-icon">💬</span><span>Compartilhe esta página por <strong>WhatsApp</strong> usando o botão verde no rodapé.</span></li>
         <li><span class="tour-icon">🗑</span><span>Apareceu uma foto sua que prefere remover? Use <strong>Solicitar remoção</strong> no rodapé.</span></li>
       </ul>
@@ -453,18 +462,29 @@ export function eventHTML(event, analyticsToken) {
     })();
 
     // ---- Drive modal ----
+    function checkDriveScroll() {
+      const sheet = document.querySelector('#modal .modal-sheet');
+      const hint = document.getElementById('scroll-hint-drive');
+      if (!sheet || !hint) return;
+      const scrollable = sheet.scrollHeight > sheet.clientHeight + 8;
+      const atBottom = sheet.scrollTop + sheet.clientHeight >= sheet.scrollHeight - 24;
+      hint.classList.toggle('hidden', !scrollable || atBottom);
+    }
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
       if (igLink) igLink.href = DRIVE_URL_IG || '#';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
+      setTimeout(checkDriveScroll, 120);
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
+      document.getElementById('scroll-hint-drive').classList.add('hidden');
       document.body.style.overflow = '';
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
+    document.querySelector('#modal .modal-sheet')?.addEventListener('scroll', checkDriveScroll, { passive: true });
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
     }
