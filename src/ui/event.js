@@ -7,6 +7,7 @@ export function eventHTML(event, analyticsToken) {
 
   const photosJSON  = JSON.stringify(photos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const driveJSON   = JSON.stringify(event.driveUrl || '');
+  const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
   const ogImage     = photos[0] || '';
 
@@ -22,7 +23,9 @@ export function eventHTML(event, analyticsToken) {
     : null);
 
   const heroHTML = event.comingSoon
-    ? `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
+    ? photos.length > 0
+      ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}" class="hero-blur-img"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
@@ -62,8 +65,11 @@ export function eventHTML(event, analyticsToken) {
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     /* hero */
-    .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e}
+    .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative}
     .hero img{width:100%;max-height:72vh;object-fit:cover;display:block}
+    .hero-blur-img{width:100%;max-height:72vh;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08)}
+    .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
+    .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
     .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#1e1e1e}
     .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
@@ -160,6 +166,8 @@ export function eventHTML(event, analyticsToken) {
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.95rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:1.75rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
+    .btn-drive-ig{background:#141414;color:#f0ebe5;border:1px solid #2e2e2e}
+    .btn-drive-ig:hover{background:#1e1e1e;transform:translateY(-1px)}
     /* removal modal */
     .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
@@ -283,6 +291,10 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Ir para o Google Drive
       </a>
+      <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-go btn-drive-ig" onclick="trackDrive();closeModal()" style="display:none">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+        Para o Instagram (já redimensionadas)
+      </a>
     </div>
   </div>
 
@@ -374,6 +386,7 @@ export function eventHTML(event, analyticsToken) {
 
   <script>
     const DRIVE_URL      = ${driveJSON};
+    const DRIVE_URL_IG   = ${driveIgJSON};
     const EVENT_SLUG     = ${slugJSON};
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
@@ -418,6 +431,13 @@ export function eventHTML(event, analyticsToken) {
     // ---- Drive modal ----
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
+      const igLink = document.getElementById('drive-link-ig');
+      if (DRIVE_URL_IG) {
+        igLink.href = DRIVE_URL_IG;
+        igLink.style.display = '';
+      } else {
+        igLink.style.display = 'none';
+      }
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
     }

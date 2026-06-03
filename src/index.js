@@ -206,6 +206,7 @@ async function handleCreateEvent(request, env) {
     photos,
     thumbnailUrl: photos[0] || '',
     driveUrl: toHttps(String(driveUrl).slice(0, 500)),
+    driveUrlInstagram: body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '',
     date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
     eventCredits: String(body.eventCredits || '').slice(0, 200),
     projectUrl: String(body.projectUrl || '').slice(0, 500),
@@ -258,6 +259,9 @@ async function handleUpdateEvent(request, env, path) {
     photos: newPhotos,
     thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
     driveUrl: body.driveUrl !== undefined ? toHttps(String(body.driveUrl).slice(0, 500)) : existing.driveUrl,
+    driveUrlInstagram: body.driveUrlInstagram !== undefined
+      ? (body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '')
+      : (existing.driveUrlInstagram || ''),
     date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
     projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
