@@ -166,8 +166,13 @@ export function eventHTML(event, analyticsToken) {
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.95rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;cursor:pointer;margin-top:1.75rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
-    .btn-drive-ig{background:#141414;color:#f0ebe5;border:1px solid #2e2e2e}
-    .btn-drive-ig:hover{background:#1e1e1e;transform:translateY(-1px)}
+    .drive-opts{display:flex;flex-direction:column;gap:.625rem;margin-top:1.5rem}
+    .btn-drive-opt{display:flex;align-items:center;gap:.875rem;background:#111;border:1px solid #252525;color:#f0ebe5;padding:.9rem 1.1rem;border-radius:10px;text-decoration:none;transition:border-color .18s,background .18s;width:100%}
+    .btn-drive-opt:hover{border-color:#3a3a3a;background:#161616}
+    .btn-drive-opt svg{width:20px;height:20px;flex-shrink:0;color:#888}
+    .drive-opt-text{display:flex;flex-direction:column;gap:.15rem}
+    .drive-opt-text strong{font-size:.875rem;font-weight:600;color:#f0ebe5}
+    .drive-opt-text span{font-size:.72rem;color:#666;font-weight:400}
     /* removal modal */
     .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
@@ -274,7 +279,9 @@ export function eventHTML(event, analyticsToken) {
       </div>
       <div class="guide-title">Como baixar as fotos</div>
       <ol class="steps">
-        <li>Clique em "Ir para o Google Drive" abaixo e abra a pasta.</li>
+        <li>${event.driveUrlInstagram
+          ? `Escolha uma das opções abaixo: <strong>"Resolução completa"</strong> para os arquivos originais, ou <strong>"Para o Instagram"</strong> para versões já redimensionadas — depois abra a pasta.`
+          : `Clique em "Ir para o Google Drive" abaixo e abra a pasta.`}</li>
         <li>
           <span><strong>No celular:</strong> toque nos três pontinhos (⋮) de uma foto → "Fazer download".<br>
           Para baixar <em>todas</em>: segure uma foto → selecione todas → ⋮ → "Fazer download".</span>
@@ -287,14 +294,21 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais.</p>
       </div>
-      <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="trackDrive();closeModal()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        Ir para o Google Drive
-      </a>
-      <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-go btn-drive-ig" onclick="trackDrive();closeModal()" style="display:none">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-        Para o Instagram (já redimensionadas)
-      </a>
+      ${event.driveUrlInstagram
+        ? `<div class="drive-opts">
+            <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="trackDrive();closeModal()">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
+            </a>
+            <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="trackDrive();closeModal()">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+              <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
+            </a>
+          </div>`
+        : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="trackDrive();closeModal()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Ir para o Google Drive
+          </a>`}
     </div>
   </div>
 
@@ -432,12 +446,7 @@ export function eventHTML(event, analyticsToken) {
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
-      if (DRIVE_URL_IG) {
-        igLink.href = DRIVE_URL_IG;
-        igLink.style.display = '';
-      } else {
-        igLink.style.display = 'none';
-      }
+      if (igLink) igLink.href = DRIVE_URL_IG || '#';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
     }
