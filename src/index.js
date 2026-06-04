@@ -80,16 +80,21 @@ async function handleEventPage(request, env, slug, ctx) {
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
-  // Track view using ctx.waitUntil so the write completes after response is sent
-  const viewKey = `views:${slug}`;
-  ctx.waitUntil(
-    env.FOTOS.get(viewKey).then(async v => {
-      const count = parseInt(v || '0', 10);
-      await env.FOTOS.put(viewKey, String(count + 1));
-    }).catch(() => {})
-  );
+  // Only count view once per hour per visitor (avoids KV read+write on repeat visits)
+  const cookieName = `fv_${slug}`;
+  const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
+  if (!alreadyCounted) {
+    const viewKey = `views:${slug}`;
+    ctx.waitUntil(
+      env.FOTOS.get(viewKey).then(async v => {
+        await env.FOTOS.put(viewKey, String(parseInt(v || '0', 10) + 1));
+      }).catch(() => {})
+    );
+  }
 
-  return html(eventHTML(event, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(eventHTML(event, env.CF_ANALYTICS_TOKEN ?? null));
+  if (!alreadyCounted) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
+  return res;
 }
 
 // ---------------------------------------------------------------------------
