@@ -6,3 +6,10 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 [[kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
+
+[env.preview]
+name = "fotos-preview"
+
+[[env.preview.kv_namespaces]]
+binding = "FOTOS"
+id = "4d2c399e77804f3a82b66e4ec0a7fa5e"

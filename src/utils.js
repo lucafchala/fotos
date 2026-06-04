@@ -1,10 +1,19 @@
+let _cache = null;
+let _cacheAt = 0;
+const CACHE_TTL = 30_000;
+
 export async function getEvents(env) {
+  const now = Date.now();
+  if (_cache && now - _cacheAt < CACHE_TTL) return _cache;
   const data = await env.FOTOS.get('events');
-  if (!data) return [];
-  try { return JSON.parse(data); } catch { return []; }
+  _cache = data ? ((() => { try { return JSON.parse(data); } catch { return []; } })()) : [];
+  _cacheAt = now;
+  return _cache;
 }
 
 export async function saveEvents(env, events) {
+  _cache = events;
+  _cacheAt = Date.now();
   await env.FOTOS.put('events', JSON.stringify(events));
 }
 
