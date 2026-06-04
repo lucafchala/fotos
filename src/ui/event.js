@@ -92,12 +92,12 @@ export function eventHTML(event, analyticsToken) {
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
     .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
-    .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
+    .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
     .c-prev{left:.75rem}.c-next{right:.75rem}
     .c-dots{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);display:flex;gap:.4rem;z-index:2}
-    .c-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);cursor:pointer;transition:background .2s}
-    .c-dot.on{background:#fff}
+    .c-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);background-clip:content-box;box-sizing:content-box;padding:5px;cursor:pointer;transition:background .2s}
+    .c-dot.on{background:#fff;background-clip:content-box}
     .c-count{position:absolute;bottom:.75rem;right:.875rem;font-size:.7rem;font-weight:500;color:rgba(255,255,255,.5);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px)}
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 6rem}
@@ -187,7 +187,7 @@ export function eventHTML(event, analyticsToken) {
     .rem-field textarea{resize:vertical;min-height:80px;line-height:1.5}
     .rem-field input[type=file]{color:#888;font-size:.8rem;width:100%}
     .radio-group{display:flex;flex-direction:column;gap:.5rem}
-    .radio-opt{display:flex;align-items:center;gap:.625rem;cursor:pointer;padding:.5rem .75rem;border:1px solid #1e1e1e;border-radius:8px;transition:border-color .2s}
+    .radio-opt{display:flex;align-items:center;gap:.625rem;cursor:pointer;padding:.5rem .75rem;border:1px solid #1e1e1e;border-radius:8px;transition:border-color .2s;min-height:44px}
     .radio-opt:has(input:checked){border-color:#3a3a3a;background:#111}
     .radio-opt input[type=radio]{width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0}
     .radio-opt span{font-size:.875rem;color:#bbb}
