@@ -306,6 +306,8 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais.</p>
       </div>
+      <div id="drive-turnstile" style="margin-top:1.25rem"></div>
+      <div id="drive-links-wrap" style="display:none">
       ${event.driveUrlInstagram
         ? `<div class="drive-opts">
             <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="trackDrive();closeModal()">
@@ -321,6 +323,7 @@ export function eventHTML(event, analyticsToken) {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             Ir para o Google Drive
           </a>`}
+      </div>
     </div>
   </div>
 
@@ -382,9 +385,10 @@ export function eventHTML(event, analyticsToken) {
         </div>
 
         <p style="font-size:.68rem;color:#444;line-height:1.5;margin-top:1rem">Seus dados (e-mail e telefone) são usados exclusivamente para processar esta solicitação e não são compartilhados com terceiros.</p>
+        <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div class="rem-sheet-foot">
           <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
-          <button class="btn-rem-submit" id="rem-submit" onclick="submitRemoval()">Enviar solicitação</button>
+          <button class="btn-rem-submit" id="rem-submit" onclick="submitRemoval()" disabled>Enviar solicitação</button>
         </div>
       </div>
 
@@ -461,6 +465,11 @@ export function eventHTML(event, analyticsToken) {
       setTimeout(() => { m.classList.add('open'); }, 800);
     })();
 
+    const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
+    let driveWidgetId = null;
+    let remWidgetId   = null;
+    let remTsToken    = '';
+
     // ---- Drive modal ----
     function checkDriveScroll() {
       const sheet = document.querySelector('#modal .modal-sheet');
@@ -474,9 +483,22 @@ export function eventHTML(event, analyticsToken) {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
       if (igLink) igLink.href = DRIVE_URL_IG || '#';
+      document.getElementById('drive-links-wrap').style.display = 'none';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
-      setTimeout(checkDriveScroll, 120);
+      setTimeout(() => {
+        if (typeof turnstile === 'undefined') { document.getElementById('drive-links-wrap').style.display = ''; return; }
+        if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
+        else {
+          driveWidgetId = turnstile.render('#drive-turnstile', {
+            sitekey: TS_SITEKEY,
+            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; setTimeout(checkDriveScroll, 60); },
+            'error-callback': () => { document.getElementById('drive-links-wrap').style.display = ''; },
+            'expired-callback': () => { document.getElementById('drive-links-wrap').style.display = 'none'; },
+          });
+        }
+        checkDriveScroll();
+      }, 120);
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
@@ -510,8 +532,23 @@ export function eventHTML(event, analyticsToken) {
     function openRemModal() {
       document.getElementById('rem-form').style.display = 'block';
       document.getElementById('rem-success').style.display = 'none';
+      remTsToken = '';
+      const btn = document.getElementById('rem-submit');
+      if (btn) btn.disabled = true;
       document.getElementById('rem-modal').classList.add('open');
       document.body.style.overflow = 'hidden';
+      setTimeout(() => {
+        if (typeof turnstile === 'undefined') { if (btn) btn.disabled = false; return; }
+        if (remWidgetId !== null) { turnstile.reset(remWidgetId); }
+        else {
+          remWidgetId = turnstile.render('#rem-turnstile', {
+            sitekey: TS_SITEKEY,
+            callback: (token) => { remTsToken = token; if (btn) btn.disabled = false; },
+            'error-callback': () => { remTsToken = ''; if (btn) btn.disabled = true; },
+            'expired-callback': () => { remTsToken = ''; if (btn) btn.disabled = true; },
+          });
+        }
+      }, 80);
     }
     function closeRemModal() {
       document.getElementById('rem-modal').classList.remove('open');
@@ -577,11 +614,14 @@ export function eventHTML(event, analyticsToken) {
             message: (document.getElementById('rem-message').value || '').trim(),
             fileName,
             fileBase64,
+            turnstileToken: remTsToken,
           }),
         });
         if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || 'Erro ao enviar.'); }
         document.getElementById('rem-form').style.display = 'none';
         document.getElementById('rem-success').style.display = 'block';
+        remTsToken = '';
+        if (remWidgetId !== null && typeof turnstile !== 'undefined') { turnstile.reset(remWidgetId); }
       } catch(err) {
         alert(err.message || 'Erro ao enviar. Tente novamente.');
       } finally {
@@ -590,6 +630,7 @@ export function eventHTML(event, analyticsToken) {
       }
     }
   </script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;

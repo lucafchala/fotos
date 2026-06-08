@@ -375,7 +375,7 @@ async function handleSupportRequest(request, env) {
     return html(supportHTML(false, 'Muitas mensagens enviadas. Tente mais tarde.'), 429);
   }
 
-  let name, email, message;
+  let name, email, message, tsToken;
   const ct = request.headers.get('Content-Type') || '';
   if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
     const fd = await request.formData().catch(() => null);
@@ -383,13 +383,18 @@ async function handleSupportRequest(request, env) {
     name = String(fd.get('name') || '').trim().slice(0, 120);
     email = String(fd.get('email') || '').trim().slice(0, 200);
     message = String(fd.get('message') || '').trim().slice(0, 2000);
+    tsToken = String(fd.get('cf-turnstile-response') || '');
   } else {
     let body;
     try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
     name = String(body.name || '').trim().slice(0, 120);
     email = String(body.email || '').trim().slice(0, 200);
     message = String(body.message || '').trim().slice(0, 2000);
+    tsToken = String(body['cf-turnstile-response'] || '');
   }
+
+  const tsOk = await verifyTurnstile(tsToken, env);
+  if (!tsOk) return html(supportHTML(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.'), 403);
 
   if (!message) {
     return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
@@ -437,6 +442,9 @@ async function handleRemovalRequest(request, env) {
 
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const tsOk = await verifyTurnstile(body.turnstileToken, env);
+  if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
 
   const { eventSlug, method, value, email, phone, message, fileName, fileBase64 } = body;
   if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
@@ -572,6 +580,26 @@ async function handleHealthz(request, env) {
   const hashMs = Date.now() - t0;
 
   return jsonOk({ ok: true, hashMs });
+}
+
+// ---------------------------------------------------------------------------
+// Turnstile verification
+// ---------------------------------------------------------------------------
+async function verifyTurnstile(token, env) {
+  const secret = env.TURNSTILE_SECRET_KEY;
+  if (!secret) return true; // graceful degradation if secret not configured
+  if (!token) return false;
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret, response: token }),
+    });
+    const data = await res.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
