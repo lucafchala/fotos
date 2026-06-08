@@ -30,6 +30,7 @@ export function loginHTML(opts = {}) {
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     ${BASE}
     body{display:flex;align-items:center;justify-content:center;padding:2rem 1rem;min-height:100vh}
@@ -44,8 +45,9 @@ export function loginHTML(opts = {}) {
     input[type=password]{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.875rem 1rem;border-radius:var(--radius);font-size:1rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     input[type=password]:focus{border-color:#444}
     .btn-primary{width:100%;background:var(--accent);color:#0a0a0a;padding:.9rem;border:none;border-radius:var(--radius);font-size:.9rem;font-weight:600;letter-spacing:.02em;margin-top:.5rem;transition:opacity .2s,transform .15s;-webkit-appearance:none}
-    .btn-primary:hover{opacity:.9;transform:translateY(-1px)}
-    .btn-primary:active{transform:translateY(0)}
+    .btn-primary:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+    .btn-primary:active:not(:disabled){transform:translateY(0)}
+    .btn-primary:disabled{opacity:.38;cursor:not-allowed}
     .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:#e07070;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
   </style>
 </head>
@@ -62,8 +64,10 @@ export function loginHTML(opts = {}) {
         <input type="password" id="password" name="password" required autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="••••••••" autofocus>
       </div>
       ${confirmField}
-      <button type="submit" class="btn-primary">${btnLabel}</button>
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTsOk" style="margin:.75rem 0 .25rem"></div>
+      <button type="submit" class="btn-primary" id="login-btn" disabled>${btnLabel}</button>
     </form>
+    <script>function onTsOk(){var b=document.getElementById('login-btn');if(b)b.disabled=false;}</script>
   </div>
 </body>
 </html>`;
