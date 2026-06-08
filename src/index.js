@@ -131,6 +131,9 @@ async function handleLogin(request, env) {
     return redirect('/dashboard?error=1');
   }
 
+  const tsOk = await verifyTurnstile(body['cf-turnstile-response'] || '', env);
+  if (!tsOk) return redirect('/dashboard?error=1');
+
   const password = body.password || '';
   const isSetup = body.setup === '1';
   const confirm = body.confirm || '';

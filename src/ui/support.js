@@ -42,7 +42,8 @@ export function supportHTML(sent = false, error = '') {
     input:focus,textarea:focus{border-color:#333}
     textarea{min-height:120px}
     .submit-btn{background:#f0ebe5;color:#0a0a0a;border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
-    .submit-btn:hover{opacity:.88}
+    .submit-btn:hover:not(:disabled){opacity:.88}
+    .submit-btn:disabled{opacity:.38;cursor:not-allowed}
     .success{background:#0a120a;border:1px solid #1a2e1a;color:#4a8a4a;padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
     .error-msg{background:#1a0a0a;border:1px solid #2e1a1a;color:#aa5555;padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
