@@ -15,6 +15,7 @@ export function supportHTML(sent = false, error = '') {
   <meta name="description" content="Entre em contato com Luca Fchala">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
@@ -88,8 +89,10 @@ export function supportHTML(sent = false, error = '') {
         <label for="message">Mensagem *</label>
         <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required></textarea>
       </div>
-      <button type="submit" class="submit-btn">Enviar mensagem</button>
-    </form>`}
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" style="margin-bottom:.5rem"></div>
+      <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
+    </form>
+    <script>function onTurnstileSuccess(){var b=document.getElementById('support-submit');if(b)b.disabled=false;}</script>`}
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
