@@ -1,15 +1,19 @@
-import { escape, formatDatePT } from '../utils.js';
+import { escape, formatDatePT, sizedImg } from '../utils.js';
 
 export function eventHTML(event, analyticsToken) {
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
 
-  const photosJSON  = JSON.stringify(photos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  // Hero/carrossel ocupam a largura toda (max-height 72vh) → ~1280px de largura cobre bem.
+  const heroPhotos = photos.map(p => sizedImg(p, 1280));
+
+  const photosJSON  = JSON.stringify(heroPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const driveJSON   = JSON.stringify(event.driveUrl || '');
   const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
-  const ogImage     = photos[0] || '';
+  // og:image em JPEG (sem WebP) para máxima compatibilidade com scrapers sociais.
+  const ogImage     = photos[0] ? sizedImg(photos[0], 1200, { webp: false }) : '';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
@@ -24,14 +28,14 @@ export function eventHTML(event, analyticsToken) {
 
   const heroHTML = event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}" class="hero-blur-img"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero"><img src="${escape(heroPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}"></div>`
+        ? `<div class="hero"><img src="${escape(heroPhotos[0])}" alt="${escape(event.title)}" loading="eager" fetchpriority="high"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(photos[0])}" alt="${escape(event.title)}">
+          <img id="c-img" src="${escape(heroPhotos[0])}" alt="${escape(event.title)}" loading="eager" fetchpriority="high">
           <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -55,13 +59,16 @@ export function eventHTML(event, analyticsToken) {
   <meta property="og:description" content="${escape(event.shortDescription || '')}">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
+  <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#8a8a8a;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     /* hero */
@@ -102,7 +109,7 @@ export function eventHTML(event, analyticsToken) {
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 6rem}
     .meta{margin-bottom:.875rem}
-    .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:#555}
+    .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:#8a8a8a}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 1.75rem}
     .desc{font-size:.95rem;line-height:1.85;color:#bbb;white-space:pre-wrap;word-break:break-word;margin-bottom:2.75rem}
     .drive-wrap{margin-bottom:3rem}
@@ -112,9 +119,9 @@ export function eventHTML(event, analyticsToken) {
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
-    .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
+    .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#808080;margin-bottom:1rem}
     .credits-list{display:flex;flex-direction:column;gap:.5rem}
-    .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#666;text-decoration:none;transition:color .2s;display:block}
+    .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#909090;text-decoration:none;transition:color .2s;display:block}
     .credits-list a:hover{color:#bbb}
     .credits-note{font-size:.78rem;color:#3a5a3a;margin-top:.875rem;padding:.625rem .875rem;background:#0a140a;border:1px solid #162016;border-radius:7px;line-height:1.55}
     /* banner */

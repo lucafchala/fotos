@@ -615,6 +615,21 @@ function toHttps(url) {
   return url.startsWith('http://') ? 'https://' + url.slice(7) : url;
 }
 
+// CSP pragmática: mantém 'unsafe-inline' (o app usa handlers inline em todo lugar);
+// trava object-src/base-uri/frame-ancestors e declara script-src/img-src explicitamente.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "img-src 'self' data: https://*.googleusercontent.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://cdn.jsdelivr.net",
+  "connect-src 'self' https://cloudflareinsights.com",
+  'upgrade-insecure-requests',
+].join('; ');
+
 function html(content, status = 200) {
   return new Response(content, {
     status,
@@ -623,7 +638,9 @@ function html(content, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Content-Security-Policy': 'upgrade-insecure-requests',
+      'Strict-Transport-Security': 'max-age=15552000; includeSubDomains',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Content-Security-Policy': CSP,
     },
   });
 }
@@ -662,7 +679,7 @@ function handleManifest() {
   };
   return new Response(JSON.stringify(manifest), {
     status: 200,
-    headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' },
+    headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=604800' },
   });
 }
 

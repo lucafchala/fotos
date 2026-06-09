@@ -119,6 +119,27 @@ export function formatDatePT(dateStr) {
   return `${parseInt(day, 10)} de ${months[m - 1]} de ${year}`;
 }
 
+// ---------------------------------------------------------------------------
+// Imagens: redimensionamento em tempo de renderização via parâmetros do
+// endpoint lh3.googleusercontent.com/d/<id> (=wN, -hN, -c crop, -rw WebP).
+// Não-destrutivo: as URLs salvas continuam "cruas"; só transformamos na saída.
+// ---------------------------------------------------------------------------
+export function sizedImg(url, width, { height = 0, crop = false, webp = true } = {}) {
+  if (!url || typeof url !== 'string') return url || '';
+  if (!url.includes('googleusercontent.com/')) return url; // passa direto URLs não-Google
+  const base = url.split('=')[0];                           // remove sufixo =... existente
+  let s = `=w${width}`;
+  if (height) s += `-h${height}`;
+  if (crop)   s += '-c';
+  if (webp)   s += '-rw';
+  return base + s;
+}
+
+export function imgSrcset(url, widths, opts = {}) {
+  if (!url || typeof url !== 'string' || !url.includes('googleusercontent.com/')) return '';
+  return widths.map(w => `${sizedImg(url, w, opts)} ${w}w`).join(', ');
+}
+
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
