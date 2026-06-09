@@ -587,7 +587,7 @@ async function handleHealthz(request, env) {
 // ---------------------------------------------------------------------------
 async function verifyTurnstile(token, env) {
   const secret = env.TURNSTILE_SECRET_KEY;
-  if (!secret) return true; // graceful degradation if secret not configured
+  if (!secret) return false; // fail closed — a missing secret is a deploy error, not a bypass
   if (!token) return false;
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
