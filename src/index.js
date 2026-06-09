@@ -623,7 +623,15 @@ function html(content, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Content-Security-Policy': 'upgrade-insecure-requests',
+      'Content-Security-Policy':
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://cdn.jsdelivr.net; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src https://fonts.gstatic.com; " +
+        "img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; " +
+        "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; " +
+        "frame-src https://challenges.cloudflare.com; " +
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
     },
   });
 }
@@ -635,14 +643,14 @@ function redirect(location) {
 function jsonOk(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   });
 }
 
 function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   });
 }
 
