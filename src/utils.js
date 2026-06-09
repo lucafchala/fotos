@@ -35,7 +35,10 @@ export function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-export async function hashPassword(password, saltHex, iterations = 10_000) {
+// 100k measures ~50 ms — within the 200 ms CI healthz budget (deploy.yml).
+// Stored hashes embed their own iteration count, so raising this never
+// breaks existing credentials.
+export async function hashPassword(password, saltHex, iterations = 100_000) {
   const enc = new TextEncoder();
   const salt = saltHex
     ? hexToBytes(saltHex)
