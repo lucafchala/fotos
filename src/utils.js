@@ -2,9 +2,12 @@ let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
 
-export async function getEvents(env) {
+// fresh=true bypasses the isolate-local cache — required on admin reads and
+// any read-modify-write, where 30 s of staleness could clobber another
+// isolate's recent save.
+export async function getEvents(env, fresh = false) {
   const now = Date.now();
-  if (_cache && now - _cacheAt < CACHE_TTL) return _cache;
+  if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
   const data = await env.FOTOS.get('events');
   _cache = data ? ((() => { try { return JSON.parse(data); } catch { return []; } })()) : [];
   _cacheAt = now;
@@ -35,7 +38,10 @@ export function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-export async function hashPassword(password, saltHex, iterations = 10_000) {
+// 100k measures ~50 ms — within the 200 ms CI healthz budget (deploy.yml).
+// Stored hashes embed their own iteration count, so raising this never
+// breaks existing credentials.
+export async function hashPassword(password, saltHex, iterations = 100_000) {
   const enc = new TextEncoder();
   const salt = saltHex
     ? hexToBytes(saltHex)
@@ -124,7 +130,7 @@ export async function sendRemovalEmail(env, req) {
   if (!apiKey) return false;
 
   const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' }[req.method] || req.method;
-  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -170,7 +176,7 @@ export async function sendResolvedEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
 
-  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -204,7 +210,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
 
-  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -240,7 +246,7 @@ export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
 
-  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
   const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' }[req.method] || req.method;
 
   const html = `

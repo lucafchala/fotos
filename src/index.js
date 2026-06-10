@@ -80,7 +80,9 @@ async function handleEventPage(request, env, slug, ctx) {
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
-  // Only count view once per hour per visitor (avoids KV read+write on repeat visits)
+  // Only count view once per hour per visitor (avoids KV read+write on repeat visits).
+  // KV read-modify-write is not atomic, so concurrent visits can undercount —
+  // these are soft analytics, not hard metrics.
   const cookieName = `fv_${slug}`;
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   if (!alreadyCounted) {
@@ -88,7 +90,7 @@ async function handleEventPage(request, env, slug, ctx) {
     ctx.waitUntil(
       env.FOTOS.get(viewKey).then(async v => {
         await env.FOTOS.put(viewKey, String(parseInt(v || '0', 10) + 1));
-      }).catch(() => {})
+      }).catch(e => console.error('view counter failed', e))
     );
   }
 
@@ -101,8 +103,10 @@ async function handleEventPage(request, env, slug, ctx) {
 // Dashboard page
 // ---------------------------------------------------------------------------
 async function handleDashboardPage(request, env, url) {
-  const stored = await env.FOTOS.get('admin_password');
-  if (!stored) return html(loginHTML({ isSetup: true }));
+  const stored = await getAdminHash(env);
+  if (!stored) {
+    return html('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503);
+  }
 
   const authed = await verifySession(env, request);
   if (!authed) {
@@ -110,7 +114,7 @@ async function handleDashboardPage(request, env, url) {
     return html(loginHTML({ error: hasError }));
   }
 
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   return new Response(dashboardHTML(events), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -132,23 +136,17 @@ async function handleLogin(request, env) {
   }
 
   const password = body.password || '';
-  const isSetup = body.setup === '1';
-  const confirm = body.confirm || '';
-  const stored = await env.FOTOS.get('admin_password');
+  const stored = await getAdminHash(env);
 
-  if (isSetup || !stored) {
-    // First-run: set the password
-    if (isSetup && password !== confirm) return redirect('/dashboard?error=1');
-    if (!password || password.length < 6) return redirect('/dashboard?error=1');
+  // No trust-on-first-use: with no stored credential and no ADMIN_PASSWORD
+  // secret, login is impossible rather than claimable by the first visitor.
+  if (!stored) return redirect('/dashboard?error=1');
+
+  const ok = await verifyPassword(password, stored);
+  if (!ok) return redirect('/dashboard?error=1');
+  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
+  if (!stored.startsWith('pbkdf2:')) {
     await env.FOTOS.put('admin_password', await hashPassword(password));
-  } else {
-    // Normal login
-    const ok = await verifyPassword(password, stored);
-    if (!ok) return redirect('/dashboard?error=1');
-    // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
-    if (!stored.startsWith('pbkdf2:')) {
-      await env.FOTOS.put('admin_password', await hashPassword(password));
-    }
   }
 
   const token = generateToken();
@@ -163,13 +161,26 @@ async function handleLogin(request, env) {
   });
 }
 
+// Stored credential, seeded from the ADMIN_PASSWORD secret when KV is empty
+// (fresh deploy / wiped namespace) so there is never an open setup window.
+async function getAdminHash(env) {
+  const stored = await env.FOTOS.get('admin_password');
+  if (stored) return stored;
+  if (env.ADMIN_PASSWORD) {
+    const hash = await hashPassword(env.ADMIN_PASSWORD);
+    await env.FOTOS.put('admin_password', hash);
+    return hash;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Logout
 // ---------------------------------------------------------------------------
 async function handleLogout(request, env) {
   const cookies = request.headers.get('Cookie') || '';
   const match = cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
-  if (match) await env.FOTOS.delete(`admin_session:${match[1]}`).catch(() => {});
+  if (match) await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => console.error('session delete failed', e));
 
   return new Response(null, {
     status: 302,
@@ -195,7 +206,7 @@ async function handleCreateEvent(request, env) {
   if (!title || typeof title !== 'string') return jsonErr('Título obrigatório.', 400);
   if (!driveUrl || typeof driveUrl !== 'string') return jsonErr('Link do Drive obrigatório.', 400);
 
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   if (events.find(e => e.slug === slug)) return jsonErr('Já existe um evento com essa URL.', 409);
 
   const photos = Array.isArray(body.photos)
@@ -214,7 +225,7 @@ async function handleCreateEvent(request, env) {
     driveUrlInstagram: body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '',
     date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
     eventCredits: String(body.eventCredits || '').slice(0, 200),
-    projectUrl: String(body.projectUrl || '').slice(0, 500),
+    projectUrl: body.projectUrl ? toHttps(String(body.projectUrl).slice(0, 500)) : '',
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
@@ -244,7 +255,7 @@ async function handleUpdateEvent(request, env, path) {
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   const idx = events.findIndex(e => e.id === id);
   if (idx === -1) return jsonErr('Evento não encontrado.', 404);
 
@@ -269,7 +280,7 @@ async function handleUpdateEvent(request, env, path) {
       : (existing.driveUrlInstagram || ''),
     date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
     eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
-    projectUrl: body.projectUrl !== undefined ? String(body.projectUrl).slice(0, 500) : existing.projectUrl,
+    projectUrl: body.projectUrl !== undefined ? toHttps(String(body.projectUrl).slice(0, 500)) : existing.projectUrl,
     visible: body.visible !== undefined ? body.visible !== false : existing.visible,
     comingSoon: body.comingSoon !== undefined ? body.comingSoon === true : (existing.comingSoon === true),
     status: body.status !== undefined
@@ -310,13 +321,13 @@ async function handleDeleteEvent(request, env, path) {
   if (authErr) return authErr;
 
   const id = path.replace('/api/events/', '');
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   const idx = events.findIndex(e => e.id === id);
   if (idx === -1) return jsonErr('Evento não encontrado.', 404);
 
   const [removed] = events.splice(idx, 1);
   await saveEvents(env, events);
-  await env.FOTOS.delete(`views:${removed.slug}`).catch(() => {});
+  await env.FOTOS.delete(`views:${removed.slug}`).catch(e => console.error('view-counter cleanup failed', e));
   return jsonOk({ deleted: true });
 }
 
@@ -328,7 +339,7 @@ async function handleMetrics(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   const metrics = await Promise.all(
     events.map(async e => {
       const [v, d] = await Promise.all([
@@ -361,7 +372,7 @@ async function handleTrackDrive(request, env) {
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
   const key = `drive_clicks:${slug}`;
   const v = await env.FOTOS.get(key).catch(() => null);
-  await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(() => {});
+  await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(e => console.error('drive-click counter failed', e));
   return jsonOk({ ok: true });
 }
 
@@ -587,7 +598,7 @@ async function handleHealthz(request, env) {
 // ---------------------------------------------------------------------------
 async function verifyTurnstile(token, env) {
   const secret = env.TURNSTILE_SECRET_KEY;
-  if (!secret) return true; // graceful degradation if secret not configured
+  if (!secret) return false; // fail closed — a missing secret is a deploy error, not a bypass
   if (!token) return false;
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -612,7 +623,9 @@ async function checkAuth(request, env) {
 }
 
 function toHttps(url) {
-  return url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+  const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+  // href/src are script-executing sinks — drop javascript:/data:/anything non-https
+  return /^https:\/\//i.test(u) ? u : '';
 }
 
 function html(content, status = 200) {
@@ -623,7 +636,15 @@ function html(content, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Content-Security-Policy': 'upgrade-insecure-requests',
+      'Content-Security-Policy':
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://cdn.jsdelivr.net; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src https://fonts.gstatic.com; " +
+        "img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; " +
+        "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; " +
+        "frame-src https://challenges.cloudflare.com; " +
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
     },
   });
 }
@@ -635,14 +656,14 @@ function redirect(location) {
 function jsonOk(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   });
 }
 
 function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   });
 }
 
@@ -706,7 +727,7 @@ function mergeRestore(current, backupEvents) {
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const events = await getEvents(env);
+  const events = await getEvents(env, true);
   const date = new Date().toISOString().split('T')[0];
   return new Response(buildBackup(events), {
     headers: {
