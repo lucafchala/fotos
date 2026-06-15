@@ -15,6 +15,7 @@ export function galleryHTML(events, analyticsToken) {
     const thumb = e.thumbnailUrl ? sizedDriveThumb(e.thumbnailUrl, width) : '';
     const title = escape((e.title || '').toLowerCase());
     const desc = escape((e.shortDescription || '').toLowerCase());
+    const catLower = escape((e.category || '').toLowerCase());
     const cls = [
       'card',
       featured ? 'card-featured' : '',
@@ -22,7 +23,7 @@ export function galleryHTML(events, analyticsToken) {
       hidden ? 'hidden' : '',
     ].filter(Boolean).join(' ');
     return `
-      <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-desc="${desc}" data-cat="${escape(e.category || '')}" data-year="${escape(yearOf(e))}">
+      <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-desc="${desc}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}">
           ${e.comingSoon
             ? thumb
@@ -37,6 +38,7 @@ export function galleryHTML(events, analyticsToken) {
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
           <h2>${escape(e.title)}</h2>
           ${e.shortDescription ? `<p>${escape(e.shortDescription)}</p>` : ''}
+          ${e.category ? `<span class="cat-tag">${escape(e.category)}</span>` : ''}
         </div>
       </a>`;
   };
@@ -70,13 +72,19 @@ export function galleryHTML(events, analyticsToken) {
   const chipsHTML = presentCats.length > 0
     ? `<div class="chips" id="chips" role="group" aria-label="Filtrar por categoria">
         <button class="chip active" data-cat="all">Todos</button>
-        ${presentCats.map(c => `<button class="chip" data-cat="${escape(c)}">${escape(c)}</button>`).join('')}
+        ${presentCats.map(c => `<button class="chip" data-cat="${escape(c.toLowerCase())}">${escape(c)}</button>`).join('')}
       </div>`
     : '';
   const controlsHTML = showControls
-    ? `<div class="controls" role="search">
-        <input type="search" id="search" class="search-input" placeholder="Buscar por título ou descrição…" aria-label="Buscar projetos" autocomplete="off">
-        ${chipsHTML}
+    ? `<div class="controls-wrap">
+        <div class="controls" role="search">
+          <input type="search" id="search" class="search-input" placeholder="Buscar por título, descrição ou categoria…" aria-label="Buscar projetos" autocomplete="off">
+          ${chipsHTML}
+        </div>
+        <div class="filter-status" id="filter-status">
+          <span id="result-count"></span>
+          <button type="button" id="clear-filters" class="clear-filters">Limpar filtros</button>
+        </div>
       </div>`
     : '';
 
@@ -123,29 +131,40 @@ export function galleryHTML(events, analyticsToken) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
+    :root{--bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;--text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;--border-dim:#1a1a1a;--footer-link:#3a3a3a}
+    body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
+    body.light{--bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;--text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;--border-dim:#ddd9d4;--footer-link:#9a9490}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
-    header{padding:3rem 1.5rem 1.75rem;text-align:center}
-    .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:#c8c0b8}
-    .logo strong{font-weight:600;color:#f0ebe5}
+    header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
+    .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
+    .logo strong{font-weight:600;color:var(--text)}
+    .theme-toggle{position:absolute;right:1.25rem;top:50%;transform:translateY(-50%);background:none;border:1px solid var(--bg-card-border);color:var(--text-muted);border-radius:20px;padding:.35rem .8rem;font-size:.65rem;font-family:inherit;cursor:pointer;transition:border-color .2s,color .2s;display:inline-flex;align-items:center;gap:.35rem}
+    .theme-toggle:hover{border-color:var(--text-dim);color:var(--text)}
+    .theme-toggle .exp{font-size:.58rem;opacity:.45;font-style:italic}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
-    .controls{display:flex;flex-direction:column;gap:.875rem;margin-bottom:1.5rem}
+    .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0}
+    .controls{display:flex;flex-direction:column;gap:.875rem;padding-bottom:.75rem}
     @media(min-width:560px){.controls{flex-direction:row;align-items:center;justify-content:space-between}}
-    .search-input{width:100%;max-width:340px;background:#111;border:1px solid #1c1c1c;color:#f0ebe5;padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
-    .search-input::placeholder{color:#444}
+    .search-input{width:100%;max-width:340px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .search-input::placeholder{color:var(--text-ph)}
     .search-input:focus{border-color:#c0a060}
     .chips{display:flex;gap:.5rem;flex-wrap:wrap}
-    .chip{background:#111;border:1px solid #1c1c1c;color:#777;padding:.45rem .9rem;border-radius:20px;font-size:.72rem;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
-    .chip:hover{border-color:#2e2e2e;color:#bbb}
+    .chip{background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:20px;font-size:.72rem;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
+    .chip:hover{border-color:var(--text-dim);color:var(--text-2)}
     .chip.active{border-color:#c0a060;color:#c0a060;background:rgba(192,160,96,.08)}
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.875rem}
+    .filter-status{display:none;align-items:center;gap:.75rem;padding:.2rem 0 .7rem;font-size:.75rem;color:var(--text-muted)}
+    .filter-status.show{display:flex}
+    .result-count{flex:1}
+    .clear-filters{background:none;border:none;color:#c0a060;font-size:.75rem;font-family:inherit;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
+    .clear-filters:hover{color:#d4b070}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.875rem;margin-top:.875rem}
     @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
-    .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#555;padding:1.5rem 0 .25rem;border-bottom:1px solid #1a1a1a;margin-bottom:.25rem}
+    .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
-    .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:#111;border:1px solid #1c1c1c;transition:transform .2s ease,border-color .2s}
-    .card:hover{transform:translateY(-4px);border-color:#2e2e2e}
-    .thumb{aspect-ratio:4/3;overflow:hidden;background:#181818;position:relative}
+    .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
+    .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
+    .thumb{aspect-ratio:4/3;overflow:hidden;background:var(--bg-card);position:relative}
     .thumb.loading{background:linear-gradient(90deg,#181818 0%,#222 50%,#181818 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     .thumb.loading img{opacity:0}
@@ -157,23 +176,25 @@ export function galleryHTML(events, analyticsToken) {
     .thumb-blur{filter:blur(8px);transform:scale(1.1);width:100%;height:100%;object-fit:cover;display:block}
     .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
     .info{padding:.75rem .875rem 1rem}
-    .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#555}
+    .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
     .info h2{font-size:.875rem;font-weight:600;margin:.25rem 0 .3rem;line-height:1.3}
-    .info p{font-size:.75rem;color:#777;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .info p{font-size:.75rem;color:var(--text-muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .cat-tag{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#c0a060;background:rgba(192,160,96,.1);border:1px solid rgba(192,160,96,.2);border-radius:4px;padding:.15rem .45rem;margin-top:.4rem}
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
     @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.1rem}.card-featured .info p{-webkit-line-clamp:4}}
-    .empty{text-align:center;color:#333;padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
-    .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:#c8c0b8;border:1px solid #2e2e2e;border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
-    .load-more:hover{border-color:#444;color:#f0ebe5}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap}
-    footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#777}
-    .support-link{display:inline-flex;align-items:center;gap:.4rem;color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    .support-link:hover{color:#777}
+    .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
+    .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--border-dim);border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
+    .load-more:hover{border-color:var(--text-dim);color:var(--text)}
+    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-dim);display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap}
+    footer a{color:var(--footer-link);font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:var(--text-muted)}
+    .support-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    .support-link:hover{color:var(--text-muted)}
     .support-link svg{width:13px;height:13px}
-    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
     .cookie-notice a{color:#c0a060;text-decoration:none}
     .cookie-notice a:hover{text-decoration:underline}
@@ -184,6 +205,9 @@ export function galleryHTML(events, analyticsToken) {
 <body>
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Alternar modo claro/escuro">
+      <span id="theme-icon">☀</span><span id="theme-label">claro</span><span class="exp">experimental</span>
+    </button>
   </header>
   <main>
     ${controlsHTML}
@@ -219,6 +243,9 @@ export function galleryHTML(events, analyticsToken) {
       var loadMoreBtn = document.getElementById('load-more');
       var noResults = document.getElementById('no-results');
       var chips = document.getElementById('chips');
+      var filterStatus = document.getElementById('filter-status');
+      var resultCount = document.getElementById('result-count');
+      var clearFiltersBtn = document.getElementById('clear-filters');
 
       function isFiltering(){
         return (searchEl && searchEl.value.trim() !== '') || activeCat !== 'all';
@@ -226,7 +253,7 @@ export function galleryHTML(events, analyticsToken) {
       function matches(card, q){
         if (activeCat !== 'all' && card.getAttribute('data-cat') !== activeCat) return false;
         if (!q) return true;
-        return (card.getAttribute('data-title') + ' ' + card.getAttribute('data-desc')).indexOf(q) !== -1;
+        return (card.getAttribute('data-title') + ' ' + card.getAttribute('data-desc') + ' ' + card.getAttribute('data-cat')).indexOf(q) !== -1;
       }
       function syncHeadings(){
         var heads = document.querySelectorAll('[data-year-head]');
@@ -239,7 +266,7 @@ export function galleryHTML(events, analyticsToken) {
       function apply(){
         var q = searchEl ? searchEl.value.trim().toLowerCase() : '';
         var filtering = isFiltering();
-        var idx = 0, visibleCount = 0;
+        var idx = 0, matchCount = 0;
         for (var i = 0; i < allCards.length; i++){
           var card = allCards[i], show;
           if (filtering){
@@ -250,10 +277,16 @@ export function galleryHTML(events, analyticsToken) {
             show = true;
           }
           card.classList.toggle('hidden', !show);
-          if (show) visibleCount++;
+          if (show) matchCount++;
         }
-        if (noResults) noResults.style.display = (filtering && visibleCount === 0) ? '' : 'none';
+        if (noResults) noResults.style.display = (filtering && matchCount === 0) ? '' : 'none';
         if (loadMoreBtn) loadMoreBtn.style.display = (!filtering && shown < batchCards.length) ? '' : 'none';
+        if (filterStatus) {
+          filterStatus.classList.toggle('show', filtering);
+          if (filtering && resultCount) {
+            resultCount.textContent = matchCount + ' projeto' + (matchCount !== 1 ? 's' : '') + ' encontrado' + (matchCount !== 1 ? 's' : '');
+          }
+        }
         syncHeadings();
       }
 
@@ -267,6 +300,15 @@ export function galleryHTML(events, analyticsToken) {
         shown = BATCH; apply();
       });
       if (loadMoreBtn) loadMoreBtn.addEventListener('click', function(){ shown += BATCH; apply(); });
+      if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', function(){
+        if (searchEl) searchEl.value = '';
+        activeCat = 'all';
+        if (chips) {
+          var all = chips.querySelectorAll('.chip');
+          for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i].getAttribute('data-cat') === 'all');
+        }
+        shown = BATCH; apply();
+      });
       apply();
 
       // Cookie / analytics notice (essential cookies + anonymous measurement)
@@ -281,6 +323,23 @@ export function galleryHTML(events, analyticsToken) {
         try { localStorage.setItem('fotos:cookie_notice', '1'); } catch(_) {}
         var cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
+      });
+
+      // Light/dark theme toggle (experimental)
+      var toggleBtn = document.getElementById('theme-toggle');
+      var themeIcon = document.getElementById('theme-icon');
+      var themeLabel = document.getElementById('theme-label');
+      function setTheme(light){
+        document.body.classList.toggle('light', light);
+        if (themeIcon) themeIcon.textContent = light ? '☽' : '☀';
+        if (themeLabel) themeLabel.textContent = light ? 'escuro' : 'claro';
+        try { localStorage.setItem('fotos:theme', light ? 'light' : 'dark'); } catch(_) {}
+      }
+      try {
+        if (localStorage.getItem('fotos:theme') === 'light') setTheme(true);
+      } catch(_) {}
+      if (toggleBtn) toggleBtn.addEventListener('click', function(){
+        setTheme(!document.body.classList.contains('light'));
       });
     })();
   </script>
