@@ -81,20 +81,6 @@ export function eventHTML(event, analyticsToken) {
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
     .btn-soon{background:#141414;color:#888;border:1px dashed #2e2e2e;cursor:default}
     .btn-soon:hover{background:#141414;transform:none}
-    /* tour */
-    .tour-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:60;display:none;align-items:flex-end;justify-content:center;padding:1rem;opacity:0;transition:opacity .3s ease}
-    @media(min-width:580px){.tour-modal{align-items:center}}
-    .tour-modal.open{display:flex;opacity:1}
-    .tour-card{background:#0d0d0d;border:1px solid #1e1e1e;width:100%;max-width:420px;border-radius:16px;padding:1.75rem 1.5rem;animation:slideUp .35s ease}
-    @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-    .tour-card h3{font-size:1.1rem;font-weight:600;margin-bottom:.35rem;color:#f0ebe5}
-    .tour-sub{font-size:.85rem;color:#888;margin-bottom:1.25rem;line-height:1.5}
-    .tour-list{list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:.875rem}
-    .tour-list li{display:flex;gap:.75rem;align-items:flex-start;font-size:.875rem;line-height:1.55;color:#bbb}
-    .tour-icon{font-size:1.1rem;flex-shrink:0;width:1.5rem;text-align:center}
-    .tour-list strong{color:#e0d8d0;font-weight:600}
-    .tour-btn{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
-    .tour-btn:hover{opacity:.88}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
     .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
@@ -116,21 +102,17 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:400px){.btn-drive{width:auto}}
     .btn-drive:hover{background:#fff;transform:translateY(-2px)}
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
-    /* review */
-    .review-wrap{margin:0 0 2.5rem;padding:1.125rem 1.25rem;background:#0b0b0b;border:1px solid #1c1c1c;border-radius:10px;text-align:center}
-    .review-label{font-size:.6rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#c0a060;margin-bottom:.875rem;opacity:.7}
-    .stars{display:flex;gap:0;justify-content:center;margin-bottom:.125rem}
-    .star{background:none;border:none;font-size:2rem;color:#282828;cursor:pointer;padding:.2rem .25rem;line-height:1;transition:color .1s;-webkit-tap-highlight-color:transparent}
-    .star.on{color:#c0a060}
-    .rev-form{margin-top:1rem;display:flex;flex-direction:column;gap:.625rem;text-align:left}
-    .rev-input{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.7rem .875rem;border-radius:8px;font-size:.875rem;font-family:inherit;outline:none;transition:border-color .2s;-webkit-appearance:none}
-    .rev-input::placeholder{color:#363636}
-    .rev-input:focus{border-color:#3a3a3a}
-    .rev-textarea{resize:vertical;min-height:68px;line-height:1.5}
-    .btn-rev-send{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.75rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    /* review button + modal */
+    .btn-review{background:#c0a060;color:#0a0a0a}
+    .btn-review:hover{background:#d4b070;transform:translateY(-2px)}
+    .btn-stars{letter-spacing:.18em;font-size:.95em}
+    .rev-modal-stars{display:flex;gap:.25rem;justify-content:center;margin:1rem 0 1.25rem}
+    .rev-star{background:none;border:none;font-size:2.25rem;color:#2a2a2a;cursor:pointer;padding:.15rem;line-height:1;transition:color .1s;-webkit-tap-highlight-color:transparent}
+    .rev-star.on{color:#c0a060}
+    .btn-rev-send{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;margin-top:.75rem}
     .btn-rev-send:disabled{opacity:.3;cursor:not-allowed}
     .btn-rev-send:not(:disabled):hover{opacity:.88}
-    .rev-done{color:#8ac88a;font-size:.85rem;padding:.25rem 0}
+    .drive-note{font-size:.75rem;color:#555;margin-bottom:.875rem;line-height:1.5}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
@@ -162,33 +144,17 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
     .modal-sheet{background:#0d0d0d;width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:1.5rem 1.5rem max(3rem,calc(2rem + env(safe-area-inset-bottom)))}
     @media(min-width:580px){.modal-sheet{border-radius:14px;max-height:90vh;max-height:90dvh;padding-bottom:2.25rem}}
-    .scroll-hint{position:absolute;bottom:0;left:0;right:0;height:52px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:max(.625rem,calc(.375rem + env(safe-area-inset-bottom)));background:linear-gradient(transparent,rgba(13,13,13,.9));pointer-events:none;transition:opacity .25s}
-    .scroll-hint.hidden{opacity:0}
-    .scroll-hint svg{color:#555;animation:bounce-d .9s ease-in-out infinite}
-    @keyframes bounce-d{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
-    @media(min-width:580px){.scroll-hint{display:none}}
     .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
     .modal-head h2{font-size:.975rem;font-weight:600}
     .m-close{background:none;border:1px solid #222;color:#555;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
     .m-close:hover{border-color:#444;color:#ccc}
     /* drive modal */
-    .credit-box{background:#091409;border:1px solid #173017;border-radius:10px;padding:.875rem 1rem;margin-bottom:1.125rem}
-    .credit-box-h{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#4a9a4a;margin-bottom:.5rem}
-    .credit-box p{font-size:.82rem;color:#b0d0b0;line-height:1.6;margin-bottom:.25rem}
-    .credit-box p:last-child{margin-bottom:0}
-    .credit-box a{color:#7ec87e;text-decoration:none}
-    .credit-box a:hover{color:#a0e0a0;text-decoration:underline}
-    .credit-box .note{font-size:.75rem;color:#507a50;margin-top:.5rem}
     .guide-title{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:.875rem}
     .steps{display:flex;flex-direction:column;gap:.625rem;padding-left:0;list-style:none;counter-reset:step}
     .steps li{counter-increment:step;display:grid;grid-template-columns:1.4rem 1fr;gap:.5rem;font-size:.82rem;color:#999;line-height:1.55}
     .steps li::before{content:counter(step);font-size:.65rem;font-weight:600;color:#555;background:#1a1a1a;width:1.35rem;height:1.35rem;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:.15rem}
     .steps li strong{color:#d0d0d0}
     .steps li kbd{background:#1e1e1e;border:1px solid #2d2d2d;padding:.1em .4em;border-radius:4px;font-size:.8em;font-family:inherit;color:#bbb}
-    .warn-box{display:flex;align-items:flex-start;gap:.6rem;margin-top:1rem;padding:.75rem .875rem;background:#130e00;border:1px solid #2a1c00;border-radius:8px}
-    .warn-box svg{width:14px;height:14px;flex-shrink:0;color:#c8880a;margin-top:2px}
-    .warn-box p{font-size:.77rem;color:#b87e0a;line-height:1.55}
-    .warn-box p strong{color:#d89e30}
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1.25rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
@@ -265,18 +231,11 @@ export function eventHTML(event, analyticsToken) {
           </button>`}
     </div>
 
-    ${!event.comingSoon ? `<div class="review-wrap" id="review-wrap">
-      <div class="review-label">Avaliar</div>
-      <div class="stars" id="rev-stars">
-        ${[1,2,3,4,5].map(i => `<button class="star" type="button" data-v="${i}" aria-label="${i} estrela${i>1?'s':''}">★</button>`).join('')}
-      </div>
-      <div class="rev-form" id="rev-form" style="display:none">
-        <textarea id="rev-comment" class="rev-input rev-textarea" placeholder="Comentário (opcional)…"></textarea>
-        <input type="email" id="rev-email" class="rev-input" placeholder="Seu e-mail" autocomplete="email">
-        <div id="rev-turnstile" style="margin-top:.25rem"></div>
-        <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
-      </div>
-      <div id="rev-done" class="rev-done" style="display:none">Obrigado pelo feedback! ✓</div>
+    ${!event.comingSoon ? `<div class="drive-wrap" style="margin-top:-.5rem">
+      <button class="btn-drive btn-review" onclick="openRevModal()">
+        <span class="btn-stars">★★★★★</span>
+        Avaliar
+      </button>
     </div>` : ''}
 
     <div class="credits">
@@ -317,49 +276,31 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         Privacidade
       </a>
-      ${!event.comingSoon ? `<button class="removal-link" onclick="openTour()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        Tutorial
-      </button>` : ''}
     </div>
   </footer>
 
   <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal" onclick="ovClick(event)">
-    <div class="scroll-hint hidden" id="scroll-hint-drive">
-      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-    </div>
     <div class="modal-sheet">
       <div class="modal-head">
-        <h2>Antes de acessar as fotos</h2>
+        <h2>Acessar fotos</h2>
         <button class="m-close" onclick="closeModal()" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
-      </div>
-      <div class="credit-box">
-        <div class="credit-box-h">📸 Créditos ao postar</div>
-        <p>Ao publicar estas fotos nas redes sociais, mencione sempre:</p>
-        <p>• <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">@lucafchala</a> — fotografia</p>
-        ${event.eventCredits ? `<p>• ${escape(event.eventCredits)}</p>` : ''}
-        <p class="note">Isso valoriza o trabalho fotográfico e incentiva novos projetos. ♥</p>
       </div>
       <div class="guide-title">Como baixar as fotos</div>
       <ol class="steps">
         <li><span>${event.driveUrlInstagram
           ? `Escolha uma das opções abaixo e abra a pasta correspondente.`
-          : `Clique em "Ir para o Google Drive" abaixo e abra a pasta.`}</span></li>
+          : `Clique em "Ir para o Google Drive" abaixo.`}</span></li>
         <li>
-          <span><strong>No celular:</strong> toque nos três pontinhos (⋮) de uma foto → "Fazer download".<br>
-          Para baixar <em>todas</em>: segure uma foto → selecione todas → ⋮ → "Fazer download".</span>
+          <span><strong>No celular:</strong> toque em ⋮ → "Fazer download". Para baixar tudo: segure uma → selecione todas → ⋮ → "Fazer download".</span>
         </li>
         <li>
-          <span><strong>No computador:</strong> selecione tudo com <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd> no Mac) → botão direito → "Fazer download".</span>
+          <span><strong>No computador:</strong> <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd>) → botão direito → "Fazer download".</span>
         </li>
       </ol>
-      <div class="warn-box">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais.</p>
-      </div>
+      <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1.25rem"></div>
       <div id="drive-links-wrap" style="display:none">
       ${event.driveUrlInstagram
@@ -458,20 +399,30 @@ export function eventHTML(event, analyticsToken) {
     </div>
   </div>
 
-  ${event.comingSoon ? '' : `<!-- TOUR MODAL -->
-  <div class="tour-modal" id="tour-modal">
-    <div class="tour-card">
-      <h3>Bem-vindo! 👋</h3>
-      <p class="tour-sub">Algumas dicas rápidas pra você aproveitar:</p>
-      <ul class="tour-list">
-        <li><span class="tour-icon">📁</span><span>Toque em <strong>Acessar fotos</strong> para baixar pelo Google Drive.</span></li>
-        ${event.driveUrlInstagram ? `<li><span class="tour-icon">🖼</span><span><strong>Resolução completa</strong> — arquivo original, ideal pra guardar, imprimir ou editar.<br><strong>Para o Instagram</strong> — já no tamanho certo pra postar sem perder qualidade.</span></li>` : ''}
-        <li><span class="tour-icon">💬</span><span>Compartilhe esta página com amigos pelo botão <strong>Compartilhar</strong> no rodapé.</span></li>
-        <li><span class="tour-icon">🗑</span><span>Apareceu uma foto sua que prefere remover? Use <strong>Solicitar remoção</strong> no rodapé.</span></li>
-      </ul>
-      <button class="tour-btn" onclick="closeTour()">Entendi</button>
+  <!-- REVIEW MODAL -->
+  ${!event.comingSoon ? `<div class="modal-ov" id="rev-modal" onclick="revOvClick(event)">
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <h2>Avaliar</h2>
+        <button class="m-close" onclick="closeRevModal()" aria-label="Fechar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="rev-modal-stars" id="rev-modal-stars">
+        ${[1,2,3,4,5].map(i => `<button class="rev-star" type="button" data-v="${i}" aria-label="${i} estrela${i>1?'s':''}">★</button>`).join('')}
+      </div>
+      <div id="rev-form-fields" style="display:none">
+        <div class="rem-field"><textarea id="rev-comment" placeholder="Comentário (opcional)…" style="resize:vertical;min-height:68px"></textarea></div>
+        <div class="rem-field"><input type="email" id="rev-email" placeholder="Seu e-mail" autocomplete="email"></div>
+      </div>
+      <div id="rev-turnstile" style="margin-top:.75rem"></div>
+      <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
+      <div id="rev-done" class="rem-success" style="display:none">
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+        Obrigado pelo feedback! ✓
+      </div>
     </div>
-  </div>`}
+  </div>` : ''}
 
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
@@ -524,41 +475,12 @@ export function eventHTML(event, analyticsToken) {
       });
     })();
 
-    // ---- Tour (first visit) ----
-    function closeTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      m.classList.remove('open');
-      try { localStorage.setItem('fotos:tour_seen', '1'); } catch(_) {}
-      setTimeout(() => { m.style.display = 'none'; }, 300);
-    }
-    function openTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      m.style.display = '';
-      m.classList.add('open');
-    }
-    (function maybeShowTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      try { if (localStorage.getItem('fotos:tour_seen')) return; } catch(_) { return; }
-      setTimeout(() => { m.classList.add('open'); }, 800);
-    })();
-
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
     let driveWidgetId = null;
     let remWidgetId   = null;
     let remTsToken    = '';
 
     // ---- Drive modal ----
-    function checkDriveScroll() {
-      const sheet = document.querySelector('#modal .modal-sheet');
-      const hint = document.getElementById('scroll-hint-drive');
-      if (!sheet || !hint) return;
-      const scrollable = sheet.scrollHeight > sheet.clientHeight + 56;
-      const atBottom = sheet.scrollTop + sheet.clientHeight >= sheet.scrollHeight - 32;
-      hint.classList.toggle('hidden', !scrollable || atBottom);
-    }
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
@@ -572,21 +494,18 @@ export function eventHTML(event, analyticsToken) {
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
-            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; setTimeout(checkDriveScroll, 60); },
+            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; },
             'error-callback': () => { document.getElementById('drive-links-wrap').style.display = ''; },
             'expired-callback': () => { document.getElementById('drive-links-wrap').style.display = 'none'; },
           });
         }
-        checkDriveScroll();
       }, 120);
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
-      document.getElementById('scroll-hint-drive').classList.add('hidden');
       document.body.style.overflow = '';
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
-    document.querySelector('#modal .modal-sheet')?.addEventListener('scroll', checkDriveScroll, { passive: true });
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
     }
@@ -714,46 +633,59 @@ export function eventHTML(event, analyticsToken) {
       }
     }
 
-    // ---- Review ----
+    // ---- Review modal ----
     var revRating = 0;
     var revWidgetId = null;
     var revTsToken = '';
-    var revFormShown = false;
 
-    function highlightStars(n) {
-      var stars = document.querySelectorAll('.star');
-      for (var i = 0; i < stars.length; i++) stars[i].classList.toggle('on', i < n);
+    function openRevModal() {
+      revRating = 0;
+      highlightRevStars(0);
+      var fields = document.getElementById('rev-form-fields');
+      var done = document.getElementById('rev-done');
+      if (fields) fields.style.display = 'none';
+      if (done) done.style.display = 'none';
+      document.getElementById('rev-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function() {
+        if (typeof turnstile === 'undefined') { revTsToken = 'skip'; return; }
+        if (revWidgetId !== null) { turnstile.reset(revWidgetId); return; }
+        revWidgetId = turnstile.render('#rev-turnstile', {
+          sitekey: TS_SITEKEY,
+          callback: function(t) { revTsToken = t; enableRevSubmit(); },
+          'error-callback': function() { revTsToken = ''; },
+          'expired-callback': function() { revTsToken = ''; },
+        });
+      }, 80);
+    }
+    function closeRevModal() {
+      document.getElementById('rev-modal').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function revOvClick(e) { if (e.target === document.getElementById('rev-modal')) closeRevModal(); }
+    function highlightRevStars(n) {
+      document.querySelectorAll('.rev-star').forEach(function(s, i) { s.classList.toggle('on', i < n); });
     }
     function enableRevSubmit() {
       var btn = document.getElementById('rev-submit');
-      if (btn) btn.disabled = !(revRating > 0 && revTsToken);
+      if (btn) btn.disabled = !(revRating > 0);
     }
     (function initRevStars() {
-      var wrap = document.getElementById('rev-stars');
+      var wrap = document.getElementById('rev-modal-stars');
       if (!wrap) return;
       wrap.addEventListener('mouseover', function(ev) {
-        var s = ev.target.closest('.star');
-        if (s) highlightStars(parseInt(s.dataset.v));
+        var s = ev.target.closest('.rev-star');
+        if (s) highlightRevStars(parseInt(s.dataset.v));
       });
-      wrap.addEventListener('mouseout', function() { highlightStars(revRating); });
+      wrap.addEventListener('mouseout', function() { highlightRevStars(revRating); });
       wrap.addEventListener('click', function(ev) {
-        var s = ev.target.closest('.star');
+        var s = ev.target.closest('.rev-star');
         if (!s) return;
         revRating = parseInt(s.dataset.v);
-        highlightStars(revRating);
-        if (revFormShown) { enableRevSubmit(); return; }
-        revFormShown = true;
-        document.getElementById('rev-form').style.display = '';
-        setTimeout(function() {
-          if (typeof turnstile === 'undefined') { revTsToken = 'skip'; enableRevSubmit(); return; }
-          if (revWidgetId !== null) return;
-          revWidgetId = turnstile.render('#rev-turnstile', {
-            sitekey: TS_SITEKEY,
-            callback: function(t) { revTsToken = t; enableRevSubmit(); },
-            'error-callback': function() { revTsToken = ''; enableRevSubmit(); },
-            'expired-callback': function() { revTsToken = ''; enableRevSubmit(); },
-          });
-        }, 80);
+        highlightRevStars(revRating);
+        var fields = document.getElementById('rev-form-fields');
+        if (fields) fields.style.display = '';
+        enableRevSubmit();
       });
     })();
     async function submitReview() {
@@ -767,9 +699,9 @@ export function eventHTML(event, analyticsToken) {
           body: JSON.stringify({ slug: EVENT_SLUG, rating: revRating, comment: (document.getElementById('rev-comment').value || '').trim(), email: (document.getElementById('rev-email').value || '').trim(), turnstileToken: revTsToken }),
         });
         if (!r.ok) throw new Error();
-        document.getElementById('rev-form').style.display = 'none';
-        document.getElementById('rev-done').style.display = '';
-        document.getElementById('rev-stars').style.pointerEvents = 'none';
+        document.getElementById('rev-form-fields').style.display = 'none';
+        document.getElementById('rev-done').style.display = 'block';
+        btn.style.display = 'none';
       } catch(_) {
         btn.disabled = false; btn.textContent = 'Enviar avaliação';
         alert('Erro ao enviar. Tente novamente.');

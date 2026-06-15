@@ -79,8 +79,9 @@ export function galleryHTML(events, analyticsToken) {
     ? `<div class="controls-wrap">
         <div class="controls" role="search">
           <input type="search" id="search" class="search-input" placeholder="Buscar por título, descrição ou categoria…" aria-label="Buscar projetos" autocomplete="off">
-          ${chipsHTML}
+          ${presentCats.length > 0 ? `<button type="button" id="filters-btn" class="filters-btn" aria-expanded="false">Filtros ▾</button>` : ''}
         </div>
+        ${presentCats.length > 0 ? `<div class="chips-wrap" id="chips-wrap">${chipsHTML}</div>` : ''}
         <div class="filter-status" id="filter-status">
           <span id="result-count"></span>
           <button type="button" id="clear-filters" class="clear-filters">Limpar filtros</button>
@@ -143,11 +144,15 @@ export function galleryHTML(events, analyticsToken) {
     .theme-toggle .exp{font-size:.58rem;opacity:.45;font-style:italic}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0}
-    .controls{display:flex;flex-direction:column;gap:.875rem;padding-bottom:.75rem}
-    @media(min-width:560px){.controls{flex-direction:row;align-items:center;justify-content:space-between}}
-    .search-input{width:100%;max-width:340px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
+    .search-input{flex:1;min-width:0;max-width:340px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .search-input::placeholder{color:var(--text-ph)}
     .search-input:focus{border-color:#c0a060}
+    .filters-btn{flex-shrink:0;background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:8px;font-size:.78rem;font-weight:500;cursor:pointer;transition:border-color .2s,color .2s;white-space:nowrap;font-family:inherit}
+    .filters-btn:hover{border-color:var(--text-dim);color:var(--text-2)}
+    .filters-btn.active{border-color:#c0a060;color:#c0a060}
+    .chips-wrap{display:none;padding-bottom:.5rem}
+    .chips-wrap.open{display:block}
     .chips{display:flex;gap:.5rem;flex-wrap:wrap}
     .chip{background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:20px;font-size:.72rem;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
     .chip:hover{border-color:var(--text-dim);color:var(--text-2)}
@@ -243,9 +248,23 @@ export function galleryHTML(events, analyticsToken) {
       var loadMoreBtn = document.getElementById('load-more');
       var noResults = document.getElementById('no-results');
       var chips = document.getElementById('chips');
+      var chipsWrap = document.getElementById('chips-wrap');
+      var filtersBtn = document.getElementById('filters-btn');
       var filterStatus = document.getElementById('filter-status');
       var resultCount = document.getElementById('result-count');
       var clearFiltersBtn = document.getElementById('clear-filters');
+
+      function updateFiltersBtn() {
+        if (!filtersBtn) return;
+        var active = activeCat !== 'all';
+        filtersBtn.classList.toggle('active', active);
+        filtersBtn.textContent = active ? 'Filtros · 1 ▾' : 'Filtros ▾';
+        filtersBtn.setAttribute('aria-expanded', chipsWrap && chipsWrap.classList.contains('open') ? 'true' : 'false');
+      }
+      if (filtersBtn) filtersBtn.addEventListener('click', function() {
+        if (chipsWrap) chipsWrap.classList.toggle('open');
+        updateFiltersBtn();
+      });
 
       function isFiltering(){
         return (searchEl && searchEl.value.trim() !== '') || activeCat !== 'all';
@@ -297,7 +316,7 @@ export function galleryHTML(events, analyticsToken) {
         activeCat = chip.getAttribute('data-cat');
         var all = chips.querySelectorAll('.chip');
         for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i] === chip);
-        shown = BATCH; apply();
+        shown = BATCH; apply(); updateFiltersBtn();
       });
       if (loadMoreBtn) loadMoreBtn.addEventListener('click', function(){ shown += BATCH; apply(); });
       if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', function(){
@@ -307,7 +326,8 @@ export function galleryHTML(events, analyticsToken) {
           var all = chips.querySelectorAll('.chip');
           for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i].getAttribute('data-cat') === 'all');
         }
-        shown = BATCH; apply();
+        if (chipsWrap) chipsWrap.classList.remove('open');
+        shown = BATCH; apply(); updateFiltersBtn();
       });
       apply();
 
