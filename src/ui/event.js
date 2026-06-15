@@ -1,5 +1,7 @@
 import { escape, formatDatePT } from '../utils.js';
 
+const SITE_URL = 'https://fotos.lucafchala.com';
+
 export function eventHTML(event, analyticsToken) {
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
@@ -51,15 +53,19 @@ export function eventHTML(event, analyticsToken) {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
+  <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
   <meta property="og:title" content="${escape(event.title)}">
   <meta property="og:description" content="${escape(event.shortDescription || '')}">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta property="og:type" content="website">
+  <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
+  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
+    :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
     .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
@@ -75,20 +81,6 @@ export function eventHTML(event, analyticsToken) {
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
     .btn-soon{background:#141414;color:#888;border:1px dashed #2e2e2e;cursor:default}
     .btn-soon:hover{background:#141414;transform:none}
-    /* tour */
-    .tour-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:60;display:none;align-items:flex-end;justify-content:center;padding:1rem;opacity:0;transition:opacity .3s ease}
-    @media(min-width:580px){.tour-modal{align-items:center}}
-    .tour-modal.open{display:flex;opacity:1}
-    .tour-card{background:#0d0d0d;border:1px solid #1e1e1e;width:100%;max-width:420px;border-radius:16px;padding:1.75rem 1.5rem;animation:slideUp .35s ease}
-    @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-    .tour-card h3{font-size:1.1rem;font-weight:600;margin-bottom:.35rem;color:#f0ebe5}
-    .tour-sub{font-size:.85rem;color:#888;margin-bottom:1.25rem;line-height:1.5}
-    .tour-list{list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:.875rem}
-    .tour-list li{display:flex;gap:.75rem;align-items:flex-start;font-size:.875rem;line-height:1.55;color:#bbb}
-    .tour-icon{font-size:1.1rem;flex-shrink:0;width:1.5rem;text-align:center}
-    .tour-list strong{color:#e0d8d0;font-weight:600}
-    .tour-btn{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
-    .tour-btn:hover{opacity:.88}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
     .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
@@ -110,6 +102,17 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:400px){.btn-drive{width:auto}}
     .btn-drive:hover{background:#fff;transform:translateY(-2px)}
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
+    /* review button + modal */
+    .btn-review{background:#c0a060;color:#0a0a0a}
+    .btn-review:hover{background:#d4b070;transform:translateY(-2px)}
+    .btn-stars{letter-spacing:.18em;font-size:.95em}
+    .rev-modal-stars{display:flex;gap:.25rem;justify-content:center;margin:1rem 0 1.25rem}
+    .rev-star{background:none;border:none;font-size:2.25rem;color:#2a2a2a;cursor:pointer;padding:.15rem;line-height:1;transition:color .1s;-webkit-tap-highlight-color:transparent}
+    .rev-star.on{color:#c0a060}
+    .btn-rev-send{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;margin-top:.75rem}
+    .btn-rev-send:disabled{opacity:.3;cursor:not-allowed}
+    .btn-rev-send:not(:disabled):hover{opacity:.88}
+    .drive-note{font-size:.75rem;color:#555;margin-bottom:.875rem;line-height:1.5}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
@@ -141,33 +144,17 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
     .modal-sheet{background:#0d0d0d;width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:1.5rem 1.5rem max(3rem,calc(2rem + env(safe-area-inset-bottom)))}
     @media(min-width:580px){.modal-sheet{border-radius:14px;max-height:90vh;max-height:90dvh;padding-bottom:2.25rem}}
-    .scroll-hint{position:absolute;bottom:0;left:0;right:0;height:52px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:max(.625rem,calc(.375rem + env(safe-area-inset-bottom)));background:linear-gradient(transparent,rgba(13,13,13,.9));pointer-events:none;transition:opacity .25s}
-    .scroll-hint.hidden{opacity:0}
-    .scroll-hint svg{color:#555;animation:bounce-d .9s ease-in-out infinite}
-    @keyframes bounce-d{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
-    @media(min-width:580px){.scroll-hint{display:none}}
     .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
     .modal-head h2{font-size:.975rem;font-weight:600}
     .m-close{background:none;border:1px solid #222;color:#555;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
     .m-close:hover{border-color:#444;color:#ccc}
     /* drive modal */
-    .credit-box{background:#091409;border:1px solid #173017;border-radius:10px;padding:.875rem 1rem;margin-bottom:1.125rem}
-    .credit-box-h{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#4a9a4a;margin-bottom:.5rem}
-    .credit-box p{font-size:.82rem;color:#b0d0b0;line-height:1.6;margin-bottom:.25rem}
-    .credit-box p:last-child{margin-bottom:0}
-    .credit-box a{color:#7ec87e;text-decoration:none}
-    .credit-box a:hover{color:#a0e0a0;text-decoration:underline}
-    .credit-box .note{font-size:.75rem;color:#507a50;margin-top:.5rem}
     .guide-title{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:.875rem}
     .steps{display:flex;flex-direction:column;gap:.625rem;padding-left:0;list-style:none;counter-reset:step}
     .steps li{counter-increment:step;display:grid;grid-template-columns:1.4rem 1fr;gap:.5rem;font-size:.82rem;color:#999;line-height:1.55}
     .steps li::before{content:counter(step);font-size:.65rem;font-weight:600;color:#555;background:#1a1a1a;width:1.35rem;height:1.35rem;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:.15rem}
     .steps li strong{color:#d0d0d0}
     .steps li kbd{background:#1e1e1e;border:1px solid #2d2d2d;padding:.1em .4em;border-radius:4px;font-size:.8em;font-family:inherit;color:#bbb}
-    .warn-box{display:flex;align-items:flex-start;gap:.6rem;margin-top:1rem;padding:.75rem .875rem;background:#130e00;border:1px solid #2a1c00;border-radius:8px}
-    .warn-box svg{width:14px;height:14px;flex-shrink:0;color:#c8880a;margin-top:2px}
-    .warn-box p{font-size:.77rem;color:#b87e0a;line-height:1.55}
-    .warn-box p strong{color:#d89e30}
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1.25rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
@@ -199,6 +186,13 @@ export function eventHTML(event, analyticsToken) {
     .btn-rem-submit:not(:disabled):hover{opacity:.88}
     .rem-success{text-align:center;padding:2rem 0;color:#7ec87e;font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:#5aaa5a}
+    /* cookie notice */
+    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    .cookie-notice.show{display:flex}
+    .cookie-notice a{color:#c0a060;text-decoration:none}
+    .cookie-notice a:hover{text-decoration:underline}
+    .cookie-notice button{flex-shrink:0;background:#f0ebe5;color:#0a0a0a;border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .cookie-notice button:hover{opacity:.85}
   </style>
 </head>
 <body>
@@ -237,6 +231,13 @@ export function eventHTML(event, analyticsToken) {
           </button>`}
     </div>
 
+    ${!event.comingSoon ? `<div class="drive-wrap" style="margin-top:-.5rem">
+      <button class="btn-drive btn-review" onclick="openRevModal()">
+        <span class="btn-stars">★★★★★</span>
+        Avaliar
+      </button>
+    </div>` : ''}
+
     <div class="credits">
       <div class="credits-title">Créditos</div>
       <div class="credits-list">
@@ -251,10 +252,18 @@ export function eventHTML(event, analyticsToken) {
   <footer>
     <a href="/" class="footer-brand">fotos · Luca F. Chala</a>
     <div class="footer-actions">
-      <a href="https://wa.me/?text=${escape(`Veja as fotos de ${event.title} em fotos.lucafchala.com/${event.slug}`)}" target="_blank" rel="noopener" class="whatsapp-link">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      <button class="whatsapp-link" id="btn-share-native" style="display:none" onclick="doNativeShare()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         Compartilhar
+      </button>
+      <a href="https://wa.me/?text=${escape(`Veja as fotos de ${event.title} em fotos.lucafchala.com/${event.slug}`)}" target="_blank" rel="noopener" class="whatsapp-link" id="btn-share-wa">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        WhatsApp
       </a>
+      <button class="removal-link" id="btn-copy-link" style="display:none" onclick="copyLink()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        <span id="copy-label">Copiar link</span>
+      </button>
       <button class="removal-link" onclick="openRemModal()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
@@ -263,49 +272,35 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         Suporte
       </a>
-      ${!event.comingSoon ? `<button class="removal-link" onclick="openTour()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        Tutorial
-      </button>` : ''}
+      <a href="/privacidade" class="removal-link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Privacidade
+      </a>
     </div>
   </footer>
 
   <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal" onclick="ovClick(event)">
-    <div class="scroll-hint hidden" id="scroll-hint-drive">
-      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-    </div>
     <div class="modal-sheet">
       <div class="modal-head">
-        <h2>Antes de acessar as fotos</h2>
+        <h2>Acessar fotos</h2>
         <button class="m-close" onclick="closeModal()" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
-      </div>
-      <div class="credit-box">
-        <div class="credit-box-h">📸 Créditos ao postar</div>
-        <p>Ao publicar estas fotos nas redes sociais, mencione sempre:</p>
-        <p>• <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">@lucafchala</a> — fotografia</p>
-        ${event.eventCredits ? `<p>• ${escape(event.eventCredits)}</p>` : ''}
-        <p class="note">Isso valoriza o trabalho fotográfico e incentiva novos projetos. ♥</p>
       </div>
       <div class="guide-title">Como baixar as fotos</div>
       <ol class="steps">
         <li><span>${event.driveUrlInstagram
           ? `Escolha uma das opções abaixo e abra a pasta correspondente.`
-          : `Clique em "Ir para o Google Drive" abaixo e abra a pasta.`}</span></li>
+          : `Clique em "Ir para o Google Drive" abaixo.`}</span></li>
         <li>
-          <span><strong>No celular:</strong> toque nos três pontinhos (⋮) de uma foto → "Fazer download".<br>
-          Para baixar <em>todas</em>: segure uma foto → selecione todas → ⋮ → "Fazer download".</span>
+          <span><strong>No celular:</strong> toque em ⋮ → "Fazer download". Para baixar tudo: segure uma → selecione todas → ⋮ → "Fazer download".</span>
         </li>
         <li>
-          <span><strong>No computador:</strong> selecione tudo com <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd> no Mac) → botão direito → "Fazer download".</span>
+          <span><strong>No computador:</strong> <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd>) → botão direito → "Fazer download".</span>
         </li>
       </ol>
-      <div class="warn-box">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <p><strong>Não tire print das fotos.</strong> Ao baixar pelo Drive você mantém a resolução e qualidade originais.</p>
-      </div>
+      <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1.25rem"></div>
       <div id="drive-links-wrap" style="display:none">
       ${event.driveUrlInstagram
@@ -385,6 +380,10 @@ export function eventHTML(event, analyticsToken) {
         </div>
 
         <p style="font-size:.68rem;color:#444;line-height:1.5;margin-top:1rem">Seus dados (e-mail e telefone) são usados exclusivamente para processar esta solicitação e não são compartilhados com terceiros.</p>
+        <label style="display:flex;align-items:flex-start;gap:.5rem;margin-top:1rem;cursor:pointer">
+          <input type="checkbox" id="rem-consent" style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:2px">
+          <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e autorizo o uso dos meus dados para processar esta solicitação.</span>
+        </label>
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div class="rem-sheet-foot">
           <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
@@ -400,25 +399,41 @@ export function eventHTML(event, analyticsToken) {
     </div>
   </div>
 
-  ${event.comingSoon ? '' : `<!-- TOUR MODAL -->
-  <div class="tour-modal" id="tour-modal">
-    <div class="tour-card">
-      <h3>Bem-vindo! 👋</h3>
-      <p class="tour-sub">Algumas dicas rápidas pra você aproveitar:</p>
-      <ul class="tour-list">
-        <li><span class="tour-icon">📁</span><span>Toque em <strong>Acessar fotos</strong> para baixar pelo Google Drive.</span></li>
-        ${event.driveUrlInstagram ? `<li><span class="tour-icon">🖼</span><span><strong>Resolução completa</strong> — arquivo original, ideal pra guardar, imprimir ou editar.<br><strong>Para o Instagram</strong> — já no tamanho certo pra postar sem perder qualidade.</span></li>` : ''}
-        <li><span class="tour-icon">💬</span><span>Compartilhe esta página por <strong>WhatsApp</strong> usando o botão verde no rodapé.</span></li>
-        <li><span class="tour-icon">🗑</span><span>Apareceu uma foto sua que prefere remover? Use <strong>Solicitar remoção</strong> no rodapé.</span></li>
-      </ul>
-      <button class="tour-btn" onclick="closeTour()">Entendi</button>
+  <!-- REVIEW MODAL -->
+  ${!event.comingSoon ? `<div class="modal-ov" id="rev-modal" onclick="revOvClick(event)">
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <h2>Avaliar</h2>
+        <button class="m-close" onclick="closeRevModal()" aria-label="Fechar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="rev-modal-stars" id="rev-modal-stars">
+        ${[1,2,3,4,5].map(i => `<button class="rev-star" type="button" data-v="${i}" aria-label="${i} estrela${i>1?'s':''}">★</button>`).join('')}
+      </div>
+      <div id="rev-form-fields" style="display:none">
+        <div class="rem-field"><textarea id="rev-comment" placeholder="Comentário (opcional)…" style="resize:vertical;min-height:68px"></textarea></div>
+        <div class="rem-field"><input type="email" id="rev-email" placeholder="Seu e-mail" autocomplete="email"></div>
+      </div>
+      <div id="rev-turnstile" style="margin-top:.75rem"></div>
+      <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
+      <div id="rev-done" class="rem-success" style="display:none">
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+        Obrigado pelo feedback! ✓
+      </div>
     </div>
-  </div>`}
+  </div>` : ''}
+
+  <div class="cookie-notice" id="cookie-notice">
+    <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
+    <button id="cookie-ok" type="button">Entendi</button>
+  </div>
 
   <script>
     const DRIVE_URL      = ${driveJSON};
     const DRIVE_URL_IG   = ${driveIgJSON};
     const EVENT_SLUG     = ${slugJSON};
+    const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
@@ -444,25 +459,20 @@ export function eventHTML(event, analyticsToken) {
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
     let cur = 0;
 
-    // ---- Tour (first visit) ----
-    function closeTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      m.classList.remove('open');
-      try { localStorage.setItem('fotos:tour_seen', '1'); } catch(_) {}
-      setTimeout(() => { m.style.display = 'none'; }, 300);
-    }
-    function openTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      m.style.display = '';
-      m.classList.add('open');
-    }
-    (function maybeShowTour() {
-      const m = document.getElementById('tour-modal');
-      if (!m) return;
-      try { if (localStorage.getItem('fotos:tour_seen')) return; } catch(_) { return; }
-      setTimeout(() => { m.classList.add('open'); }, 800);
+    // ---- Cookie / analytics notice ----
+    try {
+      if (!localStorage.getItem('fotos:cookie_notice')) {
+        const cn = document.getElementById('cookie-notice');
+        if (cn) cn.classList.add('show');
+      }
+    } catch(_) {}
+    (function(){
+      const ck = document.getElementById('cookie-ok');
+      if (ck) ck.addEventListener('click', function(){
+        try { localStorage.setItem('fotos:cookie_notice', '1'); } catch(_) {}
+        const cn = document.getElementById('cookie-notice');
+        if (cn) cn.classList.remove('show');
+      });
     })();
 
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
@@ -471,14 +481,6 @@ export function eventHTML(event, analyticsToken) {
     let remTsToken    = '';
 
     // ---- Drive modal ----
-    function checkDriveScroll() {
-      const sheet = document.querySelector('#modal .modal-sheet');
-      const hint = document.getElementById('scroll-hint-drive');
-      if (!sheet || !hint) return;
-      const scrollable = sheet.scrollHeight > sheet.clientHeight + 56;
-      const atBottom = sheet.scrollTop + sheet.clientHeight >= sheet.scrollHeight - 32;
-      hint.classList.toggle('hidden', !scrollable || atBottom);
-    }
     function openModal() {
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
@@ -492,21 +494,18 @@ export function eventHTML(event, analyticsToken) {
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
-            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; setTimeout(checkDriveScroll, 60); },
+            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; },
             'error-callback': () => { document.getElementById('drive-links-wrap').style.display = ''; },
             'expired-callback': () => { document.getElementById('drive-links-wrap').style.display = 'none'; },
           });
         }
-        checkDriveScroll();
       }, 120);
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
-      document.getElementById('scroll-hint-drive').classList.add('hidden');
       document.body.style.overflow = '';
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
-    document.querySelector('#modal .modal-sheet')?.addEventListener('scroll', checkDriveScroll, { passive: true });
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
     }
@@ -589,12 +588,15 @@ export function eventHTML(event, analyticsToken) {
 
       const email = (document.getElementById('rem-email').value || '').trim();
       const phone = (document.getElementById('rem-phone').value || '').trim();
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) {
         return alert('Informe um e-mail válido.');
       }
-      const phoneDigits = phone.replace(/\D/g, '');
+      const phoneDigits = phone.replace(/\\D/g, '');
       if (!phone || phoneDigits.length < 10 || phoneDigits.length > 13) {
         return alert('Informe um telefone válido com DDD (ex: (11) 99999-9999).');
+      }
+      if (!document.getElementById('rem-consent').checked) {
+        return alert('É necessário concordar com a política de privacidade.');
       }
 
       const btn = document.getElementById('rem-submit');
@@ -614,6 +616,7 @@ export function eventHTML(event, analyticsToken) {
             message: (document.getElementById('rem-message').value || '').trim(),
             fileName,
             fileBase64,
+            consent: true,
             turnstileToken: remTsToken,
           }),
         });
@@ -629,6 +632,110 @@ export function eventHTML(event, analyticsToken) {
         btn.textContent = 'Enviar solicitação';
       }
     }
+
+    // ---- Review modal ----
+    var revRating = 0;
+    var revWidgetId = null;
+    var revTsToken = '';
+
+    function openRevModal() {
+      revRating = 0;
+      highlightRevStars(0);
+      var fields = document.getElementById('rev-form-fields');
+      var done = document.getElementById('rev-done');
+      if (fields) fields.style.display = 'none';
+      if (done) done.style.display = 'none';
+      document.getElementById('rev-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function() {
+        if (typeof turnstile === 'undefined') { revTsToken = 'skip'; return; }
+        if (revWidgetId !== null) { turnstile.reset(revWidgetId); return; }
+        revWidgetId = turnstile.render('#rev-turnstile', {
+          sitekey: TS_SITEKEY,
+          callback: function(t) { revTsToken = t; enableRevSubmit(); },
+          'error-callback': function() { revTsToken = ''; },
+          'expired-callback': function() { revTsToken = ''; },
+        });
+      }, 80);
+    }
+    function closeRevModal() {
+      document.getElementById('rev-modal').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function revOvClick(e) { if (e.target === document.getElementById('rev-modal')) closeRevModal(); }
+    function highlightRevStars(n) {
+      document.querySelectorAll('.rev-star').forEach(function(s, i) { s.classList.toggle('on', i < n); });
+    }
+    function enableRevSubmit() {
+      var btn = document.getElementById('rev-submit');
+      if (btn) btn.disabled = !(revRating > 0);
+    }
+    (function initRevStars() {
+      var wrap = document.getElementById('rev-modal-stars');
+      if (!wrap) return;
+      wrap.addEventListener('mouseover', function(ev) {
+        var s = ev.target.closest('.rev-star');
+        if (s) highlightRevStars(parseInt(s.dataset.v));
+      });
+      wrap.addEventListener('mouseout', function() { highlightRevStars(revRating); });
+      wrap.addEventListener('click', function(ev) {
+        var s = ev.target.closest('.rev-star');
+        if (!s) return;
+        revRating = parseInt(s.dataset.v);
+        highlightRevStars(revRating);
+        var fields = document.getElementById('rev-form-fields');
+        if (fields) fields.style.display = '';
+        enableRevSubmit();
+      });
+    })();
+    async function submitReview() {
+      if (!revRating) return;
+      var btn = document.getElementById('rev-submit');
+      btn.disabled = true; btn.textContent = 'Enviando…';
+      try {
+        var r = await fetch('/api/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: EVENT_SLUG, rating: revRating, comment: (document.getElementById('rev-comment').value || '').trim(), email: (document.getElementById('rev-email').value || '').trim(), turnstileToken: revTsToken }),
+        });
+        if (!r.ok) throw new Error();
+        document.getElementById('rev-form-fields').style.display = 'none';
+        document.getElementById('rev-done').style.display = 'block';
+        btn.style.display = 'none';
+      } catch(_) {
+        btn.disabled = false; btn.textContent = 'Enviar avaliação';
+        alert('Erro ao enviar. Tente novamente.');
+      }
+    }
+
+    // ---- Share ----
+    function doNativeShare() {
+      navigator.share({ title: EVENT_TITLE, url: window.location.href }).catch(function(){});
+    }
+    function copyLink() {
+      var label = document.getElementById('copy-label');
+      navigator.clipboard.writeText(window.location.href).then(function() {
+        if (label) { label.textContent = 'Copiado! ✓'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
+      }).catch(function() {
+        try {
+          var t = document.createElement('textarea');
+          t.value = window.location.href;
+          document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+          if (label) { label.textContent = 'Copiado! ✓'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
+        } catch(_) {}
+      });
+    }
+    (function initShare() {
+      if (navigator.share) {
+        var n = document.getElementById('btn-share-native');
+        var w = document.getElementById('btn-share-wa');
+        if (n) n.style.display = '';
+        if (w) w.style.display = 'none';
+      } else {
+        var c = document.getElementById('btn-copy-link');
+        if (c) c.style.display = '';
+      }
+    })();
   </script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}

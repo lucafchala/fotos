@@ -2,11 +2,16 @@ import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
+import { privacyHTML } from './ui/privacy.js';
 import {
-  getEvents, saveEvents, hashPassword, verifyPassword, generateToken,
+  getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
+  hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
 } from './utils.js';
+
+const SITE_URL = 'https://fotos.lucafchala.com';
+const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
 
 export default {
   async fetch(request, env, ctx) {
@@ -19,6 +24,10 @@ export default {
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
       if (path === '/icon.svg' && method === 'GET') return handleIcon();
 
+      // SEO
+      if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
+      if (path === '/robots.txt' && method === 'GET') return handleRobots();
+
       // Gallery index
       if (path === '/' && method === 'GET') return handleGallery(env);
 
@@ -29,8 +38,12 @@ export default {
 
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
+      if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
+      if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
+      if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
+      if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
@@ -43,9 +56,13 @@ export default {
       if (path === '/suporte' && method === 'GET') return html(supportHTML());
       if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
 
+      // Privacy policy
+      if (path === '/privacidade' && method === 'GET') return html(privacyHTML());
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
+      if (path === '/api/review' && method === 'POST') return handleReview(request, env);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -59,8 +76,15 @@ export default {
       return notFound();
     } catch (err) {
       console.error(err);
-      return new Response('Erro interno.', { status: 500 });
+      return serverError();
     }
+  },
+
+  // Daily cron: purge resolved removal requests past the retention window so
+  // personal data (e-mail/phone) is not kept indefinitely. Configured in
+  // wrangler.toml ([triggers] crons).
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
   },
 };
 
@@ -70,6 +94,34 @@ export default {
 async function handleGallery(env) {
   const events = await getEvents(env);
   return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+}
+
+// ---------------------------------------------------------------------------
+// SEO: sitemap.xml + robots.txt
+// ---------------------------------------------------------------------------
+async function handleSitemap(env) {
+  const events = await getEvents(env);
+  const visible = events.filter(e => e.visible !== false);
+  const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
+
+  const urls = [`  <url><loc>${SITE_URL}/</loc></url>`];
+  for (const e of visible) {
+    const lastmod = lastmodOf(e);
+    urls.push(
+      `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}</url>`
+    );
+  }
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
+  return new Response(xml, {
+    headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+  });
+}
+
+function handleRobots() {
+  const body = `User-agent: *\nAllow: /\nDisallow: /dashboard\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +166,8 @@ async function handleDashboardPage(request, env, url) {
     return html(loginHTML({ error: hasError }));
   }
 
-  const events = await getEvents(env, true);
-  return new Response(dashboardHTML(events), {
+  const [events, categories] = await Promise.all([getEvents(env, true), getCategories(env)]);
+  return new Response(dashboardHTML(events, categories), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
@@ -208,6 +260,7 @@ async function handleCreateEvent(request, env) {
 
   const events = await getEvents(env, true);
   if (events.find(e => e.slug === slug)) return jsonErr('Já existe um evento com essa URL.', 409);
+  const cats = await getCategories(env);
 
   const photos = Array.isArray(body.photos)
     ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
@@ -229,6 +282,7 @@ async function handleCreateEvent(request, env) {
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
+    category: cats.includes(body.category) ? body.category : '',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
     pinned: body.pinned === true,
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
@@ -260,6 +314,7 @@ async function handleUpdateEvent(request, env, path) {
   if (idx === -1) return jsonErr('Evento não encontrado.', 404);
 
   const existing = events[idx];
+  const cats = await getCategories(env);
 
   const newPhotos = body.photos !== undefined
     ? (Array.isArray(body.photos)
@@ -286,6 +341,9 @@ async function handleUpdateEvent(request, env, path) {
     status: body.status !== undefined
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
+    category: body.category !== undefined
+      ? (cats.includes(body.category) ? body.category : (existing.category || ''))
+      : (existing.category || ''),
     internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
     pinned: body.pinned !== undefined ? body.pinned === true : (existing.pinned === true),
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
@@ -329,6 +387,89 @@ async function handleDeleteEvent(request, env, path) {
   await saveEvents(env, events);
   await env.FOTOS.delete(`views:${removed.slug}`).catch(e => console.error('view-counter cleanup failed', e));
   return jsonOk({ deleted: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Categories (list / create / delete) + bulk category assignment
+// ---------------------------------------------------------------------------
+async function handleGetCategories(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  return jsonOk({ categories: await getCategories(env) });
+}
+
+async function handleCreateCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, MAX_CATEGORY_LEN);
+  if (!name) return jsonErr('Nome da categoria obrigatório.', 400);
+
+  const cats = await getCategories(env);
+  if (cats.some(c => c.toLowerCase() === name.toLowerCase())) {
+    return jsonErr('Já existe uma categoria com esse nome.', 409);
+  }
+  if (cats.length >= MAX_CATEGORIES) return jsonErr(`Máximo de ${MAX_CATEGORIES} categorias.`, 409);
+
+  cats.push(name);
+  await saveCategories(env, cats);
+  return jsonOk({ categories: cats }, 201);
+}
+
+async function handleDeleteCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const name = String(body.name || '');
+  const cats = await getCategories(env);
+  if (!cats.includes(name)) return jsonErr('Categoria não encontrada.', 404);
+
+  const remaining = cats.filter(c => c !== name);
+  await saveCategories(env, remaining);
+
+  // Clear the deleted category from any event that referenced it.
+  const events = await getEvents(env, true);
+  let cleared = 0;
+  for (const e of events) {
+    if (e.category === name) { e.category = ''; e.updatedAt = new Date().toISOString(); cleared++; }
+  }
+  if (cleared > 0) await saveEvents(env, events);
+
+  return jsonOk({ categories: remaining, cleared });
+}
+
+async function handleBulkCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+  if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
+
+  const category = String(body.category || '');
+  const cats = await getCategories(env);
+  if (category !== '' && !cats.includes(category)) return jsonErr('Categoria inválida.', 400);
+
+  const idSet = new Set(ids);
+  const events = await getEvents(env, true);
+  let updated = 0;
+  for (const e of events) {
+    if (idSet.has(e.id) && e.category !== category) {
+      e.category = category;
+      e.updatedAt = new Date().toISOString();
+      updated++;
+    }
+  }
+  if (updated > 0) await saveEvents(env, events);
+  return jsonOk({ updated, category });
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +518,40 @@ async function handleTrackDrive(request, env) {
 }
 
 // ---------------------------------------------------------------------------
+// API: Review submission (public)
+// ---------------------------------------------------------------------------
+async function handleReview(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'review', 5, 3600);
+  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const { slug, rating, comment, email, turnstileToken } = body;
+  if (!slug || !validateSlug(String(slug))) return jsonErr('Evento não encontrado.', 400);
+  const r = Number(rating);
+  if (!Number.isInteger(r) || r < 1 || r > 5) return jsonErr('Avaliação inválida.', 400);
+
+  const tsOk = await verifyTurnstile(turnstileToken, env);
+  if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
+
+  const key = `reviews_${slug}`;
+  let reviews = [];
+  try { reviews = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { reviews = []; }
+  reviews.push({
+    id: generateId(),
+    slug: String(slug).slice(0, 60),
+    rating: r,
+    comment: String(comment || '').trim().slice(0, 1000),
+    email: String(email || '').trim().slice(0, 200),
+    submittedAt: new Date().toISOString(),
+  });
+  await env.FOTOS.put(key, JSON.stringify(reviews));
+  return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
 async function handleSupportRequest(request, env) {
@@ -386,7 +561,7 @@ async function handleSupportRequest(request, env) {
     return html(supportHTML(false, 'Muitas mensagens enviadas. Tente mais tarde.'), 429);
   }
 
-  let name, email, message, tsToken;
+  let name, email, message, tsToken, consent;
   const ct = request.headers.get('Content-Type') || '';
   if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
     const fd = await request.formData().catch(() => null);
@@ -395,6 +570,7 @@ async function handleSupportRequest(request, env) {
     email = String(fd.get('email') || '').trim().slice(0, 200);
     message = String(fd.get('message') || '').trim().slice(0, 2000);
     tsToken = String(fd.get('cf-turnstile-response') || '');
+    consent = String(fd.get('consent') || '');
   } else {
     let body;
     try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
@@ -402,10 +578,15 @@ async function handleSupportRequest(request, env) {
     email = String(body.email || '').trim().slice(0, 200);
     message = String(body.message || '').trim().slice(0, 2000);
     tsToken = String(body['cf-turnstile-response'] || '');
+    consent = String(body.consent || '');
   }
 
   const tsOk = await verifyTurnstile(tsToken, env);
   if (!tsOk) return html(supportHTML(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.'), 403);
+
+  if (consent !== '1') {
+    return html(supportHTML(false, 'É necessário concordar com a política de privacidade.'), 400);
+  }
 
   if (!message) {
     return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
@@ -457,6 +638,8 @@ async function handleRemovalRequest(request, env) {
   const tsOk = await verifyTurnstile(body.turnstileToken, env);
   if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
 
+  if (body.consent !== true) return jsonErr('É necessário concordar com a política de privacidade.', 400);
+
   const { eventSlug, method, value, email, phone, message, fileName, fileBase64 } = body;
   if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
   if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
@@ -498,7 +681,13 @@ async function handleRemovalRequest(request, env) {
   };
 
   // Store request (without binary file)
-  const requests = await getRemovalRequests(env);
+  const stored = await getRemovalRequests(env);
+  // Defensive retention: drop resolved requests past the window even if the
+  // daily cron has not run yet.
+  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
+  const requests = stored.filter(r => r.resolved
+    ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
+    : true);
   requests.push({ ...req, fileBase64: null });
 
   const MAX_REQUESTS = 500;
@@ -537,6 +726,21 @@ async function getRemovalRequests(env) {
   const data = await env.FOTOS.get('removal_requests');
   if (!data) return [];
   try { return JSON.parse(data); } catch { return []; }
+}
+
+// Drop resolved requests whose resolvedAt is older than the retention window.
+// Unresolved requests are always kept. Returns true if anything was removed.
+async function pruneResolvedRemovalRequests(env) {
+  const requests = await getRemovalRequests(env);
+  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
+  const kept = requests.filter(r => {
+    if (!r.resolved) return true;
+    const t = new Date(r.resolvedAt || r.createdAt || 0).getTime();
+    return t >= cutoff;
+  });
+  if (kept.length === requests.length) return false;
+  await env.FOTOS.put('removal_requests', JSON.stringify(kept));
+  return true;
 }
 
 async function handleGetRemovalRequests(request, env) {
@@ -636,9 +840,11 @@ function html(content, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       'Content-Security-Policy':
         "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://cdn.jsdelivr.net; " +
+        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src https://fonts.gstatic.com; " +
         "img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; " +
@@ -749,6 +955,14 @@ async function handleRestoreBackup(request, env) {
   return jsonOk({ ok: true, added, updated, total: merged.length });
 }
 
+function errorPage(code, message, status) {
+  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:2rem;font-size:.9rem}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><a href="/">← Voltar para a galeria</a></div></body></html>`, status);
+}
+
 function notFound() {
-  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Não encontrado · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:2rem;font-size:.9rem}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>404</h1><p>Página não encontrada.</p><a href="/">← Voltar para a galeria</a></div></body></html>`, 404);
+  return errorPage('404', 'Página não encontrada.', 404);
+}
+
+function serverError() {
+  return errorPage('500', 'Algo deu errado. Tente novamente em instantes.', 500);
 }

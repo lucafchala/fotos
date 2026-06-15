@@ -12,13 +12,14 @@ export function supportHTML(sent = false, error = '') {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Suporte · fotos</title>
-  <meta name="description" content="Entre em contato com Luca Fchala">
+  <meta name="description" content="Entre em contato com Luca F. Chala">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
+    :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
     .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
@@ -89,6 +90,12 @@ export function supportHTML(sent = false, error = '') {
         <label for="message">Mensagem *</label>
         <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required></textarea>
       </div>
+      <div>
+        <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
+          <input type="checkbox" id="support-consent" name="consent" value="1" required style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:1px">
+          <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e autorizo o uso dos meus dados para responder ao contato.</span>
+        </label>
+      </div>
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
@@ -96,6 +103,7 @@ export function supportHTML(sent = false, error = '') {
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
+    <a href="/privacidade" style="margin-left:1.5rem">Privacidade</a>
   </footer>
 </body>
 </html>`;

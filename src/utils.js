@@ -20,6 +20,29 @@ export async function saveEvents(env, events) {
   await env.FOTOS.put('events', JSON.stringify(events));
 }
 
+// Categories are user-managed (created/deleted from the dashboard) and stored
+// as a flat list of display names under the KV key `categories`. Until the
+// owner changes anything, these defaults apply.
+export const DEFAULT_CATEGORIES = ['Formatura', 'Casamento', 'Ensaio', 'Evento', 'Outro'];
+export const MAX_CATEGORIES = 30;
+export const MAX_CATEGORY_LEN = 40;
+
+export async function getCategories(env) {
+  const data = await env.FOTOS.get('categories');
+  if (!data) return [...DEFAULT_CATEGORIES];
+  try {
+    const arr = JSON.parse(data);
+    return Array.isArray(arr) ? arr.filter(c => typeof c === 'string') : [...DEFAULT_CATEGORIES];
+  } catch {
+    return [...DEFAULT_CATEGORIES];
+  }
+}
+
+export async function saveCategories(env, cats) {
+  await env.FOTOS.put('categories', JSON.stringify(cats));
+}
+
+
 function hexToBytes(hex) {
   const arr = new Uint8Array(hex.length / 2);
   for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
@@ -124,6 +147,32 @@ export function formatDatePT(dateStr) {
   if (m < 1 || m > 12) return dateStr;
   return `${parseInt(day, 10)} de ${months[m - 1]} de ${year}`;
 }
+
+// Canonical event ordering: pinned first, then most recent by date
+// (falling back to createdAt). Shared by the public gallery and the
+// dashboard so the two never drift apart.
+export function eventTime(e) {
+  return e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
+}
+
+export function sortEvents(events) {
+  return [...events].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return eventTime(b) - eventTime(a);
+  });
+}
+
+// Request a resized variant of a Google-Drive-hosted thumbnail so the gallery
+// grid loads small images instead of full-resolution originals. Non-Drive URLs
+// (or URLs we don't recognise) are returned untouched. The original files in
+// Drive are never altered.
+export function sizedDriveThumb(url, width) {
+  if (!url || typeof url !== 'string') return url || '';
+  const m = url.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
+  return m ? `${m[1]}=w${width}` : url;
+}
+
 
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;

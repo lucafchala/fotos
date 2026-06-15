@@ -2,11 +2,15 @@
   "name": "fotos",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "lint": "eslint src eslint.config.js"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
     "wrangler": "^3.0.0"
   }
 }

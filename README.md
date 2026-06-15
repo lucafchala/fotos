@@ -56,10 +56,11 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Auth | PBKDF2-SHA256 (10k iterações) + sessão HTTP-only em KV |
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
-| Dev tooling | Wrangler ≥ 3 (`npm run dev` / `npm run deploy`) |
-| CI/CD | GitHub Actions (`.github/workflows/deploy.yml`) com smoke tests |
-| Fontes externas | Google Fonts (Inter), jsDelivr (lib QR code, carregada só ao abrir modal de QR) |
-| Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` |
+| Dev tooling | Wrangler ≥ 3 (`npm run dev` / `npm run deploy`), ESLint (`npm run lint`) |
+| CI/CD | GitHub Actions (`deploy.yml` com smoke tests, `checks.yml` com lint + sintaxe) |
+| Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
+| Fontes externas | Google Fonts (Inter) |
+| Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 
 **Não há banco SQL, nem D1, nem R2, nem ORM, nem JSX/React, nem bundler.** Todo o estado é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de session/contador/rate-limit. As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
@@ -379,10 +380,10 @@ Layout fixo no topo + abas:
 - Lista de eventos (cards horizontais) com: thumb, título + badge de status colorida, slug em monospace, botões de ação à direita:
   - **Pin** (estrela) — toggle. Ao pinar, despina todos os outros (server-side garante max 1).
   - **Eye** — toggle `visible`.
-  - **QR** — abre modal com QR code da URL do evento. A lib QR é carregada do jsDelivr **só ao primeiro clique** (lazy). Botões: Fechar / Copiar link / Imprimir / Baixar PNG.
   - **Edit** — abre overlay com formulário pré-preenchido.
   - **Delete** (lixeira vermelha) — confirma + DELETE.
-- **Overlay/formulário de evento** com todos os campos: slug, título, descrição curta, descrição longa, fotos (até 6 com pré-visualização miniatura inline — campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, data, créditos, link extra, status, notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
+- **Overlay/formulário de evento** com todos os campos: slug, título, descrição curta, descrição longa, fotos (até 6 com pré-visualização miniatura inline — campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, data, créditos, link extra, status, **categoria** (lista gerenciável — ver aba Config; alimenta os filtros da galeria), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
+- **Edição em massa:** botão "Selecionar" mostra checkboxes nos eventos; escolha uma categoria e clique "Aplicar" para atribuí-la a todos os selecionados de uma vez (`POST /api/events/bulk-category`).
 - A lista usa renderização híbrida: a primeira página vem **SSR** (renderizada no Worker) e o JS substitui via `renderEventList()` ao mudar filtro. Os botões funcionam via event delegation (`data-action`/`data-id`), então tanto o SSR quanto o re-render funcionam com o mesmo handler.
 
 #### Aba Métricas
@@ -391,6 +392,7 @@ Tabela com colunas: projeto, views, cliques no Drive. Ordenada por views desc. D
 
 #### Aba Config
 
+- **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
 - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar". PUT para `/api/settings/password`.
 - **Backup**:
   - Botão "Baixar backup JSON" — GET `/api/backup` retorna arquivo `fotos-backup-YYYY-MM-DD.json`.

@@ -1,4 +1,4 @@
-import { escape } from '../utils.js';
+import { sortEvents } from '../utils.js';
 
 const BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -6,6 +6,7 @@ const BASE = `
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
 input,textarea,select,button{font-family:inherit;font-size:inherit}
 button{cursor:pointer}
+:focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
 export function loginHTML(opts = {}) {
@@ -23,6 +24,7 @@ export function loginHTML(opts = {}) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
   <title>Dashboard · fotos</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
@@ -71,16 +73,14 @@ export function loginHTML(opts = {}) {
 
 const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
 
-export function dashboardHTML(events) {
+export function dashboardHTML(events, categories = []) {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
   const esc = s => !s ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const byDateSSR = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
-  const sorted = [...events].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return byDateSSR(b) - byDateSSR(a);
-  });
+  const catOptionsSSR = ['<option value="">Sem categoria</option>']
+    .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
+  const sorted = sortEvents(events);
   const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
   const noun = n => n === 1 ? 'evento' : 'eventos';
   const ssrCount = `${active.length} ${noun(active.length)} ativos`;
@@ -98,11 +98,10 @@ export function dashboardHTML(events) {
             <div class="evt-slug">/${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
-            <button class="icon-btn${e.pinned ? ' pinned' : ''}" data-action="pin" data-id="${esc(e.id)}" title="${e.pinned ? 'Remover destaque' : 'Destacar'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg></button>
-            <button class="icon-btn" data-action="vis" data-id="${esc(e.id)}" title="${e.visible !== false ? 'Ocultar' : 'Mostrar'}">${e.visible !== false ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`}</button>
-            <button class="icon-btn" data-action="qr" data-id="${esc(e.id)}" title="QR Code"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M17 17h4v4M14 21h3"/></svg></button>
-            <button class="icon-btn" data-action="edit" data-id="${esc(e.id)}" title="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-            <button class="icon-btn danger" data-action="del" data-id="${esc(e.id)}" title="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
+            <button class="icon-btn${e.pinned ? ' pinned' : ''}" data-action="pin" data-id="${esc(e.id)}" title="${e.pinned ? 'Remover destaque' : 'Destacar'}" aria-label="${e.pinned ? 'Remover destaque' : 'Destacar'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg></button>
+            <button class="icon-btn" data-action="vis" data-id="${esc(e.id)}" title="${e.visible !== false ? 'Ocultar' : 'Mostrar'}" aria-label="${e.visible !== false ? 'Ocultar' : 'Mostrar'}">${e.visible !== false ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`}</button>
+            <button class="icon-btn" data-action="edit" data-id="${esc(e.id)}" title="Editar" aria-label="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="icon-btn danger" data-action="del" data-id="${esc(e.id)}" title="Excluir" aria-label="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
           </div>
         </div>`;
       }).join('');
@@ -113,6 +112,7 @@ export function dashboardHTML(events) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
   <title>Dashboard · fotos</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
@@ -166,20 +166,6 @@ export function dashboardHTML(events) {
     .filter-row{margin-bottom:1rem}
     .filter-row select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;-webkit-appearance:none}
     @media(min-width:600px){.filter-row select{width:auto;min-width:220px}}
-    /* QR modal */
-    .qr-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:150;display:none;align-items:center;justify-content:center;padding:1rem}
-    .qr-modal.open{display:flex}
-    .qr-card{background:#fff;color:#0a0a0a;border-radius:14px;padding:1.75rem 1.5rem;max-width:340px;width:100%;text-align:center}
-    .qr-card h3{font-size:1rem;font-weight:600;margin-bottom:.25rem;color:#0a0a0a}
-    .qr-card .qr-slug{font-size:.72rem;color:#888;margin-bottom:1.25rem;font-family:monospace;word-break:break-all}
-    .qr-canvas-wrap{display:flex;justify-content:center;align-items:center;min-height:260px;margin-bottom:1.25rem;background:#fff}
-    .qr-canvas-wrap canvas{max-width:260px;height:auto;display:block}
-    .qr-actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
-    .qr-btn{flex:1;min-width:90px;background:#0a0a0a;color:#fff;border:none;padding:.65rem .85rem;border-radius:7px;font-size:.78rem;font-weight:500;cursor:pointer;transition:opacity .18s}
-    .qr-btn:hover{opacity:.85}
-    .qr-btn.secondary{background:#fff;color:#0a0a0a;border:1px solid #ddd}
-    .qr-btn.secondary:hover{background:#f5f5f5}
-    @media print{body>*{display:none!important}.qr-modal,.qr-modal *{display:revert!important}.qr-modal{position:static;background:#fff;padding:0}.qr-actions{display:none!important}}
     /* metrics table */
     .metrics-table{width:100%;border-collapse:collapse}
     .metrics-table th{text-align:left;font-size:.7rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:.5rem .75rem;border-bottom:1px solid var(--border)}
@@ -267,6 +253,23 @@ export function dashboardHTML(events) {
     .info-box strong{color:var(--text2)}
     /* field row */
     .field-row{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
+    /* mass edit */
+    .mass-bar{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:.625rem .875rem;margin-bottom:1rem}
+    .mass-selall{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text2);cursor:pointer}
+    .mass-selall input,.evt-check{width:17px;height:17px;accent-color:#c0a060;cursor:pointer;flex-shrink:0}
+    #mass-count{font-size:.75rem;color:var(--text3)}
+    .mass-apply{display:flex;gap:.5rem;align-items:center;margin-left:auto}
+    .mass-apply select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.45rem .6rem;border-radius:7px;font-size:.78rem;outline:none;-webkit-appearance:none}
+    .evt-item .evt-check{margin-right:.25rem}
+    /* category manager */
+    .cat-list{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.125rem}
+    .cat-chip{display:inline-flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.35rem .4rem .35rem .8rem;font-size:.78rem;color:var(--text2)}
+    .cat-chip button{background:none;border:none;color:var(--text3);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;line-height:1;transition:background .2s,color .2s}
+    .cat-chip button:hover{background:rgba(192,57,43,.15);color:var(--red)}
+    .cat-empty{font-size:.78rem;color:var(--text3)}
+    .cat-add{display:flex;gap:.5rem}
+    .cat-add input{flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none}
+    .cat-add input:focus{border-color:#3a3a3a}
   </style>
 </head>
 <body>
@@ -291,10 +294,13 @@ export function dashboardHTML(events) {
   <div id="tab-events" class="panel active">
     <div class="panel-head">
       <h2 id="evt-count">${ssrCount}</h2>
-      <button class="btn-add" onclick="openForm()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Adicionar
-      </button>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn-sm" id="mass-toggle" onclick="toggleMassMode()">Selecionar</button>
+        <button class="btn-add" onclick="openForm()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Adicionar
+        </button>
+      </div>
     </div>
     <div class="filter-row">
       <select id="status-filter" onchange="renderEventList()">
@@ -305,6 +311,14 @@ export function dashboardHTML(events) {
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
       </select>
+    </div>
+    <div class="mass-bar" id="mass-bar" style="display:none">
+      <label class="mass-selall"><input type="checkbox" id="mass-selall" onchange="toggleSelectAll(this.checked)"> Todos</label>
+      <span id="mass-count">0 selecionados</span>
+      <div class="mass-apply">
+        <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
+        <button class="btn-sm" onclick="applyMassCategory()">Aplicar</button>
+      </div>
     </div>
     <div class="evt-list" id="evt-list">${ssrList}</div>
   </div>
@@ -317,6 +331,15 @@ export function dashboardHTML(events) {
 
   <!-- SETTINGS TAB -->
   <div id="tab-settings" class="panel">
+    <div class="settings-card">
+      <h3>Categorias</h3>
+      <p>Usadas para filtrar a galeria. Para aplicar uma categoria a vários eventos de uma vez, use o botão "Selecionar" na aba Eventos.</p>
+      <div id="cat-list" class="cat-list"></div>
+      <div class="cat-add">
+        <input type="text" id="cat-new" placeholder="Nova categoria" maxlength="40" onkeydown="if(event.key==='Enter')createCategory()">
+        <button class="btn-sm" onclick="createCategory()">Adicionar</button>
+      </div>
+    </div>
     <div class="settings-card">
       <h3>Alterar senha</h3>
       <p>Recomendado usar algo fácil de lembrar mas difícil de adivinhar.</p>
@@ -410,14 +433,20 @@ export function dashboardHTML(events) {
           <label>Link extra do projeto <span style="color:#555">(opcional)</span></label>
           <input type="url" id="f-purl" placeholder="https://...">
         </div>
-        <div class="field">
-          <label>Status de produção</label>
-          <select id="f-status">
-            <option value="em-edicao">Em edição</option>
-            <option value="em-revisao">Em revisão</option>
-            <option value="entregue" selected>Entregue</option>
-            <option value="arquivado">Arquivado</option>
-          </select>
+        <div class="field-row">
+          <div class="field">
+            <label>Status de produção</label>
+            <select id="f-status">
+              <option value="em-edicao">Em edição</option>
+              <option value="em-revisao">Em revisão</option>
+              <option value="entregue" selected>Entregue</option>
+              <option value="arquivado">Arquivado</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Categoria <span style="color:#555">(opcional)</span></label>
+            <select id="f-category">${catOptionsSSR}</select>
+          </div>
         </div>
         <div class="field">
           <label>Notas privadas <span style="color:#555">(só você vê)</span></label>
@@ -471,34 +500,19 @@ export function dashboardHTML(events) {
     </div>
   </div>
 
-  <!-- QR CODE MODAL -->
-  <div class="qr-modal" id="qr-modal" onclick="if(event.target.id==='qr-modal')closeQR()">
-    <div class="qr-card">
-      <h3 id="qr-title">QR Code</h3>
-      <p class="qr-slug" id="qr-slug"></p>
-      <div class="qr-canvas-wrap" id="qr-canvas-wrap">
-        <div style="color:#888;font-size:.8rem">Carregando…</div>
-      </div>
-      <div class="qr-actions">
-        <button class="qr-btn secondary" onclick="closeQR()">Fechar</button>
-        <button class="qr-btn secondary" onclick="copyQRLink()">Copiar link</button>
-        <button class="qr-btn secondary" onclick="window.print()">Imprimir</button>
-        <button class="qr-btn" onclick="downloadQR()">Baixar PNG</button>
-      </div>
-    </div>
-  </div>
-
   <div class="toast" id="toast"></div>
 
   <script>
     let events = ${eventsJSON};
+    let categories = ${categoriesJSON};
+    let massMode = false;
+    let selectedIds = new Set();
     let editingId = null;
     let metricsLoaded = false;
     let photoList = [];
     let requestsLoaded = false;
-    let qrLibLoading = null;
-    let currentQRSlug = '';
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+    // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
     // ---- Init ----
@@ -511,9 +525,17 @@ export function dashboardHTML(events) {
       else if (action === 'del') deleteEvent(id);
       else if (action === 'pin') togglePin(id);
       else if (action === 'vis') toggleVisible(id);
-      else if (action === 'qr') openQR(id);
+    });
+    // Selection checkboxes (mass-edit mode)
+    document.getElementById('evt-list').addEventListener('change', function(ev) {
+      const cb = ev.target.closest('.evt-check');
+      if (!cb) return;
+      if (cb.checked) selectedIds.add(cb.dataset.id); else selectedIds.delete(cb.dataset.id);
+      updateMassCount();
     });
     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
+    refreshCategorySelects();
+    renderCategoryManager();
     loadRequests();
 
     // ---- Tabs ----
@@ -562,21 +584,19 @@ export function dashboardHTML(events) {
         const pinIcon = \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="\${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg>\`;
         const st = e.status || 'entregue';
         return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${e.id}">
+          \${massMode ? \`<input type="checkbox" class="evt-check" data-id="\${e.id}" \${selectedIds.has(e.id) ? 'checked' : ''}>\` : ''}
           \${thumb}
           <div class="evt-info">
             <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${st}">\${STATUS_LABELS[st]}</span></div>
             <div class="evt-slug">/\${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
-            <button class="icon-btn \${e.pinned ? 'pinned' : ''}" data-action="pin" data-id="\${e.id}" title="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}">\${pinIcon}</button>
-            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" data-action="vis" data-id="\${e.id}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}">\${eyeIcon}</button>
-            <button class="icon-btn" data-action="qr" data-id="\${e.id}" title="QR Code">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M17 17h4v4M14 21h3"/></svg>
-            </button>
-            <button class="icon-btn" data-action="edit" data-id="\${e.id}" title="Editar">
+            <button class="icon-btn \${e.pinned ? 'pinned' : ''}" data-action="pin" data-id="\${e.id}" title="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}" aria-label="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}">\${pinIcon}</button>
+            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" data-action="vis" data-id="\${e.id}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}" aria-label="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}">\${eyeIcon}</button>
+            <button class="icon-btn" data-action="edit" data-id="\${e.id}" title="Editar" aria-label="Editar">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn danger" data-action="del" data-id="\${e.id}" title="Excluir">
+            <button class="icon-btn danger" data-action="del" data-id="\${e.id}" title="Excluir" aria-label="Excluir">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             </button>
           </div>
@@ -603,6 +623,7 @@ export function dashboardHTML(events) {
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       document.getElementById('f-status').value = e?.status || 'entregue';
+      document.getElementById('f-category').value = e?.category || '';
       document.getElementById('f-notes').value = e?.internalNotes || '';
       const alertActive = e?.photosAlert?.active === true;
       document.getElementById('f-alert-active').checked = alertActive;
@@ -733,6 +754,7 @@ export function dashboardHTML(events) {
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
         status: document.getElementById('f-status').value,
+        category: document.getElementById('f-category').value,
         internalNotes: document.getElementById('f-notes').value,
         photosAlert: (() => {
           const nowActive = document.getElementById('f-alert-active').checked;
@@ -965,74 +987,97 @@ export function dashboardHTML(events) {
       }
     }
 
-    // ---- QR Code ----
-    function loadQRLib() {
-      if (window.qrcode) return Promise.resolve(window.qrcode);
-      if (qrLibLoading) return qrLibLoading;
-      qrLibLoading = new Promise((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
-        s.integrity = 'sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs';
-        s.crossOrigin = 'anonymous';
-        s.onload = () => res(window.qrcode);
-        s.onerror = () => rej(new Error('Falha ao carregar lib do QR'));
-        document.head.appendChild(s);
-      });
-      return qrLibLoading;
+    // ---- Categories ----
+    function catOptionsHTML(selected) {
+      return ['<option value="">Sem categoria</option>']
+        .concat(categories.map(c => '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>'))
+        .join('');
     }
-    async function openQR(id) {
-      const e = events.find(ev => ev.id === id);
-      if (!e) return;
-      currentQRSlug = e.slug;
-      const url = location.origin + '/' + e.slug;
-      document.getElementById('qr-title').textContent = e.title;
-      document.getElementById('qr-slug').textContent = url;
-      document.getElementById('qr-modal').classList.add('open');
-      const wrap = document.getElementById('qr-canvas-wrap');
-      wrap.innerHTML = '<div style="color:#888;font-size:.8rem">Carregando…</div>';
+    function refreshCategorySelects() {
+      const f = document.getElementById('f-category');
+      if (f) { const v = f.value; f.innerHTML = catOptionsHTML(v); }
+      const m = document.getElementById('mass-cat');
+      if (m) { const v = m.value; m.innerHTML = catOptionsHTML(v); }
+    }
+    function renderCategoryManager() {
+      const el = document.getElementById('cat-list');
+      if (!el) return;
+      if (!categories.length) { el.innerHTML = '<span class="cat-empty">Nenhuma categoria ainda.</span>'; return; }
+      el.innerHTML = categories.map(c =>
+        '<span class="cat-chip">' + esc(c) +
+        '<button type="button" title="Excluir" aria-label="Excluir categoria" data-cat-del="' + esc(c) + '">×</button></span>'
+      ).join('');
+    }
+    document.getElementById('cat-list')?.addEventListener('click', function(ev) {
+      const btn = ev.target.closest('[data-cat-del]');
+      if (btn) deleteCategory(btn.dataset.catDel);
+    });
+    async function createCategory() {
+      const input = document.getElementById('cat-new');
+      const name = (input.value || '').trim();
+      if (!name) return toast('Digite o nome da categoria.', 'err');
       try {
-        const qrcode = await loadQRLib();
-        const q = qrcode(0, 'M');
-        q.addData(url);
-        q.make();
-        const cellSize = 8;
-        const margin = 4;
-        const size = q.getModuleCount();
-        const canvas = document.createElement('canvas');
-        const dim = (size + margin * 2) * cellSize;
-        canvas.width = dim;
-        canvas.height = dim;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, dim, dim);
-        ctx.fillStyle = '#000';
-        for (let r = 0; r < size; r++) {
-          for (let c = 0; c < size; c++) {
-            if (q.isDark(r, c)) {
-              ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
-            }
-          }
-        }
-        wrap.innerHTML = '';
-        wrap.appendChild(canvas);
+        const res = await api('POST', '/api/categories', { name });
+        categories = res.categories;
+        input.value = '';
+        renderCategoryManager();
+        refreshCategorySelects();
+        toast('Categoria criada.', 'ok');
       } catch(err) {
-        wrap.innerHTML = '<div style="color:#c0392b;font-size:.8rem">Erro: ' + esc(err.message) + '</div>';
+        toast(err.message || 'Erro ao criar categoria.', 'err');
       }
     }
-    function closeQR() {
-      document.getElementById('qr-modal').classList.remove('open');
+    async function deleteCategory(name) {
+      const inUse = events.filter(e => e.category === name).length;
+      const warn = inUse > 0 ? ' Ela será removida de ' + inUse + ' evento' + (inUse !== 1 ? 's' : '') + '.' : '';
+      if (!confirm('Excluir a categoria "' + name + '"?' + warn)) return;
+      try {
+        const res = await api('POST', '/api/categories/delete', { name });
+        categories = res.categories;
+        events.forEach(e => { if (e.category === name) e.category = ''; });
+        renderCategoryManager();
+        refreshCategorySelects();
+        renderEventList();
+        toast('Categoria excluída.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao excluir categoria.', 'err');
+      }
     }
-    function downloadQR() {
-      const canvas = document.querySelector('#qr-canvas-wrap canvas');
-      if (!canvas) return;
-      const link = document.createElement('a');
-      link.download = 'qr-' + currentQRSlug + '.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+
+    // ---- Mass edit ----
+    function toggleMassMode(force) {
+      massMode = typeof force === 'boolean' ? force : !massMode;
+      if (!massMode) selectedIds.clear();
+      document.getElementById('mass-bar').style.display = massMode ? 'flex' : 'none';
+      document.getElementById('mass-toggle').textContent = massMode ? 'Cancelar' : 'Selecionar';
+      const selAll = document.getElementById('mass-selall');
+      if (selAll) selAll.checked = false;
+      renderEventList();
+      updateMassCount();
     }
-    function copyQRLink() {
-      const url = document.getElementById('qr-slug').textContent;
-      navigator.clipboard.writeText(url).then(() => toast('Link copiado!', 'ok')).catch(() => toast('Erro ao copiar.', 'err'));
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('#evt-list .evt-check').forEach(cb => {
+        cb.checked = checked;
+        if (checked) selectedIds.add(cb.dataset.id); else selectedIds.delete(cb.dataset.id);
+      });
+      updateMassCount();
+    }
+    function updateMassCount() {
+      const el = document.getElementById('mass-count');
+      if (el) el.textContent = selectedIds.size + ' selecionado' + (selectedIds.size !== 1 ? 's' : '');
+    }
+    async function applyMassCategory() {
+      if (selectedIds.size === 0) return toast('Selecione ao menos um evento.', 'err');
+      const category = document.getElementById('mass-cat').value;
+      const ids = [...selectedIds];
+      try {
+        const res = await api('POST', '/api/events/bulk-category', { ids, category });
+        events.forEach(e => { if (selectedIds.has(e.id)) e.category = category; });
+        toggleMassMode(false);
+        toast(res.updated + ' evento' + (res.updated !== 1 ? 's' : '') + ' atualizado' + (res.updated !== 1 ? 's' : '') + '.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao aplicar categoria.', 'err');
+      }
     }
 
     // ---- API helper ----

@@ -7,6 +7,10 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
 
+[triggers]
+# Daily 03:00 UTC — purge resolved removal requests past the retention window.
+crons = ["0 3 * * *"]
+
 [env.preview]
 name = "fotos-preview"
 
