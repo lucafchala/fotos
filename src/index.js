@@ -62,6 +62,7 @@ export default {
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
+      if (path === '/api/review' && method === 'POST') return handleReview(request, env);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -513,6 +514,40 @@ async function handleTrackDrive(request, env) {
   const key = `drive_clicks:${slug}`;
   const v = await env.FOTOS.get(key).catch(() => null);
   await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(e => console.error('drive-click counter failed', e));
+  return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Review submission (public)
+// ---------------------------------------------------------------------------
+async function handleReview(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'review', 5, 3600);
+  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const { slug, rating, comment, email, turnstileToken } = body;
+  if (!slug || !validateSlug(String(slug))) return jsonErr('Evento não encontrado.', 400);
+  const r = Number(rating);
+  if (!Number.isInteger(r) || r < 1 || r > 5) return jsonErr('Avaliação inválida.', 400);
+
+  const tsOk = await verifyTurnstile(turnstileToken, env);
+  if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
+
+  const key = `reviews_${slug}`;
+  let reviews = [];
+  try { reviews = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { reviews = []; }
+  reviews.push({
+    id: generateId(),
+    slug: String(slug).slice(0, 60),
+    rating: r,
+    comment: String(comment || '').trim().slice(0, 1000),
+    email: String(email || '').trim().slice(0, 200),
+    submittedAt: new Date().toISOString(),
+  });
+  await env.FOTOS.put(key, JSON.stringify(reviews));
   return jsonOk({ ok: true });
 }
 

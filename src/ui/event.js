@@ -116,6 +116,21 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:400px){.btn-drive{width:auto}}
     .btn-drive:hover{background:#fff;transform:translateY(-2px)}
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
+    /* review */
+    .review-wrap{margin:0 0 2.5rem;padding:1.125rem 1.25rem;background:#0b0b0b;border:1px solid #1c1c1c;border-radius:10px;text-align:center}
+    .review-label{font-size:.6rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#c0a060;margin-bottom:.875rem;opacity:.7}
+    .stars{display:flex;gap:0;justify-content:center;margin-bottom:.125rem}
+    .star{background:none;border:none;font-size:2rem;color:#282828;cursor:pointer;padding:.2rem .25rem;line-height:1;transition:color .1s;-webkit-tap-highlight-color:transparent}
+    .star.on{color:#c0a060}
+    .rev-form{margin-top:1rem;display:flex;flex-direction:column;gap:.625rem;text-align:left}
+    .rev-input{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.7rem .875rem;border-radius:8px;font-size:.875rem;font-family:inherit;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .rev-input::placeholder{color:#363636}
+    .rev-input:focus{border-color:#3a3a3a}
+    .rev-textarea{resize:vertical;min-height:68px;line-height:1.5}
+    .btn-rev-send{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.75rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .btn-rev-send:disabled{opacity:.3;cursor:not-allowed}
+    .btn-rev-send:not(:disabled):hover{opacity:.88}
+    .rev-done{color:#8ac88a;font-size:.85rem;padding:.25rem 0}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
@@ -249,6 +264,20 @@ export function eventHTML(event, analyticsToken) {
             Acessar fotos
           </button>`}
     </div>
+
+    ${!event.comingSoon ? `<div class="review-wrap" id="review-wrap">
+      <div class="review-label">Avaliar</div>
+      <div class="stars" id="rev-stars">
+        ${[1,2,3,4,5].map(i => `<button class="star" type="button" data-v="${i}" aria-label="${i} estrela${i>1?'s':''}">★</button>`).join('')}
+      </div>
+      <div class="rev-form" id="rev-form" style="display:none">
+        <textarea id="rev-comment" class="rev-input rev-textarea" placeholder="Comentário (opcional)…"></textarea>
+        <input type="email" id="rev-email" class="rev-input" placeholder="Seu e-mail" autocomplete="email">
+        <div id="rev-turnstile" style="margin-top:.25rem"></div>
+        <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
+      </div>
+      <div id="rev-done" class="rev-done" style="display:none">Obrigado pelo feedback! ✓</div>
+    </div>` : ''}
 
     <div class="credits">
       <div class="credits-title">Créditos</div>
@@ -682,6 +711,68 @@ export function eventHTML(event, analyticsToken) {
       } finally {
         btn.disabled = false;
         btn.textContent = 'Enviar solicitação';
+      }
+    }
+
+    // ---- Review ----
+    var revRating = 0;
+    var revWidgetId = null;
+    var revTsToken = '';
+    var revFormShown = false;
+
+    function highlightStars(n) {
+      var stars = document.querySelectorAll('.star');
+      for (var i = 0; i < stars.length; i++) stars[i].classList.toggle('on', i < n);
+    }
+    function enableRevSubmit() {
+      var btn = document.getElementById('rev-submit');
+      if (btn) btn.disabled = !(revRating > 0 && revTsToken);
+    }
+    (function initRevStars() {
+      var wrap = document.getElementById('rev-stars');
+      if (!wrap) return;
+      wrap.addEventListener('mouseover', function(ev) {
+        var s = ev.target.closest('.star');
+        if (s) highlightStars(parseInt(s.dataset.v));
+      });
+      wrap.addEventListener('mouseout', function() { highlightStars(revRating); });
+      wrap.addEventListener('click', function(ev) {
+        var s = ev.target.closest('.star');
+        if (!s) return;
+        revRating = parseInt(s.dataset.v);
+        highlightStars(revRating);
+        if (revFormShown) { enableRevSubmit(); return; }
+        revFormShown = true;
+        document.getElementById('rev-form').style.display = '';
+        setTimeout(function() {
+          if (typeof turnstile === 'undefined') { revTsToken = 'skip'; enableRevSubmit(); return; }
+          if (revWidgetId !== null) return;
+          revWidgetId = turnstile.render('#rev-turnstile', {
+            sitekey: TS_SITEKEY,
+            callback: function(t) { revTsToken = t; enableRevSubmit(); },
+            'error-callback': function() { revTsToken = ''; enableRevSubmit(); },
+            'expired-callback': function() { revTsToken = ''; enableRevSubmit(); },
+          });
+        }, 80);
+      });
+    })();
+    async function submitReview() {
+      if (!revRating) return;
+      var btn = document.getElementById('rev-submit');
+      btn.disabled = true; btn.textContent = 'Enviando…';
+      try {
+        var r = await fetch('/api/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: EVENT_SLUG, rating: revRating, comment: (document.getElementById('rev-comment').value || '').trim(), email: (document.getElementById('rev-email').value || '').trim(), turnstileToken: revTsToken }),
+        });
+        if (!r.ok) throw new Error();
+        document.getElementById('rev-form').style.display = 'none';
+        document.getElementById('rev-done').style.display = '';
+        document.getElementById('rev-stars').style.pointerEvents = 'none';
+      } catch(_) {
+        btn.disabled = false; btn.textContent = 'Enviar avaliação';
+        alert('Erro ao enviar. Tente novamente.');
       }
     }
 
