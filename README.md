@@ -382,7 +382,8 @@ Layout fixo no topo + abas:
   - **Eye** — toggle `visible`.
   - **Edit** — abre overlay com formulário pré-preenchido.
   - **Delete** (lixeira vermelha) — confirma + DELETE.
-- **Overlay/formulário de evento** com todos os campos: slug, título, descrição curta, descrição longa, fotos (até 6 com pré-visualização miniatura inline — campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, data, créditos, link extra, status, **categoria** (formatura / casamento / ensaio / evento / outro — usada nos filtros da galeria), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
+- **Overlay/formulário de evento** com todos os campos: slug, título, descrição curta, descrição longa, fotos (até 6 com pré-visualização miniatura inline — campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, data, créditos, link extra, status, **categoria** (lista gerenciável — ver aba Config; alimenta os filtros da galeria), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
+- **Edição em massa:** botão "Selecionar" mostra checkboxes nos eventos; escolha uma categoria e clique "Aplicar" para atribuí-la a todos os selecionados de uma vez (`POST /api/events/bulk-category`).
 - A lista usa renderização híbrida: a primeira página vem **SSR** (renderizada no Worker) e o JS substitui via `renderEventList()` ao mudar filtro. Os botões funcionam via event delegation (`data-action`/`data-id`), então tanto o SSR quanto o re-render funcionam com o mesmo handler.
 
 #### Aba Métricas
@@ -391,6 +392,7 @@ Tabela com colunas: projeto, views, cliques no Drive. Ordenada por views desc. D
 
 #### Aba Config
 
+- **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
 - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar". PUT para `/api/settings/password`.
 - **Backup**:
   - Botão "Baixar backup JSON" — GET `/api/backup` retorna arquivo `fotos-backup-YYYY-MM-DD.json`.

@@ -2,13 +2,6 @@ import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb } from '..
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
-const CAT_LABELS = {
-  formatura: 'Formatura',
-  casamento: 'Casamento',
-  ensaio: 'Ensaio',
-  evento: 'Evento',
-  outro: 'Outro',
-};
 
 export function galleryHTML(events, analyticsToken) {
   const visible = sortEvents(events.filter(e => e.visible !== false));
@@ -71,13 +64,13 @@ export function galleryHTML(events, analyticsToken) {
     ? `<p class="empty">Em breve…</p>`
     : pinnedHTML + restNodes.join('');
 
-  const presentCats = [...new Set(rest.concat(pinned).map(e => e.category).filter(Boolean))]
-    .filter(c => CAT_LABELS[c]);
+  const presentCats = [...new Set(visible.map(e => e.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const showControls = visible.length > 0;
   const chipsHTML = presentCats.length > 0
     ? `<div class="chips" id="chips" role="group" aria-label="Filtrar por categoria">
         <button class="chip active" data-cat="all">Todos</button>
-        ${presentCats.map(c => `<button class="chip" data-cat="${escape(c)}">${escape(CAT_LABELS[c])}</button>`).join('')}
+        ${presentCats.map(c => `<button class="chip" data-cat="${escape(c)}">${escape(c)}</button>`).join('')}
       </div>`
     : '';
   const controlsHTML = showControls

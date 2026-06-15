@@ -25,7 +25,7 @@
 - **Ordenação manual:** botões ▲▼ em cada evento no dashboard reordenam os projetos (galeria pública respeita a ordem manual; fallback para data quando não houver ordem manual)
 - **QR Code:** removido (lib quebrada e sem uso); CSP do jsDelivr também removida
 - **Galeria organizada:** cards agrupados por ano + busca por texto + filtro por categoria + "Carregar mais" (12 por vez)
-- **Categoria por evento:** campo no dashboard (formatura / casamento / ensaio / evento / outro), alimenta os filtros da galeria
+- **Categorias gerenciáveis:** criar/excluir categorias na aba Config (KV `categories`), edição em massa na aba Eventos (selecionar vários + aplicar categoria), filtros da galeria derivados delas
 - **SEO:** `/sitemap.xml`, `/robots.txt`, canonical + Open Graph na galeria e nas páginas de evento, JSON-LD na home
 - **LGPD:** página `/privacidade`, encarregado (`privacidade@lucafchala.com`), consentimento nos formulários, aviso de cookies, e retenção automática (cron apaga solicitações resolvidas > 180 dias)
 - **Thumbnails leves:** galeria pede variante redimensionada do Drive (`=w600`/`=w1600`) em vez de resolução cheia

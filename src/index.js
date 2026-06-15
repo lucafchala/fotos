@@ -4,7 +4,8 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import {
-  getEvents, saveEvents, hashPassword, verifyPassword, generateToken,
+  getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
+  hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
 } from './utils.js';
@@ -37,8 +38,12 @@ export default {
 
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
+      if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
+      if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
+      if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
+      if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
@@ -160,8 +165,8 @@ async function handleDashboardPage(request, env, url) {
     return html(loginHTML({ error: hasError }));
   }
 
-  const events = await getEvents(env, true);
-  return new Response(dashboardHTML(events), {
+  const [events, categories] = await Promise.all([getEvents(env, true), getCategories(env)]);
+  return new Response(dashboardHTML(events, categories), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
@@ -254,6 +259,7 @@ async function handleCreateEvent(request, env) {
 
   const events = await getEvents(env, true);
   if (events.find(e => e.slug === slug)) return jsonErr('Já existe um evento com essa URL.', 409);
+  const cats = await getCategories(env);
 
   const photos = Array.isArray(body.photos)
     ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
@@ -275,7 +281,7 @@ async function handleCreateEvent(request, env) {
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
-    category: ['formatura','casamento','ensaio','evento','outro'].includes(body.category) ? body.category : '',
+    category: cats.includes(body.category) ? body.category : '',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
     pinned: body.pinned === true,
     photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
@@ -307,6 +313,7 @@ async function handleUpdateEvent(request, env, path) {
   if (idx === -1) return jsonErr('Evento não encontrado.', 404);
 
   const existing = events[idx];
+  const cats = await getCategories(env);
 
   const newPhotos = body.photos !== undefined
     ? (Array.isArray(body.photos)
@@ -334,7 +341,7 @@ async function handleUpdateEvent(request, env, path) {
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
     category: body.category !== undefined
-      ? (['formatura','casamento','ensaio','evento','outro'].includes(body.category) ? body.category : (existing.category || ''))
+      ? (cats.includes(body.category) ? body.category : (existing.category || ''))
       : (existing.category || ''),
     internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
     pinned: body.pinned !== undefined ? body.pinned === true : (existing.pinned === true),
@@ -379,6 +386,89 @@ async function handleDeleteEvent(request, env, path) {
   await saveEvents(env, events);
   await env.FOTOS.delete(`views:${removed.slug}`).catch(e => console.error('view-counter cleanup failed', e));
   return jsonOk({ deleted: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Categories (list / create / delete) + bulk category assignment
+// ---------------------------------------------------------------------------
+async function handleGetCategories(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  return jsonOk({ categories: await getCategories(env) });
+}
+
+async function handleCreateCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, MAX_CATEGORY_LEN);
+  if (!name) return jsonErr('Nome da categoria obrigatório.', 400);
+
+  const cats = await getCategories(env);
+  if (cats.some(c => c.toLowerCase() === name.toLowerCase())) {
+    return jsonErr('Já existe uma categoria com esse nome.', 409);
+  }
+  if (cats.length >= MAX_CATEGORIES) return jsonErr(`Máximo de ${MAX_CATEGORIES} categorias.`, 409);
+
+  cats.push(name);
+  await saveCategories(env, cats);
+  return jsonOk({ categories: cats }, 201);
+}
+
+async function handleDeleteCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const name = String(body.name || '');
+  const cats = await getCategories(env);
+  if (!cats.includes(name)) return jsonErr('Categoria não encontrada.', 404);
+
+  const remaining = cats.filter(c => c !== name);
+  await saveCategories(env, remaining);
+
+  // Clear the deleted category from any event that referenced it.
+  const events = await getEvents(env, true);
+  let cleared = 0;
+  for (const e of events) {
+    if (e.category === name) { e.category = ''; e.updatedAt = new Date().toISOString(); cleared++; }
+  }
+  if (cleared > 0) await saveEvents(env, events);
+
+  return jsonOk({ categories: remaining, cleared });
+}
+
+async function handleBulkCategory(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+  if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
+
+  const category = String(body.category || '');
+  const cats = await getCategories(env);
+  if (category !== '' && !cats.includes(category)) return jsonErr('Categoria inválida.', 400);
+
+  const idSet = new Set(ids);
+  const events = await getEvents(env, true);
+  let updated = 0;
+  for (const e of events) {
+    if (idSet.has(e.id) && e.category !== category) {
+      e.category = category;
+      e.updatedAt = new Date().toISOString();
+      updated++;
+    }
+  }
+  if (updated > 0) await saveEvents(env, events);
+  return jsonOk({ updated, category });
 }
 
 // ---------------------------------------------------------------------------

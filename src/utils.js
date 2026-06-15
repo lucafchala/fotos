@@ -20,6 +20,29 @@ export async function saveEvents(env, events) {
   await env.FOTOS.put('events', JSON.stringify(events));
 }
 
+// Categories are user-managed (created/deleted from the dashboard) and stored
+// as a flat list of display names under the KV key `categories`. Until the
+// owner changes anything, these defaults apply.
+export const DEFAULT_CATEGORIES = ['Formatura', 'Casamento', 'Ensaio', 'Evento', 'Outro'];
+export const MAX_CATEGORIES = 30;
+export const MAX_CATEGORY_LEN = 40;
+
+export async function getCategories(env) {
+  const data = await env.FOTOS.get('categories');
+  if (!data) return [...DEFAULT_CATEGORIES];
+  try {
+    const arr = JSON.parse(data);
+    return Array.isArray(arr) ? arr.filter(c => typeof c === 'string') : [...DEFAULT_CATEGORIES];
+  } catch {
+    return [...DEFAULT_CATEGORIES];
+  }
+}
+
+export async function saveCategories(env, cats) {
+  await env.FOTOS.put('categories', JSON.stringify(cats));
+}
+
+
 function hexToBytes(hex) {
   const arr = new Uint8Array(hex.length / 2);
   for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
