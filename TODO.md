@@ -22,8 +22,14 @@
 - **Filtro padrão "Ativos":** dashboard esconde arquivados por padrão; opção "Todos" mostra tudo
 - **PWA:** manifest.json + icon.svg + meta tags — dashboard instalável no celular
 - **Cloudflare Web Analytics:** script injetado automaticamente nas páginas públicas (token hardcoded)
-- **QR Code por evento:** botão no dashboard que abre modal com QR code (lazy load do jsDelivr) + botões "Baixar PNG / Imprimir / Copiar link"
 - **Ordenação manual:** botões ▲▼ em cada evento no dashboard reordenam os projetos (galeria pública respeita a ordem manual; fallback para data quando não houver ordem manual)
+- **QR Code:** removido (lib quebrada e sem uso); CSP do jsDelivr também removida
+- **Galeria organizada:** cards agrupados por ano + busca por texto + filtro por categoria + "Carregar mais" (12 por vez)
+- **Categoria por evento:** campo no dashboard (formatura / casamento / ensaio / evento / outro), alimenta os filtros da galeria
+- **SEO:** `/sitemap.xml`, `/robots.txt`, canonical + Open Graph na galeria e nas páginas de evento, JSON-LD na home
+- **LGPD:** página `/privacidade`, encarregado (`privacidade@lucafchala.com`), consentimento nos formulários, aviso de cookies, e retenção automática (cron apaga solicitações resolvidas > 180 dias)
+- **Thumbnails leves:** galeria pede variante redimensionada do Drive (`=w600`/`=w1600`) em vez de resolução cheia
+- **Hardening:** HSTS + Permissions-Policy, página 500 estilizada, `noindex` no admin, helper único de ordenação (`sortEvents`), ESLint no CI
 
 ---
 
@@ -41,7 +47,7 @@
 ### Etapa 5 — Longo prazo
 - [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
 - [ ] Portfólio público `/portfolio` com curadoria das melhores fotos
-- [ ] Filtros por tag/categoria
+- [x] Filtros por tag/categoria (feito: busca + filtro por categoria na galeria)
 
 ---
 
@@ -54,9 +60,6 @@ Campo de texto privado em cada evento (só você vê no dashboard) para anotar: 
 
 **Status de produção do evento**
 Adicionar um campo de status: `em-edicao` / `em-revisao` / `entregue` / `arquivado`. Filtrar por status no dashboard. Você sabe na hora o que está parado e o que precisa de atenção.
-
-**Galeria de QR Code por evento**
-Gerar QR Code da URL de cada evento no próprio dashboard. Útil pra imprimir no convite, no kit do evento, ou mandar fácil pelo WhatsApp do casamento/formatura.
 
 **Lembrete de entrega**
 Campo "data prometida de entrega" no evento. Dashboard destaca eventos atrasados em vermelho. Evita esquecer prazo combinado.

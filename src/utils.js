@@ -125,6 +125,32 @@ export function formatDatePT(dateStr) {
   return `${parseInt(day, 10)} de ${months[m - 1]} de ${year}`;
 }
 
+// Canonical event ordering: pinned first, then most recent by date
+// (falling back to createdAt). Shared by the public gallery and the
+// dashboard so the two never drift apart.
+export function eventTime(e) {
+  return e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
+}
+
+export function sortEvents(events) {
+  return [...events].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return eventTime(b) - eventTime(a);
+  });
+}
+
+// Request a resized variant of a Google-Drive-hosted thumbnail so the gallery
+// grid loads small images instead of full-resolution originals. Non-Drive URLs
+// (or URLs we don't recognise) are returned untouched. The original files in
+// Drive are never altered.
+export function sizedDriveThumb(url, width) {
+  if (!url || typeof url !== 'string') return url || '';
+  const m = url.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
+  return m ? `${m[1]}=w${width}` : url;
+}
+
+
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;

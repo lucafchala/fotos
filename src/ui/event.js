@@ -1,5 +1,7 @@
 import { escape, formatDatePT } from '../utils.js';
 
+const SITE_URL = 'https://fotos.lucafchala.com';
+
 export function eventHTML(event, analyticsToken) {
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
@@ -51,15 +53,19 @@ export function eventHTML(event, analyticsToken) {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
+  <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
   <meta property="og:title" content="${escape(event.title)}">
   <meta property="og:description" content="${escape(event.shortDescription || '')}">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta property="og:type" content="website">
+  <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
+  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
+    :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
     .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
@@ -199,6 +205,13 @@ export function eventHTML(event, analyticsToken) {
     .btn-rem-submit:not(:disabled):hover{opacity:.88}
     .rem-success{text-align:center;padding:2rem 0;color:#7ec87e;font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:#5aaa5a}
+    /* cookie notice */
+    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    .cookie-notice.show{display:flex}
+    .cookie-notice a{color:#c0a060;text-decoration:none}
+    .cookie-notice a:hover{text-decoration:underline}
+    .cookie-notice button{flex-shrink:0;background:#f0ebe5;color:#0a0a0a;border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .cookie-notice button:hover{opacity:.85}
   </style>
 </head>
 <body>
@@ -262,6 +275,10 @@ export function eventHTML(event, analyticsToken) {
       <a href="/suporte" class="removal-link">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         Suporte
+      </a>
+      <a href="/privacidade" class="removal-link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Privacidade
       </a>
       ${!event.comingSoon ? `<button class="removal-link" onclick="openTour()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -385,6 +402,10 @@ export function eventHTML(event, analyticsToken) {
         </div>
 
         <p style="font-size:.68rem;color:#444;line-height:1.5;margin-top:1rem">Seus dados (e-mail e telefone) são usados exclusivamente para processar esta solicitação e não são compartilhados com terceiros.</p>
+        <label style="display:flex;align-items:flex-start;gap:.5rem;margin-top:1rem;cursor:pointer">
+          <input type="checkbox" id="rem-consent" style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:2px">
+          <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e autorizo o uso dos meus dados para processar esta solicitação.</span>
+        </label>
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div class="rem-sheet-foot">
           <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
@@ -415,6 +436,11 @@ export function eventHTML(event, analyticsToken) {
     </div>
   </div>`}
 
+  <div class="cookie-notice" id="cookie-notice">
+    <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
+    <button id="cookie-ok" type="button">Entendi</button>
+  </div>
+
   <script>
     const DRIVE_URL      = ${driveJSON};
     const DRIVE_URL_IG   = ${driveIgJSON};
@@ -443,6 +469,22 @@ export function eventHTML(event, analyticsToken) {
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
     let cur = 0;
+
+    // ---- Cookie / analytics notice ----
+    try {
+      if (!localStorage.getItem('fotos:cookie_notice')) {
+        const cn = document.getElementById('cookie-notice');
+        if (cn) cn.classList.add('show');
+      }
+    } catch(_) {}
+    (function(){
+      const ck = document.getElementById('cookie-ok');
+      if (ck) ck.addEventListener('click', function(){
+        try { localStorage.setItem('fotos:cookie_notice', '1'); } catch(_) {}
+        const cn = document.getElementById('cookie-notice');
+        if (cn) cn.classList.remove('show');
+      });
+    })();
 
     // ---- Tour (first visit) ----
     function closeTour() {
@@ -589,12 +631,15 @@ export function eventHTML(event, analyticsToken) {
 
       const email = (document.getElementById('rem-email').value || '').trim();
       const phone = (document.getElementById('rem-phone').value || '').trim();
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) {
         return alert('Informe um e-mail válido.');
       }
-      const phoneDigits = phone.replace(/\D/g, '');
+      const phoneDigits = phone.replace(/\\D/g, '');
       if (!phone || phoneDigits.length < 10 || phoneDigits.length > 13) {
         return alert('Informe um telefone válido com DDD (ex: (11) 99999-9999).');
+      }
+      if (!document.getElementById('rem-consent').checked) {
+        return alert('É necessário concordar com a política de privacidade.');
       }
 
       const btn = document.getElementById('rem-submit');
@@ -614,6 +659,7 @@ export function eventHTML(event, analyticsToken) {
             message: (document.getElementById('rem-message').value || '').trim(),
             fileName,
             fileBase64,
+            consent: true,
             turnstileToken: remTsToken,
           }),
         });
