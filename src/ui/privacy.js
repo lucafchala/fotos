@@ -101,6 +101,7 @@ export function privacyHTML() {
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
+    <a href="/termos">Termos</a>
     <a href="/suporte">Suporte</a>
   </footer>
 </body>

@@ -93,7 +93,7 @@ export function supportHTML(sent = false, error = '') {
       <div>
         <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
           <input type="checkbox" id="support-consent" name="consent" value="1" required style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:1px">
-          <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e autorizo o uso dos meus dados para responder ao contato.</span>
+          <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
       </div>
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" style="margin-bottom:.5rem"></div>
@@ -104,6 +104,7 @@ export function supportHTML(sent = false, error = '') {
   <footer>
     <a href="/">fotos · lucafchala</a>
     <a href="/privacidade" style="margin-left:1.5rem">Privacidade</a>
+    <a href="/termos" style="margin-left:1.5rem">Termos</a>
   </footer>
 </body>
 </html>`;
