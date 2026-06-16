@@ -7,8 +7,19 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
 
+# Image-use consent audit log (Part 5). Provision once, then uncomment:
+#   1. npx wrangler d1 create fotos-consent        # prints the database_id
+#   2. paste the id below and uncomment this block (and the preview one)
+#   3. npx wrangler d1 migrations apply fotos-consent --remote
+# Until then env.CONSENT_DB is undefined and consent logging is a safe no-op.
+# migrations_dir = "migrations"
+# [[d1_databases]]
+# binding = "CONSENT_DB"
+# database_name = "fotos-consent"
+# database_id = "PASTE_DATABASE_ID_HERE"
+
 [triggers]
-# Daily 03:00 UTC — purge resolved removal requests past the retention window.
+# Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
 crons = ["0 3 * * *"]
 
 [env.preview]

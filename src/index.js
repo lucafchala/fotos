@@ -9,10 +9,12 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
+  TERMS_VERSION, CONSENT_LABEL,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
+const CONSENT_RETENTION_DAYS = 180; // image-use consent rows are purged after this (6 months)
 
 export default {
   async fetch(request, env, ctx) {
@@ -54,6 +56,7 @@ export default {
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
+      if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
@@ -72,6 +75,7 @@ export default {
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
       if (path === '/api/review' && method === 'POST') return handleReview(request, env);
+      if (path === '/api/consent' && method === 'POST') return handleConsent(request, env, ctx);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -94,6 +98,7 @@ export default {
   // wrangler.toml ([triggers] crons).
   async scheduled(event, env, ctx) {
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
+    ctx.waitUntil(pruneOldConsent(env).catch(e => console.error('consent prune failed', e)));
   },
 };
 
@@ -874,6 +879,106 @@ async function verifyTurnstile(token, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Image-use consent audit log (Cloudflare D1)
+// ---------------------------------------------------------------------------
+// Cached SHA-256 (hex) of the exact Terms text shown, so each consent row pins
+// the content — not just the version. Computed once per isolate.
+let _termsHashHex = null;
+async function getTermsHash() {
+  if (_termsHashHex) return _termsHashHex;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(termsHTML()));
+  _termsHashHex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return _termsHashHex;
+}
+
+const CONSENT_COLS = [
+  'created_at', 'event_slug', 'event_title', 'drive_target', 'terms_version',
+  'terms_hash', 'consent_text', 'consenter_name', 'turnstile_ok', 'ip', 'country',
+  'region', 'city', 'timezone', 'asn', 'as_org', 'colo', 'user_agent',
+  'accept_language', 'referrer', 'page_url',
+];
+
+// Public, best-effort, non-blocking: record an image-use authorization at the
+// moment of Drive access, capturing as much defensible context as possible.
+// A missing CONSENT_DB binding (not yet provisioned) is a no-op, never an error.
+async function handleConsent(request, env, ctx) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'consent', 60, 3600);
+  if (!allowed) return jsonOk({ ok: true });
+  if (!env.CONSENT_DB) return jsonOk({ ok: true, logged: false });
+
+  let body;
+  try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
+
+  const slug = String(body.slug || '').slice(0, 60);
+  if (!validateSlug(slug)) return jsonOk({ ok: true });
+
+  // Server-side Turnstile check (the drive gate's first real server verification).
+  // A failed/expired token still logs the access with turnstile_ok=0 — the human
+  // already ticked the box, so we record the truth rather than block the download.
+  const turnstileOk = (await verifyTurnstile(body.turnstileToken, env)) ? 1 : 0;
+
+  const cf = request.cf || {};
+  const events = await getEvents(env);
+  const event = events.find(e => e.slug === slug);
+
+  const vals = [
+    generateId(),
+    new Date().toISOString(),
+    slug,
+    (event?.title || '').slice(0, 200),
+    ['full', 'instagram'].includes(body.driveTarget) ? body.driveTarget : 'full',
+    String(body.termsVersion || TERMS_VERSION).slice(0, 40),
+    await getTermsHash(),
+    String(body.consentText || CONSENT_LABEL).slice(0, 500),
+    String(body.name || '').trim().slice(0, 120) || null,
+    turnstileOk,
+    ip.slice(0, 64),
+    (request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
+    String(cf.region || '').slice(0, 80),
+    String(cf.city || '').slice(0, 120),
+    String(cf.timezone || '').slice(0, 64),
+    cf.asn ? parseInt(cf.asn, 10) : null,
+    String(cf.asOrganization || '').slice(0, 160),
+    String(cf.colo || '').slice(0, 16),
+    (request.headers.get('User-Agent') || '').slice(0, 400),
+    (request.headers.get('Accept-Language') || '').slice(0, 120),
+    (request.headers.get('Referer') || '').slice(0, 400),
+    String(body.pageUrl || '').slice(0, 400),
+  ];
+
+  const stmt = env.CONSENT_DB.prepare(
+    `INSERT INTO image_use_consent
+       (id, created_at, event_slug, event_title, drive_target, terms_version, terms_hash,
+        consent_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+        asn, as_org, colo, user_agent, accept_language, referrer, page_url)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(...vals);
+  ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+
+  return jsonOk({ ok: true });
+}
+
+async function handleConsentExport(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  if (!env.CONSENT_DB) return jsonErr('Registro de consentimentos não configurado.', 503);
+
+  const { results } = await env.CONSENT_DB.prepare(
+    `SELECT ${CONSENT_COLS.join(', ')} FROM image_use_consent ORDER BY created_at DESC`
+  ).all();
+  const date = new Date().toISOString().split('T')[0];
+  return csvResponse(`consentimentos-${date}.csv`, CONSENT_COLS, results || []);
+}
+
+// Retention: delete consent rows older than the window (6 months). Runs in the daily cron.
+async function pruneOldConsent(env) {
+  if (!env.CONSENT_DB) return;
+  const cutoff = new Date(Date.now() - CONSENT_RETENTION_DAYS * 86400_000).toISOString();
+  await env.CONSENT_DB.prepare('DELETE FROM image_use_consent WHERE created_at < ?').bind(cutoff).run();
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 async function checkAuth(request, env) {
@@ -928,6 +1033,26 @@ function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
+  });
+}
+
+// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function csvResponse(filename, cols, rows) {
+  const head = cols.map(csvCell).join(',');
+  const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
+  // Leading BOM so Excel opens UTF-8 (accents) correctly.
+  const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
   });
 }
 
