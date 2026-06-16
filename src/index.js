@@ -28,6 +28,11 @@ export default {
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
       if (path === '/robots.txt' && method === 'GET') return handleRobots();
 
+      // Security contact (RFC 9116)
+      if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
+      // Global Privacy Control — declares the site honors GPC opt-out signals
+      if (path === '/.well-known/gpc.json' && method === 'GET') return handleGpc();
+
       // Gallery index
       if (path === '/' && method === 'GET') return handleGallery(env);
 
@@ -93,7 +98,10 @@ export default {
 // ---------------------------------------------------------------------------
 async function handleGallery(env) {
   const events = await getEvents(env);
-  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+  // Agent/crawler discovery hints (RFC 8288)
+  res.headers.set('Link', `<${SITE_URL}/>; rel="canonical", <${SITE_URL}/sitemap.xml>; rel="sitemap"`);
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +112,11 @@ async function handleSitemap(env) {
   const visible = events.filter(e => e.visible !== false);
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
-  const urls = [`  <url><loc>${SITE_URL}/</loc></url>`];
+  const urls = [
+    `  <url><loc>${SITE_URL}/</loc></url>`,
+    `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
+    `  <url><loc>${SITE_URL}/suporte</loc></url>`,
+  ];
   for (const e of visible) {
     const lastmod = lastmodOf(e);
     urls.push(
@@ -118,9 +130,48 @@ async function handleSitemap(env) {
 }
 
 function handleRobots() {
-  const body = `User-agent: *\nAllow: /\nDisallow: /dashboard\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+  // Open to all crawlers and AI agents (training, search, live answering);
+  // admin dashboard and API endpoints stay excluded from indexing.
+  const aiAgents = [
+    'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'Google-Extended',
+    'ClaudeBot', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
+    'PerplexityBot', 'CCBot', 'Bytespider', 'Amazonbot', 'Applebot-Extended',
+    'Meta-ExternalAgent', 'cohere-ai',
+  ];
+  const rules = 'Allow: /\nDisallow: /dashboard\nDisallow: /api/\n';
+  const body =
+    '# robots.txt — fotos.lucafchala.com\n' +
+    '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
+    '# Content usage preferences — all uses permitted (https://contentsignals.org).\n\n' +
+    'User-agent: *\n' +
+    'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n' +
+    rules + '\n' +
+    aiAgents.map(a => `User-agent: ${a}`).join('\n') + '\n' +
+    rules + '\n' +
+    `Sitemap: ${SITE_URL}/sitemap.xml\n`;
   return new Response(body, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleSecurityTxt() {
+  const body =
+    'Contact: mailto:security@lucafchala.com\n' +
+    'Expires: 2027-01-20T14:54:00Z\n' +
+    'Encryption: https://keys.openpgp.org/vks/v1/by-fingerprint/48E73F6FA2871E7B86EFEA648EC4329A369B7B33\n' +
+    `Canonical: ${SITE_URL}/.well-known/security.txt\n` +
+    'Preferred-Languages: en, pt-BR\n';
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleGpc() {
+  // This site never sells or shares personal data, so the GPC "do not
+  // sell/share" opt-out is honored by default. https://globalprivacycontrol.org
+  const body = JSON.stringify({ gpc: true, lastUpdate: '2026-06-16' });
+  return new Response(body, {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
@@ -842,6 +893,8 @@ function html(content, status = 200) {
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Resource-Policy': 'same-site',
       'Content-Security-Policy':
         "default-src 'self'; " +
         "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; " +
