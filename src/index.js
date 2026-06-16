@@ -30,6 +30,8 @@ export default {
 
       // Security contact (RFC 9116)
       if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
+      // Global Privacy Control — declares the site honors GPC opt-out signals
+      if (path === '/.well-known/gpc.json' && method === 'GET') return handleGpc();
 
       // Gallery index
       if (path === '/' && method === 'GET') return handleGallery(env);
@@ -110,7 +112,11 @@ async function handleSitemap(env) {
   const visible = events.filter(e => e.visible !== false);
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
-  const urls = [`  <url><loc>${SITE_URL}/</loc></url>`];
+  const urls = [
+    `  <url><loc>${SITE_URL}/</loc></url>`,
+    `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
+    `  <url><loc>${SITE_URL}/suporte</loc></url>`,
+  ];
   for (const e of visible) {
     const lastmod = lastmodOf(e);
     urls.push(
@@ -157,6 +163,15 @@ function handleSecurityTxt() {
     'Preferred-Languages: en, pt-BR\n';
   return new Response(body, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleGpc() {
+  // This site never sells or shares personal data, so the GPC "do not
+  // sell/share" opt-out is honored by default. https://globalprivacycontrol.org
+  const body = JSON.stringify({ gpc: true, lastUpdate: '2026-06-16' });
+  return new Response(body, {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
