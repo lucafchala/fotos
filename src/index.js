@@ -28,6 +28,9 @@ export default {
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
       if (path === '/robots.txt' && method === 'GET') return handleRobots();
 
+      // Security contact (RFC 9116)
+      if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
+
       // Gallery index
       if (path === '/' && method === 'GET') return handleGallery(env);
 
@@ -93,7 +96,10 @@ export default {
 // ---------------------------------------------------------------------------
 async function handleGallery(env) {
   const events = await getEvents(env);
-  return html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+  // Agent/crawler discovery hints (RFC 8288)
+  res.headers.set('Link', `<${SITE_URL}/>; rel="canonical", <${SITE_URL}/sitemap.xml>; rel="sitemap"`);
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +124,37 @@ async function handleSitemap(env) {
 }
 
 function handleRobots() {
-  const body = `User-agent: *\nAllow: /\nDisallow: /dashboard\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+  // Open to all crawlers and AI agents (training, search, live answering);
+  // admin dashboard and API endpoints stay excluded from indexing.
+  const aiAgents = [
+    'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'Google-Extended',
+    'ClaudeBot', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
+    'PerplexityBot', 'CCBot', 'Bytespider', 'Amazonbot', 'Applebot-Extended',
+    'Meta-ExternalAgent', 'cohere-ai',
+  ];
+  const rules = 'Allow: /\nDisallow: /dashboard\nDisallow: /api/\n';
+  const body =
+    '# robots.txt — fotos.lucafchala.com\n' +
+    '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
+    '# Content usage preferences — all uses permitted (https://contentsignals.org).\n\n' +
+    'User-agent: *\n' +
+    'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n' +
+    rules + '\n' +
+    aiAgents.map(a => `User-agent: ${a}`).join('\n') + '\n' +
+    rules + '\n' +
+    `Sitemap: ${SITE_URL}/sitemap.xml\n`;
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleSecurityTxt() {
+  const body =
+    'Contact: mailto:security@lucafchala.com\n' +
+    'Expires: 2027-01-20T14:54:00Z\n' +
+    'Encryption: https://keys.openpgp.org/vks/v1/by-fingerprint/48E73F6FA2871E7B86EFEA648EC4329A369B7B33\n' +
+    `Canonical: ${SITE_URL}/.well-known/security.txt\n` +
+    'Preferred-Languages: en, pt-BR\n';
   return new Response(body, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
   });
