@@ -2,6 +2,15 @@ let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
 
+// Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
+// Terms text changes — every image-use consent record pins the version the visitor
+// accepted, so old acceptances stay tied to the exact text they agreed to.
+export const TERMS_VERSION = '2026-06-16';
+
+// Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
+// with each consent record (the client echoes it back) for non-repudiation.
+export const CONSENT_LABEL = 'Li e aceito os Termos de Uso e autorizo o uso da minha imagem conforme descrito neles.';
+
 // fresh=true bypasses the isolate-local cache — required on admin reads and
 // any read-modify-write, where 30 s of staleness could clobber another
 // isolate's recent save.

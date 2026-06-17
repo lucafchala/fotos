@@ -1,4 +1,4 @@
-import { escape, formatDatePT } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, TERMS_VERSION, CONSENT_LABEL } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -7,11 +7,14 @@ export function eventHTML(event, analyticsToken) {
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
 
-  const photosJSON  = JSON.stringify(photos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  // Teasers, not downloads — request right-sized Drive thumbnails so the page loads fast.
+  const displayPhotos = photos.map(u => sizedDriveThumb(u, 1600));
+
+  const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const driveJSON   = JSON.stringify(event.driveUrl || '');
   const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
-  const ogImage     = photos[0] || '';
+  const ogImage     = photos[0] ? sizedDriveThumb(photos[0], 1200) : '';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
@@ -26,14 +29,14 @@ export function eventHTML(event, analyticsToken) {
 
   const heroHTML = event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}" class="hero-blur-img"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" onerror="this.style.opacity='0'"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(photos[0])}" alt="${escape(event.title)}"></div>`
+        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" onerror="this.style.opacity='0'"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(photos[0])}" alt="${escape(event.title)}">
+          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" onload="this.style.opacity='1'" onerror="this.style.opacity='0'">
           <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -42,6 +45,7 @@ export function eventHTML(event, analyticsToken) {
           </button>
           <div class="c-dots">${photos.map((_, i) => `<span class="c-dot${i === 0 ? ' on' : ''}" onclick="cGoto(${i})"></span>`).join('')}</div>
           <div class="c-count" id="c-count">1 / ${photos.length}</div>
+          <div class="swipe-hint" id="swipe-hint">deslize ←→</div>
         </div>`;
 
   return `<!DOCTYPE html>
@@ -61,6 +65,8 @@ export function eventHTML(event, analyticsToken) {
   <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://drive.google.com">
+  <link rel="preconnect" href="https://lh3.googleusercontent.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -72,18 +78,18 @@ export function eventHTML(event, analyticsToken) {
     .back svg{width:14px;height:14px}
     /* hero */
     .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative}
-    .hero img{width:100%;max-height:72vh;object-fit:cover;display:block}
-    .hero-blur-img{width:100%;max-height:72vh;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08)}
+    .hero img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;transition:opacity .25s ease}
+    .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08)}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
-    .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#1e1e1e}
+    .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#333}
     .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
     .btn-soon{background:#141414;color:#888;border:1px dashed #2e2e2e;cursor:default}
     .btn-soon:hover{background:#141414;transform:none}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
-    .carousel img{width:100%;max-height:72vh;object-fit:cover;display:block}
+    .carousel img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;transition:opacity .25s ease}
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
     .c-prev{left:.75rem}.c-next{right:.75rem}
@@ -91,6 +97,8 @@ export function eventHTML(event, analyticsToken) {
     .c-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);background-clip:content-box;box-sizing:content-box;padding:5px;cursor:pointer;transition:background .2s}
     .c-dot.on{background:#fff;background-clip:content-box}
     .c-count{position:absolute;bottom:.75rem;right:.875rem;font-size:.7rem;font-weight:500;color:rgba(255,255,255,.5);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px)}
+    .swipe-hint{position:absolute;bottom:.75rem;left:.875rem;font-size:.7rem;color:rgba(255,255,255,.6);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .4s;pointer-events:none;z-index:2}
+    .swipe-hint.show{opacity:1}
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 6rem}
     .meta{margin-bottom:.875rem}
@@ -102,6 +110,13 @@ export function eventHTML(event, analyticsToken) {
     @media(min-width:400px){.btn-drive{width:auto}}
     .btn-drive:hover{background:#fff;transform:translateY(-2px)}
     .btn-drive svg{width:18px;height:18px;flex-shrink:0}
+    /* sticky mobile CTA */
+    .sticky-cta{display:none}
+    .sticky-cta svg{width:16px;height:16px;flex-shrink:0}
+    @media(max-width:559px){
+      .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:translateY(160%);transition:transform .25s ease}
+      .sticky-cta.show{transform:translateY(0)}
+    }
     /* review button + modal */
     .btn-review{background:#c0a060;color:#0a0a0a}
     .btn-review:hover{background:#d4b070;transform:translateY(-2px)}
@@ -155,10 +170,21 @@ export function eventHTML(event, analyticsToken) {
     .steps li::before{content:counter(step);font-size:.65rem;font-weight:600;color:#555;background:#1a1a1a;width:1.35rem;height:1.35rem;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:.15rem}
     .steps li strong{color:#d0d0d0}
     .steps li kbd{background:#1e1e1e;border:1px solid #2d2d2d;padding:.1em .4em;border-radius:4px;font-size:.8em;font-family:inherit;color:#bbb}
-    .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1.25rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
+    .drive-verifying{display:flex;align-items:center;gap:.5rem;color:#888;font-size:.8rem;margin-top:1rem}
+    .spin{width:14px;height:14px;border:2px solid #2a2a2a;border-top-color:#999;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.8rem;color:#bbb;line-height:1.5}
+    .drive-consent input{width:18px;height:18px;accent-color:#c0a060;flex-shrink:0;margin-top:1px}
+    .drive-consent a{color:#c0a060}
+    .drive-name-toggle{background:none;border:none;color:#666;font-size:.74rem;cursor:pointer;margin-top:.625rem;padding:0;text-decoration:underline}
+    .drive-name-toggle:hover{color:#999}
+    .drive-consent-note{font-size:.68rem;color:#444;line-height:1.5;margin-top:.875rem}
+    .drive-consent-note a{color:#666}
+    .drive-locked{opacity:.4;pointer-events:none;filter:grayscale(.3)}
+    .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
-    .drive-opts{display:flex;flex-direction:column;gap:.5rem;margin-top:1.125rem}
+    .drive-opts{display:flex;flex-direction:column;gap:.5rem;margin-top:1rem}
     .btn-drive-opt{display:flex;align-items:center;gap:.875rem;background:#111;border:1px solid #252525;color:#f0ebe5;padding:.9rem 1.1rem;border-radius:10px;text-decoration:none;transition:border-color .18s,background .18s;width:100%}
     .btn-drive-opt:hover{border-color:#3a3a3a;background:#161616}
     .btn-drive-opt svg{width:20px;height:20px;flex-shrink:0;color:#888}
@@ -171,6 +197,7 @@ export function eventHTML(event, analyticsToken) {
     .rem-field label{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#555}
     .rem-field input[type=text],.rem-field input[type=email],.rem-field input[type=tel],.rem-field input[type=url],.rem-field input[type=number],.rem-field textarea{width:100%;background:#141414;border:1px solid #222;color:#f0ebe5;padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .rem-field input:focus,.rem-field textarea:focus{border-color:#3a3a3a}
+    .rem-field input.bad,.rem-field textarea.bad{border-color:#7a2a2a}
     .rem-field textarea{resize:vertical;min-height:80px;line-height:1.5}
     .rem-field input[type=file]{color:#888;font-size:.8rem;width:100%}
     .radio-group{display:flex;flex-direction:column;gap:.5rem}
@@ -178,7 +205,8 @@ export function eventHTML(event, analyticsToken) {
     .radio-opt:has(input:checked){border-color:#3a3a3a;background:#111}
     .radio-opt input[type=radio]{width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0}
     .radio-opt span{font-size:.875rem;color:#bbb}
-    .rem-sheet-foot{display:flex;gap:.75rem;margin-top:1.5rem}
+    .form-error{background:#1a0a0a;border:1px solid #2e1a1a;color:#cc8888;padding:.6rem .8rem;border-radius:8px;font-size:.78rem;line-height:1.5;margin-top:1rem}
+    .rem-sheet-foot{display:flex;gap:.75rem;margin-top:1.25rem;position:sticky;bottom:0;background:#0d0d0d;padding:.875rem 0 .25rem;border-top:1px solid #161616}
     .btn-rem-cancel{flex:1;background:none;border:1px solid #222;color:#888;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:500;cursor:pointer;transition:border-color .2s}
     .btn-rem-cancel:hover{border-color:#3a3a3a}
     .btn-rem-submit{flex:2;background:#f0ebe5;color:#0a0a0a;border:none;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s}
@@ -193,6 +221,11 @@ export function eventHTML(event, analyticsToken) {
     .cookie-notice a:hover{text-decoration:underline}
     .cookie-notice button{flex-shrink:0;background:#f0ebe5;color:#0a0a0a;border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+      .banner-dot{animation:none}
+      .btn-drive:hover,.btn-review:hover,.btn-drive-go:hover{transform:none}
+    }
   </style>
 </head>
 <body>
@@ -276,12 +309,21 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         Privacidade
       </a>
+      <a href="/termos" class="removal-link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+        Termos
+      </a>
     </div>
   </footer>
 
+  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" onclick="openModal()" aria-label="Acessar fotos">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
+    Acessar fotos
+  </button>` : ''}
+
   <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal" onclick="ovClick(event)">
-    <div class="modal-sheet">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Acessar fotos">
       <div class="modal-head">
         <h2>Acessar fotos</h2>
         <button class="m-close" onclick="closeModal()" aria-label="Fechar">
@@ -301,30 +343,42 @@ export function eventHTML(event, analyticsToken) {
         </li>
       </ol>
       <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
-      <div id="drive-turnstile" style="margin-top:1.25rem"></div>
-      <div id="drive-links-wrap" style="display:none">
-      ${event.driveUrlInstagram
-        ? `<div class="drive-opts">
-            <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="trackDrive();closeModal()">
+      <div id="drive-turnstile" style="margin-top:1rem"></div>
+      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Verificando…</div>
+      <div id="drive-gate" style="display:none">
+        <label class="drive-consent">
+          <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
+          <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e autorizo o uso da minha imagem conforme descrito neles.</span>
+        </label>
+        <button type="button" id="drive-name-toggle" class="drive-name-toggle" onclick="toggleDriveName()">+ incluir meu nome (opcional)</button>
+        <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:.625rem;margin-bottom:0">
+          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
+        </div>
+        <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
+        ${event.driveUrlInstagram
+          ? `<div class="drive-opts">
+              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen('full')">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
+              </a>
+              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen('instagram')">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+                <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
+              </a>
+            </div>`
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen('full')">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
-            </a>
-            <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="trackDrive();closeModal()">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-              <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
-            </a>
-          </div>`
-        : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="trackDrive();closeModal()">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Ir para o Google Drive
-          </a>`}
+              Ir para o Google Drive
+            </a>`}
+        </div>
+        <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
     </div>
   </div>
 
   <!-- REMOVAL MODAL -->
   <div class="modal-ov" id="rem-modal" onclick="remOvClick(event)">
-    <div class="modal-sheet">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Solicitar remoção de foto">
       <div class="modal-head">
         <h2>Solicitar remoção de foto</h2>
         <button class="m-close" onclick="closeRemModal()" aria-label="Fechar">
@@ -382,9 +436,10 @@ export function eventHTML(event, analyticsToken) {
         <p style="font-size:.68rem;color:#444;line-height:1.5;margin-top:1rem">Seus dados (e-mail e telefone) são usados exclusivamente para processar esta solicitação e não são compartilhados com terceiros.</p>
         <label style="display:flex;align-items:flex-start;gap:.5rem;margin-top:1rem;cursor:pointer">
           <input type="checkbox" id="rem-consent" style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:2px">
-          <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e autorizo o uso dos meus dados para processar esta solicitação.</span>
+          <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para processar esta solicitação.</span>
         </label>
         <div id="rem-turnstile" style="margin-top:1rem"></div>
+        <div id="rem-error" class="form-error" style="display:none"></div>
         <div class="rem-sheet-foot">
           <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
           <button class="btn-rem-submit" id="rem-submit" onclick="submitRemoval()" disabled>Enviar solicitação</button>
@@ -401,7 +456,7 @@ export function eventHTML(event, analyticsToken) {
 
   <!-- REVIEW MODAL -->
   ${!event.comingSoon ? `<div class="modal-ov" id="rev-modal" onclick="revOvClick(event)">
-    <div class="modal-sheet">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Avaliar">
       <div class="modal-head">
         <h2>Avaliar</h2>
         <button class="m-close" onclick="closeRevModal()" aria-label="Fechar">
@@ -416,6 +471,7 @@ export function eventHTML(event, analyticsToken) {
         <div class="rem-field"><input type="email" id="rev-email" placeholder="Seu e-mail" autocomplete="email"></div>
       </div>
       <div id="rev-turnstile" style="margin-top:.75rem"></div>
+      <div id="rev-error" class="form-error" style="display:none;margin-top:.75rem"></div>
       <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
       <div id="rev-done" class="rem-success" style="display:none">
         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
@@ -437,6 +493,10 @@ export function eventHTML(event, analyticsToken) {
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
+    const TERMS_VERSION  = ${JSON.stringify(TERMS_VERSION)};
+    const CONSENT_LABEL  = ${JSON.stringify(CONSENT_LABEL)};
+
+    let lastFocused = null;
 
     // ---- Banner ----
     function updateBanner() {
@@ -472,52 +532,131 @@ export function eventHTML(event, analyticsToken) {
         try { localStorage.setItem('fotos:cookie_notice', '1'); } catch(_) {}
         const cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
+        updateStickyCta();
       });
     })();
 
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
     let driveWidgetId = null;
+    let driveTsToken  = '';
+    let driveGateShown = false;
     let remWidgetId   = null;
     let remTsToken    = '';
 
-    // ---- Drive modal ----
+    // ---- Drive modal (Terms-gated, low-friction) ----
     function openModal() {
+      lastFocused = document.activeElement;
+      driveTsToken = '';
+      driveGateShown = false;
+      const consent = document.getElementById('drive-consent');
+      if (consent) consent.checked = false;
+      const nameWrap = document.getElementById('drive-name-wrap');
+      if (nameWrap) nameWrap.style.display = 'none';
+      const nameToggle = document.getElementById('drive-name-toggle');
+      if (nameToggle) nameToggle.style.display = '';
+      const nameInput = document.getElementById('drive-name');
+      if (nameInput) nameInput.value = '';
+      document.getElementById('drive-links-wrap').classList.add('drive-locked');
+      document.getElementById('drive-gate').style.display = 'none';
+      document.getElementById('drive-verifying').style.display = '';
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
       if (igLink) igLink.href = DRIVE_URL_IG || '#';
-      document.getElementById('drive-links-wrap').style.display = 'none';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
-      setTimeout(() => {
-        if (typeof turnstile === 'undefined') { document.getElementById('drive-links-wrap').style.display = ''; return; }
+      updateStickyCta();
+      // Fallback: never let a slow/silent Turnstile block delivery.
+      setTimeout(revealDriveGate, 1800);
+      setTimeout(function() {
+        if (typeof turnstile === 'undefined') { revealDriveGate(); return; }
         if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
-            callback: () => { document.getElementById('drive-links-wrap').style.display = ''; },
-            'error-callback': () => { document.getElementById('drive-links-wrap').style.display = ''; },
-            'expired-callback': () => { document.getElementById('drive-links-wrap').style.display = 'none'; },
+            appearance: 'interaction-only',
+            callback: function(t) { driveTsToken = t; revealDriveGate(); },
+            'error-callback': function() { revealDriveGate(); },
+            'expired-callback': function() { driveTsToken = ''; },
           });
         }
-      }, 120);
+      }, 100);
+    }
+    function revealDriveGate() {
+      if (driveGateShown) return;
+      driveGateShown = true;
+      const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
+      const g = document.getElementById('drive-gate'); if (g) g.style.display = '';
+      const c = document.getElementById('drive-consent'); if (c) c.focus();
+    }
+    function onDriveConsent() {
+      const ok = document.getElementById('drive-consent').checked;
+      const wrap = document.getElementById('drive-links-wrap');
+      wrap.classList.toggle('drive-locked', !ok);
+      if (ok) { const p = document.getElementById('drive-link'); if (p) p.focus(); }
+    }
+    function toggleDriveName() {
+      const w = document.getElementById('drive-name-wrap');
+      const t = document.getElementById('drive-name-toggle');
+      if (!w) return;
+      w.style.display = '';
+      if (t) t.style.display = 'none';
+      const i = document.getElementById('drive-name'); if (i) i.focus();
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
       document.body.style.overflow = '';
+      updateStickyCta();
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
+    function onDriveOpen(target) {
+      trackDrive();
+      recordConsent(target);
+      closeModal();
+    }
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
     }
+    function recordConsent(target) {
+      try {
+        const nameEl = document.getElementById('drive-name');
+        const payload = JSON.stringify({
+          slug: EVENT_SLUG,
+          driveTarget: target,
+          termsVersion: TERMS_VERSION,
+          consentText: CONSENT_LABEL,
+          name: nameEl ? nameEl.value : '',
+          turnstileToken: driveTsToken,
+          pageUrl: location.href,
+        });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/consent', new Blob([payload], { type: 'application/json' }));
+        } else {
+          fetch('/api/consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
+        }
+      } catch(_) {}
+    }
 
     // ---- Carousel ----
+    const _preloaded = {};
+    function preloadAround() {
+      if (PHOTOS.length < 2) return;
+      [cur + 1, cur - 1].forEach(function(k) {
+        const i = ((k % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
+        if (_preloaded[i]) return;
+        _preloaded[i] = true;
+        const im = new Image(); im.src = PHOTOS[i];
+      });
+    }
     function cGoto(n) {
+      if (!PHOTOS.length) return;
       cur = ((n % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
       const img = document.getElementById('c-img');
-      if (img) img.src = PHOTOS[cur];
+      if (img) { img.style.opacity = '0'; img.src = PHOTOS[cur]; }
       document.querySelectorAll('.c-dot').forEach((d, i) => d.classList.toggle('on', i === cur));
       const cnt = document.getElementById('c-count');
       if (cnt) cnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
+      preloadAround();
     }
     function cGo(dir) { cGoto(cur + dir); }
     const car = document.getElementById('carousel');
@@ -525,10 +664,31 @@ export function eventHTML(event, analyticsToken) {
       let tx = 0;
       car.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
       car.addEventListener('touchend', e => { if (Math.abs(tx - e.changedTouches[0].clientX) > 40) cGo(tx > e.changedTouches[0].clientX ? 1 : -1); });
+      preloadAround();
+      // One-time swipe hint on touch devices.
+      try {
+        if (('ontouchstart' in window) && !localStorage.getItem('fotos:swipe_hint')) {
+          const h = document.getElementById('swipe-hint');
+          if (h) { h.classList.add('show'); setTimeout(function(){ h.classList.remove('show'); }, 2600); }
+          localStorage.setItem('fotos:swipe_hint', '1');
+        }
+      } catch(_) {}
     }
 
     // ---- Removal modal ----
+    function remError(msg, fieldId) {
+      const box = document.getElementById('rem-error');
+      if (box) { box.textContent = msg; box.style.display = ''; }
+      if (fieldId) { const f = document.getElementById(fieldId); if (f) { f.classList.add('bad'); f.focus(); } }
+    }
+    function clearRemError() {
+      const box = document.getElementById('rem-error');
+      if (box) { box.textContent = ''; box.style.display = 'none'; }
+      ['rem-number','rem-url','rem-email','rem-phone'].forEach(function(id){ const f=document.getElementById(id); if(f) f.classList.remove('bad'); });
+    }
     function openRemModal() {
+      lastFocused = document.activeElement;
+      clearRemError();
       document.getElementById('rem-form').style.display = 'block';
       document.getElementById('rem-success').style.display = 'none';
       remTsToken = '';
@@ -536,6 +696,7 @@ export function eventHTML(event, analyticsToken) {
       if (btn) btn.disabled = true;
       document.getElementById('rem-modal').classList.add('open');
       document.body.style.overflow = 'hidden';
+      updateStickyCta();
       setTimeout(() => {
         if (typeof turnstile === 'undefined') { if (btn) btn.disabled = false; return; }
         if (remWidgetId !== null) { turnstile.reset(remWidgetId); }
@@ -552,6 +713,8 @@ export function eventHTML(event, analyticsToken) {
     function closeRemModal() {
       document.getElementById('rem-modal').classList.remove('open');
       document.body.style.overflow = '';
+      updateStickyCta();
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
     function remOvClick(e) { if (e.target === document.getElementById('rem-modal')) closeRemModal(); }
 
@@ -563,20 +726,21 @@ export function eventHTML(event, analyticsToken) {
     }
 
     async function submitRemoval() {
+      clearRemError();
       const method = document.querySelector('input[name="rem-method"]:checked').value;
       let value = '', fileName = '', fileBase64 = '';
 
       if (method === 'number') {
         value = (document.getElementById('rem-number').value || '').trim();
-        if (!value) return alert('Informe o número da foto.');
+        if (!value) return remError('Informe o número da foto.', 'rem-number');
         value = 'Foto nº ' + value;
       } else if (method === 'url') {
         value = (document.getElementById('rem-url').value || '').trim();
-        if (!value) return alert('Informe o link da foto.');
+        if (!value) return remError('Informe o link da foto.', 'rem-url');
       } else {
         const file = document.getElementById('rem-file').files[0];
-        if (!file) return alert('Selecione uma foto.');
-        if (file.size > 2 * 1024 * 1024) return alert('Foto muito grande (máx. 2 MB). Tente colar o link da foto no Drive.');
+        if (!file) return remError('Selecione uma foto.');
+        if (file.size > 2 * 1024 * 1024) return remError('Foto muito grande (máx. 2 MB). Tente colar o link da foto no Drive.');
         fileName = file.name;
         fileBase64 = await new Promise((res, rej) => {
           const r = new FileReader();
@@ -589,14 +753,14 @@ export function eventHTML(event, analyticsToken) {
       const email = (document.getElementById('rem-email').value || '').trim();
       const phone = (document.getElementById('rem-phone').value || '').trim();
       if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) {
-        return alert('Informe um e-mail válido.');
+        return remError('Informe um e-mail válido.', 'rem-email');
       }
       const phoneDigits = phone.replace(/\\D/g, '');
       if (!phone || phoneDigits.length < 10 || phoneDigits.length > 13) {
-        return alert('Informe um telefone válido com DDD (ex: (11) 99999-9999).');
+        return remError('Informe um telefone válido com DDD (ex: (11) 99999-9999).', 'rem-phone');
       }
       if (!document.getElementById('rem-consent').checked) {
-        return alert('É necessário concordar com a política de privacidade.');
+        return remError('É necessário concordar com a política de privacidade e os termos de uso.');
       }
 
       const btn = document.getElementById('rem-submit');
@@ -626,7 +790,7 @@ export function eventHTML(event, analyticsToken) {
         remTsToken = '';
         if (remWidgetId !== null && typeof turnstile !== 'undefined') { turnstile.reset(remWidgetId); }
       } catch(err) {
-        alert(err.message || 'Erro ao enviar. Tente novamente.');
+        remError(err.message || 'Erro ao enviar. Tente novamente.');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Enviar solicitação';
@@ -638,15 +802,22 @@ export function eventHTML(event, analyticsToken) {
     var revWidgetId = null;
     var revTsToken = '';
 
+    function revError(msg) {
+      var box = document.getElementById('rev-error');
+      if (box) { box.textContent = msg; box.style.display = ''; }
+    }
     function openRevModal() {
+      lastFocused = document.activeElement;
       revRating = 0;
       highlightRevStars(0);
+      var err = document.getElementById('rev-error'); if (err) err.style.display = 'none';
       var fields = document.getElementById('rev-form-fields');
       var done = document.getElementById('rev-done');
       if (fields) fields.style.display = 'none';
       if (done) done.style.display = 'none';
       document.getElementById('rev-modal').classList.add('open');
       document.body.style.overflow = 'hidden';
+      updateStickyCta();
       setTimeout(function() {
         if (typeof turnstile === 'undefined') { revTsToken = 'skip'; return; }
         if (revWidgetId !== null) { turnstile.reset(revWidgetId); return; }
@@ -661,6 +832,8 @@ export function eventHTML(event, analyticsToken) {
     function closeRevModal() {
       document.getElementById('rev-modal').classList.remove('open');
       document.body.style.overflow = '';
+      updateStickyCta();
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
     function revOvClick(e) { if (e.target === document.getElementById('rev-modal')) closeRevModal(); }
     function highlightRevStars(n) {
@@ -704,9 +877,47 @@ export function eventHTML(event, analyticsToken) {
         btn.style.display = 'none';
       } catch(_) {
         btn.disabled = false; btn.textContent = 'Enviar avaliação';
-        alert('Erro ao enviar. Tente novamente.');
+        revError('Erro ao enviar. Tente novamente.');
       }
     }
+
+    // ---- Global: Esc closes, Tab traps focus, arrows drive the carousel ----
+    function closeAnyModal(open) {
+      if (open.id === 'modal') closeModal();
+      else if (open.id === 'rem-modal') closeRemModal();
+      else if (open.id === 'rev-modal') closeRevModal();
+    }
+    document.addEventListener('keydown', function(e) {
+      var open = document.querySelector('.modal-ov.open');
+      if (e.key === 'Escape' && open) { e.preventDefault(); closeAnyModal(open); return; }
+      if (e.key === 'Tab' && open) {
+        var sel = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+        var f = Array.prototype.filter.call(open.querySelectorAll(sel), function(el) { return el.offsetParent !== null; });
+        if (!f.length) return;
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        return;
+      }
+      if (!open && PHOTOS.length > 1) {
+        if (e.key === 'ArrowLeft') cGo(-1);
+        else if (e.key === 'ArrowRight') cGo(1);
+      }
+    });
+
+    // ---- Sticky mobile CTA ----
+    function updateStickyCta() {
+      var sc = document.getElementById('sticky-cta');
+      if (!sc) return;
+      var modalOpen = !!document.querySelector('.modal-ov.open');
+      var cn = document.getElementById('cookie-notice');
+      var cookieOpen = cn && cn.classList.contains('show');
+      var scrolled = (window.scrollY || document.documentElement.scrollTop) > 520;
+      sc.classList.toggle('show', scrolled && !modalOpen && !cookieOpen);
+    }
+    window.addEventListener('scroll', updateStickyCta, { passive: true });
+    window.addEventListener('resize', updateStickyCta);
+    updateStickyCta();
 
     // ---- Share ----
     function doNativeShare() {

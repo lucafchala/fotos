@@ -3,15 +3,18 @@ import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
+import { termsHTML } from './ui/terms.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
+  TERMS_VERSION, CONSENT_LABEL,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
+const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
 
 export default {
   async fetch(request, env, ctx) {
@@ -50,9 +53,11 @@ export default {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
+      if (path === '/api/reviews' && method === 'GET') return handleGetReviews(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
+      if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
@@ -64,10 +69,14 @@ export default {
       // Privacy policy
       if (path === '/privacidade' && method === 'GET') return html(privacyHTML());
 
+      // Terms of use
+      if (path === '/termos' && method === 'GET') return html(termsHTML());
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
       if (path === '/api/review' && method === 'POST') return handleReview(request, env);
+      if (path === '/api/consent' && method === 'POST') return handleConsent(request, env, ctx);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -90,6 +99,7 @@ export default {
   // wrangler.toml ([triggers] crons).
   async scheduled(event, env, ctx) {
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
+    ctx.waitUntil(pruneOldConsent(env).catch(e => console.error('consent prune failed', e)));
   },
 };
 
@@ -115,6 +125,7 @@ async function handleSitemap(env) {
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
+    `  <url><loc>${SITE_URL}/termos</loc></url>`,
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
   ];
   for (const e of visible) {
@@ -869,6 +880,106 @@ async function verifyTurnstile(token, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Image-use consent audit log (Cloudflare D1)
+// ---------------------------------------------------------------------------
+// Cached SHA-256 (hex) of the exact Terms text shown, so each consent row pins
+// the content — not just the version. Computed once per isolate.
+let _termsHashHex = null;
+async function getTermsHash() {
+  if (_termsHashHex) return _termsHashHex;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(termsHTML()));
+  _termsHashHex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return _termsHashHex;
+}
+
+const CONSENT_COLS = [
+  'created_at', 'event_slug', 'event_title', 'drive_target', 'terms_version',
+  'terms_hash', 'consent_text', 'consenter_name', 'turnstile_ok', 'ip', 'country',
+  'region', 'city', 'timezone', 'asn', 'as_org', 'colo', 'user_agent',
+  'accept_language', 'referrer', 'page_url',
+];
+
+// Public, best-effort, non-blocking: record an image-use authorization at the
+// moment of Drive access, capturing as much defensible context as possible.
+// A missing CONSENT_DB binding (not yet provisioned) is a no-op, never an error.
+async function handleConsent(request, env, ctx) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'consent', 60, 3600);
+  if (!allowed) return jsonOk({ ok: true });
+  if (!env.CONSENT_DB) return jsonOk({ ok: true, logged: false });
+
+  let body;
+  try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
+
+  const slug = String(body.slug || '').slice(0, 60);
+  if (!validateSlug(slug)) return jsonOk({ ok: true });
+
+  // Server-side Turnstile check (the drive gate's first real server verification).
+  // A failed/expired token still logs the access with turnstile_ok=0 — the human
+  // already ticked the box, so we record the truth rather than block the download.
+  const turnstileOk = (await verifyTurnstile(body.turnstileToken, env)) ? 1 : 0;
+
+  const cf = request.cf || {};
+  const events = await getEvents(env);
+  const event = events.find(e => e.slug === slug);
+
+  const vals = [
+    generateId(),
+    new Date().toISOString(),
+    slug,
+    (event?.title || '').slice(0, 200),
+    ['full', 'instagram'].includes(body.driveTarget) ? body.driveTarget : 'full',
+    String(body.termsVersion || TERMS_VERSION).slice(0, 40),
+    await getTermsHash(),
+    String(body.consentText || CONSENT_LABEL).slice(0, 500),
+    String(body.name || '').trim().slice(0, 120) || null,
+    turnstileOk,
+    ip.slice(0, 64),
+    (request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
+    String(cf.region || '').slice(0, 80),
+    String(cf.city || '').slice(0, 120),
+    String(cf.timezone || '').slice(0, 64),
+    cf.asn ? parseInt(cf.asn, 10) : null,
+    String(cf.asOrganization || '').slice(0, 160),
+    String(cf.colo || '').slice(0, 16),
+    (request.headers.get('User-Agent') || '').slice(0, 400),
+    (request.headers.get('Accept-Language') || '').slice(0, 120),
+    (request.headers.get('Referer') || '').slice(0, 400),
+    String(body.pageUrl || '').slice(0, 400),
+  ];
+
+  const stmt = env.CONSENT_DB.prepare(
+    `INSERT INTO image_use_consent
+       (id, created_at, event_slug, event_title, drive_target, terms_version, terms_hash,
+        consent_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+        asn, as_org, colo, user_agent, accept_language, referrer, page_url)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(...vals);
+  ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+
+  return jsonOk({ ok: true });
+}
+
+async function handleConsentExport(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  if (!env.CONSENT_DB) return jsonErr('Registro de consentimentos não configurado.', 503);
+
+  const { results } = await env.CONSENT_DB.prepare(
+    `SELECT ${CONSENT_COLS.join(', ')} FROM image_use_consent ORDER BY created_at DESC`
+  ).all();
+  const date = new Date().toISOString().split('T')[0];
+  return csvResponse(`consentimentos-${date}.csv`, CONSENT_COLS, results || []);
+}
+
+// Retention: delete consent rows older than the window (6 months). Runs in the daily cron.
+async function pruneOldConsent(env) {
+  if (!env.CONSENT_DB) return;
+  const cutoff = new Date(Date.now() - CONSENT_RETENTION_DAYS * 86400_000).toISOString();
+  await env.CONSENT_DB.prepare('DELETE FROM image_use_consent WHERE created_at < ?').bind(cutoff).run();
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 async function checkAuth(request, env) {
@@ -926,6 +1037,26 @@ function jsonErr(message, status = 400) {
   });
 }
 
+// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function csvResponse(filename, cols, rows) {
+  const head = cols.map(csvCell).join(',');
+  const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
+  // Leading BOM so Excel opens UTF-8 (accents) correctly.
+  const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  });
+}
+
 function handleManifest() {
   const manifest = {
     name: 'fotos · Luca F. Chala',
@@ -955,14 +1086,45 @@ function handleIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Backup — build / merge / Drive upload
+// Reviews — admin read + aggregation
 // ---------------------------------------------------------------------------
-function buildBackup(events) {
+// Reviews are stored per event under `reviews_<slug>` and previously had no
+// read path. Aggregate them across all events for the dashboard and backups.
+async function getAllReviews(env) {
+  const out = [];
+  let cursor;
+  do {
+    const list = await env.FOTOS.list({ prefix: 'reviews_', cursor });
+    for (const k of list.keys) {
+      const slug = k.name.slice('reviews_'.length);
+      let arr = [];
+      try { arr = JSON.parse(await env.FOTOS.get(k.name) || '[]'); } catch { arr = []; }
+      for (const r of arr) out.push({ slug, ...r });
+    }
+    cursor = list.list_complete ? null : list.cursor;
+  } while (cursor);
+  out.sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
+  return out;
+}
+
+async function handleGetReviews(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  return jsonOk(await getAllReviews(env));
+}
+
+// ---------------------------------------------------------------------------
+// Backup — full site state (v2), with v1-compatible restore
+// ---------------------------------------------------------------------------
+function buildBackup({ events, categories, reviews, removalRequests }) {
   return JSON.stringify({
-    version: 1,
+    version: 2,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
+    categories,
+    reviews,
+    removalRequests,
   });
 }
 
@@ -986,9 +1148,11 @@ function mergeRestore(current, backupEvents) {
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const events = await getEvents(env, true);
+  const [events, categories, reviews, removalRequests] = await Promise.all([
+    getEvents(env, true), getCategories(env), getAllReviews(env), getRemovalRequests(env),
+  ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup(events), {
+  return new Response(buildBackup({ events, categories, reviews, removalRequests }), {
     headers: {
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
@@ -1002,10 +1166,53 @@ async function handleRestoreBackup(request, env) {
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
   if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
+
   const current = await getEvents(env);
   const { events: merged, added, updated } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
-  return jsonOk({ ok: true, added, updated, total: merged.length });
+  const result = { ok: true, added, updated, total: merged.length };
+
+  // v2 sections — optional and backward-compatible (v1 backups simply omit them).
+  if (Array.isArray(body.categories)) {
+    const union = [...await getCategories(env)];
+    for (const c of body.categories) {
+      if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+    }
+    await saveCategories(env, union.slice(0, MAX_CATEGORIES));
+    result.categories = union.length;
+  }
+
+  if (Array.isArray(body.removalRequests)) {
+    const byId = new Map((await getRemovalRequests(env)).map(r => [r.id, r]));
+    let rAdded = 0;
+    for (const r of body.removalRequests) {
+      if (r && r.id && !byId.has(r.id)) { byId.set(r.id, r); rAdded++; }
+    }
+    await env.FOTOS.put('removal_requests', JSON.stringify([...byId.values()]));
+    result.removalRequestsAdded = rAdded;
+  }
+
+  if (Array.isArray(body.reviews)) {
+    const bySlug = {};
+    for (const rv of body.reviews) {
+      if (rv && rv.slug) (bySlug[rv.slug] = bySlug[rv.slug] || []).push(rv);
+    }
+    let rvAdded = 0;
+    for (const slug of Object.keys(bySlug)) {
+      if (!validateSlug(slug)) continue;
+      const key = `reviews_${slug}`;
+      let cur = [];
+      try { cur = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { cur = []; }
+      const ids = new Set(cur.map(x => x.id));
+      for (const rv of bySlug[slug]) {
+        if (rv.id && !ids.has(rv.id)) { cur.push(rv); ids.add(rv.id); rvAdded++; }
+      }
+      await env.FOTOS.put(key, JSON.stringify(cur));
+    }
+    result.reviewsAdded = rvAdded;
+  }
+
+  return jsonOk(result);
 }
 
 function errorPage(code, message, status) {
