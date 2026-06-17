@@ -344,7 +344,8 @@ export function eventHTML(event, analyticsToken) {
       </ol>
       <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1rem"></div>
-      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Verificando…</div>
+      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Verificando navegador…</div>
+      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível verificar o navegador. Recarregue a página e tente novamente.</div>
       <div id="drive-gate" style="display:none">
         <label class="drive-consent">
           <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
@@ -541,6 +542,7 @@ export function eventHTML(event, analyticsToken) {
     let driveWidgetId = null;
     let driveTsToken  = '';
     let driveGateShown = false;
+    let driveTimeout  = null;
     let remWidgetId   = null;
     let remTsToken    = '';
 
@@ -560,26 +562,28 @@ export function eventHTML(event, analyticsToken) {
       document.getElementById('drive-links-wrap').classList.add('drive-locked');
       document.getElementById('drive-gate').style.display = 'none';
       document.getElementById('drive-verifying').style.display = '';
+      document.getElementById('drive-verify-error').style.display = 'none';
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
       if (igLink) igLink.href = DRIVE_URL_IG || '#';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
       updateStickyCta();
-      // Show the gate UI even if Turnstile is slow, but keep the links locked
-      // until the challenge is actually completed (see updateDriveLock).
-      setTimeout(revealDriveGate, 1800);
+      // Invisible browser check: the Terms + buttons are revealed only AFTER
+      // Turnstile passes. A safety timeout surfaces an error instead of hanging.
+      clearTimeout(driveTimeout);
+      driveTimeout = setTimeout(driveVerifyError, 9000);
       setTimeout(function() {
         // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
-        // that must not brick delivery. A rendered-but-incomplete widget still
-        // gates the download.
+        // that must not brick delivery.
         if (typeof turnstile === 'undefined') { driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
         if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
+            appearance: 'interaction-only',
             callback: function(t) { driveTsToken = t; revealDriveGate(); updateDriveLock(); },
-            'error-callback': function() { driveTsToken = ''; revealDriveGate(); updateDriveLock(); },
+            'error-callback': function() { driveTsToken = ''; driveVerifyError(); },
             'expired-callback': function() { driveTsToken = ''; updateDriveLock(); },
           });
         }
@@ -588,10 +592,18 @@ export function eventHTML(event, analyticsToken) {
     function revealDriveGate() {
       if (driveGateShown) return;
       driveGateShown = true;
+      clearTimeout(driveTimeout);
       const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
+      const e = document.getElementById('drive-verify-error'); if (e) e.style.display = 'none';
       const g = document.getElementById('drive-gate'); if (g) g.style.display = '';
       updateDriveLock();
       const c = document.getElementById('drive-consent'); if (c) c.focus();
+    }
+    // Browser check failed/timed out — surface it instead of hanging (fail closed).
+    function driveVerifyError() {
+      if (driveGateShown) return;
+      const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
+      const e = document.getElementById('drive-verify-error'); if (e) e.style.display = '';
     }
     function onDriveConsent() { updateDriveLock(); }
     // Drive links unlock only when BOTH the Terms are accepted AND Turnstile passed.
