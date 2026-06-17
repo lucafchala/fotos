@@ -354,6 +354,7 @@ export function eventHTML(event, analyticsToken) {
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:.625rem;margin-bottom:0">
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
+        <p id="drive-gate-hint" style="font-size:.72rem;color:#a98a4a;line-height:1.5;margin-top:.875rem"></p>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
@@ -565,17 +566,21 @@ export function eventHTML(event, analyticsToken) {
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
       updateStickyCta();
-      // Fallback: never let a slow/silent Turnstile block delivery.
+      // Show the gate UI even if Turnstile is slow, but keep the links locked
+      // until the challenge is actually completed (see updateDriveLock).
       setTimeout(revealDriveGate, 1800);
       setTimeout(function() {
-        if (typeof turnstile === 'undefined') { revealDriveGate(); return; }
+        // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
+        // that must not brick delivery. A rendered-but-incomplete widget still
+        // gates the download.
+        if (typeof turnstile === 'undefined') { driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
         if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
-            callback: function(t) { driveTsToken = t; revealDriveGate(); },
-            'error-callback': function() { revealDriveGate(); },
-            'expired-callback': function() { driveTsToken = ''; },
+            callback: function(t) { driveTsToken = t; revealDriveGate(); updateDriveLock(); },
+            'error-callback': function() { driveTsToken = ''; revealDriveGate(); updateDriveLock(); },
+            'expired-callback': function() { driveTsToken = ''; updateDriveLock(); },
           });
         }
       }, 100);
@@ -585,12 +590,28 @@ export function eventHTML(event, analyticsToken) {
       driveGateShown = true;
       const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
       const g = document.getElementById('drive-gate'); if (g) g.style.display = '';
+      updateDriveLock();
       const c = document.getElementById('drive-consent'); if (c) c.focus();
     }
-    function onDriveConsent() {
-      const ok = document.getElementById('drive-consent').checked;
+    function onDriveConsent() { updateDriveLock(); }
+    // Drive links unlock only when BOTH the Terms are accepted AND Turnstile passed.
+    function updateDriveLock() {
+      const c = document.getElementById('drive-consent');
       const wrap = document.getElementById('drive-links-wrap');
-      wrap.classList.toggle('drive-locked', !ok);
+      const hint = document.getElementById('drive-gate-hint');
+      const consentOk = !!(c && c.checked);
+      const tsOk = driveTsToken !== '';
+      const ok = consentOk && tsOk;
+      if (wrap) wrap.classList.toggle('drive-locked', !ok);
+      if (hint) {
+        hint.style.display = ok ? 'none' : '';
+        if (!ok) {
+          hint.textContent = !tsOk
+            ? (consentOk ? 'Conclua a verificação de segurança acima para liberar o download.'
+                         : 'Conclua a verificação de segurança e aceite os Termos.')
+            : 'Aceite os Termos para liberar o download.';
+        }
+      }
       if (ok) { const p = document.getElementById('drive-link'); if (p) p.focus(); }
     }
     function toggleDriveName() {
