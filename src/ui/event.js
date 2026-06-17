@@ -344,8 +344,8 @@ export function eventHTML(event, analyticsToken) {
       </ol>
       <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1rem"></div>
-      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Verificando navegador…</div>
-      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível verificar o navegador. Recarregue a página e tente novamente.</div>
+      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
+      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar o acesso ao Drive. Recarregue a página e tente novamente.</div>
       <div id="drive-gate" style="display:none">
         <label class="drive-consent">
           <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
