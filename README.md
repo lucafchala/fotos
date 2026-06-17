@@ -1,6 +1,6 @@
 # fotos.lucafchala.com
 
-Galeria pública de fotos do fotógrafo Luca F. Chala — site, painel administrativo, sistema de solicitação de remoção de fotos (LGPD), métricas, backup e PWA. Tudo roda em **um único Cloudflare Worker** com **Workers KV** como banco. Não há build step, framework, dependências runtime ou banco SQL — só JavaScript puro renderizando HTML no servidor.
+Galeria pública de fotos do fotógrafo Luca F. Chala — site de **entrega** de fotos, painel administrativo, Termos de Uso com **autorização de uso de imagem** registrada (LGPD), solicitação de remoção de fotos, avaliações, métricas, backup e PWA. Roda em **um único Cloudflare Worker** com **Workers KV** como banco principal e um banco **Cloudflare D1** para o registro de consentimento. Não há build step, framework nem dependências runtime — só JavaScript puro renderizando HTML no servidor.
 
 URL de produção: <https://fotos.lucafchala.com>
 
@@ -19,6 +19,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Páginas públicas](#páginas-públicas)
 - [Painel administrativo `/dashboard`](#painel-administrativo-dashboard)
 - [Sistema de solicitação de remoção (LGPD)](#sistema-de-solicitação-de-remoção-lgpd)
+- [Termos de Uso e autorização de uso de imagem (LGPD)](#termos-de-uso-e-autorização-de-uso-de-imagem-lgpd)
 - [Autenticação e segurança](#autenticação-e-segurança)
 - [E-mails transacionais (Resend)](#e-mails-transacionais-resend)
 - [Métricas](#métricas)
@@ -52,8 +53,8 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Camada | Tecnologia |
 | --- | --- |
 | Runtime | Cloudflare Workers (V8 isolates, sem Node.js) |
-| Banco | Cloudflare Workers KV — namespace `FOTOS` |
-| Auth | PBKDF2-SHA256 (10k iterações) + sessão HTTP-only em KV |
+| Banco | Cloudflare Workers KV — namespace `FOTOS` (estado principal) + Cloudflare **D1** (`CONSENT_DB`) para o log de consentimento |
+| Auth | PBKDF2-SHA256 (100k iterações) + sessão HTTP-only em KV |
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
 | Dev tooling | Wrangler ≥ 3 (`npm run dev` / `npm run deploy`), ESLint (`npm run lint`) |
@@ -62,8 +63,10 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Fontes externas | Google Fonts (Inter) |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
+| Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
+| Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção 180 dias |
 
-**Não há banco SQL, nem D1, nem R2, nem ORM, nem JSX/React, nem bundler.** Todo o estado é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de session/contador/rate-limit. As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
+**Sem ORM, sem JSX/React, sem bundler.** O estado principal é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de sessão/contador/rate-limit/categorias/avaliações. Um banco **D1** (SQLite) guarda apenas o log append-only de consentimento de uso de imagem (`image_use_consent`). As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
 
 O fluxo de uma requisição é:
 
@@ -131,6 +134,24 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 
 Variáveis lidas como `env.<NOME>` dentro de `fetch(request, env, ctx)`.
 
+### Banco D1 — log de consentimento (`CONSENT_DB`)
+
+O aceite dos Termos / autorização de uso de imagem é gravado num banco **Cloudflare D1** (free tier). O binding fica **comentado** em `wrangler.toml` por padrão — enquanto não existir, `env.CONSENT_DB` é `undefined` e o registro de consentimento vira **no-op seguro** (o resto do site funciona normalmente). Para ativar:
+
+```bash
+# 1. cria o banco (imprime o database_id)
+npx wrangler d1 create fotos-consent
+# 2. cole o id e descomente o bloco [[d1_databases]] (binding = "CONSENT_DB") em wrangler.toml
+# 3. aplica a migração que cria a tabela image_use_consent
+npx wrangler d1 migrations apply fotos-consent --remote
+```
+
+A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário apaga linhas com mais de 180 dias.
+
+### Turnstile
+
+Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/consent`, no formulário de remoção, na avaliação e no suporte.
+
 ---
 
 ## Deploy
@@ -169,19 +190,24 @@ npx wrangler deploy
 fotos/
 ├── README.md              ← este arquivo
 ├── TODO.md                ← roadmap pessoal (pendências, ideias, etapas)
-├── package.json           ← só scripts dev/deploy e wrangler como dev dep
-├── wrangler.toml          ← config do Worker, binding KV
+├── package.json           ← scripts dev/deploy/lint, wrangler + eslint como dev deps
+├── wrangler.toml          ← config do Worker, binding KV (+ D1 comentado p/ provisionar)
+├── migrations/
+│   └── 0001_consent.sql   ← tabela D1 image_use_consent (log de consentimento)
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml     ← CI: deploy + smoke tests
+│       ├── deploy.yml     ← CI: deploy + smoke tests
+│       └── checks.yml     ← CI: lint + validação JSON + sintaxe JS
 └── src/
     ├── index.js           ← roteador + todos os handlers HTTP (Worker entry)
-    ├── utils.js           ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails
+    ├── utils.js           ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     └── ui/
         ├── gallery.js     ← HTML da galeria pública /
         ├── event.js       ← HTML da página de projeto /<slug>
         ├── dashboard.js   ← HTML do login e do painel admin /dashboard
-        └── support.js     ← HTML da página de suporte /suporte
+        ├── support.js     ← HTML da página de suporte /suporte
+        ├── privacy.js     ← HTML da Política de Privacidade /privacidade
+        └── terms.js       ← HTML dos Termos de Uso /termos
 ```
 
 Tamanhos aproximados: `index.js` ~28 KB, `dashboard.js` ~62 KB (é o maior porque tem todo o JS do painel inline), `event.js` ~35 KB, `gallery.js` ~7 KB, `support.js` ~7 KB, `utils.js` ~13 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
@@ -200,7 +226,11 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `views:<slug>` | String numérica (contador de visualizações da página do projeto) | `handleEventPage` via `ctx.waitUntil` |
 | `drive_clicks:<slug>` | String numérica (contador de cliques no botão "Ir para o Drive") | `handleTrackDrive` |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
+| `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
+| `reviews_<slug>` | JSON: array de avaliações `{id, rating, comment, email, submittedAt}` do projeto | `handleReview` |
 | `ratelimit:<key>:<ip>:<window>` | String numérica, TTL = janela | `checkRateLimit` (todas as rotas com rate limit) |
+
+> O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo).
 
 ### Schema de um evento
 
@@ -257,6 +287,19 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 
 Quando `removal_requests` passa de 500 itens, mantém **todos** os não-resolvidos e descarta os resolvidos mais antigos (FIFO).
 
+### Tabela D1 `image_use_consent`
+
+Banco `CONSENT_DB` (D1/SQLite). Uma linha **append-only** por acesso ao Drive (aceite dos Termos / autorização de uso de imagem):
+
+```
+id, created_at, event_slug, event_title, drive_target, terms_version,
+terms_hash (SHA-256 do texto exato dos Termos), consent_text, consenter_name,
+turnstile_ok, ip, country, region, city, timezone, asn, as_org, colo,
+user_agent, accept_language, referrer, page_url
+```
+
+Coletado server-side em `handleConsent` a partir de `request.headers` + `request.cf`. Exportável em CSV por `GET /api/consent/export` (auth). Retenção de 180 dias via cron diário (`pruneOldConsent`).
+
 ---
 
 ## Rotas HTTP
@@ -268,12 +311,16 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | Método | Path | Função | O que faz |
 | --- | --- | --- | --- |
 | GET | `/` | `handleGallery` | HTML da galeria com cards de todos os eventos `visible !== false`, ordenados por pinned + data desc |
-| GET | `/<slug>` | `handleEventPage` | HTML do projeto. Incrementa `views:<slug>` em `ctx.waitUntil` (não bloqueia resposta) |
+| GET | `/<slug>` | `handleEventPage` | HTML do projeto (página de entrega). Incrementa `views:<slug>` em `ctx.waitUntil`. O acesso ao Drive exige aceite dos Termos (registrado via `/api/consent`) |
 | GET | `/suporte` | `supportHTML()` | Página de contato com WhatsApp + e-mail + formulário |
+| GET | `/privacidade` | `privacyHTML()` | Política de Privacidade (LGPD) |
+| GET | `/termos` | `termsHTML()` | Termos de Uso + autorização de uso de imagem |
 | GET | `/manifest.json` | `handleManifest` | Manifest PWA |
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
+| POST | `/api/consent` | `handleConsent` | Registra o aceite dos Termos / uso de imagem em D1 (best-effort, rate-limit 60/h, no-op sem D1) |
+| POST | `/api/review` | `handleReview` | Recebe avaliação em estrelas do projeto (rate-limit 5/h, Turnstile) |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
 | GET | `/api/healthz` | `handleHealthz` | `{ok:true, hashMs:N}` — usado pelo CI |
 
@@ -288,9 +335,11 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | PUT | `/api/events/<id>` | Atualizar evento (parcial; só campos enviados) |
 | DELETE | `/api/events/<id>` | Excluir evento e deletar `views:<slug>` |
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
+| GET | `/api/reviews` | Lista agregada das avaliações de todos os projetos (antes não tinha leitura) |
+| GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | PUT | `/api/settings/password` | Trocar senha do admin |
-| GET | `/api/backup` | Download JSON com todos os eventos |
-| POST | `/api/backup/restore` | Merge de backup com KV atual (por id, mais recente vence) |
+| GET | `/api/backup` | Download JSON **v2** (eventos + categorias + avaliações + solicitações) |
+| POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |
 | PUT | `/api/removal-requests/<id>/resolve` | Marca resolvida e envia e-mail "Solicitação atendida" ao requerente |
 
@@ -371,12 +420,13 @@ Renderizado por `src/ui/dashboard.js`. Mesma página tem login e dashboard:
 Layout fixo no topo + abas:
 
 - **Topbar**: logo + links "Ver site" (abre `/` em nova aba) e "Sair" (POST logout).
-- **Tabs**: `Eventos`, `Métricas`, `Config.`, `Solicitações` (badge vermelho com contador de não-resolvidas).
+- **Tabs**: `Eventos`, `Métricas`, `Avaliações`, `Config.`, `Solicitações` (badge vermelho com contador de não-resolvidas).
 
 #### Aba Eventos
 
 - Header: contador ("N eventos ativos") + botão "+ Adicionar".
-- Filtro: `<select>` com `Todos / Ativos (sem arquivados) / Em edição / Em revisão / Entregue / Arquivado`.
+- **Busca** (título / URL / categoria) + filtro `<select>` (`Todos / Ativos (sem arquivados) / Em edição / Em revisão / Entregue / Arquivado`).
+- No formulário: `Esc` fecha, `Ctrl/⌘+Enter` salva, foco preso (focus trap) no overlay e rodapé de ações fixo (sticky). Excluir evento/categoria usa um diálogo de confirmação no tema do painel (não o `confirm()` nativo); os botões de ação ficam desabilitados enquanto a requisição corre.
 - Lista de eventos (cards horizontais) com: thumb, título + badge de status colorida, slug em monospace, botões de ação à direita:
   - **Pin** (estrela) — toggle. Ao pinar, despina todos os outros (server-side garante max 1).
   - **Eye** — toggle `visible`.
@@ -388,15 +438,20 @@ Layout fixo no topo + abas:
 
 #### Aba Métricas
 
-Tabela com colunas: projeto, views, cliques no Drive. Ordenada por views desc. Dados carregados sob demanda (na primeira vez que o usuário clica na aba).
+Tabela com colunas: projeto, views, cliques no Drive. **Colunas ordenáveis** (clique no cabeçalho), com uma barra proporcional atrás do número de views e botão **Exportar CSV**. Dados carregados sob demanda (na primeira vez que o usuário clica na aba).
+
+#### Aba Avaliações
+
+Lista as avaliações em estrelas enviadas nas páginas de projeto (`GET /api/reviews`): estrelas, comentário, projeto, e-mail (se houver) e data. Antes deste recurso as avaliações eram apenas gravadas, sem tela de leitura. Botão **Exportar CSV**.
 
 #### Aba Config
 
 - **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
 - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar". PUT para `/api/settings/password`.
 - **Backup**:
-  - Botão "Baixar backup JSON" — GET `/api/backup` retorna arquivo `fotos-backup-YYYY-MM-DD.json`.
+  - Botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + avaliações + solicitações).
   - Input file + botão "Restaurar backup" — POST `/api/backup/restore`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado.
+- **Exportar dados** (CSV): consentimentos (do D1, via `/api/consent/export`), solicitações de remoção, métricas e avaliações.
 
 #### Aba Solicitações
 
@@ -430,13 +485,26 @@ A política de privacidade no modal explicita que e-mail/telefone são usados **
 
 ---
 
+## Termos de Uso e autorização de uso de imagem (LGPD)
+
+A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície de **conformidade LGPD**:
+
+- **`/termos`** (`src/ui/terms.js`) traz os Termos de Uso com a **autorização de uso de imagem** (entrega às pessoas do evento + divulgação do trabalho em portfólio/redes, creditando @lucafchala; sem venda a terceiros), fundamentada no art. 20 do Código Civil e no consentimento da LGPD. O responsável é identificado por nome + e-mail (sem CPF/RG públicos); foro de São Paulo/SP.
+- **Gate antes do Drive**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem; só então os links do Drive são liberados. Opcionalmente informa o nome.
+- **Registro do aceite** (`POST /api/consent` → D1): no clique de download, um `navigator.sendBeacon` envia o aceite e o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. É **best-effort, não bloqueia** a entrega; sem D1 provisionado, é no-op.
+- **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **180 dias**. O admin exporta tudo em CSV pela aba Config.
+
+> Os textos legais (escopo da autorização, retenção) são um rascunho razoável — recomenda-se revisão jurídica antes de produção.
+
+---
+
 ## Autenticação e segurança
 
 ### Hash de senha (`utils.js`)
 
 ```js
-hashPassword(password, saltHex?, iterations = 10_000)
-// → "pbkdf2:10000:<32 hex salt>:<64 hex hash>"
+hashPassword(password, saltHex?, iterations = 100_000)
+// → "pbkdf2:100000:<32 hex salt>:<64 hex hash>"
 ```
 
 Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-256', salt, iterations })` → 256 bits hex.
@@ -517,10 +585,13 @@ Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYT
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "backupAt": "ISO date",
   "eventCount": N,
-  "events": [ ... ]
+  "events": [ ... ],
+  "categories": [ ... ],
+  "reviews": [ ... ],
+  "removalRequests": [ ... ]
 }
 ```
 
@@ -532,14 +603,16 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 
 ### Restore
 
-`POST /api/backup/restore` (auth) com `{events: [...]}` no body. Lógica em `mergeRestore`:
+`POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos e **v2** completo). Eventos via `mergeRestore`:
 
 - Para cada evento do backup:
   - Se não existe no KV → adicionar (`added++`).
   - Se existe → comparar `updatedAt || createdAt`. O mais recente vence (`updated++`).
 - Eventos atuais que **não** estão no backup são preservados (nunca deleta).
 
-Resposta: `{ok:true, added, updated, total}`.
+Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união), `removalRequests` (por id) e `reviews` (por id, agrupadas por slug).
+
+Resposta: `{ok:true, added, updated, total, categories?, removalRequestsAdded?, reviewsAdded?}`.
 
 ---
 
@@ -639,9 +712,10 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **Sem preview no WhatsApp**: Open Graph image aponta para `lh3.googleusercontent.com`, que o WhatsApp às vezes não consegue scrapear. R2 resolveria.
 - **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
-- **CPU budget do Worker**: hashing PBKDF2 com 10k iterações chega perto do limite em planos free (~10 ms CPU). Se subir o `iterations`, monitorar `/api/healthz`.
+- **CPU budget do Worker**: o hashing PBKDF2 (100k iterações, ~50 ms) é vigiado pelo `/api/healthz` (o CI falha se `hashMs > 200`). Ao mexer no `iterations`, acompanhe esse número.
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
+- **D1 precisa ser provisionado**: enquanto `CONSENT_DB` não existir, o aceite dos Termos continua barrando o acesso ao Drive normalmente, mas **não é gravado** (no-op). Provisione o D1 (ver Configuração) para ter a comprovação.
 
 ---
 
