@@ -47,7 +47,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 15 de junho de 2026</p>
+    <p class="updated">Atualizada em 17 de junho de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -99,6 +99,13 @@ export function privacyHTML() {
 
     <h2>7. Alterações nesta política</h2>
     <p>Esta política pode ser atualizada para refletir mudanças no site ou na legislação. A data de atualização no topo indica a versão vigente.</p>
+
+    <h2>8. Menores de idade</h2>
+    <p>Os eventos fotografados (formaturas, eventos escolares e familiares) podem incluir <strong>crianças e adolescentes</strong>. O tratamento da imagem de menores observa o <strong>art. 14 da LGPD</strong> e o seu melhor interesse: o consentimento é dado pelos <strong>pais ou pelo responsável legal</strong> — coletado, quando aplicável, junto à instituição contratante no momento do evento e/ou no aceite dos <a href="/termos">Termos de Uso</a> feito por quem acessa as fotos na condição de responsável.</p>
+    <p>Pedidos de remoção de imagens de menores têm <strong>prioridade</strong> e podem ser feitos a qualquer momento por um responsável, pelo botão <em>“Solicitar remoção de foto”</em> no rodapé do evento ou por <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
+
+    <h2>9. Incidentes de segurança</h2>
+    <p>Adotamos medidas técnicas e organizacionais para proteger os dados (veja o <a href="/.well-known/security.txt">security.txt</a>). Caso ocorra um incidente que possa acarretar risco ou dano relevante aos titulares, comunicaremos a <strong>Autoridade Nacional de Proteção de Dados (ANPD)</strong> e os titulares afetados em prazo razoável, conforme o art. 48 da LGPD. Suspeitas de vulnerabilidade podem ser reportadas a <a href="mailto:security@lucafchala.com">security@lucafchala.com</a>.</p>
 
     <p class="note">Em caso de dúvida sobre seus dados, fale com a gente — a remoção de fotos e o atendimento a pedidos são gratuitos e simples.</p>
   </main>
