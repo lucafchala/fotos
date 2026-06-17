@@ -168,7 +168,7 @@ function handleRobots() {
 function handleSecurityTxt() {
   const body =
     'Contact: mailto:security@lucafchala.com\n' +
-    'Expires: 2027-01-20T14:54:00Z\n' +
+    'Expires: ' + new Date(Date.now() + 365 * 86400_000).toISOString() + '\n' +
     'Encryption: https://keys.openpgp.org/vks/v1/by-fingerprint/48E73F6FA2871E7B86EFEA648EC4329A369B7B33\n' +
     `Canonical: ${SITE_URL}/.well-known/security.txt\n` +
     'Preferred-Languages: en, pt-BR\n';
@@ -241,6 +241,13 @@ async function handleDashboardPage(request, env, url) {
 // Login
 // ---------------------------------------------------------------------------
 async function handleLogin(request, env) {
+  // Throttle brute-force: hard ceiling of login attempts per IP (PBKDF2 is
+  // already slow, but this caps automated guessing). Counts every attempt.
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip, 'login', 10, 600)) {
+    return redirect('/dashboard?error=1');
+  }
+
   let body;
   try {
     const text = await request.text();
@@ -712,6 +719,10 @@ async function handleRemovalRequest(request, env) {
     if (typeof fileBase64 !== 'string' || fileBase64.length > 2_900_000) {
       return jsonErr('Arquivo muito grande (máx. 2 MB).', 413);
     }
+    // Confirm it's actually an image (magic bytes), not an arbitrary blob.
+    if (!isLikelyImage(fileBase64)) {
+      return jsonErr('Envie uma imagem válida (JPEG, PNG, WebP, GIF ou HEIC).', 415);
+    }
   }
 
   const emailTrimmed = String(email || '').trim().toLowerCase();
@@ -869,6 +880,7 @@ async function verifyTurnstile(token, env) {
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ secret, response: token }),
     });
@@ -877,6 +889,20 @@ async function verifyTurnstile(token, env) {
   } catch {
     return false;
   }
+}
+
+// Sniff magic bytes from the start of a base64 payload to confirm it's an image
+// (not an arbitrary blob smuggled through the removal-upload field).
+function isLikelyImage(b64) {
+  let head;
+  try { head = atob(b64.slice(0, 32)); } catch { return false; }
+  const byte = i => head.charCodeAt(i);
+  if (byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF) return true;                         // JPEG
+  if (byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47) return true;     // PNG
+  if (head.slice(0, 4) === 'GIF8') return true;                                                      // GIF
+  if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return true;                      // WebP
+  if (head.slice(4, 8) === 'ftyp' && /heic|heif|heix|hevc|mif1|avif/.test(head.slice(8, 20))) return true; // HEIC/AVIF
+  return false;
 }
 
 // ---------------------------------------------------------------------------

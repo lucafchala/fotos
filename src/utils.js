@@ -1,6 +1,9 @@
 let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
+// Abort outbound transactional-email calls if Resend hangs, so a slow upstream
+// never holds the request past this budget.
+const EMAIL_TIMEOUT_MS = 10_000;
 
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
@@ -220,6 +223,7 @@ export async function sendRemovalEmail(env, req) {
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -249,6 +253,7 @@ export async function sendResolvedEmail(env, req) {
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Fotos <noreply@lucafchala.com>',
@@ -284,6 +289,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Fotos <noreply@lucafchala.com>',
@@ -325,6 +331,7 @@ export async function sendConfirmationEmail(env, req) {
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Fotos <noreply@lucafchala.com>',
