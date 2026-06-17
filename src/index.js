@@ -53,6 +53,7 @@ export default {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
+      if (path === '/api/reviews' && method === 'GET') return handleGetReviews(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
@@ -1085,14 +1086,45 @@ function handleIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Backup — build / merge / Drive upload
+// Reviews — admin read + aggregation
 // ---------------------------------------------------------------------------
-function buildBackup(events) {
+// Reviews are stored per event under `reviews_<slug>` and previously had no
+// read path. Aggregate them across all events for the dashboard and backups.
+async function getAllReviews(env) {
+  const out = [];
+  let cursor;
+  do {
+    const list = await env.FOTOS.list({ prefix: 'reviews_', cursor });
+    for (const k of list.keys) {
+      const slug = k.name.slice('reviews_'.length);
+      let arr = [];
+      try { arr = JSON.parse(await env.FOTOS.get(k.name) || '[]'); } catch { arr = []; }
+      for (const r of arr) out.push({ slug, ...r });
+    }
+    cursor = list.list_complete ? null : list.cursor;
+  } while (cursor);
+  out.sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
+  return out;
+}
+
+async function handleGetReviews(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  return jsonOk(await getAllReviews(env));
+}
+
+// ---------------------------------------------------------------------------
+// Backup — full site state (v2), with v1-compatible restore
+// ---------------------------------------------------------------------------
+function buildBackup({ events, categories, reviews, removalRequests }) {
   return JSON.stringify({
-    version: 1,
+    version: 2,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
+    categories,
+    reviews,
+    removalRequests,
   });
 }
 
@@ -1116,9 +1148,11 @@ function mergeRestore(current, backupEvents) {
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const events = await getEvents(env, true);
+  const [events, categories, reviews, removalRequests] = await Promise.all([
+    getEvents(env, true), getCategories(env), getAllReviews(env), getRemovalRequests(env),
+  ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup(events), {
+  return new Response(buildBackup({ events, categories, reviews, removalRequests }), {
     headers: {
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
@@ -1132,10 +1166,53 @@ async function handleRestoreBackup(request, env) {
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
   if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
+
   const current = await getEvents(env);
   const { events: merged, added, updated } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
-  return jsonOk({ ok: true, added, updated, total: merged.length });
+  const result = { ok: true, added, updated, total: merged.length };
+
+  // v2 sections — optional and backward-compatible (v1 backups simply omit them).
+  if (Array.isArray(body.categories)) {
+    const union = [...await getCategories(env)];
+    for (const c of body.categories) {
+      if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+    }
+    await saveCategories(env, union.slice(0, MAX_CATEGORIES));
+    result.categories = union.length;
+  }
+
+  if (Array.isArray(body.removalRequests)) {
+    const byId = new Map((await getRemovalRequests(env)).map(r => [r.id, r]));
+    let rAdded = 0;
+    for (const r of body.removalRequests) {
+      if (r && r.id && !byId.has(r.id)) { byId.set(r.id, r); rAdded++; }
+    }
+    await env.FOTOS.put('removal_requests', JSON.stringify([...byId.values()]));
+    result.removalRequestsAdded = rAdded;
+  }
+
+  if (Array.isArray(body.reviews)) {
+    const bySlug = {};
+    for (const rv of body.reviews) {
+      if (rv && rv.slug) (bySlug[rv.slug] = bySlug[rv.slug] || []).push(rv);
+    }
+    let rvAdded = 0;
+    for (const slug of Object.keys(bySlug)) {
+      if (!validateSlug(slug)) continue;
+      const key = `reviews_${slug}`;
+      let cur = [];
+      try { cur = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { cur = []; }
+      const ids = new Set(cur.map(x => x.id));
+      for (const rv of bySlug[slug]) {
+        if (rv.id && !ids.has(rv.id)) { cur.push(rv); ids.add(rv.id); rvAdded++; }
+      }
+      await env.FOTOS.put(key, JSON.stringify(cur));
+    }
+    result.reviewsAdded = rvAdded;
+  }
+
+  return jsonOk(result);
 }
 
 function errorPage(code, message, status) {
