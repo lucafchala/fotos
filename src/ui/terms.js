@@ -86,7 +86,7 @@ export function termsHTML() {
     <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias úteis</strong>.</p>
 
     <h2>8. Serviços de terceiros</h2>
-    <p>O site usa <strong>Google Drive</strong> (hospedagem e download das fotos), <strong>Cloudflare</strong> (hospedagem, proteção contra robôs e medição anônima) e <strong>Resend</strong> (envio de e-mails). O acesso ao Drive também se sujeita aos termos do Google.</p>
+    <p>O site usa <strong>Google Drive</strong> (hospedagem e download das fotos), <strong>Cloudflare</strong> (hospedagem, medição anônima e proteção contra robôs via <strong>Turnstile em modo invisível</strong> — uma verificação automática do navegador, sem desafio visível; consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile</a>) e <strong>Resend</strong> (envio de e-mails). O acesso ao Drive também se sujeita aos termos do Google.</p>
 
     <h2>9. Isenções e limitação de responsabilidade</h2>
     <p>O site é fornecido “no estado em que se encontra”. Não garantimos disponibilidade ininterrupta nem nos responsabilizamos por indisponibilidades de serviços de terceiros (como o Google Drive) ou por uso indevido das imagens por parte de quem as baixa.</p>
