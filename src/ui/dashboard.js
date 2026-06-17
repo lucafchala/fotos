@@ -185,7 +185,7 @@ export function dashboardHTML(events, categories = []) {
     .sheet-head{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.25rem 1rem;border-bottom:1px solid var(--border);flex-shrink:0}
     .sheet-head h2{font-size:.95rem;font-weight:600}
     .sheet-body{flex:1;overflow-y:auto;padding:1.25rem;-webkit-overflow-scrolling:touch}
-    .sheet-foot{padding:1rem 1.25rem;border-top:1px solid var(--border);display:flex;gap:.75rem;flex-shrink:0}
+    .sheet-foot{padding:1rem 1.25rem;border-top:1px solid var(--border);display:flex;gap:.75rem;flex-shrink:0;position:sticky;bottom:0;background:var(--bg);z-index:1}
     /* form fields */
     .field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
     .field label{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
@@ -270,6 +270,53 @@ export function dashboardHTML(events, categories = []) {
     .cat-add{display:flex;gap:.5rem}
     .cat-add input{flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none}
     .cat-add input:focus{border-color:#3a3a3a}
+    /* event search */
+    .search-row{margin-bottom:.75rem}
+    .search-row input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .search-row input:focus{border-color:#3a3a3a}
+    /* required marker */
+    .req-star{color:var(--red)}
+    /* bigger cover preview */
+    .photo-cover-preview{display:none;width:100%;height:72px;object-fit:cover;border-radius:7px;background:var(--bg3);margin-top:.4rem;margin-left:1.5rem;border:1px solid var(--border);max-width:calc(100% - 1.5rem)}
+    /* inline spinner */
+    .spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(10,10,10,.35);border-top-color:#0a0a0a;border-radius:50%;vertical-align:-2px;margin-right:.45rem;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    /* metrics: sortable headers + inline bar */
+    .metrics-table th.sortable{cursor:pointer;user-select:none}
+    .metrics-table th.sortable:hover{color:var(--text2)}
+    .sort-ind{font-size:.6rem;margin-left:.25rem;color:var(--text2)}
+    .views-cell{position:relative}
+    .views-bar{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);height:60%;background:#c0a060;opacity:.16;border-radius:3px;z-index:0;pointer-events:none}
+    .views-cell .views-badge{position:relative;z-index:1}
+    /* reviews */
+    .review-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:1rem;margin-bottom:.625rem}
+    .review-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.4rem}
+    .review-stars{color:#c0a060;font-size:.9rem;letter-spacing:.05em}
+    .review-stars .off{color:var(--text3)}
+    .review-date{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
+    .review-comment{font-size:.82rem;color:var(--text);line-height:1.55;margin-bottom:.4rem;white-space:pre-wrap}
+    .review-meta{font-size:.7rem;color:var(--text3);display:flex;flex-wrap:wrap;gap:.75rem}
+    .review-meta .review-slug{font-family:monospace}
+    /* export buttons group */
+    .export-grid{display:flex;flex-wrap:wrap;gap:.5rem}
+    /* confirm dialog */
+    .confirm-sheet{background:var(--bg);width:100%;max-width:400px;border-radius:14px;border:1px solid var(--border);overflow:hidden;margin:0 1rem}
+    .confirm-body{padding:1.5rem 1.5rem 1.25rem}
+    .confirm-body h3{font-size:.95rem;font-weight:600;margin-bottom:.5rem}
+    .confirm-body p{font-size:.82rem;color:var(--text2);line-height:1.55}
+    .confirm-foot{padding:0 1.5rem 1.5rem;display:flex;gap:.75rem;justify-content:flex-end}
+    .confirm-foot button{padding:.7rem 1.25rem;border-radius:8px;font-size:.82rem;font-weight:500;border:1px solid var(--border);background:none;color:var(--text2);transition:border-color .2s,color .2s,background .2s}
+    .confirm-foot .confirm-cancel:hover{border-color:#3a3a3a;color:var(--text)}
+    .confirm-foot .confirm-ok{background:var(--accent);color:#0a0a0a;border-color:var(--accent);font-weight:600}
+    .confirm-foot .confirm-ok:hover{opacity:.88}
+    .confirm-foot .confirm-ok.danger{background:none;border-color:var(--red);color:var(--red)}
+    .confirm-foot .confirm-ok.danger:hover{background:rgba(192,57,43,.1)}
+    /* reduced motion */
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{transition:none!important;animation-duration:.001ms!important;animation-iteration-count:1!important}
+      .toast{transition:opacity .001ms!important}
+      .spinner{animation:none!important;border-top-color:#0a0a0a;border-right-color:transparent}
+    }
   </style>
 </head>
 <body>
@@ -286,6 +333,7 @@ export function dashboardHTML(events, categories = []) {
   <div class="tabs">
     <button class="tab active" onclick="switchTab('events',this)">Eventos</button>
     <button class="tab" onclick="switchTab('metrics',this)">Métricas</button>
+    <button class="tab" onclick="switchTab('reviews',this)">Avaliações</button>
     <button class="tab" onclick="switchTab('settings',this)">Config.</button>
     <button class="tab" id="tab-btn-requests" onclick="switchTab('requests',this)">Solicitações</button>
   </div>
@@ -301,6 +349,9 @@ export function dashboardHTML(events, categories = []) {
           Adicionar
         </button>
       </div>
+    </div>
+    <div class="search-row">
+      <input type="search" id="evt-search" placeholder="Buscar por título, URL ou categoria…" oninput="renderEventList()" aria-label="Buscar eventos">
     </div>
     <div class="filter-row">
       <select id="status-filter" onchange="renderEventList()">
@@ -325,8 +376,20 @@ export function dashboardHTML(events, categories = []) {
 
   <!-- METRICS TAB -->
   <div id="tab-metrics" class="panel">
-    <div class="panel-head"><h2>Visualizações</h2></div>
+    <div class="panel-head">
+      <h2>Visualizações</h2>
+      <button class="btn-sm" id="metrics-export" onclick="exportMetricsCSV()" style="display:none">⬇ Exportar CSV</button>
+    </div>
     <div id="metrics-body"><p class="empty">Carregando…</p></div>
+  </div>
+
+  <!-- REVIEWS TAB -->
+  <div id="tab-reviews" class="panel">
+    <div class="panel-head">
+      <h2>Avaliações</h2>
+      <button class="btn-sm" id="reviews-export" onclick="exportReviewsCSV()" style="display:none">⬇ Exportar CSV</button>
+    </div>
+    <div id="reviews-body"><p class="empty">Carregando…</p></div>
   </div>
 
   <!-- SETTINGS TAB -->
@@ -364,6 +427,16 @@ export function dashboardHTML(events, categories = []) {
       </div>
       <button class="btn-sm" onclick="restoreBackup()">↩ Restaurar backup</button>
     </div>
+    <div class="settings-card">
+      <h3>Exportar dados</h3>
+      <p style="margin-bottom:1rem">Baixe planilhas CSV (compatíveis com Excel e Google Sheets) dos registros do site.</p>
+      <div class="export-grid">
+        <button class="btn-sm" onclick="exportConsentCSV()">⬇ Consentimentos (CSV)</button>
+        <button class="btn-sm" onclick="exportRemovalCSV()">⬇ Solicitações de remoção (CSV)</button>
+        <button class="btn-sm" onclick="exportMetricsCSV()">⬇ Métricas (CSV)</button>
+        <button class="btn-sm" onclick="exportReviewsCSV()">⬇ Avaliações (CSV)</button>
+      </div>
+    </div>
   </div>
 
   <!-- REQUESTS TAB -->
@@ -374,23 +447,23 @@ export function dashboardHTML(events, categories = []) {
 
   <!-- EVENT FORM OVERLAY -->
   <div class="overlay" id="overlay" onclick="overlayClick(event)">
-    <div class="sheet" id="sheet">
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="form-title">
       <div class="sheet-head">
         <h2 id="form-title">Adicionar evento</h2>
-        <button class="icon-btn" onclick="closeForm()">
+        <button class="icon-btn" onclick="closeForm()" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
       <div class="sheet-body">
         <div class="field">
-          <label>URL do projeto <span style="color:#555">(só letras minúsculas, números e -)</span></label>
+          <label>URL do projeto <span class="req-star">*</span> <span style="color:#555">(só letras minúsculas, números e -)</span></label>
           <div class="slug-prefix">
             <span>fotos.lucafchala.com/</span>
             <input type="text" id="f-slug" placeholder="meu-evento-2025" pattern="[a-z0-9][a-z0-9\\-]*[a-z0-9]|[a-z0-9]" maxlength="60">
           </div>
         </div>
         <div class="field">
-          <label>Título</label>
+          <label>Título <span class="req-star">*</span></label>
           <input type="text" id="f-title" placeholder="Ex: Formatura Turma 2025">
         </div>
         <div class="field">
@@ -411,7 +484,7 @@ export function dashboardHTML(events, categories = []) {
           </button>
         </div>
         <div class="field">
-          <label>Link da pasta do Google Drive</label>
+          <label>Link da pasta do Google Drive <span class="req-star">*</span></label>
           <input type="url" id="f-drive" placeholder="https://drive.google.com/drive/folders/...">
         </div>
         <div class="field">
@@ -509,8 +582,13 @@ export function dashboardHTML(events, categories = []) {
     let selectedIds = new Set();
     let editingId = null;
     let metricsLoaded = false;
+    let metricsData = [];
+    let metricsSort = { key: 'views', dir: 'desc' };
+    let reviewsLoaded = false;
+    let reviewsData = [];
     let photoList = [];
     let requestsLoaded = false;
+    let lastFocused = null;
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
@@ -545,6 +623,7 @@ export function dashboardHTML(events, categories = []) {
       btn.classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
       if (name === 'metrics') loadMetrics();
+      if (name === 'reviews' && !reviewsLoaded) loadReviews();
       if (name === 'requests' && !requestsLoaded) loadRequests();
     }
 
@@ -553,22 +632,31 @@ export function dashboardHTML(events, categories = []) {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
       const filter = document.getElementById('status-filter')?.value || 'ativos';
-      const filtered =
+      const q = (document.getElementById('evt-search')?.value || '').trim().toLowerCase();
+      const byStatus =
         filter === 'todos' ? events :
         filter === 'ativos' ? events.filter(e => (e.status || 'entregue') !== 'arquivado') :
         events.filter(e => (e.status || 'entregue') === filter);
+      const filtered = q
+        ? byStatus.filter(e =>
+            (e.title || '').toLowerCase().includes(q) ||
+            (e.slug || '').toLowerCase().includes(q) ||
+            (e.category || '').toLowerCase().includes(q))
+        : byStatus;
       const sorted = [...filtered].sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
         return byDate(b) - byDate(a);
       });
       const noun = n => n === 1 ? 'evento' : 'eventos';
-      count.textContent =
-        filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
-        filter === 'ativos' ? \`\${sorted.length} \${noun(sorted.length)} ativos\` :
-        \`\${sorted.length} \${noun(sorted.length)} (\${STATUS_LABELS[filter]})\`;
+      count.textContent = q
+        ? \`\${sorted.length} \${noun(sorted.length)} encontrado\${sorted.length !== 1 ? 's' : ''}\`
+        : filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
+          filter === 'ativos' ? \`\${sorted.length} \${noun(sorted.length)} ativos\` :
+          \`\${sorted.length} \${noun(sorted.length)} (\${STATUS_LABELS[filter]})\`;
       if (sorted.length === 0) {
         list.innerHTML =
+          q ? \`<p class="empty">Nenhum evento encontrado para "\${esc(q)}".</p>\` :
           filter === 'ativos' && events.length > 0 ? '<p class="empty">Nenhum evento ativo — todos foram arquivados.</p>' :
           (filter === 'todos' || filter === 'ativos') ? '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>' :
           \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`;
@@ -635,6 +723,7 @@ export function dashboardHTML(events, categories = []) {
         : [];
       photoList = [...initPhotos];
       renderPhotoList();
+      lastFocused = document.activeElement;
       document.getElementById('overlay').classList.add('open');
       document.body.style.overflow = 'hidden';
       if (!id) setTimeout(() => document.getElementById('f-slug').focus(), 100);
@@ -644,11 +733,31 @@ export function dashboardHTML(events, categories = []) {
       document.getElementById('overlay').classList.remove('open');
       document.body.style.overflow = '';
       editingId = null;
+      if (lastFocused && typeof lastFocused.focus === 'function') {
+        try { lastFocused.focus(); } catch (e) {}
+      }
+      lastFocused = null;
     }
 
     function overlayClick(e) {
       if (e.target === document.getElementById('overlay')) closeForm();
     }
+
+    // ---- Form keyboard handling (Esc close, Ctrl/Cmd+Enter submit, focus trap) ----
+    document.getElementById('overlay').addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeForm(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submitForm(); return; }
+      if (e.key === 'Tab') {
+        const sheet = document.getElementById('sheet');
+        const focusable = sheet.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+        const items = Array.prototype.filter.call(focusable, el => el.offsetParent !== null || el === document.activeElement);
+        if (!items.length) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
 
     function toggleAlertOpts(on) {
       document.getElementById('alert-opts').style.display = on ? 'block' : 'none';
@@ -668,12 +777,13 @@ export function dashboardHTML(events, categories = []) {
               <input type="url" value="\${esc(url)}" placeholder="URL da foto"
                 oninput="onPhotoInput(\${i}, this)"
                 onblur="onPhotoBlur(\${i}, this)">
-              <img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} onerror="this.style.display='none'" onload="this.style.display='block'">
-              <button type="button" class="icon-btn danger" onclick="removePhotoInput(\${i})" title="Remover">
+              \${i === 0 ? '' : \`<img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} onerror="this.style.display='none'" onload="this.style.display='block'">\`}
+              <button type="button" class="icon-btn danger" onclick="removePhotoInput(\${i})" title="Remover" aria-label="Remover foto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
             \${i === 0 ? '<span class="photo-badge">capa da galeria</span>' : ''}
+            \${i === 0 ? \`<img class="photo-cover-preview" id="pcover" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} alt="" onerror="this.style.display='none'" onload="this.style.display='block'">\` : ''}
           </div>\`).join('');
       }
       if (addBtn) addBtn.style.display = photoList.length >= 6 ? 'none' : 'inline-flex';
@@ -696,14 +806,24 @@ export function dashboardHTML(events, categories = []) {
 
     function onPhotoInput(i, el) {
       photoList[i] = el.value;
+      if (i === 0) updateCoverPreview(el.value);
     }
 
     function onPhotoBlur(i, el) {
       const converted = convertDriveUrl(el.value.trim());
       photoList[i] = converted;
       el.value = converted;
+      if (i === 0) { updateCoverPreview(converted); return; }
       const mini = document.getElementById('pm-' + i);
       if (mini) { mini.src = converted; mini.style.display = converted ? 'block' : 'none'; }
+    }
+
+    function updateCoverPreview(url) {
+      const cover = document.getElementById('pcover');
+      if (!cover) return;
+      const src = convertDriveUrl((url || '').trim());
+      if (src) { cover.src = src; cover.style.display = 'block'; }
+      else { cover.removeAttribute('src'); cover.style.display = 'none'; }
     }
 
     function collectPhotos() {
@@ -770,7 +890,7 @@ export function dashboardHTML(events, categories = []) {
 
       const btn = document.getElementById('submit-btn');
       btn.disabled = true;
-      btn.textContent = 'Salvando…';
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Salvando…';
 
       try {
         if (editingId) {
@@ -792,17 +912,82 @@ export function dashboardHTML(events, categories = []) {
       }
     }
 
+    // ---- Themed confirm dialog ----
+    function confirmDialog(opts) {
+      opts = opts || {};
+      const title = opts.title || 'Confirmar';
+      const message = opts.message || '';
+      const confirmLabel = opts.confirmLabel || 'Confirmar';
+      const danger = !!opts.danger;
+      return new Promise(function(resolve) {
+        const prev = document.activeElement;
+        const overlay = document.createElement('div');
+        overlay.className = 'overlay open';
+        overlay.style.alignItems = 'center';
+        overlay.innerHTML =
+          '<div class="confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="confirm-title">' +
+            '<div class="confirm-body">' +
+              '<h3 id="confirm-title">' + esc(title) + '</h3>' +
+              (message ? '<p>' + esc(message) + '</p>' : '') +
+            '</div>' +
+            '<div class="confirm-foot">' +
+              '<button type="button" class="confirm-cancel">Cancelar</button>' +
+              '<button type="button" class="confirm-ok' + (danger ? ' danger' : '') + '">' + esc(confirmLabel) + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(overlay);
+        const okBtn = overlay.querySelector('.confirm-ok');
+        const cancelBtn = overlay.querySelector('.confirm-cancel');
+        function done(val) {
+          document.removeEventListener('keydown', onKey, true);
+          overlay.remove();
+          if (prev && typeof prev.focus === 'function') { try { prev.focus(); } catch (e) {} }
+          resolve(val);
+        }
+        function onKey(e) {
+          if (e.key === 'Escape') { e.preventDefault(); done(false); }
+          else if (e.key === 'Tab') {
+            const f = [cancelBtn, okBtn];
+            const idx = f.indexOf(document.activeElement);
+            e.preventDefault();
+            const next = e.shiftKey ? (idx <= 0 ? f.length - 1 : idx - 1) : (idx === f.length - 1 ? 0 : idx + 1);
+            f[next].focus();
+          } else if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        }
+        okBtn.addEventListener('click', () => done(true));
+        cancelBtn.addEventListener('click', () => done(false));
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+        document.addEventListener('keydown', onKey, true);
+        setTimeout(() => okBtn.focus(), 30);
+      });
+    }
+
+    // ---- Row action helpers ----
+    function setRowBusy(id, busy) {
+      const row = document.getElementById('evt-' + id);
+      if (!row) return;
+      row.querySelectorAll('.evt-actions button').forEach(b => { b.disabled = busy; });
+    }
+
     // ---- Delete ----
     async function deleteEvent(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
-      if (!confirm(\`Excluir "\${e.title}"? Essa ação não pode ser desfeita.\`)) return;
+      const ok = await confirmDialog({
+        title: 'Excluir evento',
+        message: \`Excluir "\${e.title}"? Essa ação não pode ser desfeita.\`,
+        confirmLabel: 'Excluir',
+        danger: true,
+      });
+      if (!ok) return;
+      setRowBusy(id, true);
       try {
         await api('DELETE', '/api/events/' + id);
         events = events.filter(ev => ev.id !== id);
         renderEventList();
         toast('Evento excluído.', 'ok');
       } catch(err) {
+        setRowBusy(id, false);
         toast(err.message || 'Erro ao excluir.', 'err');
       }
     }
@@ -812,6 +997,7 @@ export function dashboardHTML(events, categories = []) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
       const updated = { ...e, visible: e.visible === false ? true : false };
+      setRowBusy(id, true);
       try {
         const result = await api('PUT', '/api/events/' + id, updated);
         events = events.map(ev => ev.id === id ? result : ev);
@@ -819,6 +1005,8 @@ export function dashboardHTML(events, categories = []) {
         toast(result.visible !== false ? 'Evento visível.' : 'Evento oculto.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
+      } finally {
+        setRowBusy(id, false);
       }
     }
 
@@ -910,17 +1098,84 @@ export function dashboardHTML(events, categories = []) {
     // ---- Metrics ----
     async function loadMetrics() {
       const body = document.getElementById('metrics-body');
+      const exportBtn = document.getElementById('metrics-export');
       try {
         const data = await api('GET', '/api/metrics');
         metricsLoaded = true;
-        if (!data.length) {
+        metricsData = Array.isArray(data) ? data : [];
+        if (exportBtn) exportBtn.style.display = metricsData.length ? 'inline-flex' : 'none';
+        if (!metricsData.length) {
           body.innerHTML = '<p class="empty">Nenhuma visualização ainda.</p>';
           return;
         }
-        const rows = data.map(m => \`<tr><td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td><td><span class="views-badge">\${m.views}</span></td><td><span class="views-badge" style="color:#4a7a4a">\${m.driveClicks || 0}</span></td></tr>\`).join('');
-        body.innerHTML = \`<table class="metrics-table"><thead><tr><th>Projeto</th><th>Visualizações</th><th>Abriu Drive</th></tr></thead><tbody>\${rows}</tbody></table>\`;
+        renderMetrics();
       } catch(err) {
+        if (exportBtn) exportBtn.style.display = 'none';
         body.innerHTML = '<p class="empty">Erro ao carregar métricas.</p>';
+      }
+    }
+
+    function renderMetrics() {
+      const body = document.getElementById('metrics-body');
+      const key = metricsSort.key;
+      const dir = metricsSort.dir === 'asc' ? 1 : -1;
+      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : (m.views || 0);
+      const rowsData = [...metricsData].sort((a, b) => (num(a, key) - num(b, key)) * dir);
+      const maxViews = metricsData.reduce((mx, m) => Math.max(mx, m.views || 0), 0) || 1;
+      const ind = k => k === metricsSort.key ? \`<span class="sort-ind">\${metricsSort.dir === 'asc' ? '▲' : '▼'}</span>\` : '';
+      const rows = rowsData.map(m => {
+        const pct = Math.max(2, Math.round((m.views || 0) / maxViews * 100));
+        return \`<tr>
+          <td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td>
+          <td class="views-cell"><span class="views-bar" style="width:\${pct}%"></span><span class="views-badge">\${m.views || 0}</span></td>
+          <td><span class="views-badge" style="color:#4a7a4a">\${m.driveClicks || 0}</span></td>
+        </tr>\`;
+      }).join('');
+      body.innerHTML = \`<table class="metrics-table"><thead><tr>
+        <th>Projeto</th>
+        <th class="sortable" onclick="sortMetrics('views')">Visualizações\${ind('views')}</th>
+        <th class="sortable" onclick="sortMetrics('driveClicks')">Abriu Drive\${ind('driveClicks')}</th>
+      </tr></thead><tbody>\${rows}</tbody></table>\`;
+    }
+
+    function sortMetrics(key) {
+      if (metricsSort.key === key) metricsSort.dir = metricsSort.dir === 'desc' ? 'asc' : 'desc';
+      else { metricsSort.key = key; metricsSort.dir = 'desc'; }
+      renderMetrics();
+    }
+
+    // ---- Reviews ----
+    async function loadReviews() {
+      const body = document.getElementById('reviews-body');
+      const exportBtn = document.getElementById('reviews-export');
+      try {
+        const data = await api('GET', '/api/reviews');
+        reviewsLoaded = true;
+        reviewsData = Array.isArray(data) ? data : [];
+        if (exportBtn) exportBtn.style.display = reviewsData.length ? 'inline-flex' : 'none';
+        if (!reviewsData.length) {
+          body.innerHTML = '<p class="empty">Nenhuma avaliação ainda.</p>';
+          return;
+        }
+        body.innerHTML = reviewsData.map(r => {
+          const n = Math.max(0, Math.min(5, parseInt(r.rating) || 0));
+          const stars = '★'.repeat(n) + \`<span class="off">\${'★'.repeat(5 - n)}</span>\`;
+          const date = r.submittedAt ? new Date(r.submittedAt).toLocaleString('pt-BR') : '';
+          return \`<div class="review-item">
+            <div class="review-head">
+              <span class="review-stars" aria-label="\${n} de 5 estrelas">\${stars}</span>
+              <span class="review-date">\${esc(date)}</span>
+            </div>
+            \${r.comment ? \`<div class="review-comment">\${esc(r.comment)}</div>\` : ''}
+            <div class="review-meta">
+              <span class="review-slug">/\${esc(r.slug)}</span>
+              \${r.email ? \`<span>\${esc(r.email)}</span>\` : ''}
+            </div>
+          </div>\`;
+        }).join('');
+      } catch(err) {
+        if (exportBtn) exportBtn.style.display = 'none';
+        body.innerHTML = '<p class="empty">Erro ao carregar avaliações.</p>';
       }
     }
 
@@ -968,11 +1223,75 @@ export function dashboardHTML(events, categories = []) {
       }
     }
 
+    // ---- CSV helpers (BOM + escaping, matches server) ----
+    function toCSV(cols, rows){
+      function cell(v){ v = (v==null?'':String(v)); return /[",\\r\\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+      return '\\uFEFF' + [cols.join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
+    }
+    function downloadCSV(name, cols, rows){ var b=new Blob([toCSV(cols,rows)],{type:'text/csv;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
+    function csvDate(){ return new Date().toISOString().slice(0,10); }
+
+    // ---- Exports ----
+    async function exportMetricsCSV() {
+      try {
+        let data = metricsData;
+        if (!metricsLoaded) { data = await api('GET', '/api/metrics'); }
+        if (!data || !data.length) return toast('Nenhuma métrica para exportar.', 'err');
+        const rows = data.map(m => ({ title: m.title, slug: m.slug, views: m.views || 0, driveClicks: m.driveClicks || 0 }));
+        downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks'], rows);
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar métricas.', 'err');
+      }
+    }
+
+    async function exportReviewsCSV() {
+      try {
+        let data = reviewsData;
+        if (!reviewsLoaded) { data = await api('GET', '/api/reviews'); }
+        if (!data || !data.length) return toast('Nenhuma avaliação para exportar.', 'err');
+        const rows = data.map(r => ({ submittedAt: r.submittedAt, slug: r.slug, rating: r.rating, comment: r.comment, email: r.email }));
+        downloadCSV('avaliacoes-' + csvDate() + '.csv', ['submittedAt', 'slug', 'rating', 'comment', 'email'], rows);
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar avaliações.', 'err');
+      }
+    }
+
+    async function exportRemovalCSV() {
+      try {
+        const data = await api('GET', '/api/removal-requests');
+        if (!data || !data.length) return toast('Nenhuma solicitação para exportar.', 'err');
+        downloadCSV('solicitacoes-remocao-' + csvDate() + '.csv',
+          ['createdAt', 'eventSlug', 'eventTitle', 'method', 'value', 'email', 'phone', 'message', 'resolved', 'resolvedAt'], data);
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar solicitações.', 'err');
+      }
+    }
+
+    async function exportConsentCSV() {
+      try {
+        const res = await fetch('/api/consent/export', { credentials: 'same-origin' });
+        if (res.ok) {
+          const blob = await res.blob();
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = u; a.download = 'consentimentos-' + csvDate() + '.csv';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(u), 1000);
+        } else {
+          const data = await res.json().catch(() => ({}));
+          toast(data.error || 'Erro ao exportar consentimentos.', 'err');
+        }
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar consentimentos.', 'err');
+      }
+    }
+
     // ---- Pin ----
     async function togglePin(id) {
       const ev = events.find(e => e.id === id);
       if (!ev) return;
       const newPinned = !ev.pinned;
+      setRowBusy(id, true);
       try {
         await api('PUT', \`/api/events/\${id}\`, { pinned: newPinned });
         if (newPinned) {
@@ -984,6 +1303,8 @@ export function dashboardHTML(events, categories = []) {
         toast(newPinned ? 'Evento destacado na galeria.' : 'Destaque removido.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao alterar destaque.', 'err');
+      } finally {
+        setRowBusy(id, false);
       }
     }
 
@@ -1030,7 +1351,13 @@ export function dashboardHTML(events, categories = []) {
     async function deleteCategory(name) {
       const inUse = events.filter(e => e.category === name).length;
       const warn = inUse > 0 ? ' Ela será removida de ' + inUse + ' evento' + (inUse !== 1 ? 's' : '') + '.' : '';
-      if (!confirm('Excluir a categoria "' + name + '"?' + warn)) return;
+      const ok = await confirmDialog({
+        title: 'Excluir categoria',
+        message: 'Excluir a categoria "' + name + '"?' + warn,
+        confirmLabel: 'Excluir',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         const res = await api('POST', '/api/categories/delete', { name });
         categories = res.categories;
