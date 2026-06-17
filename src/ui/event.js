@@ -573,7 +573,6 @@ export function eventHTML(event, analyticsToken) {
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
             sitekey: TS_SITEKEY,
-            appearance: 'interaction-only',
             callback: function(t) { driveTsToken = t; revealDriveGate(); },
             'error-callback': function() { revealDriveGate(); },
             'expired-callback': function() { driveTsToken = ''; },
