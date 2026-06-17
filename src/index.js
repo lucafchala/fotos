@@ -14,7 +14,7 @@ import {
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
-const CONSENT_RETENTION_DAYS = 180; // image-use consent rows are purged after this (6 months)
+const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
 
 export default {
   async fetch(request, env, ctx) {

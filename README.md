@@ -64,7 +64,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
-| Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção 180 dias |
+| Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção ~5 anos |
 
 **Sem ORM, sem JSX/React, sem bundler.** O estado principal é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de sessão/contador/rate-limit/categorias/avaliações. Um banco **D1** (SQLite) guarda apenas o log append-only de consentimento de uso de imagem (`image_use_consent`). As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
 
@@ -146,7 +146,7 @@ npx wrangler d1 create fotos-consent
 npx wrangler d1 migrations apply fotos-consent --remote
 ```
 
-A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário apaga linhas com mais de 180 dias.
+A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário apaga linhas com mais de ~5 anos (`CONSENT_RETENTION_DAYS`, em `src/index.js`).
 
 ### Turnstile
 
@@ -298,7 +298,7 @@ turnstile_ok, ip, country, region, city, timezone, asn, as_org, colo,
 user_agent, accept_language, referrer, page_url
 ```
 
-Coletado server-side em `handleConsent` a partir de `request.headers` + `request.cf`. Exportável em CSV por `GET /api/consent/export` (auth). Retenção de 180 dias via cron diário (`pruneOldConsent`).
+Coletado server-side em `handleConsent` a partir de `request.headers` + `request.cf`. Exportável em CSV por `GET /api/consent/export` (auth). Retenção de ~5 anos via cron diário (`pruneOldConsent`).
 
 ---
 
@@ -492,7 +492,7 @@ A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície
 - **`/termos`** (`src/ui/terms.js`) traz os Termos de Uso com a **autorização de uso de imagem** (entrega às pessoas do evento + divulgação do trabalho em portfólio/redes, creditando @lucafchala; sem venda a terceiros), fundamentada no art. 20 do Código Civil e no consentimento da LGPD. O responsável é identificado por nome + e-mail (sem CPF/RG públicos); foro de São Paulo/SP.
 - **Gate antes do Drive**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem; só então os links do Drive são liberados. Opcionalmente informa o nome.
 - **Registro do aceite** (`POST /api/consent` → D1): no clique de download, um `navigator.sendBeacon` envia o aceite e o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. É **best-effort, não bloqueia** a entrega; sem D1 provisionado, é no-op.
-- **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **180 dias**. O admin exporta tudo em CSV pela aba Config.
+- **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
 > Os textos legais (escopo da autorização, retenção) são um rascunho razoável — recomenda-se revisão jurídica antes de produção.
 

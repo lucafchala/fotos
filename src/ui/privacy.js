@@ -89,7 +89,7 @@ export function privacyHTML() {
     <ul>
       <li><strong>Solicitações de remoção:</strong> mantidas enquanto necessárias para atender ao pedido e <strong>apagadas automaticamente em até 6 meses após a resolução</strong>.</li>
       <li><strong>Mensagens de suporte:</strong> não ficam armazenadas no sistema do site — são entregues por e-mail ao responsável.</li>
-      <li><strong>Registros de autorização de uso de imagem:</strong> mantidos como comprovação do consentimento e <strong>apagados automaticamente após 6 meses</strong>.</li>
+      <li><strong>Registros de autorização de uso de imagem:</strong> mantidos como comprovação do consentimento durante o prazo em que a autorização pode ser questionada e <strong>apagados automaticamente após 5 anos</strong>.</li>
     </ul>
 
     <h2>6. Seus direitos</h2>
