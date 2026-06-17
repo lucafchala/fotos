@@ -24,6 +24,7 @@ export default [
         clearTimeout: 'readonly',
         btoa: 'readonly',
         atob: 'readonly',
+        AbortSignal: 'readonly',
       },
     },
     rules: {

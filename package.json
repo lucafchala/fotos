@@ -11,6 +11,6 @@
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.0.0"
   }
 }
