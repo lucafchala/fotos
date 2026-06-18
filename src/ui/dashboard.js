@@ -522,6 +522,15 @@ export function dashboardHTML(events, categories = []) {
           </div>
         </div>
         <div class="field">
+          <label>Tipo de acesso</label>
+          <select id="f-access">
+            <option value="public" selected>Público</option>
+            <option value="private">Privado</option>
+            <option value="family">Familiar</option>
+          </select>
+          <div class="field-hint" style="margin-top:.5rem">Define a autodeclaração exigida no gateway antes de liberar o Drive. <strong>Público</strong>: só o aceite dos Termos. <strong>Privado/Familiar</strong>: o visitante também precisa declarar que é participante/autorizado ou membro da família.</div>
+        </div>
+        <div class="field">
           <label>Notas privadas <span style="color:#555">(só você vê)</span></label>
           <textarea id="f-notes" placeholder="Cliente, valor cobrado, observações, links de contrato…" rows="3"></textarea>
         </div>
@@ -711,6 +720,7 @@ export function dashboardHTML(events, categories = []) {
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       document.getElementById('f-status').value = e?.status || 'entregue';
+      document.getElementById('f-access').value = e?.accessType || 'public';
       document.getElementById('f-category').value = e?.category || '';
       document.getElementById('f-notes').value = e?.internalNotes || '';
       const alertActive = e?.photosAlert?.active === true;
@@ -874,6 +884,7 @@ export function dashboardHTML(events, categories = []) {
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
         status: document.getElementById('f-status').value,
+        accessType: document.getElementById('f-access').value,
         category: document.getElementById('f-category').value,
         internalNotes: document.getElementById('f-notes').value,
         photosAlert: (() => {

@@ -61,18 +61,17 @@ export function termsHTML() {
     <h2>2. O serviço</h2>
     <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e um link para a pasta no <strong>Google Drive</strong> onde as fotos podem ser visualizadas e baixadas pelas pessoas que participaram do evento. As fotos exibidas na própria página são apenas uma prévia; o material completo fica no Drive.</p>
 
-    <h2>3. Autorização de uso de imagem</h2>
+    <h2>3. Uso das imagens e Categorias de Acesso</h2>
     <div class="key">
-      <p>Ao marcar a caixa de aceite e acessar as fotos, você <strong>autoriza Luca Ferriani Chala a utilizar as imagens em que você aparece</strong>, captadas no evento correspondente, para as seguintes finalidades:</p>
+      <p>O acesso às galerias varia conforme a natureza do projeto:</p>
       <ul>
-        <li><strong>Entrega</strong> das fotos às pessoas que participaram do evento;</li>
-        <li><strong>Divulgação do trabalho do fotógrafo</strong> — portfólio, este site, redes sociais (por exemplo, Instagram) e materiais de apresentação profissional;</li>
-        <li><strong>Publicação editorial, jornalística, cultural, artística e educacional</strong> — por exemplo, jornais, revistas e publicações estudantis ou escolares (como o jornal do colégio), zines, livros, catálogos, exposições, mostras e concursos de fotografia e obras ou coletâneas coletivas.</li>
+        <li><strong>Projetos Familiares:</strong> Acesso restrito a membros da família (uso doméstico).</li>
+        <li><strong>Projetos Privados:</strong> Acesso restrito a participantes ou pessoas autorizadas. A entrega ocorre sob a base do legítimo interesse.</li>
+        <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita.</li>
       </ul>
-      <p>A autorização abrange a reprodução, a exibição, a publicação e a veiculação das imagens para essas finalidades <strong>em qualquer meio ou suporte</strong> — impresso, digital ou on-line, em plataformas e redes sociais hoje existentes ou que venham a existir —, é <strong>gratuita</strong>, vale para o <strong>Brasil e o exterior</strong> e vigora por <strong>prazo indeterminado</strong>.</p>
-      <p>Esta autorização <strong>não</strong> abrange a <strong>venda</strong> das imagens, o seu <strong>licenciamento para uso comercial de terceiros</strong> nem o seu uso em <strong>publicidade de produtos ou serviços de terceiros</strong> — esses usos dependeriam de uma autorização específica e separada. Você pode <strong>revogar</strong> esta autorização e pedir a remoção das suas fotos a qualquer momento (veja o item 7).</p>
+      <p>Como parte da dinâmica do trabalho, o fotógrafo realiza curadoria de imagens (exceto nas familiares) para portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
+      <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. A exclusão é imediata, gratuita e garantida.</p>
     </div>
-    <p>Esta autorização tem fundamento no art. 20 do Código Civil e no consentimento previsto na Lei nº 13.709/2018 (LGPD). Para sua segurança e como comprovação, o aceite é registrado com data, hora e dados técnicos do acesso, conforme a <a href="/privacidade">Política de Privacidade</a>.</p>
     <p><strong>Menores de idade.</strong> Se a foto retrata uma criança ou adolescente, o aceite deve ser dado pelos <strong>pais ou pelo responsável legal</strong>. Ao marcar a caixa de aceite, você declara ser maior de 18 anos e, quando autoriza o uso da imagem de um menor sob sua responsabilidade, que o faz na condição de responsável legal e no melhor interesse dele(a), conforme o art. 14 da LGPD. O consentimento relativo a menores também pode ser coletado junto à instituição contratante (escola/organização) no momento do evento. Pedidos de remoção envolvendo menores são tratados com <strong>prioridade</strong>.</p>
 
     <h2>4. Uso permitido das fotos</h2>

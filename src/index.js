@@ -9,7 +9,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  TERMS_VERSION, CONSENT_LABEL,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -351,6 +351,7 @@ async function handleCreateEvent(request, env) {
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
+    accessType: ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public',
     category: cats.includes(body.category) ? body.category : '',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
     pinned: body.pinned === true,
@@ -410,6 +411,9 @@ async function handleUpdateEvent(request, env, path) {
     status: body.status !== undefined
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
+    accessType: body.accessType !== undefined
+      ? (ACCESS_TYPES.includes(body.accessType) ? body.accessType : (existing.accessType || 'public'))
+      : (existing.accessType || 'public'),
     category: body.category !== undefined
       ? (cats.includes(body.category) ? body.category : (existing.category || ''))
       : (existing.category || ''),
@@ -919,10 +923,10 @@ async function getTermsHash() {
 }
 
 const CONSENT_COLS = [
-  'created_at', 'event_slug', 'event_title', 'drive_target', 'terms_version',
-  'terms_hash', 'consent_text', 'consenter_name', 'turnstile_ok', 'ip', 'country',
-  'region', 'city', 'timezone', 'asn', 'as_org', 'colo', 'user_agent',
-  'accept_language', 'referrer', 'page_url',
+  'created_at', 'event_slug', 'event_title', 'drive_target', 'access_type',
+  'terms_version', 'terms_hash', 'consent_text', 'declaration_text', 'consenter_name',
+  'turnstile_ok', 'ip', 'country', 'region', 'city', 'timezone', 'asn', 'as_org', 'colo',
+  'user_agent', 'accept_language', 'referrer', 'page_url',
 ];
 
 // Public, best-effort, non-blocking: record an image-use authorization at the
@@ -949,15 +953,21 @@ async function handleConsent(request, env, ctx) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
 
+  // The category the visitor accepted under, and the verbatim self-declaration they ticked
+  // (empty for 'public', which requires only the Terms acceptance).
+  const accessType = ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public';
+
   const vals = [
     generateId(),
     new Date().toISOString(),
     slug,
     (event?.title || '').slice(0, 200),
     ['full', 'instagram'].includes(body.driveTarget) ? body.driveTarget : 'full',
+    accessType,
     String(body.termsVersion || TERMS_VERSION).slice(0, 40),
     await getTermsHash(),
     String(body.consentText || CONSENT_LABEL).slice(0, 500),
+    String(body.declarationText || '').slice(0, 500) || null,
     String(body.name || '').trim().slice(0, 120) || null,
     turnstileOk,
     ip.slice(0, 64),
@@ -976,10 +986,10 @@ async function handleConsent(request, env, ctx) {
 
   const stmt = env.CONSENT_DB.prepare(
     `INSERT INTO image_use_consent
-       (id, created_at, event_slug, event_title, drive_target, terms_version, terms_hash,
-        consent_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+       (id, created_at, event_slug, event_title, drive_target, access_type, terms_version, terms_hash,
+        consent_text, declaration_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
         asn, as_org, colo, user_agent, accept_language, referrer, page_url)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(...vals);
   ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
 
