@@ -47,7 +47,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 17 de junho de 2026</p>
+    <p class="updated">Atualizada em 18 de junho de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -73,7 +73,7 @@ export function privacyHTML() {
     <p>Os trabalhos publicados aqui são <strong>encomendados pelos clientes</strong> (em geral eventos de escola e de família). As fotos são <strong>entregues às pessoas presentes no evento</strong> e <strong>não são vendidas a terceiros</strong>.</p>
     <p>Como os eventos costumam reunir muitas pessoas, <strong>não há contrato nem consentimento individual de cada retratado</strong>. A publicação das imagens se apoia no <strong>legítimo interesse</strong> (art. 7º, IX, da LGPD) para entregar o material aos participantes, sustentado pela transparência desta política e por um canal simples de remoção (veja o item 6).</p>
     <p>A relação com o cliente que encomenda o trabalho (e os dados de contato dele) baseia-se na <strong>execução de contrato</strong> (art. 7º, V).</p>
-    <p>Além disso, ao acessar as fotos de um evento, cada pessoa <strong>aceita os <a href="/termos">Termos de Uso</a> e autoriza expressamente o uso da sua imagem</strong> (consentimento — art. 7º, I, da LGPD — e art. 20 do Código Civil). Para quem faz esse aceite, o tratamento passa a se apoiar nesse <strong>consentimento</strong>, registrado como comprovação (veja o item 2). A autorização pode ser revogada a qualquer momento pelo canal de remoção.</p>
+    <p>Além disso, ao acessar as fotos de um evento, cada pessoa <strong>aceita os <a href="/termos">Termos de Uso</a> e autoriza expressamente o uso da sua imagem</strong> nas finalidades ali descritas — entrega aos participantes, divulgação do trabalho do fotógrafo (portfólio, site e redes sociais) e publicação editorial, cultural e educacional, como o jornal do colégio, sem caráter publicitário (consentimento — art. 7º, I, da LGPD — e art. 20 do Código Civil). Para quem faz esse aceite, o tratamento passa a se apoiar nesse <strong>consentimento</strong>, registrado como comprovação (veja o item 2). A autorização pode ser revogada a qualquer momento pelo canal de remoção.</p>
 
     <h2>4. Com quem os dados são compartilhados</h2>
     <p>Para funcionar, o site utiliza serviços de terceiros que podem processar dados:</p>
