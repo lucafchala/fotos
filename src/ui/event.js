@@ -117,16 +117,6 @@ export function eventHTML(event, analyticsToken) {
       .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:translateY(160%);transition:transform .25s ease}
       .sticky-cta.show{transform:translateY(0)}
     }
-    /* review button + modal */
-    .btn-review{background:#c0a060;color:#0a0a0a}
-    .btn-review:hover{background:#d4b070;transform:translateY(-2px)}
-    .btn-stars{letter-spacing:.18em;font-size:.95em}
-    .rev-modal-stars{display:flex;gap:.25rem;justify-content:center;margin:1rem 0 1.25rem}
-    .rev-star{background:none;border:none;font-size:2.25rem;color:#2a2a2a;cursor:pointer;padding:.15rem;line-height:1;transition:color .1s;-webkit-tap-highlight-color:transparent}
-    .rev-star.on{color:#c0a060}
-    .btn-rev-send{width:100%;background:#f0ebe5;color:#0a0a0a;border:none;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;margin-top:.75rem}
-    .btn-rev-send:disabled{opacity:.3;cursor:not-allowed}
-    .btn-rev-send:not(:disabled):hover{opacity:.88}
     .drive-note{font-size:.75rem;color:#555;margin-bottom:.875rem;line-height:1.5}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
@@ -224,7 +214,7 @@ export function eventHTML(event, analyticsToken) {
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
       .banner-dot{animation:none}
-      .btn-drive:hover,.btn-review:hover,.btn-drive-go:hover{transform:none}
+      .btn-drive:hover,.btn-drive-go:hover{transform:none}
     }
   </style>
 </head>
@@ -263,13 +253,6 @@ export function eventHTML(event, analyticsToken) {
             Acessar fotos
           </button>`}
     </div>
-
-    ${!event.comingSoon ? `<div class="drive-wrap" style="margin-top:-.5rem">
-      <button class="btn-drive btn-review" onclick="openRevModal()">
-        <span class="btn-stars">★★★★★</span>
-        Avaliar
-      </button>
-    </div>` : ''}
 
     <div class="credits">
       <div class="credits-title">Créditos</div>
@@ -455,32 +438,6 @@ export function eventHTML(event, analyticsToken) {
       </div>
     </div>
   </div>
-
-  <!-- REVIEW MODAL -->
-  ${!event.comingSoon ? `<div class="modal-ov" id="rev-modal" onclick="revOvClick(event)">
-    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Avaliar">
-      <div class="modal-head">
-        <h2>Avaliar</h2>
-        <button class="m-close" onclick="closeRevModal()" aria-label="Fechar">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="rev-modal-stars" id="rev-modal-stars">
-        ${[1,2,3,4,5].map(i => `<button class="rev-star" type="button" data-v="${i}" aria-label="${i} estrela${i>1?'s':''}">★</button>`).join('')}
-      </div>
-      <div id="rev-form-fields" style="display:none">
-        <div class="rem-field"><textarea id="rev-comment" placeholder="Comentário (opcional)…" style="resize:vertical;min-height:68px"></textarea></div>
-        <div class="rem-field"><input type="email" id="rev-email" placeholder="Seu e-mail" autocomplete="email"></div>
-      </div>
-      <div id="rev-turnstile" style="margin-top:.75rem"></div>
-      <div id="rev-error" class="form-error" style="display:none;margin-top:.75rem"></div>
-      <button type="button" id="rev-submit" class="btn-rev-send" disabled onclick="submitReview()">Enviar avaliação</button>
-      <div id="rev-done" class="rem-success" style="display:none">
-        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
-        Obrigado pelo feedback! ✓
-      </div>
-    </div>
-  </div>` : ''}
 
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
@@ -829,95 +786,10 @@ export function eventHTML(event, analyticsToken) {
       }
     }
 
-    // ---- Review modal ----
-    var revRating = 0;
-    var revWidgetId = null;
-    var revTsToken = '';
-
-    function revError(msg) {
-      var box = document.getElementById('rev-error');
-      if (box) { box.textContent = msg; box.style.display = ''; }
-    }
-    function openRevModal() {
-      lastFocused = document.activeElement;
-      revRating = 0;
-      highlightRevStars(0);
-      var err = document.getElementById('rev-error'); if (err) err.style.display = 'none';
-      var fields = document.getElementById('rev-form-fields');
-      var done = document.getElementById('rev-done');
-      if (fields) fields.style.display = 'none';
-      if (done) done.style.display = 'none';
-      document.getElementById('rev-modal').classList.add('open');
-      document.body.style.overflow = 'hidden';
-      updateStickyCta();
-      setTimeout(function() {
-        if (typeof turnstile === 'undefined') { revTsToken = 'skip'; return; }
-        if (revWidgetId !== null) { turnstile.reset(revWidgetId); return; }
-        revWidgetId = turnstile.render('#rev-turnstile', {
-          sitekey: TS_SITEKEY,
-          callback: function(t) { revTsToken = t; enableRevSubmit(); },
-          'error-callback': function() { revTsToken = ''; },
-          'expired-callback': function() { revTsToken = ''; },
-        });
-      }, 80);
-    }
-    function closeRevModal() {
-      document.getElementById('rev-modal').classList.remove('open');
-      document.body.style.overflow = '';
-      updateStickyCta();
-      if (lastFocused && lastFocused.focus) lastFocused.focus();
-    }
-    function revOvClick(e) { if (e.target === document.getElementById('rev-modal')) closeRevModal(); }
-    function highlightRevStars(n) {
-      document.querySelectorAll('.rev-star').forEach(function(s, i) { s.classList.toggle('on', i < n); });
-    }
-    function enableRevSubmit() {
-      var btn = document.getElementById('rev-submit');
-      if (btn) btn.disabled = !(revRating > 0);
-    }
-    (function initRevStars() {
-      var wrap = document.getElementById('rev-modal-stars');
-      if (!wrap) return;
-      wrap.addEventListener('mouseover', function(ev) {
-        var s = ev.target.closest('.rev-star');
-        if (s) highlightRevStars(parseInt(s.dataset.v));
-      });
-      wrap.addEventListener('mouseout', function() { highlightRevStars(revRating); });
-      wrap.addEventListener('click', function(ev) {
-        var s = ev.target.closest('.rev-star');
-        if (!s) return;
-        revRating = parseInt(s.dataset.v);
-        highlightRevStars(revRating);
-        var fields = document.getElementById('rev-form-fields');
-        if (fields) fields.style.display = '';
-        enableRevSubmit();
-      });
-    })();
-    async function submitReview() {
-      if (!revRating) return;
-      var btn = document.getElementById('rev-submit');
-      btn.disabled = true; btn.textContent = 'Enviando…';
-      try {
-        var r = await fetch('/api/review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slug: EVENT_SLUG, rating: revRating, comment: (document.getElementById('rev-comment').value || '').trim(), email: (document.getElementById('rev-email').value || '').trim(), turnstileToken: revTsToken }),
-        });
-        if (!r.ok) throw new Error();
-        document.getElementById('rev-form-fields').style.display = 'none';
-        document.getElementById('rev-done').style.display = 'block';
-        btn.style.display = 'none';
-      } catch(_) {
-        btn.disabled = false; btn.textContent = 'Enviar avaliação';
-        revError('Erro ao enviar. Tente novamente.');
-      }
-    }
-
     // ---- Global: Esc closes, Tab traps focus, arrows drive the carousel ----
     function closeAnyModal(open) {
       if (open.id === 'modal') closeModal();
       else if (open.id === 'rem-modal') closeRemModal();
-      else if (open.id === 'rev-modal') closeRevModal();
     }
     document.addEventListener('keydown', function(e) {
       var open = document.querySelector('.modal-ov.open');
