@@ -10,16 +10,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Apply pending D1 migrations before deploying, so the new columns exist when
+      # the new code starts writing. Pinned to wrangler v4 because the action's
+      # default (v3.90) is rejected by the D1 API as out-of-date. continue-on-error
+      # so a migration hiccup (e.g. token missing D1 Edit scope) never blocks the
+      # deploy itself — the consent INSERT is best-effort and degrades safely.
+      # Idempotent: wrangler skips migrations already recorded in d1_migrations.
+      - name: Apply D1 migrations
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.101.0'
+          command: d1 migrations apply fotos-consent --remote
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
-          # Apply pending D1 migrations before deploying so new columns exist when
-          # the new code starts writing. Idempotent — wrangler skips already-applied
-          # migrations (tracked in the d1_migrations table).
-          preCommands: npx wrangler d1 migrations apply fotos-consent --remote
 
       - name: Wait for global propagation
         run: sleep 20
