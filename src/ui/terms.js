@@ -72,6 +72,12 @@ export function termsHTML() {
       <p>Como parte da dinâmica do trabalho, o fotógrafo realiza curadoria de imagens (exceto nas familiares) para portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
       <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. A exclusão é imediata, gratuita e garantida.</p>
     </div>
+    <p><strong>Finalidades conforme a categoria:</strong></p>
+    <ul>
+      <li><strong>Familiar:</strong> as imagens destinam-se exclusivamente à entrega e ao uso doméstico da família — sem inclusão em portfólio, redes sociais ou publicações.</li>
+      <li><strong>Privado:</strong> entrega aos participantes e curadoria para o portfólio profissional do fotógrafo (site/redes) e publicações editoriais, com base no legítimo interesse, sem uso comercial/publicitário de terceiros.</li>
+      <li><strong>Público:</strong> entrega, portfólio e publicação editorial, jornalística, cultural, artística e educacional, sem uso comercial/publicitário de terceiros.</li>
+    </ul>
     <p><strong>Menores de idade.</strong> Se a foto retrata uma criança ou adolescente, o aceite deve ser dado pelos <strong>pais ou pelo responsável legal</strong>. Ao marcar a caixa de aceite, você declara ser maior de 18 anos e, quando autoriza o uso da imagem de um menor sob sua responsabilidade, que o faz na condição de responsável legal e no melhor interesse dele(a), conforme o art. 14 da LGPD. O consentimento relativo a menores também pode ser coletado junto à instituição contratante (escola/organização) no momento do evento. Pedidos de remoção envolvendo menores são tratados com <strong>prioridade</strong>.</p>
 
     <h2>4. Uso permitido das fotos</h2>

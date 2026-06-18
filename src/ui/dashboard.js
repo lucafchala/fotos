@@ -369,6 +369,12 @@ export function dashboardHTML(events, categories = []) {
       <div class="mass-apply">
         <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
         <button class="btn-sm" onclick="applyMassCategory()">Aplicar</button>
+        <select id="mass-access" aria-label="Tipo de acesso para aplicar">
+          <option value="public">Público</option>
+          <option value="private">Privado</option>
+          <option value="family">Familiar</option>
+        </select>
+        <button class="btn-sm" onclick="applyMassAccess()">Aplicar</button>
       </div>
     </div>
     <div class="evt-list" id="evt-list">${ssrList}</div>
@@ -1415,6 +1421,19 @@ export function dashboardHTML(events, categories = []) {
         toast(res.updated + ' evento' + (res.updated !== 1 ? 's' : '') + ' atualizado' + (res.updated !== 1 ? 's' : '') + '.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao aplicar categoria.', 'err');
+      }
+    }
+    async function applyMassAccess() {
+      if (selectedIds.size === 0) return toast('Selecione ao menos um evento.', 'err');
+      const accessType = document.getElementById('mass-access').value;
+      const ids = [...selectedIds];
+      try {
+        const res = await api('POST', '/api/events/bulk-access', { ids, accessType });
+        events.forEach(e => { if (selectedIds.has(e.id)) e.accessType = accessType; });
+        toggleMassMode(false);
+        toast(res.updated + ' evento' + (res.updated !== 1 ? 's' : '') + ' atualizado' + (res.updated !== 1 ? 's' : '') + '.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao aplicar tipo de acesso.', 'err');
       }
     }
 

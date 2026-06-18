@@ -15,6 +15,11 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          # Apply pending D1 migrations before deploying so new columns exist when
+          # the new code starts writing. Idempotent — wrangler skips already-applied
+          # migrations (tracked in the d1_migrations table).
+          preCommands: npx wrangler d1 migrations apply fotos-consent --remote
 
       - name: Wait for global propagation
         run: sleep 20

@@ -47,6 +47,7 @@ export default {
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
       if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
+      if (path === '/api/events/bulk-access' && method === 'POST') return handleBulkAccessType(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
@@ -543,6 +544,33 @@ async function handleBulkCategory(request, env) {
   }
   if (updated > 0) await saveEvents(env, events);
   return jsonOk({ updated, category });
+}
+
+async function handleBulkAccessType(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+  if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
+
+  const accessType = body.accessType;
+  if (!ACCESS_TYPES.includes(accessType)) return jsonErr('Tipo de acesso inválido.', 400);
+
+  const idSet = new Set(ids);
+  const events = await getEvents(env, true);
+  let updated = 0;
+  for (const e of events) {
+    if (idSet.has(e.id) && (e.accessType || 'public') !== accessType) {
+      e.accessType = accessType;
+      e.updatedAt = new Date().toISOString();
+      updated++;
+    }
+  }
+  if (updated > 0) await saveEvents(env, events);
+  return jsonOk({ updated, accessType });
 }
 
 // ---------------------------------------------------------------------------
