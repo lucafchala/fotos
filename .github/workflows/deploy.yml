@@ -8,7 +8,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Apply pending D1 migrations before deploying, so the new columns exist when
       # the new code starts writing. Pinned to wrangler v4 because the action's
