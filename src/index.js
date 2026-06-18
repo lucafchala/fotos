@@ -638,7 +638,7 @@ async function handleReview(request, env) {
   if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
 
   const key = `reviews_${slug}`;
-  let reviews = [];
+  let reviews;
   try { reviews = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { reviews = []; }
   reviews.push({
     id: generateId(),
@@ -865,7 +865,7 @@ async function handleResolveRequest(request, env, id) {
   const req = requests[idx];
 
   // Send "resolved" email to requester
-  let resolvedEmailStatus = null;
+  let resolvedEmailStatus;
   try {
     const sent = await sendResolvedEmail(env, req);
     resolvedEmailStatus = sent ? 'sent' : null;
@@ -1161,7 +1161,7 @@ async function getAllReviews(env) {
     const list = await env.FOTOS.list({ prefix: 'reviews_', cursor });
     for (const k of list.keys) {
       const slug = k.name.slice('reviews_'.length);
-      let arr = [];
+      let arr;
       try { arr = JSON.parse(await env.FOTOS.get(k.name) || '[]'); } catch { arr = []; }
       for (const r of arr) out.push({ slug, ...r });
     }
@@ -1265,7 +1265,7 @@ async function handleRestoreBackup(request, env) {
     for (const slug of Object.keys(bySlug)) {
       if (!validateSlug(slug)) continue;
       const key = `reviews_${slug}`;
-      let cur = [];
+      let cur;
       try { cur = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { cur = []; }
       const ids = new Set(cur.map(x => x.id));
       for (const rv of bySlug[slug]) {
