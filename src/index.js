@@ -9,7 +9,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  TERMS_VERSION, CONSENT_LABEL,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -47,6 +47,7 @@ export default {
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
       if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
+      if (path === '/api/events/bulk-access' && method === 'POST') return handleBulkAccessType(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
@@ -351,6 +352,7 @@ async function handleCreateEvent(request, env) {
     visible: body.visible !== false,
     comingSoon: body.comingSoon === true,
     status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
+    accessType: ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public',
     category: cats.includes(body.category) ? body.category : '',
     internalNotes: String(body.internalNotes || '').slice(0, 5000),
     pinned: body.pinned === true,
@@ -410,6 +412,9 @@ async function handleUpdateEvent(request, env, path) {
     status: body.status !== undefined
       ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
       : (existing.status || 'entregue'),
+    accessType: body.accessType !== undefined
+      ? (ACCESS_TYPES.includes(body.accessType) ? body.accessType : (existing.accessType || 'public'))
+      : (existing.accessType || 'public'),
     category: body.category !== undefined
       ? (cats.includes(body.category) ? body.category : (existing.category || ''))
       : (existing.category || ''),
@@ -539,6 +544,33 @@ async function handleBulkCategory(request, env) {
   }
   if (updated > 0) await saveEvents(env, events);
   return jsonOk({ updated, category });
+}
+
+async function handleBulkAccessType(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  let body;
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+
+  const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+  if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
+
+  const accessType = body.accessType;
+  if (!ACCESS_TYPES.includes(accessType)) return jsonErr('Tipo de acesso inválido.', 400);
+
+  const idSet = new Set(ids);
+  const events = await getEvents(env, true);
+  let updated = 0;
+  for (const e of events) {
+    if (idSet.has(e.id) && (e.accessType || 'public') !== accessType) {
+      e.accessType = accessType;
+      e.updatedAt = new Date().toISOString();
+      updated++;
+    }
+  }
+  if (updated > 0) await saveEvents(env, events);
+  return jsonOk({ updated, accessType });
 }
 
 // ---------------------------------------------------------------------------
@@ -919,10 +951,10 @@ async function getTermsHash() {
 }
 
 const CONSENT_COLS = [
-  'created_at', 'event_slug', 'event_title', 'drive_target', 'terms_version',
-  'terms_hash', 'consent_text', 'consenter_name', 'turnstile_ok', 'ip', 'country',
-  'region', 'city', 'timezone', 'asn', 'as_org', 'colo', 'user_agent',
-  'accept_language', 'referrer', 'page_url',
+  'created_at', 'event_slug', 'event_title', 'drive_target', 'access_type',
+  'terms_version', 'terms_hash', 'consent_text', 'declaration_text', 'consenter_name',
+  'turnstile_ok', 'ip', 'country', 'region', 'city', 'timezone', 'asn', 'as_org', 'colo',
+  'user_agent', 'accept_language', 'referrer', 'page_url',
 ];
 
 // Public, best-effort, non-blocking: record an image-use authorization at the
@@ -949,15 +981,21 @@ async function handleConsent(request, env, ctx) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
 
+  // The category the visitor accepted under, and the verbatim self-declaration they ticked
+  // (empty for 'public', which requires only the Terms acceptance).
+  const accessType = ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public';
+
   const vals = [
     generateId(),
     new Date().toISOString(),
     slug,
     (event?.title || '').slice(0, 200),
     ['full', 'instagram'].includes(body.driveTarget) ? body.driveTarget : 'full',
+    accessType,
     String(body.termsVersion || TERMS_VERSION).slice(0, 40),
     await getTermsHash(),
     String(body.consentText || CONSENT_LABEL).slice(0, 500),
+    String(body.declarationText || '').slice(0, 500) || null,
     String(body.name || '').trim().slice(0, 120) || null,
     turnstileOk,
     ip.slice(0, 64),
@@ -976,10 +1014,10 @@ async function handleConsent(request, env, ctx) {
 
   const stmt = env.CONSENT_DB.prepare(
     `INSERT INTO image_use_consent
-       (id, created_at, event_slug, event_title, drive_target, terms_version, terms_hash,
-        consent_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+       (id, created_at, event_slug, event_title, drive_target, access_type, terms_version, terms_hash,
+        consent_text, declaration_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
         asn, as_org, colo, user_agent, accept_language, referrer, page_url)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(...vals);
   ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
 

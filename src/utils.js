@@ -14,6 +14,20 @@ export const TERMS_VERSION = '2026-06-18';
 // with each consent record (the client echoes it back) for non-repudiation.
 export const CONSENT_LABEL = 'Li e aceito os Termos de Uso e autorizo o uso da minha imagem conforme descrito neles.';
 
+// Access categories for a project. Drives which self-declaration the gateway requires
+// before unlocking the Drive link, and is recorded with each consent. 'public' is the
+// default for legacy events with no accessType set.
+export const ACCESS_TYPES = ['public', 'private', 'family'];
+
+// Per-category self-declarations the visitor must additionally tick (on top of the Terms)
+// before the Drive link unlocks, for 'family' and 'private' projects. Stored verbatim with
+// each consent record for non-repudiation — the canonical source, like CONSENT_LABEL.
+// 'public' has no extra declaration (Terms acceptance only).
+export const ACCESS_DECLARATIONS = {
+  family:  'Declaro ser membro da família e reconheço que estas imagens são de uso estritamente particular e doméstico.',
+  private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
+};
+
 // fresh=true bypasses the isolate-local cache — required on admin reads and
 // any read-modify-write, where 30 s of staleness could clobber another
 // isolate's recent save.

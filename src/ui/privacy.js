@@ -60,7 +60,7 @@ export function privacyHTML() {
     <ul>
       <li><strong>Solicitação de remoção de foto:</strong> e-mail, telefone, mensagem (opcional) e, se você escolher enviar, a própria foto identificada.</li>
       <li><strong>Formulário de suporte:</strong> nome (opcional), e-mail (opcional) e a mensagem.</li>
-      <li><strong>Registro de autorização de uso de imagem:</strong> ao acessar as fotos de um evento, registramos o seu aceite dos <a href="/termos">Termos de Uso</a> com data e hora, o evento, a versão dos Termos aceita e dados técnicos do acesso (endereço IP, localização aproximada, provedor, navegador/dispositivo, idioma e verificação anti-robô) — e o seu nome, caso você opte por informá-lo. Esses dados servem como <strong>comprovação do consentimento</strong> e não são usados para outra finalidade.</li>
+      <li><strong>Registro de autorização de uso de imagem:</strong> ao acessar as fotos de um evento, registramos o seu aceite dos <a href="/termos">Termos de Uso</a> com data e hora, o evento, a versão dos Termos aceita, a <strong>categoria de acesso do projeto</strong> (público, privado ou familiar) e a <strong>autodeclaração</strong> eventualmente aceita (de participação ou de vínculo familiar), além de dados técnicos do acesso (endereço IP, localização aproximada, provedor, navegador/dispositivo, idioma e verificação anti-robô) — e o seu nome, caso você opte por informá-lo. Esses dados servem como <strong>comprovação do consentimento</strong> e não são usados para outra finalidade.</li>
     </ul>
     <p>Além disso, são usados cookies e medição estritamente funcionais:</p>
     <ul>
@@ -70,10 +70,13 @@ export function privacyHTML() {
     </ul>
 
     <h2>3. As fotos dos eventos</h2>
-    <p>Os trabalhos publicados aqui são <strong>encomendados pelos clientes</strong> (em geral eventos de escola e de família). As fotos são <strong>entregues às pessoas presentes no evento</strong> e <strong>não são vendidas a terceiros</strong>.</p>
-    <p>Como os eventos costumam reunir muitas pessoas, <strong>não há contrato nem consentimento individual de cada retratado</strong>. A publicação das imagens se apoia no <strong>legítimo interesse</strong> (art. 7º, IX, da LGPD) para entregar o material aos participantes, sustentado pela transparência desta política e por um canal simples de remoção (veja o item 6).</p>
-    <p>A relação com o cliente que encomenda o trabalho (e os dados de contato dele) baseia-se na <strong>execução de contrato</strong> (art. 7º, V).</p>
-    <p>Além disso, ao acessar as fotos de um evento, cada pessoa <strong>aceita os <a href="/termos">Termos de Uso</a> e autoriza expressamente o uso da sua imagem</strong> nas finalidades ali descritas — entrega aos participantes, divulgação do trabalho do fotógrafo (portfólio, site e redes sociais) e publicação editorial, jornalística, cultural, artística e educacional (como o jornal do colégio), em qualquer meio, sem uso comercial nem publicitário de terceiros (consentimento — art. 7º, I, da LGPD — e art. 20 do Código Civil). Para quem faz esse aceite, o tratamento passa a se apoiar nesse <strong>consentimento</strong>, registrado como comprovação (veja o item 2). A autorização pode ser revogada a qualquer momento pelo canal de remoção.</p>
+    <p>O tratamento dos dados e imagens obedece à natureza de cada projeto:</p>
+    <ul>
+      <li><strong>Projetos Familiares:</strong> Conforme o <strong>art. 4º, I, da LGPD</strong>, o tratamento realizado para fins estritamente particulares e não econômicos é isento da aplicação da lei. Protegemos o acesso para garantir a privacidade da família.</li>
+      <li><strong>Projetos Privados:</strong> A publicação nas galerias apoia-se no <strong>legítimo interesse</strong> (art. 7º, IX, da LGPD) para entregar o material aos participantes, sustentado pela autodeclaração de participação no acesso.</li>
+      <li><strong>Projetos Públicos:</strong> Envolvem fotografias sem expectativa de privacidade de terceiros, preservando os direitos autorais.</li>
+    </ul>
+    <p>Para uso em portfólio, a exibição segue o legítimo interesse. Qualquer pessoa retratada pode exercer seu direito de oposição solicitando a remoção da imagem pelo canal facilitado no rodapé do evento.</p>
 
     <h2>4. Com quem os dados são compartilhados</h2>
     <p>Para funcionar, o site utiliza serviços de terceiros que podem processar dados:</p>

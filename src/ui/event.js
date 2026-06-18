@@ -1,8 +1,11 @@
-import { escape, formatDatePT, sizedDriveThumb, TERMS_VERSION, CONSENT_LABEL } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, TERMS_VERSION, CONSENT_LABEL, ACCESS_DECLARATIONS } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
 export function eventHTML(event, analyticsToken) {
+  // Category-specific self-declaration required at the gateway, on top of the Terms
+  // acceptance. Empty for 'public' (and any legacy event without accessType).
+  const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
@@ -347,6 +350,10 @@ export function eventHTML(event, analyticsToken) {
       <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
       <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar o acesso ao Drive. Recarregue a página e tente novamente.</div>
       <div id="drive-gate" style="display:none">
+        ${declaration ? `<label class="drive-consent">
+          <input type="checkbox" id="drive-declaration" onchange="onDriveConsent()">
+          <span>${escape(declaration)}</span>
+        </label>` : ''}
         <label class="drive-consent">
           <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
           <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e autorizo o uso da minha imagem conforme descrito neles.</span>
@@ -497,6 +504,8 @@ export function eventHTML(event, analyticsToken) {
     const ALERT_EXPIRES  = ${alertExpiresJSON};
     const TERMS_VERSION  = ${JSON.stringify(TERMS_VERSION)};
     const CONSENT_LABEL  = ${JSON.stringify(CONSENT_LABEL)};
+    const ACCESS_TYPE       = ${JSON.stringify(event.accessType || 'public')};
+    const DECLARATION_LABEL = ${JSON.stringify(declaration)};
 
     let lastFocused = null;
 
@@ -553,6 +562,8 @@ export function eventHTML(event, analyticsToken) {
       driveGateShown = false;
       const consent = document.getElementById('drive-consent');
       if (consent) consent.checked = false;
+      const declaration = document.getElementById('drive-declaration');
+      if (declaration) declaration.checked = false;
       const nameWrap = document.getElementById('drive-name-wrap');
       if (nameWrap) nameWrap.style.display = 'none';
       const nameToggle = document.getElementById('drive-name-toggle');
@@ -606,22 +617,27 @@ export function eventHTML(event, analyticsToken) {
       const e = document.getElementById('drive-verify-error'); if (e) e.style.display = '';
     }
     function onDriveConsent() { updateDriveLock(); }
-    // Drive links unlock only when BOTH the Terms are accepted AND Turnstile passed.
+    // Drive links unlock only when the Terms are accepted, the category self-declaration
+    // (when present) is accepted, AND Turnstile passed.
     function updateDriveLock() {
       const c = document.getElementById('drive-consent');
+      const decl = document.getElementById('drive-declaration');
       const wrap = document.getElementById('drive-links-wrap');
       const hint = document.getElementById('drive-gate-hint');
       const consentOk = !!(c && c.checked);
+      const declOk = !decl || decl.checked; // no declaration for this project → satisfied
+      const acceptOk = consentOk && declOk;
       const tsOk = driveTsToken !== '';
-      const ok = consentOk && tsOk;
+      const ok = acceptOk && tsOk;
       if (wrap) wrap.classList.toggle('drive-locked', !ok);
       if (hint) {
         hint.style.display = ok ? 'none' : '';
         if (!ok) {
+          const acceptText = decl ? 'a declaração e os Termos' : 'os Termos';
           hint.textContent = !tsOk
-            ? (consentOk ? 'Conclua a verificação de segurança acima para liberar o download.'
-                         : 'Conclua a verificação de segurança e aceite os Termos.')
-            : 'Aceite os Termos para liberar o download.';
+            ? (acceptOk ? 'Conclua a verificação de segurança acima para liberar o download.'
+                        : 'Conclua a verificação de segurança e aceite ' + acceptText + '.')
+            : 'Aceite ' + acceptText + ' para liberar o download.';
         }
       }
       if (ok) { const p = document.getElementById('drive-link'); if (p) p.focus(); }
@@ -655,8 +671,10 @@ export function eventHTML(event, analyticsToken) {
         const payload = JSON.stringify({
           slug: EVENT_SLUG,
           driveTarget: target,
+          accessType: ACCESS_TYPE,
           termsVersion: TERMS_VERSION,
           consentText: CONSENT_LABEL,
+          declarationText: DECLARATION_LABEL,
           name: nameEl ? nameEl.value : '',
           turnstileToken: driveTsToken,
           pageUrl: location.href,

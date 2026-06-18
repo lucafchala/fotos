@@ -369,6 +369,12 @@ export function dashboardHTML(events, categories = []) {
       <div class="mass-apply">
         <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
         <button class="btn-sm" onclick="applyMassCategory()">Aplicar</button>
+        <select id="mass-access" aria-label="Tipo de acesso para aplicar">
+          <option value="public">Público</option>
+          <option value="private">Privado</option>
+          <option value="family">Familiar</option>
+        </select>
+        <button class="btn-sm" onclick="applyMassAccess()">Aplicar</button>
       </div>
     </div>
     <div class="evt-list" id="evt-list">${ssrList}</div>
@@ -520,6 +526,15 @@ export function dashboardHTML(events, categories = []) {
             <label>Categoria <span style="color:#555">(opcional)</span></label>
             <select id="f-category">${catOptionsSSR}</select>
           </div>
+        </div>
+        <div class="field">
+          <label>Tipo de acesso</label>
+          <select id="f-access">
+            <option value="public" selected>Público</option>
+            <option value="private">Privado</option>
+            <option value="family">Familiar</option>
+          </select>
+          <div class="field-hint" style="margin-top:.5rem">Define a autodeclaração exigida no gateway antes de liberar o Drive. <strong>Público</strong>: só o aceite dos Termos. <strong>Privado/Familiar</strong>: o visitante também precisa declarar que é participante/autorizado ou membro da família.</div>
         </div>
         <div class="field">
           <label>Notas privadas <span style="color:#555">(só você vê)</span></label>
@@ -711,6 +726,7 @@ export function dashboardHTML(events, categories = []) {
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       document.getElementById('f-status').value = e?.status || 'entregue';
+      document.getElementById('f-access').value = e?.accessType || 'public';
       document.getElementById('f-category').value = e?.category || '';
       document.getElementById('f-notes').value = e?.internalNotes || '';
       const alertActive = e?.photosAlert?.active === true;
@@ -874,6 +890,7 @@ export function dashboardHTML(events, categories = []) {
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
         status: document.getElementById('f-status').value,
+        accessType: document.getElementById('f-access').value,
         category: document.getElementById('f-category').value,
         internalNotes: document.getElementById('f-notes').value,
         photosAlert: (() => {
@@ -1404,6 +1421,19 @@ export function dashboardHTML(events, categories = []) {
         toast(res.updated + ' evento' + (res.updated !== 1 ? 's' : '') + ' atualizado' + (res.updated !== 1 ? 's' : '') + '.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao aplicar categoria.', 'err');
+      }
+    }
+    async function applyMassAccess() {
+      if (selectedIds.size === 0) return toast('Selecione ao menos um evento.', 'err');
+      const accessType = document.getElementById('mass-access').value;
+      const ids = [...selectedIds];
+      try {
+        const res = await api('POST', '/api/events/bulk-access', { ids, accessType });
+        events.forEach(e => { if (selectedIds.has(e.id)) e.accessType = accessType; });
+        toggleMassMode(false);
+        toast(res.updated + ' evento' + (res.updated !== 1 ? 's' : '') + ' atualizado' + (res.updated !== 1 ? 's' : '') + '.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao aplicar tipo de acesso.', 'err');
       }
     }
 
