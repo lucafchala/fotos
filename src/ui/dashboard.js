@@ -1,4 +1,4 @@
-import { sortEvents } from '../utils.js';
+import { sortEvents, escape } from '../utils.js';
 
 const BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -77,7 +77,7 @@ export function dashboardHTML(events, categories = []) {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
-  const esc = s => !s ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
   const catOptionsSSR = ['<option value="">Sem categoria</option>']
     .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
   const sorted = sortEvents(events);
@@ -1450,9 +1450,12 @@ export function dashboardHTML(events, categories = []) {
     }
 
     // ---- Escape ----
+    // Mirror of the canonical 5-char escaper (utils.js). Defined locally because
+    // this runs in the browser, where the module import is not available. Must
+    // also escape ' since client-rendered values land in single-quoted attributes.
     function esc(s) {
       if (!s) return '';
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 
     // ---- Toast ----
