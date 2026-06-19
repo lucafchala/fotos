@@ -793,7 +793,12 @@ async function handleRemovalRequest(request, env) {
   const requests = stored.filter(r => r.resolved
     ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
     : true);
-  requests.push({ ...req, fileBase64: null });
+  // Hold a reference to the new record: the MAX_REQUESTS trim below reorders the
+  // array, so we can't rely on it staying last. The trim always keeps it (it's
+  // unresolved), and writing email statuses onto this reference persists because
+  // the same object is still inside `requests` when re-serialized.
+  const newReq = { ...req, fileBase64: null };
+  requests.push(newReq);
 
   const MAX_REQUESTS = 500;
   if (requests.length > MAX_REQUESTS) {
@@ -809,17 +814,17 @@ async function handleRemovalRequest(request, env) {
   // Send notification to admin
   try {
     const sent = await sendRemovalEmail(env, req);
-    requests[requests.length - 1].emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
+    newReq.emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
   } catch (err) {
-    requests[requests.length - 1].emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
   }
 
   // Send confirmation to requester
   try {
     const sent = await sendConfirmationEmail(env, req);
-    requests[requests.length - 1].confirmEmailStatus = sent ? 'sent' : null;
+    newReq.confirmEmailStatus = sent ? 'sent' : null;
   } catch (err) {
-    requests[requests.length - 1].confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
   }
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
@@ -1036,7 +1041,8 @@ async function handleConsentExport(request, env) {
   return csvResponse(`consentimentos-${date}.csv`, CONSENT_COLS, results || []);
 }
 
-// Retention: delete consent rows older than the window (6 months). Runs in the daily cron.
+// Retention: delete consent rows older than the window (~5 years, see
+// CONSENT_RETENTION_DAYS). Runs in the daily cron.
 async function pruneOldConsent(env) {
   if (!env.CONSENT_DB) return;
   const cutoff = new Date(Date.now() - CONSENT_RETENTION_DAYS * 86400_000).toISOString();
