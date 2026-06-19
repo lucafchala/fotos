@@ -320,6 +320,69 @@ async function handleLogout(request, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Event field normalization (shared by create + update)
+// ---------------------------------------------------------------------------
+const EVENT_STATUSES = ['em-edicao', 'em-revisao', 'entregue', 'arquivado'];
+
+// Fallback values for a brand-new event and for any field a legacy event is
+// missing. Create passes this as the base; update passes the existing event.
+export const DEFAULT_EVENT = {
+  title: '', shortDescription: '', longDescription: '',
+  driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
+  projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
+  accessType: 'public', category: '', internalNotes: '', pinned: false,
+  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+};
+
+// Fill any field absent (undefined/null) on an existing event with the default,
+// so the normalizer's fallbacks are always well-defined for legacy records.
+function withEventDefaults(ev) {
+  const out = { ...DEFAULT_EVENT };
+  for (const k of Object.keys(DEFAULT_EVENT)) {
+    if (ev[k] !== undefined && ev[k] !== null) out[k] = ev[k];
+  }
+  return out;
+}
+
+function normalizePhotosAlert(pa, fallback) {
+  return pa && typeof pa === 'object'
+    ? { active: pa.active === true, addedAt: pa.addedAt || null, expiresAfterHours: parseInt(pa.expiresAfterHours) || 0 }
+    : fallback;
+}
+
+// Normalize the scalar/flag fields common to create and update. A field present
+// in `body` is sanitized; an absent one falls back to `base` (DEFAULT_EVENT on
+// create, the existing event on update). Callers handle id/slug/photos/
+// thumbnail/timestamps separately. `cats` is the list of valid categories.
+export function normalizeEventFields(body, base, cats) {
+  const b = withEventDefaults(base);
+  const pick = (key, norm) => (body[key] !== undefined ? norm(body[key]) : b[key]);
+  return {
+    title: pick('title', v => String(v).slice(0, 200)),
+    shortDescription: pick('shortDescription', v => String(v).slice(0, 300)),
+    longDescription: pick('longDescription', v => String(v).slice(0, 5000)),
+    driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, 500))),
+    driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
+    eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
+    projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    visible: pick('visible', v => v !== false),
+    comingSoon: pick('comingSoon', v => v === true),
+    status: pick('status', v => (EVENT_STATUSES.includes(v) ? v : b.status)),
+    accessType: pick('accessType', v => (ACCESS_TYPES.includes(v) ? v : b.accessType)),
+    category: pick('category', v => (cats.includes(v) ? v : b.category)),
+    internalNotes: pick('internalNotes', v => String(v).slice(0, 5000)),
+    pinned: pick('pinned', v => v === true),
+    photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
+  };
+}
+
+// Map a photos array to sanitized https URLs (max 6). Shared by create + update.
+function normalizePhotos(arr) {
+  return arr.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
 // API: Create event
 // ---------------------------------------------------------------------------
 async function handleCreateEvent(request, env) {
@@ -339,34 +402,15 @@ async function handleCreateEvent(request, env) {
   const cats = await getCategories(env);
 
   const photos = Array.isArray(body.photos)
-    ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
+    ? normalizePhotos(body.photos)
     : (body.thumbnailUrl ? [toHttps(String(body.thumbnailUrl).slice(0, 500))] : []);
 
   const event = {
     id: generateId(),
     slug,
-    title: String(title).slice(0, 200),
-    shortDescription: String(body.shortDescription || '').slice(0, 300),
-    longDescription: String(body.longDescription || '').slice(0, 5000),
+    ...normalizeEventFields(body, DEFAULT_EVENT, cats),
     photos,
     thumbnailUrl: photos[0] || '',
-    driveUrl: toHttps(String(driveUrl).slice(0, 500)),
-    driveUrlInstagram: body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '',
-    date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
-    eventCredits: String(body.eventCredits || '').slice(0, 200),
-    projectUrl: body.projectUrl ? toHttps(String(body.projectUrl).slice(0, 500)) : '',
-    visible: body.visible !== false,
-    comingSoon: body.comingSoon === true,
-    status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
-    accessType: ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public',
-    category: cats.includes(body.category) ? body.category : '',
-    internalNotes: String(body.internalNotes || '').slice(0, 5000),
-    pinned: body.pinned === true,
-    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
-      active: body.photosAlert.active === true,
-      addedAt: body.photosAlert.addedAt || null,
-      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
-    } : { active: false, addedAt: null, expiresAfterHours: 24 },
     createdAt: new Date().toISOString(),
   };
 
@@ -393,44 +437,15 @@ async function handleUpdateEvent(request, env, path) {
   const existing = events[idx];
   const cats = await getCategories(env);
 
-  const newPhotos = body.photos !== undefined
-    ? (Array.isArray(body.photos)
-        ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
-        : (existing.photos || []))
+  const newPhotos = body.photos !== undefined && Array.isArray(body.photos)
+    ? normalizePhotos(body.photos)
     : (existing.photos || []);
 
   const updated = {
     ...existing,
-    title: body.title !== undefined ? String(body.title).slice(0, 200) : existing.title,
-    shortDescription: body.shortDescription !== undefined ? String(body.shortDescription).slice(0, 300) : existing.shortDescription,
-    longDescription: body.longDescription !== undefined ? String(body.longDescription).slice(0, 5000) : existing.longDescription,
+    ...normalizeEventFields(body, existing, cats),
     photos: newPhotos,
     thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
-    driveUrl: body.driveUrl !== undefined ? toHttps(String(body.driveUrl).slice(0, 500)) : existing.driveUrl,
-    driveUrlInstagram: body.driveUrlInstagram !== undefined
-      ? (body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '')
-      : (existing.driveUrlInstagram || ''),
-    date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
-    eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
-    projectUrl: body.projectUrl !== undefined ? toHttps(String(body.projectUrl).slice(0, 500)) : existing.projectUrl,
-    visible: body.visible !== undefined ? body.visible !== false : existing.visible,
-    comingSoon: body.comingSoon !== undefined ? body.comingSoon === true : (existing.comingSoon === true),
-    status: body.status !== undefined
-      ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
-      : (existing.status || 'entregue'),
-    accessType: body.accessType !== undefined
-      ? (ACCESS_TYPES.includes(body.accessType) ? body.accessType : (existing.accessType || 'public'))
-      : (existing.accessType || 'public'),
-    category: body.category !== undefined
-      ? (cats.includes(body.category) ? body.category : (existing.category || ''))
-      : (existing.category || ''),
-    internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
-    pinned: body.pinned !== undefined ? body.pinned === true : (existing.pinned === true),
-    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
-      active: body.photosAlert.active === true,
-      addedAt: body.photosAlert.addedAt || null,
-      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
-    } : (existing.photosAlert || { active: false, addedAt: null, expiresAfterHours: 24 }),
     updatedAt: new Date().toISOString(),
   };
 
