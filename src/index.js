@@ -9,6 +9,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
+  toHttps, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES,
 } from './utils.js';
 
@@ -801,13 +802,7 @@ async function handleRemovalRequest(request, env) {
   requests.push(newReq);
 
   const MAX_REQUESTS = 500;
-  if (requests.length > MAX_REQUESTS) {
-    const unresolved = requests.filter(r => !r.resolved);
-    const resolved = requests.filter(r => r.resolved)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, MAX_REQUESTS - unresolved.length);
-    requests.splice(0, requests.length, ...unresolved, ...resolved);
-  }
+  trimRequests(requests, MAX_REQUESTS);
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
@@ -830,6 +825,20 @@ async function handleRemovalRequest(request, env) {
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   return jsonOk({ ok: true });
+}
+
+// Cap stored removal requests: keep every unresolved request, plus the most
+// recent resolved ones up to `max`. Mutates `requests` in place (and returns
+// it). Unresolved records are always retained — the email-status write in
+// handleRemovalRequest relies on the freshly-pushed request surviving this.
+export function trimRequests(requests, max) {
+  if (requests.length <= max) return requests;
+  const unresolved = requests.filter(r => !r.resolved);
+  const resolved = requests.filter(r => r.resolved)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, Math.max(0, max - unresolved.length));
+  requests.splice(0, requests.length, ...unresolved, ...resolved);
+  return requests;
 }
 
 async function getRemovalRequests(env) {
@@ -926,20 +935,6 @@ async function verifyTurnstile(token, env) {
   } catch {
     return false;
   }
-}
-
-// Sniff magic bytes from the start of a base64 payload to confirm it's an image
-// (not an arbitrary blob smuggled through the removal-upload field).
-function isLikelyImage(b64) {
-  let head;
-  try { head = atob(b64.slice(0, 32)); } catch { return false; }
-  const byte = i => head.charCodeAt(i);
-  if (byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF) return true;                         // JPEG
-  if (byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47) return true;     // PNG
-  if (head.slice(0, 4) === 'GIF8') return true;                                                      // GIF
-  if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return true;                      // WebP
-  if (head.slice(4, 8) === 'ftyp' && /heic|heif|heix|hevc|mif1|avif/.test(head.slice(8, 20))) return true; // HEIC/AVIF
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,12 +1053,6 @@ async function checkAuth(request, env) {
   return null;
 }
 
-function toHttps(url) {
-  const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
-  // href/src are script-executing sinks — drop javascript:/data:/anything non-https
-  return /^https:\/\//i.test(u) ? u : '';
-}
-
 function html(content, status = 200) {
   return new Response(content, {
     status,
@@ -1104,26 +1093,6 @@ function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
-  });
-}
-
-// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
-function csvCell(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-
-function csvResponse(filename, cols, rows) {
-  const head = cols.map(csvCell).join(',');
-  const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
-  // Leading BOM so Excel opens UTF-8 (accents) correctly.
-  const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
-  return new Response(csv, {
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
   });
 }
 
@@ -1186,7 +1155,7 @@ async function handleGetReviews(request, env) {
 // ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
-function buildBackup({ events, categories, reviews, removalRequests }) {
+export function buildBackup({ events, categories, reviews, removalRequests }) {
   return JSON.stringify({
     version: 2,
     backupAt: new Date().toISOString(),
@@ -1198,7 +1167,7 @@ function buildBackup({ events, categories, reviews, removalRequests }) {
   });
 }
 
-function mergeRestore(current, backupEvents) {
+export function mergeRestore(current, backupEvents) {
   const result = [...current];
   let added = 0, updated = 0;
   for (const bEv of backupEvents) {

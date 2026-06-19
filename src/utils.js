@@ -199,6 +199,47 @@ export function sizedDriveThumb(url, width) {
   return m ? `${m[1]}=w${width}` : url;
 }
 
+// Coerce a URL to https and reject script-executing schemes. href/src are
+// script sinks — drop javascript:/data:/anything non-https.
+export function toHttps(url) {
+  const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
+  return /^https:\/\//i.test(u) ? u : '';
+}
+
+// Sniff magic bytes from the start of a base64 payload to confirm it's an image
+// (not an arbitrary blob smuggled through the removal-upload field).
+export function isLikelyImage(b64) {
+  let head;
+  try { head = atob(b64.slice(0, 32)); } catch { return false; }
+  const byte = i => head.charCodeAt(i);
+  if (byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF) return true;                         // JPEG
+  if (byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47) return true;     // PNG
+  if (head.slice(0, 4) === 'GIF8') return true;                                                      // GIF
+  if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return true;                      // WebP
+  if (head.slice(4, 8) === 'ftyp' && /heic|heif|heix|hevc|mif1|avif/.test(head.slice(8, 20))) return true; // HEIC/AVIF
+  return false;
+}
+
+// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
+export function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+export function csvResponse(filename, cols, rows) {
+  const head = cols.map(csvCell).join(',');
+  const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
+  // Leading BOM so Excel opens UTF-8 (accents) correctly.
+  const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  });
+}
+
 
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
