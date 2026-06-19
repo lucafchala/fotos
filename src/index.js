@@ -4,6 +4,7 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
+import { aboutHTML } from './ui/about.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -74,6 +75,9 @@ export default {
       // Terms of use
       if (path === '/termos' && method === 'GET') return html(termsHTML());
 
+      // About
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML());
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
@@ -126,6 +130,7 @@ async function handleSitemap(env) {
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
+    `  <url><loc>${SITE_URL}/sobre</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
