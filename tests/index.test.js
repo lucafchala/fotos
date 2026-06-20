@@ -33,14 +33,13 @@ describe('buildBackup', () => {
     const out = JSON.parse(buildBackup({
       events: [{ id: 'a' }, { id: 'b' }],
       categories: ['Casamento'],
-      reviews: [{ id: 'r1' }],
       removalRequests: [{ id: 'q1' }],
     }));
     expect(out.version).toBe(2);
     expect(out.eventCount).toBe(2);
     expect(out.categories).toEqual(['Casamento']);
-    expect(out.reviews).toHaveLength(1);
     expect(out.removalRequests).toHaveLength(1);
+    expect(out.reviews).toBeUndefined(); // review feature removed
     expect(typeof out.backupAt).toBe('string');
   });
 });

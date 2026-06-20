@@ -41,8 +41,9 @@
 - [ ] **Recuperação de senha** via e-mail (link de reset via Resend)
 
 ### Etapa 4 — Recursos
-- [ ] Formulário de avaliações (estrelas + texto, mostradas no dashboard)
 - [ ] Senha por evento (acesso privado)
+
+> Nota: o formulário de avaliações (estrelas) foi implementado e depois **removido** a pedido do dono. Não reintroduzir sem necessidade.
 
 ### Etapa 5 — Longo prazo
 - [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
@@ -87,7 +88,7 @@ Formulário simples ("seu nome / e-mail / tipo de evento / data / mensagem") que
 Bio profissional, equipamentos, processo de trabalho, faixa de preços ou link para orçamento. Aumenta credibilidade.
 
 **Depoimentos de clientes**
-Após marcar uma remoção/avaliação como "publicável", o texto vira depoimento exibido em `/depoimentos` ou na home. Prova social.
+Após marcar uma remoção como "publicável", o texto vira depoimento exibido em `/depoimentos` ou na home. Prova social.
 
 **Status "aceitando novos projetos"**
 Badge na home: "📅 Agendando eventos para janeiro/2027" ou "🔴 Agenda fechada até março". Define expectativa de novos clientes.

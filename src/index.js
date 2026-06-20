@@ -4,7 +4,6 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
-import { aboutHTML } from './ui/about.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -56,7 +55,6 @@ export default {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/reviews' && method === 'GET') return handleGetReviews(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
@@ -75,13 +73,13 @@ export default {
       // Terms of use
       if (path === '/termos' && method === 'GET') return html(termsHTML());
 
-      // About
-      if (path === '/sobre' && method === 'GET') return html(aboutHTML());
+      // About page (/sobre) — TODO: finalize the copy before exposing it. The
+      // page exists in src/ui/about.js but is intentionally unrouted (hidden
+      // from public view) and left out of the sitemap/footer for now.
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
-      if (path === '/api/review' && method === 'POST') return handleReview(request, env);
       if (path === '/api/consent' && method === 'POST') return handleConsent(request, env, ctx);
 
       // Admin API — removal requests
@@ -130,7 +128,6 @@ async function handleSitemap(env) {
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
-    `  <url><loc>${SITE_URL}/sobre</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
@@ -640,40 +637,6 @@ async function handleTrackDrive(request, env) {
 }
 
 // ---------------------------------------------------------------------------
-// API: Review submission (public)
-// ---------------------------------------------------------------------------
-async function handleReview(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'review', 5, 3600);
-  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
-
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
-
-  const { slug, rating, comment, email, turnstileToken } = body;
-  if (!slug || !validateSlug(String(slug))) return jsonErr('Evento não encontrado.', 400);
-  const r = Number(rating);
-  if (!Number.isInteger(r) || r < 1 || r > 5) return jsonErr('Avaliação inválida.', 400);
-
-  const tsOk = await verifyTurnstile(turnstileToken, env);
-  if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
-
-  const key = `reviews_${slug}`;
-  let reviews;
-  try { reviews = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { reviews = []; }
-  reviews.push({
-    id: generateId(),
-    slug: String(slug).slice(0, 60),
-    rating: r,
-    comment: String(comment || '').trim().slice(0, 1000),
-    email: String(email || '').trim().slice(0, 200),
-    submittedAt: new Date().toISOString(),
-  });
-  await env.FOTOS.put(key, JSON.stringify(reviews));
-  return jsonOk({ ok: true });
-}
-
-// ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
 async function handleSupportRequest(request, env) {
@@ -1145,44 +1108,15 @@ function handleIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Reviews — admin read + aggregation
-// ---------------------------------------------------------------------------
-// Reviews are stored per event under `reviews_<slug>` and previously had no
-// read path. Aggregate them across all events for the dashboard and backups.
-async function getAllReviews(env) {
-  const out = [];
-  let cursor;
-  do {
-    const list = await env.FOTOS.list({ prefix: 'reviews_', cursor });
-    for (const k of list.keys) {
-      const slug = k.name.slice('reviews_'.length);
-      let arr;
-      try { arr = JSON.parse(await env.FOTOS.get(k.name) || '[]'); } catch { arr = []; }
-      for (const r of arr) out.push({ slug, ...r });
-    }
-    cursor = list.list_complete ? null : list.cursor;
-  } while (cursor);
-  out.sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
-  return out;
-}
-
-async function handleGetReviews(request, env) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
-  return jsonOk(await getAllReviews(env));
-}
-
-// ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
-export function buildBackup({ events, categories, reviews, removalRequests }) {
+export function buildBackup({ events, categories, removalRequests }) {
   return JSON.stringify({
     version: 2,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
     categories,
-    reviews,
     removalRequests,
   });
 }
@@ -1207,11 +1141,11 @@ export function mergeRestore(current, backupEvents) {
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const [events, categories, reviews, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), getAllReviews(env), getRemovalRequests(env),
+  const [events, categories, removalRequests] = await Promise.all([
+    getEvents(env, true), getCategories(env), getRemovalRequests(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup({ events, categories, reviews, removalRequests }), {
+  return new Response(buildBackup({ events, categories, removalRequests }), {
     headers: {
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
@@ -1249,26 +1183,6 @@ async function handleRestoreBackup(request, env) {
     }
     await env.FOTOS.put('removal_requests', JSON.stringify([...byId.values()]));
     result.removalRequestsAdded = rAdded;
-  }
-
-  if (Array.isArray(body.reviews)) {
-    const bySlug = {};
-    for (const rv of body.reviews) {
-      if (rv && rv.slug) (bySlug[rv.slug] = bySlug[rv.slug] || []).push(rv);
-    }
-    let rvAdded = 0;
-    for (const slug of Object.keys(bySlug)) {
-      if (!validateSlug(slug)) continue;
-      const key = `reviews_${slug}`;
-      let cur;
-      try { cur = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { cur = []; }
-      const ids = new Set(cur.map(x => x.id));
-      for (const rv of bySlug[slug]) {
-        if (rv.id && !ids.has(rv.id)) { cur.push(rv); ids.add(rv.id); rvAdded++; }
-      }
-      await env.FOTOS.put(key, JSON.stringify(cur));
-    }
-    result.reviewsAdded = rvAdded;
   }
 
   return jsonOk(result);

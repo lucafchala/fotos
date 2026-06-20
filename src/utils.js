@@ -220,7 +220,7 @@ export function isLikelyImage(b64) {
   return false;
 }
 
-// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
+// CSV export helpers (shared by the consent / removal / metrics exports).
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
   const s = String(v);
