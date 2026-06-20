@@ -17,7 +17,7 @@ export function eventHTML(event, analyticsToken) {
   const driveJSON   = JSON.stringify(event.driveUrl || '');
   const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
-  const ogImage     = photos[0] ? sizedDriveThumb(photos[0], 1200) : '';
+  const ogImage     = (!event.comingSoon && photos[0]) ? sizedDriveThumb(photos[0], 1200) : '';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
