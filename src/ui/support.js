@@ -1,6 +1,4 @@
-function esc(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
-}
+import { escape } from '../utils.js';
 
 export function supportHTML(sent = false, error = '') {
   return `<!DOCTYPE html>
@@ -76,7 +74,7 @@ export function supportHTML(sent = false, error = '') {
     <div class="divider">ou envie uma mensagem</div>
 
     ${sent ? `<div class="success">Mensagem enviada! Entrarei em contato em breve.</div>` : `
-    ${error ? `<div class="error-msg">${esc(error)}</div>` : ''}
+    ${error ? `<div class="error-msg">${escape(error)}</div>` : ''}
     <form method="POST" action="/api/suporte">
       <div>
         <label for="name">Nome (opcional)</label>

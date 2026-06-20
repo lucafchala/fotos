@@ -9,6 +9,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
+  toHttps, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES,
 } from './utils.js';
 
@@ -54,7 +55,6 @@ export default {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/reviews' && method === 'GET') return handleGetReviews(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
@@ -73,10 +73,13 @@ export default {
       // Terms of use
       if (path === '/termos' && method === 'GET') return html(termsHTML());
 
+      // About page (/sobre) — TODO: finalize the copy before exposing it. The
+      // page exists in src/ui/about.js but is intentionally unrouted (hidden
+      // from public view) and left out of the sitemap/footer for now.
+
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
-      if (path === '/api/review' && method === 'POST') return handleReview(request, env);
       if (path === '/api/consent' && method === 'POST') return handleConsent(request, env, ctx);
 
       // Admin API — removal requests
@@ -314,6 +317,69 @@ async function handleLogout(request, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Event field normalization (shared by create + update)
+// ---------------------------------------------------------------------------
+const EVENT_STATUSES = ['em-edicao', 'em-revisao', 'entregue', 'arquivado'];
+
+// Fallback values for a brand-new event and for any field a legacy event is
+// missing. Create passes this as the base; update passes the existing event.
+export const DEFAULT_EVENT = {
+  title: '', shortDescription: '', longDescription: '',
+  driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
+  projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
+  accessType: 'public', category: '', internalNotes: '', pinned: false,
+  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+};
+
+// Fill any field absent (undefined/null) on an existing event with the default,
+// so the normalizer's fallbacks are always well-defined for legacy records.
+function withEventDefaults(ev) {
+  const out = { ...DEFAULT_EVENT };
+  for (const k of Object.keys(DEFAULT_EVENT)) {
+    if (ev[k] !== undefined && ev[k] !== null) out[k] = ev[k];
+  }
+  return out;
+}
+
+function normalizePhotosAlert(pa, fallback) {
+  return pa && typeof pa === 'object'
+    ? { active: pa.active === true, addedAt: pa.addedAt || null, expiresAfterHours: parseInt(pa.expiresAfterHours) || 0 }
+    : fallback;
+}
+
+// Normalize the scalar/flag fields common to create and update. A field present
+// in `body` is sanitized; an absent one falls back to `base` (DEFAULT_EVENT on
+// create, the existing event on update). Callers handle id/slug/photos/
+// thumbnail/timestamps separately. `cats` is the list of valid categories.
+export function normalizeEventFields(body, base, cats) {
+  const b = withEventDefaults(base);
+  const pick = (key, norm) => (body[key] !== undefined ? norm(body[key]) : b[key]);
+  return {
+    title: pick('title', v => String(v).slice(0, 200)),
+    shortDescription: pick('shortDescription', v => String(v).slice(0, 300)),
+    longDescription: pick('longDescription', v => String(v).slice(0, 5000)),
+    driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, 500))),
+    driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
+    eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
+    projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    visible: pick('visible', v => v !== false),
+    comingSoon: pick('comingSoon', v => v === true),
+    status: pick('status', v => (EVENT_STATUSES.includes(v) ? v : b.status)),
+    accessType: pick('accessType', v => (ACCESS_TYPES.includes(v) ? v : b.accessType)),
+    category: pick('category', v => (cats.includes(v) ? v : b.category)),
+    internalNotes: pick('internalNotes', v => String(v).slice(0, 5000)),
+    pinned: pick('pinned', v => v === true),
+    photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
+  };
+}
+
+// Map a photos array to sanitized https URLs (max 6). Shared by create + update.
+function normalizePhotos(arr) {
+  return arr.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
 // API: Create event
 // ---------------------------------------------------------------------------
 async function handleCreateEvent(request, env) {
@@ -333,34 +399,15 @@ async function handleCreateEvent(request, env) {
   const cats = await getCategories(env);
 
   const photos = Array.isArray(body.photos)
-    ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
+    ? normalizePhotos(body.photos)
     : (body.thumbnailUrl ? [toHttps(String(body.thumbnailUrl).slice(0, 500))] : []);
 
   const event = {
     id: generateId(),
     slug,
-    title: String(title).slice(0, 200),
-    shortDescription: String(body.shortDescription || '').slice(0, 300),
-    longDescription: String(body.longDescription || '').slice(0, 5000),
+    ...normalizeEventFields(body, DEFAULT_EVENT, cats),
     photos,
     thumbnailUrl: photos[0] || '',
-    driveUrl: toHttps(String(driveUrl).slice(0, 500)),
-    driveUrlInstagram: body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '',
-    date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '',
-    eventCredits: String(body.eventCredits || '').slice(0, 200),
-    projectUrl: body.projectUrl ? toHttps(String(body.projectUrl).slice(0, 500)) : '',
-    visible: body.visible !== false,
-    comingSoon: body.comingSoon === true,
-    status: ['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : 'entregue',
-    accessType: ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public',
-    category: cats.includes(body.category) ? body.category : '',
-    internalNotes: String(body.internalNotes || '').slice(0, 5000),
-    pinned: body.pinned === true,
-    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
-      active: body.photosAlert.active === true,
-      addedAt: body.photosAlert.addedAt || null,
-      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
-    } : { active: false, addedAt: null, expiresAfterHours: 24 },
     createdAt: new Date().toISOString(),
   };
 
@@ -387,44 +434,15 @@ async function handleUpdateEvent(request, env, path) {
   const existing = events[idx];
   const cats = await getCategories(env);
 
-  const newPhotos = body.photos !== undefined
-    ? (Array.isArray(body.photos)
-        ? body.photos.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean)
-        : (existing.photos || []))
+  const newPhotos = body.photos !== undefined && Array.isArray(body.photos)
+    ? normalizePhotos(body.photos)
     : (existing.photos || []);
 
   const updated = {
     ...existing,
-    title: body.title !== undefined ? String(body.title).slice(0, 200) : existing.title,
-    shortDescription: body.shortDescription !== undefined ? String(body.shortDescription).slice(0, 300) : existing.shortDescription,
-    longDescription: body.longDescription !== undefined ? String(body.longDescription).slice(0, 5000) : existing.longDescription,
+    ...normalizeEventFields(body, existing, cats),
     photos: newPhotos,
     thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
-    driveUrl: body.driveUrl !== undefined ? toHttps(String(body.driveUrl).slice(0, 500)) : existing.driveUrl,
-    driveUrlInstagram: body.driveUrlInstagram !== undefined
-      ? (body.driveUrlInstagram ? toHttps(String(body.driveUrlInstagram).slice(0, 500)) : '')
-      : (existing.driveUrlInstagram || ''),
-    date: body.date !== undefined ? (/^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '') : existing.date,
-    eventCredits: body.eventCredits !== undefined ? String(body.eventCredits).slice(0, 200) : existing.eventCredits,
-    projectUrl: body.projectUrl !== undefined ? toHttps(String(body.projectUrl).slice(0, 500)) : existing.projectUrl,
-    visible: body.visible !== undefined ? body.visible !== false : existing.visible,
-    comingSoon: body.comingSoon !== undefined ? body.comingSoon === true : (existing.comingSoon === true),
-    status: body.status !== undefined
-      ? (['em-edicao','em-revisao','entregue','arquivado'].includes(body.status) ? body.status : (existing.status || 'entregue'))
-      : (existing.status || 'entregue'),
-    accessType: body.accessType !== undefined
-      ? (ACCESS_TYPES.includes(body.accessType) ? body.accessType : (existing.accessType || 'public'))
-      : (existing.accessType || 'public'),
-    category: body.category !== undefined
-      ? (cats.includes(body.category) ? body.category : (existing.category || ''))
-      : (existing.category || ''),
-    internalNotes: body.internalNotes !== undefined ? String(body.internalNotes).slice(0, 5000) : (existing.internalNotes || ''),
-    pinned: body.pinned !== undefined ? body.pinned === true : (existing.pinned === true),
-    photosAlert: body.photosAlert && typeof body.photosAlert === 'object' ? {
-      active: body.photosAlert.active === true,
-      addedAt: body.photosAlert.addedAt || null,
-      expiresAfterHours: parseInt(body.photosAlert.expiresAfterHours) || 0,
-    } : (existing.photosAlert || { active: false, addedAt: null, expiresAfterHours: 24 }),
     updatedAt: new Date().toISOString(),
   };
 
@@ -619,40 +637,6 @@ async function handleTrackDrive(request, env) {
 }
 
 // ---------------------------------------------------------------------------
-// API: Review submission (public)
-// ---------------------------------------------------------------------------
-async function handleReview(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'review', 5, 3600);
-  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
-
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
-
-  const { slug, rating, comment, email, turnstileToken } = body;
-  if (!slug || !validateSlug(String(slug))) return jsonErr('Evento não encontrado.', 400);
-  const r = Number(rating);
-  if (!Number.isInteger(r) || r < 1 || r > 5) return jsonErr('Avaliação inválida.', 400);
-
-  const tsOk = await verifyTurnstile(turnstileToken, env);
-  if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
-
-  const key = `reviews_${slug}`;
-  let reviews;
-  try { reviews = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { reviews = []; }
-  reviews.push({
-    id: generateId(),
-    slug: String(slug).slice(0, 60),
-    rating: r,
-    comment: String(comment || '').trim().slice(0, 1000),
-    email: String(email || '').trim().slice(0, 200),
-    submittedAt: new Date().toISOString(),
-  });
-  await env.FOTOS.put(key, JSON.stringify(reviews));
-  return jsonOk({ ok: true });
-}
-
-// ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
 async function handleSupportRequest(request, env) {
@@ -793,38 +777,51 @@ async function handleRemovalRequest(request, env) {
   const requests = stored.filter(r => r.resolved
     ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
     : true);
-  requests.push({ ...req, fileBase64: null });
+  // Hold a reference to the new record: the MAX_REQUESTS trim below reorders the
+  // array, so we can't rely on it staying last. The trim always keeps it (it's
+  // unresolved), and writing email statuses onto this reference persists because
+  // the same object is still inside `requests` when re-serialized.
+  const newReq = { ...req, fileBase64: null };
+  requests.push(newReq);
 
   const MAX_REQUESTS = 500;
-  if (requests.length > MAX_REQUESTS) {
-    const unresolved = requests.filter(r => !r.resolved);
-    const resolved = requests.filter(r => r.resolved)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, MAX_REQUESTS - unresolved.length);
-    requests.splice(0, requests.length, ...unresolved, ...resolved);
-  }
+  trimRequests(requests, MAX_REQUESTS);
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   // Send notification to admin
   try {
     const sent = await sendRemovalEmail(env, req);
-    requests[requests.length - 1].emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
+    newReq.emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
   } catch (err) {
-    requests[requests.length - 1].emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
   }
 
   // Send confirmation to requester
   try {
     const sent = await sendConfirmationEmail(env, req);
-    requests[requests.length - 1].confirmEmailStatus = sent ? 'sent' : null;
+    newReq.confirmEmailStatus = sent ? 'sent' : null;
   } catch (err) {
-    requests[requests.length - 1].confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
   }
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
   return jsonOk({ ok: true });
+}
+
+// Cap stored removal requests: keep every unresolved request, plus the most
+// recent resolved ones up to `max`. Mutates `requests` in place (and returns
+// it). Unresolved records are always retained — the email-status write in
+// handleRemovalRequest relies on the freshly-pushed request surviving this.
+export function trimRequests(requests, max) {
+  if (requests.length <= max) return requests;
+  const unresolved = requests.filter(r => !r.resolved);
+  const resolved = requests.filter(r => r.resolved)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, Math.max(0, max - unresolved.length));
+  requests.splice(0, requests.length, ...unresolved, ...resolved);
+  return requests;
 }
 
 async function getRemovalRequests(env) {
@@ -921,20 +918,6 @@ async function verifyTurnstile(token, env) {
   } catch {
     return false;
   }
-}
-
-// Sniff magic bytes from the start of a base64 payload to confirm it's an image
-// (not an arbitrary blob smuggled through the removal-upload field).
-function isLikelyImage(b64) {
-  let head;
-  try { head = atob(b64.slice(0, 32)); } catch { return false; }
-  const byte = i => head.charCodeAt(i);
-  if (byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF) return true;                         // JPEG
-  if (byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47) return true;     // PNG
-  if (head.slice(0, 4) === 'GIF8') return true;                                                      // GIF
-  if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return true;                      // WebP
-  if (head.slice(4, 8) === 'ftyp' && /heic|heif|heix|hevc|mif1|avif/.test(head.slice(8, 20))) return true; // HEIC/AVIF
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,7 +1019,8 @@ async function handleConsentExport(request, env) {
   return csvResponse(`consentimentos-${date}.csv`, CONSENT_COLS, results || []);
 }
 
-// Retention: delete consent rows older than the window (6 months). Runs in the daily cron.
+// Retention: delete consent rows older than the window (~5 years, see
+// CONSENT_RETENTION_DAYS). Runs in the daily cron.
 async function pruneOldConsent(env) {
   if (!env.CONSENT_DB) return;
   const cutoff = new Date(Date.now() - CONSENT_RETENTION_DAYS * 86400_000).toISOString();
@@ -1050,12 +1034,6 @@ async function checkAuth(request, env) {
   const authed = await verifySession(env, request);
   if (!authed) return jsonErr('Não autorizado.', 401);
   return null;
-}
-
-function toHttps(url) {
-  const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
-  // href/src are script-executing sinks — drop javascript:/data:/anything non-https
-  return /^https:\/\//i.test(u) ? u : '';
 }
 
 function html(content, status = 200) {
@@ -1101,26 +1079,6 @@ function jsonErr(message, status = 400) {
   });
 }
 
-// CSV export helpers (shared by the consent / removal / metrics / reviews exports).
-function csvCell(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-
-function csvResponse(filename, cols, rows) {
-  const head = cols.map(csvCell).join(',');
-  const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
-  // Leading BOM so Excel opens UTF-8 (accents) correctly.
-  const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
-  return new Response(csv, {
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
-  });
-}
-
 function handleManifest() {
   const manifest = {
     name: 'fotos · Luca F. Chala',
@@ -1150,49 +1108,20 @@ function handleIcon() {
 }
 
 // ---------------------------------------------------------------------------
-// Reviews — admin read + aggregation
-// ---------------------------------------------------------------------------
-// Reviews are stored per event under `reviews_<slug>` and previously had no
-// read path. Aggregate them across all events for the dashboard and backups.
-async function getAllReviews(env) {
-  const out = [];
-  let cursor;
-  do {
-    const list = await env.FOTOS.list({ prefix: 'reviews_', cursor });
-    for (const k of list.keys) {
-      const slug = k.name.slice('reviews_'.length);
-      let arr;
-      try { arr = JSON.parse(await env.FOTOS.get(k.name) || '[]'); } catch { arr = []; }
-      for (const r of arr) out.push({ slug, ...r });
-    }
-    cursor = list.list_complete ? null : list.cursor;
-  } while (cursor);
-  out.sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
-  return out;
-}
-
-async function handleGetReviews(request, env) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
-  return jsonOk(await getAllReviews(env));
-}
-
-// ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
-function buildBackup({ events, categories, reviews, removalRequests }) {
+export function buildBackup({ events, categories, removalRequests }) {
   return JSON.stringify({
     version: 2,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
     categories,
-    reviews,
     removalRequests,
   });
 }
 
-function mergeRestore(current, backupEvents) {
+export function mergeRestore(current, backupEvents) {
   const result = [...current];
   let added = 0, updated = 0;
   for (const bEv of backupEvents) {
@@ -1212,11 +1141,11 @@ function mergeRestore(current, backupEvents) {
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const [events, categories, reviews, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), getAllReviews(env), getRemovalRequests(env),
+  const [events, categories, removalRequests] = await Promise.all([
+    getEvents(env, true), getCategories(env), getRemovalRequests(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup({ events, categories, reviews, removalRequests }), {
+  return new Response(buildBackup({ events, categories, removalRequests }), {
     headers: {
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
@@ -1254,26 +1183,6 @@ async function handleRestoreBackup(request, env) {
     }
     await env.FOTOS.put('removal_requests', JSON.stringify([...byId.values()]));
     result.removalRequestsAdded = rAdded;
-  }
-
-  if (Array.isArray(body.reviews)) {
-    const bySlug = {};
-    for (const rv of body.reviews) {
-      if (rv && rv.slug) (bySlug[rv.slug] = bySlug[rv.slug] || []).push(rv);
-    }
-    let rvAdded = 0;
-    for (const slug of Object.keys(bySlug)) {
-      if (!validateSlug(slug)) continue;
-      const key = `reviews_${slug}`;
-      let cur;
-      try { cur = JSON.parse(await env.FOTOS.get(key) || '[]'); } catch { cur = []; }
-      const ids = new Set(cur.map(x => x.id));
-      for (const rv of bySlug[slug]) {
-        if (rv.id && !ids.has(rv.id)) { cur.push(rv); ids.add(rv.id); rvAdded++; }
-      }
-      await env.FOTOS.put(key, JSON.stringify(cur));
-    }
-    result.reviewsAdded = rvAdded;
   }
 
   return jsonOk(result);

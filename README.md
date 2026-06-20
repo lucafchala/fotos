@@ -1,6 +1,6 @@
 # fotos.lucafchala.com
 
-Galeria pública de fotos do fotógrafo Luca F. Chala — site de **entrega** de fotos, painel administrativo, Termos de Uso com **autorização de uso de imagem** registrada (LGPD), solicitação de remoção de fotos, avaliações, métricas, backup e PWA. Roda em **um único Cloudflare Worker** com **Workers KV** como banco principal e um banco **Cloudflare D1** para o registro de consentimento. Não há build step, framework nem dependências runtime — só JavaScript puro renderizando HTML no servidor.
+Galeria pública de fotos do fotógrafo Luca F. Chala — site de **entrega** de fotos, painel administrativo, Termos de Uso com **autorização de uso de imagem** registrada (LGPD), solicitação de remoção de fotos, métricas, backup e PWA. Roda em **um único Cloudflare Worker** com **Workers KV** como banco principal e um banco **Cloudflare D1** para o registro de consentimento. Não há build step, framework nem dependências runtime — só JavaScript puro renderizando HTML no servidor.
 
 URL de produção: <https://fotos.lucafchala.com>
 
@@ -66,7 +66,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
 | Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção ~5 anos |
 
-**Sem ORM, sem JSX/React, sem bundler.** O estado principal é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de sessão/contador/rate-limit/categorias/avaliações. Um banco **D1** (SQLite) guarda apenas o log append-only de consentimento de uso de imagem (`image_use_consent`). As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
+**Sem ORM, sem JSX/React, sem bundler.** O estado principal é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de sessão/contador/rate-limit/categorias. Um banco **D1** (SQLite) guarda apenas o log append-only de consentimento de uso de imagem (`image_use_consent`). As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
 
 O fluxo de uma requisição é:
 
@@ -150,7 +150,7 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 
 ### Turnstile
 
-Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/consent`, no formulário de remoção, na avaliação e no suporte.
+Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/consent`, no formulário de remoção e no suporte.
 
 ---
 
@@ -227,7 +227,6 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `drive_clicks:<slug>` | String numérica (contador de cliques no botão "Ir para o Drive") | `handleTrackDrive` |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
-| `reviews_<slug>` | JSON: array de avaliações `{id, rating, comment, email, submittedAt}` do projeto | `handleReview` |
 | `ratelimit:<key>:<ip>:<window>` | String numérica, TTL = janela | `checkRateLimit` (todas as rotas com rate limit) |
 
 > O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo).
@@ -320,7 +319,6 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
 | POST | `/api/consent` | `handleConsent` | Registra o aceite dos Termos / uso de imagem em D1 (best-effort, rate-limit 60/h, no-op sem D1) |
-| POST | `/api/review` | `handleReview` | Recebe avaliação em estrelas do projeto (rate-limit 5/h, Turnstile) |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
 | GET | `/api/healthz` | `handleHealthz` | `{ok:true, hashMs:N}` — usado pelo CI |
 
@@ -335,10 +333,9 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | PUT | `/api/events/<id>` | Atualizar evento (parcial; só campos enviados) |
 | DELETE | `/api/events/<id>` | Excluir evento e deletar `views:<slug>` |
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
-| GET | `/api/reviews` | Lista agregada das avaliações de todos os projetos (antes não tinha leitura) |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | PUT | `/api/settings/password` | Trocar senha do admin |
-| GET | `/api/backup` | Download JSON **v2** (eventos + categorias + avaliações + solicitações) |
+| GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
 | POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |
 | PUT | `/api/removal-requests/<id>/resolve` | Marca resolvida e envia e-mail "Solicitação atendida" ao requerente |
@@ -420,7 +417,7 @@ Renderizado por `src/ui/dashboard.js`. Mesma página tem login e dashboard:
 Layout fixo no topo + abas:
 
 - **Topbar**: logo + links "Ver site" (abre `/` em nova aba) e "Sair" (POST logout).
-- **Tabs**: `Eventos`, `Métricas`, `Avaliações`, `Config.`, `Solicitações` (badge vermelho com contador de não-resolvidas).
+- **Tabs**: `Eventos`, `Métricas`, `Config.`, `Solicitações` (badge vermelho com contador de não-resolvidas).
 
 #### Aba Eventos
 
@@ -440,18 +437,14 @@ Layout fixo no topo + abas:
 
 Tabela com colunas: projeto, views, cliques no Drive. **Colunas ordenáveis** (clique no cabeçalho), com uma barra proporcional atrás do número de views e botão **Exportar CSV**. Dados carregados sob demanda (na primeira vez que o usuário clica na aba).
 
-#### Aba Avaliações
-
-Lista as avaliações em estrelas enviadas nas páginas de projeto (`GET /api/reviews`): estrelas, comentário, projeto, e-mail (se houver) e data. Antes deste recurso as avaliações eram apenas gravadas, sem tela de leitura. Botão **Exportar CSV**.
-
 #### Aba Config
 
 - **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
 - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar". PUT para `/api/settings/password`.
 - **Backup**:
-  - Botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + avaliações + solicitações).
+  - Botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações).
   - Input file + botão "Restaurar backup" — POST `/api/backup/restore`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado.
-- **Exportar dados** (CSV): consentimentos (do D1, via `/api/consent/export`), solicitações de remoção, métricas e avaliações.
+- **Exportar dados** (CSV): consentimentos (do D1, via `/api/consent/export`), solicitações de remoção e métricas.
 
 #### Aba Solicitações
 
@@ -590,7 +583,6 @@ Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYT
   "eventCount": N,
   "events": [ ... ],
   "categories": [ ... ],
-  "reviews": [ ... ],
   "removalRequests": [ ... ]
 }
 ```
@@ -610,9 +602,9 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
   - Se existe → comparar `updatedAt || createdAt`. O mais recente vence (`updated++`).
 - Eventos atuais que **não** estão no backup são preservados (nunca deleta).
 
-Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união), `removalRequests` (por id) e `reviews` (por id, agrupadas por slug).
+Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, total, categories?, removalRequestsAdded?, reviewsAdded?}`.
+Resposta: `{ok:true, added, updated, total, categories?, removalRequestsAdded?}`.
 
 ---
 
@@ -725,7 +717,7 @@ O arquivo [`TODO.md`](./TODO.md) tem o histórico completo de features entregues
 
 **Segurança**: rate limiting mais robusto, recuperação de senha por e-mail (magic link).
 
-**Recursos**: avaliações em estrelas, senha por evento.
+**Recursos**: senha por evento.
 
 **Longo prazo**: migrar imagens para R2 (resolve preview WhatsApp), portfólio público `/portfolio`, filtros por tag.
 

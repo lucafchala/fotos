@@ -10,6 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pre-deploy gate: run the unit suite before touching production. A red
+      # test aborts the job before the migration / deploy steps run.
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Unit tests
+        run: npm test
+
       # Apply pending D1 migrations before deploying, so the new columns exist when
       # the new code starts writing. Pinned to wrangler v4 because the action's
       # default (v3.90) is rejected by the D1 API as out-of-date. continue-on-error
@@ -26,6 +39,7 @@ jobs:
           command: d1 migrations apply fotos-consent --remote
 
       - name: Deploy to Cloudflare Workers
+        id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -35,9 +49,18 @@ jobs:
         run: sleep 20
 
       - name: Smoke tests
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
         run: |
           set -e
-          BASE=https://fotos.lucafchala.com
+          # Smoke-test the workers.dev deployment URL, NOT the custom domain.
+          # The production zone (fotos.lucafchala.com) sits behind Cloudflare bot
+          # mitigation, which answers non-browser clients like curl with HTTP 403
+          # — that is why every prior deploy's smoke tests failed on the first
+          # check. The workers.dev route runs the same Worker without that edge
+          # challenge. Fall back to the known URL if the action output is empty.
+          BASE="${DEPLOYMENT_URL:-https://fotos.lucafchala.workers.dev}"
+          echo "Smoke-testing $BASE"
 
           check_status() {
             local label=$1 url=$2 expected=$3

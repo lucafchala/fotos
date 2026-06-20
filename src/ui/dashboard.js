@@ -1,4 +1,4 @@
-import { sortEvents } from '../utils.js';
+import { sortEvents, escape } from '../utils.js';
 
 const BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -77,7 +77,7 @@ export function dashboardHTML(events, categories = []) {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
-  const esc = s => !s ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
   const catOptionsSSR = ['<option value="">Sem categoria</option>']
     .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
   const sorted = sortEvents(events);
@@ -288,15 +288,6 @@ export function dashboardHTML(events, categories = []) {
     .views-cell{position:relative}
     .views-bar{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);height:60%;background:#c0a060;opacity:.16;border-radius:3px;z-index:0;pointer-events:none}
     .views-cell .views-badge{position:relative;z-index:1}
-    /* reviews */
-    .review-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:1rem;margin-bottom:.625rem}
-    .review-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.4rem}
-    .review-stars{color:#c0a060;font-size:.9rem;letter-spacing:.05em}
-    .review-stars .off{color:var(--text3)}
-    .review-date{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
-    .review-comment{font-size:.82rem;color:var(--text);line-height:1.55;margin-bottom:.4rem;white-space:pre-wrap}
-    .review-meta{font-size:.7rem;color:var(--text3);display:flex;flex-wrap:wrap;gap:.75rem}
-    .review-meta .review-slug{font-family:monospace}
     /* export buttons group */
     .export-grid{display:flex;flex-wrap:wrap;gap:.5rem}
     /* confirm dialog */
@@ -333,7 +324,6 @@ export function dashboardHTML(events, categories = []) {
   <div class="tabs">
     <button class="tab active" onclick="switchTab('events',this)">Eventos</button>
     <button class="tab" onclick="switchTab('metrics',this)">Métricas</button>
-    <button class="tab" onclick="switchTab('reviews',this)">Avaliações</button>
     <button class="tab" onclick="switchTab('settings',this)">Config.</button>
     <button class="tab" id="tab-btn-requests" onclick="switchTab('requests',this)">Solicitações</button>
   </div>
@@ -389,14 +379,6 @@ export function dashboardHTML(events, categories = []) {
     <div id="metrics-body"><p class="empty">Carregando…</p></div>
   </div>
 
-  <!-- REVIEWS TAB -->
-  <div id="tab-reviews" class="panel">
-    <div class="panel-head">
-      <h2>Avaliações</h2>
-      <button class="btn-sm" id="reviews-export" onclick="exportReviewsCSV()" style="display:none">⬇ Exportar CSV</button>
-    </div>
-    <div id="reviews-body"><p class="empty">Carregando…</p></div>
-  </div>
 
   <!-- SETTINGS TAB -->
   <div id="tab-settings" class="panel">
@@ -440,7 +422,6 @@ export function dashboardHTML(events, categories = []) {
         <button class="btn-sm" onclick="exportConsentCSV()">⬇ Consentimentos (CSV)</button>
         <button class="btn-sm" onclick="exportRemovalCSV()">⬇ Solicitações de remoção (CSV)</button>
         <button class="btn-sm" onclick="exportMetricsCSV()">⬇ Métricas (CSV)</button>
-        <button class="btn-sm" onclick="exportReviewsCSV()">⬇ Avaliações (CSV)</button>
       </div>
     </div>
   </div>
@@ -599,8 +580,6 @@ export function dashboardHTML(events, categories = []) {
     let metricsLoaded = false;
     let metricsData = [];
     let metricsSort = { key: 'views', dir: 'desc' };
-    let reviewsLoaded = false;
-    let reviewsData = [];
     let photoList = [];
     let requestsLoaded = false;
     let lastFocused = null;
@@ -638,7 +617,6 @@ export function dashboardHTML(events, categories = []) {
       btn.classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
       if (name === 'metrics') loadMetrics();
-      if (name === 'reviews' && !reviewsLoaded) loadReviews();
       if (name === 'requests' && !requestsLoaded) loadRequests();
     }
 
@@ -1161,41 +1139,6 @@ export function dashboardHTML(events, categories = []) {
       renderMetrics();
     }
 
-    // ---- Reviews ----
-    async function loadReviews() {
-      const body = document.getElementById('reviews-body');
-      const exportBtn = document.getElementById('reviews-export');
-      try {
-        const data = await api('GET', '/api/reviews');
-        reviewsLoaded = true;
-        reviewsData = Array.isArray(data) ? data : [];
-        if (exportBtn) exportBtn.style.display = reviewsData.length ? 'inline-flex' : 'none';
-        if (!reviewsData.length) {
-          body.innerHTML = '<p class="empty">Nenhuma avaliação ainda.</p>';
-          return;
-        }
-        body.innerHTML = reviewsData.map(r => {
-          const n = Math.max(0, Math.min(5, parseInt(r.rating) || 0));
-          const stars = '★'.repeat(n) + \`<span class="off">\${'★'.repeat(5 - n)}</span>\`;
-          const date = r.submittedAt ? new Date(r.submittedAt).toLocaleString('pt-BR') : '';
-          return \`<div class="review-item">
-            <div class="review-head">
-              <span class="review-stars" aria-label="\${n} de 5 estrelas">\${stars}</span>
-              <span class="review-date">\${esc(date)}</span>
-            </div>
-            \${r.comment ? \`<div class="review-comment">\${esc(r.comment)}</div>\` : ''}
-            <div class="review-meta">
-              <span class="review-slug">/\${esc(r.slug)}</span>
-              \${r.email ? \`<span>\${esc(r.email)}</span>\` : ''}
-            </div>
-          </div>\`;
-        }).join('');
-      } catch(err) {
-        if (exportBtn) exportBtn.style.display = 'none';
-        body.innerHTML = '<p class="empty">Erro ao carregar avaliações.</p>';
-      }
-    }
-
     // ---- Change password ----
     async function changePassword() {
       const p1 = document.getElementById('new-pass').value;
@@ -1258,18 +1201,6 @@ export function dashboardHTML(events, categories = []) {
         downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks'], rows);
       } catch(err) {
         toast(err.message || 'Erro ao exportar métricas.', 'err');
-      }
-    }
-
-    async function exportReviewsCSV() {
-      try {
-        let data = reviewsData;
-        if (!reviewsLoaded) { data = await api('GET', '/api/reviews'); }
-        if (!data || !data.length) return toast('Nenhuma avaliação para exportar.', 'err');
-        const rows = data.map(r => ({ submittedAt: r.submittedAt, slug: r.slug, rating: r.rating, comment: r.comment, email: r.email }));
-        downloadCSV('avaliacoes-' + csvDate() + '.csv', ['submittedAt', 'slug', 'rating', 'comment', 'email'], rows);
-      } catch(err) {
-        toast(err.message || 'Erro ao exportar avaliações.', 'err');
       }
     }
 
@@ -1450,9 +1381,12 @@ export function dashboardHTML(events, categories = []) {
     }
 
     // ---- Escape ----
+    // Mirror of the canonical 5-char escaper (utils.js). Defined locally because
+    // this runs in the browser, where the module import is not available. Must
+    // also escape ' since client-rendered values land in single-quoted attributes.
     function esc(s) {
       if (!s) return '';
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 
     // ---- Toast ----
