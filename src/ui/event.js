@@ -1,6 +1,11 @@
 import { escape, formatDatePT, sizedDriveThumb, TERMS_VERSION, CONSENT_LABEL, ACCESS_DECLARATIONS } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
+// fotos.lucafchala.com sits behind Cloudflare bot mitigation that 403s non-browser
+// clients (see deploy.yml smoke tests). Social-preview crawlers fetching og:image hit
+// that same wall, so the placeholder is served from the workers.dev route instead,
+// which runs the same Worker without the edge challenge.
+const WORKERS_DEV_URL = 'https://fotos.lucafchala.workers.dev';
 
 export function eventHTML(event, analyticsToken) {
   // Category-specific self-declaration required at the gateway, on top of the Terms
@@ -18,7 +23,7 @@ export function eventHTML(event, analyticsToken) {
   const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
   const ogImage     = event.comingSoon
-    ? `${SITE_URL}/og-coming-soon.png`
+    ? `${WORKERS_DEV_URL}/og-coming-soon.png`
     : (photos[0] ? sizedDriveThumb(photos[0], 1200) : '');
 
   // Banner de novas fotos
