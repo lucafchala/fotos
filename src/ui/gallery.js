@@ -90,7 +90,7 @@ export function galleryHTML(events, analyticsToken) {
     : '';
 
   const ogImage = (() => {
-    const e = visible.find(ev => ev.thumbnailUrl);
+    const e = visible.find(ev => ev.thumbnailUrl && !ev.comingSoon);
     return e ? sizedDriveThumb(e.thumbnailUrl, 1200) : '';
   })();
 
