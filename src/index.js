@@ -890,15 +890,41 @@ async function handleHealthz(request, env) {
   const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
   if (!allowed) return jsonErr('Too many requests.', 429);
 
-  // KV read — confirms the binding is alive
-  await env.FOTOS.get('__healthz__');
+  // KV is the binding the whole app depends on. A read failure here (or a
+  // corrupt `events` value) is the only condition that flips ok:false — this
+  // mirrors the pre-existing 500-on-throw behavior the deploy smoke test relies
+  // on, while now reporting *which* subsystem failed instead of a blank 500.
+  let kv = false;
+  let events = null;
+  try {
+    await env.FOTOS.get('__healthz__');
+    kv = true;
+    const list = await getEvents(env, true);
+    events = Array.isArray(list) ? list.length : null;
+  } catch {
+    // KV unavailable — kv/events keep their pre-failure values, so ok flips false
+  }
 
-  // PBKDF2 hash — confirms hashing completes within the CPU budget
+  // The D1 consent log is optional/best-effort: a missing or unscoped binding
+  // must never fail the deploy (see deploy.yml), so it is reported for the
+  // status dashboard but never flips ok.
+  let d1 = 'absent';
+  if (env.CONSENT_DB) {
+    try {
+      await env.CONSENT_DB.prepare('SELECT 1').first();
+      d1 = 'ok';
+    } catch {
+      d1 = 'down';
+    }
+  }
+
+  // PBKDF2 hash — confirms login hashing completes within the CPU budget
   const t0 = Date.now();
   await hashPassword('healthcheck');
   const hashMs = Date.now() - t0;
 
-  return jsonOk({ ok: true, hashMs });
+  const ok = kv && events !== null;
+  return jsonOk({ ok, kv, events, d1, hashMs }, ok ? 200 : 503);
 }
 
 // ---------------------------------------------------------------------------
