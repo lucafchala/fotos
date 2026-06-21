@@ -146,15 +146,16 @@ async function handleSitemap(env) {
 }
 
 function handleRobots() {
-  // Open to all crawlers and AI agents (training, search, live answering);
-  // admin dashboard and API endpoints stay excluded from indexing.
+  // Open to all crawlers and AI agents (training, search, live answering) —
+  // no disallow rules. /dashboard and /api/ aren't gated by robots.txt (that's
+  // advisory, not access control); they're protected by login + rate limiting.
   const aiAgents = [
     'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'Google-Extended',
     'ClaudeBot', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
     'PerplexityBot', 'CCBot', 'Bytespider', 'Amazonbot', 'Applebot-Extended',
     'Meta-ExternalAgent', 'cohere-ai',
   ];
-  const rules = 'Allow: /\nDisallow: /dashboard\nDisallow: /api/\n';
+  const rules = 'Allow: /\n';
   const body =
     '# robots.txt — fotos.lucafchala.com\n' +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
