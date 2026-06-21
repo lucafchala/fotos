@@ -902,7 +902,7 @@ async function handleHealthz(request, env) {
     const list = await getEvents(env, true);
     events = Array.isArray(list) ? list.length : null;
   } catch {
-    kv = false;
+    // KV unavailable — kv/events keep their pre-failure values, so ok flips false
   }
 
   // The D1 consent log is optional/best-effort: a missing or unscoped binding
