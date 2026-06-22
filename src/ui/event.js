@@ -201,6 +201,10 @@ export function eventHTML(event, analyticsToken) {
     .radio-opt input[type=radio]{width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0}
     .radio-opt span{font-size:.875rem;color:#bbb}
     .form-error{background:#1a0a0a;border:1px solid #2e1a1a;color:#cc8888;padding:.6rem .8rem;border-radius:8px;font-size:.78rem;line-height:1.5;margin-top:1rem}
+    .adblock-warn{background:#1d1606;border:1px solid #4a3a12;color:#d8b25a;padding:.7rem .85rem;border-radius:8px;font-size:.78rem;line-height:1.55;margin-top:1rem}
+    .adblock-warn strong{color:#f0d080}
+    .adblock-warn a{color:#f0d080}
+    .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
     .rem-sheet-foot{display:flex;gap:.75rem;margin-top:1.25rem;position:sticky;bottom:0;background:#0d0d0d;padding:.875rem 0 .25rem;border-top:1px solid #161616}
     .btn-rem-cancel{flex:1;background:none;border:1px solid #222;color:#888;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:500;cursor:pointer;transition:border-color .2s}
     .btn-rem-cancel:hover{border-color:#3a3a3a}
@@ -333,7 +337,10 @@ export function eventHTML(event, analyticsToken) {
       <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1rem"></div>
       <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
-      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar o acesso ao Drive. Recarregue a página e tente novamente.</div>
+      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar a verificação de segurança. Se você usa um bloqueador de anúncios, desative-o para este site e recarregue a página.</div>
+      <div id="drive-adblock" class="adblock-warn" style="display:none">
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button>.
+      </div>
       <div id="drive-gate" style="display:none">
         ${declaration ? `<label class="drive-consent">
           <input type="checkbox" id="drive-declaration" onchange="onDriveConsent()">
@@ -432,6 +439,9 @@ export function eventHTML(event, analyticsToken) {
           <input type="checkbox" id="rem-consent" style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:2px">
           <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para processar esta solicitação.</span>
         </label>
+        <div id="rem-adblock" class="adblock-warn" style="display:none">
+          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
+        </div>
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div id="rem-error" class="form-error" style="display:none"></div>
         <div class="rem-sheet-foot">
@@ -467,6 +477,17 @@ export function eventHTML(event, analyticsToken) {
     const DECLARATION_LABEL = ${JSON.stringify(declaration)};
 
     let lastFocused = null;
+
+    // ---- Ad-block / privacy-extension detection ----
+    // The Turnstile script is the asset these extensions block. Without it we
+    // can't run the security check the Drive gate and the LGPD forms (image-use
+    // consent + photo removal) depend on, so we surface a clear, actionable
+    // warning instead of letting the flow break silently. (window.__tsBlocked is
+    // also set by the script tag's onerror at the bottom of the page.)
+    window.__tsBlocked = window.__tsBlocked || false;
+    function tsUnavailable() { return window.__tsBlocked || typeof turnstile === 'undefined'; }
+    function showAdblockWarn(id) { var el = document.getElementById(id); if (el) el.style.display = ''; }
+    function hideAdblockWarn(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
     // ---- Banner ----
     function updateBanner() {
@@ -533,6 +554,7 @@ export function eventHTML(event, analyticsToken) {
       document.getElementById('drive-gate').style.display = 'none';
       document.getElementById('drive-verifying').style.display = '';
       document.getElementById('drive-verify-error').style.display = 'none';
+      hideAdblockWarn('drive-adblock');
       document.getElementById('drive-link').href = DRIVE_URL || '#';
       const igLink = document.getElementById('drive-link-ig');
       if (igLink) igLink.href = DRIVE_URL_IG || '#';
@@ -546,7 +568,7 @@ export function eventHTML(event, analyticsToken) {
       setTimeout(function() {
         // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
         // that must not brick delivery.
-        if (typeof turnstile === 'undefined') { driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
+        if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
         if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
         else {
           driveWidgetId = turnstile.render('#drive-turnstile', {
@@ -698,6 +720,7 @@ export function eventHTML(event, analyticsToken) {
     function openRemModal() {
       lastFocused = document.activeElement;
       clearRemError();
+      hideAdblockWarn('rem-adblock');
       document.getElementById('rem-form').style.display = 'block';
       document.getElementById('rem-success').style.display = 'none';
       remTsToken = '';
@@ -707,7 +730,10 @@ export function eventHTML(event, analyticsToken) {
       document.body.style.overflow = 'hidden';
       updateStickyCta();
       setTimeout(() => {
-        if (typeof turnstile === 'undefined') { if (btn) btn.disabled = false; return; }
+        // No Turnstile (blocked by an ad-blocker / privacy extension): this form
+        // requires server-side verification, so warn the visitor and keep submit
+        // disabled rather than letting every attempt fail with a 403.
+        if (tsUnavailable()) { showAdblockWarn('rem-adblock'); if (btn) btn.disabled = true; return; }
         if (remWidgetId !== null) { turnstile.reset(remWidgetId); }
         else {
           remWidgetId = turnstile.render('#rem-turnstile', {
@@ -885,7 +911,7 @@ export function eventHTML(event, analyticsToken) {
       }
     })();
   </script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__tsBlocked=true"></script>
   ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;

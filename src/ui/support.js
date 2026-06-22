@@ -13,7 +13,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
   <meta name="description" content="Entre em contato com Luca F. Chala">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
@@ -44,6 +44,9 @@ export function supportHTML(sent = false, error = '', values = {}) {
     .submit-btn:hover{opacity:.88}
     .success{background:#0a120a;border:1px solid #1a2e1a;color:#4a8a4a;padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
     .error-msg{background:#1a0a0a;border:1px solid #2e1a1a;color:#aa5555;padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
+    .adblock-warn{background:#1d1606;border:1px solid #4a3a12;color:#d8b25a;padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
+    .adblock-warn strong{color:#f0d080}
+    .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
     footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
     footer a:hover{color:#777}
@@ -94,17 +97,23 @@ export function supportHTML(sent = false, error = '', values = {}) {
           <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
       </div>
+      <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e <button type="button" onclick="location.reload()">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
+      </div>
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
     <script>
       function supportBtn(){return document.getElementById('support-submit');}
+      function showSupportAdblock(){var w=document.getElementById('support-adblock');if(w)w.style.display='';}
       function onTurnstileSuccess(){var b=supportBtn();if(b)b.disabled=false;}
       // A widget error must not strand the visitor on a dead button — re-enable it
-      // so they can still try (the server validates the token and replies clearly).
-      function onTurnstileError(){var b=supportBtn();if(b)b.disabled=false;}
+      // so they can still try (the server validates the token and replies clearly),
+      // and warn that an ad-blocker is the likely cause.
+      function onTurnstileError(){var b=supportBtn();if(b)b.disabled=false;showSupportAdblock();}
       // Same safety net if the Turnstile script itself is blocked or never loads.
-      setTimeout(function(){var b=supportBtn();if(b&&b.disabled&&typeof turnstile==='undefined')b.disabled=false;},5000);
+      if(window.__supTsBlocked)showSupportAdblock();
+      setTimeout(function(){if(typeof turnstile==='undefined'||window.__supTsBlocked){showSupportAdblock();var b=supportBtn();if(b&&b.disabled)b.disabled=false;}},5000);
       // Guard against a double submit on the native form post.
       (function(){var f=document.querySelector('form[action="/api/suporte"]');if(f)f.addEventListener('submit',function(){var b=supportBtn();if(b){b.disabled=true;b.textContent='Enviando…';}});})();
     </script>`}
