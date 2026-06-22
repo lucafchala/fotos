@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, DEFAULT_EVENT, cronStale } from '../src/index.js';
+import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, DEFAULT_EVENT, cronStale, auditSite } from '../src/index.js';
 
 const CATS = ['Casamento', 'Ensaio'];
 
@@ -132,6 +132,70 @@ describe('cronStale (healthz cron heartbeat)', () => {
   });
   it('flags an unparseable timestamp as stale (something wrote garbage)', () => {
     expect(cronStale('not-a-date', now)).toBe(true);
+  });
+});
+
+describe('auditSite (healthz functional self-test)', () => {
+  const FULL_ENV = { TURNSTILE_SECRET_KEY: 'x', RESEND_API_KEY: 'y', ADMIN_EMAIL: 'a@b.c' };
+  const liveEvent = (over = {}) => ({ slug: 's' + Math.random().toString(36).slice(2, 7), title: 'T', visible: true, comingSoon: false, status: 'entregue', driveUrl: 'https://drive.google.com/drive/folders/abc', ...over });
+
+  it('is clean for healthy events + fully-configured forms, and nominates a sample', () => {
+    const r = auditSite([liveEvent({ slug: 'casamento' })], FULL_ENV);
+    expect(r.ok).toBe(true);
+    expect(r.problems).toEqual([]);
+    expect(r.drive).toEqual({ ok: 1, bad: 0, live: 1 });
+    expect(r.sample).toBe('casamento');
+  });
+
+  it('flags a live event whose Drive link is missing or malformed', () => {
+    const r = auditSite([
+      liveEvent({ slug: 'sem-link', driveUrl: '' }),
+      liveEvent({ slug: 'ruim', driveUrl: 'not-a-url' }),
+    ], FULL_ENV);
+    expect(r.ok).toBe(false);
+    expect(r.drive.bad).toBe(2);
+    expect(r.problems).toContain('link do Drive ausente: sem-link');
+    expect(r.problems).toContain('link do Drive inválido: ruim');
+    expect(r.sample).toBeNull(); // no healthy live event to nominate
+  });
+
+  it('ignores hidden drafts and coming-soon events for the Drive check', () => {
+    const r = auditSite([
+      liveEvent({ slug: 'hidden', visible: false, driveUrl: '' }),
+      liveEvent({ slug: 'soon', comingSoon: true, driveUrl: '' }),
+    ], FULL_ENV);
+    expect(r.problems).toEqual([]);
+    expect(r.drive.live).toBe(0);
+  });
+
+  it('flags duplicate slugs and invalid status', () => {
+    const r = auditSite([
+      liveEvent({ slug: 'dup' }), liveEvent({ slug: 'dup' }),
+      liveEvent({ slug: 'weird', status: 'bogus' }),
+    ], FULL_ENV);
+    expect(r.problems.some(p => p.includes('slug duplicado: dup'))).toBe(true);
+    expect(r.problems.some(p => p.includes('status inválido em weird: bogus'))).toBe(true);
+  });
+
+  it('flags missing form backends from env', () => {
+    const r = auditSite([liveEvent()], {}); // no secrets
+    expect(r.forms).toEqual({ turnstile: false, resend: false, adminEmail: false });
+    expect(r.problems.some(p => p.startsWith('Turnstile ausente'))).toBe(true);
+    expect(r.problems.some(p => p.startsWith('Resend ausente'))).toBe(true);
+    expect(r.problems.some(p => p.startsWith('ADMIN_EMAIL ausente'))).toBe(true);
+  });
+
+  it('caps the problem list so the payload stays bounded', () => {
+    const many = Array.from({ length: 20 }, (_, i) => liveEvent({ slug: 'e' + i, driveUrl: '' }));
+    const r = auditSite(many, FULL_ENV);
+    expect(r.problems.length).toBeLessThanOrEqual(13); // 12 + the "+N outro(s)" line
+    expect(r.problems[r.problems.length - 1]).toMatch(/^\+\d+ outro\(s\)$/);
+  });
+
+  it('never throws on garbage input', () => {
+    expect(() => auditSite(null)).not.toThrow();
+    expect(() => auditSite([null, 42, {}], {})).not.toThrow();
+    expect(auditSite(undefined).ok).toBe(false); // missing form secrets → not clean
   });
 });
 
