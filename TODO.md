@@ -9,6 +9,8 @@
 
 ## ✅ Concluído
 
+- **Robustez dos formulários (pré-lançamento):** formulário de remoção reseta o Turnstile após falha de envio (token é de uso único — evita o loop de 403 ao tentar de novo com token gasto) e protege a leitura do arquivo de upload; formulário de suporte não trava mais se o Turnstile for bloqueado (fallback reabilita o botão), preserva nome/e-mail/mensagem em caso de erro e tem guarda anti-duplo-envio; o painel redireciona ao login quando a sessão expira (401) e usa o diálogo temático no restore de backup
+- **Aviso de bloqueador de anúncios / JavaScript:** quando o script do Turnstile é bloqueado (ad-blocker) ou o JS está desativado, o site avisa o visitante para desativar o bloqueador e ativar o JavaScript — no gate do Drive (sem bloquear o acesso às fotos), no formulário de remoção e no de suporte; banners `<noscript>` para quem está totalmente sem JS
 - **Métricas:** corrigido bug do view count (`ctx.waitUntil()`); contagem de cliques no botão Drive adicionada
 - **Resend:** API key configurada como secret no Worker; domínio verificado; e-mails de notificação e confirmação funcionando
 - **Modo "Em breve":** toggle no dashboard, oculta cover photo na galeria e na página, botão Drive vira "As fotos virão em breve"
@@ -36,9 +38,21 @@
 ## Próximas etapas planejadas
 
 ### Etapa 3 — Segurança
-- [ ] **Rate limiting** em `/api/removal-request` (máx. N por IP por hora)
-- [ ] **Backup do KV**: endpoint `/api/backup` protegido (admin) exporta todos os dados como JSON
+- [x] **Rate limiting** (feito): `/api/removal-request` 5/h por IP, e também login, suporte, consent, track-drive e healthz
+- [x] **Backup do KV** (feito): endpoint `/api/backup` protegido (admin) exporta tudo como JSON + restore com merge inteligente
 - [ ] **Recuperação de senha** via e-mail (link de reset via Resend)
+
+### Etapa 3.1 — Endurecimento de segurança e anti-abuso (prioridade pós-lançamento)
+- [ ] **Esconder os links do Drive do código-fonte.** Hoje `DRIVE_URL` / `DRIVE_URL_IG` ficam embutidos no HTML/JS da página, então qualquer pessoa acha o link pelo "ver código-fonte" ou console do navegador **sem passar pela verificação** — o gate (Turnstile + aceite dos Termos) é só client-side, cosmético. Servir o link por um endpoint (ex.: `POST /api/drive-link`) que só responde **depois de validar o token do Turnstile no servidor** + o slug, e buscar via fetch só quando o visitante passa no gate. _Ressalva:_ depois que um visitante legítimo recebe o link, ele continua compartilhável (links do Drive são por natureza compartilháveis) — isso barra a coleta trivial por bots/console, não o repasse manual.
+- [ ] **Aplicar o aceite no servidor**: amarrar a liberação do link à verificação real do Turnstile + ao registro do consentimento (hoje `/api/consent` é best-effort e não trava nada).
+- [ ] **Rate limit + nonce de curta duração** no endpoint de link, para impedir varredura automatizada de todos os slugs.
+- [ ] **Auditar vazamento de campos só-admin**: garantir que `internalNotes` (e afins) nunca cheguem ao HTML público — hoje o objeto do evento é passado inteiro para o template.
+- [ ] **Honeypot** (campo oculto) nos formulários públicos, como segunda camada além do Turnstile.
+- [ ] **2FA/TOTP no painel** (ou magic link) — endurecer o login de admin além de senha + rate limit.
+- [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
+- [ ] **Endurecer a CSP**: trocar `script-src 'unsafe-inline'` por nonces nos scripts inline.
+- [ ] **Alerta de login suspeito**: e-mail ao admin após N tentativas falhas (já há rate limit de 10/10min).
+- [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de remoção (hoje só valida magic bytes + 2 MB).
 
 ### Etapa 4 — Recursos
 - [ ] Senha por evento (acesso privado)
