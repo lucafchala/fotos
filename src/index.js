@@ -909,23 +909,90 @@ export function cronStale(lastIso, now = Date.now()) {
   return now - t > CRON_STALE_MS;
 }
 
+// Pure + unit-tested functional self-test, run over the already-loaded events
+// array (ZERO extra KV reads) plus env booleans. This is what lets the status
+// dashboard flag things that "went wrong" — a bad edit, a broken/missing Google
+// Drive link on a live event, or a form whose backend dependency is unset — as
+// opposed to only catching a hard 500. It reports *what* is wrong, names the
+// offending slug, and nominates one healthy event as a `sample` the dashboard
+// can deep-probe (its Drive gate + removal form).
+const MAX_SELFTEST_PROBLEMS = 12;
+export function auditSite(events, env = {}) {
+  const problems = [];
+  const seen = new Set();
+  let driveOk = 0, driveBad = 0, live = 0;
+  let sample = null;
+
+  for (const e of (Array.isArray(events) ? events : [])) {
+    if (!e || typeof e !== 'object') continue;
+    if (e.visible === false) continue; // hidden drafts aren't public — don't audit
+    const slug = typeof e.slug === 'string' ? e.slug : '';
+    const title = typeof e.title === 'string' ? e.title : '';
+    if (!slug) { problems.push(`evento público sem slug${title ? ` ("${title}")` : ''}`); continue; }
+    if (seen.has(slug)) problems.push(`slug duplicado: ${slug} (rotas colidem)`); else seen.add(slug);
+    if (!title) problems.push(`evento sem título: ${slug}`);
+    if (e.status && !EVENT_STATUSES.includes(e.status)) problems.push(`status inválido em ${slug}: ${e.status}`);
+
+    // A live (non-comingSoon) event shows a "baixar fotos" CTA, so its Drive
+    // link MUST work. Missing or malformed = Drive access is broken for visitors.
+    if (!e.comingSoon) {
+      live++;
+      const u = typeof e.driveUrl === 'string' ? e.driveUrl : '';
+      let valid = /^https:\/\//i.test(u);
+      if (valid) { try { new URL(u); } catch { valid = false; } }
+      if (!u)            { driveBad++; problems.push(`link do Drive ausente: ${slug}`); }
+      else if (!valid)   { driveBad++; problems.push(`link do Drive inválido: ${slug}`); }
+      else               { driveOk++; if (!sample) sample = slug; }
+    }
+  }
+
+  // Form backends (env bindings → zero KV). All three public forms (support,
+  // removal, Drive consent) verify a Turnstile token server-side and fail
+  // closed, so a missing secret silently breaks every submission.
+  const forms = {
+    turnstile: !!env.TURNSTILE_SECRET_KEY,
+    resend: !!env.RESEND_API_KEY,
+    adminEmail: !!env.ADMIN_EMAIL,
+  };
+  if (!forms.turnstile)  problems.push('Turnstile ausente — suporte/remoção/Drive recusam todos os envios');
+  if (!forms.resend)     problems.push('Resend ausente — suporte/remoção não disparam e-mail');
+  if (!forms.adminEmail) problems.push('ADMIN_EMAIL ausente — suporte/remoção sem destinatário');
+
+  const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
+  if (problems.length > MAX_SELFTEST_PROBLEMS) trimmed.push(`+${problems.length - MAX_SELFTEST_PROBLEMS} outro(s)`);
+
+  return {
+    ok: problems.length === 0,
+    problems: trimmed,
+    drive: { ok: driveOk, bad: driveBad, live },
+    forms,
+    sample, // a healthy live event slug for the dashboard to deep-probe (or null)
+  };
+}
+
 async function handleHealthz(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
   if (!allowed) return jsonErr('Too many requests.', 429);
 
-  // --- Core: KV is the binding the whole app depends on. A read failure here
-  // (or a corrupt `events` value) is the ONLY condition that flips ok:false —
-  // this mirrors the pre-existing 500-on-throw behavior the deploy smoke test
-  // relies on (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  // --- Core: KV is the binding the whole app depends on, and a read failure
+  // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
+  // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on
+  // (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  //
+  // KV-frugal by design: one read of `events` proves both that the binding
+  // responds AND that the main store is a valid array — so we dropped the old
+  // throwaway `__healthz__` probe and spend that second read on the cron
+  // heartbeat below. Net: still two KV reads per healthz, same as before this
+  // diagnostics expansion.
   let kv = false;
   let events = null;
+  let eventsList = [];
   const kvT0 = Date.now();
   try {
-    await env.FOTOS.get('__healthz__');
+    eventsList = await getEvents(env, true);
     kv = true;
-    const list = await getEvents(env, true);
-    events = Array.isArray(list) ? list.length : null;
+    events = Array.isArray(eventsList) ? eventsList.length : null;
   } catch {
     // KV unavailable — kv/events keep their pre-failure values, so ok flips false
   }
@@ -951,35 +1018,37 @@ async function handleHealthz(request, env) {
   await hashPassword('healthcheck');
   const hashMs = Date.now() - t0;
 
-  // --- Extended diagnostics (all best-effort — a read failure degrades only its
-  // own field, never `ok`/the smoke test). This is the overkill surface the
-  // status dashboard mines so *any* anomaly — a stalled cron, a slow KV, a
-  // missing hardening secret, a growing pile of pending removals — is visible. ---
-  const [categories, removalRequests, cron, adminStored] = await Promise.all([
-    getCategories(env).then(c => c.length).catch(() => null),
-    getRemovalRequests(env).then(r => ({
-      total: r.length,
-      pending: r.filter(x => !x.resolved).length,
-    })).catch(() => null),
-    env.FOTOS.get('cron:last').then(last => ({
-      lastRunAt: last || null,
-      ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
-      stale: cronStale(last),
-    })).catch(() => null),
-    env.FOTOS.get('admin_password').catch(() => null),
-  ]);
+  // --- Cron heartbeat (best-effort, one KV read): detects a silently dead daily
+  // schedule. This is the second of the two KV reads; the throwaway `__healthz__`
+  // probe used to be the second read, so the diagnostics gained a real signal at
+  // no extra KV cost. ---
+  const cron = await env.FOTOS.get('cron:last').then(last => ({
+    lastRunAt: last || null,
+    ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
+    stale: cronStale(last),
+  })).catch(() => null);
 
+  // --- Functional self-test over the already-loaded events array (ZERO extra KV
+  // reads): broken/missing Drive links on live events, bad data, and form
+  // backends that are unset. This is what surfaces "something went wrong" on the
+  // status dashboard, not just hard 500s. ---
+  const selftest = auditSite(eventsList, env);
+
+  // --- The rest of the extended surface is derived from already-loaded data and
+  // env bindings — ZERO additional KV reads. `config` exposes only booleans
+  // (which hardening secrets are present), never their values. Backlog/category
+  // counts were intentionally dropped here: they cost a KV read each and signal
+  // no *failure*, and the status dashboard already covers an unconfigured admin
+  // via the /dashboard 503 probe. ---
   const ok = kv && events !== null;
   return jsonOk({
     // Stable contract (smoke test + existing dashboard parsing): keep these names.
     ok, kv, events, d1, hashMs,
-    // Extended surface.
+    // Extended surface (no extra KV reads).
     kvLatencyMs,
     d1LatencyMs,
-    categories,
-    removalRequests,
     cron,
-    adminConfigured: !!adminStored || !!env.ADMIN_PASSWORD,
+    selftest,
     config: {
       resend: !!env.RESEND_API_KEY,
       turnstile: !!env.TURNSTILE_SECRET_KEY,
