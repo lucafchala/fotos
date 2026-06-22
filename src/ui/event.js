@@ -751,12 +751,17 @@ export function eventHTML(event, analyticsToken) {
         if (!file) return remError('Selecione uma foto.');
         if (file.size > 2 * 1024 * 1024) return remError('Foto muito grande (máx. 2 MB). Tente colar o link da foto no Drive.');
         fileName = file.name;
-        fileBase64 = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = ev => res(ev.target.result.split(',')[1]);
-          r.onerror = rej;
-          r.readAsDataURL(file);
-        });
+        try {
+          fileBase64 = await new Promise((res, rej) => {
+            const r = new FileReader();
+            r.onload = ev => res((ev.target.result || '').split(',')[1] || '');
+            r.onerror = () => rej(new Error('read'));
+            r.readAsDataURL(file);
+          });
+        } catch(_) {
+          return remError('Não foi possível ler o arquivo. Tente outra foto ou cole o link da foto no Drive.');
+        }
+        if (!fileBase64) return remError('Não foi possível ler o arquivo. Tente outra foto ou cole o link da foto no Drive.');
       }
 
       const email = (document.getElementById('rem-email').value || '').trim();
@@ -800,9 +805,17 @@ export function eventHTML(event, analyticsToken) {
         if (remWidgetId !== null && typeof turnstile !== 'undefined') { turnstile.reset(remWidgetId); }
       } catch(err) {
         remError(err.message || 'Erro ao enviar. Tente novamente.');
-      } finally {
-        btn.disabled = false;
         btn.textContent = 'Enviar solicitação';
+        // Turnstile tokens are single-use — this attempt already spent it. Fetch a
+        // fresh one before allowing a retry; otherwise the server rejects the stale
+        // token and every retry fails until the page is reloaded. The widget's
+        // callback re-enables the button once the new token arrives.
+        remTsToken = '';
+        if (remWidgetId !== null && typeof turnstile !== 'undefined') {
+          turnstile.reset(remWidgetId);
+        } else {
+          btn.disabled = false;
+        }
       }
     }
 

@@ -1,6 +1,6 @@
 import { escape } from '../utils.js';
 
-export function supportHTML(sent = false, error = '') {
+export function supportHTML(sent = false, error = '', values = {}) {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -78,15 +78,15 @@ export function supportHTML(sent = false, error = '') {
     <form method="POST" action="/api/suporte">
       <div>
         <label for="name">Nome (opcional)</label>
-        <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name">
+        <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name" value="${escape(values.name || '')}">
       </div>
       <div>
         <label for="email">E-mail <span style="color:#555">(para resposta)</span></label>
-        <input type="email" id="email" name="email" placeholder="seu@email.com" maxlength="200" autocomplete="email">
+        <input type="email" id="email" name="email" placeholder="seu@email.com" maxlength="200" autocomplete="email" value="${escape(values.email || '')}">
       </div>
       <div>
         <label for="message">Mensagem *</label>
-        <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required></textarea>
+        <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required>${escape(values.message || '')}</textarea>
       </div>
       <div>
         <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
@@ -94,10 +94,20 @@ export function supportHTML(sent = false, error = '') {
           <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
       </div>
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" style="margin-bottom:.5rem"></div>
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
-    <script>function onTurnstileSuccess(){var b=document.getElementById('support-submit');if(b)b.disabled=false;}</script>`}
+    <script>
+      function supportBtn(){return document.getElementById('support-submit');}
+      function onTurnstileSuccess(){var b=supportBtn();if(b)b.disabled=false;}
+      // A widget error must not strand the visitor on a dead button — re-enable it
+      // so they can still try (the server validates the token and replies clearly).
+      function onTurnstileError(){var b=supportBtn();if(b)b.disabled=false;}
+      // Same safety net if the Turnstile script itself is blocked or never loads.
+      setTimeout(function(){var b=supportBtn();if(b&&b.disabled&&typeof turnstile==='undefined')b.disabled=false;},5000);
+      // Guard against a double submit on the native form post.
+      (function(){var f=document.querySelector('form[action="/api/suporte"]');if(f)f.addEventListener('submit',function(){var b=supportBtn();if(b){b.disabled=true;b.textContent='Enviando…';}});})();
+    </script>`}
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>

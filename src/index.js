@@ -668,19 +668,23 @@ async function handleSupportRequest(request, env) {
     consent = String(body.consent || '');
   }
 
+  // Echo the submitted values back on every validation failure so a stumble
+  // (e.g. a Turnstile hiccup) never makes the visitor retype their message.
+  const values = { name, email, message };
+
   const tsOk = await verifyTurnstile(tsToken, env);
-  if (!tsOk) return html(supportHTML(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.'), 403);
+  if (!tsOk) return html(supportHTML(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.', values), 403);
 
   if (consent !== '1') {
-    return html(supportHTML(false, 'É necessário concordar com a política de privacidade.'), 400);
+    return html(supportHTML(false, 'É necessário concordar com a política de privacidade.', values), 400);
   }
 
   if (!message) {
-    return html(supportHTML(false, 'A mensagem não pode estar vazia.'), 400);
+    return html(supportHTML(false, 'A mensagem não pode estar vazia.', values), 400);
   }
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    return html(supportHTML(false, 'E-mail inválido.'), 400);
+    return html(supportHTML(false, 'E-mail inválido.', values), 400);
   }
 
   try {

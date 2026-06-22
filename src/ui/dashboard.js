@@ -1173,7 +1173,12 @@ export function dashboardHTML(events, categories = []) {
       if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
       const n = backup.events.length;
       const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
-      if (!confirm('Restaurar backup de ' + date + ' com ' + n + ' eventos? Eventos novos serao adicionados sem excluir nenhum dado atual.')) return;
+      const ok = await confirmDialog({
+        title: 'Restaurar backup',
+        message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
+        confirmLabel: 'Restaurar',
+      });
+      if (!ok) return;
       try {
         const res = await api('POST', '/api/backup/restore', backup);
         toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
@@ -1376,6 +1381,12 @@ export function dashboardHTML(events, categories = []) {
         body: body && method !== 'GET' ? JSON.stringify(body) : undefined,
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        // Session expired — send them back to login instead of firing a confusing
+        // "Não autorizado" toast on every subsequent action.
+        window.location.href = '/dashboard';
+        throw new Error(data.error || 'Sessão expirada.');
+      }
       if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
       return data;
     }
