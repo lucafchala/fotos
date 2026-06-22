@@ -1,6 +1,6 @@
 import { escape } from '../utils.js';
 
-export function supportHTML(sent = false, error = '') {
+export function supportHTML(sent = false, error = '', values = {}) {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -13,7 +13,7 @@ export function supportHTML(sent = false, error = '') {
   <meta name="description" content="Entre em contato com Luca F. Chala">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
@@ -44,6 +44,11 @@ export function supportHTML(sent = false, error = '') {
     .submit-btn:hover{opacity:.88}
     .success{background:#0a120a;border:1px solid #1a2e1a;color:#4a8a4a;padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
     .error-msg{background:#1a0a0a;border:1px solid #2e1a1a;color:#aa5555;padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
+    .adblock-warn{background:#1d1606;border:1px solid #4a3a12;color:#d8b25a;padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
+    .adblock-warn strong{color:#f0d080}
+    .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+    .noscript-banner{background:#1d1606;border:1px solid #4a3a12;color:#e8c878;padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
+    .noscript-banner strong{color:#f0d080}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
     footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
     footer a:hover{color:#777}
@@ -71,6 +76,12 @@ export function supportHTML(sent = false, error = '') {
       </a>
     </div>
 
+    <noscript>
+      <div class="noscript-banner">
+        O formulário precisa de <strong>JavaScript</strong> ativado e do bloqueador de anúncios desativado. Sem isso, use o <strong>WhatsApp</strong> ou o e-mail acima para falar comigo.
+      </div>
+    </noscript>
+
     <div class="divider">ou envie uma mensagem</div>
 
     ${sent ? `<div class="success">Mensagem enviada! Entrarei em contato em breve.</div>` : `
@@ -78,15 +89,15 @@ export function supportHTML(sent = false, error = '') {
     <form method="POST" action="/api/suporte">
       <div>
         <label for="name">Nome (opcional)</label>
-        <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name">
+        <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name" value="${escape(values.name || '')}">
       </div>
       <div>
         <label for="email">E-mail <span style="color:#555">(para resposta)</span></label>
-        <input type="email" id="email" name="email" placeholder="seu@email.com" maxlength="200" autocomplete="email">
+        <input type="email" id="email" name="email" placeholder="seu@email.com" maxlength="200" autocomplete="email" value="${escape(values.email || '')}">
       </div>
       <div>
         <label for="message">Mensagem *</label>
-        <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required></textarea>
+        <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required>${escape(values.message || '')}</textarea>
       </div>
       <div>
         <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
@@ -94,10 +105,26 @@ export function supportHTML(sent = false, error = '') {
           <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
       </div>
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" style="margin-bottom:.5rem"></div>
+      <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
+      </div>
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
-    <script>function onTurnstileSuccess(){var b=document.getElementById('support-submit');if(b)b.disabled=false;}</script>`}
+    <script>
+      function supportBtn(){return document.getElementById('support-submit');}
+      function showSupportAdblock(){var w=document.getElementById('support-adblock');if(w)w.style.display='';}
+      function onTurnstileSuccess(){var b=supportBtn();if(b)b.disabled=false;}
+      // A widget error must not strand the visitor on a dead button — re-enable it
+      // so they can still try (the server validates the token and replies clearly),
+      // and warn that an ad-blocker is the likely cause.
+      function onTurnstileError(){var b=supportBtn();if(b)b.disabled=false;showSupportAdblock();}
+      // Same safety net if the Turnstile script itself is blocked or never loads.
+      if(window.__supTsBlocked)showSupportAdblock();
+      setTimeout(function(){if(typeof turnstile==='undefined'||window.__supTsBlocked){showSupportAdblock();var b=supportBtn();if(b&&b.disabled)b.disabled=false;}},5000);
+      // Guard against a double submit on the native form post.
+      (function(){var f=document.querySelector('form[action="/api/suporte"]');if(f)f.addEventListener('submit',function(){var b=supportBtn();if(b){b.disabled=true;b.textContent='Enviando…';}});})();
+    </script>`}
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
