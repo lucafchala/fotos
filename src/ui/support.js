@@ -47,6 +47,8 @@ export function supportHTML(sent = false, error = '', values = {}) {
     .adblock-warn{background:#1d1606;border:1px solid #4a3a12;color:#d8b25a;padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
     .adblock-warn strong{color:#f0d080}
     .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+    .noscript-banner{background:#1d1606;border:1px solid #4a3a12;color:#e8c878;padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
+    .noscript-banner strong{color:#f0d080}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
     footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
     footer a:hover{color:#777}
@@ -74,6 +76,12 @@ export function supportHTML(sent = false, error = '', values = {}) {
       </a>
     </div>
 
+    <noscript>
+      <div class="noscript-banner">
+        O formulário precisa de <strong>JavaScript</strong> ativado e do bloqueador de anúncios desativado. Sem isso, use o <strong>WhatsApp</strong> ou o e-mail acima para falar comigo.
+      </div>
+    </noscript>
+
     <div class="divider">ou envie uma mensagem</div>
 
     ${sent ? `<div class="success">Mensagem enviada! Entrarei em contato em breve.</div>` : `
@@ -98,7 +106,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
         </label>
       </div>
       <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
-        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e <button type="button" onclick="location.reload()">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
       </div>
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>

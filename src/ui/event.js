@@ -205,6 +205,9 @@ export function eventHTML(event, analyticsToken) {
     .adblock-warn strong{color:#f0d080}
     .adblock-warn a{color:#f0d080}
     .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+    .noscript-banner{background:#1d1606;border-bottom:1px solid #4a3a12;color:#e8c878;padding:.85rem 1.25rem;font-size:.82rem;line-height:1.55;text-align:center}
+    .noscript-banner strong{color:#f0d080}
+    .noscript-banner a{color:#f0d080}
     .rem-sheet-foot{display:flex;gap:.75rem;margin-top:1.25rem;position:sticky;bottom:0;background:#0d0d0d;padding:.875rem 0 .25rem;border-top:1px solid #161616}
     .btn-rem-cancel{flex:1;background:none;border:1px solid #222;color:#888;padding:.8rem;border-radius:8px;font-size:.875rem;font-weight:500;cursor:pointer;transition:border-color .2s}
     .btn-rem-cancel:hover{border-color:#3a3a3a}
@@ -228,6 +231,11 @@ export function eventHTML(event, analyticsToken) {
   </style>
 </head>
 <body>
+  <noscript>
+    <div class="noscript-banner">
+      Para acessar as fotos, ative o <strong>JavaScript</strong> e desative o bloqueador de anúncios para este site; depois recarregue a página. Precisa de ajuda? <a href="/suporte">Suporte</a>.
+    </div>
+  </noscript>
   ${showBanner ? `<div class="photos-banner" id="photos-banner">
     <div class="banner-inner">
       <span class="banner-dot"></span>
@@ -337,9 +345,9 @@ export function eventHTML(event, analyticsToken) {
       <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
       <div id="drive-turnstile" style="margin-top:1rem"></div>
       <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
-      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar a verificação de segurança. Se você usa um bloqueador de anúncios, desative-o para este site e recarregue a página.</div>
+      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar a verificação de segurança. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
-        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button>.
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
       </div>
       <div id="drive-gate" style="display:none">
         ${declaration ? `<label class="drive-consent">
@@ -440,7 +448,7 @@ export function eventHTML(event, analyticsToken) {
           <span style="font-size:.72rem;color:#888;line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para processar esta solicitação.</span>
         </label>
         <div id="rem-adblock" class="adblock-warn" style="display:none">
-          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
+          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
         </div>
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div id="rem-error" class="form-error" style="display:none"></div>
