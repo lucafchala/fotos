@@ -380,7 +380,7 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
 - **Hero**: se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px).
 - **Conteúdo**: data, título grande, descrição longa (`white-space: pre-wrap`), botão "Acessar fotos".
-- **Modal "Antes de acessar as fotos"**: aparece ao clicar no botão. Tem créditos destacados, passo-a-passo de download (mobile e desktop), aviso "Não tire print" e botão final "Ir para o Google Drive" que chama `trackDrive()` antes de abrir.
+- **Modal "Antes de acessar as fotos"**: aparece ao clicar no botão. Tem créditos destacados, passo-a-passo de download (mobile e desktop), aviso "Não tire print" e botão final "Ir para o Google Drive" que chama `trackDrive()` antes de abrir. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — **sem bloquear** o acesso às fotos (ver seção LGPD).
 - **Créditos**: nome do fotógrafo + (opcional) créditos do evento + link extra. Nota verde "marque sempre @lucafchala".
 - **Footer**: compartilhar no WhatsApp (link `wa.me/?text=...`), botão "Solicitar remoção de foto", link "Suporte".
 - **Modal de remoção**: formulário com:
@@ -388,7 +388,9 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
   - E-mail (obrigatório, regex), telefone (obrigatório, 10–13 dígitos).
   - Mensagem opcional.
   - Aviso LGPD curto: "Seus dados (e-mail e telefone) são usados exclusivamente para processar esta solicitação."
+  - **Turnstile** obrigatório; como o token é de uso único, o widget é **resetado automaticamente** após uma falha de envio (evita o loop de 403 ao tentar de novo com token gasto). A leitura do arquivo de upload é protegida (erro amigável em vez de falha silenciosa).
   - Submete via fetch para `/api/removal-request`. Sucesso troca o conteúdo da modal por uma tela verde com check.
+  - **Bloqueador de anúncios / JS desativado**: se o script do Turnstile não carrega, a modal mostra um aviso (desative o bloqueador, ative o JavaScript, botão de recarregar) e mantém o envio desabilitado — a solicitação exige a verificação server-side.
 - **Tour guiado** (apenas no primeiro acesso, lembrado via `localStorage['fotos:tour_seen']`): modal de boas-vindas que mostra 3 dicas (Acessar fotos / WhatsApp / Solicitar remoção). Botão "Entendi" fecha e seta a flag.
 
 ### `/suporte` — Página de suporte (`src/ui/support.js`)
@@ -396,9 +398,9 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
 - Header com link "Voltar".
 - Botões grandes: WhatsApp (`wa.me/5511989211178`) e e-mail (`mailto:suport@lucafchala.com`).
 - Divisor "ou envie uma mensagem".
-- Formulário POST para `/api/suporte` (form-data, sem fetch — degrada para HTML puro). Campos: nome (opcional), e-mail (opcional, vira `reply_to` se preenchido), mensagem (obrigatório, ≤ 2000 chars).
-- Após envio, a página é recarregada com `?` e mostra caixa verde "Mensagem enviada!".
-- Erros (campos vazios, rate limit) mostram caixa vermelha.
+- Formulário POST para `/api/suporte` (form-data, sem fetch — degrada para HTML puro). Campos: nome (opcional), e-mail (opcional, vira `reply_to` se preenchido), mensagem (obrigatório, ≤ 2000 chars). **Turnstile** obrigatório; o botão fica desabilitado até a verificação passar, com **fallback** que o reabilita se o script for bloqueado, mais guarda anti-duplo-envio.
+- Após envio, a página é recarregada e mostra caixa verde "Mensagem enviada!". Em caso de erro, **nome/e-mail/mensagem são preservados** (re-renderizados escapados) para não perder o texto digitado.
+- Erros (campos vazios, rate limit, Turnstile) mostram caixa vermelha. Se um ad-blocker bloqueia o Turnstile, aparece um aviso para desativá-lo / ativar o JS (ou usar WhatsApp/e-mail); um banner `<noscript>` cobre o caso de JavaScript totalmente desativado.
 
 ---
 
@@ -483,7 +485,7 @@ A política de privacidade no modal explicita que e-mail/telefone são usados **
 A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície de **conformidade LGPD**:
 
 - **`/termos`** (`src/ui/terms.js`) traz os Termos de Uso com a **autorização de uso de imagem** (entrega às pessoas do evento + divulgação do trabalho em portfólio/redes, creditando @lucafchala; sem venda a terceiros), fundamentada no art. 20 do Código Civil e no consentimento da LGPD. O responsável é identificado por nome + e-mail (sem CPF/RG públicos); foro de São Paulo/SP.
-- **Gate antes do Drive**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem; só então os links do Drive são liberados. Opcionalmente informa o nome.
+- **Gate antes do Drive**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem; só então os links do Drive são liberados. Opcionalmente informa o nome. Se um bloqueador de anúncios impede o Turnstile (ou o JS está desativado), um aviso pede para desativá-lo — mas o acesso às fotos **não é bloqueado** (o aceite é gravado com `turnstile_ok=0`), priorizando a entrega. ⚠️ O gate é **client-side**: os links do Drive ainda estão no código-fonte da página (ver _Limitações conhecidas_ e `SECURITY.md`).
 - **Registro do aceite** (`POST /api/consent` → D1): no clique de download, um `navigator.sendBeacon` envia o aceite e o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. É **best-effort, não bloqueia** a entrega; sem D1 provisionado, é no-op.
 - **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
@@ -711,6 +713,8 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
 - **D1 precisa ser provisionado**: enquanto `CONSENT_DB` não existir, o aceite dos Termos continua barrando o acesso ao Drive normalmente, mas **não é gravado** (no-op). Provisione o D1 (ver Configuração) para ter a comprovação.
+- **Gate do Drive é client-side**: `DRIVE_URL`/`DRIVE_URL_IG` são embutidos no HTML/JS, então os links são visíveis pelo "ver código-fonte" / console **sem passar pela verificação**. Mitigação no roadmap: servir o link por endpoint só após validar o Turnstile no servidor (ver `SECURITY.md` e `TODO.md`).
+- **Formulários e gate exigem JavaScript + Turnstile**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte e a verificação do gate. O site **detecta e avisa** (desative o bloqueador / ative o JS), mantém o acesso às fotos liberado e oferece WhatsApp/e-mail como alternativa; banners `<noscript>` cobrem o caso sem JS.
 
 ---
 
@@ -718,7 +722,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 O arquivo [`TODO.md`](./TODO.md) tem o histórico completo de features entregues e o backlog de ideias (operacional, engajamento, profissional, UX, futuro distante). Resumo do que falta:
 
-**Segurança**: rate limiting mais robusto, recuperação de senha por e-mail (magic link).
+**Segurança / anti-abuso**: esconder os links do Drive do código-fonte (hoje achatáveis pelo console — o gate é só client-side), aplicar o aceite no servidor, recuperação de senha por e-mail (magic link), 2FA no painel, afinar WAF/Bot Fight Mode, endurecer a CSP. _(Rate limiting e backup/restore já implementados.)_ Política de segurança em [`SECURITY.md`](./SECURITY.md).
 
 **Recursos**: senha por evento.
 
