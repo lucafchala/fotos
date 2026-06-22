@@ -103,6 +103,11 @@ export default {
   // personal data (e-mail/phone) is not kept indefinitely. Configured in
   // wrangler.toml ([triggers] crons).
   async scheduled(event, env, ctx) {
+    // Heartbeat first: stamp the wall-clock the cron last fired so /api/healthz
+    // (and the status dashboard) can detect a *silently dead* schedule — a job
+    // that stops running emits no error, so without this beat the failure is
+    // invisible until data quietly stops being pruned.
+    ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
     ctx.waitUntil(pruneOldConsent(env).catch(e => console.error('consent prune failed', e)));
   },
@@ -889,17 +894,33 @@ async function handleResolveRequest(request, env, id) {
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
+// The daily cron fires at 03:00 UTC. If the last heartbeat is older than one
+// full day plus slack, the schedule is treated as silently dead.
+const CRON_STALE_MS = 26 * 60 * 60 * 1000; // 26h — one daily run + 2h propagation slack
+
+// Pure + unit-tested: is the cron heartbeat stale? A never-written beat
+// (null/undefined) is NOT stale — a fresh deploy hasn't reached 03:00 yet, so we
+// don't want the status dashboard to cry wolf for the first day. Only an
+// existing-but-old beat counts as a real "the cron stopped" signal.
+export function cronStale(lastIso, now = Date.now()) {
+  if (!lastIso) return false;
+  const t = new Date(lastIso).getTime();
+  if (!Number.isFinite(t)) return true; // present but unparseable → something wrote garbage
+  return now - t > CRON_STALE_MS;
+}
+
 async function handleHealthz(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
   if (!allowed) return jsonErr('Too many requests.', 429);
 
-  // KV is the binding the whole app depends on. A read failure here (or a
-  // corrupt `events` value) is the only condition that flips ok:false — this
-  // mirrors the pre-existing 500-on-throw behavior the deploy smoke test relies
-  // on, while now reporting *which* subsystem failed instead of a blank 500.
+  // --- Core: KV is the binding the whole app depends on. A read failure here
+  // (or a corrupt `events` value) is the ONLY condition that flips ok:false —
+  // this mirrors the pre-existing 500-on-throw behavior the deploy smoke test
+  // relies on (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
   let kv = false;
   let events = null;
+  const kvT0 = Date.now();
   try {
     await env.FOTOS.get('__healthz__');
     kv = true;
@@ -908,27 +929,68 @@ async function handleHealthz(request, env) {
   } catch {
     // KV unavailable — kv/events keep their pre-failure values, so ok flips false
   }
+  const kvLatencyMs = Date.now() - kvT0;
 
-  // The D1 consent log is optional/best-effort: a missing or unscoped binding
-  // must never fail the deploy (see deploy.yml), so it is reported for the
-  // status dashboard but never flips ok.
+  // --- D1 consent log (optional/best-effort): a missing or unscoped binding
+  // must never fail the deploy (see deploy.yml), so it's reported but never ok. ---
   let d1 = 'absent';
+  let d1LatencyMs = null;
   if (env.CONSENT_DB) {
+    const t0 = Date.now();
     try {
       await env.CONSENT_DB.prepare('SELECT 1').first();
       d1 = 'ok';
     } catch {
       d1 = 'down';
     }
+    d1LatencyMs = Date.now() - t0;
   }
 
-  // PBKDF2 hash — confirms login hashing completes within the CPU budget
+  // --- PBKDF2 hash — confirms login hashing completes within the CPU budget. ---
   const t0 = Date.now();
   await hashPassword('healthcheck');
   const hashMs = Date.now() - t0;
 
+  // --- Extended diagnostics (all best-effort — a read failure degrades only its
+  // own field, never `ok`/the smoke test). This is the overkill surface the
+  // status dashboard mines so *any* anomaly — a stalled cron, a slow KV, a
+  // missing hardening secret, a growing pile of pending removals — is visible. ---
+  const [categories, removalRequests, cron, adminStored] = await Promise.all([
+    getCategories(env).then(c => c.length).catch(() => null),
+    getRemovalRequests(env).then(r => ({
+      total: r.length,
+      pending: r.filter(x => !x.resolved).length,
+    })).catch(() => null),
+    env.FOTOS.get('cron:last').then(last => ({
+      lastRunAt: last || null,
+      ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
+      stale: cronStale(last),
+    })).catch(() => null),
+    env.FOTOS.get('admin_password').catch(() => null),
+  ]);
+
   const ok = kv && events !== null;
-  return jsonOk({ ok, kv, events, d1, hashMs }, ok ? 200 : 503);
+  return jsonOk({
+    // Stable contract (smoke test + existing dashboard parsing): keep these names.
+    ok, kv, events, d1, hashMs,
+    // Extended surface.
+    kvLatencyMs,
+    d1LatencyMs,
+    categories,
+    removalRequests,
+    cron,
+    adminConfigured: !!adminStored || !!env.ADMIN_PASSWORD,
+    config: {
+      resend: !!env.RESEND_API_KEY,
+      turnstile: !!env.TURNSTILE_SECRET_KEY,
+      consentDb: !!env.CONSENT_DB,
+      adminEmail: !!env.ADMIN_EMAIL,
+    },
+    termsVersion: TERMS_VERSION,
+    colo: request.cf?.colo || null,
+    country: request.cf?.country || null,
+    now: new Date().toISOString(),
+  }, ok ? 200 : 503);
 }
 
 // ---------------------------------------------------------------------------

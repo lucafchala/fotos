@@ -320,7 +320,7 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
 | POST | `/api/consent` | `handleConsent` | Registra o aceite dos Termos / uso de imagem em D1 (best-effort, rate-limit 60/h, no-op sem D1) |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
-| GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs}` — usado pelo CI e pelo dashboard de status |
+| GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs, …}` (+ `kvLatencyMs`, `removalRequests`, `cron`, `config`, …) — usado pelo CI e pelo dashboard de status |
 
 ### Autenticadas (cookie `session` válido)
 
@@ -638,12 +638,13 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 `GET /api/healthz`:
 
 1. Rate limit: 10/min por IP.
-2. `await env.FOTOS.get('__healthz__')` + leitura de `events` — confirma que o binding KV responde **e** que a chave principal (`events`) ainda é um array válido. Reporta a contagem em `events`.
-3. Se o binding `CONSENT_DB` existir, um `SELECT 1` checa o D1 (log de consentimento). É **best-effort**: `d1` vira `"down"` mas isso *não* derruba o `ok` (um D1 ausente/sem escopo nunca pode reprovar o deploy — ver `deploy.yml`).
+2. `await env.FOTOS.get('__healthz__')` + leitura de `events` — confirma que o binding KV responde **e** que a chave principal (`events`) ainda é um array válido. Reporta a contagem em `events` e o tempo da leitura em `kvLatencyMs`.
+3. Se o binding `CONSENT_DB` existir, um `SELECT 1` checa o D1 (log de consentimento) e cronometra em `d1LatencyMs`. É **best-effort**: `d1` vira `"down"` mas isso *não* derruba o `ok` (um D1 ausente/sem escopo nunca pode reprovar o deploy — ver `deploy.yml`).
 4. `await hashPassword('healthcheck')` cronometrado — confirma que o PBKDF2 cabe no budget de CPU do Worker.
-5. Retorna `{ ok, kv, events, d1, hashMs }`. `ok` é `true` (HTTP 200) só quando o KV respondeu e `events` é um array; caso contrário `ok:false` com HTTP 503.
+5. **Diagnóstico estendido (best-effort, nunca derruba `ok`):** `categories` (contagem), `removalRequests` `{ total, pending }`, `cron` `{ lastRunAt, ageHours, stale }` (heartbeat gravado pelo `scheduled` em `cron:last` — detecta um cron *silenciosamente morto*), `adminConfigured` (booleano — login é possível?), `config` `{ resend, turnstile, consentDb, adminEmail }` (booleanos — segredos de produção presentes, sem vazar valores), `termsVersion`, `colo`/`country` (de `request.cf`) e `now`.
+6. Retorna `{ ok, kv, events, d1, hashMs, … }`. `ok` é `true` (HTTP 200) só quando o KV respondeu e `events` é um array; caso contrário `ok:false` com HTTP 503.
 
-`ok` e `hashMs` continuam presentes e com o mesmo significado — o smoke test do CI segue funcionando. Os campos extras (`kv`, `events`, `d1`) são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint para checar a saúde funcional do worker (KV, D1 e orçamento de hashing) sem depender de CORS.
+`ok` e `hashMs` continuam presentes e com o mesmo significado — o smoke test do CI segue funcionando. Todos os campos extras são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint e disseca **cada** campo para sinalizar qualquer anomalia (cron parado, KV lento, segredo de hardening ausente, fila de remoções crescendo) sem depender de CORS. O heartbeat do cron é puro o suficiente para ter teste unitário (`cronStale`, em `tests/index.test.js`).
 
 CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing em `handleLogin` corre o risco de estourar o limite de CPU do Worker (~50–200 ms dependendo da conta) e retornar 5xx ao usuário tentando logar.
 

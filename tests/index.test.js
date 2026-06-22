@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, DEFAULT_EVENT } from '../src/index.js';
+import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, DEFAULT_EVENT, cronStale } from '../src/index.js';
 
 const CATS = ['Casamento', 'Ensaio'];
 
@@ -112,6 +112,26 @@ describe('normalizeEventFields', () => {
       { photosAlert: { active: true, addedAt: '2026-06-19', expiresAfterHours: '48' } },
       DEFAULT_EVENT, CATS);
     expect(f.photosAlert).toEqual({ active: true, addedAt: '2026-06-19', expiresAfterHours: 48 });
+  });
+});
+
+describe('cronStale (healthz cron heartbeat)', () => {
+  const now = Date.parse('2026-06-22T12:00:00Z');
+  it('treats a never-written beat as NOT stale (fresh deploy grace)', () => {
+    expect(cronStale(null, now)).toBe(false);
+    expect(cronStale(undefined, now)).toBe(false);
+    expect(cronStale('', now)).toBe(false);
+  });
+  it('is fresh for a beat within the last day', () => {
+    expect(cronStale('2026-06-22T03:00:00Z', now)).toBe(false); // 9h ago
+    expect(cronStale('2026-06-21T11:00:00Z', now)).toBe(false); // 25h ago — within 26h slack
+  });
+  it('is stale once the beat is older than a day + slack', () => {
+    expect(cronStale('2026-06-21T03:00:00Z', now)).toBe(true);  // 33h ago
+    expect(cronStale('2026-06-19T03:00:00Z', now)).toBe(true);  // ~3 days ago
+  });
+  it('flags an unparseable timestamp as stale (something wrote garbage)', () => {
+    expect(cronStale('not-a-date', now)).toBe(true);
   });
 });
 
