@@ -4,6 +4,9 @@
 
 - [ ] Adicionar link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
 - [ ] Adicionar na homepage pessoal (lucafchala.com)
+- [ ] Revisar e mergear as 2 PRs do Dependabot (confirmar CI verde antes):
+  - **#48** — bump esbuild + vitest + wrangler (devDeps npm)
+  - **#32** — `cloudflare/wrangler-action` 3 → 4 (este é o upgrade "wrangler 3 → 4" no deploy)
 
 ---
 
