@@ -914,17 +914,22 @@ async function handleHealthz(request, env) {
   const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
   if (!allowed) return jsonErr('Too many requests.', 429);
 
-  // --- Core: KV is the binding the whole app depends on. A read failure here
-  // (or a corrupt `events` value) is the ONLY condition that flips ok:false —
-  // this mirrors the pre-existing 500-on-throw behavior the deploy smoke test
-  // relies on (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  // --- Core: KV is the binding the whole app depends on, and a read failure
+  // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
+  // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on
+  // (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  //
+  // KV-frugal by design: one read of `events` proves both that the binding
+  // responds AND that the main store is a valid array — so we dropped the old
+  // throwaway `__healthz__` probe and spend that second read on the cron
+  // heartbeat below. Net: still two KV reads per healthz, same as before this
+  // diagnostics expansion.
   let kv = false;
   let events = null;
   const kvT0 = Date.now();
   try {
-    await env.FOTOS.get('__healthz__');
-    kv = true;
     const list = await getEvents(env, true);
+    kv = true;
     events = Array.isArray(list) ? list.length : null;
   } catch {
     // KV unavailable — kv/events keep their pre-failure values, so ok flips false
@@ -951,35 +956,30 @@ async function handleHealthz(request, env) {
   await hashPassword('healthcheck');
   const hashMs = Date.now() - t0;
 
-  // --- Extended diagnostics (all best-effort — a read failure degrades only its
-  // own field, never `ok`/the smoke test). This is the overkill surface the
-  // status dashboard mines so *any* anomaly — a stalled cron, a slow KV, a
-  // missing hardening secret, a growing pile of pending removals — is visible. ---
-  const [categories, removalRequests, cron, adminStored] = await Promise.all([
-    getCategories(env).then(c => c.length).catch(() => null),
-    getRemovalRequests(env).then(r => ({
-      total: r.length,
-      pending: r.filter(x => !x.resolved).length,
-    })).catch(() => null),
-    env.FOTOS.get('cron:last').then(last => ({
-      lastRunAt: last || null,
-      ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
-      stale: cronStale(last),
-    })).catch(() => null),
-    env.FOTOS.get('admin_password').catch(() => null),
-  ]);
+  // --- Cron heartbeat (best-effort, one KV read): detects a silently dead daily
+  // schedule. This is the second of the two KV reads; the throwaway `__healthz__`
+  // probe used to be the second read, so the diagnostics gained a real signal at
+  // no extra KV cost. ---
+  const cron = await env.FOTOS.get('cron:last').then(last => ({
+    lastRunAt: last || null,
+    ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
+    stale: cronStale(last),
+  })).catch(() => null);
 
+  // --- The rest of the extended surface is derived from already-loaded data and
+  // env bindings — ZERO additional KV reads. `config` exposes only booleans
+  // (which hardening secrets are present), never their values. Backlog/category
+  // counts were intentionally dropped here: they cost a KV read each and signal
+  // no *failure*, and the status dashboard already covers an unconfigured admin
+  // via the /dashboard 503 probe. ---
   const ok = kv && events !== null;
   return jsonOk({
     // Stable contract (smoke test + existing dashboard parsing): keep these names.
     ok, kv, events, d1, hashMs,
-    // Extended surface.
+    // Extended surface (no extra KV reads).
     kvLatencyMs,
     d1LatencyMs,
-    categories,
-    removalRequests,
     cron,
-    adminConfigured: !!adminStored || !!env.ADMIN_PASSWORD,
     config: {
       resend: !!env.RESEND_API_KEY,
       turnstile: !!env.TURNSTILE_SECRET_KEY,
