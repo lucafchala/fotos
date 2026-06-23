@@ -971,10 +971,12 @@ export function auditSite(events, env = {}) {
 }
 
 async function handleHealthz(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'healthz', 10, 60);
-  if (!allowed) return jsonErr('Too many requests.', 429);
-
+  // No KV rate-limit here on purpose. This endpoint is polled by the status
+  // monitor on a schedule, and checkRateLimit() does a KV *write* per call — a
+  // scarce, account-wide resource (free tier: 1k writes/day, shared with the
+  // rest of the app). The work healthz does is bounded (two KV reads + one
+  // PBKDF2 hash) and sits behind Cloudflare's edge/DDoS protection, so the
+  // per-call write cost wasn't worth the 10/min cap it bought.
   // --- Core: KV is the binding the whole app depends on, and a read failure
   // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
   // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on

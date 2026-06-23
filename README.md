@@ -637,7 +637,7 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 
 `GET /api/healthz`:
 
-1. Rate limit: 10/min por IP.
+1. **Sem rate-limit** (de propósito): o `checkRateLimit` faria um *write* no KV por chamada, e o monitor de status bate aqui de forma agendada — o write por chamada não compensava o teto de 10/min (o trabalho do healthz é limitado e fica atrás da borda/DDoS da Cloudflare). Resultado: o healthz **só lê** o KV, nunca grava.
 2. **Leitura 1/2 (KV):** `getEvents(env, true)` — uma única leitura de `events` confirma que o binding KV responde **e** que a chave principal ainda é um array válido. Reporta a contagem em `events` e o tempo em `kvLatencyMs`. (Substituiu a antiga sonda descartável `__healthz__`: a mesma leitura agora faz trabalho útil.)
 3. Se o binding `CONSENT_DB` existir, um `SELECT 1` checa o D1 (log de consentimento) e cronometra em `d1LatencyMs` — não é KV. É **best-effort**: `d1` vira `"down"` mas isso *não* derruba o `ok` (um D1 ausente/sem escopo nunca pode reprovar o deploy — ver `deploy.yml`).
 4. `await hashPassword('healthcheck')` cronometrado — confirma que o PBKDF2 cabe no budget de CPU do Worker (não é KV).
@@ -667,7 +667,6 @@ CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing
 | `/api/removal-request` | `removal` | 5 | 1 h |
 | `/api/track-drive` | `drive` | 60 | 1 h |
 | `/api/suporte` | `support` | 5 | 1 h |
-| `/api/healthz` | `healthz` | 10 | 1 min |
 
 Limitações: usa janela fixa (não sliding) e não é atômico (race em alta concorrência). Aceitável porque os endpoints públicos são de baixíssima taxa.
 
