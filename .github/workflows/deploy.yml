@@ -13,7 +13,7 @@ jobs:
       # Pre-deploy gate: run the unit suite before touching production. A red
       # test aborts the job before the migration / deploy steps run.
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
 
