@@ -168,32 +168,28 @@ export function eventHTML(event, analyticsToken) {
     .drive-name-toggle:hover{color:#999}
     .drive-consent-note{font-size:.68rem;color:#444;line-height:1.5;margin-top:.875rem}
     .drive-consent-note a{color:#666}
-    /* Button pulse: runs from the moment the modal opens (the buttons are
-       visible immediately, while the visitor is still reading/ticking the
-       Terms and Turnstile resolves in the background) all the way through
-       the /api/drive-link fetch — never hidden behind a generic spinner.
-       Non-linear: holds on the "off" look longest, rises fast into the "on"
-       color, settles back down slower — a breathing pulse rather than a
-       mechanical sweep. .drive-loading (the real fetch in flight) speeds it
-       up; .drive-error pauses it and dims the wrap. */
-    .drive-locked{opacity:.88;pointer-events:none}
-    .drive-locked .btn-drive-go{animation:drive-pulse-go 3.2s cubic-bezier(.45,0,.15,1) infinite}
-    .drive-locked .btn-drive-opt{animation:drive-pulse-opt 3.2s cubic-bezier(.45,0,.15,1) infinite}
-    .drive-loading .btn-drive-go,.drive-loading .btn-drive-opt{animation-duration:1.15s}
-    .drive-locked.drive-error{opacity:.55}
-    .drive-error .btn-drive-go,.drive-error .btn-drive-opt{animation-play-state:paused}
-    @keyframes drive-pulse-go{
-      0%{background:#242220;color:#736b60;animation-timing-function:cubic-bezier(.2,0,.4,1)}
-      55%{background:#242220;color:#736b60;animation-timing-function:cubic-bezier(.1,.6,.3,1)}
-      78%{background:#f0ebe5;color:#0a0a0a;animation-timing-function:cubic-bezier(.65,0,.35,1)}
-      100%{background:#242220;color:#736b60}
+    /* Standard loading button: same label, same color — only the leading
+       icon swaps for a spinner (reuses .spin's keyframe) while not ready
+       yet. No color/pulse animation, consistent across both button variants
+       (single "Drive" button and the two Instagram/full-res options).
+       Buttons stay clickable while loading — clicking early doesn't do
+       nothing, it nudges the visitor toward whatever's missing (see
+       handleLockedClick / .drive-consent-nudge). */
+    .btn-spinner{display:none;width:16px;height:16px;border-radius:50%;flex-shrink:0;animation:spin .7s linear infinite}
+    .btn-drive-go .btn-spinner{border:2px solid rgba(10,10,10,.25);border-top-color:#0a0a0a}
+    .btn-drive-opt .btn-spinner{border:2px solid rgba(240,235,229,.25);border-top-color:#f0ebe5}
+    .drive-loading .btn-icon{display:none}
+    .drive-loading .btn-spinner{display:inline-block}
+    @keyframes drive-consent-nudge{
+      0%{box-shadow:0 0 0 0 rgba(192,160,96,.5);transform:translateX(0)}
+      15%{transform:translateX(-5px)}
+      30%{transform:translateX(4px)}
+      45%{transform:translateX(-3px)}
+      60%{transform:translateX(2px)}
+      80%{transform:translateX(0);box-shadow:0 0 0 6px rgba(192,160,96,.18)}
+      100%{box-shadow:0 0 0 0 rgba(192,160,96,0);transform:translateX(0)}
     }
-    @keyframes drive-pulse-opt{
-      0%{border-color:#252525;background:#111;animation-timing-function:cubic-bezier(.2,0,.4,1)}
-      55%{border-color:#252525;background:#111;animation-timing-function:cubic-bezier(.1,.6,.3,1)}
-      78%{border-color:#c0a060;background:#1c1710;animation-timing-function:cubic-bezier(.65,0,.35,1)}
-      100%{border-color:#252525;background:#111}
-    }
+    .drive-consent-nudge{animation:drive-consent-nudge .6s ease-in-out 1;border-radius:6px}
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
@@ -375,20 +371,23 @@ export function eventHTML(event, analyticsToken) {
         <div id="drive-link-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">
           Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" style="background:none;border:none;color:#e0a0a0;text-decoration:underline;cursor:pointer;font:inherit;padding:0;margin-left:.35rem">Tentar novamente</button>
         </div>
-        <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
+        <div id="drive-links-wrap" class="drive-loading" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
-              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen(event)">
+                <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <span class="btn-spinner"></span>
                 <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
               </a>
-              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen(event)">
+                <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+                <span class="btn-spinner"></span>
                 <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
               </a>
             </div>`
-          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen()">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen(event)">
+              <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <span class="btn-spinner"></span>
               Ir para o Google Drive
             </a>`}
         </div>
@@ -564,7 +563,8 @@ export function eventHTML(event, analyticsToken) {
           driveTsToken = t;
           clearTimeout(driveTimeout);
           const e = document.getElementById('drive-verify-error'); if (e) e.style.display = 'none';
-          const wrap = document.getElementById('drive-links-wrap'); if (wrap) wrap.classList.remove('drive-error');
+          const wrap = document.getElementById('drive-links-wrap');
+          if (wrap) { wrap.classList.remove('drive-error'); if (driveLinkState !== 'ready') wrap.classList.add('drive-loading'); }
           updateDriveLock();
           maybeFetchDriveLink();
         },
@@ -576,9 +576,11 @@ export function eventHTML(event, analyticsToken) {
 
     // ---- Drive modal (Terms-gated, low-friction) ----
     // The buttons themselves are visible from the moment the modal opens —
-    // no separate "verifying" spinner gates them — carrying the pulsing
-    // locked/loading look (see CSS) all the way through Turnstile + consent
-    // + the /api/drive-link fetch, instead of hiding behind generic text.
+    // no separate "verifying" spinner gates them — showing a standard
+    // in-button spinner (label + color unchanged) all the way through
+    // Turnstile + consent + the /api/drive-link fetch, instead of hiding
+    // behind generic text. They stay clickable throughout: an early click
+    // nudges the visitor toward whatever's missing (see handleLockedClick).
     function openModal() {
       lastFocused = document.activeElement;
       const consent = document.getElementById('drive-consent');
@@ -635,7 +637,7 @@ export function eventHTML(event, analyticsToken) {
       if (driveLinkState === 'ready') return; // link already landed before the timeout fired
       const e = document.getElementById('drive-verify-error'); if (e) e.style.display = '';
       const wrap = document.getElementById('drive-links-wrap');
-      if (wrap) { wrap.classList.add('drive-locked', 'drive-error'); wrap.classList.remove('drive-loading'); }
+      if (wrap) { wrap.classList.add('drive-error'); wrap.classList.remove('drive-loading'); }
     }
     function onDriveConsent() {
       updateDriveLock();
@@ -710,29 +712,24 @@ export function eventHTML(event, analyticsToken) {
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
-    // Drives the visible state of the link button(s). A discreet loading bar
-    // runs on the button itself from the moment the gate appears (drive-locked)
-    // — while the visitor is still reading/ticking the Terms — through the real
-    // fetch (drive-loading speeds it up), so it never looks like the wait only
-    // starts once they accept. Lands on a focus-drawing "ready" pulse + auto-scroll
-    // once the real href arrives — so it's unmistakable where to click.
+    // Drives the visible state of the link button(s). Standard loading-button
+    // treatment: same label, same color, only the leading icon swaps for a
+    // spinner (.drive-loading) from the moment the gate appears through the
+    // real /api/drive-link fetch — consistent whether there's one button or
+    // two. Lands on a focus-drawing "ready" pulse + auto-scroll once the real
+    // href arrives — so it's unmistakable where to click.
     function setDriveLinkUI(state, data) {
       const wrap = document.getElementById('drive-links-wrap');
       const status = document.getElementById('drive-link-status');
       const err = document.getElementById('drive-link-error');
       if (!wrap) return;
-      if (state === 'idle') {
-        wrap.classList.add('drive-locked');
-        wrap.classList.remove('drive-loading', 'drive-error');
-        if (status) status.style.display = 'none';
-        if (err) err.style.display = 'none';
-      } else if (state === 'loading') {
-        wrap.classList.add('drive-locked', 'drive-loading');
+      if (state === 'idle' || state === 'loading') {
+        wrap.classList.add('drive-loading');
         wrap.classList.remove('drive-error');
-        if (status) status.style.display = '';
+        if (status) status.style.display = state === 'loading' ? '' : 'none';
         if (err) err.style.display = 'none';
       } else if (state === 'ready') {
-        wrap.classList.remove('drive-locked', 'drive-loading', 'drive-error');
+        wrap.classList.remove('drive-loading', 'drive-error');
         if (status) status.style.display = 'none';
         if (err) err.style.display = 'none';
         const primary = document.getElementById('drive-link');
@@ -747,7 +744,7 @@ export function eventHTML(event, analyticsToken) {
         const ig = document.getElementById('drive-link-ig');
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
       } else if (state === 'error') {
-        wrap.classList.add('drive-locked', 'drive-error');
+        wrap.classList.add('drive-error');
         wrap.classList.remove('drive-loading');
         if (status) status.style.display = 'none';
         if (err) err.style.display = '';
@@ -768,9 +765,41 @@ export function eventHTML(event, analyticsToken) {
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
-    function onDriveOpen() {
+    // Buttons stay clickable even before the link is ready — clicking early
+    // doesn't silently do nothing, it draws the eye to whatever's missing.
+    function onDriveOpen(e) {
+      if (driveLinkState !== 'ready') {
+        if (e && e.preventDefault) e.preventDefault();
+        handleLockedClick();
+        return;
+      }
       trackDrive(); // simple click counter — navigation follows the real href natively
       closeModal();
+    }
+    function nudge(el) {
+      if (!el) return;
+      el.classList.remove('drive-consent-nudge');
+      void el.offsetWidth; // force reflow so re-adding the class replays the animation
+      el.classList.add('drive-consent-nudge');
+    }
+    function handleLockedClick() {
+      const c = document.getElementById('drive-consent');
+      const decl = document.getElementById('drive-declaration');
+      const hint = document.getElementById('drive-gate-hint');
+      const needsConsent = c && !c.checked;
+      const needsDecl = decl && !decl.checked;
+      if (needsConsent || needsDecl) {
+        const target = needsConsent ? c : decl;
+        if (target) target.focus();
+        nudge(target ? target.closest('.drive-consent') : null);
+        if (hint) {
+          hint.textContent = 'Aceite os Termos primeiro.';
+          hint.style.display = '';
+          nudge(hint);
+        }
+      }
+      // else: Terms already accepted — just waiting on Turnstile/the fetch;
+      // the spinner + status text already say so, nothing else to nudge.
     }
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});

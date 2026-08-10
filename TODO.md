@@ -59,6 +59,7 @@
 
 ### Etapa 4 — Recursos
 - [ ] Senha por evento (acesso privado)
+- [ ] **Revamp do tour guiado** (modal de boas-vindas na página de evento, `/<slug>`): o conteúdo hoje ("Acessar fotos / WhatsApp / Solicitar remoção") ficou defasado depois das últimas mudanças no gate — Turnstile pré-carregado, botões visíveis desde a abertura da modal com spinner padrão, clique antes de aceitar os Termos destaca o checkbox ("Aceite os Termos primeiro"), texto de etiqueta encurtado. Revisar se o tour ainda explica o fluxo certo (ou se virou redundante agora que a própria UI já se explica sozinha).
 
 > Nota: o formulário de avaliações (estrelas) foi implementado e depois **removido** a pedido do dono. Não reintroduzir sem necessidade.
 
