@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, ACCESS_DECLARATIONS } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -271,7 +271,7 @@ export function eventHTML(event, analyticsToken) {
       <div class="credits-list">
         <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">📷 Fotografias: @lucafchala</a>
         ${event.eventCredits ? `<span>${escape(event.eventCredits)}</span>` : ''}
-        ${event.projectUrl ? `<a href="${escape(event.projectUrl)}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
+        ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
       </div>
       <div class="credits-note">Ao postar as fotos, marque sempre <strong>@lucafchala</strong> 📸 — isso valoriza o trabalho e incentiva novos projetos.</div>
     </div>

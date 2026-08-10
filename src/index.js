@@ -9,13 +9,20 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, isLikelyImage, csvResponse,
+  toHttps, safeUrl, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
 const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
+
+// KV counters are plain strings, so a corrupted/absent value must never become
+// NaN: String(NaN) would be written back and poison the counter for good.
+function toCount(v) {
+  const n = parseInt(v || '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -214,7 +221,10 @@ async function handleEventPage(request, env, slug, ctx) {
     const viewKey = `views:${slug}`;
     ctx.waitUntil(
       env.FOTOS.get(viewKey).then(async v => {
-        await env.FOTOS.put(viewKey, String(parseInt(v || '0', 10) + 1));
+        // A non-numeric stored value used to make this NaN, and String(NaN)
+        // wrote "NaN" back — poisoning the counter permanently, since every
+        // later increment re-read "NaN". toCount() falls back to 0.
+        await env.FOTOS.put(viewKey, String(toCount(v) + 1));
       }).catch(e => console.error('view counter failed', e))
     );
   }
@@ -616,8 +626,10 @@ async function handleMetrics(request, env) {
       return {
         slug: e.slug,
         title: e.title,
-        views: parseInt(v || '0', 10),
-        driveClicks: parseInt(d || '0', 10),
+        // NaN here would silently corrupt the sort below (and render as "NaN"
+        // in the dashboard table), so coerce unparseable counters to 0.
+        views: toCount(v),
+        driveClicks: toCount(d),
       };
     })
   );
@@ -639,7 +651,7 @@ async function handleTrackDrive(request, env) {
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
   const key = `drive_clicks:${slug}`;
   const v = await env.FOTOS.get(key).catch(() => null);
-  await env.FOTOS.put(key, String(parseInt(v || '0', 10) + 1)).catch(e => console.error('drive-click counter failed', e));
+  await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => console.error('drive-click counter failed', e));
   return jsonOk({ ok: true });
 }
 
@@ -717,6 +729,26 @@ async function handleChangePassword(request, env) {
   }
   const hash = await hashPassword(password);
   await env.FOTOS.put('admin_password', hash);
+
+  // Changing the password is the standard reaction to "I think someone got in".
+  // Without this sweep the stolen cookie stayed valid for up to 24 h, so the
+  // change gave a false sense of having locked the intruder out. Every other
+  // session is revoked; the caller's own session is kept so the admin isn't
+  // bounced to the login screen mid-action. Best-effort: a KV hiccup here must
+  // not fail the password change that already succeeded above.
+  try {
+    const cookies = request.headers.get('Cookie') || '';
+    const currentToken = (cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/) || [])[1];
+    const { keys } = await env.FOTOS.list({ prefix: 'admin_session:' });
+    await Promise.all(
+      keys
+        .filter(k => k.name !== `admin_session:${currentToken}`)
+        .map(k => env.FOTOS.delete(k.name))
+    );
+  } catch (e) {
+    console.error('session sweep after password change failed', e);
+  }
+
   return jsonOk({ ok: true });
 }
 
@@ -1189,7 +1221,10 @@ async function handleDriveLink(request, env, ctx) {
     ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
   }
 
-  return jsonOk({ ok: true, driveUrl: event.driveUrl || '', driveUrlInstagram: event.driveUrlInstagram || '' });
+  // safeUrl at the sink: these land straight in an <a href> on the client, so a
+  // `javascript:` value that reached KV through a restored backup (merged
+  // verbatim) or a legacy row would otherwise be one click from executing.
+  return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
 }
 
 async function handleConsentExport(request, env) {
@@ -1319,10 +1354,33 @@ export function buildBackup({ events, categories, removalRequests }) {
   });
 }
 
+// A restored backup is the one path that writes events into KV without going
+// through normalizeEventFields(), so its contents used to land verbatim — a
+// hand-edited/corrupted file could inject `javascript:` into an href rendered
+// on the public page, or a non-object entry that throws on `e.visible` and
+// 500s the gallery. Sanitize the two things that actually bite (shape + URL
+// sinks) and pass everything else through untouched, so legitimate backups —
+// including fields this normalizer doesn't know about — restore unchanged.
+const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
+
+function sanitizeRestoredEvent(ev) {
+  const out = { ...ev };
+  for (const f of RESTORE_URL_FIELDS) {
+    if (out[f] !== undefined) out[f] = toHttps(String(out[f] ?? '').slice(0, 500));
+  }
+  if (Array.isArray(out.photos)) {
+    out.photos = out.photos.map(u => toHttps(String(u ?? '').slice(0, 500))).filter(Boolean);
+  }
+  return out;
+}
+
 export function mergeRestore(current, backupEvents) {
   const result = [...current];
   let added = 0, updated = 0;
-  for (const bEv of backupEvents) {
+  for (const raw of backupEvents) {
+    // Skip junk entries instead of letting them reach KV (null/string/array).
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const bEv = sanitizeRestoredEvent(raw);
     const idx = result.findIndex(e => e.id === bEv.id);
     if (idx === -1) {
       result.push(bEv);

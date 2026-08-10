@@ -1396,7 +1396,10 @@ export function dashboardHTML(events, categories = []) {
     // this runs in the browser, where the module import is not available. Must
     // also escape ' since client-rendered values land in single-quoted attributes.
     function esc(s) {
-      if (!s) return '';
+      // Mirror utils.js exactly: only null/undefined become ''. The old
+      // truthiness check also swallowed the number 0, rendering it as an empty
+      // cell in the metrics table (0 views showed blank instead of "0").
+      if (s === null || s === undefined) return '';
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 

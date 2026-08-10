@@ -223,3 +223,49 @@ describe('trimRequests (bug 1a invariant)', () => {
     expect(requests.find(r => r.id === 'NEW')).toBe(newReq);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hardening: a restored backup is the only path that writes events to KV
+// without going through normalizeEventFields(), so it gets its own guards.
+// ---------------------------------------------------------------------------
+describe('mergeRestore hardening', () => {
+  it('strips script-executing URLs from a crafted backup (stored XSS)', () => {
+    const { events } = mergeRestore([], [{
+      id: 'x',
+      title: 'Evento',
+      projectUrl: 'javascript:alert(document.cookie)',
+      driveUrl: 'javascript:alert(1)',
+      driveUrlInstagram: 'data:text/html,<script>alert(1)</script>',
+      thumbnailUrl: 'javascript:alert(2)',
+      photos: ['javascript:alert(3)', 'https://lh3.googleusercontent.com/d/ok'],
+    }]);
+    const ev = events.find(e => e.id === 'x');
+    expect(ev.projectUrl).toBe('');
+    expect(ev.driveUrl).toBe('');
+    expect(ev.driveUrlInstagram).toBe('');
+    expect(ev.thumbnailUrl).toBe('');
+    // Only the safe https photo survives.
+    expect(ev.photos).toEqual(['https://lh3.googleusercontent.com/d/ok']);
+  });
+
+  it('upgrades http:// URLs to https, like the create/update path does', () => {
+    const { events } = mergeRestore([], [{ id: 'y', driveUrl: 'http://drive.google.com/x' }]);
+    expect(events.find(e => e.id === 'y').driveUrl).toBe('https://drive.google.com/x');
+  });
+
+  it('drops junk entries that would throw on e.visible and 500 the gallery', () => {
+    const { events, added } = mergeRestore([], [null, 'nope', 42, ['a'], { id: 'ok', title: 'OK' }]);
+    expect(added).toBe(1);
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toBe('ok');
+    // The surviving set must be safe to iterate the way galleryHTML does.
+    expect(() => events.filter(e => e.visible !== false)).not.toThrow();
+  });
+
+  it('preserves fields the sanitizer does not know about', () => {
+    const { events } = mergeRestore([], [{ id: 'z', internalNotes: 'nota', someFutureField: { a: 1 } }]);
+    const ev = events.find(e => e.id === 'z');
+    expect(ev.internalNotes).toBe('nota');
+    expect(ev.someFutureField).toEqual({ a: 1 });
+  });
+});

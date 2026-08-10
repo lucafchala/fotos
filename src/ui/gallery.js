@@ -4,7 +4,12 @@ const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
 
 export function galleryHTML(events, analyticsToken) {
-  const visible = sortEvents(events.filter(e => e.visible !== false));
+  // getEvents() already filters junk entries, but this is the public homepage:
+  // a single null/non-object here throws on `e.visible` and turns the whole
+  // gallery into a 500. Second guard so the page degrades (skips the bad row)
+  // no matter how the array was obtained.
+  const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
+  const visible = sortEvents(safe.filter(e => e.visible !== false));
   const pinned = visible.filter(e => e.pinned === true);
   const rest = visible.filter(e => e.pinned !== true);
 

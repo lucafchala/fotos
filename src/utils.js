@@ -35,7 +35,19 @@ export async function getEvents(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
   const data = await env.FOTOS.get('events');
-  _cache = data ? ((() => { try { return JSON.parse(data); } catch { return []; } })()) : [];
+  // Single choke point for shape validation: every caller (gallery, event page,
+  // dashboard, metrics, healthz, backup) reads through here, so one guard keeps
+  // a corrupted `events` value — a bad restore, a hand-edited KV entry, a
+  // truncated write — from throwing on `e.visible` / `e.slug` and 500-ing the
+  // whole public site. Non-array payloads and non-object entries are dropped
+  // instead of propagating; the next save then self-heals the stored value.
+  _cache = data ? ((() => {
+    try {
+      const parsed = JSON.parse(data);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(e => e && typeof e === 'object' && !Array.isArray(e));
+    } catch { return []; }
+  })()) : [];
   _cacheAt = now;
   return _cache;
 }
@@ -134,7 +146,11 @@ export async function verifySession(env, request) {
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   const window = Math.floor(Date.now() / (windowSecs * 1000));
   const kvKey = `ratelimit:${key}:${ip}:${window}`;
-  const count = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  const raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  // NaN >= limit is false, so a corrupted counter used to fail *open* — the
+  // limit silently stopped applying for that key/IP/window, and String(NaN)
+  // kept it corrupted. Treating unparseable as 0 keeps the limiter counting.
+  const count = Number.isFinite(raw) ? raw : 0;
   if (count >= limit) return false;
   await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
   return true;
@@ -202,8 +218,19 @@ export function sizedDriveThumb(url, width) {
 // Coerce a URL to https and reject script-executing schemes. href/src are
 // script sinks — drop javascript:/data:/anything non-https.
 export function toHttps(url) {
+  if (typeof url !== 'string') return ''; // was: threw on non-string (e.g. a number from a backup)
   const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
   return /^https:\/\//i.test(u) ? u : '';
+}
+
+// Render-time guard for values that land in an href/src. toHttps() already
+// sanitizes on write, but stored data can predate that (legacy KV rows) or
+// bypass it (a restored backup is merged verbatim), and escape() alone does
+// NOT stop `javascript:` inside an href — it only escapes the quotes around
+// it. Sanitizing again at the sink makes the page safe regardless of how the
+// value got into KV.
+export function safeUrl(url) {
+  return toHttps(url);
 }
 
 // Sniff magic bytes from the start of a base64 payload to confirm it's an image
