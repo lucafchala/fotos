@@ -38,7 +38,7 @@ URL de produção: <https://fotos.lucafchala.com>
 
 O site tem três audiências:
 
-1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal explicando como baixar as fotos do Google Drive. O botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
+1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal com o gate de acesso: verificação Turnstile (pré-carregada assim que a página abre) + aceite dos Termos. Só depois de passar por esse gate — validado no servidor, não no cliente — o link real do Drive é liberado (`POST /api/drive-link`); o botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
 2. **Cliente / contato** — abre `/suporte` para entrar em contato por WhatsApp, e-mail direto ou formulário (que envia e-mail via Resend para o admin).
 3. **Admin (Luca)** — entra em `/dashboard`, autentica com senha (PBKDF2, sessão de 24h em cookie HTTP-only), gerencia eventos (CRUD), ordena, destaca um como featured, marca como "em breve", oculta da galeria, define status de produção, vê métricas de views e cliques no Drive, baixa/restaura backup JSON, troca senha e responde solicitações de remoção (cada "resolver" dispara um e-mail de confirmação ao solicitante).
 
@@ -150,7 +150,7 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 
 ### Turnstile
 
-Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/consent`, no formulário de remoção e no suporte.
+Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção e no suporte.
 
 ---
 
@@ -291,13 +291,13 @@ Quando `removal_requests` passa de 500 itens, mantém **todos** os não-resolvid
 Banco `CONSENT_DB` (D1/SQLite). Uma linha **append-only** por acesso ao Drive (aceite dos Termos / autorização de uso de imagem):
 
 ```
-id, created_at, event_slug, event_title, drive_target, terms_version,
-terms_hash (SHA-256 do texto exato dos Termos), consent_text, consenter_name,
+id, created_at, event_slug, event_title, drive_target, access_type, terms_version,
+terms_hash (SHA-256 do texto exato dos Termos), consent_text, declaration_text, consenter_name,
 turnstile_ok, ip, country, region, city, timezone, asn, as_org, colo,
 user_agent, accept_language, referrer, page_url
 ```
 
-Coletado server-side em `handleConsent` a partir de `request.headers` + `request.cf`. Exportável em CSV por `GET /api/consent/export` (auth). Retenção de ~5 anos via cron diário (`pruneOldConsent`).
+Coletado server-side em `handleDriveLink` (`POST /api/drive-link`) a partir de `request.headers` + `request.cf` — sempre com os textos canônicos do servidor (`TERMS_VERSION`/`CONSENT_LABEL`/declaração), nunca o que o client mandar. Exportável em CSV por `GET /api/consent/export` (auth). Retenção de ~5 anos via cron diário (`pruneOldConsent`).
 
 ---
 
@@ -310,7 +310,7 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | Método | Path | Função | O que faz |
 | --- | --- | --- | --- |
 | GET | `/` | `handleGallery` | HTML da galeria com cards de todos os eventos `visible !== false`, ordenados por pinned + data desc |
-| GET | `/<slug>` | `handleEventPage` | HTML do projeto (página de entrega). Incrementa `views:<slug>` em `ctx.waitUntil`. O acesso ao Drive exige aceite dos Termos (registrado via `/api/consent`) |
+| GET | `/<slug>` | `handleEventPage` | HTML do projeto (página de entrega). Incrementa `views:<slug>` em `ctx.waitUntil`. O link do Drive **não** é embutido nesse HTML — só chega ao cliente via `/api/drive-link`, depois do gate |
 | GET | `/suporte` | `supportHTML()` | Página de contato com WhatsApp + e-mail + formulário |
 | GET | `/privacidade` | `privacyHTML()` | Política de Privacidade (LGPD) |
 | GET | `/termos` | `termsHTML()` | Termos de Uso + autorização de uso de imagem |
@@ -318,7 +318,7 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
-| POST | `/api/consent` | `handleConsent` | Registra o aceite dos Termos / uso de imagem em D1 (best-effort, rate-limit 60/h, no-op sem D1) |
+| POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 60/h por IP (10/h no caminho `noscript` p/ ad-blocker) — e grava o aceite em D1 (best-effort, no-op sem D1) |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
 | GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs, …}` (+ `kvLatencyMs`, `cron`, `config`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status |
 
@@ -380,7 +380,7 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
 - **Hero**: se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px).
 - **Conteúdo**: data, título grande, descrição longa (`white-space: pre-wrap`), botão "Acessar fotos".
-- **Modal "Antes de acessar as fotos"**: aparece ao clicar no botão. Tem créditos destacados, passo-a-passo de download (mobile e desktop), aviso "Não tire print" e botão final "Ir para o Google Drive" que chama `trackDrive()` antes de abrir. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — **sem bloquear** o acesso às fotos (ver seção LGPD).
+- **Modal "Acessar fotos"** (gate real, verificado no servidor): lembrete curto de etiqueta ("marque @lucafchala ao postar, evite print"), checkbox de aceite dos Termos (+ declaração extra para eventos `private`/`family`) e o(s) botão(ões) de acesso. O desafio Turnstile é pré-carregado assim que a página abre (`execution:'execute'`), não só quando o modal abre, e os botões ficam visíveis desde já — nunca escondidos atrás de um spinner genérico — com um pulso de cor contínuo (apagado → cor "ativada") indicando que o gate ainda está resolvendo. Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); só então o `href` real é populado e o botão dispara uma animação de "pronto" (anel dourado + scroll/focus) indicando onde clicar. Erro de verificação mostra mensagem com opção de tentar de novo. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
 - **Créditos**: nome do fotógrafo + (opcional) créditos do evento + link extra. Nota verde "marque sempre @lucafchala".
 - **Footer**: compartilhar no WhatsApp (link `wa.me/?text=...`), botão "Solicitar remoção de foto", link "Suporte".
 - **Modal de remoção**: formulário com:
@@ -485,8 +485,8 @@ A política de privacidade no modal explicita que e-mail/telefone são usados **
 A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície de **conformidade LGPD**:
 
 - **`/termos`** (`src/ui/terms.js`) traz os Termos de Uso com a **autorização de uso de imagem** (entrega às pessoas do evento + divulgação do trabalho em portfólio/redes, creditando @lucafchala; sem venda a terceiros), fundamentada no art. 20 do Código Civil e no consentimento da LGPD. O responsável é identificado por nome + e-mail (sem CPF/RG públicos); foro de São Paulo/SP.
-- **Gate antes do Drive**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem; só então os links do Drive são liberados. Opcionalmente informa o nome. Se um bloqueador de anúncios impede o Turnstile (ou o JS está desativado), um aviso pede para desativá-lo — mas o acesso às fotos **não é bloqueado** (o aceite é gravado com `turnstile_ok=0`), priorizando a entrega. ⚠️ O gate é **client-side**: os links do Drive ainda estão no código-fonte da página (ver _Limitações conhecidas_ e `SECURITY.md`).
-- **Registro do aceite** (`POST /api/consent` → D1): no clique de download, um `navigator.sendBeacon` envia o aceite e o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. É **best-effort, não bloqueia** a entrega; sem D1 provisionado, é no-op.
+- **Gate antes do Drive, verificado no servidor**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem. O link real do Drive só é liberado depois que `POST /api/drive-link` valida o token do Turnstile **no servidor** (fail-closed — token inválido/ausente = 403, sem link) + o aceite — não é mais um gate cosmético: os links não existem em lugar nenhum do HTML/JS público antes disso. Opcionalmente informa o nome. Se um bloqueador de anúncios impede o Turnstile (ou o JS está desativado), um aviso pede para desativá-lo; o acesso ainda é possível por um caminho intencionalmente mais fraco (sem captcha, rate-limit próprio mais restritivo, aceite gravado com `turnstile_ok=0`) — decisão consciente para não travar a entrega a esse público, documentada em `SECURITY.md`. Uma vez que um visitante legítimo recebe o link, ele continua compartilhável (isso é inerente ao compartilhamento do Drive, não uma falha).
+- **Registro do aceite** (`POST /api/drive-link` → D1, no mesmo request que libera o link): o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. Non-blocking (`ctx.waitUntil`); sem D1 provisionado, é no-op (o gate continua funcionando normalmente).
 - **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
 > Os textos legais (escopo da autorização, retenção) são um rascunho razoável — recomenda-se revisão jurídica antes de produção.
@@ -667,6 +667,9 @@ CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing
 | `/api/removal-request` | `removal` | 5 | 1 h |
 | `/api/track-drive` | `drive` | 60 | 1 h |
 | `/api/suporte` | `support` | 5 | 1 h |
+| `/api/drive-link` (caminho verificado, com Turnstile) | `drive-link` | 60 | 1 h |
+| `/api/drive-link` (caminho `noscript`, sem Turnstile — ad-blocker) | `drive-link-noscript` | 10 | 1 h |
+| `/dashboard/login` | `login` | 10 | 10 min |
 
 Limitações: usa janela fixa (não sliding) e não é atômico (race em alta concorrência). Aceitável porque os endpoints públicos são de baixíssima taxa.
 
@@ -717,7 +720,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
 - **D1 precisa ser provisionado**: enquanto `CONSENT_DB` não existir, o aceite dos Termos continua barrando o acesso ao Drive normalmente, mas **não é gravado** (no-op). Provisione o D1 (ver Configuração) para ter a comprovação.
-- **Gate do Drive é client-side**: `DRIVE_URL`/`DRIVE_URL_IG` são embutidos no HTML/JS, então os links são visíveis pelo "ver código-fonte" / console **sem passar pela verificação**. Mitigação no roadmap: servir o link por endpoint só após validar o Turnstile no servidor (ver `SECURITY.md` e `TODO.md`).
+- **Sem nonce de curta duração no `/api/drive-link`**: o gate já é verificado no servidor (Turnstile fail-closed + rate limit por IP), mas ainda não há um nonce por carregamento de página amarrando a chamada a uma visita real do evento — um script com um token Turnstile válido em mãos ainda poderia varrer vários slugs. Rate limit por IP mitiga isso parcialmente; nonce fica no roadmap (`TODO.md`, Etapa 3.1).
 - **Formulários e gate exigem JavaScript + Turnstile**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte e a verificação do gate. O site **detecta e avisa** (desative o bloqueador / ative o JS), mantém o acesso às fotos liberado e oferece WhatsApp/e-mail como alternativa; banners `<noscript>` cobrem o caso sem JS.
 
 ---
@@ -726,7 +729,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 O arquivo [`TODO.md`](./TODO.md) tem o histórico completo de features entregues e o backlog de ideias (operacional, engajamento, profissional, UX, futuro distante). Resumo do que falta:
 
-**Segurança / anti-abuso**: esconder os links do Drive do código-fonte (hoje achatáveis pelo console — o gate é só client-side), aplicar o aceite no servidor, recuperação de senha por e-mail (magic link), 2FA no painel, afinar WAF/Bot Fight Mode, endurecer a CSP. _(Rate limiting e backup/restore já implementados.)_ Política de segurança em [`SECURITY.md`](./SECURITY.md).
+**Segurança / anti-abuso**: nonce de curta duração no `/api/drive-link` (anti-varredura de slugs), recuperação de senha por e-mail (magic link), 2FA no painel, afinar WAF/Bot Fight Mode, endurecer a CSP. _(Gate do Drive server-side, rate limiting e backup/restore já implementados.)_ Política de segurança em [`SECURITY.md`](./SECURITY.md).
 
 **Recursos**: senha por evento.
 
