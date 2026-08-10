@@ -188,6 +188,30 @@ export function eventHTML(event, analyticsToken) {
       60%{transform:translateX(2px)}
       80%{transform:translateX(0);box-shadow:0 0 0 6px rgba(192,160,96,.18)}
       100%{box-shadow:0 0 0 0 rgba(192,160,96,0);transform:translateX(0)}
+    /* Button pulse: runs from the moment the modal opens (the buttons are
+       visible immediately, while the visitor is still reading/ticking the
+       Terms and Turnstile resolves in the background) all the way through
+       the /api/drive-link fetch — never hidden behind a generic spinner.
+       Continuous breathing motion (no flat "hold" segment — a static hold
+       followed by a fast snap reads as a blink, not a pulse): the rise and
+       fall each get their own easing curve so the pace still varies through
+       the cycle without ever fully stopping. .drive-loading (the real fetch
+       in flight) speeds it up; .drive-error pauses it and dims the wrap. */
+    .drive-locked{opacity:.88;pointer-events:none}
+    .drive-locked .btn-drive-go{animation:drive-pulse-go 2.6s ease-in-out infinite}
+    .drive-locked .btn-drive-opt{animation:drive-pulse-opt 2.6s ease-in-out infinite}
+    .drive-loading .btn-drive-go,.drive-loading .btn-drive-opt{animation-duration:1.1s}
+    .drive-locked.drive-error{opacity:.55}
+    .drive-error .btn-drive-go,.drive-error .btn-drive-opt{animation-play-state:paused}
+    @keyframes drive-pulse-go{
+      0%{background:#242220;color:#736b60;animation-timing-function:cubic-bezier(.3,0,.55,1)}
+      42%{background:#f0ebe5;color:#0a0a0a;animation-timing-function:cubic-bezier(.45,0,.7,1)}
+      100%{background:#242220;color:#736b60}
+    }
+    @keyframes drive-pulse-opt{
+      0%{border-color:#252525;background:#111;animation-timing-function:cubic-bezier(.3,0,.55,1)}
+      42%{border-color:#c0a060;background:#1c1710;animation-timing-function:cubic-bezier(.45,0,.7,1)}
+      100%{border-color:#252525;background:#111}
     }
     .drive-consent-nudge{animation:drive-consent-nudge .6s ease-in-out 1;border-radius:6px}
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}

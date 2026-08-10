@@ -40,10 +40,20 @@ issue before any public disclosure.
 - **Google Drive links are shareable.** Photos are delivered via Google Drive
   links. Once a legitimate visitor passes the consent gate, the link can be
   reshared — that is inherent to Drive sharing, not a vulnerability.
-- **The Drive gate is currently client-side.** `DRIVE_URL` / `DRIVE_URL_IG`
-  are embedded in the page, so the links can be read from page source / the
-  browser console without passing the Turnstile + Terms gate. Moving link
-  delivery behind a server-side-verified endpoint is tracked in
+- **The ad-blocker fallback path is intentionally weaker.** The Drive gate
+  (`POST /api/drive-link`) fail-closes on a real Turnstile token: a
+  missing/invalid token returns 403 and the link is never included in the
+  response. When the Turnstile script itself is blocked client-side (ad-blocker
+  or JS disabled), the client falls back to a `turnstileToken: "noscript"`
+  value — still a real POST per event, rate-limited on its own (tighter)
+  key, and logged with `turnstile_ok=0` — instead of failing delivery
+  outright for that audience. This is a conscious accessibility/delivery
+  trade-off, not a bypass anyone can silently rely on for bulk scraping (it's
+  rate-limited and audited), but it is a known, weaker path.
+- **No per-page nonce yet on `/api/drive-link`.** The endpoint is rate-limited
+  per IP but doesn't yet bind a request to having actually loaded that
+  specific event page, so a script holding a valid Turnstile token could in
+  principle probe multiple slugs within the rate limit. Tracked in
   [`TODO.md`](./TODO.md) (Etapa 3.1).
 - Best-effort, non-atomic counters (`views`, `drive_clicks`): undercounting
   under load is expected.
