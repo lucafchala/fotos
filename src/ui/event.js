@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, TERMS_VERSION, CONSENT_LABEL, ACCESS_DECLARATIONS } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, ACCESS_DECLARATIONS } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -14,8 +14,6 @@ export function eventHTML(event, analyticsToken) {
   const displayPhotos = photos.map(u => sizedDriveThumb(u, 1600));
 
   const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const driveJSON   = JSON.stringify(event.driveUrl || '');
-  const driveIgJSON = JSON.stringify(event.driveUrlInstagram || '');
   const slugJSON    = JSON.stringify(event.slug || '');
   const ogImage     = event.comingSoon
     ? `${SITE_URL}/og-coming-soon.png`
@@ -160,11 +158,6 @@ export function eventHTML(event, analyticsToken) {
     .m-close:hover{border-color:#444;color:#ccc}
     /* drive modal */
     .guide-title{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:.875rem}
-    .steps{display:flex;flex-direction:column;gap:.625rem;padding-left:0;list-style:none;counter-reset:step}
-    .steps li{counter-increment:step;display:grid;grid-template-columns:1.4rem 1fr;gap:.5rem;font-size:.82rem;color:#999;line-height:1.55}
-    .steps li::before{content:counter(step);font-size:.65rem;font-weight:600;color:#555;background:#1a1a1a;width:1.35rem;height:1.35rem;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:.15rem}
-    .steps li strong{color:#d0d0d0}
-    .steps li kbd{background:#1e1e1e;border:1px solid #2d2d2d;padding:.1em .4em;border-radius:4px;font-size:.8em;font-family:inherit;color:#bbb}
     .drive-verifying{display:flex;align-items:center;gap:.5rem;color:#888;font-size:.8rem;margin-top:1rem}
     .spin{width:14px;height:14px;border:2px solid #2a2a2a;border-top-color:#999;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -186,6 +179,12 @@ export function eventHTML(event, analyticsToken) {
     .drive-opt-text{display:flex;flex-direction:column;gap:.15rem}
     .drive-opt-text strong{font-size:.875rem;font-weight:600;color:#f0ebe5}
     .drive-opt-text span{font-size:.72rem;color:#666;font-weight:400}
+    .drive-loading{pointer-events:none}
+    .drive-loading .btn-drive-opt,.drive-loading .btn-drive-go{background:linear-gradient(90deg,#141414 0%,#1c1c1c 50%,#141414 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear;border-color:#222}
+    .drive-loading .drive-opt-text strong,.drive-loading .drive-opt-text span{opacity:.35}
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    @keyframes drive-ready-pulse{0%{box-shadow:0 0 0 0 rgba(192,160,96,.55)}70%{box-shadow:0 0 0 14px rgba(192,160,96,0)}100%{box-shadow:0 0 0 0 rgba(192,160,96,0)}}
+    .drive-ready{animation:drive-ready-pulse 1.1s ease-out 1}
     /* removal modal */
     .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
@@ -231,6 +230,7 @@ export function eventHTML(event, analyticsToken) {
   </style>
 </head>
 <body>
+  <div id="drive-turnstile"></div>
   <noscript>
     <div class="noscript-banner">
       Para acessar as fotos, ative o <strong>JavaScript</strong> e desative o bloqueador de anúncios para este site; depois recarregue a página. Precisa de ajuda? <a href="/suporte">Suporte</a>.
@@ -330,20 +330,8 @@ export function eventHTML(event, analyticsToken) {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="guide-title">Como baixar as fotos</div>
-      <ol class="steps">
-        <li><span>${event.driveUrlInstagram
-          ? `Escolha uma das opções abaixo e abra a pasta correspondente.`
-          : `Clique em "Ir para o Google Drive" abaixo.`}</span></li>
-        <li>
-          <span><strong>No celular:</strong> toque em ⋮ → "Fazer download". Para baixar tudo: segure uma → selecione todas → ⋮ → "Fazer download".</span>
-        </li>
-        <li>
-          <span><strong>No computador:</strong> <kbd>Ctrl+A</kbd> (ou <kbd>⌘A</kbd>) → botão direito → "Fazer download".</span>
-        </li>
-      </ol>
-      <p class="drive-note">Baixe pelo Drive para manter a qualidade original — não tire print.</p>
-      <div id="drive-turnstile" style="margin-top:1rem"></div>
+      <div class="guide-title">Antes de acessar</div>
+      <p class="drive-note" style="margin-bottom:.875rem">Ao postar as fotos, marque sempre <strong style="color:#d0d0d0">@lucafchala</strong> 📸 — isso valoriza o trabalho e ajuda a trazer novos projetos. Baixe direto pelo Drive para manter a qualidade original e evite tirar print.</p>
       <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
       <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar a verificação de segurança. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
@@ -363,19 +351,23 @@ export function eventHTML(event, analyticsToken) {
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
         <p id="drive-gate-hint" style="font-size:.72rem;color:#a98a4a;line-height:1.5;margin-top:.875rem"></p>
+        <div id="drive-link-status" class="drive-verifying" style="display:none;margin-top:1rem"><span class="spin"></span> Preparando seu acesso…</div>
+        <div id="drive-link-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">
+          Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" style="background:none;border:none;color:#e0a0a0;text-decoration:underline;cursor:pointer;font:inherit;padding:0;margin-left:.35rem">Tentar novamente</button>
+        </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
-              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen('full')">
+              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
               </a>
-              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen('instagram')">
+              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
                 <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
               </a>
             </div>`
-          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen('full')">
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen()">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               Ir para o Google Drive
             </a>`}
@@ -472,17 +464,11 @@ export function eventHTML(event, analyticsToken) {
   </div>
 
   <script>
-    const DRIVE_URL      = ${driveJSON};
-    const DRIVE_URL_IG   = ${driveIgJSON};
     const EVENT_SLUG     = ${slugJSON};
     const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
-    const TERMS_VERSION  = ${JSON.stringify(TERMS_VERSION)};
-    const CONSENT_LABEL  = ${JSON.stringify(CONSENT_LABEL)};
-    const ACCESS_TYPE       = ${JSON.stringify(event.accessType || 'public')};
-    const DECLARATION_LABEL = ${JSON.stringify(declaration)};
 
     let lastFocused = null;
 
@@ -536,58 +522,86 @@ export function eventHTML(event, analyticsToken) {
     })();
 
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
-    let driveWidgetId = null;
-    let driveTsToken  = '';
+    let driveWidgetId  = null;
+    let driveTsToken   = '';
     let driveGateShown = false;
-    let driveTimeout  = null;
+    let driveTimeout   = null;
+    let driveLinkState = 'idle'; // idle | loading | ready | error
+    let driveLinkResult = null;  // { driveUrl, driveUrlInstagram } cached after a successful fetch
     let remWidgetId   = null;
     let remTsToken    = '';
+
+    // ---- Pre-warm the Drive gate's Turnstile challenge as soon as the script
+    // loads, instead of waiting for the modal to open — by the time a visitor
+    // taps "Acessar fotos" the token is usually already sitting ready, so the
+    // gate reveals near-instantly instead of visibly resolving in front of them.
+    function initDriveTurnstile() {
+      if (tsUnavailable() || driveWidgetId !== null) return;
+      driveWidgetId = turnstile.render('#drive-turnstile', {
+        sitekey: TS_SITEKEY,
+        appearance: 'interaction-only',
+        execution: 'execute', // don't fire on render — we control the timing below
+        callback: function(t) {
+          driveTsToken = t;
+          if (driveGateShown) { revealDriveGate(); updateDriveLock(); maybeFetchDriveLink(); }
+        },
+        'error-callback': function() { driveTsToken = ''; if (driveGateShown) driveVerifyError(); },
+        'expired-callback': function() { driveTsToken = ''; turnstile.execute(driveWidgetId); }, // silent refresh
+      });
+      turnstile.execute(driveWidgetId);
+    }
 
     // ---- Drive modal (Terms-gated, low-friction) ----
     function openModal() {
       lastFocused = document.activeElement;
-      driveTsToken = '';
       driveGateShown = false;
       const consent = document.getElementById('drive-consent');
-      if (consent) consent.checked = false;
       const declaration = document.getElementById('drive-declaration');
-      if (declaration) declaration.checked = false;
       const nameWrap = document.getElementById('drive-name-wrap');
       if (nameWrap) nameWrap.style.display = 'none';
       const nameToggle = document.getElementById('drive-name-toggle');
       if (nameToggle) nameToggle.style.display = '';
       const nameInput = document.getElementById('drive-name');
       if (nameInput) nameInput.value = '';
-      document.getElementById('drive-links-wrap').classList.add('drive-locked');
       document.getElementById('drive-gate').style.display = 'none';
       document.getElementById('drive-verifying').style.display = '';
       document.getElementById('drive-verify-error').style.display = 'none';
       hideAdblockWarn('drive-adblock');
-      document.getElementById('drive-link').href = DRIVE_URL || '#';
-      const igLink = document.getElementById('drive-link-ig');
-      if (igLink) igLink.href = DRIVE_URL_IG || '#';
       document.getElementById('modal').classList.add('open');
       document.body.style.overflow = 'hidden';
       updateStickyCta();
+
+      // Already granted earlier this page session — skip straight to ready,
+      // no re-fetch, no re-wait.
+      if (driveLinkResult) {
+        if (consent) consent.checked = true;
+        if (declaration) declaration.checked = true;
+        revealDriveGate();
+        driveLinkState = 'ready';
+        setDriveLinkUI('ready', driveLinkResult);
+        return;
+      }
+
+      if (consent) consent.checked = false;
+      if (declaration) declaration.checked = false;
+      driveLinkState = 'idle';
+      setDriveLinkUI('idle');
+
       // Invisible browser check: the Terms + buttons are revealed only AFTER
       // Turnstile passes. A safety timeout surfaces an error instead of hanging.
       clearTimeout(driveTimeout);
       driveTimeout = setTimeout(driveVerifyError, 9000);
-      setTimeout(function() {
-        // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
-        // that must not brick delivery.
-        if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
-        if (driveWidgetId !== null) { turnstile.reset(driveWidgetId); }
-        else {
-          driveWidgetId = turnstile.render('#drive-turnstile', {
-            sitekey: TS_SITEKEY,
-            appearance: 'interaction-only',
-            callback: function(t) { driveTsToken = t; revealDriveGate(); updateDriveLock(); },
-            'error-callback': function() { driveTsToken = ''; driveVerifyError(); },
-            'expired-callback': function() { driveTsToken = ''; updateDriveLock(); },
-          });
-        }
-      }, 100);
+      // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
+      // that must not brick delivery, so the server has its own (weaker,
+      // rate-limited) path for this token value.
+      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
+      if (driveTsToken) {
+        // Pre-fetched while the page was idle — gate opens instantly.
+        revealDriveGate();
+        updateDriveLock();
+      }
+      // else: initDriveTurnstile()'s callback is still resolving in the
+      // background and will call revealDriveGate() once it lands.
     }
     function revealDriveGate() {
       if (driveGateShown) return;
@@ -605,31 +619,117 @@ export function eventHTML(event, analyticsToken) {
       const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
       const e = document.getElementById('drive-verify-error'); if (e) e.style.display = '';
     }
-    function onDriveConsent() { updateDriveLock(); }
-    // Drive links unlock only when the Terms are accepted, the category self-declaration
-    // (when present) is accepted, AND Turnstile passed.
+    function onDriveConsent() {
+      updateDriveLock();
+      maybeFetchDriveLink();
+    }
+    // Just the Terms/declaration + Turnstile hint — the actual link is only
+    // ever unlocked by a successful /api/drive-link response (see setDriveLinkUI).
     function updateDriveLock() {
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
-      const wrap = document.getElementById('drive-links-wrap');
       const hint = document.getElementById('drive-gate-hint');
       const consentOk = !!(c && c.checked);
       const declOk = !decl || decl.checked; // no declaration for this project → satisfied
       const acceptOk = consentOk && declOk;
       const tsOk = driveTsToken !== '';
       const ok = acceptOk && tsOk;
-      if (wrap) wrap.classList.toggle('drive-locked', !ok);
       if (hint) {
         hint.style.display = ok ? 'none' : '';
         if (!ok) {
           const acceptText = decl ? 'a declaração e os Termos' : 'os Termos';
           hint.textContent = !tsOk
-            ? (acceptOk ? 'Conclua a verificação de segurança acima para liberar o download.'
+            ? (acceptOk ? 'Conclua a verificação de segurança acima para liberar o acesso.'
                         : 'Conclua a verificação de segurança e aceite ' + acceptText + '.')
-            : 'Aceite ' + acceptText + ' para liberar o download.';
+            : 'Aceite ' + acceptText + ' para liberar o acesso.';
         }
       }
-      if (ok) { const p = document.getElementById('drive-link'); if (p) p.focus(); }
+    }
+    // Fires the real gate: only requests the link once Turnstile + consent
+    // (+ declaration, when required) are all satisfied — no click needed.
+    function maybeFetchDriveLink() {
+      if (driveLinkState === 'loading' || driveLinkState === 'ready') return;
+      const c = document.getElementById('drive-consent');
+      const decl = document.getElementById('drive-declaration');
+      const ok = c && c.checked && (!decl || decl.checked) && driveTsToken !== '';
+      if (ok) fetchDriveLink();
+    }
+    function fetchDriveLink() {
+      driveLinkState = 'loading';
+      setDriveLinkUI('loading');
+      const nameEl = document.getElementById('drive-name');
+      const decl = document.getElementById('drive-declaration');
+      fetch('/api/drive-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: EVENT_SLUG,
+          turnstileToken: driveTsToken,
+          consent: true,
+          declaration: decl ? decl.checked : undefined,
+          name: nameEl ? nameEl.value : '',
+        }),
+      })
+        .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function(data) {
+          driveLinkResult = data;
+          driveLinkState = 'ready';
+          setDriveLinkUI('ready', data);
+        })
+        .catch(function() {
+          driveLinkState = 'error';
+          setDriveLinkUI('error');
+          // Turnstile tokens are single-use — this attempt already spent it.
+          // Fetch a fresh one in the background; its callback retries automatically.
+          if (driveTsToken !== 'noscript') {
+            driveTsToken = '';
+            if (driveWidgetId !== null && !tsUnavailable()) turnstile.execute(driveWidgetId);
+          }
+        });
+    }
+    function retryDriveLink() {
+      driveLinkState = 'idle';
+      if (driveTsToken) maybeFetchDriveLink();
+      else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
+    }
+    // Drives the visible state of the link button(s): locked/shimmering while
+    // the request is in flight, then a focus-drawing "ready" pulse + auto-scroll
+    // once the real href lands — so it's unmistakable where to click.
+    function setDriveLinkUI(state, data) {
+      const wrap = document.getElementById('drive-links-wrap');
+      const status = document.getElementById('drive-link-status');
+      const err = document.getElementById('drive-link-error');
+      if (!wrap) return;
+      if (state === 'idle') {
+        wrap.classList.add('drive-locked');
+        wrap.classList.remove('drive-loading');
+        if (status) status.style.display = 'none';
+        if (err) err.style.display = 'none';
+      } else if (state === 'loading') {
+        wrap.classList.add('drive-locked', 'drive-loading');
+        if (status) status.style.display = '';
+        if (err) err.style.display = 'none';
+      } else if (state === 'ready') {
+        wrap.classList.remove('drive-locked', 'drive-loading');
+        if (status) status.style.display = 'none';
+        if (err) err.style.display = 'none';
+        const primary = document.getElementById('drive-link');
+        if (primary) {
+          primary.href = (data && data.driveUrl) || '#';
+          primary.classList.add('drive-ready');
+          setTimeout(function() { primary.classList.remove('drive-ready'); }, 1200);
+          const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          primary.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'nearest' });
+          primary.focus();
+        }
+        const ig = document.getElementById('drive-link-ig');
+        if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
+      } else if (state === 'error') {
+        wrap.classList.add('drive-locked');
+        wrap.classList.remove('drive-loading');
+        if (status) status.style.display = 'none';
+        if (err) err.style.display = '';
+      }
     }
     function toggleDriveName() {
       const w = document.getElementById('drive-name-wrap');
@@ -646,34 +746,12 @@ export function eventHTML(event, analyticsToken) {
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
     function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
-    function onDriveOpen(target) {
-      trackDrive();
-      recordConsent(target);
+    function onDriveOpen() {
+      trackDrive(); // simple click counter — navigation follows the real href natively
       closeModal();
     }
     function trackDrive() {
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
-    }
-    function recordConsent(target) {
-      try {
-        const nameEl = document.getElementById('drive-name');
-        const payload = JSON.stringify({
-          slug: EVENT_SLUG,
-          driveTarget: target,
-          accessType: ACCESS_TYPE,
-          termsVersion: TERMS_VERSION,
-          consentText: CONSENT_LABEL,
-          declarationText: DECLARATION_LABEL,
-          name: nameEl ? nameEl.value : '',
-          turnstileToken: driveTsToken,
-          pageUrl: location.href,
-        });
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon('/api/consent', new Blob([payload], { type: 'application/json' }));
-        } else {
-          fetch('/api/consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
-        }
-      } catch(_) {}
     }
 
     // ---- Carousel ----
@@ -919,7 +997,7 @@ export function eventHTML(event, analyticsToken) {
       }
     })();
   </script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__tsBlocked=true"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
   ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
