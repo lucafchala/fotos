@@ -168,7 +168,17 @@ export function eventHTML(event, analyticsToken) {
     .drive-name-toggle:hover{color:#999}
     .drive-consent-note{font-size:.68rem;color:#444;line-height:1.5;margin-top:.875rem}
     .drive-consent-note a{color:#666}
-    .drive-locked{opacity:.4;pointer-events:none;filter:grayscale(.3)}
+    /* Discreet loading bar: runs from the moment the gate appears (while the
+       visitor is still reading/ticking the Terms), not just once the fetch
+       starts — so by the time they accept, it already looks underway instead
+       of only then appearing to begin. .drive-loading (the real fetch) just
+       speeds it up; .drive-error pauses it. */
+    .drive-locked{opacity:.88;pointer-events:none}
+    .drive-locked .btn-drive-opt,.drive-locked .btn-drive-go{position:relative;overflow:hidden}
+    .drive-locked .btn-drive-opt::after,.drive-locked .btn-drive-go::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,transparent 0%,rgba(192,160,96,.18) 20%,#c0a060 50%,rgba(192,160,96,.18) 80%,transparent 100%);background-size:250% 100%;animation:drive-progress 2.1s ease-in-out infinite}
+    .drive-loading .btn-drive-opt::after,.drive-loading .btn-drive-go::after{animation-duration:.85s}
+    .drive-error .btn-drive-opt::after,.drive-error .btn-drive-go::after{animation-play-state:paused;opacity:.3}
+    @keyframes drive-progress{0%{background-position:220% 0}100%{background-position:-120% 0}}
     .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
@@ -179,10 +189,6 @@ export function eventHTML(event, analyticsToken) {
     .drive-opt-text{display:flex;flex-direction:column;gap:.15rem}
     .drive-opt-text strong{font-size:.875rem;font-weight:600;color:#f0ebe5}
     .drive-opt-text span{font-size:.72rem;color:#666;font-weight:400}
-    .drive-loading{pointer-events:none}
-    .drive-loading .btn-drive-opt,.drive-loading .btn-drive-go{background:linear-gradient(90deg,#141414 0%,#1c1c1c 50%,#141414 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear;border-color:#222}
-    .drive-loading .drive-opt-text strong,.drive-loading .drive-opt-text span{opacity:.35}
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     @keyframes drive-ready-pulse{0%{box-shadow:0 0 0 0 rgba(192,160,96,.55)}70%{box-shadow:0 0 0 14px rgba(192,160,96,0)}100%{box-shadow:0 0 0 0 rgba(192,160,96,0)}}
     .drive-ready{animation:drive-ready-pulse 1.1s ease-out 1}
     /* removal modal */
@@ -692,9 +698,12 @@ export function eventHTML(event, analyticsToken) {
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
-    // Drives the visible state of the link button(s): locked/shimmering while
-    // the request is in flight, then a focus-drawing "ready" pulse + auto-scroll
-    // once the real href lands — so it's unmistakable where to click.
+    // Drives the visible state of the link button(s). A discreet loading bar
+    // runs on the button itself from the moment the gate appears (drive-locked)
+    // — while the visitor is still reading/ticking the Terms — through the real
+    // fetch (drive-loading speeds it up), so it never looks like the wait only
+    // starts once they accept. Lands on a focus-drawing "ready" pulse + auto-scroll
+    // once the real href arrives — so it's unmistakable where to click.
     function setDriveLinkUI(state, data) {
       const wrap = document.getElementById('drive-links-wrap');
       const status = document.getElementById('drive-link-status');
@@ -702,15 +711,16 @@ export function eventHTML(event, analyticsToken) {
       if (!wrap) return;
       if (state === 'idle') {
         wrap.classList.add('drive-locked');
-        wrap.classList.remove('drive-loading');
+        wrap.classList.remove('drive-loading', 'drive-error');
         if (status) status.style.display = 'none';
         if (err) err.style.display = 'none';
       } else if (state === 'loading') {
         wrap.classList.add('drive-locked', 'drive-loading');
+        wrap.classList.remove('drive-error');
         if (status) status.style.display = '';
         if (err) err.style.display = 'none';
       } else if (state === 'ready') {
-        wrap.classList.remove('drive-locked', 'drive-loading');
+        wrap.classList.remove('drive-locked', 'drive-loading', 'drive-error');
         if (status) status.style.display = 'none';
         if (err) err.style.display = 'none';
         const primary = document.getElementById('drive-link');
@@ -725,7 +735,7 @@ export function eventHTML(event, analyticsToken) {
         const ig = document.getElementById('drive-link-ig');
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
       } else if (state === 'error') {
-        wrap.classList.add('drive-locked');
+        wrap.classList.add('drive-locked', 'drive-error');
         wrap.classList.remove('drive-loading');
         if (status) status.style.display = 'none';
         if (err) err.style.display = '';
