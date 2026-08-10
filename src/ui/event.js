@@ -538,9 +538,18 @@ export function eventHTML(event, analyticsToken) {
         execution: 'execute', // don't fire on render — we control the timing below
         callback: function(t) {
           driveTsToken = t;
-          if (driveGateShown) { revealDriveGate(); updateDriveLock(); maybeFetchDriveLink(); }
+          // revealDriveGate()/driveVerifyError() already no-op if the modal
+          // isn't open yet or the gate was already shown — no need to gate
+          // this call on driveGateShown (it starts false and only flips
+          // true *inside* revealDriveGate, so gating on it here skipped the
+          // reveal whenever Turnstile finished resolving after the modal
+          // had already been opened — the modal got stuck on "Carregando
+          // acesso ao Drive…" until the 9s safety timeout kicked in).
+          revealDriveGate();
+          updateDriveLock();
+          maybeFetchDriveLink();
         },
-        'error-callback': function() { driveTsToken = ''; if (driveGateShown) driveVerifyError(); },
+        'error-callback': function() { driveTsToken = ''; driveVerifyError(); },
         'expired-callback': function() { driveTsToken = ''; turnstile.execute(driveWidgetId); }, // silent refresh
       });
       turnstile.execute(driveWidgetId);
