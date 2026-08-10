@@ -10,7 +10,7 @@ import {
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, isLikelyImage, csvResponse,
-  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -81,7 +81,7 @@ export default {
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
-      if (path === '/api/consent' && method === 'POST') return handleConsent(request, env, ctx);
+      if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -1105,71 +1105,91 @@ const CONSENT_COLS = [
   'user_agent', 'accept_language', 'referrer', 'page_url',
 ];
 
-// Public, best-effort, non-blocking: record an image-use authorization at the
-// moment of Drive access, capturing as much defensible context as possible.
-// A missing CONSENT_DB binding (not yet provisioned) is a no-op, never an error.
-async function handleConsent(request, env, ctx) {
+// Public: the only place the real Drive URLs reach the client. Absorbs what
+// /api/consent used to do — Turnstile tokens are single-use, so a second
+// endpoint re-verifying the same token would fail; this is the one place
+// that spends it, and where the image-use consent audit row is written.
+//
+// turnstileToken === 'noscript' is the path for when Turnstile itself is
+// blocked client-side (ad-blocker) — weaker (no captcha), but still a real
+// POST per event, rate-limited on its own (tighter) key and audited with
+// turnstile_ok=0, instead of today's unconditional leak in the page HTML.
+async function handleDriveLink(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'consent', 60, 3600);
-  if (!allowed) return jsonOk({ ok: true });
-  if (!env.CONSENT_DB) return jsonOk({ ok: true, logged: false });
 
   let body;
-  try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
+  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
   const slug = String(body.slug || '').slice(0, 60);
-  if (!validateSlug(slug)) return jsonOk({ ok: true });
+  if (!slug || !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
 
-  // Server-side Turnstile check (the drive gate's first real server verification).
-  // A failed/expired token still logs the access with turnstile_ok=0 — the human
-  // already ticked the box, so we record the truth rather than block the download.
-  const turnstileOk = (await verifyTurnstile(body.turnstileToken, env)) ? 1 : 0;
+  const isNoscript = body.turnstileToken === 'noscript';
+  const allowed = isNoscript
+    ? await checkRateLimit(env, ip, 'drive-link-noscript', 10, 3600)
+    : await checkRateLimit(env, ip, 'drive-link', 60, 3600);
+  if (!allowed) return jsonErr('Muitas tentativas. Tente novamente mais tarde.', 429);
 
-  const cf = request.cf || {};
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
+  if (!event) return jsonErr('Projeto não encontrado.', 404);
+  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
-  // The category the visitor accepted under, and the verbatim self-declaration they ticked
-  // (empty for 'public', which requires only the Terms acceptance).
-  const accessType = ACCESS_TYPES.includes(body.accessType) ? body.accessType : 'public';
+  let turnstileOk;
+  if (isNoscript) {
+    turnstileOk = false; // recorded as unverified, but still lets access through (conscious bypass)
+  } else {
+    turnstileOk = await verifyTurnstile(body.turnstileToken, env);
+    if (!turnstileOk) return jsonErr('Verificação de segurança falhou. Recarregue a página e tente novamente.', 403);
+  }
 
-  const vals = [
-    generateId(),
-    new Date().toISOString(),
-    slug,
-    (event?.title || '').slice(0, 200),
-    ['full', 'instagram'].includes(body.driveTarget) ? body.driveTarget : 'full',
-    accessType,
-    String(body.termsVersion || TERMS_VERSION).slice(0, 40),
-    await getTermsHash(),
-    String(body.consentText || CONSENT_LABEL).slice(0, 500),
-    String(body.declarationText || '').slice(0, 500) || null,
-    String(body.name || '').trim().slice(0, 120) || null,
-    turnstileOk,
-    ip.slice(0, 64),
-    (request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
-    String(cf.region || '').slice(0, 80),
-    String(cf.city || '').slice(0, 120),
-    String(cf.timezone || '').slice(0, 64),
-    cf.asn ? parseInt(cf.asn, 10) : null,
-    String(cf.asOrganization || '').slice(0, 160),
-    String(cf.colo || '').slice(0, 16),
-    (request.headers.get('User-Agent') || '').slice(0, 400),
-    (request.headers.get('Accept-Language') || '').slice(0, 120),
-    (request.headers.get('Referer') || '').slice(0, 400),
-    String(body.pageUrl || '').slice(0, 400),
-  ];
+  if (body.consent !== true) return jsonErr('É necessário aceitar os Termos de Uso.', 400);
+  const declarationText = ACCESS_DECLARATIONS[event.accessType] || '';
+  if (declarationText && body.declaration !== true) {
+    return jsonErr('É necessário confirmar a declaração de acesso.', 400);
+  }
 
-  const stmt = env.CONSENT_DB.prepare(
-    `INSERT INTO image_use_consent
-       (id, created_at, event_slug, event_title, drive_target, access_type, terms_version, terms_hash,
-        consent_text, declaration_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
-        asn, as_org, colo, user_agent, accept_language, referrer, page_url)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(...vals);
-  ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+  // Audit — non-blocking, always using the server's canonical texts (never
+  // whatever the client sends — stricter than the old /api/consent).
+  if (env.CONSENT_DB) {
+    const cf = request.cf || {};
+    const accessType = ACCESS_TYPES.includes(event.accessType) ? event.accessType : 'public';
+    const vals = [
+      generateId(),
+      new Date().toISOString(),
+      slug,
+      (event.title || '').slice(0, 200),
+      event.driveUrlInstagram ? 'both' : 'full', // granted, no longer "clicked"
+      accessType,
+      TERMS_VERSION,
+      await getTermsHash(),
+      CONSENT_LABEL,
+      declarationText || null,
+      String(body.name || '').trim().slice(0, 120) || null,
+      turnstileOk ? 1 : 0,
+      ip.slice(0, 64),
+      (request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
+      String(cf.region || '').slice(0, 80),
+      String(cf.city || '').slice(0, 120),
+      String(cf.timezone || '').slice(0, 64),
+      cf.asn ? parseInt(cf.asn, 10) : null,
+      String(cf.asOrganization || '').slice(0, 160),
+      String(cf.colo || '').slice(0, 16),
+      (request.headers.get('User-Agent') || '').slice(0, 400),
+      (request.headers.get('Accept-Language') || '').slice(0, 120),
+      (request.headers.get('Referer') || '').slice(0, 400),
+      String(body.pageUrl || '').slice(0, 400),
+    ];
+    const stmt = env.CONSENT_DB.prepare(
+      `INSERT INTO image_use_consent
+         (id, created_at, event_slug, event_title, drive_target, access_type, terms_version, terms_hash,
+          consent_text, declaration_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+          asn, as_org, colo, user_agent, accept_language, referrer, page_url)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(...vals);
+    ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+  }
 
-  return jsonOk({ ok: true });
+  return jsonOk({ ok: true, driveUrl: event.driveUrl || '', driveUrlInstagram: event.driveUrlInstagram || '' });
 }
 
 async function handleConsentExport(request, env) {
