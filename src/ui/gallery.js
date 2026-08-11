@@ -141,6 +141,7 @@ export function galleryHTML(events, analyticsToken) {
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     body.light{--bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;--text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;--border-dim:#ddd9d4;--footer-link:#9a9490}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
@@ -223,6 +224,7 @@ export function galleryHTML(events, analyticsToken) {
     </button>
   </header>
   <main>
+    <h1 class="sr-only">Galeria de fotos</h1>
     ${controlsHTML}
     <div class="grid">${cards}</div>
     <p class="empty" id="no-results" style="display:none">Nenhum evento encontrado</p>

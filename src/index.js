@@ -49,6 +49,7 @@ export default {
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
       if (path === '/robots.txt' && method === 'GET') return handleRobots();
+      if (path === '/llms.txt' && method === 'GET') return handleLlmsTxt();
 
       // Security contact (RFC 9116)
       if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
@@ -189,6 +190,28 @@ function handleRobots() {
     aiAgents.map(a => `User-agent: ${a}`).join('\n') + '\n' +
     rules + '\n' +
     `Sitemap: ${SITE_URL}/sitemap.xml\n`;
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+function handleLlmsTxt() {
+  // llms.txt provides machine-readable guidelines for LLM scrapers (RFC draft).
+  // Complements robots.txt with explicit data usage policies.
+  const body =
+    'Allow: *\n' +
+    'Disallow: /dashboard\n' +
+    'Disallow: /api\n' +
+    'Disallow: /.well-known\n\n' +
+    '# LLM Usage Policy\n' +
+    'User-Agent: *\n' +
+    'Allow-User-Agent: GPTBot, ClaudeBot, PerplexityBot, Amazonbot, OAI-SearchBot\n' +
+    'Crawl-delay: 1\n' +
+    'Request-limit: 100/1h\n\n' +
+    '# Data usage declaration\n' +
+    'Usage-Policy: Training allowed. Image-use consent required for sensitive content.\n' +
+    'Source: https://fotos.lucafchala.com\n' +
+    'Maintainer: Luca F. Chala <security@lucafchala.com>\n';
   return new Response(body, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
   });
