@@ -229,6 +229,14 @@ export function toHttps(url) {
 // NOT stop `javascript:` inside an href — it only escapes the quotes around
 // it. Sanitizing again at the sink makes the page safe regardless of how the
 // value got into KV.
+//
+// ATENÇÃO — isto é allowlist de ESQUEMA, não escape de HTML. O retorno é a URL
+// crua quando ela começa com https:, e uma URL válida pode conter aspas:
+// `https://x/" onload="alert(1)` passa inteiro por aqui. Ao interpolar dentro
+// de um atributo HTML, componha as duas: escape(safeUrl(x)) — safeUrl mata o
+// `javascript:`, escape mata a quebra de atributo. Nenhuma das duas sozinha
+// cobre os dois casos. Em atribuição de propriedade no cliente (el.href = x)
+// safeUrl basta, porque não há parsing de HTML envolvido.
 export function safeUrl(url) {
   return toHttps(url);
 }

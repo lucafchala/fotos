@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
-  timingSafeEqual, toHttps, isLikelyImage, csvCell, hashPassword, verifyPassword,
+  timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -102,6 +102,41 @@ describe('toHttps', () => {
     expect(toHttps('data:text/html,<script>')).toBe('');
     expect(toHttps('ftp://example.com')).toBe('');
     expect(toHttps('//evil.com')).toBe('');
+  });
+});
+
+// safeUrl is the render-time sink guard. These pin what it does — and, just as
+// importantly, what it does NOT do, so nobody drops the escape() around it.
+describe('safeUrl', () => {
+  it('blocks the schemes that execute when clicked', () => {
+    expect(safeUrl('javascript:alert(1)')).toBe('');
+    expect(safeUrl('JavaScript:alert(1)')).toBe('');
+    expect(safeUrl('data:text/html,<script>alert(1)</script>')).toBe('');
+    expect(safeUrl('vbscript:msgbox(1)')).toBe('');
+  });
+
+  it('survives the non-string values a restored backup can carry', () => {
+    expect(safeUrl(null)).toBe('');
+    expect(safeUrl(undefined)).toBe('');
+    expect(safeUrl(42)).toBe('');
+    expect(safeUrl({ href: 'https://x.com' })).toBe('');
+  });
+
+  it('upgrades http and keeps a legitimate https URL intact', () => {
+    expect(safeUrl('http://drive.google.com/d/1')).toBe('https://drive.google.com/d/1');
+    expect(safeUrl('https://drive.google.com/d/1?x=1&y=2')).toBe('https://drive.google.com/d/1?x=1&y=2');
+  });
+
+  // The contract that the review docs got wrong: safeUrl is a SCHEME allowlist,
+  // not an HTML escaper. A quote inside an otherwise-valid https URL passes
+  // through untouched, so an href sink needs escape() on top. Asserting the raw
+  // passthrough here means a future "safeUrl already sanitizes" refactor that
+  // drops the escape() has to walk past a failing test.
+  it('does NOT escape HTML — attribute breakout needs escape() on top', () => {
+    const hostile = 'https://evil.com/" onload="alert(1)';
+    expect(safeUrl(hostile)).toBe(hostile);
+    expect(escape(safeUrl(hostile))).not.toContain('onload="');
+    expect(escape(safeUrl(hostile))).toContain('&quot;');
   });
 });
 

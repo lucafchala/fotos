@@ -163,9 +163,11 @@ Há dois caminhos:
 Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
 
 1. Checkout do repositório.
-2. Deploy com `cloudflare/wrangler-action@v3` usando `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` (secrets do GitHub).
-3. `sleep 20` aguardando propagação global.
-4. Smoke tests via `curl` contra <https://fotos.lucafchala.com>:
+2. `npm test` — gate pré-deploy: teste vermelho aborta o job antes de tocar em produção.
+3. `wrangler d1 migrations apply fotos-consent --remote` (`continue-on-error`: uma falha de migração não bloqueia o deploy, porque o INSERT de consentimento é best-effort).
+4. Deploy com `cloudflare/wrangler-action@v4` usando `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` (secrets do GitHub). A versão do wrangler vem de `env.WRANGLER_VERSION`, no topo do workflow — **mantenha-a em sintonia com o devDependency do `package.json`**: sem o pin explícito a action cai no default v3.90, e a produção rodaria numa major que nenhum teste exercitou.
+5. `sleep 20` aguardando propagação global.
+6. Smoke tests via `curl` contra a URL **workers.dev** do deploy (`steps.deploy.outputs.deployment-url`), não contra o domínio de produção — a zona `fotos.lucafchala.com` fica atrás do bot mitigation da Cloudflare, que responde 403 a clientes não-browser como o `curl`:
    - `GET /` retorna 200
    - `GET /dashboard` retorna 200
    - `GET /manifest.json` retorna 200
@@ -174,13 +176,45 @@ Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
    - `GET /api/healthz` retorna `{"ok":true,…,"hashMs":<n>}` e `hashMs ≤ 200` (acima disso, login estouraria o orçamento de CPU do Worker)
    - `POST /dashboard/login` com senha errada retorna 302 (e não 5xx — 5xx indicaria CPU timeout)
 
-Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Roll back via revert + novo push.
+Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Veja **Rollback** abaixo.
 
 ### 2. Manual
 
 ```bash
 npx wrangler deploy
 ```
+
+### Rollback
+
+O smoke test roda *depois* da publicação, então todo deploy é potencialmente um incidente. O caminho de volta:
+
+```bash
+# 1. Qual commit está em produção agora?
+git log --oneline -5 main
+
+# 2. Reverter o commit ruim e republicar pelo pipeline (preferido — mantém
+#    main e produção em sincronia, e o histórico registra o quê e o porquê).
+git revert <sha-ruim>
+git push origin main
+```
+
+Para cortar o caminho quando o site está fora do ar, o dashboard da Cloudflare
+(Workers → `fotos` → Deployments) permite promover um deployment anterior sem
+passar pelo Git — **mas isso deixa `main` à frente da produção**, então logo em
+seguida faça o revert no Git para não perder a rastreabilidade.
+
+Duas coisas que o revert de código **não** desfaz, e que precisam de atenção
+antes de reverter:
+
+- **Migrações D1 aplicadas.** São aditivas e idempotentes hoje (`migrations/`),
+  então voltar o código não quebra o schema — mas uma migração destrutiva
+  futura exigiria um plano próprio.
+- **Dados já gravados em KV/D1** pelo código novo (contadores, linhas de
+  consentimento). Continuam lá.
+
+Marque um release a cada deploy relevante (`git tag -a v1.4 -m "..." && git push
+origin v1.4`) para que "voltar para a última versão boa" seja um SHA conhecido
+em vez de arqueologia no log.
 
 ---
 
@@ -319,6 +353,7 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
 | POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 60/h por IP (10/h no caminho `noscript` p/ ad-blocker) — e grava o aceite em D1 (best-effort, no-op sem D1) |
+| POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
 | GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs, …}` (+ `kvLatencyMs`, `cron`, `config`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status |
 

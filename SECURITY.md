@@ -62,6 +62,23 @@ issue before any public disclosure.
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
 
+## Invariants for contributors / Invariantes ao mexer no código
+
+Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.test.js`,
+`tests/utils.test.js`) — if you change either, expect a red suite.
+
+- **`safeUrl()` is a scheme allowlist, not an HTML escaper.** It strips
+  `javascript:`/`data:` and upgrades `http:` — it does *not* escape quotes, so
+  `https://x/" onload="…` passes through intact. Interpolating into an HTML
+  attribute needs both: `escape(safeUrl(v))`. Assigning to a DOM property in the
+  client (`el.href = v`) needs only `safeUrl()`, because no HTML is parsed.
+  Neither function alone covers both attacks.
+- **KV counters go through `toCount()`.** Counters are stored as plain strings;
+  a corrupted value read back with a bare `parseInt` yields `NaN`, and
+  `String(NaN)` written back poisons the counter permanently. `toCount()`
+  accepts only a non-negative integer and falls back to `0` — it deliberately
+  rejects partial garbage (`"12abc"`) rather than salvaging a prefix.
+
 ## Response / Prazo de resposta
 
 This is a personal project maintained by one person. We aim to **acknowledge
