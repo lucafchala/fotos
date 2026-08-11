@@ -428,3 +428,52 @@ export async function sendConfirmationEmail(env, req) {
   }
   return true;
 }
+
+// Percentual de visitas que enviam o beacon de performance. Cada envio custa
+// uma requisição de Worker (cota gratuita: 100 mil/dia), então amostramos: 10%
+// já dá volume de sobra para medir tendência sem competir com o tráfego real.
+const PERF_SAMPLE_RATE = 0.1;
+
+// Script que sobe no <head> — precisa existir antes das <img> serem parseadas,
+// senão uma imagem já em cache dispara onload antes de imgSettled existir e o
+// shimmer fica girando para sempre sobre uma foto que já chegou.
+//
+// A duração de cada imagem NÃO é medida à mão: o próprio browser registra isso
+// em Resource Timing. Para recursos cross-origin (as fotos vêm do Google) os
+// tempos detalhados ficam zerados sem Timing-Allow-Origin, mas `duration`
+// continua exposto — que é exatamente o número que queremos.
+//
+// Um único beacon por visita, no visibilitychange. Um POST por imagem custaria
+// uma requisição de Worker por foto e transformaria a galeria de 12 cards em 13
+// requisições — o mesmo problema de cota que fez o cache via Worker ser descartado.
+export function perfBootScript(page, enabled) {
+  return `<script>(function(){
+  var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};
+  window.imgSettled=function(img,ok){var p=img&&img.parentElement;if(!p)return;p.classList.remove('loading');busy(p,false);if(!ok&&img.style)img.style.opacity='0';};
+  window.perfMark=function(k,v){var m=window.__perf;if(m&&k in m.marks)m.marks[k]=v;};
+  window.perfCount=function(k){var m=window.__perf;if(m&&typeof m.marks[k]==='number')m.marks[k]++;};
+${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
+  var m={page:${JSON.stringify(page)},marks:{filterMs:null,navCount:0}};
+  window.__perf=m;
+  function pct(a,q){if(!a.length)return null;var s=a.slice().sort(function(x,y){return x-y;});return Math.round(s[Math.min(s.length-1,Math.floor(s.length*q))]);}
+  var sent=false;
+  function flush(){
+    if(sent)return;sent=true;
+    var imgs=[],nav=null,lcp=null,fcp=null;
+    try{
+      var rs=performance.getEntriesByType('resource');
+      for(var i=0;i<rs.length;i++){if(rs[i].initiatorType==='img'&&rs[i].duration>0)imgs.push(rs[i].duration);}
+      var ns=performance.getEntriesByType('navigation')[0];
+      if(ns)nav={ttfb:Math.round(ns.responseStart),dcl:Math.round(ns.domContentLoadedEventEnd),load:Math.round(ns.loadEventEnd)};
+      var le=performance.getEntriesByType('largest-contentful-paint');
+      if(le.length)lcp=Math.round(le[le.length-1].startTime);
+      var fe=performance.getEntriesByName('first-contentful-paint');
+      if(fe.length)fcp=Math.round(fe[0].startTime);
+    }catch(e){}
+    var body=JSON.stringify({page:m.page,fcp:fcp,lcp:lcp,nav:nav,imgCount:imgs.length,imgP50:pct(imgs,.5),imgP95:pct(imgs,.95),filterMs:m.marks.filterMs,navCount:m.marks.navCount,vw:innerWidth});
+    try{navigator.sendBeacon('/api/perf',new Blob([body],{type:'application/json'}));}catch(e){}
+  }
+  addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});
+  addEventListener('pagehide',flush);` : ''}
+})();</script>`;
+}

@@ -62,6 +62,16 @@
 
 ### Etapa 5 — Longo prazo
 - [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
+  > **Por que não dá para só adicionar `Cache-Control` nas imagens do Drive:** `sizedDriveThumb()`
+  > devolve uma URL do `lh3.googleusercontent.com` que vai direto no `src` da `<img>`. Quem busca
+  > essa imagem é o browser, falando com o Google — o Worker não está no caminho e não tem resposta
+  > para carimbar. Só passaria a ter se as imagens fossem servidas por uma rota nossa, e aí cada
+  > thumbnail vira uma requisição de Worker: uma galeria de 12 cards sai de 1 para 13 requisições,
+  > contra a cota de 100 mil/dia. O R2 resolve as duas coisas de uma vez (cache e preview), por isso
+  > o cache está parado aqui e não foi feito à parte.
+- [ ] Servir o beacon de performance (`POST /api/perf`) para um destino persistente — hoje ele só
+      cai em log estruturado. Basta criar o binding `PERF` do Analytics Engine em `wrangler.toml`
+      que o handler passa a gravar sozinho (o código já trata os dois casos).
 - [ ] Portfólio público `/portfolio` com curadoria das melhores fotos
 - [x] Filtros por tag/categoria (feito: busca + filtro por categoria na galeria)
 

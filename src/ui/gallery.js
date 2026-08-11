@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -29,13 +29,13 @@ export function galleryHTML(events, analyticsToken) {
     ].filter(Boolean).join(' ');
     return `
       <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-desc="${desc}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
-        <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}">
+        <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
-              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span>`
+              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy" decoding="async"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span>`
               : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
             : thumb
-              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" loading="lazy" onload="this.parentElement.classList.remove('loading')" onerror="this.parentElement.classList.remove('loading')">`
+              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" loading="lazy" decoding="async" onload="imgSettled(this,true)" onerror="imgSettled(this,false)">`
               : `<div class="thumb-ph">${iconCamera()}</div>`}
           ${featured ? `<span class="featured-badge">Em destaque</span>` : ''}
         </div>
@@ -178,9 +178,11 @@ export function galleryHTML(events, analyticsToken) {
     .thumb.loading{background:linear-gradient(90deg,#181818 0%,#222 50%,#181818 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     .thumb.loading img{opacity:0}
-    .thumb img{transition:opacity .25s ease}
     .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px);z-index:2}
-    .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
+    /* Uma única regra de transition: declarar opacity e transform separadamente
+       fazia a segunda sobrescrever a primeira (mesma especificidade), e a foto
+       aparecia de estalo no lugar de surgir — o shimmer parecia travar. */
+    .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .3s ease,transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
     .thumb-blur{filter:blur(8px);transform:scale(1.1);width:100%;height:100%;object-fit:cover;display:block}
@@ -211,6 +213,7 @@ export function galleryHTML(events, analyticsToken) {
     .cookie-notice button{flex-shrink:0;background:#f0ebe5;color:#0a0a0a;border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
   </style>
+  ${perfBootScript('gallery', !!analyticsToken)}
 </head>
 <body>
   <header>
@@ -292,6 +295,7 @@ export function galleryHTML(events, analyticsToken) {
         }
       }
       function apply(){
+        var _t0 = performance.now();
         var q = searchEl ? searchEl.value.trim().toLowerCase() : '';
         var filtering = isFiltering();
         var idx = 0, matchCount = 0;
@@ -316,6 +320,12 @@ export function galleryHTML(events, analyticsToken) {
           }
         }
         syncHeadings();
+        // Pior caso da sessão: é o filtro lento que o usuário sente, não a média.
+        if (window.perfMark) {
+          var _d = Math.round(performance.now() - _t0);
+          var _p = window.__perf;
+          if (_p && (_p.marks.filterMs === null || _d > _p.marks.filterMs)) window.perfMark('filterMs', _d);
+        }
       }
 
       if (searchEl) searchEl.addEventListener('input', function(){ shown = BATCH; apply(); });
