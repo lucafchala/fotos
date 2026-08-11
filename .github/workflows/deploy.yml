@@ -22,7 +22,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # 22+ é exigido pelo wrangler 4 (engines: node >=22). No Node 20 o
+          # binário recusa a rodar antes de qualquer comando — foi o que
+          # derrubou o deploy de 6fb8d1c, quando o pin explícito da versão
+          # passou a instalar o wrangler 4 no lugar do v3.90 default da action.
+          node-version: '22'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
