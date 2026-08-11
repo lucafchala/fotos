@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -32,14 +32,14 @@ export function eventHTML(event, analyticsToken) {
 
   const heroHTML = event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" onerror="this.style.opacity='0'"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" onerror="this.style.opacity='0'"></div>`
+        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" onload="this.style.opacity='1'" onerror="this.style.opacity='0'">
+          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onload="this.style.opacity='1';window.cImgSettled&&cImgSettled()" onerror="this.style.opacity='0';window.cImgSettled&&cImgSettled()">
           <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -70,6 +70,7 @@ export function eventHTML(event, analyticsToken) {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://drive.google.com">
   <link rel="preconnect" href="https://lh3.googleusercontent.com">
+  ${perfBootScript('event', !!analyticsToken)}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -96,6 +97,11 @@ export function eventHTML(event, analyticsToken) {
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
     .c-prev{left:.75rem}.c-next{right:.75rem}
+    /* Enquanto a próxima foto não chega, o contador pulsa: a navegação sempre
+       responde, mesmo quando a rede não. */
+    .c-pending .c-count{opacity:.55;animation:cpulse 1s ease-in-out infinite}
+    @keyframes cpulse{0%,100%{opacity:.35}50%{opacity:.75}}
+    @media(prefers-reduced-motion:reduce){.c-pending .c-count{animation:none}}
     .c-dots{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);display:flex;gap:.4rem;z-index:2}
     .c-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);background-clip:content-box;box-sizing:content-box;padding:5px;cursor:pointer;transition:background .2s}
     .c-dot.on{background:#fff;background-clip:content-box}
@@ -757,32 +763,54 @@ export function eventHTML(event, analyticsToken) {
 
     // ---- Carousel ----
     const _preloaded = {};
+    // No desktop vale aquecer uma vizinhança maior: clicar rápido no ›› passava
+    // do único vizinho pré-carregado e caía numa imagem fria. No mobile fica em
+    // ±1 de propósito — lá a conta é de dados do usuário, não de latência.
     function preloadAround() {
       if (PHOTOS.length < 2) return;
-      [cur + 1, cur - 1].forEach(function(k) {
-        const i = ((k % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
-        if (_preloaded[i]) return;
+      const reach = Math.min(innerWidth < 768 ? 1 : 3, Math.floor(PHOTOS.length / 2));
+      for (let off = -reach; off <= reach; off++) {
+        if (off === 0) continue;
+        const i = (((cur + off) % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
+        if (_preloaded[i]) continue;
         _preloaded[i] = true;
         const im = new Image(); im.src = PHOTOS[i];
-      });
+      }
     }
+    // O contador vira o retorno visual da navegação: se a próxima foto ainda não
+    // chegou, ele avisa em vez de deixar o toque sem resposta nenhuma.
+    function cImgSettled() {
+      const car = document.getElementById('carousel');
+      if (car) { car.classList.remove('c-pending'); car.removeAttribute('aria-busy'); }
+    }
+    window.cImgSettled = cImgSettled;
     function cGoto(n) {
       if (!PHOTOS.length) return;
       cur = ((n % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
       const img = document.getElementById('c-img');
-      if (img) { img.style.opacity = '0'; img.src = PHOTOS[cur]; }
+      const car = document.getElementById('carousel');
+      if (img) {
+        img.style.opacity = '0';
+        img.src = PHOTOS[cur];
+        // Imagem já em cache decodifica antes do próximo frame: só marcamos
+        // como "carregando" se ela realmente não estiver pronta, senão o
+        // indicador pisca à toa em toda navegação.
+        if (car && !img.complete) { car.classList.add('c-pending'); car.setAttribute('aria-busy', 'true'); }
+      }
       document.querySelectorAll('.c-dot').forEach((d, i) => d.classList.toggle('on', i === cur));
       const cnt = document.getElementById('c-count');
       if (cnt) cnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       preloadAround();
     }
-    function cGo(dir) { cGoto(cur + dir); }
+    function cGo(dir) { if (window.perfCount) perfCount('navCount'); cGoto(cur + dir); }
     const car = document.getElementById('carousel');
     if (car) {
       let tx = 0;
       car.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
       car.addEventListener('touchend', e => { if (Math.abs(tx - e.changedTouches[0].clientX) > 40) cGo(tx > e.changedTouches[0].clientX ? 1 : -1); });
       preloadAround();
+      // Um tablet girado troca de faixa de largura: reavalia o alcance.
+      addEventListener('orientationchange', preloadAround);
       // One-time swipe hint on touch devices.
       try {
         if (('ontouchstart' in window) && !localStorage.getItem('fotos:swipe_hint')) {

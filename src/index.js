@@ -88,6 +88,7 @@ export default {
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
+      if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
       if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
 
       // Admin API — removal requests
@@ -653,6 +654,61 @@ async function handleTrackDrive(request, env) {
   const v = await env.FOTOS.get(key).catch(() => null);
   await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => console.error('drive-click counter failed', e));
   return jsonOk({ ok: true });
+}
+
+// Recebe o beacon de performance real dos visitantes (um por visita, amostrado
+// a 10% no cliente — ver perfBootScript em utils.js).
+//
+// Deliberadamente NÃO escreve em KV. A cota gratuita é de 1000 escritas/dia e é
+// compartilhada com a status page; gastá-la para guardar telemetria deixaria o
+// site sem escritas para o que importa (eventos, sessões, consentimento). O
+// destino é log estruturado, que o Cloudflare já coleta de graça — visível em
+// `wrangler tail` e em Workers Logs — e, opcionalmente, um dataset do Analytics
+// Engine quando o binding PERF existir. Sem o binding, nada quebra.
+//
+// Sem rate limit por KV de propósito: checkRateLimit faz leitura+escrita em KV,
+// o que custaria mais do que o próprio beacon economiza. O que limita o volume
+// aqui é a amostragem no cliente, e o corpo é validado e truncado abaixo.
+async function handlePerfBeacon(request, env) {
+  // sendBeacon não espera resposta; 204 encerra sem corpo.
+  const done = () => new Response(null, { status: 204 });
+
+  let body;
+  try { body = await request.json(); } catch { return done(); }
+  if (!body || typeof body !== 'object') return done();
+
+  // Só números plausíveis passam: o corpo vem do cliente e pode ser forjado.
+  // Um valor absurdo aqui envenenaria a média sem que nada pareça quebrado.
+  const num = (v, max) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v) : null);
+  const nav = body.nav && typeof body.nav === 'object' ? body.nav : {};
+  const sample = {
+    page: body.page === 'event' ? 'event' : 'gallery',
+    fcp: num(body.fcp, 120000),
+    lcp: num(body.lcp, 120000),
+    ttfb: num(nav.ttfb, 120000),
+    load: num(nav.load, 300000),
+    imgCount: num(body.imgCount, 500),
+    imgP50: num(body.imgP50, 300000),
+    imgP95: num(body.imgP95, 300000),
+    filterMs: num(body.filterMs, 60000),
+    navCount: num(body.navCount, 10000),
+    vw: num(body.vw, 20000),
+    colo: request.cf?.colo ?? null,
+    country: request.cf?.country ?? null,
+  };
+
+  console.log(`perf ${JSON.stringify(sample)}`);
+
+  if (env.PERF && typeof env.PERF.writeDataPoint === 'function') {
+    try {
+      env.PERF.writeDataPoint({
+        blobs: [sample.page, sample.colo, sample.country],
+        doubles: [sample.fcp, sample.lcp, sample.ttfb, sample.imgP50, sample.imgP95, sample.filterMs].map(v => v ?? -1),
+        indexes: [sample.page],
+      });
+    } catch (e) { console.error('perf writeDataPoint failed', e); }
+  }
+  return done();
 }
 
 // ---------------------------------------------------------------------------
