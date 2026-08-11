@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
 
+# Uma única fonte da verdade para a versão do wrangler usada nos dois steps que
+# falam com a Cloudflare (migrations D1 e deploy). Tem que acompanhar a major do
+# devDependency em package.json — se divergir, a produção roda numa versão que
+# nenhum teste exercitou.
+env:
+  WRANGLER_VERSION: '4.114.0'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -24,10 +31,10 @@ jobs:
         run: npm test
 
       # Apply pending D1 migrations before deploying, so the new columns exist when
-      # the new code starts writing. Pinned to wrangler v4 because the action's
-      # default (v3.90) is rejected by the D1 API as out-of-date. continue-on-error
-      # so a migration hiccup (e.g. token missing D1 Edit scope) never blocks the
-      # deploy itself — the consent INSERT is best-effort and degrades safely.
+      # the new code starts writing. Pinned because the action's default (v3.90) is
+      # rejected by the D1 API as out-of-date. continue-on-error so a migration
+      # hiccup (e.g. token missing D1 Edit scope) never blocks the deploy itself —
+      # the consent INSERT is best-effort and degrades safely.
       # Idempotent: wrangler skips migrations already recorded in d1_migrations.
       - name: Apply D1 migrations
         continue-on-error: true
@@ -35,15 +42,20 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: '4.101.0'
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
           command: d1 migrations apply fotos-consent --remote
 
+      # wranglerVersion explícito: sem ele a action cai no default v3.90, ou seja,
+      # o deploy rodaria numa major diferente da que o dev e os testes usam
+      # (package.json exige ^4). Mantenha este valor em sintonia com o
+      # devDependency do wrangler ao atualizá-lo.
       - name: Deploy to Cloudflare Workers
         id: deploy
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
 
       - name: Wait for global propagation
         run: sleep 20

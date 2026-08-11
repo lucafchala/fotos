@@ -19,9 +19,19 @@ const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this
 
 // KV counters are plain strings, so a corrupted/absent value must never become
 // NaN: String(NaN) would be written back and poison the counter for good.
-function toCount(v) {
-  const n = parseInt(v || '0', 10);
-  return Number.isFinite(n) ? n : 0;
+//
+// Strict on purpose: parseInt alone salvages a prefix ("12abc" -> 12) and
+// accepts negatives ("-5"), so a partially-corrupted value would be silently
+// adopted as if it were the real count. A counter is a non-negative integer or
+// it is garbage — anything else restarts from 0 rather than carrying junk
+// forward. Exported so the poison-value contract is pinned by tests.
+export function toCount(v) {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const s = v.trim();
+  if (!/^\d+$/.test(s)) return 0;
+  const n = parseInt(s, 10);
+  return Number.isSafeInteger(n) ? n : 0;
 }
 
 export default {
@@ -669,9 +679,29 @@ async function handleTrackDrive(request, env) {
 // Sem rate limit por KV de propósito: checkRateLimit faz leitura+escrita em KV,
 // o que custaria mais do que o próprio beacon economiza. O que limita o volume
 // aqui é a amostragem no cliente, e o corpo é validado e truncado abaixo.
-async function handlePerfBeacon(request, env) {
+export async function handlePerfBeacon(request, env) {
   // sendBeacon não espera resposta; 204 encerra sem corpo.
   const done = () => new Response(null, { status: 204 });
+
+  // Barato e sem estado, ao contrário de um rate limit por KV: se o browser
+  // mandou um Origin (sendBeacon manda, em POST), ele tem que bater com o host
+  // que serviu a página. Corta outro site despejando beacons forjados no
+  // dataset a partir de visitantes reais.
+  //
+  // Comparado contra o host do próprio request, não contra SITE_URL: o mesmo
+  // Worker atende o domínio de produção, a rota workers.dev (usada pelos smoke
+  // tests do deploy) e o localhost do `wrangler dev` — fixar o domínio
+  // descartaria silenciosamente os beacons dos outros dois.
+  //
+  // Origin ausente passa de propósito: nem todo cliente manda o header, e
+  // barrar por ausência quebraria beacons legítimos sem barrar um atacante
+  // (curl simplesmente omite o header).
+  const origin = request.headers.get('Origin');
+  if (origin) {
+    let sameOrigin;
+    try { sameOrigin = new URL(origin).host === new URL(request.url).host; } catch { sameOrigin = false; }
+    if (!sameOrigin) return done();
+  }
 
   let body;
   try { body = await request.json(); } catch { return done(); }
@@ -1202,7 +1232,10 @@ const CONSENT_COLS = [
 // blocked client-side (ad-blocker) — weaker (no captcha), but still a real
 // POST per event, rate-limited on its own (tighter) key and audited with
 // turnstile_ok=0, instead of today's unconditional leak in the page HTML.
-async function handleDriveLink(request, env, ctx) {
+// Exported for the unit suite: this is the one endpoint that hands out the
+// Drive URLs, so its refusals (bad Turnstile, missing consent, coming-soon
+// event) are the security contract worth pinning against regression.
+export async function handleDriveLink(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
   let body;
