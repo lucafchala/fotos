@@ -12,7 +12,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # 22+ é exigido pelo wrangler 4 (engines: node >=22). Manter igual ao
+          # do deploy.yml: testar numa versão e publicar noutra é justamente o
+          # tipo de divergência que este par de workflows existe para evitar.
+          node-version: '22'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
