@@ -57,8 +57,8 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Auth | PBKDF2-SHA256 (100k iterações) + sessão HTTP-only em KV |
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
-| Dev tooling | Wrangler ≥ 3 (`npm run dev` / `npm run deploy`), ESLint (`npm run lint`) |
-| CI/CD | GitHub Actions (`deploy.yml` com smoke tests, `checks.yml` com lint + sintaxe) |
+| Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
+| CI/CD | GitHub Actions (`deploy.yml`: testes → migrations D1 → deploy → smoke tests; `checks.yml`: lint + testes + sintaxe) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
 | Fontes externas | Google Fonts (Inter) |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
@@ -84,8 +84,12 @@ Request → fetch(request, env, ctx) em src/index.js
 
 ## Como rodar localmente
 
+**Requer Node.js ≥ 22** (`engines` no `package.json`). O wrangler 4 declara
+`node >= 22` e simplesmente se recusa a rodar em versões anteriores — os
+workflows do CI usam a mesma versão, de propósito.
+
 ```bash
-# 1. Instalar Wrangler (dev dep)
+# 1. Instalar dependências de dev (wrangler, vitest, eslint)
 npm install
 
 # 2. Login no Cloudflare (uma vez por máquina)
@@ -95,11 +99,19 @@ npx wrangler login
 npm run dev
 ```
 
+Antes de abrir PR:
+
+```bash
+npm test     # Vitest — 98 testes, ~1 s
+npm run lint # ESLint sobre src/ e tests/
+```
+
 O Wrangler escuta em `http://localhost:8787`. Por padrão ele se conecta ao KV **remoto** (id em `wrangler.toml`); para usar KV local, rode `npx wrangler dev --local`.
 
 **Importante:** mesmo em dev, o dashboard exige uma senha. No primeiro acesso a `/dashboard`, se a chave KV `admin_password` não existir, a tela de login vira tela de setup ("Criar senha de acesso"). Defina uma e o app salva o hash PBKDF2.
 
-Para resetar a senha em dev: `npx wrangler kv:key delete admin_password --binding=FOTOS`.
+Para resetar a senha em dev: `npx wrangler kv key delete admin_password --binding=FOTOS`
+(a forma antiga `kv:key` com dois-pontos saiu no wrangler 4).
 
 ---
 
@@ -116,9 +128,24 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 [[kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
+
+# Log de consentimento de uso de imagem. Remover este bloco torna
+# env.CONSENT_DB indefinido e a gravação um no-op seguro.
+[[d1_databases]]
+binding = "CONSENT_DB"
+database_name = "fotos-consent"
+database_id = "d6bed362-4ddf-459d-a088-48b42aa11fdc"
+migrations_dir = "migrations"
+
+[triggers]
+# Diário 03:00 UTC — purga solicitações resolvidas + consentimentos expirados.
+crons = ["0 3 * * *"]
+
+[env.preview]
+name = "fotos-preview"
 ```
 
-O binding `FOTOS` é referenciado em todo o código como `env.FOTOS`. Para fork pessoal: crie um KV namespace novo (`npx wrangler kv:namespace create FOTOS`) e troque o `id`.
+O binding `FOTOS` é referenciado em todo o código como `env.FOTOS`. Para fork pessoal: crie um KV namespace novo (`npx wrangler kv namespace create FOTOS`) e troque o `id`.
 
 ### Variáveis de ambiente / secrets
 
@@ -222,29 +249,39 @@ em vez de arqueologia no log.
 
 ```
 fotos/
-├── README.md              ← este arquivo
-├── TODO.md                ← roadmap pessoal (pendências, ideias, etapas)
-├── package.json           ← scripts dev/deploy/lint, wrangler + eslint como dev deps
-├── wrangler.toml          ← config do Worker, binding KV (+ D1 comentado p/ provisionar)
+├── README.md               ← este arquivo
+├── TODO.md                 ← pendências em aberto (entregue sai de lá; histórico no git)
+├── SECURITY.md             ← política de segurança, escopo, invariantes p/ contribuir
+├── LEGAL.md                ← termos, licença de uso das fotos
+├── package.json            ← scripts dev/deploy/lint/test; engines.node >= 22
+├── eslint.config.js        ← flat config; lint cobre src/ e tests/
+├── wrangler.toml           ← config do Worker, bindings KV + D1, cron diário
 ├── migrations/
-│   └── 0001_consent.sql   ← tabela D1 image_use_consent (log de consentimento)
+│   ├── 0001_consent.sql    ← tabela D1 image_use_consent (log de consentimento)
+│   └── 0002_access_type.sql← coluna access_type + declaração por tipo de acesso
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml     ← CI: deploy + smoke tests
-│       └── checks.yml     ← CI: lint + validação JSON + sintaxe JS
+│       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests
+│       └── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
+├── tests/                  ← Vitest (98 testes)
+│   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
+│   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate), handlePerfBeacon, toCount
+│   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
+│   └── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha
 └── src/
-    ├── index.js           ← roteador + todos os handlers HTTP (Worker entry)
-    ├── utils.js           ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
+    ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
+    ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     └── ui/
-        ├── gallery.js     ← HTML da galeria pública /
-        ├── event.js       ← HTML da página de projeto /<slug>
-        ├── dashboard.js   ← HTML do login e do painel admin /dashboard
-        ├── support.js     ← HTML da página de suporte /suporte
-        ├── privacy.js     ← HTML da Política de Privacidade /privacidade
-        └── terms.js       ← HTML dos Termos de Uso /termos
+        ├── gallery.js      ← HTML da galeria pública /
+        ├── event.js        ← HTML da página de projeto /<slug>
+        ├── dashboard.js    ← HTML do login e do painel admin /dashboard
+        ├── support.js      ← HTML da página de suporte /suporte
+        ├── privacy.js      ← HTML da Política de Privacidade /privacidade
+        ├── terms.js        ← HTML dos Termos de Uso /termos
+        └── about.js        ← HTML de /sobre — escrito, porém **não roteado** (ver TODO.md)
 ```
 
-Tamanhos aproximados: `index.js` ~28 KB, `dashboard.js` ~62 KB (é o maior porque tem todo o JS do painel inline), `event.js` ~35 KB, `gallery.js` ~7 KB, `support.js` ~7 KB, `utils.js` ~13 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
+Tamanhos aproximados: `index.js` ~85 KB, `dashboard.js` ~80 KB (tem todo o JS do painel inline), `event.js` ~63 KB, `gallery.js` ~24 KB, `utils.js` ~23 KB, `support.js` ~10 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
 
 ---
 
@@ -431,7 +468,7 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
 ### `/suporte` — Página de suporte (`src/ui/support.js`)
 
 - Header com link "Voltar".
-- Botões grandes: WhatsApp (`wa.me/5511989211178`) e e-mail (`mailto:suport@lucafchala.com`).
+- Botões grandes: WhatsApp (`wa.me/5511989211178`) e e-mail (`mailto:suporte@lucafchala.com`).
 - Divisor "ou envie uma mensagem".
 - Formulário POST para `/api/suporte` (form-data, sem fetch — degrada para HTML puro). Campos: nome (opcional), e-mail (opcional, vira `reply_to` se preenchido), mensagem (obrigatório, ≤ 2000 chars). **Turnstile** obrigatório; o botão fica desabilitado até a verificação passar, com **fallback** que o reabilita se o script for bloqueado, mais guarda anti-duplo-envio.
 - Após envio, a página é recarregada e mostra caixa verde "Mensagem enviada!". Em caso de erro, **nome/e-mail/mensagem são preservados** (re-renderizados escapados) para não perder o texto digitado.
@@ -715,9 +752,11 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 ## Convenções e detalhes do código
 
 - **PT-BR** em todo conteúdo, mensagens de erro e comentários.
-- **Sem dependências runtime**. Só `wrangler` como dev dep.
+- **Sem dependências runtime**. As dev deps são só `wrangler`, `vitest` e `eslint` (+ `@eslint/js`).
 - **Sem TypeScript**, sem build, sem JSX. Template strings + `escape()`.
-- **`escape()`** (em `utils.js`) é o **único** mecanismo de escape de HTML. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
+- **`escape()`** (em `utils.js`) é o único mecanismo de escape de **HTML**. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
+- **`safeUrl()`** é coisa diferente e **não substitui** o `escape()`: é allowlist de *esquema* (deixa passar só `https:`, promove `http:`, mata `javascript:`/`data:`), e não escapa aspas — `https://x/" onload="…` passa inteiro por ela. Num atributo HTML use as duas, `escape(safeUrl(v))`; numa atribuição de propriedade no cliente (`el.href = v`) o `safeUrl()` basta, porque não há HTML sendo parseado. Nenhuma das duas sozinha cobre os dois ataques — ver `SECURITY.md`, seção *Invariants for contributors*.
+- **`toCount()`** (em `index.js`) é obrigatório ao ler contador do KV. Contadores são strings; um valor corrompido lido com `parseInt` cru vira `NaN`, e `String(NaN)` gravado de volta envenena o contador para sempre.
 - **`generateId()`** → 16 bytes random hex (32 chars). Usado para event id e removal request id.
 - **`formatDatePT(dateStr)`** → "12 de maio de 2025" (mês em português, dia/ano numéricos). Aceita `YYYY-MM-DD`; retorna string original se inválida.
 - **`toHttps(url)`** → reescreve `http://` para `https://`, no-op caso contrário. Aplicado em todo URL de foto/Drive ao salvar.
@@ -754,7 +793,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **CPU budget do Worker**: o hashing PBKDF2 (100k iterações, ~50 ms) é vigiado pelo `/api/healthz` (o CI falha se `hashMs > 200`). Ao mexer no `iterations`, acompanhe esse número.
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
-- **D1 precisa ser provisionado**: enquanto `CONSENT_DB` não existir, o aceite dos Termos continua barrando o acesso ao Drive normalmente, mas **não é gravado** (no-op). Provisione o D1 (ver Configuração) para ter a comprovação.
+- **Log de consentimento é best-effort**: o D1 (`CONSENT_DB`) está provisionado e o `/api/healthz` reporta `d1: "ok"`, mas a gravação roda em `ctx.waitUntil` — se o insert falhar, o visitante recebe o link do mesmo jeito e a falha só aparece no log. Se o binding for removido, o aceite continua barrando o acesso normalmente, porém sem registro (no-op silencioso).
 - **Sem nonce de curta duração no `/api/drive-link`**: o gate já é verificado no servidor (Turnstile fail-closed + rate limit por IP), mas ainda não há um nonce por carregamento de página amarrando a chamada a uma visita real do evento — um script com um token Turnstile válido em mãos ainda poderia varrer vários slugs. Rate limit por IP mitiga isso parcialmente; nonce fica no roadmap (`TODO.md`, Etapa 3.1).
 - **Formulários e gate exigem JavaScript + Turnstile**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte e a verificação do gate. O site **detecta e avisa** (desative o bloqueador / ative o JS), mantém o acesso às fotos liberado e oferece WhatsApp/e-mail como alternativa; banners `<noscript>` cobrem o caso sem JS.
 
@@ -762,18 +801,20 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 ## Roadmap (TODO.md)
 
-O arquivo [`TODO.md`](./TODO.md) tem o histórico completo de features entregues e o backlog de ideias (operacional, engajamento, profissional, UX, futuro distante). Resumo do que falta:
+O arquivo [`TODO.md`](./TODO.md) lista **só o que está em aberto** — item entregue sai de lá, e o histórico de quem fez o quê fica no `git log`. Resumo do que falta:
 
-**Segurança / anti-abuso**: nonce de curta duração no `/api/drive-link` (anti-varredura de slugs), recuperação de senha por e-mail (magic link), 2FA no painel, afinar WAF/Bot Fight Mode, endurecer a CSP. _(Gate do Drive server-side, rate limiting e backup/restore já implementados.)_ Política de segurança em [`SECURITY.md`](./SECURITY.md).
+**Segurança / anti-abuso**: nonce de curta duração no `/api/drive-link` (anti-varredura de slugs — requer decisão sobre cota de KV vs. secret novo), auditar vazamento de `internalNotes` no HTML público, magic link no painel, honeypot nos formulários, endurecer a CSP, afinar WAF/Bot Fight Mode, strip de EXIF. Política e invariantes em [`SECURITY.md`](./SECURITY.md).
 
-**Recursos**: senha por evento.
+**Operação**: marcar releases com tag (hoje o repo não tem nenhuma — ver [Rollback](#rollback)); destino persistente para o beacon de `/api/perf` (binding `PERF` do Analytics Engine).
 
-**Longo prazo**: migrar imagens para R2 (resolve preview WhatsApp), portfólio público `/portfolio`, filtros por tag.
+**Dívidas**: revamp do tour guiado (texto defasado desde o gate server-side); decidir o destino da `/sobre`, escrita mas não roteada.
 
-**Ideias ainda não implementadas**: notas internas detalhadas (já tem `internalNotes` simples), favoritar fotos via localStorage, livro de visitas, slideshow tela cheia, stories estilo Instagram, `/contato`, `/sobre`, depoimentos, status "agendando eventos", modo claro automático, i18n EN/PT, links nominados por convidado, download em ZIP via Worker, app nativo.
+**Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega.
+
+**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", modo claro automático, i18n EN/PT, links nominados por convidado, Google Drive API, download em ZIP, app nativo.
 
 ---
 
 ## Contato
 
-Site: <https://fotos.lucafchala.com> · Instagram: [@lucafchala](https://instagram.com/lucafchala) · Suporte: <suport@lucafchala.com> · WhatsApp: <https://wa.me/5511989211178>
+Site: <https://fotos.lucafchala.com> · Instagram: [@lucafchala](https://instagram.com/lucafchala) · Suporte: <suporte@lucafchala.com> · WhatsApp: <https://wa.me/5511989211178>

@@ -1,149 +1,142 @@
-# Pendências e Recomendações — fotos.lucafchala.com
+# Pendências — fotos.lucafchala.com
 
-## Lembrar
-
-- [ ] Adicionar link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
-- [ ] Adicionar na homepage pessoal (lucafchala.com)
-
----
-
-## ✅ Concluído
-
-- **Robustez dos formulários (pré-lançamento):** formulário de remoção reseta o Turnstile após falha de envio (token é de uso único — evita o loop de 403 ao tentar de novo com token gasto) e protege a leitura do arquivo de upload; formulário de suporte não trava mais se o Turnstile for bloqueado (fallback reabilita o botão), preserva nome/e-mail/mensagem em caso de erro e tem guarda anti-duplo-envio; o painel redireciona ao login quando a sessão expira (401) e usa o diálogo temático no restore de backup
-- **Aviso de bloqueador de anúncios / JavaScript:** quando o script do Turnstile é bloqueado (ad-blocker) ou o JS está desativado, o site avisa o visitante para desativar o bloqueador e ativar o JavaScript — no gate do Drive (sem bloquear o acesso às fotos), no formulário de remoção e no de suporte; banners `<noscript>` para quem está totalmente sem JS
-- **Métricas:** corrigido bug do view count (`ctx.waitUntil()`); contagem de cliques no botão Drive adicionada
-- **Resend:** API key configurada como secret no Worker; domínio verificado; e-mails de notificação e confirmação funcionando
-- **Modo "Em breve":** toggle no dashboard, oculta cover photo na galeria e na página, botão Drive vira "As fotos virão em breve"
-- **WhatsApp:** botão de compartilhamento no footer das páginas de evento
-- **LGPD:** aviso de privacidade no rodapé do modal de remoção + SLA de 15 dias úteis
-- **E-mail de remoção atendida:** ao marcar como resolvido no dashboard, solicitante recebe e-mail confirmando
-- **Skeleton loaders:** shimmer animado nos cards da galeria enquanto a foto carrega
-- **Tour guiado:** modal de boas-vindas no primeiro acesso a uma página de evento (lembrado via localStorage)
-- **Notas privadas:** campo `internalNotes` em cada evento, só visível no dashboard
-- **Status de produção:** dropdown no formulário + badge colorido na lista + filtro acima da lista (em-edição / em-revisão / entregue / arquivado)
-- **Filtro padrão "Ativos":** dashboard esconde arquivados por padrão; opção "Todos" mostra tudo
-- **PWA:** manifest.json + icon.svg + meta tags — dashboard instalável no celular
-- **Cloudflare Web Analytics:** script injetado automaticamente nas páginas públicas (token hardcoded)
-- **Ordenação manual:** botões ▲▼ em cada evento no dashboard reordenam os projetos (galeria pública respeita a ordem manual; fallback para data quando não houver ordem manual)
-- **QR Code:** removido (lib quebrada e sem uso); CSP do jsDelivr também removida
-- **Galeria organizada:** cards agrupados por ano + busca por texto + filtro por categoria + "Carregar mais" (12 por vez)
-- **Categorias gerenciáveis:** criar/excluir categorias na aba Config (KV `categories`), edição em massa na aba Eventos (selecionar vários + aplicar categoria), filtros da galeria derivados delas
-- **SEO:** `/sitemap.xml`, `/robots.txt`, canonical + Open Graph na galeria e nas páginas de evento, JSON-LD na home
-- **LGPD:** página `/privacidade`, encarregado (`privacidade@lucafchala.com`), consentimento nos formulários, aviso de cookies, e retenção automática (cron apaga solicitações resolvidas > 180 dias)
-- **Thumbnails leves:** galeria pede variante redimensionada do Drive (`=w600`/`=w1600`) em vez de resolução cheia
-- **Hardening:** HSTS + Permissions-Policy, página 500 estilizada, `noindex` no admin, helper único de ordenação (`sortEvents`), ESLint no CI
+Só o que está **em aberto**. Item entregue sai deste arquivo — o histórico de
+quem fez o quê fica no git (`git log`), não aqui. As seções estão em ordem de
+prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
-## Próximas etapas planejadas
+## Lançamento
 
-### Etapa 3 — Segurança
-- [x] **Rate limiting** (feito): `/api/removal-request` 5/h por IP, e também login, suporte, consent, track-drive e healthz
-- [x] **Backup do KV** (feito): endpoint `/api/backup` protegido (admin) exporta tudo como JSON + restore com merge inteligente
-- [ ] **Recuperação de senha** via e-mail (link de reset via Resend)
-
-### Etapa 3.1 — Endurecimento de segurança e anti-abuso (prioridade pós-lançamento)
-- [x] **Esconder os links do Drive do código-fonte** (feito): `driveUrl`/`driveUrlInstagram` não são mais embutidos no HTML/JS da página. Novo `POST /api/drive-link` só responde com os links reais depois de validar o token do Turnstile no servidor (fail-closed) + o slug + o aceite dos Termos; o client busca via fetch automaticamente assim que o visitante passa no gate (Turnstile + Termos), com o Turnstile pré-carregado desde o load da página para reduzir a espera percebida. _Ressalva mantida:_ um visitante legítimo ainda pode repassar o link depois de recebê-lo — isso barra a coleta trivial por bots/console, não o repasse manual. _Decisão consciente:_ mantido um caminho mais fraco (sem captcha, rate limit próprio mais restritivo, auditado com `turnstile_ok=0`) para quando o Turnstile está bloqueado por ad-blocker, para não travar a entrega a esse público — ver `handleDriveLink` em `src/index.js`.
-- [x] **Aplicar o aceite no servidor** (feito): a liberação do link agora está amarrada à verificação real do Turnstile + ao registro do consentimento no mesmo request; `/api/consent` (best-effort, não travava nada) foi removido e sua auditoria absorvida por `/api/drive-link`.
-- [x] **Cobrir o gate do Drive com testes** (feito): `handleDriveLink`, `handlePerfBeacon` e `toCount` são exportados e testados em `tests/drive-gate.test.js` — cada recusa do gate (Turnstile inválido, secret ausente, siteverify fora do ar, Termos não aceitos, declaração faltando, evento `comingSoon`, rate limit) tem um teste. Antes disso o caminho que libera os links não tinha nenhuma rede de proteção: uma inversão acidental do `if (!turnstileOk)` passaria com o CI verde. O caminho `noscript` também está fixado por teste, para continuar sendo um buraco *consciente* (sem captcha, mas ainda com aceite, rate limit próprio e auditoria `turnstile_ok=0`) em vez de virar um bypass silencioso.
-- [ ] **Nonce de curta duração** no endpoint de link, para impedir varredura automatizada de todos os slugs (rate limit por IP já implementado; nonce por page-load ainda não). _Requer decisão:_ um nonce em KV gastaria a cota de escrita que `/api/perf` foi desenhado para preservar; a alternativa é um nonce assinado (HMAC) sem estado, que precisa de um novo secret no `wrangler.toml`.
-- [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja um SHA conhecido em vez de arqueologia no log (procedimento documentado no README, seção Deploy → Rollback).
-- [ ] **Auditar vazamento de campos só-admin**: garantir que `internalNotes` (e afins) nunca cheguem ao HTML público — hoje o objeto do evento é passado inteiro para o template.
-- [ ] **Honeypot** (campo oculto) nos formulários públicos, como segunda camada além do Turnstile.
-- [ ] **2FA/TOTP no painel** (ou magic link) — endurecer o login de admin além de senha + rate limit.
-- [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
-- [ ] **Endurecer a CSP**: trocar `script-src 'unsafe-inline'` por nonces nos scripts inline.
-- [ ] **Alerta de login suspeito**: e-mail ao admin após N tentativas falhas (já há rate limit de 10/10min).
-- [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de remoção (hoje só valida magic bytes + 2 MB).
-
-### Etapa 4 — Recursos
-- [ ] Senha por evento (acesso privado)
-- [ ] **Revamp do tutorial / tour guiado** (modal de boas-vindas na página de evento, `/<slug>`): o conteúdo hoje ("Acessar fotos / WhatsApp / Solicitar remoção") ficou defasado depois das mudanças no gate — o link do Drive agora só é liberado após verificação server-side (Turnstile pré-carregado + aceite dos Termos), e o texto de etiqueta do modal foi encurtado. Revisar se o tour ainda explica o fluxo certo, e reescrever a explicação de acesso ao link para refletir o gate atual.
-
-> Nota: o formulário de avaliações (estrelas) foi implementado e depois **removido** a pedido do dono. Não reintroduzir sem necessidade.
-
-### Etapa 5 — Longo prazo
-- [ ] Migrar imagens para Cloudflare R2 (resolve preview no WhatsApp)
-  > **Por que não dá para só adicionar `Cache-Control` nas imagens do Drive:** `sizedDriveThumb()`
-  > devolve uma URL do `lh3.googleusercontent.com` que vai direto no `src` da `<img>`. Quem busca
-  > essa imagem é o browser, falando com o Google — o Worker não está no caminho e não tem resposta
-  > para carimbar. Só passaria a ter se as imagens fossem servidas por uma rota nossa, e aí cada
-  > thumbnail vira uma requisição de Worker: uma galeria de 12 cards sai de 1 para 13 requisições,
-  > contra a cota de 100 mil/dia. O R2 resolve as duas coisas de uma vez (cache e preview), por isso
-  > o cache está parado aqui e não foi feito à parte.
-- [ ] Servir o beacon de performance (`POST /api/perf`) para um destino persistente — hoje ele só
-      cai em log estruturado. Basta criar o binding `PERF` do Analytics Engine em `wrangler.toml`
-      que o handler passa a gravar sozinho (o código já trata os dois casos).
-- [ ] Portfólio público `/portfolio` com curadoria das melhores fotos
-- [x] Filtros por tag/categoria (feito: busca + filtro por categoria na galeria)
+- [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
+- [ ] Link na homepage pessoal (lucafchala.com)
 
 ---
 
-## Novas ideias (Claude)
+## Segurança e anti-abuso
 
-### Operacional — para você se organizar
+- [ ] **Nonce de curta duração no `/api/drive-link`** — impedir varredura
+      automatizada de todos os slugs. O gate já é verificado no servidor
+      (Turnstile fail-closed + rate limit por IP), mas nada amarra a chamada a
+      uma visita real da página: um script com um token Turnstile válido em mãos
+      consegue varrer vários slugs dentro do limite.
+      _Requer decisão antes de implementar:_ nonce em KV gastaria justamente a
+      cota de escrita que o `/api/perf` foi desenhado para preservar (1000/dia,
+      compartilhada com eventos/sessões/consentimento); a alternativa é um nonce
+      assinado (HMAC) sem estado, que precisa de um secret novo no
+      `wrangler.toml`.
+- [ ] **Auditar vazamento de campos só-admin** — garantir que `internalNotes` (e
+      afins) nunca cheguem ao HTML público. Hoje o objeto do evento é passado
+      inteiro para o template.
+- [ ] **Login sem senha / recuperação de acesso** — magic link por e-mail via
+      Resend (já configurado), substituindo ou complementando a senha do painel.
+      Resolve de uma vez a recuperação de senha e boa parte do que 2FA
+      cobriria; menos atrito que TOTP.
+- [ ] **2FA/TOTP no painel** — só se o magic link não for suficiente.
+- [ ] **Honeypot** (campo oculto) nos formulários públicos, como segunda camada
+      além do Turnstile.
+- [ ] **Endurecer a CSP** — trocar `script-src 'unsafe-inline'` por nonces nos
+      scripts inline.
+- [ ] **Alerta de login suspeito** — e-mail ao admin após N tentativas falhas
+      (já há rate limit de 10/10 min).
+- [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
+      bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
+- [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de
+      remoção (hoje só valida magic bytes + 2 MB).
 
-**Notas internas por evento**
-Campo de texto privado em cada evento (só você vê no dashboard) para anotar: nome do cliente, valor cobrado, observações pós-evento, links de contratos, etc. Útil pra não depender da memória.
+---
 
-**Status de produção do evento**
-Adicionar um campo de status: `em-edicao` / `em-revisao` / `entregue` / `arquivado`. Filtrar por status no dashboard. Você sabe na hora o que está parado e o que precisa de atenção.
+## Operação
 
-**Lembrete de entrega**
-Campo "data prometida de entrega" no evento. Dashboard destaca eventos atrasados em vermelho. Evita esquecer prazo combinado.
+- [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
+      um SHA conhecido em vez de arqueologia no log. Procedimento no
+      [README](./README.md#rollback); hoje o repo não tem nenhuma tag.
+- [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
+      hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
+      Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
+      gravar sozinho.
+
+---
+
+## Dívidas conhecidas
+
+- [ ] **Revamp do tour guiado** (modal de boas-vindas em `/<slug>`) — o conteúdo
+      ("Acessar fotos / WhatsApp / Solicitar remoção") ficou defasado depois das
+      mudanças no gate: o link do Drive agora só é liberado após verificação
+      server-side (Turnstile pré-carregado + aceite dos Termos), e o texto de
+      etiqueta do modal foi encurtado. Revisar se o tour ainda explica o fluxo
+      certo e reescrever a parte de acesso ao link.
+- [ ] **Página `/sobre` existe mas está fora do ar** — `src/ui/about.js` está
+      escrito e não roteado (fora do sitemap e do rodapé), esperando a revisão
+      do texto. Ou finalizar e publicar, ou remover o arquivo.
+
+---
+
+## Recursos planejados
+
+- [ ] **Senha por evento** (acesso privado)
+- [ ] **Migrar imagens para Cloudflare R2** — resolve preview no WhatsApp e
+      cache das capas de uma vez só.
+  > **Por que não dá para só adicionar `Cache-Control` nas imagens do Drive:**
+  > `sizedDriveThumb()` devolve uma URL do `lh3.googleusercontent.com` que vai
+  > direto no `src` da `<img>`. Quem busca essa imagem é o browser, falando com
+  > o Google — o Worker não está no caminho e não tem resposta para carimbar. Só
+  > passaria a ter se as imagens fossem servidas por uma rota nossa, e aí cada
+  > thumbnail vira uma requisição de Worker: uma galeria de 12 cards sai de 1
+  > para 13 requisições, contra a cota de 100 mil/dia. Por isso o cache das
+  > capas não foi feito à parte — está embutido neste item.
+- [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
+- [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
+      destaca em vermelho os atrasados.
+
+---
+
+## Ideias não priorizadas
+
+Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 
 ### Engajamento do visitante
 
-**Sistema de favoritas pelo visitante**
-O visitante marca fotos como favoritas (clique em ❤). Salvo no localStorage. Botão "compartilhar minha seleção" gera um link com as fotos escolhidas. Bom para casamentos onde os convidados querem mostrar só "as fotos deles".
-
-**Livro de visitas / comentários**
-Campo no final da página do evento onde convidados deixam recado (com moderação no dashboard). Bom para casamentos, aniversários — vira lembrança digital.
-
-**Slideshow / apresentação**
-Botão "modo apresentação" que abre o carrossel em tela cheia com transição automática a cada 4 segundos. Bom para projetar num evento ou apresentar fotos para um grupo.
-
-**Stories estilo Instagram**
-Destacar 5-10 fotos como "highlights" do evento na página. Aparecem como círculos no topo, abrem em tela cheia ao tocar. Carrossel mais visual e moderno que o atual.
+- **Favoritas pelo visitante** — marcar fotos com ❤ (localStorage) e um botão
+  "compartilhar minha seleção" que gera link com as escolhidas. Bom para
+  casamentos, onde cada convidado quer mostrar só "as fotos dele".
+- **Livro de visitas** — recado dos convidados no fim da página do evento, com
+  moderação no dashboard. Vira lembrança digital.
+- **Slideshow / modo apresentação** — carrossel em tela cheia com transição
+  automática. Bom para projetar num evento.
+- **Stories estilo Instagram** — 5–10 fotos como highlights no topo da página,
+  em círculos que abrem em tela cheia.
 
 ### Profissional / portfólio
 
-**Página /contato com formulário**
-Formulário simples ("seu nome / e-mail / tipo de evento / data / mensagem") que envia via Resend pra você. Captura novos clientes sem precisar do DM no Instagram.
+- **Página `/contato`** — formulário (nome / e-mail / tipo de evento / data /
+  mensagem) enviando via Resend. Captura cliente sem depender de DM.
+- **Depoimentos de clientes** em `/depoimentos` ou na home. Prova social.
+- **Status "aceitando novos projetos"** — badge na home ("Agendando para
+  janeiro/2027" / "Agenda fechada até março"). Define expectativa.
 
-**Página /sobre**
-Bio profissional, equipamentos, processo de trabalho, faixa de preços ou link para orçamento. Aumenta credibilidade.
+### UX
 
-**Depoimentos de clientes**
-Após marcar uma remoção como "publicável", o texto vira depoimento exibido em `/depoimentos` ou na home. Prova social.
+- **Modo claro automático** — respeitar `prefers-color-scheme`. Hoje só existe o
+  escuro; algumas pessoas preferem fundo neutro para ver foto.
+- **Internacionalização (EN/PT)** na galeria e nas páginas de evento.
+- **Link nominado por convidado** — `/casamento-ana-joao?guest=marina` mostra
+  "Olá, Marina!" no topo. Toque pessoal sem login.
 
-**Status "aceitando novos projetos"**
-Badge na home: "📅 Agendando eventos para janeiro/2027" ou "🔴 Agenda fechada até março". Define expectativa de novos clientes.
+### Futuro distante
 
-### UX e tecnologia
+- **Integração com a Google Drive API** — listar e selecionar fotos direto da
+  pasta em vez de copiar URL uma a uma. Requer OAuth; elimina o trabalho manual.
+- **Download em ZIP via Worker** — visitante não precisa entender o Drive.
+  Pesado em CPU/banda; só vale se o Drive virar problema.
+- **App nativo** (React Native ou Capacitor) — câmera direta, upload em massa,
+  push. Hoje o PWA resolve.
 
-**Magic Link (login sem senha)**
-Substituir senha do dashboard por "digite seu e-mail" → link mágico chega no Gmail. Menos atrito, mais seguro, já temos Resend configurado. Compatível com a feature de recuperação de senha planejada.
+---
 
-**Modo claro/escuro automático**
-Detectar preferência do sistema (`prefers-color-scheme`) e adaptar a galeria. Hoje só tem o escuro — algumas pessoas preferem claro pra ver as fotos com fundo neutro.
+## Decidido não fazer
 
-**Internacionalização (EN/PT)**
-Suporte a inglês na galeria e páginas de evento — bom para clientes estrangeiros ou para quando quiser internacionalizar o trabalho.
-
-**Acesso por link único nominado**
-Cada convidado de um evento recebe um link tipo `/casamento-ana-joao?guest=marina`. A página mostra "Olá, Marina!" no topo. Toque pessoal sem precisar de login. Útil para entregas exclusivas.
-
-**Compressão e CDN para as fotos de capa**
-Hoje as capas carregam direto do Google. Cachear elas via Cloudflare (com headers `Cache-Control`) acelera o load das páginas subsequentes.
-
-### Para o futuro distante
-
-**Integração com Google Drive API**
-Em vez de copiar URL por foto, listar e selecionar direto da pasta do Drive. Reduz fricção pra adicionar evento. Requer OAuth — complexo mas elimina o trabalho manual.
-
-**Download em ZIP via Worker**
-Endpoint que baixa todas as fotos do Drive e devolve um ZIP. Visitante não precisa entender o Drive. Pesado em CPU/bandwidth — só vale se Drive ficar problemático para visitantes.
-
-**App nativo via React Native ou Capacitor**
-Se a operação crescer, app nativo com câmera direta, upload em massa, notificações push. Hoje PWA resolve, mas se virar negócio sério um app dedicado faz sentido.
+- **Avaliações por estrelas** — foi implementado e removido a pedido do dono.
+  Não reintroduzir sem necessidade nova.
+- **QR Code** — removido junto com a lib quebrada (e a entrada de CSP do
+  jsDelivr). Sem uso real.
