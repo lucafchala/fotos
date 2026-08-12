@@ -253,7 +253,6 @@ export function eventHTML(event, analyticsToken) {
     .drive-opt-text span{font-size:.72rem;color:var(--disabled-text-2);font-weight:400}
     .btn-icon{display:inline-flex}
     .btn-spin{display:none}
-    .drive-loading{pointer-events:none}
     .drive-loading .btn-icon{display:none}
     .drive-loading .btn-spin{display:inline-flex}
     .drive-attn{animation:driveAttn 1.6s ease-in-out infinite}
@@ -781,8 +780,17 @@ export function eventHTML(event, analyticsToken) {
       if (driveLinkState === 'loading' || driveLinkState === 'ready') return;
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
-      const ok = c && c.checked && (!decl || decl.checked) && driveTsToken !== '';
-      if (ok) fetchDriveLink();
+      const consentOk = c && c.checked && (!decl || decl.checked);
+      if (consentOk && driveTsToken !== '') {
+        fetchDriveLink();
+      } else if (consentOk) {
+        // Terms/declaration already accepted, just waiting on Turnstile to hand
+        // over a token — light the spinner now instead of leaving the button
+        // looking inert. driveLinkState stays untouched (still the real fetch
+        // gate); once the token lands, initDriveTurnstile()'s callback calls us
+        // again and this branch falls through to fetchDriveLink() above.
+        setDriveLinkUI('loading');
+      }
     }
     function fetchDriveLink() {
       driveLinkState = 'loading';
@@ -823,10 +831,12 @@ export function eventHTML(event, analyticsToken) {
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
     // Drives the visible state of the link button(s): visibly-present but
-    // muted (.drive-locked) until the real href lands, with a spinner
-    // swapped in for the icon while the request is in flight (.drive-loading,
-    // see .btn-icon/.btn-spin). Once ready, an idle timer draws attention if
-    // the visitor doesn't click within a few seconds.
+    // muted (.drive-locked) until the real href lands, with a spinner swapped
+    // in for the icon (.drive-loading, see .btn-icon/.btn-spin) as soon as
+    // terms/declaration are accepted — covers both the wait for a Turnstile
+    // token and the request itself, since maybeFetchDriveLink() lights it
+    // early. Once ready, an idle timer draws attention if the visitor doesn't
+    // click within a few seconds.
     function clearDriveAttn() {
       clearTimeout(driveAttnTimer);
       const wrap = document.getElementById('drive-links-wrap');
@@ -867,25 +877,30 @@ export function eventHTML(event, analyticsToken) {
       onDriveOpen();
       return true;
     }
-    // Clicked while not ready: only the "accept the terms" message is ever
-    // right here — if terms are already accepted and it's just Turnstile or
-    // the network still resolving, saying "accept the terms" would be wrong,
-    // so we stay silent (the button's own spinner already communicates that).
+    function showDriveHint(text) {
+      const hint = document.getElementById('drive-gate-hint');
+      if (!hint) return;
+      hint.textContent = text;
+      hint.style.display = '';
+      clearTimeout(window.__driveHintTimer);
+      window.__driveHintTimer = setTimeout(function() { hint.style.display = 'none'; }, 3500);
+    }
+    // Clicked while not ready: if terms/declaration aren't accepted yet, say so
+    // and flash the checkboxes. If they're already accepted and it's just
+    // Turnstile or the network still resolving (spinner already showing), tell
+    // the visitor to wait instead of staying silent — the click still landed
+    // here since .drive-loading no longer blocks pointer events.
     function handleBlockedDriveClick() {
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
       const acceptOk = !!(c && c.checked) && (!decl || decl.checked);
       if (!acceptOk) {
-        const hint = document.getElementById('drive-gate-hint');
-        if (hint) {
-          hint.textContent = 'você precisa aceitar os termos e declarações primeiro';
-          hint.style.display = '';
-          clearTimeout(window.__driveHintTimer);
-          window.__driveHintTimer = setTimeout(function() { hint.style.display = 'none'; }, 3500);
-        }
+        showDriveHint('você precisa aceitar os termos e declarações primeiro');
         document.querySelectorAll('.drive-consent').forEach(function(l) {
           l.classList.remove('flash-warn'); void l.offsetWidth; l.classList.add('flash-warn');
         });
+      } else {
+        showDriveHint('só um instante, o acesso ainda está carregando');
       }
     }
     function toggleDriveName() {
