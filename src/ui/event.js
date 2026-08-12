@@ -2,7 +2,7 @@ import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, pe
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
-export function eventHTML(event, analyticsToken) {
+export function eventHTML(event, year, analyticsToken) {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
@@ -64,6 +64,14 @@ export function eventHTML(event, analyticsToken) {
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
   <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
+  <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
+  <!-- <script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "PROJECT_ID");
+  </script> -->
   <meta property="og:title" content="${escape(event.title)}">
   <meta property="og:description" content="${escape(ogDescription)}">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
@@ -74,6 +82,15 @@ export function eventHTML(event, analyticsToken) {
   <link rel="preconnect" href="https://drive.google.com">
   <link rel="preconnect" href="https://lh3.googleusercontent.com">
   ${perfBootScript('event', !!analyticsToken)}
+  <script type="application/ld+json">${JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
+      { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
+      { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${escape(event.slug)}` },
+    ],
+  }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -139,6 +156,10 @@ export function eventHTML(event, analyticsToken) {
     .swipe-hint.show{opacity:1}
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 2.5rem}
+    .breadcrumbs{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:1.25rem;font-size:.73rem;color:var(--text-dim)}
+    .breadcrumbs a{color:var(--text-dim-2);text-decoration:none;transition:color .2s}
+    .breadcrumbs a:hover{color:var(--text-2)}
+    .breadcrumbs .sep{color:var(--border-dim-2)}
     .meta{margin-bottom:.875rem}
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
@@ -349,6 +370,13 @@ export function eventHTML(event, analyticsToken) {
   </div>
 
   <main>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="/">Início</a>
+      <span class="sep">·</span>
+      <a href="/?year=${escape(year)}">${escape(year)}</a>
+      <span class="sep">·</span>
+      <span>${escape(event.title)}</span>
+    </nav>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
     </div>

@@ -124,6 +124,16 @@ export function galleryHTML(events, analyticsToken) {
   <title>fotos · Luca F. Chala</title>
   <meta name="description" content="Galeria de fotos de Luca F. Chala">
   <link rel="canonical" href="${SITE_URL}/">
+  <!-- Google Search Console verification: replace VERIFICATION_CODE with your GSC meta tag -->
+  <!-- <meta name="google-site-verification" content="VERIFICATION_CODE"> -->
+  <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
+  <!-- <script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "PROJECT_ID");
+  </script> -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="fotos · Luca F. Chala">
   <meta property="og:description" content="Galeria de fotos de Luca F. Chala">

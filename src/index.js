@@ -274,6 +274,8 @@ async function handleEventPage(request, env, slug, ctx) {
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
+  const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
+
   // Only count view once per hour per visitor (avoids KV read+write on repeat visits).
   // KV read-modify-write is not atomic, so concurrent visits can undercount —
   // these are soft analytics, not hard metrics.
@@ -291,7 +293,7 @@ async function handleEventPage(request, env, slug, ctx) {
     );
   }
 
-  const res = html(eventHTML(event, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null));
   if (!alreadyCounted) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
