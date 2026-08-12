@@ -40,9 +40,9 @@ export function eventHTML(event, analyticsToken) {
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'"></div>`
+        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'" tabindex="0" role="button" aria-label="Ampliar foto" onclick="openLightbox(0)" onkeydown="if(event.key==='Enter'){openLightbox(0)}"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onload="this.style.opacity='1';window.cImgSettled&&cImgSettled()" onerror="this.style.opacity='0';window.cImgSettled&&cImgSettled()">
+          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onload="this.style.opacity='1';window.cImgSettled&&cImgSettled()" onerror="this.style.opacity='0';window.cImgSettled&&cImgSettled()" onclick="openLightbox(cur)">
           <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -293,10 +293,28 @@ export function eventHTML(event, analyticsToken) {
     .cookie-notice a:hover{text-decoration:underline}
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
+    /* lightbox — chrome sits on a full-bleed dark scrim, same "always dark,
+       contrast against the photo not the page" rule as the carousel controls. */
+    .lightbox-ov{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;display:none;align-items:center;justify-content:center}
+    .lightbox-ov.open{display:flex}
+    #lb-img{max-width:100vw;max-height:100vh;object-fit:contain;transition:transform .2s ease;touch-action:pan-y}
+    .lb-close{position:absolute;top:1rem;right:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:1.4rem;line-height:1;cursor:pointer;z-index:2}
+    .lb-prev{left:1rem}.lb-next{right:1rem}
+    #lb-count{bottom:1rem;left:50%;transform:translateX(-50%)}
+    /* guided tour — spotlight via a 4-div mask leaving the real target element
+       fully clickable underneath (no pointer-events hit-testing needed). */
+    .tour-mask{position:fixed;background:rgba(0,0,0,.72);cursor:pointer}
+    .tour-ring{position:fixed;border:2px solid var(--accent);border-radius:8px;pointer-events:none;box-shadow:0 0 0 4px rgba(192,160,96,.25);transition:top .25s ease,left .25s ease,width .25s ease,height .25s ease}
+    .tour-box{position:fixed;max-width:280px;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:12px;padding:1rem 1.1rem;color:var(--text);font-size:.85rem;line-height:1.5;z-index:2;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+    .tour-step-count{font-size:.65rem;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.4rem}
+    .tour-actions{display:flex;justify-content:space-between;align-items:center;margin-top:.9rem;gap:.75rem}
+    .tour-skip{background:none;border:none;color:var(--text-muted);font-size:.78rem;text-decoration:underline;cursor:pointer;padding:0}
+    .tour-next{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:6px;padding:.5rem 1rem;font-size:.8rem;font-weight:600;cursor:pointer}
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
       .banner-dot{animation:none}
       .btn-drive:hover,.btn-drive-go:hover,.ig-credit-btn:hover{transform:none}
+      .tour-ring{transition:none}
     }
   </style>
 </head>
@@ -371,6 +389,10 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
       </button>
+      ${!event.comingSoon ? `<button class="action-btn" onclick="startTour()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2 1.8-2 3.2"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>
+        Ver tour novamente
+      </button>` : ''}
     </div>
     ${footerLegalLinksHTML()}
   </footer>
@@ -392,6 +414,7 @@ export function eventHTML(event, analyticsToken) {
       <div class="guide-box">
         <div class="guide-title">Antes de acessar</div>
         <p class="guide-note">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
+        <p class="guide-note">Não compartilhe o link do Drive diretamente — quem tiver esse link consegue acessar. Para compartilhar esta galeria, use o botão <strong>Compartilhar</strong> no rodapé da página.</p>
         ${igCreditButtonHTML('2')}
         ${event.eventCredits ? `<p class="guide-note guide-credit">Em colaboração com: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
@@ -527,6 +550,36 @@ export function eventHTML(event, analyticsToken) {
     </div>
   </div>
 
+  <!-- LIGHTBOX -->
+  <div class="modal-ov lightbox-ov" id="lightbox" onclick="lbOvClick(event)">
+    <button class="lb-close" onclick="closeLightbox()" aria-label="Fechar">×</button>
+    <button class="c-btn lb-prev" onclick="cGo(-1)" aria-label="Anterior" style="display:none">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <img id="lb-img" src="" alt="">
+    <button class="c-btn lb-next" onclick="cGo(1)" aria-label="Próxima" style="display:none">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+    <div class="c-count" id="lb-count" style="display:none"></div>
+  </div>
+
+  <!-- TOUR GUIADO -->
+  <div class="modal-ov tour-ov" id="tour">
+    <div class="tour-mask" id="tour-mask-t" onclick="skipTour()"></div>
+    <div class="tour-mask" id="tour-mask-b" onclick="skipTour()"></div>
+    <div class="tour-mask" id="tour-mask-l" onclick="skipTour()"></div>
+    <div class="tour-mask" id="tour-mask-r" onclick="skipTour()"></div>
+    <div class="tour-ring" id="tour-ring"></div>
+    <div class="tour-box" id="tour-box" role="dialog" aria-label="Tour guiado">
+      <div class="tour-step-count" id="tour-count"></div>
+      <p id="tour-text"></p>
+      <div class="tour-actions">
+        <button type="button" class="tour-skip" onclick="skipTour()">Pular tour</button>
+        <button type="button" class="tour-next" id="tour-next-btn" onclick="tourNext()">Próximo</button>
+      </div>
+    </div>
+  </div>
+
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
     <button id="cookie-ok" type="button">Entendi</button>
@@ -606,6 +659,21 @@ export function eventHTML(event, analyticsToken) {
       });
     })();
 
+    // ---- Back-pill carries the gallery's filter/search state, when the
+    // visitor actually came from there — degrades to the plain "/" it already
+    // has whenever the referrer isn't usable (typed URL, another site, or a
+    // gallery visit with no active filter). ----
+    (function() {
+      try {
+        if (!document.referrer) return;
+        const ref = new URL(document.referrer);
+        if (ref.origin === location.origin && ref.pathname === '/' && ref.search) {
+          const bp = document.querySelector('.back-pill');
+          if (bp) bp.href = '/' + ref.search;
+        }
+      } catch(_) {}
+    })();
+
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
     let driveWidgetId  = null;
     let driveTsToken   = '';
@@ -641,6 +709,7 @@ export function eventHTML(event, analyticsToken) {
 
     // ---- Drive modal (Terms-gated, low-friction) ----
     function openModal() {
+      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lastFocused = document.activeElement;
       clearCtaAttn();
       const consent = document.getElementById('drive-consent');
@@ -879,8 +948,65 @@ export function eventHTML(event, analyticsToken) {
       const cnt = document.getElementById('c-count');
       if (cnt) cnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       preloadAround();
+      const lb = document.getElementById('lightbox');
+      if (lb && lb.classList.contains('open')) {
+        const lbImg = document.getElementById('lb-img'); if (lbImg) lbImg.src = PHOTOS[cur];
+        const lbCnt = document.getElementById('lb-count'); if (lbCnt) lbCnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
+      }
     }
     function cGo(dir) { if (window.perfCount) perfCount('navCount'); cGoto(cur + dir); }
+
+    // ---- Lightbox (preview photos only — not the Drive delivery flow) ----
+    let lbLastFocused = null, lbZoomed = false;
+    function openLightbox(i) {
+      if (!PHOTOS.length) return;
+      if (document.getElementById('tour').classList.contains('open')) skipTour();
+      lbLastFocused = document.activeElement;
+      document.getElementById('lightbox').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      document.querySelector('.lb-prev').style.display = PHOTOS.length > 1 ? '' : 'none';
+      document.querySelector('.lb-next').style.display = PHOTOS.length > 1 ? '' : 'none';
+      document.getElementById('lb-count').style.display = PHOTOS.length > 1 ? '' : 'none';
+      lbResetZoom();
+      cGoto(i);
+    }
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.remove('open');
+      document.body.style.overflow = '';
+      lbResetZoom();
+      if (lbLastFocused && lbLastFocused.focus) lbLastFocused.focus();
+    }
+    function lbOvClick(e) { if (e.target.id === 'lightbox') closeLightbox(); }
+    function lbResetZoom() {
+      lbZoomed = false;
+      const img = document.getElementById('lb-img');
+      if (img) { img.style.transform = ''; img.style.transformOrigin = ''; }
+    }
+    function lbToggleZoom(x, y) {
+      const img = document.getElementById('lb-img');
+      if (!img) return;
+      lbZoomed = !lbZoomed;
+      if (lbZoomed) {
+        const r = img.getBoundingClientRect();
+        img.style.transformOrigin = ((x - r.left) / r.width * 100) + '% ' + ((y - r.top) / r.height * 100) + '%';
+        img.style.transform = 'scale(2.2)';
+      } else { img.style.transform = ''; }
+    }
+    (function() {
+      const lbImg = document.getElementById('lb-img');
+      if (!lbImg) return;
+      lbImg.addEventListener('dblclick', e => lbToggleZoom(e.clientX, e.clientY));
+      let lbTx = 0, lbLastTap = 0;
+      lbImg.addEventListener('touchstart', e => { lbTx = e.touches[0].clientX; }, { passive: true });
+      lbImg.addEventListener('touchend', e => {
+        const now = Date.now(), t = e.changedTouches[0];
+        if (now - lbLastTap < 300) { lbToggleZoom(t.clientX, t.clientY); lbLastTap = 0; return; }
+        lbLastTap = now;
+        if (lbZoomed) return;
+        const dx = lbTx - t.clientX;
+        if (Math.abs(dx) > 40 && PHOTOS.length > 1) cGo(dx > 0 ? 1 : -1);
+      });
+    })();
     const car = document.getElementById('carousel');
     if (car) {
       let tx = 0;
@@ -911,6 +1037,7 @@ export function eventHTML(event, analyticsToken) {
       ['rem-number','rem-url','rem-email','rem-phone'].forEach(function(id){ const f=document.getElementById(id); if(f) f.classList.remove('bad'); });
     }
     function openRemModal() {
+      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lastFocused = document.activeElement;
       clearRemError();
       hideAdblockWarn('rem-adblock');
@@ -1042,6 +1169,8 @@ export function eventHTML(event, analyticsToken) {
     function closeAnyModal(open) {
       if (open.id === 'modal') closeModal();
       else if (open.id === 'rem-modal') closeRemModal();
+      else if (open.id === 'lightbox') closeLightbox();
+      else if (open.id === 'tour') skipTour();
     }
     document.addEventListener('keydown', function(e) {
       var open = document.querySelector('.modal-ov.open');
@@ -1055,7 +1184,7 @@ export function eventHTML(event, analyticsToken) {
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         return;
       }
-      if (!open && PHOTOS.length > 1) {
+      if ((!open || open.id === 'lightbox') && PHOTOS.length > 1) {
         if (e.key === 'ArrowLeft') cGo(-1);
         else if (e.key === 'ArrowRight') cGo(1);
       }
@@ -1113,6 +1242,87 @@ export function eventHTML(event, analyticsToken) {
         if (c) c.style.display = '';
       }
     })();
+
+    // ---- Guided tour (coach-mark) — first-visit walkthrough of the page's
+    // main actions. Steps re-target whichever share button initShare() ended
+    // up showing, and any step whose target isn't on the page (e.g. no
+    // Sobre/Equipamento links if the footer markup ever changes) is skipped
+    // rather than getting stuck.
+    var TOUR_STEPS = [
+      { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Toque aqui para acessar as fotos no Google Drive.' },
+      { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Importante: depois de acessar, não compartilhe o link do Drive diretamente — quem tiver esse link consegue entrar. Para compartilhar, use o botão de Compartilhar aqui embaixo, que manda a página do projeto (com o mesmo controle de acesso).' },
+      { sel: '.action-btn[onclick^="openRemModal"]', text: 'Encontrou uma foto que quer remover? Use este botão.' },
+      { sel: '#btn-share-native, #btn-share-wa, #btn-copy-link', text: 'Compartilhe a página com quem participou do evento.' },
+      { sel: 'a[href="/sobre"]', text: 'Quer saber mais sobre o trabalho? A página "Sobre" fica aqui.' },
+      { sel: 'a[href="/equipamentos"]', text: 'O equipamento usado nas fotos está listado aqui.' },
+      { sel: 'a[href="/suporte"]', text: 'Qualquer dúvida, é só falar comigo por aqui.' },
+    ];
+    var tourIdx = 0;
+    function tourTargets(sel) {
+      return Array.prototype.filter.call(document.querySelectorAll(sel), function(el) { return el.offsetParent !== null; });
+    }
+    function tourUnionRect(els) {
+      var r = els.map(function(e) { return e.getBoundingClientRect(); });
+      return {
+        top: Math.min.apply(null, r.map(function(x) { return x.top; })),
+        left: Math.min.apply(null, r.map(function(x) { return x.left; })),
+        right: Math.max.apply(null, r.map(function(x) { return x.right; })),
+        bottom: Math.max.apply(null, r.map(function(x) { return x.bottom; })),
+      };
+    }
+    function startTour() {
+      if (document.querySelector('.modal-ov.open')) return;
+      tourIdx = 0;
+      document.getElementById('tour').classList.add('open');
+      renderTourStep();
+    }
+    function skipTour() {
+      document.getElementById('tour').classList.remove('open');
+      try { localStorage.setItem('fotos:tour_dismissed', '1'); } catch(_) {}
+    }
+    function tourNext() {
+      tourIdx++;
+      if (tourIdx >= TOUR_STEPS.length) { skipTour(); return; }
+      renderTourStep();
+    }
+    function renderTourStep() {
+      var step = TOUR_STEPS[tourIdx];
+      var els = tourTargets(step.sel);
+      if (!els.length) { tourNext(); return; }
+      var target = els[0];
+      var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+      clearTimeout(window.__tourPosTimer);
+      window.__tourPosTimer = setTimeout(function() { positionTourUI(tourUnionRect(els)); }, reduce ? 0 : 260);
+      document.getElementById('tour-count').textContent = 'Passo ' + (tourIdx + 1) + ' de ' + TOUR_STEPS.length;
+      document.getElementById('tour-text').textContent = step.text;
+      document.getElementById('tour-next-btn').textContent = tourIdx === TOUR_STEPS.length - 1 ? 'Concluir' : 'Próximo';
+    }
+    function positionTourUI(rect) {
+      var pad = 8, top = rect.top - pad, left = rect.left - pad, right = rect.right + pad, bottom = rect.bottom + pad;
+      document.getElementById('tour-mask-t').style.cssText = 'top:0;left:0;right:0;height:' + Math.max(0, top) + 'px';
+      document.getElementById('tour-mask-b').style.cssText = 'top:' + bottom + 'px;left:0;right:0;bottom:0';
+      document.getElementById('tour-mask-l').style.cssText = 'top:' + top + 'px;left:0;width:' + Math.max(0, left) + 'px;height:' + (bottom - top) + 'px';
+      document.getElementById('tour-mask-r').style.cssText = 'top:' + top + 'px;left:' + right + 'px;right:0;height:' + (bottom - top) + 'px';
+      var ring = document.getElementById('tour-ring');
+      ring.style.cssText = 'top:' + top + 'px;left:' + left + 'px;width:' + (right - left) + 'px;height:' + (bottom - top) + 'px';
+      var box = document.getElementById('tour-box');
+      var boxH = box.offsetHeight || 140, boxW = box.offsetWidth || 280;
+      var placeBelow = (innerHeight - bottom) > (boxH + 24);
+      box.style.top = (placeBelow ? bottom + 16 : Math.max(12, top - boxH - 16)) + 'px';
+      box.style.left = Math.min(Math.max(rect.left, 12), innerWidth - boxW - 12) + 'px';
+    }
+    function repositionCurrentStep() {
+      var els = tourTargets(TOUR_STEPS[tourIdx].sel);
+      if (els.length) positionTourUI(tourUnionRect(els));
+    }
+    document.addEventListener('scroll', function() { if (document.getElementById('tour').classList.contains('open')) repositionCurrentStep(); }, { passive: true });
+    addEventListener('resize', function() { if (document.getElementById('tour').classList.contains('open')) repositionCurrentStep(); });
+    try {
+      if (!localStorage.getItem('fotos:tour_dismissed') && !${JSON.stringify(!!event.comingSoon)}) {
+        setTimeout(startTour, 900);
+      }
+    } catch(_) {}
   </script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
   ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
