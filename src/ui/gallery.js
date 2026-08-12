@@ -139,7 +139,7 @@ export function galleryHTML(events, analyticsToken) {
       --bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;
       --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
-      --cta-bg:#f0ebe5;--cta-text:#0a0a0a;
+      --cta-bg:#c0a060;--cta-text:#0a0a0a;
       --shimmer-a:#181818;--shimmer-b:#222;
       --banner-bg:#151208;--banner-border:#3a3320;--banner-text:#d8c89a;--banner-text-dim:#8a7a50;
     }
@@ -148,7 +148,7 @@ export function galleryHTML(events, analyticsToken) {
         --bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;
         --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
-        --cta-bg:#1a1715;--cta-text:#faf7f3;
+        --cta-bg:#8a6428;--cta-text:#faf7f3;
         --shimmer-a:#ececec;--shimmer-b:#f5f5f5;
         --banner-bg:#fdf3dc;--banner-border:#e8d1a0;--banner-text:#5c4310;--banner-text-dim:#a08a55;
       }
@@ -179,14 +179,20 @@ export function galleryHTML(events, analyticsToken) {
     .result-count{flex:1}
     .clear-filters{background:none;border:none;color:var(--accent);font-size:.75rem;font-family:inherit;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
     .clear-filters:hover{color:var(--accent-hover)}
-    .grid{column-count:2;column-gap:.875rem;margin-top:.875rem}
-    @media(min-width:560px){.grid{column-count:3;column-gap:1.125rem}}
-    @media(min-width:900px){.grid{column-count:4;column-gap:1.5rem}}
-    .year-head{column-span:all;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
+    /* Masonry via CSS Grid (não column-count): grid-auto-rows numa unidade
+       fina + JS calculando quantas "linhas" cada item ocupa (layoutMasonry()
+       no script abaixo), com align-items:start pra cada item sempre reportar
+       sua altura de conteúdo real — nunca a altura "esticada" de um cálculo
+       anterior. Ao contrário de column-count (que preenche coluna por coluna,
+       ordem "column-major"), grid com auto-flow padrão preenche linha por
+       linha na ordem do DOM — o item N sempre aparece na posição esperada,
+       não em qualquer coluna que a aritmética de coluna decidir. */
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:4px;gap:.875rem;margin-top:.875rem;align-items:start}
+    @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
+    @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
+    .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
-    .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s;break-inside:avoid;margin-bottom:.875rem}
-    @media(min-width:560px){.card{margin-bottom:1.125rem}}
-    @media(min-width:900px){.card{margin-bottom:1.5rem}}
+    .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
     .thumb{overflow:hidden;background:var(--bg-card);position:relative;min-height:120px}
     .thumb.loading{background:linear-gradient(90deg,var(--shimmer-a) 0%,var(--shimmer-b) 50%,var(--shimmer-a) 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
@@ -210,7 +216,7 @@ export function galleryHTML(events, analyticsToken) {
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
     .info h2{font-size:1.05rem;font-weight:600;margin:.4rem 0 .5rem;line-height:1.3}
     .cat-tag{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:rgba(192,160,96,.1);border:1px solid rgba(192,160,96,.2);border-radius:4px;padding:.15rem .45rem;margin-top:.4rem}
-    .card-featured{column-span:all;margin-bottom:.875rem}
+    .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
     @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.35rem}}
@@ -339,7 +345,47 @@ export function galleryHTML(events, analyticsToken) {
           if (_p && (_p.marks.filterMs === null || _d > _p.marks.filterMs)) window.perfMark('filterMs', _d);
         }
         syncURL();
+        layoutMasonryDebounced();
       }
+
+      // ---- Masonry row-span (CSS Grid, not column-count — ver comentário no
+      // CSS de .grid): cada item da grade ganha um grid-row-end calculado a
+      // partir da própria altura de conteúdo, numa unidade fina de
+      // grid-auto-rows. align-items:start na .grid garante que a leitura de
+      // altura seja sempre a altura real do conteúdo, nunca a altura
+      // "esticada" que uma passada anterior deixou — sem isso, um resize
+      // faria os spans só crescerem, nunca encolherem. ----
+      function layoutMasonry() {
+        var grid = document.querySelector('.grid');
+        if (!grid) return;
+        var cs = getComputedStyle(grid);
+        var rowUnit = parseFloat(cs.gridAutoRows) || 4;
+        var rowGap = parseFloat(cs.rowGap) || 0;
+        var items = [].slice.call(grid.children);
+        for (var i = 0; i < items.length; i++) {
+          var el = items[i];
+          if (el.classList.contains('hidden')) continue;
+          var h = el.getBoundingClientRect().height;
+          if (!h) continue; // ainda não renderizou de verdade (ex: imagem lazy fora da tela) — recalcula no load dela
+          var span = Math.max(1, Math.ceil((h + rowGap) / (rowUnit + rowGap)));
+          el.style.gridRowEnd = 'span ' + span;
+        }
+      }
+      var layoutMasonryDebounced = (function(){
+        var t;
+        return function(){ clearTimeout(t); t = setTimeout(layoutMasonry, 60); };
+      })();
+      addEventListener('resize', layoutMasonryDebounced);
+      // Imagens já em cache medem na hora; as que ainda estão carregando (ou
+      // fora da tela, com loading="lazy") disparam o recálculo assim que
+      // chegam — inclui as thumb-blur do "em breve", que também têm <img>.
+      [].slice.call(document.querySelectorAll('.thumb img')).forEach(function(img) {
+        if (img.complete) layoutMasonryDebounced();
+        else {
+          img.addEventListener('load', layoutMasonryDebounced);
+          img.addEventListener('error', layoutMasonryDebounced);
+        }
+      });
 
       // Reflects q/cat into the URL (no reload) so a normal Back navigation
       // lands on a URL that already encodes the filter state — read back by

@@ -13,7 +13,7 @@ export function aboutHTML() {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Sobre · fotos</title>
-  <meta name="description" content="Sobre Luca F. Chala — fotografia de formaturas, casamentos, ensaios e eventos">
+  <meta name="description" content="Sobre Luca F. Chala, fotografia de formaturas, casamentos, ensaios e eventos">
   <link rel="canonical" href="https://fotos.lucafchala.com/sobre">
   <meta property="og:type" content="profile">
   <meta property="og:title" content="Sobre · Luca F. Chala">
@@ -87,7 +87,7 @@ export function aboutHTML() {
     <p class="tagline">Luca F. Chala · fotografia de formaturas, casamentos, ensaios e eventos</p>
 
     <p class="intro">Olá! Sou <strong>Luca F. Chala</strong>, fotógrafo. Registro formaturas, casamentos,
-    ensaios e eventos com um olhar atento aos momentos que costumam passar despercebidos — as risadas,
+    ensaios e eventos com um olhar atento aos momentos que costumam passar despercebidos: as risadas,
     os abraços e os detalhes que tornam cada história única.</p>
 
     <h2>Como eu trabalho</h2>
@@ -95,15 +95,15 @@ export function aboutHTML() {
     discreto e deixar tudo acontecer com naturalidade. Depois, faço uma curadoria e edição cuidadosa
     de cada imagem antes da entrega.</p>
     <ul>
-      <li><strong>Conversa inicial</strong> — alinhamos data, local, expectativas e estilo.</li>
-      <li><strong>Cobertura do evento</strong> — registro espontâneo, sem interromper o que importa.</li>
-      <li><strong>Edição e curadoria</strong> — seleção e tratamento de cada foto.</li>
-      <li><strong>Entrega digital</strong> — as fotos ficam disponíveis aqui mesmo, em galeria própria.</li>
+      <li><strong>Conversa inicial:</strong> alinhamos data, local, expectativas e estilo.</li>
+      <li><strong>Cobertura do evento:</strong> registro espontâneo, sem interromper o que importa.</li>
+      <li><strong>Edição e curadoria:</strong> seleção e tratamento de cada foto.</li>
+      <li><strong>Entrega digital:</strong> as fotos ficam disponíveis aqui mesmo, em galeria própria.</li>
     </ul>
 
     <h2>Equipamento</h2>
-    <p>Trabalho com equipamento profissional de câmera e iluminação, sempre adaptado ao tipo de evento —
-    do ambiente controlado de um ensaio à luz imprevisível de uma festa.</p>
+    <p>Trabalho com equipamento profissional de câmera e iluminação, sempre adaptado ao tipo de evento:
+    do ambiente controlado de um ensaio à luz imprevisível de uma festa. <a href="/equipamentos">Veja a lista completa</a>.</p>
 
     <h2>Vamos conversar?</h2>
     <p>Para orçamentos, datas disponíveis ou qualquer dúvida, fale comigo. Respondo o mais rápido que conseguir.</p>
@@ -123,7 +123,7 @@ export function aboutHTML() {
     </div>
 
     <p class="note">As fotos dos eventos ficam na <a href="/">galeria</a>. Para pedir a remoção de uma
-    imagem, use o botão no rodapé da página de cada evento — é gratuito e simples.</p>
+    imagem, use o botão no rodapé da página de cada evento: é gratuito e simples.</p>
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>

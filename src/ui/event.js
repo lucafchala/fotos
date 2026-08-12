@@ -81,7 +81,7 @@ export function eventHTML(event, analyticsToken) {
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#555; --text-dim-2:#666;
       --bg-card:#141414; --bg-card-2:#1c1c1c; --bg-card-hover:#242424; --bg-card-border:#3a3a3a;
       --border-dim:#191919; --border-dim-2:#444; --border-hair:#111;
-      --footer-link:#777; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#f0ebe5; --cta-text:#0a0a0a;
+      --footer-link:#777; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
       --ok-bg:#0d1a0d; --ok-border:#1a3a1a; --ok-text:#8ac88a; --ok-text-strong:#a8d8a8; --ok-text-muted:#6aaa6a; --ok-dot:#5aaa5a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#cc8888; --err-text-strong:#e0a0a0;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
@@ -92,7 +92,7 @@ export function eventHTML(event, analyticsToken) {
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#75706b;
         --bg-card:#fff; --bg-card-2:#f6f3ef; --bg-card-hover:#efece7; --bg-card-border:#ddd9d4;
         --border-dim:#ddd9d4; --border-dim-2:#c8c2ba; --border-hair:#e5e1db;
-        --footer-link:#6b6460; --accent:#8a6428; --accent-hover:#a67d38; --cta-bg:#1a1715; --cta-text:#faf7f3;
+        --footer-link:#6b6460; --accent:#8a6428; --accent-hover:#a67d38; --cta-bg:#8a6428; --cta-text:#faf7f3;
         --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-text-strong:#1b5e20; --ok-text-muted:#3d8b41; --ok-dot:#2e7d32;
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#b3261e; --err-text-strong:#8c1d18;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17; --warn-text-strong:#5c4310;
@@ -170,6 +170,14 @@ export function eventHTML(event, analyticsToken) {
     .ig-credit-btn:hover{background:var(--bg-card-hover);border-color:#dc2743;transform:translateY(-1px)}
     .ig-credit-icon{display:inline-flex;flex-shrink:0}
     .ig-credit-text strong{font-weight:700;color:var(--text)}
+    /* Na lista de créditos, o botão do Instagram entra como mais uma linha do
+       grupo (mesmo espaçamento/alinhamento de .credits-list a/span) em vez de
+       um pill de marca solto — mantém o ícone pra reconhecimento, perde o
+       cartão isolado. A versão na guide-box do modal (fora de .credits-list)
+       continua com o visual de botão original. */
+    .credits-list .ig-credit-btn{background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
+    .credits-list .ig-credit-btn:hover{background:none;border-color:transparent;color:var(--text-2);transform:none}
+    .credits-list .ig-credit-text strong{color:var(--text)}
     /* banner */
     .photos-banner{background:var(--ok-bg);border-bottom:1px solid var(--ok-border);padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:center;gap:.625rem}
     .banner-inner{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--ok-text);max-width:680px;width:100%}
@@ -303,7 +311,7 @@ export function eventHTML(event, analyticsToken) {
     #lb-count{bottom:1rem;left:50%;transform:translateX(-50%)}
     /* guided tour — spotlight via a 4-div mask leaving the real target element
        fully clickable underneath (no pointer-events hit-testing needed). */
-    .tour-mask{position:fixed;background:rgba(0,0,0,.72);cursor:pointer}
+    .tour-mask{position:fixed;background:rgba(0,0,0,.4);cursor:pointer}
     .tour-ring{position:fixed;border:2px solid var(--accent);border-radius:8px;pointer-events:none;box-shadow:0 0 0 4px rgba(192,160,96,.25);transition:top .25s ease,left .25s ease,width .25s ease,height .25s ease}
     .tour-box{position:fixed;max-width:280px;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:12px;padding:1rem 1.1rem;color:var(--text);font-size:.85rem;line-height:1.5;z-index:2;box-shadow:0 8px 24px rgba(0,0,0,.5)}
     .tour-step-count{font-size:.65rem;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.4rem}
@@ -365,8 +373,8 @@ export function eventHTML(event, analyticsToken) {
       <div class="credits-list">
         ${event.eventCredits ? `<span>Em colaboração com: <strong>${escape(event.eventCredits)}</strong></span>` : ''}
         ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
+        ${igCreditButtonHTML('1')}
       </div>
-      ${igCreditButtonHTML('1')}
     </div>
   </main>
 
@@ -389,12 +397,8 @@ export function eventHTML(event, analyticsToken) {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
       </button>
-      ${!event.comingSoon ? `<button class="action-btn" onclick="startTour()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2 1.8-2 3.2"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>
-        Ver tour novamente
-      </button>` : ''}
     </div>
-    ${footerLegalLinksHTML()}
+    ${footerLegalLinksHTML(!event.comingSoon ? '<a href="#" class="legal-link" onclick="startTour();return false;">Ver tour novamente</a>' : '')}
   </footer>
 
   ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" onclick="openModal()" aria-label="Acessar fotos">
@@ -1250,7 +1254,6 @@ export function eventHTML(event, analyticsToken) {
     // rather than getting stuck.
     var TOUR_STEPS = [
       { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Toque aqui para acessar as fotos no Google Drive.' },
-      { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Importante: depois de acessar, não compartilhe o link do Drive diretamente — quem tiver esse link consegue entrar. Para compartilhar, use o botão de Compartilhar aqui embaixo, que manda a página do projeto (com o mesmo controle de acesso).' },
       { sel: '.action-btn[onclick^="openRemModal"]', text: 'Encontrou uma foto que quer remover? Use este botão.' },
       { sel: '#btn-share-native, #btn-share-wa, #btn-copy-link', text: 'Compartilhe a página com quem participou do evento.' },
       { sel: 'a[href="/sobre"]', text: 'Quer saber mais sobre o trabalho? A página "Sobre" fica aqui.' },

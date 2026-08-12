@@ -19,7 +19,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-muted:#999; --text-dim:#666; --text-dim-2:#555;
       --border-dim:#1c1c1c; --border-hair:#141414; --footer-link:#888; --accent:#c0a060;
-      --bg-input:#0d0d0d; --text-ph:#333; --cta-bg:#f0ebe5; --cta-text:#0a0a0a;
+      --bg-input:#0d0d0d; --text-ph:#333; --cta-bg:#c0a060; --cta-text:#0a0a0a;
       --ok-bg:#0a120a; --ok-border:#1a2e1a; --ok-text:#4a8a4a; --ok-border-hover:#2a4a2a; --ok-text-hover:#6aaa6a; --ok-bg-hover:#0a120a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#aa5555;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
@@ -30,7 +30,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
       :root{
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490;
         --border-dim:#ddd9d4; --border-hair:#e5e1db; --footer-link:#6b6460; --accent:#8a6428;
-        --bg-input:#fff; --text-ph:#9a9490; --cta-bg:#1a1715; --cta-text:#faf7f3;
+        --bg-input:#fff; --text-ph:#9a9490; --cta-bg:#8a6428; --cta-text:#faf7f3;
         --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#b3261e;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17; --warn-text-strong:#5c4310;
