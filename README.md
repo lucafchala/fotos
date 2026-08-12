@@ -278,7 +278,8 @@ fotos/
         ├── support.js      ← HTML da página de suporte /suporte
         ├── privacy.js      ← HTML da Política de Privacidade /privacidade
         ├── terms.js        ← HTML dos Termos de Uso /termos
-        └── about.js        ← HTML de /sobre — escrito, porém **não roteado** (ver TODO.md)
+        ├── about.js        ← HTML de /sobre
+        └── gear.js         ← HTML de /equipamentos
 ```
 
 Tamanhos aproximados: `index.js` ~85 KB, `dashboard.js` ~80 KB (tem todo o JS do painel inline), `event.js` ~63 KB, `gallery.js` ~24 KB, `utils.js` ~23 KB, `support.js` ~10 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
@@ -387,6 +388,8 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | GET | `/suporte` | `supportHTML()` | Página de contato com WhatsApp + e-mail + formulário |
 | GET | `/privacidade` | `privacyHTML()` | Política de Privacidade (LGPD) |
 | GET | `/termos` | `termsHTML()` | Termos de Uso + autorização de uso de imagem |
+| GET | `/sobre` | `aboutHTML()` | Bio curta, como funciona o trabalho, contato |
+| GET | `/equipamentos` | `gearHTML()` | Lista de equipamento fotográfico |
 | GET | `/manifest.json` | `handleManifest` | Manifest PWA |
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
@@ -438,13 +441,15 @@ O CSP `upgrade-insecure-requests` faz o browser converter automaticamente qualqu
 
 ## Páginas públicas
 
-Todas as seis páginas públicas (`/`, `/<slug>`, `/sobre` [não roteada], `/termos`, `/privacidade`, `/suporte`) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Suporte/Privacidade/Termos/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com um link "Reportar" para `/suporte?tema=bug` (pré-preenche a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar).
+Todas as oito páginas públicas (`/`, `/<slug>`, `/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`, mais o listing raiz) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Sobre/Equipamento/Suporte/Sugestões/Privacidade/Termos/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com links "Reportar" e "Tem uma sugestão?" para `/suporte?tema=bug` e `/suporte?tema=sugestao` (pré-preenchem a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar).
+
+Todas as páginas públicas respeitam **`prefers-color-scheme`** automaticamente — sem toggle manual (o experimental foi removido em fase anterior e não volta). Cada arquivo declara seu próprio conjunto de variáveis CSS (`:root{...}` + `@media(prefers-color-scheme:light){:root{...}}`), sem CSS compartilhado entre páginas — mesmo padrão de "cada página é seu próprio template literal" já usado no resto do projeto. Chrome sobreposto a uma foto (pill de voltar, setas/dots/contador do carrossel, badges do card) fica sempre escuro/translúcido nos dois temas, porque a função dele é contraste contra a foto, não contra a página. O dashboard admin **não** foi incluído nesse trabalho — continua só escuro.
 
 ### `/` — Galeria (`src/ui/gallery.js`)
 
-- Header com o logo `fotos · Luca F. Chala` (sem alternância clara/escura — o toggle experimental foi removido; o tema é sempre escuro, exceto pelas variáveis CSS que ainda existem para uma futura re-introdução).
-- Busca por título/URL/categoria + filtro de status + **filtro de categoria** (`<select>`), todos client-side sobre os eventos já carregados — sem requisição nova a cada busca/filtro.
-- Grid responsivo: 2 colunas (< 560px), 3 (560–900px), 4 (≥ 900px).
+- Header com o logo `fotos · Luca F. Chala` (tema claro/escuro automático via `prefers-color-scheme`, sem toggle).
+- Busca por título/URL/categoria + filtro de status + **filtro de categoria** (`<select>`), todos client-side sobre os eventos já carregados — sem requisição nova a cada busca/filtro. Busca e categoria ficam refletidas na URL (`?q=...&cat=...`, via `history.replaceState()`, sem reload) e a posição de rolagem + quantidade carregada ("Carregar mais") ficam em `sessionStorage['fotos:gallery_state']` — voltar da página de um evento (botão Voltar do navegador, ou o pill "todos os projetos", que também carrega o filtro) restaura tudo em vez de resetar a busca.
+- Grid **estilo masonry** (CSS multi-coluna — `column-count`, 2/3/4 colunas conforme a largura), não mais um grid de proporção fixa: cada thumbnail segue a proporção real da foto, sem cortar fotos retrato numa caixa pensada para paisagem. Único efeito colateral conhecido: a ordem de leitura passa a ser por coluna, não por linha (irrelevante para navegação por teclado/leitor de tela, que segue a ordem do DOM). Os placeholders "em breve" (ícone/capa borrada) continuam com proporção fixa — não há foto real ali para respeitar.
 - Cada card mostra: thumbnail (com shimmer loader animado enquanto carrega), data formatada em PT-BR ("12 de maio de 2025"), título (maior que antes) e tag de categoria — **sem descrição** (o campo `shortDescription` foi removido do modelo de dados).
 - Eventos com `pinned: true` ocupam toda a largura (grid-column 1/-1, hero 16:9) e ganham badge "Em destaque".
 - Eventos com `comingSoon: true` mostram badge "em breve" no canto, ícone de relógio no lugar do thumb.
@@ -457,11 +462,12 @@ Todas as seis páginas públicas (`/`, `/<slug>`, `/sobre` [não roteada], `/ter
 Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
-- **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/`, legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px).
+- **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/` (carregando o filtro da galeria de onde veio, se aplicável — ver seção da galeria), legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px). Tocar/clicar em qualquer foto de preview abre um **lightbox** em tela cheia (setas/swipe para navegar, double-tap ou duplo clique para zoom 2.2×, Escape/fundo/botão fecha) — é só visualização das fotos de prévia já embutidas na página, não tem download nem substitui o fluxo do Drive.
 - **Conteúdo**: data, título grande, descrição longa opcional (`white-space: pre-wrap`, sem espaço morto quando ausente), botão "Acessar fotos" (pulso sutil de atenção se ficar ~11s sem clique).
-- **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; enquanto a requisição está em voo, o ícone do botão vira um spinner. Clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s (mensagem só aparece reagindo ao clique, nunca fica fixa). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
+- **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; enquanto a requisição está em voo, o ícone do botão vira um spinner. Clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s (mensagem só aparece reagindo ao clique, nunca fica fixa). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, um aviso permanente para **não compartilhar o link do Drive diretamente** (usar o botão Compartilhar do rodapé, que manda a página do projeto com o mesmo controle de acesso), o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
+- **Tour guiado**: na primeira visita a cada página de evento (exceto `comingSoon`), um passo a passo tipo coach-mark destaca — um de cada vez, com scroll automático até o elemento — o botão de Acessar fotos (+ o aviso de não compartilhar o link), o botão de remoção, o de compartilhar, os links de Sobre/Equipamento no rodapé e o link de suporte. Construído sem biblioteca (4 divs de máscara ao redor do alvo, deixando o elemento real clicável por baixo, em vez de uma máscara com recorte via CSS que exigiria hit-testing). Pulável a qualquer momento (botão "Pular" ou Esc); a dispensa fica em `localStorage['fotos:tour_dismissed']`; reabrível pelo botão "Ver tour novamente" no rodapé.
 - **Créditos**: botão com a logo real do Instagram levando para @lucafchala ("Marque-me"), (opcional) `eventCredits` como "Em colaboração com: <valor>" — cobre instituição, fotógrafo colaborador ou projeto parceiro, não só outro fotógrafo — e link extra do projeto.
-- **Footer**: duas camadas visuais — ações em destaque (Compartilhar/WhatsApp, Copiar link, "Solicitar remoção de foto", texto/contraste mais fortes, sem aparência de botão pill) e os links legais de baixo contraste (Suporte/Privacidade/Termos/Código-fonte) + copyright, via o bloco de rodapé compartilhado.
+- **Footer**: duas camadas visuais — ações em destaque (Compartilhar/WhatsApp, Copiar link, "Solicitar remoção de foto", "Ver tour novamente", texto/contraste mais fortes, sem aparência de botão pill) e os links legais de baixo contraste (Sobre/Equipamento/Suporte/Sugestões/Privacidade/Termos/Código-fonte) + copyright, via o bloco de rodapé compartilhado.
 - **Modal de remoção**: formulário com:
   - Radio: identificar foto por número, link direto ou upload (até 2 MB).
   - E-mail (obrigatório, regex), telefone (obrigatório, 10–13 dígitos).
@@ -476,10 +482,14 @@ Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 - Header com link "Voltar".
 - Botões grandes: WhatsApp (`wa.me/5511989211178`) e e-mail (`mailto:suporte@lucafchala.com`).
 - Divisor "ou envie uma mensagem".
-- `?tema=bug` na URL pré-preenche a mensagem do formulário com uma frase de abertura para reportar um problema — usado pelo link "Reportar" do aviso de nova interface (cosmético; nunca confiado no servidor além do texto inicial).
+- `?tema=` na URL pré-preenche a mensagem do formulário via `TEMA_PREFILLS` em `src/index.js` — `bug` (link "Reportar" do aviso de nova interface) e `sugestao` (link "Sugestões" do mesmo aviso e do rodapé). Cosmético; nunca confiado no servidor além do texto inicial.
 - Formulário POST para `/api/suporte` (form-data, sem fetch — degrada para HTML puro). Campos: nome (opcional), e-mail (opcional, vira `reply_to` se preenchido), mensagem (obrigatório, ≤ 2000 chars). **Turnstile** obrigatório; o botão fica desabilitado até a verificação passar, com **fallback** que o reabilita se o script for bloqueado, mais guarda anti-duplo-envio.
 - Após envio, a página é recarregada e mostra caixa verde "Mensagem enviada!". Em caso de erro, **nome/e-mail/mensagem são preservados** (re-renderizados escapados) para não perder o texto digitado.
 - Erros (campos vazios, rate limit, Turnstile) mostram caixa vermelha. Se um ad-blocker bloqueia o Turnstile, aparece um aviso para desativá-lo / ativar o JS (ou usar WhatsApp/e-mail); um banner `<noscript>` cobre o caso de JavaScript totalmente desativado.
+
+### `/sobre` e `/equipamentos` (`src/ui/about.js`, `src/ui/gear.js`)
+
+Páginas estáticas simples, sem dados dinâmicos — mesmo esqueleto (header com link "Voltar", `<main>`, rodapé compartilhado). `/sobre` (bio curta + como funciona o trabalho + contato) já existia escrita mas ficava fora do ar de propósito enquanto o texto era revisado; está publicada agora. `/equipamentos` é nova: lista o equipamento fotográfico (câmeras, lentes, acessórios etc.) em seções `<h2>`/`<h3>` + listas. Ambas entram no `sitemap.xml` e no rodapé compartilhado.
 
 ---
 
@@ -771,7 +781,7 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 - **`generateId()`** → 16 bytes random hex (32 chars). Usado para event id e removal request id.
 - **`formatDatePT(dateStr)`** → "12 de maio de 2025" (mês em português, dia/ano numéricos). Aceita `YYYY-MM-DD`; retorna string original se inválida.
 - **`toHttps(url)`** → reescreve `http://` para `https://`, no-op caso contrário. Aplicado em todo URL de foto/Drive ao salvar.
-- **CSS variables** (`--bg`, `--text`, etc.) só no `BASE` do dashboard, herdadas em todos os panels. As páginas públicas usam cores literais.
+- **CSS variables**: o dashboard usa seu próprio esquema (`--bg`/`--bg2`/`--bg3`/`--text`/`--text2`/`--text3`/`--accent`/`--red`/`--green`, declarado uma vez no `BASE`, herdado em todos os panels, sempre escuro). As páginas públicas têm seu próprio esquema, independente e não intercompatível com o do dashboard (`--bg-page`/`--text`/`--accent`/etc., variando um pouco por arquivo conforme o que cada um precisa), com um bloco `@media(prefers-color-scheme:light)` sobrescrevendo os valores no tema claro — ver "Páginas públicas" acima.
 - **Acessibilidade**: `aria-label` nos botões de ícone do carrossel/modal, `autocomplete` apropriado nos forms, foco gerenciado nos modais.
 - **Mobile-first**: media queries só para "subir" colunas/larguras. Sheets mobile saem do bottom; em ≥ 580px viram modal centralizado.
 
@@ -818,11 +828,9 @@ O arquivo [`TODO.md`](./TODO.md) lista **só o que está em aberto** — item en
 
 **Operação**: marcar releases com tag (hoje o repo não tem nenhuma — ver [Rollback](#rollback)); destino persistente para o beacon de `/api/perf` (binding `PERF` do Analytics Engine).
 
-**Dívidas**: decidir o destino da `/sobre`, escrita mas não roteada.
+**Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega, modelo/"template" de evento (ao lado do "Duplicar" já existente), guardar a proporção da foto na hora de curar o evento para eliminar o reflow residual do grid masonry.
 
-**Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega.
-
-**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", modo claro automático (o toggle manual experimental foi removido — ver "Dashboard"), i18n EN/PT, links nominados por convidado, download em ZIP, app nativo.
+**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", i18n EN/PT, links nominados por convidado, download em ZIP, app nativo, mini-gráfico de visualizações no dashboard.
 
 ---
 

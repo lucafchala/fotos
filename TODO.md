@@ -74,14 +74,6 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
-## Dívidas conhecidas
-
-- [ ] **Página `/sobre` existe mas está fora do ar** — `src/ui/about.js` está
-      escrito e não roteado (fora do sitemap e do rodapé), esperando a revisão
-      do texto. Ou finalizar e publicar, ou remover o arquivo.
-
----
-
 ## Recursos planejados
 
 - [ ] **Senha por evento** (acesso privado)
@@ -103,6 +95,13 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
       acesso/notas já preenchidos, pra criar vários eventos parecidos mais
       rápido sem precisar duplicar um evento real toda vez.
+- [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
+      masonry da galeria (`.grid{column-count:...}`) segue a proporção real de
+      cada thumbnail, mas como o modelo de dados só guarda a URL da foto (não
+      dimensões), o `.thumb` não sabe a altura final até a imagem carregar —
+      algum reflow residual é inerente a isso. Guardar `width`/`height` (ou só
+      a razão) no momento em que a foto é adicionada ao evento eliminaria isso
+      de vez (CLS zero), sem custo de requisição extra por foto.
 
 ---
 
@@ -135,8 +134,6 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 
 ### UX
 
-- **Modo claro automático** — respeitar `prefers-color-scheme`. Hoje só existe o
-  escuro; algumas pessoas preferem fundo neutro para ver foto.
 - **Internacionalização (EN/PT)** na galeria e nas páginas de evento.
 - **Link nominado por convidado** — `/casamento-ana-joao?guest=marina` mostra
   "Olá, Marina!" no topo. Toque pessoal sem login.
@@ -161,7 +158,3 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **Contagem de fotos** (manual + auto-contagem opcional via Google Drive API)
   — foi implementada e removida por completo a pedido: as fotos já vêm
   numeradas, o dado era redundante. Não reintroduzir sem necessidade nova.
-- **Tour guiado** (modal de boas-vindas em `/<slug>`) — já não existe no
-  código; o item de "revamp" que estava aqui ficou obsoleto porque não há
-  mais o que revisar. Se um tour guiado fizer sentido de novo no futuro, é
-  melhor desenhar do zero do que recuperar o antigo.
