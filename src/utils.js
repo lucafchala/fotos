@@ -180,7 +180,10 @@ export function footerLegalLinksHTML() {
   const year = new Date().getFullYear();
   return `
     <div class="footer-actions-legal">
+      <a href="/sobre" class="legal-link">Sobre</a>
+      <a href="/equipamentos" class="legal-link">Equipamento</a>
       <a href="/suporte" class="legal-link">Suporte</a>
+      <a href="/suporte?tema=sugestao" class="legal-link">Sugestões</a>
       <a href="/privacidade" class="legal-link">Privacidade</a>
       <a href="/termos" class="legal-link">Termos</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
@@ -220,6 +223,7 @@ export function updateBannerHTML() {
     <div class="update-banner" id="update-banner">
       <span>✨ Nova interface, melhorada!</span>
       <a href="/suporte?tema=bug">Encontrou um problema? Reportar</a>
+      <a href="/suporte?tema=sugestao">💡 Tem uma sugestão?</a>
       <button type="button" class="ub-close" id="update-banner-close" aria-label="Fechar aviso">×</button>
     </div>`;
 }

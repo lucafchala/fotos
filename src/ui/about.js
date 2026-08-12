@@ -23,40 +23,56 @@ export function aboutHTML() {
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
-    :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
+    :root{
+      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
+      --text-muted:#999; --text-dim:#666; --text-dim-2:#555; --border-dim:#1e1e1e; --border-hair:#141414;
+      --footer-link:#888; --accent:#c0a060;
+      --ok-border:#1a2e1a; --ok-text:#4a8a4a; --ok-border-hover:#2a4a2a; --ok-text-hover:#6aaa6a; --ok-bg-hover:#0a120a;
+      --btn-border:#2a2a2a; --btn-text:#888; --btn-border-hover:#555; --btn-text-hover:#ccc; --btn-bg-hover:#111;
+    }
+    @media (prefers-color-scheme: light) {
+      :root{
+        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-heading:#2a2521; --text-strong:#332d28;
+        --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490; --border-dim:#ddd9d4; --border-hair:#e5e1db;
+        --footer-link:#6b6460; --accent:#8a6428;
+        --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
+        --btn-border:#ddd9d4; --btn-text:#6b6460; --btn-border-hover:#b8b2ab; --btn-text-hover:#332d28; --btn-bg-hover:#fff;
+      }
+    }
+    body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
+    :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
-    .back:hover{color:#bbb}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back:hover{color:var(--text-2)}
     .back svg{width:14px;height:14px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
-    .tagline{font-size:.85rem;color:#666;margin-bottom:2.25rem;letter-spacing:.02em}
-    h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:#e0d8d0}
-    p,li{font-size:.9rem;line-height:1.75;color:#b0a89e}
+    .tagline{font-size:.85rem;color:var(--text-muted);margin-bottom:2.25rem;letter-spacing:.02em}
+    h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:var(--text-heading)}
+    p,li{font-size:.9rem;line-height:1.75;color:var(--text-2)}
     p{margin-bottom:.75rem}
     ul{margin:.25rem 0 .75rem;padding-left:1.25rem}
     li{margin-bottom:.4rem}
-    strong{color:#d0c8be;font-weight:600}
-    a{color:#c0a060;text-decoration:none}
+    strong{color:var(--text-strong);font-weight:600}
+    a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
-    .intro{font-size:.92rem;color:#999;line-height:1.7;margin-bottom:.5rem}
+    .intro{font-size:.92rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
     .cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.25rem}
     .cta-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.2rem;border-radius:8px;font-size:.82rem;font-weight:500;text-decoration:none;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;border:1px solid}
     .cta-btn:hover{text-decoration:none}
-    .btn-whatsapp{border-color:#1a2e1a;color:#4a8a4a}
-    .btn-whatsapp:hover{border-color:#2a4a2a;color:#6aaa6a;background:#0a120a}
-    .btn-default{border-color:#2a2a2a;color:#888}
-    .btn-default:hover{border-color:#555;color:#ccc;background:#111}
+    .btn-whatsapp{border-color:var(--ok-border);color:var(--ok-text)}
+    .btn-whatsapp:hover{border-color:var(--ok-border-hover);color:var(--ok-text-hover);background:var(--ok-bg-hover)}
+    .btn-default{border-color:var(--btn-border);color:var(--btn-text)}
+    .btn-default:hover{border-color:var(--btn-border-hover);color:var(--btn-text-hover);background:var(--btn-bg-hover)}
     .cta-btn svg{width:14px;height:14px;flex-shrink:0}
-    .note{font-size:.82rem;color:#666;line-height:1.6;border-left:2px solid #1e1e1e;padding-left:1rem;margin:1.5rem 0 0}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#ddd}
+    .note{font-size:.82rem;color:var(--text-dim);line-height:1.6;border-left:2px solid var(--border-dim);padding-left:1rem;margin:1.5rem 0 0}
+    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair);display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:var(--text-2)}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:#ddd}
-    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:var(--text-2)}
+    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
   </style>
 </head>
 <body>
