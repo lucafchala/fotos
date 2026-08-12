@@ -36,12 +36,12 @@ export function privacyHTML() {
     .intro{font-size:.92rem;color:#999;line-height:1.7;margin-bottom:.5rem}
     .note{font-size:.82rem;color:#666;line-height:1.6;border-left:2px solid #1e1e1e;padding-left:1rem;margin:1rem 0}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#777}
+    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:#ddd}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:#777}
-    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#ddd}
+    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
   </style>
 </head>
 <body>

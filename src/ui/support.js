@@ -50,12 +50,12 @@ export function supportHTML(sent = false, error = '', values = {}) {
     .noscript-banner{background:#1d1606;border:1px solid #4a3a12;color:#e8c878;padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
     .noscript-banner strong{color:#f0d080}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
-    footer a{color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#777}
+    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:#ddd}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.5rem}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:#777}
-    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem;display:block}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#ddd}
+    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem;display:block}
   </style>
 </head>
 <body>

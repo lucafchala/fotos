@@ -146,18 +146,20 @@ export function eventHTML(event, analyticsToken) {
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
     .banner-text strong{color:#a8d8a8}
     .banner-time{color:#6aaa6a}
-    /* footer */
+    /* footer — plain links, industry-standard, no button chrome. Emphasis on
+       Share/removal comes from contrast + weight + being the top row, not
+       from a button shape. */
     footer{padding:2rem 1.5rem 3rem;border-top:1px solid #111;margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1rem}
-    .footer-brand{color:#2e2e2e;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
-    .footer-brand:hover{color:#666}
-    .footer-actions-primary{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center}
-    .action-btn{display:inline-flex;align-items:center;gap:.5rem;background:#1c1c1c;border:1px solid #3a3a3a;color:#f0ebe5;padding:.75rem 1.25rem;border-radius:9px;font-size:.85rem;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:border-color .2s,background .2s,transform .15s;white-space:nowrap;text-decoration:none}
-    .action-btn:hover{background:#242424;border-color:#4a4a4a;transform:translateY(-1px)}
+    .footer-brand{color:#777;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
+    .footer-brand:hover{color:#aaa}
+    .footer-actions-primary{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .action-btn{display:inline-flex;align-items:center;gap:.4rem;background:none;border:none;color:#e8e3dc;padding:.35rem 0;font-size:.85rem;font-weight:600;letter-spacing:.02em;cursor:pointer;text-decoration:none;transition:color .2s;white-space:nowrap}
+    .action-btn:hover{color:#fff;text-decoration:underline;text-underline-offset:3px}
     .action-btn svg{width:15px;height:15px;flex-shrink:0}
-    .footer-actions-legal{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:.25rem}
-    .legal-link{display:inline-flex;align-items:center;gap:.45rem;background:none;border:1px solid #222;color:#888;padding:.5rem .9rem;border-radius:8px;font-size:.8rem;font-weight:500;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;text-decoration:none}
-    .legal-link:hover{border-color:#3a3a3a;color:#bbb;background:#111}
-    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.25rem}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;background:none;border:none;color:#999;padding:.35rem 0;font-size:.8rem;font-weight:500;letter-spacing:.02em;text-decoration:none;transition:color .2s;white-space:nowrap}
+    .legal-link:hover{color:#ccc;text-decoration:underline;text-underline-offset:3px}
+    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
     /* shared modal base */
     .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
@@ -249,7 +251,7 @@ export function eventHTML(event, analyticsToken) {
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
       .banner-dot{animation:none}
-      .btn-drive:hover,.btn-drive-go:hover,.action-btn:hover,.ig-credit-btn:hover{transform:none}
+      .btn-drive:hover,.btn-drive-go:hover,.ig-credit-btn:hover{transform:none}
     }
   </style>
 </head>
@@ -345,7 +347,7 @@ export function eventHTML(event, analyticsToken) {
         <div class="guide-title">Antes de acessar</div>
         <p class="guide-note">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
         ${igCreditButtonHTML('2')}
-        ${event.eventCredits ? `<p class="guide-note guide-credit">Fotos por: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
+        ${event.eventCredits ? `<p class="guide-note guide-credit">Crédito: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
