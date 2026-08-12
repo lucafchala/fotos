@@ -97,6 +97,22 @@ jobs:
           check_status "icon"      "$BASE/icon.svg"     200
           check_status "404"       "$BASE/__no_such_route__" 404
 
+          # Static public pages — each is its own template literal (src/ui/*.js)
+          # with no shared render path, so a broken one doesn't 500 the others.
+          check_status "about"     "$BASE/sobre"        200
+          check_status "gear"      "$BASE/equipamentos"  200
+          check_status "terms"     "$BASE/termos"        200
+          check_status "privacy"   "$BASE/privacidade"   200
+          check_status "support"   "$BASE/suporte"       200
+
+          # SEO/security discovery endpoints — machine-readable, but a 500 here
+          # means a crawler or the security.txt RFC 9116 contact silently breaks.
+          check_status "sitemap"        "$BASE/sitemap.xml"                200
+          check_status "robots"         "$BASE/robots.txt"                 200
+          check_status "llms"           "$BASE/llms.txt"                   200
+          check_status "security.txt"   "$BASE/.well-known/security.txt"   200
+          check_status "gpc.json"       "$BASE/.well-known/gpc.json"       200
+
           # Health check: verifies KV is reachable and PBKDF2 completes
           # within the Workers CPU budget. A CPU timeout returns 5xx, failing this step.
           HEALTH=$(curl -sf "$BASE/api/healthz")
@@ -108,6 +124,13 @@ jobs:
           if [ -n "$HASH_MS" ] && [ "$HASH_MS" -gt 200 ]; then
             echo "FAIL [healthz]: hashing took ${HASH_MS}ms — too slow, login will timeout"
             exit 1
+          fi
+
+          # Functional self-test (broken Drive links, missing form secrets, etc.)
+          # is data/config, not a code regression from this deploy — log it, but
+          # never fail the build over an unrelated event being misconfigured.
+          if ! echo "$HEALTH" | grep -q '"problems":\[\]'; then
+            echo "NOTE [healthz selftest]: non-empty problem list — check /dashboard or /api/healthz"
           fi
 
           # Login endpoint: wrong password must redirect (302), never crash (5xx).

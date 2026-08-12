@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
-  sendErrorAlert,
+  sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -90,6 +90,71 @@ describe('sendErrorAlert', () => {
       expect(await sendErrorAlert({ RESEND_API_KEY: 'k' }, new Error('boom'), { path: '/x' })).toBe(false);
       expect(await sendErrorAlert({ ADMIN_EMAIL: 'a@b.com' }, new Error('boom'), { path: '/x' })).toBe(false);
       expect(fetchCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// The four other Resend senders share the same shape: no-op (return false,
+// never call fetch) when their required config/fields are missing, and post
+// to the Resend API with the expected recipient/subject when configured.
+describe('sendRemovalEmail / sendResolvedEmail / sendSupportEmail / sendConfirmationEmail', () => {
+  const REQ = { eventTitle: 'Casamento Ana', eventSlug: 'casamento-ana', method: 'number', value: '12', createdAt: '2026-01-01T00:00:00Z' };
+
+  it('no-op without RESEND_API_KEY', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = () => { fetchCalled = true; return Promise.reject(new Error('should not be called')); };
+    try {
+      expect(await sendRemovalEmail({}, REQ)).toBe(false);
+      expect(await sendResolvedEmail({}, { ...REQ, email: 'x@y.com' })).toBe(false);
+      expect(await sendSupportEmail({}, { name: 'A', email: '', message: 'oi' })).toBe(false);
+      expect(await sendConfirmationEmail({}, { ...REQ, email: 'x@y.com' })).toBe(false);
+      expect(fetchCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('sendResolvedEmail and sendConfirmationEmail also no-op without a requester email', async () => {
+    expect(await sendResolvedEmail({ RESEND_API_KEY: 'k' }, { ...REQ, email: '' })).toBe(false);
+    expect(await sendConfirmationEmail({ RESEND_API_KEY: 'k' }, { ...REQ, email: '' })).toBe(false);
+  });
+
+  it('posts to Resend with the expected recipient when configured', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = (url, opts) => {
+      calls.push({ url, body: JSON.parse(opts.body) });
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+    try {
+      const env = { RESEND_API_KEY: 'k', ADMIN_EMAIL: 'admin@lucafchala.com' };
+
+      expect(await sendRemovalEmail(env, REQ)).toBe(true);
+      expect(calls[0].url).toBe('https://api.resend.com/emails');
+      expect(calls[0].body.to).toEqual(['admin@lucafchala.com']);
+
+      expect(await sendResolvedEmail(env, { ...REQ, email: 'requester@x.com' })).toBe(true);
+      expect(calls[1].body.to).toEqual(['requester@x.com']);
+
+      expect(await sendSupportEmail(env, { name: 'A', email: 'a@b.com', message: 'oi' })).toBe(true);
+      expect(calls[2].body.to).toEqual(['admin@lucafchala.com']);
+      expect(calls[2].body.reply_to).toBe('a@b.com');
+
+      expect(await sendConfirmationEmail(env, { ...REQ, email: 'requester@x.com' })).toBe(true);
+      expect(calls[3].body.to).toEqual(['requester@x.com']);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('throws when Resend answers with a non-ok status (caller decides how to handle it)', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve(new Response('nope', { status: 500 }));
+    try {
+      await expect(sendRemovalEmail({ RESEND_API_KEY: 'k' }, REQ)).rejects.toThrow(/Resend 500/);
     } finally {
       globalThis.fetch = originalFetch;
     }

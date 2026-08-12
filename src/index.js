@@ -147,8 +147,14 @@ export default {
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
-    ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
-    ctx.waitUntil(pruneOldConsent(env).catch(e => console.error('consent prune failed', e)));
+    ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
+      console.error('retention prune failed', e);
+      return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
+    }));
+    ctx.waitUntil(pruneOldConsent(env).catch(e => {
+      console.error('consent prune failed', e);
+      return sendErrorAlert(env, e, { path: 'cron:pruneOldConsent' }).catch(() => {});
+    }));
   },
 };
 
@@ -317,7 +323,7 @@ async function handleDashboardPage(request, env, url) {
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
-async function handleLogin(request, env) {
+export async function handleLogin(request, env) {
   // Throttle brute-force: hard ceiling of login attempts per IP (PBKDF2 is
   // already slow, but this caps automated guessing). Counts every attempt.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -1132,7 +1138,7 @@ export function auditSite(events, env = {}) {
   };
 }
 
-async function handleHealthz(request, env) {
+export async function handleHealthz(request, env) {
   // No KV rate-limit here on purpose. This endpoint is polled by the status
   // monitor on a schedule, and checkRateLimit() does a KV *write* per call — a
   // scarce, account-wide resource (free tier: 1k writes/day, shared with the

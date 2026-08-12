@@ -61,12 +61,17 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
       Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
       gravar sozinho.
-- [ ] **Monitoramento de uptime externo** batendo em `/api/healthz`
-      (UptimeRobot, Cloudflare Health Checks, etc.) — o alerta por e-mail
-      (`sendErrorAlert`) só dispara quando uma exceção chega ao catch-all do
-      Worker; uma queda total (KV fora do ar, erro de deploy) não
-      necessariamente lança uma exceção capturável e passaria em silêncio sem
-      um ping externo.
+- [ ] **Monitoramento de uptime externo (UptimeRobot)** batendo em
+      `/api/healthz` — decidido, passo a passo documentado em
+      [SECURITY.md](./SECURITY.md#the-gap-this-alerting-cant-close-and-how-its-covered).
+      Só falta o cadastro manual (conta do UptimeRobot é do dono, não dá pra
+      criar por aqui). O lado que dava pra fechar em código já foi: o cron
+      diário agora também dispara `sendErrorAlert()` quando uma das tarefas de
+      limpeza falha (antes só ia pro `console.error`), e `/api/healthz` +
+      `scheduled()` ganharam teste unitário (`tests/healthz.test.js`) — mas a
+      lacuna de fundo continua real: uma queda total (KV fora do ar, erro de
+      deploy) pode não lançar exceção nenhuma dentro do Worker, e só um
+      prober externo pega isso.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente,

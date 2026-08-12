@@ -263,11 +263,12 @@ fotos/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests
 │       └── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
-├── tests/                  ← Vitest (98 testes)
+├── tests/                  ← Vitest (119 testes)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
-│   └── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha
+│   ├── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha, os 5 sendXEmail()
+│   └── healthz.test.js     ← handleHealthz, scheduled() (isolamento + alerta de falha), login (rate-limit/cookie), render de /sobre e /equipamentos
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
@@ -741,9 +742,11 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 
 **Frugal em KV:** o endpoint continua fazendo **2 leituras de KV** por chamada (`events` + `cron:last`), exatamente como antes desta expansão — a sonda `__healthz__` redundante foi trocada pelo heartbeat do cron. Contagens de backlog/categorias foram deliberadamente deixadas de fora daqui (custariam uma leitura cada e não sinalizam *falha*); um admin não configurado já é pego pela sonda `/dashboard` (503) do dashboard de status.
 
-`ok` e `hashMs` continuam presentes e com o mesmo significado — o smoke test do CI segue funcionando. Todos os campos extras são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint e disseca **cada** campo para sinalizar qualquer anomalia (cron parado, KV lento, segredo de hardening ausente) sem depender de CORS. O heartbeat do cron é puro o suficiente para ter teste unitário (`cronStale`, em `tests/index.test.js`).
+`ok` e `hashMs` continuam presentes e com o mesmo significado — o smoke test do CI segue funcionando. Todos os campos extras são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint e disseca **cada** campo para sinalizar qualquer anomalia (cron parado, KV lento, segredo de hardening ausente) sem depender de CORS. O heartbeat do cron é puro o suficiente para ter teste unitário (`cronStale`, em `tests/index.test.js`) — e `handleHealthz()` em si (KV/D1 caindo, `cron.stale`, `config`, `selftest`) e o `scheduled()` que grava esse heartbeat têm cobertura própria em `tests/healthz.test.js`, incluindo o isolamento entre as duas tarefas de limpeza do cron (uma falhar não impede a outra nem o heartbeat).
 
-CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing em `handleLogin` corre o risco de estourar o limite de CPU do Worker (~50–200 ms dependendo da conta) e retornar 5xx ao usuário tentando logar.
+O cron diário (`scheduled()`) agora também dispara `sendErrorAlert()` quando `pruneResolvedRemovalRequests` ou `pruneOldConsent` falha — antes só ia pro `console.error`, o que deixava uma falha de retenção visível só nos logs da Cloudflare. Isso ainda não cobre uma queda **total** do Worker (nada capturável é lançado); pra esse caso, ver o monitor externo (UptimeRobot) documentado em [SECURITY.md](./SECURITY.md#the-gap-this-alerting-cant-close-and-how-its-covered).
+
+CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing em `handleLogin` corre o risco de estourar o limite de CPU do Worker (~50–200 ms dependendo da conta) e retornar 5xx ao usuário tentando logar. O smoke test pós-deploy (`deploy.yml`) também cobre as páginas públicas mais novas (`/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`) e os endpoints de SEO/segurança (`/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/.well-known/security.txt`, `/.well-known/gpc.json`) com `check_status`, e loga (sem falhar o build) se `selftest.problems` do healthz vier não-vazio — isso é sinal de dado de evento mal configurado, não de regressão de código.
 
 ---
 
