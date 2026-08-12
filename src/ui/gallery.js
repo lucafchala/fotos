@@ -338,6 +338,21 @@ export function galleryHTML(events, analyticsToken) {
           var _p = window.__perf;
           if (_p && (_p.marks.filterMs === null || _d > _p.marks.filterMs)) window.perfMark('filterMs', _d);
         }
+        syncURL();
+      }
+
+      // Reflects q/cat into the URL (no reload) so a normal Back navigation
+      // lands on a URL that already encodes the filter state — read back by
+      // the restore block below on load.
+      function syncURL() {
+        try {
+          var p = new URLSearchParams();
+          var q = searchEl ? searchEl.value.trim() : '';
+          if (q) p.set('q', q);
+          if (activeCat !== 'all') p.set('cat', activeCat);
+          var qs = p.toString();
+          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+        } catch(_) {}
       }
 
       if (searchEl) searchEl.addEventListener('input', function(){ shown = BATCH; apply(); });
@@ -360,7 +375,48 @@ export function galleryHTML(events, analyticsToken) {
         if (chipsWrap) chipsWrap.classList.remove('open');
         shown = BATCH; apply(); updateFiltersBtn();
       });
+
+      // Restore search/category from the URL (set by syncURL() before a
+      // navigation away) and shown/scroll from sessionStorage — together these
+      // put a visitor back where they left off after Back from an event page.
+      var GSTATE_KEY = 'fotos:gallery_state';
+      var savedY = null;
+      try {
+        var qp = new URLSearchParams(location.search);
+        var qVal = qp.get('q'), catVal = qp.get('cat');
+        if (qVal && searchEl) searchEl.value = qVal;
+        if (catVal && chips) {
+          var chipEls = chips.querySelectorAll('.chip'), found = null;
+          for (var ci = 0; ci < chipEls.length; ci++) {
+            if (chipEls[ci].getAttribute('data-cat') === catVal) found = chipEls[ci];
+          }
+          if (found) {
+            activeCat = catVal;
+            for (var cj = 0; cj < chipEls.length; cj++) chipEls[cj].classList.toggle('active', chipEls[cj] === found);
+            if (chipsWrap) chipsWrap.classList.add('open');
+          }
+        }
+      } catch(_) {}
+      try {
+        var raw = sessionStorage.getItem(GSTATE_KEY);
+        if (raw) {
+          var saved = JSON.parse(raw);
+          if (saved && typeof saved.n === 'number' && saved.n > shown) shown = saved.n;
+          if (saved && typeof saved.y === 'number') savedY = saved.y;
+        }
+      } catch(_) {}
+      updateFiltersBtn();
       apply();
+      if (savedY !== null) {
+        requestAnimationFrame(function(){ requestAnimationFrame(function(){ scrollTo(0, savedY); }); });
+      }
+
+      function saveGalleryState() {
+        try { sessionStorage.setItem(GSTATE_KEY, JSON.stringify({ n: shown, y: scrollY || document.documentElement.scrollTop })); } catch(_) {}
+      }
+      addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') saveGalleryState(); });
+      addEventListener('pagehide', saveGalleryState);
+      try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch(_) {}
 
       // Cookie / analytics notice (essential cookies + anonymous measurement)
       try {
