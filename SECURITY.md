@@ -94,11 +94,11 @@ already sent to the visitor never waits on it (`ctx.waitUntil`, best-effort).
 No `RESEND_API_KEY`/`ADMIN_EMAIL` configured means alerting silently no-ops —
 the site keeps working, you just won't be emailed.
 
-Server-side features that depend on an optional integration (Drive photo
-count, e-mail notifications, Web Analytics) already fail closed to "not
-available" rather than breaking the page they're on — see `fetchDrivePhotoCount()`
-and the `sendXEmail()` helpers in `src/utils.js`, all of which catch their own
-errors and return `null`/`false` instead of throwing into the caller.
+Server-side features that depend on an optional integration (e-mail
+notifications, Web Analytics) already fail closed to "not available" rather
+than breaking the page they're on — see the `sendXEmail()` helpers in
+`src/utils.js`, all of which catch their own errors and return `null`/`false`
+instead of throwing into the caller.
 
 ## Response / Prazo de resposta
 

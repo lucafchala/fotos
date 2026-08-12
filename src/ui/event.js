@@ -298,7 +298,6 @@ export function eventHTML(event, analyticsToken) {
   <main>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
-      ${event.photoCount != null ? `<span class="date-chip">${event.date ? '· ' : ''}${event.photoCount} foto${event.photoCount === 1 ? '' : 's'}</span>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}

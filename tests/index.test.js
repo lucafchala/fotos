@@ -87,14 +87,9 @@ describe('normalizeEventFields', () => {
     expect(f.date).toBe('');
   });
 
-  it('normalizes photoCount: accepts a non-negative int, caps it, defaults to null', () => {
-    expect(normalizeEventFields({}, DEFAULT_EVENT, CATS).photoCount).toBeNull();
-    expect(normalizeEventFields({ photoCount: 128 }, DEFAULT_EVENT, CATS).photoCount).toBe(128);
-    expect(normalizeEventFields({ photoCount: '42' }, DEFAULT_EVENT, CATS).photoCount).toBe(42);
-    expect(normalizeEventFields({ photoCount: -5 }, DEFAULT_EVENT, CATS).photoCount).toBeNull();
-    expect(normalizeEventFields({ photoCount: 'bogus' }, DEFAULT_EVENT, CATS).photoCount).toBeNull();
-    expect(normalizeEventFields({ photoCount: null }, DEFAULT_EVENT, CATS).photoCount).toBeNull();
-    expect(normalizeEventFields({ photoCount: 5_000_000 }, DEFAULT_EVENT, CATS).photoCount).toBe(999999);
+  it('no longer has a photoCount field (removed — photos are already numbered)', () => {
+    const f = normalizeEventFields({ photoCount: 128 }, DEFAULT_EVENT, CATS);
+    expect(f).not.toHaveProperty('photoCount');
   });
 
   it('falls back to the existing event when a field is absent (update shape)', () => {

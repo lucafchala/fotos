@@ -11,7 +11,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
-  extractDriveFolderId, fetchDrivePhotoCount, sendErrorAlert,
+  sendErrorAlert,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -69,7 +69,6 @@ export default {
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
       if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
       if (path === '/api/events/bulk-access' && method === 'POST') return handleBulkAccessType(request, env);
-      if (path.startsWith('/api/events/') && path.endsWith('/photo-count') && method === 'POST') return handleFetchPhotoCount(request, env, path);
       if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
       if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
@@ -392,7 +391,6 @@ export const DEFAULT_EVENT = {
   projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
   accessType: 'public', category: '', internalNotes: '', pinned: false,
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
-  photoCount: null,
 };
 
 // Fill any field absent (undefined/null) on an existing event with the default,
@@ -434,10 +432,6 @@ export function normalizeEventFields(body, base, cats) {
     internalNotes: pick('internalNotes', v => String(v).slice(0, 5000)),
     pinned: pick('pinned', v => v === true),
     photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
-    photoCount: pick('photoCount', v => {
-      const n = parseInt(v, 10);
-      return Number.isFinite(n) && n >= 0 ? Math.min(n, 999999) : null;
-    }),
   };
 }
 
@@ -528,38 +522,6 @@ async function handleUpdateEvent(request, env, path) {
   events[idx] = updated;
   await saveEvents(env, events);
   return jsonOk(updated);
-}
-
-// ---------------------------------------------------------------------------
-// API: Auto-fetch photo count from the Drive folder (dashboard convenience —
-// counts image files via the Drive v3 API using a plain API key, no OAuth).
-// Requires GOOGLE_DRIVE_API_KEY to be configured; the manually-entered count
-// field keeps working with or without it.
-// ---------------------------------------------------------------------------
-async function handleFetchPhotoCount(request, env, path) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
-
-  if (!env.GOOGLE_DRIVE_API_KEY) {
-    return jsonErr('Contagem automática não configurada — defina GOOGLE_DRIVE_API_KEY ou digite o número manualmente.', 400);
-  }
-
-  const id = path.replace('/api/events/', '').replace('/photo-count', '');
-  const events = await getEvents(env, true);
-  const idx = events.findIndex(e => e.id === id);
-  if (idx === -1) return jsonErr('Evento não encontrado.', 404);
-
-  const folderId = extractDriveFolderId(events[idx].driveUrl);
-  if (!folderId) return jsonErr('Link do Drive inválido ou não é uma pasta.', 400);
-
-  const count = await fetchDrivePhotoCount(folderId, env.GOOGLE_DRIVE_API_KEY);
-  if (count === null) {
-    return jsonErr('Não foi possível contar as fotos — confirme que a pasta está compartilhada como "Qualquer pessoa com o link".', 502);
-  }
-
-  events[idx] = { ...events[idx], photoCount: count, updatedAt: new Date().toISOString() };
-  await saveEvents(env, events);
-  return jsonOk({ photoCount: count });
 }
 
 // ---------------------------------------------------------------------------

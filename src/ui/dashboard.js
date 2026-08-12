@@ -492,14 +492,6 @@ export function dashboardHTML(events, categories = []) {
           <input type="url" id="f-drive" placeholder="https://drive.google.com/drive/folders/...">
         </div>
         <div class="field">
-          <label>Quantidade de fotos <span style="color:#555">(opcional — aparece na página do projeto)</span></label>
-          <div style="display:flex;gap:.5rem;align-items:center">
-            <input type="number" id="f-photocount" min="0" max="999999" placeholder="Ex: 128" style="flex:1">
-            <button type="button" class="btn-sm" id="btn-photocount-auto" onclick="fetchPhotoCount()" style="white-space:nowrap;flex-shrink:0">🔄 Contar automaticamente</button>
-          </div>
-          <div class="field-hint" id="photocount-hint" style="margin-top:.5rem"></div>
-        </div>
-        <div class="field">
           <label>Link do Drive para o Instagram <span style="color:#555">(opcional)</span></label>
           <div class="field-hint" style="margin-bottom:.625rem">Pasta com as fotos já redimensionadas e prontas para o Instagram.</div>
           <input type="url" id="f-drive-ig" placeholder="https://drive.google.com/drive/folders/...">
@@ -731,8 +723,6 @@ export function dashboardHTML(events, categories = []) {
       document.getElementById('f-title').value = e ? (e.title || '') : '';
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
-      document.getElementById('f-photocount').value = e && e.photoCount != null ? e.photoCount : '';
-      document.getElementById('photocount-hint').textContent = '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
@@ -768,7 +758,7 @@ export function dashboardHTML(events, categories = []) {
       const val = id => document.getElementById(id)?.value ?? '';
       const chk = id => document.getElementById(id)?.checked ?? false;
       return JSON.stringify({
-        title: val('f-title'), long: val('f-long'), drive: val('f-drive'), photoCount: val('f-photocount'),
+        title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
         driveIg: val('f-drive-ig'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -956,7 +946,6 @@ export function dashboardHTML(events, categories = []) {
         photos,
         thumbnailUrl: photos[0] || '',
         driveUrl: drive,
-        photoCount: document.getElementById('f-photocount').value !== '' ? parseInt(document.getElementById('f-photocount').value, 10) : null,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
@@ -1000,30 +989,6 @@ export function dashboardHTML(events, categories = []) {
       } finally {
         btn.disabled = false;
         btn.textContent = 'Salvar';
-      }
-    }
-
-    // ---- Photo count auto-fetch (Drive API, optional — requires GOOGLE_DRIVE_API_KEY) ----
-    async function fetchPhotoCount() {
-      const hint = document.getElementById('photocount-hint');
-      const btn = document.getElementById('btn-photocount-auto');
-      hint.textContent = '';
-      if (!editingId) {
-        hint.textContent = 'Salve o evento primeiro para poder contar automaticamente.';
-        return;
-      }
-      btn.disabled = true;
-      const prevLabel = btn.textContent;
-      btn.textContent = 'Contando…';
-      try {
-        const data = await api('POST', '/api/events/' + editingId + '/photo-count');
-        document.getElementById('f-photocount').value = data.photoCount;
-        toast('Contagem atualizada: ' + data.photoCount + ' fotos.', 'ok');
-      } catch(err) {
-        toast(err.message || 'Não foi possível contar automaticamente.', 'err');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = prevLabel;
       }
     }
 

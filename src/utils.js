@@ -4,12 +4,6 @@ const CACHE_TTL = 30_000;
 // Abort outbound transactional-email calls if Resend hangs, so a slow upstream
 // never holds the request past this budget.
 const EMAIL_TIMEOUT_MS = 10_000;
-// Same idea for outbound Google Drive API calls (photo-count auto-fetch).
-const DRIVE_API_TIMEOUT_MS = 10_000;
-// Hard ceiling on paginated files.list requests per fetch — a runaway loop
-// (e.g. Drive misbehaving) can't hang the request indefinitely or blow past
-// a sane per-event photo count.
-const DRIVE_API_MAX_PAGES = 20;
 // Minimum gap between unhandled-exception alert emails — a single global
 // cooldown (not per-error-type) so an incident that throws repeatedly can't
 // flood the inbox; still frequent enough that a real outage is noticed fast.
@@ -277,50 +271,6 @@ export function sizedDriveThumb(url, width) {
   if (!url || typeof url !== 'string') return url || '';
   const m = url.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
   return m ? `${m[1]}=w${width}` : url;
-}
-
-// Pull the folder ID out of a typical Drive share link
-// (https://drive.google.com/drive/folders/<id>?usp=sharing). Returns '' for
-// anything else (a file link, a malformed URL, a non-Drive URL).
-export function extractDriveFolderId(url) {
-  if (!url || typeof url !== 'string') return '';
-  const m = url.match(/\/folders\/([\w-]+)/);
-  return m ? m[1] : '';
-}
-
-// Counts image files in a public Drive folder via the Drive v3 API using a
-// plain API key (no OAuth/service account needed — works for any folder
-// shared "Anyone with the link"). Paginates until exhausted or
-// DRIVE_API_MAX_PAGES is hit. Returns null (never throws) on any failure —
-// this backs an optional "auto-fetch" convenience in the dashboard, not a
-// path anything else depends on, so callers just fall back to the
-// manually-entered count when this comes back null.
-export async function fetchDrivePhotoCount(folderId, apiKey) {
-  if (!folderId || !apiKey) return null;
-  let count = 0;
-  let pageToken = '';
-  try {
-    for (let page = 0; page < DRIVE_API_MAX_PAGES; page++) {
-      const params = new URLSearchParams({
-        q: `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`,
-        fields: 'nextPageToken,files(id)',
-        pageSize: '1000',
-        key: apiKey,
-      });
-      if (pageToken) params.set('pageToken', pageToken);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
-        signal: AbortSignal.timeout(DRIVE_API_TIMEOUT_MS),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      count += Array.isArray(data.files) ? data.files.length : 0;
-      pageToken = data.nextPageToken || '';
-      if (!pageToken) break;
-    }
-    return count;
-  } catch {
-    return null;
-  }
 }
 
 // Coerce a URL to https and reject script-executing schemes. href/src are
