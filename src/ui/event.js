@@ -112,7 +112,7 @@ export function eventHTML(event, analyticsToken) {
     .swipe-hint{position:absolute;bottom:.75rem;left:.875rem;font-size:.7rem;color:rgba(255,255,255,.6);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .4s;pointer-events:none;z-index:2}
     .swipe-hint.show{opacity:1}
     /* content */
-    main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 6rem}
+    main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 2.5rem}
     .meta{margin-bottom:.875rem}
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:#555}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
@@ -128,12 +128,17 @@ export function eventHTML(event, analyticsToken) {
     @media(max-width:559px){
       .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:translateY(160%);transition:transform .25s ease}
       .sticky-cta.show{transform:translateY(0)}
+      /* Clearance for the fixed CTA lives at the very end of the page (after
+         the footer), not as dead space between the credits and the footer —
+         it only matters once someone scrolls all the way down anyway. */
+      footer{padding-bottom:6rem}
     }
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
     .credits-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem}
-    .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#666;text-decoration:none;transition:color .2s;display:block}
+    .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#999;text-decoration:none;transition:color .2s;display:block}
+    .credits-list span strong,.credits-list a strong{color:#f0ebe5;font-weight:600}
     .credits-list a:hover{color:#bbb}
     .ig-credit-btn{display:inline-flex;align-items:center;gap:.6rem;background:#1c1c1c;border:1px solid #3a3a3a;color:#f0ebe5;text-decoration:none;padding:.65rem 1rem;border-radius:24px;font-size:.85rem;font-weight:500;transition:border-color .2s,background .2s,transform .15s}
     .ig-credit-btn:hover{background:#242424;border-color:#dc2743;transform:translateY(-1px)}
@@ -187,6 +192,8 @@ export function eventHTML(event, analyticsToken) {
     .drive-name-toggle{background:none;border:none;color:#666;font-size:.74rem;cursor:pointer;margin-top:.625rem;padding:0;text-decoration:underline}
     .drive-name-toggle:hover{color:#999}
     #drive-gate-hint{font-size:.82rem;color:#c99a5c;line-height:1.5;margin-top:.875rem}
+    .drive-dl-tip{font-size:.82rem;color:#bbb;line-height:1.55;margin-top:1rem;padding:.7rem .875rem;background:#141414;border-radius:8px}
+    .drive-dl-tip strong{color:#f0ebe5}
     .drive-consent-note{font-size:.8rem;color:#555;line-height:1.5;margin-top:.875rem}
     .drive-consent-note a{color:#777}
     .drive-locked .btn-drive-go,.drive-locked .btn-drive-opt{background:#1a1a1a;border-color:#232323;color:#6a6a6a;cursor:not-allowed}
@@ -280,6 +287,7 @@ export function eventHTML(event, analyticsToken) {
   <main>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
+      ${event.photoCount != null ? `<span class="date-chip">${event.date ? '· ' : ''}${event.photoCount} foto${event.photoCount === 1 ? '' : 's'}</span>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
@@ -299,7 +307,7 @@ export function eventHTML(event, analyticsToken) {
     <div class="credits">
       <div class="credits-title">Créditos</div>
       <div class="credits-list">
-        ${event.eventCredits ? `<span>${escape(event.eventCredits)}</span>` : ''}
+        ${event.eventCredits ? `<span>Em colaboração com: <strong>${escape(event.eventCredits)}</strong></span>` : ''}
         ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
       </div>
       ${igCreditButtonHTML('1')}
@@ -347,7 +355,7 @@ export function eventHTML(event, analyticsToken) {
         <div class="guide-title">Antes de acessar</div>
         <p class="guide-note">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
         ${igCreditButtonHTML('2')}
-        ${event.eventCredits ? `<p class="guide-note guide-credit">Crédito: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
+        ${event.eventCredits ? `<p class="guide-note guide-credit">Em colaboração com: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
@@ -390,6 +398,7 @@ export function eventHTML(event, analyticsToken) {
               Ir para o Google Drive
             </a>`}
         </div>
+        <p class="drive-dl-tip">💡 No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
         <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
     </div>

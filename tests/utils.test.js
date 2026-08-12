@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
+  extractDriveFolderId,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -76,6 +77,21 @@ describe('sizedDriveThumb', () => {
   it('leaves non-Drive URLs untouched', () => {
     expect(sizedDriveThumb('https://example.com/x.jpg', 600)).toBe('https://example.com/x.jpg');
     expect(sizedDriveThumb('', 600)).toBe('');
+  });
+});
+
+describe('extractDriveFolderId', () => {
+  it('pulls the folder id out of a share link', () => {
+    expect(extractDriveFolderId('https://drive.google.com/drive/folders/1a2B3c-XYZ'))
+      .toBe('1a2B3c-XYZ');
+    expect(extractDriveFolderId('https://drive.google.com/drive/folders/1a2B3c-XYZ?usp=sharing'))
+      .toBe('1a2B3c-XYZ');
+  });
+  it('returns empty string for non-folder links or garbage input', () => {
+    expect(extractDriveFolderId('https://drive.google.com/file/d/abc/view')).toBe('');
+    expect(extractDriveFolderId('https://example.com')).toBe('');
+    expect(extractDriveFolderId('')).toBe('');
+    expect(extractDriveFolderId(null)).toBe('');
   });
 });
 
