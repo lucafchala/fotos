@@ -387,11 +387,11 @@ export function eventHTML(event, analyticsToken) {
         <p id="drive-gate-hint" style="display:none"></p>
         <div id="drive-verify-error" class="drive-verifying" style="display:none">
           <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</p>
-          <p class="dv-contact">Se continuar, <a href="/suporte">contate o dono</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">chame no WhatsApp</a>.</p>
+          <p class="dv-contact">Se continuar, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-link-error" class="drive-verifying" style="display:none">
           <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" class="dv-retry">Tentar novamente</button></p>
-          <p class="dv-contact">Se persistir, <a href="/suporte">contate o dono</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">chame no WhatsApp</a>.</p>
+          <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram

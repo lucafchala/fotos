@@ -67,7 +67,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
   </header>
   <main>
     <h1>Suporte</h1>
-    <p class="subtitle">Dúvidas, solicitações ou problemas? Escolha como prefere entrar em contato.</p>
+    <p class="subtitle">Dúvidas, solicitações ou problemas? Escolha como prefere falar comigo.</p>
 
     <div class="contact-row">
       <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" class="contact-btn btn-whatsapp">

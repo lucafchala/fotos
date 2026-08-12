@@ -73,13 +73,13 @@ export function termsHTML() {
         <li><strong>Projetos Privados:</strong> Acesso restrito a participantes ou pessoas autorizadas. A entrega ocorre sob a base do legítimo interesse.</li>
         <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita.</li>
       </ul>
-      <p>Como parte da dinâmica do trabalho, o fotógrafo realiza curadoria de imagens (exceto nas familiares) para portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
+      <p>Como parte da dinâmica do trabalho, eu realizo curadoria de imagens (exceto nas familiares) para meu portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
       <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. A exclusão é imediata, gratuita e garantida.</p>
     </div>
     <p><strong>Finalidades conforme a categoria:</strong></p>
     <ul>
       <li><strong>Familiar:</strong> as imagens destinam-se exclusivamente à entrega e ao uso doméstico da família — sem inclusão em portfólio, redes sociais ou publicações.</li>
-      <li><strong>Privado:</strong> entrega aos participantes e curadoria para o portfólio profissional do fotógrafo (site/redes) e publicações editoriais, com base no legítimo interesse, sem uso comercial/publicitário de terceiros.</li>
+      <li><strong>Privado:</strong> entrega aos participantes e curadoria para meu portfólio profissional (site/redes) e publicações editoriais, com base no legítimo interesse, sem uso comercial/publicitário de terceiros.</li>
       <li><strong>Público:</strong> entrega, portfólio e publicação editorial, jornalística, cultural, artística e educacional, sem uso comercial/publicitário de terceiros.</li>
     </ul>
     <p><strong>Menores de idade.</strong> Se a foto retrata uma criança ou adolescente, o aceite deve ser dado pelos <strong>pais ou pelo responsável legal</strong>. Ao marcar a caixa de aceite, você declara ser maior de 18 anos e, quando autoriza o uso da imagem de um menor sob sua responsabilidade, que o faz na condição de responsável legal e no melhor interesse dele(a), conforme o art. 14 da LGPD. O consentimento relativo a menores também pode ser coletado junto à instituição contratante (escola/organização) no momento do evento. Pedidos de remoção envolvendo menores são tratados com <strong>prioridade</strong>.</p>
@@ -95,7 +95,7 @@ export function termsHTML() {
     <p>O tratamento de dados pessoais (incluindo o registro do aceite e os dados de formulários) é descrito na <a href="/privacidade">Política de Privacidade</a>, em conformidade com a LGPD.</p>
 
     <h2>7. Remoção de fotos</h2>
-    <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias úteis</strong>.</p>
+    <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias úteis</strong>.</p>
 
     <h2>8. Serviços de terceiros</h2>
     <p>O site usa <strong>Google Drive</strong> (hospedagem e download das fotos), <strong>Cloudflare</strong> (hospedagem, medição anônima e proteção contra robôs via <strong>Turnstile em modo invisível</strong> — uma verificação automática do navegador, sem desafio visível; consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile</a>) e <strong>Resend</strong> (envio de e-mails). O acesso ao Drive também se sujeita aos termos do Google.</p>
