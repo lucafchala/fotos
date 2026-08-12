@@ -175,7 +175,7 @@ export function eventHTML(event, analyticsToken) {
        um pill de marca solto — mantém o ícone pra reconhecimento, perde o
        cartão isolado. A versão na guide-box do modal (fora de .credits-list)
        continua com o visual de botão original. */
-    .credits-list .ig-credit-btn{background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
+    .credits-list .ig-credit-btn{display:inline-flex;align-items:center;background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
     .credits-list .ig-credit-btn:hover{background:none;border-color:transparent;color:var(--text-2);transform:none}
     .credits-list .ig-credit-text strong{color:var(--text)}
     /* banner */
