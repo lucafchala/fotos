@@ -2,7 +2,7 @@ import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, pe
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
-export function eventHTML(event, year, prevEvent, nextEvent, analyticsToken) {
+export function eventHTML(event, year, analyticsToken) {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
@@ -199,17 +199,6 @@ export function eventHTML(event, year, prevEvent, nextEvent, analyticsToken) {
     .credits-list .ig-credit-btn{display:inline-flex;align-items:center;background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
     .credits-list .ig-credit-btn:hover{background:none;border-color:transparent;color:var(--text-2);transform:none}
     .credits-list .ig-credit-text strong{color:var(--text)}
-    /* navigation between events */
-    .event-nav{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border-dim)}
-    .event-nav.single-nav{grid-template-columns:1fr}
-    .nav-btn{display:flex;align-items:center;gap:.6rem;padding:1rem;border:1px solid var(--border-dim);border-radius:8px;text-decoration:none;color:var(--text-dim-2);transition:border-color .2s,color .2s,background .2s;min-height:80px}
-    .nav-btn:hover{border-color:var(--border-dim-2);color:var(--text-2);background:var(--bg-card-hover)}
-    .nav-btn svg{width:16px;height:16px;flex-shrink:0;color:var(--text-dim)}
-    .nav-prev{justify-content:flex-start}
-    .nav-next{justify-content:flex-end;flex-direction:row-reverse}
-    .nav-label{display:flex;flex-direction:column;gap:.25rem;min-width:0;flex:1}
-    .nav-label-prefix{font-size:.7rem;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--border-dim-2)}
-    .nav-label-title{font-size:.88rem;font-weight:500;color:inherit;line-height:1.2;word-break:break-word}
     /* banner */
     .photos-banner{background:var(--ok-bg);border-bottom:1px solid var(--ok-border);padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:center;gap:.625rem}
     .banner-inner{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--ok-text);max-width:680px;width:100%}
@@ -414,17 +403,6 @@ export function eventHTML(event, year, prevEvent, nextEvent, analyticsToken) {
         ${igCreditButtonHTML('1')}
       </div>
     </div>
-
-    ${prevEvent || nextEvent ? `<nav class="event-nav${prevEvent && nextEvent ? '' : ' single-nav'}" aria-label="Navegação entre eventos">
-      ${prevEvent ? `<a href="/${escape(prevEvent.slug)}" class="nav-btn nav-prev">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        <div class="nav-label"><span class="nav-label-prefix">Anterior</span><span class="nav-label-title">${escape(prevEvent.title)}</span></div>
-      </a>` : ''}
-      ${nextEvent ? `<a href="/${escape(nextEvent.slug)}" class="nav-btn nav-next">
-        <div class="nav-label"><span class="nav-label-prefix">Próximo</span><span class="nav-label-title">${escape(nextEvent.title)}</span></div>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-      </a>` : ''}
-    </nav>` : ''}
   </main>
 
   <footer>
