@@ -4,6 +4,10 @@ const CACHE_TTL = 30_000;
 // Abort outbound transactional-email calls if Resend hangs, so a slow upstream
 // never holds the request past this budget.
 const EMAIL_TIMEOUT_MS = 10_000;
+// Minimum gap between unhandled-exception alert emails — a single global
+// cooldown (not per-error-type) so an incident that throws repeatedly can't
+// flood the inbox; still frequent enough that a real outage is noticed fast.
+const ERROR_ALERT_COOLDOWN_SECS = 900;
 
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
@@ -164,6 +168,60 @@ export function escape(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
+}
+
+// Shared footer block (legal links + copyright) reused across every public
+// page so the six near-identical footers can't drift out of sync as new
+// links get added. The year is computed live — pages render per-request, so
+// the copyright is always current with no cron/build step needed. Callers
+// provide their own CSS for .legal-link/.footer-copyright (this only returns
+// markup, same contract as escape()/formatDatePT()).
+export function footerLegalLinksHTML() {
+  const year = new Date().getFullYear();
+  return `
+    <div class="footer-actions-legal">
+      <a href="/suporte" class="legal-link">Suporte</a>
+      <a href="/privacidade" class="legal-link">Privacidade</a>
+      <a href="/termos" class="legal-link">Termos</a>
+      <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
+    </div>
+    <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
+}
+
+// Instagram-branded credit button, reused twice on the event page (main
+// credits section + drive-modal guide box). idSuffix keeps each instance's
+// SVG gradient id unique since both can render on the same document.
+export function igCreditButtonHTML(idSuffix, label = 'Marque-me') {
+  return `
+    <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener" class="ig-credit-btn">
+      <span class="ig-credit-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18">
+          <defs>
+            <linearGradient id="igGrad${idSuffix}" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#f09433"/><stop offset="25%" stop-color="#e6683c"/>
+              <stop offset="50%" stop-color="#dc2743"/><stop offset="75%" stop-color="#cc2366"/>
+              <stop offset="100%" stop-color="#bc1888"/>
+            </linearGradient>
+          </defs>
+          <path fill="url(#igGrad${idSuffix})" d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0Zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.897 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.897-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06L12 2.16Zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162ZM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4Zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439Z"/>
+        </svg>
+      </span>
+      <span class="ig-credit-text">${label}: <strong>@lucafchala</strong></span>
+    </a>`;
+}
+
+// Dismissible "new interface" notice shown on the gallery and every project
+// page while the redesign is fresh. Dismissal is remembered client-side
+// (localStorage, same pattern as the cookie notice already on these pages) —
+// each page wires its own show/hide script since inline <script> blocks
+// aren't shared across pages, only this markup is.
+export function updateBannerHTML() {
+  return `
+    <div class="update-banner" id="update-banner">
+      <span>✨ Nova interface, melhorada!</span>
+      <a href="/suporte?tema=bug">Encontrou um problema? Reportar</a>
+      <button type="button" class="ub-close" id="update-banner-close" aria-label="Fechar aviso">×</button>
+    </div>`;
 }
 
 export function validateSlug(slug) {
@@ -337,7 +395,7 @@ export async function sendResolvedEmail(env, req) {
   <p style="font-size:14px;line-height:1.6;margin-bottom:16px">Olá! Sua solicitação de remoção de foto referente ao projeto <strong>${esc(req.eventTitle)}</strong> foi <strong>atendida</strong>.</p>
   ${req.value ? `<p style="font-size:14px;line-height:1.6;color:#444">Identificação: ${esc(req.value)}</p>` : ''}
   <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">A foto foi removida do arquivo público. Obrigado por avisar!</p>
-  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Qualquer outra dúvida, fale pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou envie um e-mail para <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Qualquer outra dúvida, fale comigo pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou envie um e-mail para <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 
@@ -396,6 +454,57 @@ export async function sendSupportEmail(env, { name, email, message }) {
   return true;
 }
 
+// Fire-and-forget alert to the site owner when an unhandled exception reaches
+// the top-level fetch() catch — a tripwire so an outage/bug is noticed without
+// watching logs. Deliberately never throws (called via ctx.waitUntil(...).catch
+// as a last-resort safety net; a failure here must never cascade) and never
+// includes request bodies/headers/IP — only the error message, a truncated
+// stack, and the route — to avoid ever incidentally mailing visitor PII.
+// Global cooldown (not per-error) so a repeating throw can't flood the inbox.
+export async function sendErrorAlert(env, err, context = {}) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  try {
+    const cooldownKey = 'error-alert:cooldown';
+    if (await env.FOTOS.get(cooldownKey)) return false;
+    await env.FOTOS.put(cooldownKey, '1', { expirationTtl: ERROR_ALERT_COOLDOWN_SECS });
+  } catch { /* KV hiccup shouldn't block the alert or the response */ }
+
+  const esc = escape;
+  const message = err && err.message ? String(err.message) : String(err);
+  const stack = err && err.stack ? String(err.stack).slice(0, 2000) : '';
+
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">🔴 Erro no site</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — captado no catch-all do Worker</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    ${context.path ? `<tr><td style="padding:8px 0;color:#666;width:80px">Rota</td><td style="padding:8px 0">${esc(context.method || '')} ${esc(context.path)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(message)}</td></tr>
+    ${stack ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Stack</td><td style="padding:8px 0;white-space:pre-wrap;font-family:monospace;font-size:11px;color:#555">${esc(stack)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos erros ficam em silêncio por ${Math.round(ERROR_ALERT_COOLDOWN_SECS / 60)} min para não lotar a caixa de entrada.</p>
+</div>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Fotos <noreply@lucafchala.com>',
+        to: [env.ADMIN_EMAIL],
+        subject: `🔴 Erro no site${context.path ? ` — ${context.path}` : ''}`,
+        html,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
@@ -415,7 +524,7 @@ export async function sendConfirmationEmail(env, req) {
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
   </table>
   <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve.</p>
-  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Em caso de dúvidas, entre em contato pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou por <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Em caso de dúvidas, fale comigo pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou por <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;
 

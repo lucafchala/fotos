@@ -43,6 +43,12 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
 - [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de
       remoção (hoje só valida magic bytes + 2 MB).
+- [ ] **CSP em modo report-only** — endpoint `report-to` que loga tentativas de
+      payload bloqueadas pela CSP, para saber se alguém está testando XSS antes
+      de endurecer de vez o `script-src 'unsafe-inline'` (item acima).
+- [ ] **Rate-limit dedicado no formulário de suporte** para mensagens
+      repetidas/idênticas — o Turnstile barra bot, mas um humano ainda consegue
+      mandar a mesma mensagem várias vezes dentro do rate limit geral.
 
 ---
 
@@ -55,17 +61,21 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
       Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
       gravar sozinho.
+- [ ] **Monitoramento de uptime externo** batendo em `/api/healthz`
+      (UptimeRobot, Cloudflare Health Checks, etc.) — o alerta por e-mail
+      (`sendErrorAlert`) só dispara quando uma exceção chega ao catch-all do
+      Worker; uma queda total (KV fora do ar, erro de deploy) não
+      necessariamente lança uma exceção capturável e passaria em silêncio sem
+      um ping externo.
+- [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
+      páginas principais (galeria, um evento com Drive, dashboard) a cada
+      deploy — hoje a validação visual depende de abrir o site manualmente,
+      não tem cobertura automática de regressão de layout.
 
 ---
 
 ## Dívidas conhecidas
 
-- [ ] **Revamp do tour guiado** (modal de boas-vindas em `/<slug>`) — o conteúdo
-      ("Acessar fotos / WhatsApp / Solicitar remoção") ficou defasado depois das
-      mudanças no gate: o link do Drive agora só é liberado após verificação
-      server-side (Turnstile pré-carregado + aceite dos Termos), e o texto de
-      etiqueta do modal foi encurtado. Revisar se o tour ainda explica o fluxo
-      certo e reescrever a parte de acesso ao link.
 - [ ] **Página `/sobre` existe mas está fora do ar** — `src/ui/about.js` está
       escrito e não roteado (fora do sitemap e do rodapé), esperando a revisão
       do texto. Ou finalizar e publicar, ou remover o arquivo.
@@ -88,6 +98,11 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 - [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
 - [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
       destaca em vermelho os atrasados.
+- [ ] **Modelo/"template" de evento** — ao lado do "Duplicar evento" já
+      existente (que copia um evento específico), salvar uma configuração
+      padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
+      acesso/notas já preenchidos, pra criar vários eventos parecidos mais
+      rápido sem precisar duplicar um evento real toda vez.
 
 ---
 
@@ -114,6 +129,9 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **Depoimentos de clientes** em `/depoimentos` ou na home. Prova social.
 - **Status "aceitando novos projetos"** — badge na home ("Agendando para
   janeiro/2027" / "Agenda fechada até março"). Define expectativa.
+- **Mini-gráfico de visualizações no dashboard** — hoje as métricas são só
+  números/CSV; um sparkline simples de views ao longo do tempo por evento
+  ajudaria a ver o que está performando sem precisar exportar nada.
 
 ### UX
 
@@ -140,3 +158,10 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
   Não reintroduzir sem necessidade nova.
 - **QR Code** — removido junto com a lib quebrada (e a entrada de CSP do
   jsDelivr). Sem uso real.
+- **Contagem de fotos** (manual + auto-contagem opcional via Google Drive API)
+  — foi implementada e removida por completo a pedido: as fotos já vêm
+  numeradas, o dado era redundante. Não reintroduzir sem necessidade nova.
+- **Tour guiado** (modal de boas-vindas em `/<slug>`) — já não existe no
+  código; o item de "revamp" que estava aqui ficou obsoleto porque não há
+  mais o que revisar. Se um tour guiado fizer sentido de novo no futuro, é
+  melhor desenhar do zero do que recuperar o antigo.

@@ -48,11 +48,12 @@ describe('normalizeEventFields', () => {
   it('applies defaults for an empty body (create shape)', () => {
     const f = normalizeEventFields({}, DEFAULT_EVENT, CATS);
     expect(f).toMatchObject({
-      title: '', shortDescription: '', longDescription: '', driveUrl: '',
+      title: '', longDescription: '', driveUrl: '',
       driveUrlInstagram: '', date: '', eventCredits: '', projectUrl: '',
       visible: true, comingSoon: false, status: 'entregue', accessType: 'public',
       category: '', internalNotes: '', pinned: false,
     });
+    expect(f).not.toHaveProperty('shortDescription');
     expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24 });
   });
 
@@ -84,6 +85,11 @@ describe('normalizeEventFields', () => {
     expect(f.accessType).toBe('public');
     expect(f.category).toBe('');
     expect(f.date).toBe('');
+  });
+
+  it('no longer has a photoCount field (removed — photos are already numbered)', () => {
+    const f = normalizeEventFields({ photoCount: 128 }, DEFAULT_EVENT, CATS);
+    expect(f).not.toHaveProperty('photoCount');
   });
 
   it('falls back to the existing event when a field is absent (update shape)', () => {

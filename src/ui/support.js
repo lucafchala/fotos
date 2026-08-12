@@ -1,4 +1,4 @@
-import { escape } from '../utils.js';
+import { escape, footerLegalLinksHTML } from '../utils.js';
 
 export function supportHTML(sent = false, error = '', values = {}) {
   return `<!DOCTYPE html>
@@ -19,7 +19,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     main{max-width:520px;margin:0 auto;padding:2rem 1.5rem 6rem}
@@ -35,7 +35,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
     .divider{display:flex;align-items:center;gap:.75rem;margin-bottom:1.75rem;color:#2a2a2a;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}
     .divider::before,.divider::after{content:'';flex:1;height:1px;background:#1a1a1a}
     form{display:flex;flex-direction:column;gap:1rem}
-    label{font-size:.78rem;font-weight:500;color:#888;letter-spacing:.04em;display:block;margin-bottom:.3rem}
+    label{font-size:.8rem;font-weight:500;color:#888;letter-spacing:.04em;display:block;margin-bottom:.3rem}
     input,textarea{width:100%;background:#0d0d0d;border:1px solid #1c1c1c;border-radius:8px;color:#f0ebe5;font-family:inherit;font-size:.875rem;padding:.75rem 1rem;outline:none;transition:border-color .2s;resize:none}
     input::placeholder,textarea::placeholder{color:#333}
     input:focus,textarea:focus{border-color:#333}
@@ -50,8 +50,12 @@ export function supportHTML(sent = false, error = '', values = {}) {
     .noscript-banner{background:#1d1606;border:1px solid #4a3a12;color:#e8c878;padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
     .noscript-banner strong{color:#f0d080}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
-    footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#777}
+    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:#ddd}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.5rem}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#ddd}
+    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem;display:block}
   </style>
 </head>
 <body>
@@ -63,7 +67,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
   </header>
   <main>
     <h1>Suporte</h1>
-    <p class="subtitle">Dúvidas, solicitações ou problemas? Escolha como prefere entrar em contato.</p>
+    <p class="subtitle">Dúvidas, solicitações ou problemas? Escolha como prefere falar comigo.</p>
 
     <div class="contact-row">
       <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" class="contact-btn btn-whatsapp">
@@ -100,7 +104,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
         <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required>${escape(values.message || '')}</textarea>
       </div>
       <div>
-        <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
+        <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.8rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
           <input type="checkbox" id="support-consent" name="consent" value="1" required style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:1px">
           <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
@@ -128,8 +132,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
-    <a href="/privacidade" style="margin-left:1.5rem">Privacidade</a>
-    <a href="/termos" style="margin-left:1.5rem">Termos</a>
+    ${footerLegalLinksHTML()}
   </footer>
 </body>
 </html>`;

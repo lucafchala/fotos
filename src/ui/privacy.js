@@ -1,3 +1,5 @@
+import { footerLegalLinksHTML } from '../utils.js';
+
 export function privacyHTML() {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -17,12 +19,12 @@ export function privacyHTML() {
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
-    .updated{font-size:.78rem;color:#555;margin-bottom:2.25rem}
+    .updated{font-size:.8rem;color:#555;margin-bottom:2.25rem}
     h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:#e0d8d0}
     p,li{font-size:.9rem;line-height:1.75;color:#b0a89e}
     p{margin-bottom:.75rem}
@@ -34,8 +36,12 @@ export function privacyHTML() {
     .intro{font-size:.92rem;color:#999;line-height:1.7;margin-bottom:.5rem}
     .note{font-size:.82rem;color:#666;line-height:1.6;border-left:2px solid #1e1e1e;padding-left:1rem;margin:1rem 0}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#777}
+    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:#ddd}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#ddd}
+    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
   </style>
 </head>
 <body>
@@ -64,7 +70,7 @@ export function privacyHTML() {
     </ul>
     <p>Além disso, são usados cookies e medição estritamente funcionais:</p>
     <ul>
-      <li><strong>Cookie de sessão</strong> (apenas no painel administrativo, restrito ao responsável).</li>
+      <li><strong>Cookie de sessão</strong> (apenas no painel administrativo, restrito a mim).</li>
       <li><strong>Cookie de contagem de visualização</strong> (<code>fv_…</code>, expira em 1 hora) para não contar a mesma visita várias vezes.</li>
       <li><strong>Medição de acesso anônima e sem cookies</strong> (Cloudflare Web Analytics), que não identifica visitantes individualmente.</li>
     </ul>
@@ -91,13 +97,13 @@ export function privacyHTML() {
     <h2>5. Por quanto tempo guardamos</h2>
     <ul>
       <li><strong>Solicitações de remoção:</strong> mantidas enquanto necessárias para atender ao pedido e <strong>apagadas automaticamente em até 6 meses após a resolução</strong>.</li>
-      <li><strong>Mensagens de suporte:</strong> não ficam armazenadas no sistema do site — são entregues por e-mail ao responsável.</li>
+      <li><strong>Mensagens de suporte:</strong> não ficam armazenadas no sistema do site — são entregues por e-mail para mim.</li>
       <li><strong>Registros de autorização de uso de imagem:</strong> mantidos como comprovação do consentimento durante o prazo em que a autorização pode ser questionada e <strong>apagados automaticamente após 5 anos</strong>.</li>
     </ul>
 
     <h2>6. Seus direitos</h2>
     <p>Você pode, a qualquer momento, solicitar acesso, correção, exclusão, anonimização ou informações sobre o tratamento dos seus dados, conforme o art. 18 da LGPD.</p>
-    <p>Para exercer esses direitos, escreva para <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a> ou fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.</p>
+    <p>Para exercer esses direitos, escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a> ou me chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.</p>
     <p><strong>Para pedir a remoção de uma foto sua</strong>, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página de cada evento. Respondemos em até <strong>15 dias úteis</strong>.</p>
 
     <h2>7. Alterações nesta política</h2>
@@ -110,12 +116,11 @@ export function privacyHTML() {
     <h2>9. Incidentes de segurança</h2>
     <p>Adotamos medidas técnicas e organizacionais para proteger os dados (veja o <a href="/.well-known/security.txt">security.txt</a>). Caso ocorra um incidente que possa acarretar risco ou dano relevante aos titulares, comunicaremos a <strong>Autoridade Nacional de Proteção de Dados (ANPD)</strong> e os titulares afetados em prazo razoável, conforme o art. 48 da LGPD. Suspeitas de vulnerabilidade podem ser reportadas a <a href="mailto:security@lucafchala.com">security@lucafchala.com</a>.</p>
 
-    <p class="note">Em caso de dúvida sobre seus dados, fale com a gente — a remoção de fotos e o atendimento a pedidos são gratuitos e simples.</p>
+    <p class="note">Em caso de dúvida sobre seus dados, fale comigo — a remoção de fotos e o atendimento a pedidos são gratuitos e simples.</p>
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
-    <a href="/termos">Termos</a>
-    <a href="/suporte">Suporte</a>
+    ${footerLegalLinksHTML()}
   </footer>
 </body>
 </html>`;

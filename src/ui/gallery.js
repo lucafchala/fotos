@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -19,7 +19,6 @@ export function galleryHTML(events, analyticsToken) {
     const width = featured ? 1600 : 600;
     const thumb = e.thumbnailUrl ? sizedDriveThumb(e.thumbnailUrl, width) : '';
     const title = escape((e.title || '').toLowerCase());
-    const desc = escape((e.shortDescription || '').toLowerCase());
     const catLower = escape((e.category || '').toLowerCase());
     const cls = [
       'card',
@@ -28,7 +27,7 @@ export function galleryHTML(events, analyticsToken) {
       hidden ? 'hidden' : '',
     ].filter(Boolean).join(' ');
     return `
-      <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-desc="${desc}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
+      <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
@@ -42,7 +41,6 @@ export function galleryHTML(events, analyticsToken) {
         <div class="info">
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
           <h2>${escape(e.title)}</h2>
-          ${e.shortDescription ? `<p>${escape(e.shortDescription)}</p>` : ''}
           ${e.category ? `<span class="cat-tag">${escape(e.category)}</span>` : ''}
         </div>
       </a>`;
@@ -83,7 +81,7 @@ export function galleryHTML(events, analyticsToken) {
   const controlsHTML = showControls
     ? `<div class="controls-wrap">
         <div class="controls" role="search">
-          <input type="search" id="search" class="search-input" placeholder="Buscar por título, descrição ou categoria…" aria-label="Buscar projetos" autocomplete="off">
+          <input type="search" id="search" class="search-input" placeholder="Buscar por título ou categoria…" aria-label="Buscar projetos" autocomplete="off">
           ${presentCats.length > 0 ? `<button type="button" id="filters-btn" class="filters-btn" aria-expanded="false">Filtros ▾</button>` : ''}
         </div>
         ${presentCats.length > 0 ? `<div class="chips-wrap" id="chips-wrap">${chipsHTML}</div>` : ''}
@@ -137,17 +135,13 @@ export function galleryHTML(events, analyticsToken) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;--text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;--border-dim:#1a1a1a;--footer-link:#3a3a3a}
+    :root{--bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;--text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;--border-dim:#1a1a1a;--footer-link:#888}
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
-    body.light{--bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;--text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;--border-dim:#ddd9d4;--footer-link:#9a9490}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
-    .theme-toggle{position:absolute;right:1.25rem;top:50%;transform:translateY(-50%);background:none;border:1px solid var(--bg-card-border);color:var(--text-muted);border-radius:20px;padding:.35rem .8rem;font-size:.65rem;font-family:inherit;cursor:pointer;transition:border-color .2s,color .2s;display:inline-flex;align-items:center;gap:.35rem}
-    .theme-toggle:hover{border-color:var(--text-dim);color:var(--text)}
-    .theme-toggle .exp{font-size:.58rem;opacity:.45;font-style:italic}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
@@ -163,7 +157,7 @@ export function galleryHTML(events, analyticsToken) {
     .chip{background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:20px;font-size:.72rem;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
     .chip:hover{border-color:var(--text-dim);color:var(--text-2)}
     .chip.active{border-color:#c0a060;color:#c0a060;background:rgba(192,160,96,.08)}
-    .filter-status{display:none;align-items:center;gap:.75rem;padding:.2rem 0 .7rem;font-size:.75rem;color:var(--text-muted)}
+    .filter-status{display:none;align-items:center;gap:.75rem;padding:.2rem 0 .7rem;font-size:.8rem;color:var(--text-muted)}
     .filter-status.show{display:flex}
     .result-count{flex:1}
     .clear-filters{background:none;border:none;color:#c0a060;font-size:.75rem;font-family:inherit;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
@@ -188,24 +182,29 @@ export function galleryHTML(events, analyticsToken) {
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
     .thumb-blur{filter:blur(8px);transform:scale(1.1);width:100%;height:100%;object-fit:cover;display:block}
     .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
-    .info{padding:.75rem .875rem 1rem}
+    .info{padding:1rem 1rem 1.125rem}
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
-    .info h2{font-size:.875rem;font-weight:600;margin:.25rem 0 .3rem;line-height:1.3}
-    .info p{font-size:.75rem;color:var(--text-muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .info h2{font-size:1.05rem;font-weight:600;margin:.4rem 0 .5rem;line-height:1.3}
     .cat-tag{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#c0a060;background:rgba(192,160,96,.1);border:1px solid rgba(192,160,96,.2);border-radius:4px;padding:.15rem .45rem;margin-top:.4rem}
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.1rem}.card-featured .info p{-webkit-line-clamp:4}}
+    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.35rem}}
     .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
     .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--border-dim);border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
     .load-more:hover{border-color:var(--text-dim);color:var(--text)}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-dim);display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap}
-    footer a{color:var(--footer-link);font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:var(--text-muted)}
-    .support-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    .support-link:hover{color:var(--text-muted)}
-    .support-link svg{width:13px;height:13px}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:var(--text)}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:var(--text)}
+    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;order:99;margin-top:.75rem}
+    .update-banner{background:#151208;border-bottom:1px solid #3a3320;padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:#d8c89a;text-align:center}
+    .update-banner a{color:#c0a060;text-decoration:underline;text-underline-offset:2px}
+    .update-banner a:hover{color:#d4b070}
+    .update-banner .ub-close{background:none;border:none;color:#8a7a50;cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
+    .update-banner .ub-close:hover{color:#d8c89a}
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
@@ -217,11 +216,9 @@ export function galleryHTML(events, analyticsToken) {
   ${perfBootScript('gallery', !!analyticsToken)}
 </head>
 <body>
+  ${updateBannerHTML()}
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Alternar modo claro/escuro">
-      <span id="theme-icon">☀</span><span id="theme-label">claro</span><span class="exp">experimental</span>
-    </button>
   </header>
   <main>
     <h1 class="sr-only">Galeria de fotos</h1>
@@ -232,18 +229,7 @@ export function galleryHTML(events, analyticsToken) {
   </main>
   <footer>
     <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">@lucafchala</a>
-    <a href="/privacidade" class="support-link">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      Privacidade
-    </a>
-    <a href="/termos" class="support-link">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
-      Termos
-    </a>
-    <a href="/suporte" class="support-link">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Suporte
-    </a>
+    ${footerLegalLinksHTML()}
   </footer>
 
   <div class="cookie-notice" id="cookie-notice">
@@ -286,7 +272,7 @@ export function galleryHTML(events, analyticsToken) {
       function matches(card, q){
         if (activeCat !== 'all' && card.getAttribute('data-cat') !== activeCat) return false;
         if (!q) return true;
-        return (card.getAttribute('data-title') + ' ' + card.getAttribute('data-desc') + ' ' + card.getAttribute('data-cat')).indexOf(q) !== -1;
+        return (card.getAttribute('data-title') + ' ' + card.getAttribute('data-cat')).indexOf(q) !== -1;
       }
       function syncHeadings(){
         var heads = document.querySelectorAll('[data-year-head]');
@@ -366,21 +352,18 @@ export function galleryHTML(events, analyticsToken) {
         if (cn) cn.classList.remove('show');
       });
 
-      // Light/dark theme toggle (experimental)
-      var toggleBtn = document.getElementById('theme-toggle');
-      var themeIcon = document.getElementById('theme-icon');
-      var themeLabel = document.getElementById('theme-label');
-      function setTheme(light){
-        document.body.classList.toggle('light', light);
-        if (themeIcon) themeIcon.textContent = light ? '☽' : '☀';
-        if (themeLabel) themeLabel.textContent = light ? 'escuro' : 'claro';
-        try { localStorage.setItem('fotos:theme', light ? 'light' : 'dark'); } catch(_) {}
-      }
+      // New-interface banner (dismiss remembered per visitor)
       try {
-        if (localStorage.getItem('fotos:theme') === 'light') setTheme(true);
+        if (localStorage.getItem('fotos:update_banner_dismissed')) {
+          var ub0 = document.getElementById('update-banner');
+          if (ub0) ub0.style.display = 'none';
+        }
       } catch(_) {}
-      if (toggleBtn) toggleBtn.addEventListener('click', function(){
-        setTheme(!document.body.classList.contains('light'));
+      var ubClose = document.getElementById('update-banner-close');
+      if (ubClose) ubClose.addEventListener('click', function(){
+        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
+        var ub = document.getElementById('update-banner');
+        if (ub) ub.style.display = 'none';
       });
     })();
   </script>

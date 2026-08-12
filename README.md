@@ -309,17 +309,19 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
   id: "16 bytes hex",            // generateId()
   slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug
   title: "string ≤ 200",
-  shortDescription: "string ≤ 300",
   longDescription: "string ≤ 5000",
   photos: ["url1", "url2", ...],  // até 6, https-only depois do toHttps()
   thumbnailUrl: "url1",           // sempre = photos[0] || legado
   driveUrl: "https://drive.google.com/drive/folders/...",
+  driveUrlInstagram: "https://drive.google.com/drive/folders/...", // opcional — pasta já redimensionada p/ Instagram
   date: "YYYY-MM-DD",             // ou "" — validado contra regex
-  eventCredits: "string ≤ 200",
+  eventCredits: "string ≤ 200",   // exibido como "Em colaboração com: <valor>" (instituição, fotógrafo colaborador ou projeto)
   projectUrl: "string ≤ 500",
   visible: true,                  // se false, some da galeria pública
   comingSoon: false,              // se true, esconde fotos e troca botão por "As fotos virão em breve"
   status: "em-edicao" | "em-revisao" | "entregue" | "arquivado",
+  accessType: "public" | "private" | "family", // declaração extra exigida no gate do Drive para private/family
+  category: "string",             // alimenta os filtros da galeria e do dashboard; lista gerenciável em Config
   internalNotes: "string ≤ 5000", // só visível no dashboard
   pinned: false,                  // se true, vira card destacado (max 1 por vez — auto-desafixa outros)
   photosAlert: {
@@ -404,6 +406,8 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | POST | `/api/events` | Criar evento |
 | PUT | `/api/events/<id>` | Atualizar evento (parcial; só campos enviados) |
 | DELETE | `/api/events/<id>` | Excluir evento e deletar `views:<slug>` |
+| POST | `/api/events/bulk-category` | Aplica uma categoria a vários eventos de uma vez (`{ids, category}`) — dashboard exige confirmação digitada antes de chamar |
+| POST | `/api/events/bulk-access` | Aplica um `accessType` a vários eventos de uma vez (`{ids, accessType}`) — mesma confirmação digitada |
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | PUT | `/api/settings/password` | Trocar senha do admin |
@@ -434,27 +438,30 @@ O CSP `upgrade-insecure-requests` faz o browser converter automaticamente qualqu
 
 ## Páginas públicas
 
+Todas as seis páginas públicas (`/`, `/<slug>`, `/sobre` [não roteada], `/termos`, `/privacidade`, `/suporte`) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Suporte/Privacidade/Termos/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com um link "Reportar" para `/suporte?tema=bug` (pré-preenche a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar).
+
 ### `/` — Galeria (`src/ui/gallery.js`)
 
-- Header com o logo `fotos · Luca F. Chala`.
+- Header com o logo `fotos · Luca F. Chala` (sem alternância clara/escura — o toggle experimental foi removido; o tema é sempre escuro, exceto pelas variáveis CSS que ainda existem para uma futura re-introdução).
+- Busca por título/URL/categoria + filtro de status + **filtro de categoria** (`<select>`), todos client-side sobre os eventos já carregados — sem requisição nova a cada busca/filtro.
 - Grid responsivo: 2 colunas (< 560px), 3 (560–900px), 4 (≥ 900px).
-- Cada card mostra: thumbnail (com shimmer loader animado enquanto carrega), data formatada em PT-BR ("12 de maio de 2025"), título e descrição curta truncada em 2 linhas.
+- Cada card mostra: thumbnail (com shimmer loader animado enquanto carrega), data formatada em PT-BR ("12 de maio de 2025"), título (maior que antes) e tag de categoria — **sem descrição** (o campo `shortDescription` foi removido do modelo de dados).
 - Eventos com `pinned: true` ocupam toda a largura (grid-column 1/-1, hero 16:9) e ganham badge "Em destaque".
 - Eventos com `comingSoon: true` mostram badge "em breve" no canto, ícone de relógio no lugar do thumb.
 - Eventos com `visible: false` são filtrados fora.
 - Ordenação: pinned primeiro, depois por `date` desc (fallback `createdAt`).
-- Footer com link para Instagram (@lucafchala) e botão "Suporte".
+- Footer com link para Instagram (@lucafchala) + o bloco de rodapé compartilhado descrito acima.
 
 ### `/<slug>` — Página de projeto (`src/ui/event.js`)
 
-Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
+Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
-- **Hero**: se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px).
-- **Conteúdo**: data, título grande, descrição longa (`white-space: pre-wrap`), botão "Acessar fotos".
-- **Modal "Acessar fotos"** (gate real, verificado no servidor): abre mostrando um lembrete curto de etiqueta ("marque @lucafchala ao postar, evite print") e o status `Carregando acesso ao Drive…` (spinner) enquanto a verificação roda; só depois que o Turnstile passa é que o gate aparece — checkbox de aceite dos Termos (+ declaração extra para eventos `private`/`family`) e o(s) botão(ões) de acesso, esmaecidos até o link chegar. O desafio Turnstile é pré-carregado assim que a página abre (`execution:'execute'`), não só quando o modal abre, então na prática o gate costuma aparecer quase instantaneamente. Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra), com o status `Preparando seu acesso…`; só então o `href` real é populado e os botões acendem. Erro de verificação mostra mensagem com opção de tentar de novo. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
-- **Créditos**: nome do fotógrafo + (opcional) créditos do evento + link extra. Nota verde "marque sempre @lucafchala".
-- **Footer**: compartilhar no WhatsApp (link `wa.me/?text=...`), botão "Solicitar remoção de foto", link "Suporte".
+- **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/`, legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px).
+- **Conteúdo**: data, título grande, descrição longa opcional (`white-space: pre-wrap`, sem espaço morto quando ausente), botão "Acessar fotos" (pulso sutil de atenção se ficar ~11s sem clique).
+- **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; enquanto a requisição está em voo, o ícone do botão vira um spinner. Clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s (mensagem só aparece reagindo ao clique, nunca fica fixa). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
+- **Créditos**: botão com a logo real do Instagram levando para @lucafchala ("Marque-me"), (opcional) `eventCredits` como "Em colaboração com: <valor>" — cobre instituição, fotógrafo colaborador ou projeto parceiro, não só outro fotógrafo — e link extra do projeto.
+- **Footer**: duas camadas visuais — ações em destaque (Compartilhar/WhatsApp, Copiar link, "Solicitar remoção de foto", texto/contraste mais fortes, sem aparência de botão pill) e os links legais de baixo contraste (Suporte/Privacidade/Termos/Código-fonte) + copyright, via o bloco de rodapé compartilhado.
 - **Modal de remoção**: formulário com:
   - Radio: identificar foto por número, link direto ou upload (até 2 MB).
   - E-mail (obrigatório, regex), telefone (obrigatório, 10–13 dígitos).
@@ -463,13 +470,13 @@ Arquivo grande (~35 KB) porque inclui HTML + CSS + JS inline. Componentes:
   - **Turnstile** obrigatório; como o token é de uso único, o widget é **resetado automaticamente** após uma falha de envio (evita o loop de 403 ao tentar de novo com token gasto). A leitura do arquivo de upload é protegida (erro amigável em vez de falha silenciosa).
   - Submete via fetch para `/api/removal-request`. Sucesso troca o conteúdo da modal por uma tela verde com check.
   - **Bloqueador de anúncios / JS desativado**: se o script do Turnstile não carrega, a modal mostra um aviso (desative o bloqueador, ative o JavaScript, botão de recarregar) e mantém o envio desabilitado — a solicitação exige a verificação server-side.
-- **Tour guiado** (apenas no primeiro acesso, lembrado via `localStorage['fotos:tour_seen']`): modal de boas-vindas que mostra 3 dicas (Acessar fotos / WhatsApp / Solicitar remoção). Botão "Entendi" fecha e seta a flag.
 
 ### `/suporte` — Página de suporte (`src/ui/support.js`)
 
 - Header com link "Voltar".
 - Botões grandes: WhatsApp (`wa.me/5511989211178`) e e-mail (`mailto:suporte@lucafchala.com`).
 - Divisor "ou envie uma mensagem".
+- `?tema=bug` na URL pré-preenche a mensagem do formulário com uma frase de abertura para reportar um problema — usado pelo link "Reportar" do aviso de nova interface (cosmético; nunca confiado no servidor além do texto inicial).
 - Formulário POST para `/api/suporte` (form-data, sem fetch — degrada para HTML puro). Campos: nome (opcional), e-mail (opcional, vira `reply_to` se preenchido), mensagem (obrigatório, ≤ 2000 chars). **Turnstile** obrigatório; o botão fica desabilitado até a verificação passar, com **fallback** que o reabilita se o script for bloqueado, mais guarda anti-duplo-envio.
 - Após envio, a página é recarregada e mostra caixa verde "Mensagem enviada!". Em caso de erro, **nome/e-mail/mensagem são preservados** (re-renderizados escapados) para não perder o texto digitado.
 - Erros (campos vazios, rate limit, Turnstile) mostram caixa vermelha. Se um ad-blocker bloqueia o Turnstile, aparece um aviso para desativá-lo / ativar o JS (ou usar WhatsApp/e-mail); um banner `<noscript>` cobre o caso de JavaScript totalmente desativado.
@@ -496,15 +503,17 @@ Layout fixo no topo + abas:
 #### Aba Eventos
 
 - Header: contador ("N eventos ativos") + botão "+ Adicionar".
-- **Busca** (título / URL / categoria) + filtro `<select>` (`Todos / Ativos (sem arquivados) / Em edição / Em revisão / Entregue / Arquivado`).
-- No formulário: `Esc` fecha, `Ctrl/⌘+Enter` salva, foco preso (focus trap) no overlay e rodapé de ações fixo (sticky). Excluir evento/categoria usa um diálogo de confirmação no tema do painel (não o `confirm()` nativo); os botões de ação ficam desabilitados enquanto a requisição corre.
+- **Busca** (título / URL / categoria) + filtro de status `<select>` (`Todos / Ativos (sem arquivados) / Em edição / Em revisão / Entregue / Arquivado`) + **filtro de categoria** `<select>` — os três combinam, tudo client-side sobre os eventos já carregados.
+- No formulário: `Esc` fecha, `Ctrl/⌘+Enter` salva, foco preso (focus trap) no overlay e rodapé de ações fixo (sticky). Fechar com alterações não salvas (Esc, clique fora ou "Cancelar") pede confirmação ("Descartar alterações?"); fechar após salvar com sucesso não pede. Fechar a aba/navegador com o formulário aberto e sujo dispara o aviso nativo do navegador (`beforeunload`).
+- **Colar vários links**: botão ao lado de "Adicionar foto" abre uma caixa de texto — um link do Drive por linha — que popula a lista de fotos de uma vez (respeita o limite de 6).
 - Lista de eventos (cards horizontais) com: thumb, título + badge de status colorida, slug em monospace, botões de ação à direita:
   - **Pin** (estrela) — toggle. Ao pinar, despina todos os outros (server-side garante max 1).
   - **Eye** — toggle `visible`.
   - **Edit** — abre overlay com formulário pré-preenchido.
-  - **Delete** (lixeira vermelha) — confirma + DELETE.
-- **Overlay/formulário de evento** com todos os campos: slug, título, descrição curta, descrição longa, fotos (até 6 com pré-visualização miniatura inline — campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, data, créditos, link extra, status, **categoria** (lista gerenciável — ver aba Config; alimenta os filtros da galeria), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
-- **Edição em massa:** botão "Selecionar" mostra checkboxes nos eventos; escolha uma categoria e clique "Aplicar" para atribuí-la a todos os selecionados de uma vez (`POST /api/events/bulk-category`).
+  - **Duplicar** — abre o formulário de "novo evento" pré-preenchido com os dados do evento (drive links, categoria, tipo de acesso, créditos, fotos), título com sufixo " (cópia)", `slug` em branco (precisa ser único) e nunca marcado como fixado (evita despinar o original ao salvar).
+  - **Delete** (lixeira vermelha) — pede confirmação **digitando o título exato do evento**, não só um clique em "Confirmar" (ver "Confirmações" abaixo).
+- **Overlay/formulário de evento** com todos os campos: slug, título, descrição longa, fotos (até 6, com colagem em lote — ver acima — e pré-visualização miniatura inline; campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, link do Drive para Instagram, data, "Em colaboração com" (institição/fotógrafo colaborador/projeto), link extra, status, tipo de acesso, **categoria** (lista gerenciável — ver aba Config; alimenta os filtros da galeria e do dashboard), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
+- **Edição em massa:** botão "Selecionar" mostra checkboxes nos eventos; escolha uma categoria (ou tipo de acesso) e clique "Aplicar" para atribuí-la a todos os selecionados de uma vez (`POST /api/events/bulk-category` ou `/api/events/bulk-access`) — pede confirmação **digitando a quantidade de eventos afetados** antes de aplicar.
 - A lista usa renderização híbrida: a primeira página vem **SSR** (renderizada no Worker) e o JS substitui via `renderEventList()` ao mudar filtro. Os botões funcionam via event delegation (`data-action`/`data-id`), então tanto o SSR quanto o re-render funcionam com o mesmo handler.
 
 #### Aba Métricas
@@ -513,12 +522,14 @@ Tabela com colunas: projeto, views, cliques no Drive. **Colunas ordenáveis** (c
 
 #### Aba Config
 
-- **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
-- **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar". PUT para `/api/settings/password`.
-- **Backup**:
-  - Botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações).
-  - Input file + botão "Restaurar backup" — POST `/api/backup/restore`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado.
+- **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e do dashboard, e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`, pede confirmação digitando o nome da categoria) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
+- **Backup**: botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações). Não-destrutivo, fica fora da zona de perigo.
 - **Exportar dados** (CSV): consentimentos (do D1, via `/api/consent/export`), solicitações de remoção e métricas.
+- **⚠️ Zona de perigo**: card com borda vermelha, separado visualmente do resto da aba, agrupando as duas ações que mutam dados globais/credenciais e agora exigem confirmação digitada:
+  - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar" → confirma digitando `TROCAR` antes do PUT para `/api/settings/password`.
+  - **Restaurar backup**: input file + botão "Restaurar backup" → confirma digitando `RESTAURAR` antes do POST para `/api/backup/restore`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado.
+
+**Confirmações**: `confirmDialog()` (o diálogo temático do painel, não o `confirm()` nativo) ganhou um modo "digite para confirmar" (`opts.typeToConfirm`) — o botão de confirmar fica desabilitado até o texto digitado bater exatamente (case-insensitive) com o esperado. Para exclusões (evento/categoria), digita-se o nome exato do item; para ações sem um "nome" natural (restaurar backup, trocar senha, aplicar em massa), digita-se uma palavra fixa ou a quantidade de itens afetados.
 
 #### Aba Solicitações
 
@@ -807,11 +818,11 @@ O arquivo [`TODO.md`](./TODO.md) lista **só o que está em aberto** — item en
 
 **Operação**: marcar releases com tag (hoje o repo não tem nenhuma — ver [Rollback](#rollback)); destino persistente para o beacon de `/api/perf` (binding `PERF` do Analytics Engine).
 
-**Dívidas**: revamp do tour guiado (texto defasado desde o gate server-side); decidir o destino da `/sobre`, escrita mas não roteada.
+**Dívidas**: decidir o destino da `/sobre`, escrita mas não roteada.
 
 **Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega.
 
-**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", modo claro automático, i18n EN/PT, links nominados por convidado, Google Drive API, download em ZIP, app nativo.
+**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", modo claro automático (o toggle manual experimental foi removido — ver "Dashboard"), i18n EN/PT, links nominados por convidado, download em ZIP, app nativo.
 
 ---
 
