@@ -1,4 +1,4 @@
-import { TERMS_VERSION, formatDatePT } from '../utils.js';
+import { TERMS_VERSION, formatDatePT, footerLegalLinksHTML } from '../utils.js';
 
 export function termsHTML() {
   return `<!DOCTYPE html>
@@ -19,12 +19,12 @@ export function termsHTML() {
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
-    .updated{font-size:.78rem;color:#555;margin-bottom:2.25rem}
+    .updated{font-size:.8rem;color:#555;margin-bottom:2.25rem}
     h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:#e0d8d0}
     p,li{font-size:.9rem;line-height:1.75;color:#b0a89e}
     p{margin-bottom:.75rem}
@@ -38,8 +38,12 @@ export function termsHTML() {
     .key{border-left:2px solid #3a3320;background:#0f0d08;padding:1rem 1.1rem;border-radius:0 7px 7px 0;margin:1rem 0}
     .key strong{color:#d8c89a}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a{color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
     footer a:hover{color:#777}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#777}
+    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
   </style>
 </head>
 <body>
@@ -109,8 +113,7 @@ export function termsHTML() {
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
-    <a href="/privacidade">Privacidade</a>
-    <a href="/suporte">Suporte</a>
+    ${footerLegalLinksHTML()}
   </footer>
 </body>
 </html>`;

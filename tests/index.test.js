@@ -48,11 +48,12 @@ describe('normalizeEventFields', () => {
   it('applies defaults for an empty body (create shape)', () => {
     const f = normalizeEventFields({}, DEFAULT_EVENT, CATS);
     expect(f).toMatchObject({
-      title: '', shortDescription: '', longDescription: '', driveUrl: '',
+      title: '', longDescription: '', driveUrl: '',
       driveUrlInstagram: '', date: '', eventCredits: '', projectUrl: '',
       visible: true, comingSoon: false, status: 'entregue', accessType: 'public',
       category: '', internalNotes: '', pinned: false,
     });
+    expect(f).not.toHaveProperty('shortDescription');
     expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24 });
   });
 

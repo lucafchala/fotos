@@ -1,3 +1,5 @@
+import { footerLegalLinksHTML } from '../utils.js';
+
 // Static "Sobre" (About) page — mirrors privacy.js structure (same head, dark
 // theme, back link, footer). No dynamic content, so no escaping is needed.
 // The copy below is a placeholder the owner can edit freely.
@@ -24,7 +26,7 @@ export function aboutHTML() {
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:#bbb}
     .back svg{width:14px;height:14px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
@@ -49,8 +51,12 @@ export function aboutHTML() {
     .cta-btn svg{width:14px;height:14px;flex-shrink:0}
     .note{font-size:.82rem;color:#666;line-height:1.6;border-left:2px solid #1e1e1e;padding-left:1rem;margin:1.5rem 0 0}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414;display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:#3a3a3a;font-size:.75rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a{color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
     footer a:hover{color:#777}
+    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#3a3a3a;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:#777}
+    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
   </style>
 </head>
 <body>
@@ -105,9 +111,7 @@ export function aboutHTML() {
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
-    <a href="/privacidade">Privacidade</a>
-    <a href="/termos">Termos</a>
-    <a href="/suporte">Suporte</a>
+    ${footerLegalLinksHTML()}
   </footer>
 </body>
 </html>`;

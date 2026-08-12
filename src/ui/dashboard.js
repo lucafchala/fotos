@@ -454,10 +454,6 @@ export function dashboardHTML(events, categories = []) {
           <input type="text" id="f-title" placeholder="Ex: Formatura Turma 2025">
         </div>
         <div class="field">
-          <label>Descrição curta <span style="color:#555">(aparece no card)</span></label>
-          <input type="text" id="f-short" placeholder="Resumo em 1-2 frases" maxlength="150">
-        </div>
-        <div class="field">
           <label>Descrição completa <span style="color:#555">(aparece na página do projeto)</span></label>
           <textarea id="f-long" placeholder="Detalhes sobre o evento, contexto, etc."></textarea>
         </div>
@@ -694,7 +690,6 @@ export function dashboardHTML(events, categories = []) {
       document.getElementById('f-slug').readOnly = !!id;
       document.getElementById('f-slug').style.opacity = id ? '.5' : '1';
       document.getElementById('f-title').value = e ? (e.title || '') : '';
-      document.getElementById('f-short').value = e ? (e.shortDescription || '') : '';
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
@@ -856,7 +851,6 @@ export function dashboardHTML(events, categories = []) {
       const body = {
         slug,
         title,
-        shortDescription: document.getElementById('f-short').value.trim(),
         longDescription: document.getElementById('f-long').value.trim(),
         photos,
         thumbnailUrl: photos[0] || '',

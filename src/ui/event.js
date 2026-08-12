@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -18,6 +18,9 @@ export function eventHTML(event, analyticsToken) {
   const ogImage     = event.comingSoon
     ? `${SITE_URL}/og-coming-soon.png`
     : (photos[0] ? sizedDriveThumb(photos[0], 1200) : '');
+  const ogDescription = event.longDescription
+    ? event.longDescription.slice(0, 200).trim()
+    : 'Fotografias de Luca F. Chala.';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
@@ -62,7 +65,7 @@ export function eventHTML(event, analyticsToken) {
   <title>${escape(event.title)} · fotos</title>
   <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
   <meta property="og:title" content="${escape(event.title)}">
-  <meta property="og:description" content="${escape(event.shortDescription || '')}">
+  <meta property="og:description" content="${escape(ogDescription)}">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta property="og:type" content="website">
   <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
@@ -76,10 +79,10 @@ export function eventHTML(event, analyticsToken) {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
-    header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.78rem;letter-spacing:.04em;transition:color .2s}
-    .back:hover{color:#bbb}
-    .back svg{width:14px;height:14px}
+    .hero-stage{position:relative}
+    .back-pill{position:absolute;top:.875rem;left:.875rem;z-index:3;display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;color:#f0ebe5;font-size:.8rem;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:.5rem .8rem .5rem .65rem;border-radius:20px;transition:background .2s}
+    .back-pill:hover{background:rgba(0,0,0,.65)}
+    .back-pill svg{width:14px;height:14px;flex-shrink:0}
     /* hero */
     .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative}
     .hero img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;transition:opacity .25s ease}
@@ -112,7 +115,7 @@ export function eventHTML(event, analyticsToken) {
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 6rem}
     .meta{margin-bottom:.875rem}
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:#555}
-    h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 1.75rem}
+    h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
     .desc{font-size:.95rem;line-height:1.85;color:#bbb;white-space:pre-wrap;word-break:break-word;margin-bottom:2.75rem}
     .drive-wrap{margin-bottom:3rem}
     .btn-drive{display:inline-flex;align-items:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.9rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:background .18s,transform .15s;width:100%;justify-content:center}
@@ -126,14 +129,16 @@ export function eventHTML(event, analyticsToken) {
       .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:#f0ebe5;color:#0a0a0a;border:none;padding:.85rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:translateY(160%);transition:transform .25s ease}
       .sticky-cta.show{transform:translateY(0)}
     }
-    .drive-note{font-size:.75rem;color:#555;margin-bottom:.875rem;line-height:1.5}
     /* credits */
     .credits{border-top:1px solid #191919;padding-top:2.25rem}
     .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#3a3a3a;margin-bottom:1rem}
-    .credits-list{display:flex;flex-direction:column;gap:.5rem}
+    .credits-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem}
     .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:#666;text-decoration:none;transition:color .2s;display:block}
     .credits-list a:hover{color:#bbb}
-    .credits-note{font-size:.78rem;color:#3a5a3a;margin-top:.875rem;padding:.625rem .875rem;background:#0a140a;border:1px solid #162016;border-radius:7px;line-height:1.55}
+    .ig-credit-btn{display:inline-flex;align-items:center;gap:.6rem;background:#1c1c1c;border:1px solid #3a3a3a;color:#f0ebe5;text-decoration:none;padding:.65rem 1rem;border-radius:24px;font-size:.85rem;font-weight:500;transition:border-color .2s,background .2s,transform .15s}
+    .ig-credit-btn:hover{background:#242424;border-color:#dc2743;transform:translateY(-1px)}
+    .ig-credit-icon{display:inline-flex;flex-shrink:0}
+    .ig-credit-text strong{font-weight:700;color:#fff}
     /* banner */
     .photos-banner{background:#0d1a0d;border-bottom:1px solid #1a3a1a;padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:center;gap:.625rem}
     .banner-inner{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:#8ac88a;max-width:680px;width:100%}
@@ -142,16 +147,17 @@ export function eventHTML(event, analyticsToken) {
     .banner-text strong{color:#a8d8a8}
     .banner-time{color:#6aaa6a}
     /* footer */
-    footer{padding:2rem 1.5rem 3rem;border-top:1px solid #111;margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem}
-    @media(min-width:560px){footer{flex-direction:row;justify-content:space-between;align-items:center}}
-    .footer-brand{color:#2e2e2e;font-size:.75rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
+    footer{padding:2rem 1.5rem 3rem;border-top:1px solid #111;margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1rem}
+    .footer-brand{color:#2e2e2e;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
     .footer-brand:hover{color:#666}
-    .footer-actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center}
-    .removal-link{display:inline-flex;align-items:center;gap:.5rem;background:none;border:1px solid #2a2a2a;color:#888;padding:.6rem 1.1rem;border-radius:8px;font-size:.78rem;font-weight:500;cursor:pointer;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;text-decoration:none}
-    .removal-link:hover{border-color:#555;color:#ccc;background:#111}
-    .removal-link svg{width:13px;height:13px;flex-shrink:0}
-    .whatsapp-link{display:inline-flex;align-items:center;gap:.5rem;background:none;border:1px solid #1a2e1a;color:#4a8a4a;padding:.6rem 1.1rem;border-radius:8px;font-size:.78rem;font-weight:500;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;text-decoration:none}
-    .whatsapp-link:hover{border-color:#2a4a2a;color:#6aaa6a;background:#0a120a}
+    .footer-actions-primary{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center}
+    .action-btn{display:inline-flex;align-items:center;gap:.5rem;background:#1c1c1c;border:1px solid #3a3a3a;color:#f0ebe5;padding:.75rem 1.25rem;border-radius:9px;font-size:.85rem;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:border-color .2s,background .2s,transform .15s;white-space:nowrap;text-decoration:none}
+    .action-btn:hover{background:#242424;border-color:#4a4a4a;transform:translateY(-1px)}
+    .action-btn svg{width:15px;height:15px;flex-shrink:0}
+    .footer-actions-legal{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:.25rem}
+    .legal-link{display:inline-flex;align-items:center;gap:.45rem;background:none;border:1px solid #222;color:#888;padding:.5rem .9rem;border-radius:8px;font-size:.8rem;font-weight:500;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;text-decoration:none}
+    .legal-link:hover{border-color:#3a3a3a;color:#bbb;background:#111}
+    .footer-copyright{font-size:.72rem;color:#3a3a3a;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
     /* shared modal base */
     .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
@@ -163,29 +169,46 @@ export function eventHTML(event, analyticsToken) {
     .m-close{background:none;border:1px solid #222;color:#555;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
     .m-close:hover{border-color:#444;color:#ccc}
     /* drive modal */
-    .guide-title{font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:.875rem}
-    .drive-verifying{display:flex;align-items:center;gap:.5rem;color:#888;font-size:.8rem;margin-top:1rem}
+    .guide-box{border-left:3px solid #c0a060;background:#141210;border-radius:0 10px 10px 0;padding:1.125rem 1.25rem;margin-bottom:1.25rem}
+    .guide-title{font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#c0a060;margin-bottom:.75rem}
+    .guide-note{font-size:.85rem;line-height:1.65;color:#ddd;margin-bottom:.875rem}
+    .guide-note:last-child{margin-bottom:0}
+    .guide-credit{color:#aaa}
+    .drive-verifying{display:flex;align-items:center;gap:.5rem;color:#888;font-size:.82rem;margin-top:.875rem}
     .spin{width:14px;height:14px;border:2px solid #2a2a2a;border-top-color:#999;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.8rem;color:#bbb;line-height:1.5}
+    .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.85rem;color:#bbb;line-height:1.5;border-radius:8px}
     .drive-consent input{width:18px;height:18px;accent-color:#c0a060;flex-shrink:0;margin-top:1px}
     .drive-consent a{color:#c0a060}
+    .flash-warn{animation:flashWarn 1.3s ease}
+    @keyframes flashWarn{0%,100%{box-shadow:none}25%,65%{box-shadow:0 0 0 2px #a9714a}}
     .drive-name-toggle{background:none;border:none;color:#666;font-size:.74rem;cursor:pointer;margin-top:.625rem;padding:0;text-decoration:underline}
     .drive-name-toggle:hover{color:#999}
-    .drive-consent-note{font-size:.68rem;color:#444;line-height:1.5;margin-top:.875rem}
-    .drive-consent-note a{color:#666}
-    .drive-locked{opacity:.4;pointer-events:none;filter:grayscale(.3)}
-    .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s}
+    #drive-gate-hint{font-size:.82rem;color:#c99a5c;line-height:1.5;margin-top:.875rem}
+    .drive-consent-note{font-size:.8rem;color:#555;line-height:1.5;margin-top:.875rem}
+    .drive-consent-note a{color:#777}
+    .drive-locked .btn-drive-go,.drive-locked .btn-drive-opt{background:#1a1a1a;border-color:#232323;color:#6a6a6a;cursor:not-allowed}
+    .drive-locked .btn-drive-go:hover,.drive-locked .btn-drive-opt:hover{background:#1a1a1a;transform:none;border-color:#232323}
+    .drive-locked .btn-drive-opt svg{color:#555}
+    .drive-locked .drive-opt-text strong{color:#8a8a8a}
+    .drive-locked .drive-opt-text span{color:#555}
+    .btn-drive-go{display:flex;align-items:center;justify-content:center;gap:.65rem;background:#f0ebe5;color:#0a0a0a;border:none;padding:.875rem 1.5rem;border-radius:9px;font-size:.875rem;font-weight:600;cursor:pointer;margin-top:1rem;width:100%;text-decoration:none;transition:background .18s,transform .15s,box-shadow .3s}
     .btn-drive-go:hover{background:#fff;transform:translateY(-1px)}
     .btn-drive-go svg{width:18px;height:18px;flex-shrink:0}
     .drive-opts{display:flex;flex-direction:column;gap:.5rem;margin-top:1rem}
-    .btn-drive-opt{display:flex;align-items:center;gap:.875rem;background:#111;border:1px solid #252525;color:#f0ebe5;padding:.9rem 1.1rem;border-radius:10px;text-decoration:none;transition:border-color .18s,background .18s;width:100%}
-    .btn-drive-opt:hover{border-color:#3a3a3a;background:#161616}
-    .btn-drive-opt svg{width:20px;height:20px;flex-shrink:0;color:#888}
+    .btn-drive-opt{display:flex;align-items:center;gap:.875rem;background:#1c1c1c;border:1px solid #3a3a3a;color:#f0ebe5;padding:.9rem 1.1rem;border-radius:10px;text-decoration:none;transition:border-color .18s,background .18s,box-shadow .3s;width:100%}
+    .btn-drive-opt:hover{border-color:#4a4a4a;background:#242424}
+    .btn-drive-opt svg{width:20px;height:20px;flex-shrink:0;color:#aaa}
     .drive-opt-text{display:flex;flex-direction:column;gap:.15rem}
     .drive-opt-text strong{font-size:.875rem;font-weight:600;color:#f0ebe5}
-    .drive-opt-text span{font-size:.72rem;color:#666;font-weight:400}
+    .drive-opt-text span{font-size:.72rem;color:#8a8a8a;font-weight:400}
+    .btn-icon{display:inline-flex}
+    .btn-spin{display:none}
     .drive-loading{pointer-events:none}
+    .drive-loading .btn-icon{display:none}
+    .drive-loading .btn-spin{display:inline-flex}
+    .drive-attn{animation:driveAttn 1.6s ease-in-out infinite}
+    @keyframes driveAttn{0%,100%{box-shadow:0 0 0 0 rgba(192,160,96,0)}50%{box-shadow:0 0 0 5px rgba(192,160,96,.22)}}
     /* removal modal */
     .rem-intro{font-size:.875rem;color:#888;line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
@@ -226,7 +249,7 @@ export function eventHTML(event, analyticsToken) {
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
       .banner-dot{animation:none}
-      .btn-drive:hover,.btn-drive-go:hover{transform:none}
+      .btn-drive:hover,.btn-drive-go:hover,.action-btn:hover,.ig-credit-btn:hover{transform:none}
     }
   </style>
 </head>
@@ -244,14 +267,13 @@ export function eventHTML(event, analyticsToken) {
     </div>
   </div>` : ''}
 
-  <header>
-    <a href="/" class="back">
+  <div class="hero-stage">
+    ${heroHTML}
+    <a href="/" class="back-pill" aria-label="Voltar para todos os projetos">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
-      todos os projetos
+      <span>todos os projetos</span>
     </a>
-  </header>
-
-  ${heroHTML}
+  </div>
 
   <main>
     <div class="meta">
@@ -275,46 +297,34 @@ export function eventHTML(event, analyticsToken) {
     <div class="credits">
       <div class="credits-title">Créditos</div>
       <div class="credits-list">
-        <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener">📷 Fotografias: @lucafchala</a>
         ${event.eventCredits ? `<span>${escape(event.eventCredits)}</span>` : ''}
         ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
       </div>
-      <div class="credits-note">Ao postar as fotos, marque sempre <strong>@lucafchala</strong> 📸 — isso valoriza o trabalho e incentiva novos projetos.</div>
+      ${igCreditButtonHTML('1')}
     </div>
   </main>
 
   <footer>
     <a href="/" class="footer-brand">fotos · Luca F. Chala</a>
-    <div class="footer-actions">
-      <button class="whatsapp-link" id="btn-share-native" style="display:none" onclick="doNativeShare()">
+    <div class="footer-actions-primary">
+      <button class="action-btn" id="btn-share-native" style="display:none" onclick="doNativeShare()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         Compartilhar
       </button>
-      <a href="https://wa.me/?text=${escape(`Veja as fotos de ${event.title} em fotos.lucafchala.com/${event.slug}`)}" target="_blank" rel="noopener" class="whatsapp-link" id="btn-share-wa">
+      <a href="https://wa.me/?text=${escape(`Veja as fotos de ${event.title} em fotos.lucafchala.com/${event.slug}`)}" target="_blank" rel="noopener" class="action-btn" id="btn-share-wa">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
         WhatsApp
       </a>
-      <button class="removal-link" id="btn-copy-link" style="display:none" onclick="copyLink()">
+      <button class="action-btn" id="btn-copy-link" style="display:none" onclick="copyLink()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         <span id="copy-label">Copiar link</span>
       </button>
-      <button class="removal-link" onclick="openRemModal()">
+      <button class="action-btn" onclick="openRemModal()">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
       </button>
-      <a href="/suporte" class="removal-link">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        Suporte
-      </a>
-      <a href="/privacidade" class="removal-link">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Privacidade
-      </a>
-      <a href="/termos" class="removal-link">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
-        Termos
-      </a>
     </div>
+    ${footerLegalLinksHTML()}
   </footer>
 
   ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" onclick="openModal()" aria-label="Acessar fotos">
@@ -331,14 +341,16 @@ export function eventHTML(event, analyticsToken) {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="guide-title">Antes de acessar</div>
-      <p class="drive-note" style="margin-bottom:.875rem">Marque <strong style="color:#d0d0d0">@lucafchala</strong> 📸 ao postar. Baixe pelo Drive — evite print, mantém a qualidade original.</p>
-      <div id="drive-verifying" class="drive-verifying"><span class="spin"></span> Carregando acesso ao Drive…</div>
-      <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888">Não foi possível carregar a verificação de segurança. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</div>
+      <div class="guide-box">
+        <div class="guide-title">Antes de acessar</div>
+        <p class="guide-note">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
+        ${igCreditButtonHTML('2')}
+        ${event.eventCredits ? `<p class="guide-note guide-credit">Fotos por: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
+      </div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
       </div>
-      <div id="drive-gate" style="display:none">
+      <div id="drive-gate">
         ${declaration ? `<label class="drive-consent">
           <input type="checkbox" id="drive-declaration" onchange="onDriveConsent()">
           <span>${escape(declaration)}</span>
@@ -351,25 +363,28 @@ export function eventHTML(event, analyticsToken) {
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:.625rem;margin-bottom:0">
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
-        <p id="drive-gate-hint" style="font-size:.72rem;color:#a98a4a;line-height:1.5;margin-top:.875rem"></p>
-        <div id="drive-link-status" class="drive-verifying" style="display:none;margin-top:1rem"><span class="spin"></span> Preparando seu acesso…</div>
+        <p id="drive-gate-hint" style="display:none"></p>
+        <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</div>
         <div id="drive-link-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">
           Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" style="background:none;border:none;color:#e0a0a0;text-decoration:underline;cursor:pointer;font:inherit;padding:0;margin-left:.35rem">Tentar novamente</button>
         </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
-              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="return onDriveLinkClick(event)">
+                <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
+                <span class="btn-spin"><span class="spin"></span></span>
                 <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
               </a>
-              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="onDriveOpen()">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="return onDriveLinkClick(event)">
+                <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg></span>
+                <span class="btn-spin"><span class="spin"></span></span>
                 <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
               </a>
             </div>`
-          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="onDriveOpen()">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="return onDriveLinkClick(event)">
+              <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
+              <span class="btn-spin"><span class="spin"></span></span>
               Ir para o Google Drive
             </a>`}
         </div>
@@ -525,10 +540,10 @@ export function eventHTML(event, analyticsToken) {
     const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
     let driveWidgetId  = null;
     let driveTsToken   = '';
-    let driveGateShown = false;
     let driveTimeout   = null;
     let driveLinkState = 'idle'; // idle | loading | ready | error
     let driveLinkResult = null;  // { driveUrl, driveUrlInstagram } cached after a successful fetch
+    let driveAttnTimer = null;
     let remWidgetId   = null;
     let remTsToken    = '';
 
@@ -544,15 +559,9 @@ export function eventHTML(event, analyticsToken) {
         execution: 'execute', // don't fire on render — we control the timing below
         callback: function(t) {
           driveTsToken = t;
-          // revealDriveGate()/driveVerifyError() already no-op if the modal
-          // isn't open yet or the gate was already shown — no need to gate
-          // this call on driveGateShown (it starts false and only flips
-          // true *inside* revealDriveGate, so gating on it here skipped the
-          // reveal whenever Turnstile finished resolving after the modal
-          // had already been opened — the modal got stuck on "Carregando
-          // acesso ao Drive…" until the 9s safety timeout kicked in).
+          // Terms/button are already visible — this just clears the stuck-check
+          // note (if it had fired) and lets the gate fetch the real link.
           revealDriveGate();
-          updateDriveLock();
           maybeFetchDriveLink();
         },
         'error-callback': function() { driveTsToken = ''; driveVerifyError(); },
@@ -564,7 +573,7 @@ export function eventHTML(event, analyticsToken) {
     // ---- Drive modal (Terms-gated, low-friction) ----
     function openModal() {
       lastFocused = document.activeElement;
-      driveGateShown = false;
+      clearCtaAttn();
       const consent = document.getElementById('drive-consent');
       const declaration = document.getElementById('drive-declaration');
       const nameWrap = document.getElementById('drive-name-wrap');
@@ -573,8 +582,6 @@ export function eventHTML(event, analyticsToken) {
       if (nameToggle) nameToggle.style.display = '';
       const nameInput = document.getElementById('drive-name');
       if (nameInput) nameInput.value = '';
-      document.getElementById('drive-gate').style.display = 'none';
-      document.getElementById('drive-verifying').style.display = '';
       document.getElementById('drive-verify-error').style.display = 'none';
       hideAdblockWarn('drive-adblock');
       document.getElementById('modal').classList.add('open');
@@ -586,7 +593,6 @@ export function eventHTML(event, analyticsToken) {
       if (driveLinkResult) {
         if (consent) consent.checked = true;
         if (declaration) declaration.checked = true;
-        revealDriveGate();
         driveLinkState = 'ready';
         setDriveLinkUI('ready', driveLinkResult);
         return;
@@ -597,63 +603,35 @@ export function eventHTML(event, analyticsToken) {
       driveLinkState = 'idle';
       setDriveLinkUI('idle');
 
-      // Invisible browser check: the Terms + buttons are revealed only AFTER
-      // Turnstile passes. A safety timeout surfaces an error instead of hanging.
+      // Terms + the (visibly-present, disabled-styled) button show together
+      // immediately — Turnstile keeps resolving invisibly in the background,
+      // exactly as it pre-warmed on page load. Only a genuinely stuck check
+      // (no token after 9s) surfaces a small inline note; it never hides
+      // the terms or the button.
       clearTimeout(driveTimeout);
-      driveTimeout = setTimeout(driveVerifyError, 9000);
+      driveTimeout = setTimeout(function() { if (!driveTsToken) driveVerifyError(); }, 9000);
       // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
       // that must not brick delivery, so the server has its own (weaker,
       // rate-limited) path for this token value.
-      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; revealDriveGate(); updateDriveLock(); return; }
+      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; maybeFetchDriveLink(); return; }
       if (driveTsToken) {
-        // Pre-fetched while the page was idle — gate opens instantly.
-        revealDriveGate();
-        updateDriveLock();
+        // Pre-fetched while the page was idle — nothing left to wait for.
+        clearTimeout(driveTimeout);
       }
       // else: initDriveTurnstile()'s callback is still resolving in the
       // background and will call revealDriveGate() once it lands.
     }
     function revealDriveGate() {
-      if (driveGateShown) return;
-      driveGateShown = true;
       clearTimeout(driveTimeout);
-      const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
       const e = document.getElementById('drive-verify-error'); if (e) e.style.display = 'none';
-      const g = document.getElementById('drive-gate'); if (g) g.style.display = '';
-      updateDriveLock();
-      const c = document.getElementById('drive-consent'); if (c) c.focus();
     }
-    // Browser check failed/timed out — surface it instead of hanging (fail closed).
+    // Browser check is taking unusually long — surface a small note without
+    // hiding the terms or the (still visibly-present) button.
     function driveVerifyError() {
-      if (driveGateShown) return;
-      const v = document.getElementById('drive-verifying'); if (v) v.style.display = 'none';
       const e = document.getElementById('drive-verify-error'); if (e) e.style.display = '';
     }
     function onDriveConsent() {
-      updateDriveLock();
       maybeFetchDriveLink();
-    }
-    // Just the Terms/declaration + Turnstile hint — the actual link is only
-    // ever unlocked by a successful /api/drive-link response (see setDriveLinkUI).
-    function updateDriveLock() {
-      const c = document.getElementById('drive-consent');
-      const decl = document.getElementById('drive-declaration');
-      const hint = document.getElementById('drive-gate-hint');
-      const consentOk = !!(c && c.checked);
-      const declOk = !decl || decl.checked; // no declaration for this project → satisfied
-      const acceptOk = consentOk && declOk;
-      const tsOk = driveTsToken !== '';
-      const ok = acceptOk && tsOk;
-      if (hint) {
-        hint.style.display = ok ? 'none' : '';
-        if (!ok) {
-          const acceptText = decl ? 'a declaração e os Termos' : 'os Termos';
-          hint.textContent = !tsOk
-            ? (acceptOk ? 'Conclua a verificação de segurança acima para liberar o acesso.'
-                        : 'Conclua a verificação de segurança e aceite ' + acceptText + '.')
-            : 'Aceite ' + acceptText + ' para liberar o acesso.';
-        }
-      }
     }
     // Fires the real gate: only requests the link once Turnstile + consent
     // (+ declaration, when required) are all satisfied — no click needed.
@@ -702,27 +680,30 @@ export function eventHTML(event, analyticsToken) {
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
-    // Drives the visible state of the link button(s): greyed out (.drive-locked,
-    // exactly as before the server-side gate existed) until the real href lands,
-    // with a small text status while the request is in flight. No animation on
-    // the buttons themselves — they simply light up once ready.
+    // Drives the visible state of the link button(s): visibly-present but
+    // muted (.drive-locked) until the real href lands, with a spinner
+    // swapped in for the icon while the request is in flight (.drive-loading,
+    // see .btn-icon/.btn-spin). Once ready, an idle timer draws attention if
+    // the visitor doesn't click within a few seconds.
+    function clearDriveAttn() {
+      clearTimeout(driveAttnTimer);
+      const wrap = document.getElementById('drive-links-wrap');
+      if (wrap) wrap.classList.remove('drive-attn');
+    }
     function setDriveLinkUI(state, data) {
       const wrap = document.getElementById('drive-links-wrap');
-      const status = document.getElementById('drive-link-status');
       const err = document.getElementById('drive-link-error');
       if (!wrap) return;
+      clearDriveAttn();
       if (state === 'idle') {
         wrap.classList.add('drive-locked');
         wrap.classList.remove('drive-loading');
-        if (status) status.style.display = 'none';
         if (err) err.style.display = 'none';
       } else if (state === 'loading') {
         wrap.classList.add('drive-locked', 'drive-loading');
-        if (status) status.style.display = '';
         if (err) err.style.display = 'none';
       } else if (state === 'ready') {
         wrap.classList.remove('drive-locked', 'drive-loading');
-        if (status) status.style.display = 'none';
         if (err) err.style.display = 'none';
         const primary = document.getElementById('drive-link');
         if (primary) {
@@ -731,11 +712,38 @@ export function eventHTML(event, analyticsToken) {
         }
         const ig = document.getElementById('drive-link-ig');
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
+        driveAttnTimer = setTimeout(function() { wrap.classList.add('drive-attn'); }, 7000);
       } else if (state === 'error') {
         wrap.classList.add('drive-locked');
         wrap.classList.remove('drive-loading');
-        if (status) status.style.display = 'none';
         if (err) err.style.display = '';
+      }
+    }
+    function onDriveLinkClick(e) {
+      if (driveLinkState !== 'ready') { e.preventDefault(); handleBlockedDriveClick(); return false; }
+      clearDriveAttn();
+      onDriveOpen();
+      return true;
+    }
+    // Clicked while not ready: only the "accept the terms" message is ever
+    // right here — if terms are already accepted and it's just Turnstile or
+    // the network still resolving, saying "accept the terms" would be wrong,
+    // so we stay silent (the button's own spinner already communicates that).
+    function handleBlockedDriveClick() {
+      const c = document.getElementById('drive-consent');
+      const decl = document.getElementById('drive-declaration');
+      const acceptOk = !!(c && c.checked) && (!decl || decl.checked);
+      if (!acceptOk) {
+        const hint = document.getElementById('drive-gate-hint');
+        if (hint) {
+          hint.textContent = 'você precisa aceitar os termos e declarações primeiro';
+          hint.style.display = '';
+          clearTimeout(window.__driveHintTimer);
+          window.__driveHintTimer = setTimeout(function() { hint.style.display = 'none'; }, 3500);
+        }
+        document.querySelectorAll('.drive-consent').forEach(function(l) {
+          l.classList.remove('flash-warn'); void l.offsetWidth; l.classList.add('flash-warn');
+        });
       }
     }
     function toggleDriveName() {
@@ -749,6 +757,7 @@ export function eventHTML(event, analyticsToken) {
     function closeModal() {
       document.getElementById('modal').classList.remove('open');
       document.body.style.overflow = '';
+      clearDriveAttn();
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
@@ -996,6 +1005,16 @@ export function eventHTML(event, analyticsToken) {
     window.addEventListener('scroll', updateStickyCta, { passive: true });
     window.addEventListener('resize', updateStickyCta);
     updateStickyCta();
+
+    // ---- Idle-attention pulse on the main CTA: draw the eye if the visitor
+    // hasn't opened the Drive modal within a while. Cleared the moment they do.
+    var ctaAttnTimer = setTimeout(function() {
+      document.querySelectorAll('.btn-drive:not(.btn-soon), .sticky-cta').forEach(function(b) { b.classList.add('drive-attn'); });
+    }, 11000);
+    function clearCtaAttn() {
+      clearTimeout(ctaAttnTimer);
+      document.querySelectorAll('.btn-drive, .sticky-cta').forEach(function(b) { b.classList.remove('drive-attn'); });
+    }
 
     // ---- Share ----
     function doNativeShare() {

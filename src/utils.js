@@ -166,6 +166,48 @@ export function escape(str) {
     .replace(/'/g, '&#x27;');
 }
 
+// Shared footer block (legal links + copyright) reused across every public
+// page so the six near-identical footers can't drift out of sync as new
+// links get added. The year is computed live — pages render per-request, so
+// the copyright is always current with no cron/build step needed. Callers
+// provide their own CSS for .legal-link/.footer-copyright (this only returns
+// markup, same contract as escape()/formatDatePT()).
+export function footerLegalLinksHTML() {
+  const year = new Date().getFullYear();
+  return `
+    <div class="footer-actions-legal">
+      <a href="/suporte" class="legal-link">Suporte</a>
+      <a href="/privacidade" class="legal-link">Privacidade</a>
+      <a href="/termos" class="legal-link">Termos</a>
+      <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
+    </div>
+    <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
+}
+
+// Instagram-branded credit button, reused twice on the event page (main
+// credits section + drive-modal guide box). idSuffix keeps each instance's
+// SVG gradient id unique since both can render on the same document.
+export function igCreditButtonHTML(idSuffix, label = 'por favor marque o fotógrafo') {
+  return `
+    <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener" class="ig-credit-btn">
+      <span class="ig-credit-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18">
+          <defs>
+            <linearGradient id="igGrad${idSuffix}" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#f09433"/><stop offset="25%" stop-color="#e6683c"/>
+              <stop offset="50%" stop-color="#dc2743"/><stop offset="75%" stop-color="#cc2366"/>
+              <stop offset="100%" stop-color="#bc1888"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#igGrad${idSuffix})"/>
+          <circle cx="12" cy="12" r="5" fill="none" stroke="#fff" stroke-width="1.8"/>
+          <circle cx="17.2" cy="6.8" r="1.3" fill="#fff"/>
+        </svg>
+      </span>
+      <span class="ig-credit-text">${label}: <strong>@lucafchala</strong></span>
+    </a>`;
+}
+
 export function validateSlug(slug) {
   return typeof slug === 'string' && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug) && slug.length <= 60;
 }

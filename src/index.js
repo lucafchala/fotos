@@ -375,7 +375,7 @@ const EVENT_STATUSES = ['em-edicao', 'em-revisao', 'entregue', 'arquivado'];
 // Fallback values for a brand-new event and for any field a legacy event is
 // missing. Create passes this as the base; update passes the existing event.
 export const DEFAULT_EVENT = {
-  title: '', shortDescription: '', longDescription: '',
+  title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
   projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
   accessType: 'public', category: '', internalNotes: '', pinned: false,
@@ -407,7 +407,6 @@ export function normalizeEventFields(body, base, cats) {
   const pick = (key, norm) => (body[key] !== undefined ? norm(body[key]) : b[key]);
   return {
     title: pick('title', v => String(v).slice(0, 200)),
-    shortDescription: pick('shortDescription', v => String(v).slice(0, 300)),
     longDescription: pick('longDescription', v => String(v).slice(0, 5000)),
     driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, 500))),
     driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
