@@ -107,39 +107,6 @@ prune tasks fails, not just `console.error` — a retention bug is as much a
 be visible only in Cloudflare's logs or, indirectly, once the cron heartbeat
 (`/api/healthz`'s `cron.stale`) aged past a day.
 
-### The gap this alerting can't close, and how it's covered
-
-`sendErrorAlert()` only fires when something inside the Worker throws a
-catchable exception. A **total** outage — KV down account-wide, a bad deploy,
-the cron silently not firing at all — may never throw anything the Worker
-itself can catch, so it can pass in silence even with alerting configured.
-That is exactly what an *external* prober is for: something outside the
-Worker, polling `/api/healthz` on its own schedule, that notices even when
-the Worker can't notice for itself.
-
-`status.lucafchala.com` already does this passively (dissects `/api/healthz`
-and probes `/dashboard` for a 503), but it's a dashboard you have to remember
-to check, not a push notification. To close that, set up a free
-[UptimeRobot](https://uptimerobot.com/) monitor — this is a manual, one-time
-step in UptimeRobot's own dashboard, not something deployable from this repo:
-
-1. Create a free UptimeRobot account.
-2. Add a new **HTTP(s)** monitor pointing at
-   `https://fotos.lucafchala.com/api/healthz`.
-3. Under "Advanced", add a **keyword assertion**: alert if the response does
-   **not** contain `"ok":true` (catches both a 503 and a 200 with `ok:false`,
-   in case Cloudflare ever fronts a non-200 error page instead).
-4. Set the check interval to 5 minutes (the free plan's floor).
-5. Under alert contacts, add your e-mail (always free on UptimeRobot) and, if
-   you want a faster ping than e-mail for a real outage, add your phone
-   number as an SMS contact — check at signup whether the current free plan
-   still includes SMS credits, since free-tier terms change over time; e-mail
-   stays the reliable fallback either way.
-
-This complements, not replaces, `status.lucafchala.com` — keep both: the
-status page for at-a-glance diagnosis of *what* broke (KV? cron? a missing
-secret?), UptimeRobot for actually being told *that* something broke.
-
 ## Response / Prazo de resposta
 
 This is a personal project maintained by one person. We aim to **acknowledge

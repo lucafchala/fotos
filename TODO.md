@@ -6,6 +6,23 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
+## Monitoramento — prioridade máxima
+
+- [ ] **Monitoramento de uptime externo, para toda a suite de sites (não só
+      esta página)** — cobrir fotos.lucafchala.com, lucafchala.com e qualquer
+      outro site do Luca, cada um com seu próprio monitor externo (fora do
+      Worker/hosting de cada site) batendo periodicamente no endpoint
+      relevante — aqui seria `/api/healthz`. Serviço ainda **não decidido**
+      (UptimeRobot foi cogitado, mas a decisão foi pausada); ação manual —
+      exige conta própria em algum provedor, não dá pra criar por aqui.
+      Motivo: o alerta por e-mail que já existe (`sendErrorAlert`, dispara em
+      exceções não tratadas e, agora, também em falha do cron de retenção) só
+      funciona quando algo **dentro** do Worker lança uma exceção capturável
+      — uma queda total (KV fora do ar, deploy quebrado, cron morto em
+      silêncio) pode não lançar nada e passar batido sem um prober externo.
+
+---
+
 ## Lançamento
 
 - [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
@@ -61,17 +78,6 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
       Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
       gravar sozinho.
-- [ ] **Monitoramento de uptime externo (UptimeRobot)** batendo em
-      `/api/healthz` — decidido, passo a passo documentado em
-      [SECURITY.md](./SECURITY.md#the-gap-this-alerting-cant-close-and-how-its-covered).
-      Só falta o cadastro manual (conta do UptimeRobot é do dono, não dá pra
-      criar por aqui). O lado que dava pra fechar em código já foi: o cron
-      diário agora também dispara `sendErrorAlert()` quando uma das tarefas de
-      limpeza falha (antes só ia pro `console.error`), e `/api/healthz` +
-      `scheduled()` ganharam teste unitário (`tests/healthz.test.js`) — mas a
-      lacuna de fundo continua real: uma queda total (KV fora do ar, erro de
-      deploy) pode não lançar exceção nenhuma dentro do Worker, e só um
-      prober externo pega isso.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente,
