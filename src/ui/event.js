@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -248,6 +248,12 @@ export function eventHTML(event, analyticsToken) {
     .btn-rem-submit:not(:disabled):hover{opacity:.88}
     .rem-success{text-align:center;padding:2rem 0;color:#7ec87e;font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:#5aaa5a}
+    /* new-interface banner */
+    .update-banner{background:#151208;border-bottom:1px solid #3a3320;padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:#d8c89a;text-align:center}
+    .update-banner a{color:#c0a060;text-decoration:underline;text-underline-offset:2px}
+    .update-banner a:hover{color:#d4b070}
+    .update-banner .ub-close{background:none;border:none;color:#8a7a50;cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
+    .update-banner .ub-close:hover{color:#d8c89a}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -269,6 +275,7 @@ export function eventHTML(event, analyticsToken) {
       Para acessar as fotos, ative o <strong>JavaScript</strong> e desative o bloqueador de anúncios para este site; depois recarregue a página. Precisa de ajuda? <a href="/suporte">Suporte</a>.
     </div>
   </noscript>
+  ${updateBannerHTML()}
   ${showBanner ? `<div class="photos-banner" id="photos-banner">
     <div class="banner-inner">
       <span class="banner-dot"></span>
@@ -374,9 +381,10 @@ export function eventHTML(event, analyticsToken) {
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
         <p id="drive-gate-hint" style="display:none"></p>
-        <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</div>
+        <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.<br>Se continuar, <a href="/suporte" style="color:#e0a0a0">contate o dono</a> ou, se for urgente, chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" style="color:#e0a0a0">WhatsApp</a>.</div>
         <div id="drive-link-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">
           Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" style="background:none;border:none;color:#e0a0a0;text-decoration:underline;cursor:pointer;font:inherit;padding:0;margin-left:.35rem">Tentar novamente</button>
+          <br>Se persistir, <a href="/suporte" style="color:#e0a0a0">contate o dono</a> ou, se for urgente, chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" style="color:#e0a0a0">WhatsApp</a>.
         </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
@@ -545,6 +553,22 @@ export function eventHTML(event, analyticsToken) {
         const cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
         updateStickyCta();
+      });
+    })();
+
+    // ---- New-interface banner (dismiss remembered per visitor) ----
+    try {
+      if (localStorage.getItem('fotos:update_banner_dismissed')) {
+        const ub0 = document.getElementById('update-banner');
+        if (ub0) ub0.style.display = 'none';
+      }
+    } catch(_) {}
+    (function(){
+      const ubClose = document.getElementById('update-banner-close');
+      if (ubClose) ubClose.addEventListener('click', function(){
+        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
+        const ub = document.getElementById('update-banner');
+        if (ub) ub.style.display = 'none';
       });
     })();
 

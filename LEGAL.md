@@ -22,6 +22,8 @@
 ## Operadores / terceiros
 Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile em modo invisível** — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails) · Google Fonts.
 
+Opcionalmente, a **Google Drive API** (v3, só com API key, sem OAuth) é usada server-side para contar automaticamente as fotos de uma pasta a pedido do fotógrafo no painel — não envia dados de visitantes ao Google, só lista metadados (contagem de arquivos) das próprias pastas do fotógrafo já hospedadas no Drive.
+
 ## Segurança (resumo técnico)
 PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameSite=Strict (24 h); CSP/HSTS/COOP/CORP; Turnstile; rate-limit por IP (inclui login); escaping de saída; validação de entrada + sniff de upload por magic bytes; cron de retenção; `security.txt` (RFC 9116) e procedimento de incidente (art. 48 LGPD).
 

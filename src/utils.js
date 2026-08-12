@@ -10,6 +10,10 @@ const DRIVE_API_TIMEOUT_MS = 10_000;
 // (e.g. Drive misbehaving) can't hang the request indefinitely or blow past
 // a sane per-event photo count.
 const DRIVE_API_MAX_PAGES = 20;
+// Minimum gap between unhandled-exception alert emails — a single global
+// cooldown (not per-error-type) so an incident that throws repeatedly can't
+// flood the inbox; still frequent enough that a real outage is noticed fast.
+const ERROR_ALERT_COOLDOWN_SECS = 900;
 
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
@@ -210,6 +214,20 @@ export function igCreditButtonHTML(idSuffix, label = 'por favor marque o fotógr
       </span>
       <span class="ig-credit-text">${label}: <strong>@lucafchala</strong></span>
     </a>`;
+}
+
+// Dismissible "new interface" notice shown on the gallery and every project
+// page while the redesign is fresh. Dismissal is remembered client-side
+// (localStorage, same pattern as the cookie notice already on these pages) —
+// each page wires its own show/hide script since inline <script> blocks
+// aren't shared across pages, only this markup is.
+export function updateBannerHTML() {
+  return `
+    <div class="update-banner" id="update-banner">
+      <span>✨ Nova interface, melhorada!</span>
+      <a href="/suporte?tema=bug">Encontrou um problema? Reportar</a>
+      <button type="button" class="ub-close" id="update-banner-close" aria-label="Fechar aviso">×</button>
+    </div>`;
 }
 
 export function validateSlug(slug) {
@@ -484,6 +502,57 @@ export async function sendSupportEmail(env, { name, email, message }) {
     throw new Error(`Resend ${res.status}: ${text}`);
   }
   return true;
+}
+
+// Fire-and-forget alert to the site owner when an unhandled exception reaches
+// the top-level fetch() catch — a tripwire so an outage/bug is noticed without
+// watching logs. Deliberately never throws (called via ctx.waitUntil(...).catch
+// as a last-resort safety net; a failure here must never cascade) and never
+// includes request bodies/headers/IP — only the error message, a truncated
+// stack, and the route — to avoid ever incidentally mailing visitor PII.
+// Global cooldown (not per-error) so a repeating throw can't flood the inbox.
+export async function sendErrorAlert(env, err, context = {}) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  try {
+    const cooldownKey = 'error-alert:cooldown';
+    if (await env.FOTOS.get(cooldownKey)) return false;
+    await env.FOTOS.put(cooldownKey, '1', { expirationTtl: ERROR_ALERT_COOLDOWN_SECS });
+  } catch { /* KV hiccup shouldn't block the alert or the response */ }
+
+  const esc = escape;
+  const message = err && err.message ? String(err.message) : String(err);
+  const stack = err && err.stack ? String(err.stack).slice(0, 2000) : '';
+
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">🔴 Erro no site</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — captado no catch-all do Worker</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    ${context.path ? `<tr><td style="padding:8px 0;color:#666;width:80px">Rota</td><td style="padding:8px 0">${esc(context.method || '')} ${esc(context.path)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(message)}</td></tr>
+    ${stack ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Stack</td><td style="padding:8px 0;white-space:pre-wrap;font-family:monospace;font-size:11px;color:#555">${esc(stack)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos erros ficam em silêncio por ${Math.round(ERROR_ALERT_COOLDOWN_SECS / 60)} min para não lotar a caixa de entrada.</p>
+</div>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Fotos <noreply@lucafchala.com>',
+        to: [env.ADMIN_EMAIL],
+        subject: `🔴 Erro no site${context.path ? ` — ${context.path}` : ''}`,
+        html,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function sendConfirmationEmail(env, req) {

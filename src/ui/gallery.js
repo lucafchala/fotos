@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -137,15 +137,11 @@ export function galleryHTML(events, analyticsToken) {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{--bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;--text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;--border-dim:#1a1a1a;--footer-link:#888}
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
-    body.light{--bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;--text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;--border-dim:#ddd9d4;--footer-link:#6b6460}
     :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
-    .theme-toggle{position:absolute;right:1.25rem;top:50%;transform:translateY(-50%);background:none;border:1px solid var(--bg-card-border);color:var(--text-muted);border-radius:20px;padding:.35rem .8rem;font-size:.65rem;font-family:inherit;cursor:pointer;transition:border-color .2s,color .2s;display:inline-flex;align-items:center;gap:.35rem}
-    .theme-toggle:hover{border-color:var(--text-dim);color:var(--text)}
-    .theme-toggle .exp{font-size:.58rem;opacity:.45;font-style:italic}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
@@ -204,6 +200,11 @@ export function galleryHTML(events, analyticsToken) {
     .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
     .legal-link:hover{color:var(--text)}
     .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;order:99;margin-top:.75rem}
+    .update-banner{background:#151208;border-bottom:1px solid #3a3320;padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:#d8c89a;text-align:center}
+    .update-banner a{color:#c0a060;text-decoration:underline;text-underline-offset:2px}
+    .update-banner a:hover{color:#d4b070}
+    .update-banner .ub-close{background:none;border:none;color:#8a7a50;cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
+    .update-banner .ub-close:hover{color:#d8c89a}
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:#999;line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
@@ -215,11 +216,9 @@ export function galleryHTML(events, analyticsToken) {
   ${perfBootScript('gallery', !!analyticsToken)}
 </head>
 <body>
+  ${updateBannerHTML()}
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Alternar modo claro/escuro">
-      <span id="theme-icon">☀</span><span id="theme-label">claro</span><span class="exp">experimental</span>
-    </button>
   </header>
   <main>
     <h1 class="sr-only">Galeria de fotos</h1>
@@ -353,21 +352,18 @@ export function galleryHTML(events, analyticsToken) {
         if (cn) cn.classList.remove('show');
       });
 
-      // Light/dark theme toggle (experimental)
-      var toggleBtn = document.getElementById('theme-toggle');
-      var themeIcon = document.getElementById('theme-icon');
-      var themeLabel = document.getElementById('theme-label');
-      function setTheme(light){
-        document.body.classList.toggle('light', light);
-        if (themeIcon) themeIcon.textContent = light ? '☽' : '☀';
-        if (themeLabel) themeLabel.textContent = light ? 'escuro' : 'claro';
-        try { localStorage.setItem('fotos:theme', light ? 'light' : 'dark'); } catch(_) {}
-      }
+      // New-interface banner (dismiss remembered per visitor)
       try {
-        if (localStorage.getItem('fotos:theme') === 'light') setTheme(true);
+        if (localStorage.getItem('fotos:update_banner_dismissed')) {
+          var ub0 = document.getElementById('update-banner');
+          if (ub0) ub0.style.display = 'none';
+        }
       } catch(_) {}
-      if (toggleBtn) toggleBtn.addEventListener('click', function(){
-        setTheme(!document.body.classList.contains('light'));
+      var ubClose = document.getElementById('update-banner-close');
+      if (ubClose) ubClose.addEventListener('click', function(){
+        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
+        var ub = document.getElementById('update-banner');
+        if (ub) ub.style.display = 'none';
       });
     })();
   </script>

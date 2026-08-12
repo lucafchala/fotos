@@ -79,6 +79,27 @@ Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.t
   accepts only a non-negative integer and falls back to `0` — it deliberately
   rejects partial garbage (`"12abc"`) rather than salvaging a prefix.
 
+## Monitoring / alerting
+
+The top-level `fetch()` handler catches any unhandled exception from any
+route, returns a generic 500 to the visitor (with a link back to the gallery
+and to `/suporte`, never a stack trace), and fires a best-effort email to
+`ADMIN_EMAIL` via Resend (`sendErrorAlert()` in `src/utils.js`) — a tripwire
+so an outage or regression is noticed without watching logs. The alert
+contains only the error message, a truncated stack, and the route — never
+request bodies, headers, or visitor IP — and is throttled by a single global
+15-minute KV cooldown so a repeating failure can't flood the inbox. Alerting
+itself is fully isolated: `sendErrorAlert()` never throws, and the response
+already sent to the visitor never waits on it (`ctx.waitUntil`, best-effort).
+No `RESEND_API_KEY`/`ADMIN_EMAIL` configured means alerting silently no-ops —
+the site keeps working, you just won't be emailed.
+
+Server-side features that depend on an optional integration (Drive photo
+count, e-mail notifications, Web Analytics) already fail closed to "not
+available" rather than breaking the page they're on — see `fetchDrivePhotoCount()`
+and the `sendXEmail()` helpers in `src/utils.js`, all of which catch their own
+errors and return `null`/`false` instead of throwing into the caller.
+
 ## Response / Prazo de resposta
 
 This is a personal project maintained by one person. We aim to **acknowledge

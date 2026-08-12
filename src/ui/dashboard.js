@@ -80,6 +80,8 @@ export function dashboardHTML(events, categories = []) {
   const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
   const catOptionsSSR = ['<option value="">Sem categoria</option>']
     .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
+  const catFilterOptionsSSR = ['<option value="">Todas as categorias</option>']
+    .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
   const sorted = sortEvents(events);
   const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
   const noun = n => n === 1 ? 'evento' : 'eventos';
@@ -101,6 +103,7 @@ export function dashboardHTML(events, categories = []) {
             <button class="icon-btn${e.pinned ? ' pinned' : ''}" data-action="pin" data-id="${esc(e.id)}" title="${e.pinned ? 'Remover destaque' : 'Destacar'}" aria-label="${e.pinned ? 'Remover destaque' : 'Destacar'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg></button>
             <button class="icon-btn" data-action="vis" data-id="${esc(e.id)}" title="${e.visible !== false ? 'Ocultar' : 'Mostrar'}" aria-label="${e.visible !== false ? 'Ocultar' : 'Mostrar'}">${e.visible !== false ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`}</button>
             <button class="icon-btn" data-action="edit" data-id="${esc(e.id)}" title="Editar" aria-label="Editar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="icon-btn" data-action="dup" data-id="${esc(e.id)}" title="Duplicar" aria-label="Duplicar"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
             <button class="icon-btn danger" data-action="del" data-id="${esc(e.id)}" title="Excluir" aria-label="Excluir"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
           </div>
         </div>`;
@@ -163,9 +166,9 @@ export function dashboardHTML(events, categories = []) {
     .st-entregue{color:#4a9a4a;background:rgba(74,154,74,.08)}
     .st-arquivado{color:#666;background:rgba(102,102,102,.08)}
     /* filter row */
-    .filter-row{margin-bottom:1rem}
+    .filter-row{margin-bottom:1rem;display:flex;flex-direction:column;gap:.625rem}
     .filter-row select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;-webkit-appearance:none}
-    @media(min-width:600px){.filter-row select{width:auto;min-width:220px}}
+    @media(min-width:600px){.filter-row{flex-direction:row}.filter-row select{width:auto;min-width:200px}}
     /* metrics table */
     .metrics-table{width:100%;border-collapse:collapse}
     .metrics-table th{text-align:left;font-size:.7rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:.5rem .75rem;border-bottom:1px solid var(--border)}
@@ -176,6 +179,8 @@ export function dashboardHTML(events, categories = []) {
     .settings-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin-bottom:1.25rem}
     .settings-card h3{font-size:.85rem;font-weight:600;margin-bottom:.25rem}
     .settings-card p{font-size:.78rem;color:var(--text3);margin-bottom:1.25rem;line-height:1.5}
+    .danger-zone{background:var(--bg2);border:1px solid var(--red);border-radius:10px;padding:1.5rem;margin-top:1.5rem}
+    .danger-zone h3{color:var(--red);font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem}
     /* form overlay */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:none;align-items:flex-end;justify-content:center}
     @media(min-width:600px){.overlay{align-items:center}}
@@ -295,6 +300,10 @@ export function dashboardHTML(events, categories = []) {
     .confirm-body{padding:1.5rem 1.5rem 1.25rem}
     .confirm-body h3{font-size:.95rem;font-weight:600;margin-bottom:.5rem}
     .confirm-body p{font-size:.82rem;color:var(--text2);line-height:1.55}
+    .confirm-type-label{display:block;font-size:.78rem;color:var(--text2);margin-top:1rem}
+    .confirm-type-label strong{color:var(--text)}
+    .confirm-type-input{display:block;width:100%;margin-top:.5rem;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.7rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s}
+    .confirm-type-input:focus{border-color:#3a3a3a}
     .confirm-foot{padding:0 1.5rem 1.5rem;display:flex;gap:.75rem;justify-content:flex-end}
     .confirm-foot button{padding:.7rem 1.25rem;border-radius:8px;font-size:.82rem;font-weight:500;border:1px solid var(--border);background:none;color:var(--text2);transition:border-color .2s,color .2s,background .2s}
     .confirm-foot .confirm-cancel:hover{border-color:#3a3a3a;color:var(--text)}
@@ -302,6 +311,7 @@ export function dashboardHTML(events, categories = []) {
     .confirm-foot .confirm-ok:hover{opacity:.88}
     .confirm-foot .confirm-ok.danger{background:none;border-color:var(--red);color:var(--red)}
     .confirm-foot .confirm-ok.danger:hover{background:rgba(192,57,43,.1)}
+    .confirm-foot .confirm-ok:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
     /* reduced motion */
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{transition:none!important;animation-duration:.001ms!important;animation-iteration-count:1!important}
@@ -352,6 +362,7 @@ export function dashboardHTML(events, categories = []) {
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
       </select>
+      <select id="category-filter" onchange="renderEventList()" aria-label="Filtrar por categoria">${catFilterOptionsSSR}</select>
     </div>
     <div class="mass-bar" id="mass-bar" style="display:none">
       <label class="mass-selall"><input type="checkbox" id="mass-selall" onchange="toggleSelectAll(this.checked)"> Todos</label>
@@ -392,28 +403,9 @@ export function dashboardHTML(events, categories = []) {
       </div>
     </div>
     <div class="settings-card">
-      <h3>Alterar senha</h3>
-      <p>Recomendado usar algo fácil de lembrar mas difícil de adivinhar.</p>
-      <div class="field">
-        <label>Nova senha</label>
-        <input type="password" id="new-pass" placeholder="••••••••" autocomplete="new-password">
-      </div>
-      <div class="field">
-        <label>Confirmar senha</label>
-        <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password">
-      </div>
-      <button class="btn-primary" style="margin-top:.25rem" onclick="changePassword()">Salvar nova senha</button>
-    </div>
-    <div class="settings-card">
       <h3>Backup dos dados</h3>
       <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
-      <button class="btn-sm" style="margin-bottom:1.25rem" onclick="downloadBackup()">⬇ Baixar backup JSON</button>
-      <div class="field">
-        <label>Restaurar a partir de backup</label>
-        <input type="file" id="restore-file" accept=".json" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:8px;font-size:.82rem;width:100%">
-        <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Nenhum dado atual será excluído. Eventos do backup são mesclados com os existentes.</p>
-      </div>
-      <button class="btn-sm" onclick="restoreBackup()">↩ Restaurar backup</button>
+      <button class="btn-sm" onclick="downloadBackup()">⬇ Baixar backup JSON</button>
     </div>
     <div class="settings-card">
       <h3>Exportar dados</h3>
@@ -423,6 +415,25 @@ export function dashboardHTML(events, categories = []) {
         <button class="btn-sm" onclick="exportRemovalCSV()">⬇ Solicitações de remoção (CSV)</button>
         <button class="btn-sm" onclick="exportMetricsCSV()">⬇ Métricas (CSV)</button>
       </div>
+    </div>
+    <div class="danger-zone">
+      <h3>⚠️ Zona de perigo</h3>
+      <p style="font-size:.8rem;color:var(--text2);margin-bottom:1rem">Ações abaixo exigem digitar uma palavra de confirmação.</p>
+      <div class="field">
+        <label>Nova senha</label>
+        <input type="password" id="new-pass" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label>Confirmar senha</label>
+        <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button class="btn-danger" style="margin-top:.25rem;margin-bottom:1.5rem" onclick="changePassword()">Salvar nova senha</button>
+      <div class="field">
+        <label>Restaurar a partir de backup</label>
+        <input type="file" id="restore-file" accept=".json" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:8px;font-size:.82rem;width:100%">
+        <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Nenhum dado atual será excluído. Eventos do backup são mesclados com os existentes.</p>
+      </div>
+      <button class="btn-danger" onclick="restoreBackup()">↩ Restaurar backup</button>
     </div>
   </div>
 
@@ -461,10 +472,20 @@ export function dashboardHTML(events, categories = []) {
           <label>Fotos de capa <span style="color:#555">(até 6)</span></label>
           <div class="field-hint" style="margin-bottom:.625rem">A primeira foto aparece como miniatura na galeria. Cole links do Drive ou URLs diretas de imagem — a conversão é automática.</div>
           <div class="photo-list" id="photo-list"></div>
-          <button type="button" class="btn-add-photo" id="btn-add-photo" onclick="addPhotoInput('')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Adicionar foto
-          </button>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
+            <button type="button" class="btn-add-photo" id="btn-add-photo" onclick="addPhotoInput('')">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Adicionar foto
+            </button>
+            <button type="button" class="btn-sm" id="btn-paste-photos" onclick="openPastePhotos()">📋 Colar vários links</button>
+          </div>
+          <div id="paste-photos-box" style="display:none;margin-top:.625rem">
+            <textarea id="paste-photos-input" placeholder="Um link por linha" rows="4" style="width:100%"></textarea>
+            <div style="display:flex;gap:.5rem;margin-top:.5rem">
+              <button type="button" class="btn-sm" onclick="commitPastePhotos()">Adicionar</button>
+              <button type="button" class="btn-sm" onclick="closePastePhotos()">Cancelar</button>
+            </div>
+          </div>
         </div>
         <div class="field">
           <label>Link da pasta do Google Drive <span class="req-star">*</span></label>
@@ -587,6 +608,7 @@ export function dashboardHTML(events, categories = []) {
     let photoList = [];
     let requestsLoaded = false;
     let lastFocused = null;
+    let formSnapshot = '';
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
@@ -598,6 +620,7 @@ export function dashboardHTML(events, categories = []) {
       if (!btn) return;
       const { action, id } = btn.dataset;
       if (action === 'edit') openForm(id);
+      else if (action === 'dup') duplicateEvent(id);
       else if (action === 'del') deleteEvent(id);
       else if (action === 'pin') togglePin(id);
       else if (action === 'vis') toggleVisible(id);
@@ -629,17 +652,19 @@ export function dashboardHTML(events, categories = []) {
       const list = document.getElementById('evt-list');
       const count = document.getElementById('evt-count');
       const filter = document.getElementById('status-filter')?.value || 'ativos';
+      const catFilter = document.getElementById('category-filter')?.value || '';
       const q = (document.getElementById('evt-search')?.value || '').trim().toLowerCase();
       const byStatus =
         filter === 'todos' ? events :
         filter === 'ativos' ? events.filter(e => (e.status || 'entregue') !== 'arquivado') :
         events.filter(e => (e.status || 'entregue') === filter);
+      const byCategory = catFilter ? byStatus.filter(e => (e.category || '') === catFilter) : byStatus;
       const filtered = q
-        ? byStatus.filter(e =>
+        ? byCategory.filter(e =>
             (e.title || '').toLowerCase().includes(q) ||
             (e.slug || '').toLowerCase().includes(q) ||
             (e.category || '').toLowerCase().includes(q))
-        : byStatus;
+        : byCategory;
       const sorted = [...filtered].sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
@@ -681,6 +706,9 @@ export function dashboardHTML(events, categories = []) {
             <button class="icon-btn" data-action="edit" data-id="\${e.id}" title="Editar" aria-label="Editar">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
+            <button class="icon-btn" data-action="dup" data-id="\${e.id}" title="Duplicar" aria-label="Duplicar">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
             <button class="icon-btn danger" data-action="del" data-id="\${e.id}" title="Excluir" aria-label="Excluir">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             </button>
@@ -690,9 +718,12 @@ export function dashboardHTML(events, categories = []) {
     }
 
     // ---- Form open/close ----
-    function openForm(id) {
+    // prefill (used by duplicateEvent) lets a "new event" form open pre-filled
+    // from an existing event's data without treating it as an edit — id stays
+    // null so submitForm() POSTs a new event instead of PUTing the source one.
+    function openForm(id, prefill) {
       editingId = id || null;
-      const e = id ? events.find(ev => ev.id === id) : null;
+      const e = id ? events.find(ev => ev.id === id) : (prefill || null);
       document.getElementById('form-title').textContent = id ? 'Editar evento' : 'Adicionar evento';
       document.getElementById('f-slug').value = e ? e.slug : '';
       document.getElementById('f-slug').readOnly = !!id;
@@ -722,13 +753,45 @@ export function dashboardHTML(events, categories = []) {
         : [];
       photoList = [...initPhotos];
       renderPhotoList();
+      closePastePhotos();
       lastFocused = document.activeElement;
       document.getElementById('overlay').classList.add('open');
       document.body.style.overflow = 'hidden';
       if (!id) setTimeout(() => document.getElementById('f-slug').focus(), 100);
+      formSnapshot = snapshotForm();
     }
 
-    function closeForm() {
+    // Reads the exact same fields submitForm() reads into its save payload
+    // (plus photoList) — keep the two in sync: any field added to one belongs
+    // in the other.
+    function snapshotForm() {
+      const val = id => document.getElementById(id)?.value ?? '';
+      const chk = id => document.getElementById(id)?.checked ?? false;
+      return JSON.stringify({
+        title: val('f-title'), long: val('f-long'), drive: val('f-drive'), photoCount: val('f-photocount'),
+        driveIg: val('f-drive-ig'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
+        accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
+        alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'),
+        photos: photoList,
+      });
+    }
+    function isFormDirty() {
+      return document.getElementById('overlay').classList.contains('open') && snapshotForm() !== formSnapshot;
+    }
+
+    // skipCheck=true is used right after a successful save, where there's
+    // nothing left to discard.
+    async function closeForm(skipCheck) {
+      if (!skipCheck && isFormDirty()) {
+        const ok = await confirmDialog({
+          title: 'Descartar alterações?',
+          message: 'Você tem alterações não salvas neste evento.',
+          confirmLabel: 'Descartar',
+          danger: true,
+        });
+        if (!ok) return;
+      }
       document.getElementById('overlay').classList.remove('open');
       document.body.style.overflow = '';
       editingId = null;
@@ -741,6 +804,10 @@ export function dashboardHTML(events, categories = []) {
     function overlayClick(e) {
       if (e.target === document.getElementById('overlay')) closeForm();
     }
+
+    window.addEventListener('beforeunload', function(e) {
+      if (isFormDirty()) { e.preventDefault(); e.returnValue = ''; }
+    });
 
     // ---- Form keyboard handling (Esc close, Ctrl/Cmd+Enter submit, focus trap) ----
     document.getElementById('overlay').addEventListener('keydown', function(e) {
@@ -766,6 +833,7 @@ export function dashboardHTML(events, categories = []) {
     function renderPhotoList() {
       const container = document.getElementById('photo-list');
       const addBtn = document.getElementById('btn-add-photo');
+      const pasteBtn = document.getElementById('btn-paste-photos');
       if (photoList.length === 0) {
         container.innerHTML = '';
       } else {
@@ -786,6 +854,7 @@ export function dashboardHTML(events, categories = []) {
           </div>\`).join('');
       }
       if (addBtn) addBtn.style.display = photoList.length >= 6 ? 'none' : 'inline-flex';
+      if (pasteBtn) pasteBtn.style.display = photoList.length >= 6 ? 'none' : '';
     }
 
     function addPhotoInput(url) {
@@ -801,6 +870,28 @@ export function dashboardHTML(events, categories = []) {
     function removePhotoInput(i) {
       photoList.splice(i, 1);
       renderPhotoList();
+    }
+
+    // ---- Bulk photo paste (one link per line) ----
+    function openPastePhotos() {
+      document.getElementById('paste-photos-box').style.display = '';
+      document.getElementById('paste-photos-input').focus();
+    }
+    function closePastePhotos() {
+      document.getElementById('paste-photos-box').style.display = 'none';
+      document.getElementById('paste-photos-input').value = '';
+    }
+    function commitPastePhotos() {
+      const raw = document.getElementById('paste-photos-input').value;
+      const lines = raw.split('\\n').map(l => l.trim()).filter(Boolean);
+      if (!lines.length) { closePastePhotos(); return; }
+      const room = 6 - photoList.length;
+      if (room <= 0) { toast('Limite de 6 fotos atingido.', 'err'); return; }
+      photoList.push(...lines.slice(0, room));
+      renderPhotoList();
+      closePastePhotos();
+      if (lines.length > room) toast('Só ' + room + ' vaga(s) — o restante foi ignorado.', 'err');
+      else toast(lines.slice(0, room).length + ' foto(s) adicionada(s).', 'ok');
     }
 
     function onPhotoInput(i, el) {
@@ -903,7 +994,7 @@ export function dashboardHTML(events, categories = []) {
           toast('Evento adicionado!', 'ok');
         }
         renderEventList();
-        closeForm();
+        closeForm(true);
       } catch(err) {
         toast(err.message || 'Erro ao salvar.', 'err');
       } finally {
@@ -937,12 +1028,17 @@ export function dashboardHTML(events, categories = []) {
     }
 
     // ---- Themed confirm dialog ----
+    // opts.typeToConfirm: when set, the OK button starts disabled and only
+    // enables once the visitor types this exact string (trimmed, case-insensitive)
+    // into an inline input — used for delete/restore/mass-apply actions where a
+    // plain Confirm/Cancel isn't enough friction.
     function confirmDialog(opts) {
       opts = opts || {};
       const title = opts.title || 'Confirmar';
       const message = opts.message || '';
       const confirmLabel = opts.confirmLabel || 'Confirmar';
       const danger = !!opts.danger;
+      const typeToConfirm = opts.typeToConfirm || '';
       return new Promise(function(resolve) {
         const prev = document.activeElement;
         const overlay = document.createElement('div');
@@ -953,36 +1049,46 @@ export function dashboardHTML(events, categories = []) {
             '<div class="confirm-body">' +
               '<h3 id="confirm-title">' + esc(title) + '</h3>' +
               (message ? '<p>' + esc(message) + '</p>' : '') +
+              (typeToConfirm
+                ? '<label class="confirm-type-label">Digite <strong>' + esc(typeToConfirm) + '</strong> para confirmar:' +
+                  '<input type="text" class="confirm-type-input" autocomplete="off"></label>'
+                : '') +
             '</div>' +
             '<div class="confirm-foot">' +
               '<button type="button" class="confirm-cancel">Cancelar</button>' +
-              '<button type="button" class="confirm-ok' + (danger ? ' danger' : '') + '">' + esc(confirmLabel) + '</button>' +
+              '<button type="button" class="confirm-ok' + (danger ? ' danger' : '') + '"' + (typeToConfirm ? ' disabled' : '') + '>' + esc(confirmLabel) + '</button>' +
             '</div>' +
           '</div>';
         document.body.appendChild(overlay);
         const okBtn = overlay.querySelector('.confirm-ok');
         const cancelBtn = overlay.querySelector('.confirm-cancel');
+        const typeInput = overlay.querySelector('.confirm-type-input');
         function done(val) {
           document.removeEventListener('keydown', onKey, true);
           overlay.remove();
           if (prev && typeof prev.focus === 'function') { try { prev.focus(); } catch (e) {} }
           resolve(val);
         }
+        if (typeInput) {
+          typeInput.addEventListener('input', () => {
+            okBtn.disabled = typeInput.value.trim().toLowerCase() !== typeToConfirm.trim().toLowerCase();
+          });
+        }
         function onKey(e) {
           if (e.key === 'Escape') { e.preventDefault(); done(false); }
           else if (e.key === 'Tab') {
-            const f = [cancelBtn, okBtn];
+            const f = typeInput ? [typeInput, cancelBtn, okBtn] : [cancelBtn, okBtn];
             const idx = f.indexOf(document.activeElement);
             e.preventDefault();
             const next = e.shiftKey ? (idx <= 0 ? f.length - 1 : idx - 1) : (idx === f.length - 1 ? 0 : idx + 1);
             f[next].focus();
-          } else if (e.key === 'Enter') { e.preventDefault(); done(true); }
+          } else if (e.key === 'Enter' && !okBtn.disabled) { e.preventDefault(); done(true); }
         }
         okBtn.addEventListener('click', () => done(true));
         cancelBtn.addEventListener('click', () => done(false));
         overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
         document.addEventListener('keydown', onKey, true);
-        setTimeout(() => okBtn.focus(), 30);
+        setTimeout(() => (typeInput || okBtn).focus(), 30);
       });
     }
 
@@ -991,6 +1097,17 @@ export function dashboardHTML(events, categories = []) {
       const row = document.getElementById('evt-' + id);
       if (!row) return;
       row.querySelectorAll('.evt-actions button').forEach(b => { b.disabled = busy; });
+    }
+
+    // ---- Duplicate ----
+    // Opens the "add event" form pre-filled from an existing event — same shoot
+    // config (drive links, category, access type, credits, photos), fresh slug
+    // required, never pinned (server enforces a single pinned event, so cloning
+    // a pinned one as pinned would silently unpin the original on save).
+    function duplicateEvent(id) {
+      const e = events.find(ev => ev.id === id);
+      if (!e) return;
+      openForm(null, { ...e, title: e.title + ' (cópia)', slug: '', pinned: false });
     }
 
     // ---- Delete ----
@@ -1002,6 +1119,7 @@ export function dashboardHTML(events, categories = []) {
         message: \`Excluir "\${e.title}"? Essa ação não pode ser desfeita.\`,
         confirmLabel: 'Excluir',
         danger: true,
+        typeToConfirm: e.title,
       });
       if (!ok) return;
       setRowBusy(id, true);
@@ -1175,6 +1293,14 @@ export function dashboardHTML(events, categories = []) {
       if (!p1) return toast('Digite a nova senha.', 'err');
       if (p1 !== p2) return toast('As senhas não coincidem.', 'err');
       if (p1.length < 6) return toast('Senha muito curta (mínimo 6 caracteres).', 'err');
+      const ok = await confirmDialog({
+        title: 'Trocar senha',
+        message: 'Você está prestes a trocar a senha de acesso ao painel.',
+        confirmLabel: 'Trocar senha',
+        danger: true,
+        typeToConfirm: 'TROCAR',
+      });
+      if (!ok) return;
       try {
         await api('PUT', '/api/settings/password', { password: p1 });
         document.getElementById('new-pass').value = '';
@@ -1206,6 +1332,8 @@ export function dashboardHTML(events, categories = []) {
         title: 'Restaurar backup',
         message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
         confirmLabel: 'Restaurar',
+        danger: true,
+        typeToConfirm: 'RESTAURAR',
       });
       if (!ok) return;
       try {
@@ -1296,11 +1424,18 @@ export function dashboardHTML(events, categories = []) {
         .concat(categories.map(c => '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>'))
         .join('');
     }
+    function catFilterOptionsHTML(selected) {
+      return ['<option value="">Todas as categorias</option>']
+        .concat(categories.map(c => '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>'))
+        .join('');
+    }
     function refreshCategorySelects() {
       const f = document.getElementById('f-category');
       if (f) { const v = f.value; f.innerHTML = catOptionsHTML(v); }
       const m = document.getElementById('mass-cat');
       if (m) { const v = m.value; m.innerHTML = catOptionsHTML(v); }
+      const cf = document.getElementById('category-filter');
+      if (cf) { const v = cf.value; cf.innerHTML = catFilterOptionsHTML(v); }
     }
     function renderCategoryManager() {
       const el = document.getElementById('cat-list');
@@ -1338,6 +1473,7 @@ export function dashboardHTML(events, categories = []) {
         message: 'Excluir a categoria "' + name + '"?' + warn,
         confirmLabel: 'Excluir',
         danger: true,
+        typeToConfirm: name,
       });
       if (!ok) return;
       try {
@@ -1379,6 +1515,14 @@ export function dashboardHTML(events, categories = []) {
       if (selectedIds.size === 0) return toast('Selecione ao menos um evento.', 'err');
       const category = document.getElementById('mass-cat').value;
       const ids = [...selectedIds];
+      const ok = await confirmDialog({
+        title: 'Aplicar em massa',
+        message: 'Aplicar a categoria "' + category + '" a ' + ids.length + ' evento' + (ids.length !== 1 ? 's' : '') + '? Essa ação não pode ser desfeita em lote.',
+        confirmLabel: 'Aplicar',
+        danger: true,
+        typeToConfirm: String(ids.length),
+      });
+      if (!ok) return;
       try {
         const res = await api('POST', '/api/events/bulk-category', { ids, category });
         events.forEach(e => { if (selectedIds.has(e.id)) e.category = category; });
@@ -1391,7 +1535,16 @@ export function dashboardHTML(events, categories = []) {
     async function applyMassAccess() {
       if (selectedIds.size === 0) return toast('Selecione ao menos um evento.', 'err');
       const accessType = document.getElementById('mass-access').value;
+      const accessLabel = { public: 'Público', private: 'Privado', family: 'Familiar' }[accessType] || accessType;
       const ids = [...selectedIds];
+      const ok = await confirmDialog({
+        title: 'Aplicar em massa',
+        message: 'Aplicar o tipo de acesso "' + accessLabel + '" a ' + ids.length + ' evento' + (ids.length !== 1 ? 's' : '') + '? Essa ação não pode ser desfeita em lote.',
+        confirmLabel: 'Aplicar',
+        danger: true,
+        typeToConfirm: String(ids.length),
+      });
+      if (!ok) return;
       try {
         const res = await api('POST', '/api/events/bulk-access', { ids, accessType });
         events.forEach(e => { if (selectedIds.has(e.id)) e.accessType = accessType; });

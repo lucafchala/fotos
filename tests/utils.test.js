@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
-  extractDriveFolderId,
+  extractDriveFolderId, sendErrorAlert,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -92,6 +92,22 @@ describe('extractDriveFolderId', () => {
     expect(extractDriveFolderId('https://example.com')).toBe('');
     expect(extractDriveFolderId('')).toBe('');
     expect(extractDriveFolderId(null)).toBe('');
+  });
+});
+
+describe('sendErrorAlert', () => {
+  it('no-ops (never throws, never calls fetch) without RESEND_API_KEY or ADMIN_EMAIL', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = () => { fetchCalled = true; return Promise.reject(new Error('should not be called')); };
+    try {
+      expect(await sendErrorAlert({}, new Error('boom'), { path: '/x' })).toBe(false);
+      expect(await sendErrorAlert({ RESEND_API_KEY: 'k' }, new Error('boom'), { path: '/x' })).toBe(false);
+      expect(await sendErrorAlert({ ADMIN_EMAIL: 'a@b.com' }, new Error('boom'), { path: '/x' })).toBe(false);
+      expect(fetchCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

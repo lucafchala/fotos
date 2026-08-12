@@ -11,7 +11,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
-  extractDriveFolderId, fetchDrivePhotoCount,
+  extractDriveFolderId, fetchDrivePhotoCount, sendErrorAlert,
 } from './utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -84,8 +84,14 @@ export default {
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
 
-      // Support page
-      if (path === '/suporte' && method === 'GET') return html(supportHTML());
+      // Support page. ?tema=bug pre-fills the message field (used by the "reportar
+      // bug" link on the new-interface banner) — cosmetic only, never trusted server-side.
+      if (path === '/suporte' && method === 'GET') {
+        const prefill = url.searchParams.get('tema') === 'bug'
+          ? { message: 'Encontrei um problema na interface do site: ' }
+          : {};
+        return html(supportHTML(false, '', prefill));
+      }
       if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
 
       // Privacy policy
@@ -116,6 +122,10 @@ export default {
       return notFound();
     } catch (err) {
       console.error(err);
+      // Best-effort admin alert — never lets an alerting failure affect the
+      // response the visitor actually gets (fire-and-forget, own try/catch
+      // inside sendErrorAlert too; this .catch is just an extra backstop).
+      ctx.waitUntil(sendErrorAlert(env, err, { path, method }).catch(() => {}));
       return serverError();
     }
   },
@@ -1595,7 +1605,7 @@ async function handleRestoreBackup(request, env) {
 }
 
 function errorPage(code, message, status) {
-  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:2rem;font-size:.9rem}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><a href="/">← Voltar para a galeria</a></div></body></html>`, status);
+  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:1.5rem;font-size:.9rem}.links{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><div class="links"><a href="/">← Voltar para a galeria</a><a href="/suporte">Precisa de ajuda? Suporte</a></div></div></body></html>`, status);
 }
 
 function notFound() {
