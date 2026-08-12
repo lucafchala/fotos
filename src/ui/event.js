@@ -181,7 +181,11 @@ export function eventHTML(event, analyticsToken) {
     .guide-note{font-size:.85rem;line-height:1.65;color:#ddd;margin-bottom:.875rem}
     .guide-note:last-child{margin-bottom:0}
     .guide-credit{color:#aaa}
-    .drive-verifying{display:flex;align-items:center;gap:.5rem;color:#888;font-size:.82rem;margin-top:.875rem}
+    .drive-verifying{display:block;margin-top:1rem}
+    .dv-msg{color:#cc8888;font-size:.85rem;line-height:1.6}
+    .dv-retry{background:none;border:none;color:#e0a0a0;text-decoration:underline;text-underline-offset:2px;cursor:pointer;font:inherit;padding:0}
+    .dv-contact{color:#c99a5c;font-size:.85rem;line-height:1.6;margin-top:.625rem;padding-top:.625rem;border-top:1px solid #2a2416}
+    .dv-contact a{color:#d8b25a;text-decoration:underline;text-underline-offset:2px;font-weight:600}
     .spin{width:14px;height:14px;border:2px solid #2a2a2a;border-top-color:#999;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
     .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.85rem;color:#bbb;line-height:1.5;border-radius:8px}
@@ -381,10 +385,13 @@ export function eventHTML(event, analyticsToken) {
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
         <p id="drive-gate-hint" style="display:none"></p>
-        <div id="drive-verify-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.<br>Se continuar, <a href="/suporte" style="color:#e0a0a0">contate o dono</a> ou, se for urgente, chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" style="color:#e0a0a0">WhatsApp</a>.</div>
-        <div id="drive-link-error" class="drive-verifying" style="display:none;color:#cc8888;margin-top:1rem">
-          Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" style="background:none;border:none;color:#e0a0a0;text-decoration:underline;cursor:pointer;font:inherit;padding:0;margin-left:.35rem">Tentar novamente</button>
-          <br>Se persistir, <a href="/suporte" style="color:#e0a0a0">contate o dono</a> ou, se for urgente, chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" style="color:#e0a0a0">WhatsApp</a>.
+        <div id="drive-verify-error" class="drive-verifying" style="display:none">
+          <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</p>
+          <p class="dv-contact">Se continuar, <a href="/suporte">contate o dono</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">chame no WhatsApp</a>.</p>
+        </div>
+        <div id="drive-link-error" class="drive-verifying" style="display:none">
+          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" class="dv-retry">Tentar novamente</button></p>
+          <p class="dv-contact">Se persistir, <a href="/suporte">contate o dono</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
