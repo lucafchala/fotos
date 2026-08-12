@@ -191,7 +191,7 @@ export function footerLegalLinksHTML() {
 // Instagram-branded credit button, reused twice on the event page (main
 // credits section + drive-modal guide box). idSuffix keeps each instance's
 // SVG gradient id unique since both can render on the same document.
-export function igCreditButtonHTML(idSuffix, label = 'por favor me marque') {
+export function igCreditButtonHTML(idSuffix, label = 'Marque-me') {
   return `
     <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener" class="ig-credit-btn">
       <span class="ig-credit-icon">
