@@ -39,3 +39,6 @@ PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameS
 
 ## Onde editar
 Textos: `src/ui/terms.js` e `src/ui/privacy.js`. A versão dos Termos é `TERMS_VERSION` em `src/utils.js` (cada aceite grava essa versão + hash do texto). Retenções: `CONSENT_RETENTION_DAYS` e `REMOVAL_RETENTION_DAYS` em `src/index.js`.
+
+## Nota sobre esta revisão de linguagem (2026-08)
+Passei `terms.js`/`privacy.js` de linguagem impessoal ("contate o dono", "fale com a gente") para primeira pessoa ("fale comigo"), já que o site é assinado por uma única pessoa. **Nenhum trecho com efeito jurídico foi alterado**: a identificação formal do controlador/responsável (nome legal + canal de contato, ponto 8 acima) e as referências a "responsável legal" de menor permanecem intactas, palavra por palavra. Como o hash gravado a cada aceite (`getTermsHash()` em `src/index.js`) é calculado sobre o HTML renderizado de `termsHTML()`, essa edição muda o hash — mas não muda o escopo da autorização nem exige nova versão (`TERMS_VERSION`) ou novo aceite dos usuários já registrados: o hash é a prova forense de qual texto exato foi aceito em cada momento, e continua correto para cada registro antigo (ele referencia o texto vigente naquele aceite, não o texto atual). Nenhum dos pontos "PRECISA de decisão jurídica" acima foi resolvido por esta revisão — continuam pendentes de parecer.

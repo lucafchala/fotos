@@ -184,8 +184,8 @@ export function eventHTML(event, analyticsToken) {
     .drive-verifying{display:block;margin-top:1rem}
     .dv-msg{color:#cc8888;font-size:.85rem;line-height:1.6}
     .dv-retry{background:none;border:none;color:#e0a0a0;text-decoration:underline;text-underline-offset:2px;cursor:pointer;font:inherit;padding:0}
-    .dv-contact{color:#c99a5c;font-size:.85rem;line-height:1.6;margin-top:.625rem;padding-top:.625rem;border-top:1px solid #2a2416}
-    .dv-contact a{color:#d8b25a;text-decoration:underline;text-underline-offset:2px;font-weight:600}
+    .dv-contact{color:#cc8888;font-size:.85rem;line-height:1.6;margin-top:.625rem;padding-top:.625rem;border-top:1px solid #3a2020}
+    .dv-contact a{color:#e0a0a0;text-decoration:underline;text-underline-offset:2px;font-weight:600}
     .spin{width:14px;height:14px;border:2px solid #2a2a2a;border-top-color:#999;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
     .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.85rem;color:#bbb;line-height:1.5;border-radius:8px}

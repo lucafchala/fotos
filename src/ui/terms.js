@@ -109,7 +109,7 @@ export function termsHTML() {
     <h2>11. Lei aplicável e foro</h2>
     <p>Estes Termos são regidos pelas leis brasileiras. Fica eleito o <strong>foro da Comarca de São Paulo/SP</strong> para dirimir eventuais controvérsias, salvo competência legal diversa (como o foro do consumidor).</p>
 
-    <p class="note">Dúvidas? Fale com a gente pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou por <a href="mailto:suporte@lucafchala.com">suporte@lucafchala.com</a>. A remoção de fotos e o atendimento são gratuitos.</p>
+    <p class="note">Dúvidas? Fale comigo pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou por <a href="mailto:suporte@lucafchala.com">suporte@lucafchala.com</a>. A remoção de fotos e o atendimento são gratuitos.</p>
   </main>
   <footer>
     <a href="/">fotos · lucafchala</a>
