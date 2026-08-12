@@ -9,17 +9,50 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 ## Monitoramento — prioridade máxima
 
 - [ ] **Monitoramento de uptime externo, para toda a suite de sites (não só
-      esta página)** — cobrir fotos.lucafchala.com, lucafchala.com e qualquer
-      outro site do Luca, cada um com seu próprio monitor externo (fora do
-      Worker/hosting de cada site) batendo periodicamente no endpoint
-      relevante — aqui seria `/api/healthz`. Serviço ainda **não decidido**
-      (UptimeRobot foi cogitado, mas a decisão foi pausada); ação manual —
-      exige conta própria em algum provedor, não dá pra criar por aqui.
-      Motivo: o alerta por e-mail que já existe (`sendErrorAlert`, dispara em
-      exceções não tratadas e, agora, também em falha do cron de retenção) só
-      funciona quando algo **dentro** do Worker lança uma exceção capturável
-      — uma queda total (KV fora do ar, deploy quebrado, cron morto em
-      silêncio) pode não lançar nada e passar batido sem um prober externo.
+      esta página)**
+
+      **Por quê:** o único alerta ativo hoje é `sendErrorAlert()` — dispara
+      e-mail pro admin quando uma exceção chega ao catch-all do `fetch()` do
+      Worker, e agora também quando o cron diário de retenção falha. Isso só
+      funciona quando algo **dentro** do Worker lança uma exceção capturável.
+      Uma queda total — KV fora do ar, deploy quebrado, cron morto em
+      silêncio, ou até o domínio inteiro fora do ar — pode não lançar exceção
+      nenhuma, e passa batido em silêncio mesmo com esse alerta configurado.
+      Só um monitor **externo**, fora da infraestrutura do próprio site, pega
+      isso. `status.lucafchala.com` já sonda `/api/healthz` e `/dashboard`
+      passivamente, mas é um painel que precisa ser checado manualmente — não
+      avisa ninguém sozinho.
+
+      **Escopo — cobrir a suite inteira, não só fotos.lucafchala.com:**
+      - fotos.lucafchala.com — monitorar `/api/healthz` (já rico: KV, D1,
+        heartbeat do cron, autoteste funcional — ver README, seção "Health
+        check e CI").
+      - lucafchala.com (site pessoal) — não tem healthz dedicado hoje;
+        monitorar a home (`/`) por status 200 já cobre o caso básico de queda
+        total, mas não pega uma degradação parcial como o healthz cobre aqui.
+      - Qualquer outro site que o Luca publicar no futuro — mesmo padrão: um
+        monitor por site, apontando pro endpoint mais informativo disponível
+        (healthz dedicado se existir, senão a home).
+
+      **Serviço — ainda não decidido, opções já cogitadas:**
+      - **UptimeRobot** — plano free cobre até 50 monitores, checagem a cada
+        5 min, alerta por e-mail sempre grátis; SMS/push dependem do plano
+        vigente no momento do cadastro (a política já mudou algumas vezes).
+      - **Better Stack (Better Uptime)** — free tier mais enxuto (10
+        monitores, checagem a cada 3 min), mas já vem com status page
+        própria incluída e push gratuito.
+      - **Cloudflare Health Checks** — nativo da mesma conta Cloudflare que
+        já hospeda os Workers, mas historicamente é recurso de plano
+        pago/Enterprise — não confirmado se está disponível no plano atual,
+        checar antes de contar com essa opção.
+      - Qualquer outro provedor de uptime monitoring com tier gratuito
+        equivalente.
+
+      **Ação necessária (manual, não dá pra fazer por aqui):** escolher o
+      provedor, criar conta própria (login/pagamento do Luca, não deste
+      ambiente), configurar um monitor por site apontando pro endpoint
+      certo, e habilitar pelo menos o alerta por e-mail (sempre disponível
+      de graça) — SMS/push como extra se o plano escolhido cobrir sem custo.
 
 ---
 
