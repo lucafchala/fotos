@@ -96,12 +96,14 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       acesso/notas já preenchidos, pra criar vários eventos parecidos mais
       rápido sem precisar duplicar um evento real toda vez.
 - [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
-      masonry da galeria (`.grid{column-count:...}`) segue a proporção real de
-      cada thumbnail, mas como o modelo de dados só guarda a URL da foto (não
-      dimensões), o `.thumb` não sabe a altura final até a imagem carregar —
-      algum reflow residual é inerente a isso. Guardar `width`/`height` (ou só
-      a razão) no momento em que a foto é adicionada ao evento eliminaria isso
-      de vez (CLS zero), sem custo de requisição extra por foto.
+      masonry da galeria (CSS Grid + `layoutMasonry()` calculando
+      `grid-row-end` a partir da altura real renderizada) segue a proporção
+      real de cada thumbnail, mas como o modelo de dados só guarda a URL da
+      foto (não dimensões), o `.thumb` não sabe a altura final até a imagem
+      carregar e o JS recalcular — algum reflow residual é inerente a isso.
+      Guardar `width`/`height` (ou só a razão) no momento em que a foto é
+      adicionada ao evento eliminaria isso de vez (CLS zero), sem custo de
+      requisição extra por foto.
 
 ---
 
