@@ -15,6 +15,14 @@ export function aboutHTML() {
   <title>Sobre · fotos</title>
   <meta name="description" content="Sobre Luca F. Chala, fotografia de formaturas, casamentos, ensaios e eventos">
   <link rel="canonical" href="https://fotos.lucafchala.com/sobre">
+  <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
+  <!-- <script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "PROJECT_ID");
+  </script> -->
   <meta property="og:type" content="profile">
   <meta property="og:title" content="Sobre · Luca F. Chala">
   <meta property="og:description" content="Fotografia de formaturas, casamentos, ensaios e eventos">

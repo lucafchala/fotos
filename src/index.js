@@ -9,7 +9,7 @@ import { gearHTML } from './ui/gear.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, checkRateLimit,
+  verifySession, escape, validateSlug, generateId, checkRateLimit, sortEvents,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -274,6 +274,15 @@ async function handleEventPage(request, env, slug, ctx) {
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
+  // Find previous/next events for navigation — same order visitors browse in
+  // the gallery (sortEvents: pinned first, then most recent date), not raw
+  // KV storage order, so "anterior/próximo" actually means what it says.
+  const visible = sortEvents(events.filter(e => e.visible !== false));
+  const idx = visible.findIndex(e => e.slug === slug);
+  const prevEvent = idx > 0 ? visible[idx - 1] : null;
+  const nextEvent = idx >= 0 && idx < visible.length - 1 ? visible[idx + 1] : null;
+  const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
+
   // Only count view once per hour per visitor (avoids KV read+write on repeat visits).
   // KV read-modify-write is not atomic, so concurrent visits can undercount —
   // these are soft analytics, not hard metrics.
@@ -291,7 +300,7 @@ async function handleEventPage(request, env, slug, ctx) {
     );
   }
 
-  const res = html(eventHTML(event, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(eventHTML(event, year, prevEvent, nextEvent, env.CF_ANALYTICS_TOKEN ?? null));
   if (!alreadyCounted) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
