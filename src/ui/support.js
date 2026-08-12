@@ -16,46 +16,68 @@ export function supportHTML(sent = false, error = '', values = {}) {
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0ebe5;min-height:100vh}
-    :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
+    :root{
+      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-muted:#999; --text-dim:#666; --text-dim-2:#555;
+      --border-dim:#1c1c1c; --border-hair:#141414; --footer-link:#888; --accent:#c0a060;
+      --bg-input:#0d0d0d; --text-ph:#333; --cta-bg:#c0a060; --cta-text:#0a0a0a;
+      --ok-bg:#0a120a; --ok-border:#1a2e1a; --ok-text:#4a8a4a; --ok-border-hover:#2a4a2a; --ok-text-hover:#6aaa6a; --ok-bg-hover:#0a120a;
+      --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#aa5555;
+      --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
+      --btn-border:#2a2a2a; --btn-text:#888; --btn-border-hover:#555; --btn-text-hover:#ccc; --btn-bg-hover:#111;
+      --divider-text:#2a2a2a; --divider-line:#1a1a1a;
+    }
+    @media (prefers-color-scheme: light) {
+      :root{
+        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490;
+        --border-dim:#ddd9d4; --border-hair:#e5e1db; --footer-link:#6b6460; --accent:#8a6428;
+        --bg-input:#fff; --text-ph:#9a9490; --cta-bg:#8a6428; --cta-text:#faf7f3;
+        --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
+        --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#b3261e;
+        --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17; --warn-text-strong:#5c4310;
+        --btn-border:#ddd9d4; --btn-text:#6b6460; --btn-border-hover:#b8b2ab; --btn-text-hover:#332d28; --btn-bg-hover:#fff;
+        --divider-text:#c8c2ba; --divider-line:#ddd9d4;
+      }
+    }
+    body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
+    :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:#555;font-size:.8rem;letter-spacing:.04em;transition:color .2s}
-    .back:hover{color:#bbb}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back:hover{color:var(--text-2)}
     .back svg{width:14px;height:14px}
     main{max-width:520px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.4rem;font-weight:600;margin-bottom:.4rem}
-    .subtitle{font-size:.85rem;color:#666;margin-bottom:2rem;line-height:1.6}
+    .subtitle{font-size:.85rem;color:var(--text-dim);margin-bottom:2rem;line-height:1.6}
     .contact-row{display:flex;gap:.75rem;margin-bottom:2.5rem;flex-wrap:wrap}
     .contact-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.2rem;border-radius:8px;font-size:.82rem;font-weight:500;text-decoration:none;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;border:1px solid}
-    .btn-whatsapp{border-color:#1a2e1a;color:#4a8a4a}
-    .btn-whatsapp:hover{border-color:#2a4a2a;color:#6aaa6a;background:#0a120a}
-    .btn-email{border-color:#2a2a2a;color:#888}
-    .btn-email:hover{border-color:#555;color:#ccc;background:#111}
+    .btn-whatsapp{border-color:var(--ok-border);color:var(--ok-text)}
+    .btn-whatsapp:hover{border-color:var(--ok-border-hover);color:var(--ok-text-hover);background:var(--ok-bg-hover)}
+    .btn-email{border-color:var(--btn-border);color:var(--btn-text)}
+    .btn-email:hover{border-color:var(--btn-border-hover);color:var(--btn-text-hover);background:var(--btn-bg-hover)}
     .contact-btn svg{width:14px;height:14px;flex-shrink:0}
-    .divider{display:flex;align-items:center;gap:.75rem;margin-bottom:1.75rem;color:#2a2a2a;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}
-    .divider::before,.divider::after{content:'';flex:1;height:1px;background:#1a1a1a}
+    .divider{display:flex;align-items:center;gap:.75rem;margin-bottom:1.75rem;color:var(--divider-text);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--divider-line)}
     form{display:flex;flex-direction:column;gap:1rem}
-    label{font-size:.8rem;font-weight:500;color:#888;letter-spacing:.04em;display:block;margin-bottom:.3rem}
-    input,textarea{width:100%;background:#0d0d0d;border:1px solid #1c1c1c;border-radius:8px;color:#f0ebe5;font-family:inherit;font-size:.875rem;padding:.75rem 1rem;outline:none;transition:border-color .2s;resize:none}
-    input::placeholder,textarea::placeholder{color:#333}
-    input:focus,textarea:focus{border-color:#333}
+    label{font-size:.8rem;font-weight:500;color:var(--footer-link);letter-spacing:.04em;display:block;margin-bottom:.3rem}
+    input,textarea{width:100%;background:var(--bg-input);border:1px solid var(--border-dim);border-radius:8px;color:var(--text);font-family:inherit;font-size:.875rem;padding:.75rem 1rem;outline:none;transition:border-color .2s;resize:none}
+    input::placeholder,textarea::placeholder{color:var(--text-ph)}
+    input:focus,textarea:focus{border-color:var(--text-dim-2)}
     textarea{min-height:120px}
-    .submit-btn{background:#f0ebe5;color:#0a0a0a;border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
+    .submit-btn{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
     .submit-btn:hover{opacity:.88}
-    .success{background:#0a120a;border:1px solid #1a2e1a;color:#4a8a4a;padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
-    .error-msg{background:#1a0a0a;border:1px solid #2e1a1a;color:#aa5555;padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
-    .adblock-warn{background:#1d1606;border:1px solid #4a3a12;color:#d8b25a;padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
-    .adblock-warn strong{color:#f0d080}
-    .adblock-warn button{background:none;border:none;color:#f0d080;text-decoration:underline;cursor:pointer;font:inherit;padding:0}
-    .noscript-banner{background:#1d1606;border:1px solid #4a3a12;color:#e8c878;padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
-    .noscript-banner strong{color:#f0d080}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid #141414}
-    footer a{color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
-    footer a:hover{color:#ddd}
+    .success{background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text);padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
+    .error-msg{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
+    .adblock-warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
+    .adblock-warn strong{color:var(--warn-text-strong)}
+    .adblock-warn button{background:none;border:none;color:var(--warn-text-strong);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+    .noscript-banner{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
+    .noscript-banner strong{color:var(--warn-text-strong)}
+    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair)}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a:hover{color:var(--text-2)}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.5rem}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:#888;font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:#ddd}
-    .footer-copyright{font-size:.75rem;color:#888;letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem;display:block}
+    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
+    .legal-link:hover{color:var(--text-2)}
+    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem;display:block}
   </style>
 </head>
 <body>
@@ -96,7 +118,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
         <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name" value="${escape(values.name || '')}">
       </div>
       <div>
-        <label for="email">E-mail <span style="color:#555">(para resposta)</span></label>
+        <label for="email">E-mail <span style="color:var(--text-dim-2)">(para resposta)</span></label>
         <input type="email" id="email" name="email" placeholder="seu@email.com" maxlength="200" autocomplete="email" value="${escape(values.email || '')}">
       </div>
       <div>
@@ -104,9 +126,9 @@ export function supportHTML(sent = false, error = '', values = {}) {
         <textarea id="message" name="message" placeholder="Descreva sua dúvida ou solicitação…" maxlength="2000" required>${escape(values.message || '')}</textarea>
       </div>
       <div>
-        <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.8rem;color:#888;line-height:1.5;font-weight:400;letter-spacing:0">
-          <input type="checkbox" id="support-consent" name="consent" value="1" required style="width:16px;height:16px;accent-color:#f0ebe5;flex-shrink:0;margin-top:1px">
-          <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:#aaa">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:#aaa">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
+        <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.8rem;color:var(--footer-link);line-height:1.5;font-weight:400;letter-spacing:0">
+          <input type="checkbox" id="support-consent" name="consent" value="1" required style="width:16px;height:16px;accent-color:var(--text);flex-shrink:0;margin-top:1px">
+          <span>Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:var(--text-muted)">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:var(--text-muted)">termos de uso</a>, e autorizo o uso dos meus dados para responder ao contato.</span>
         </label>
       </div>
       <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">

@@ -4,6 +4,8 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
+import { aboutHTML } from './ui/about.js';
+import { gearHTML } from './ui/gear.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -17,6 +19,12 @@ import {
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
 const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
+// Prefill text for the support form, keyed by the ?tema= query param — cosmetic
+// only, never trusted server-side beyond seeding the textarea's initial text.
+const TEMA_PREFILLS = {
+  bug: 'Encontrei um problema na interface do site: ',
+  sugestao: 'Tenho uma sugestão para o site: ',
+};
 
 // KV counters are plain strings, so a corrupted/absent value must never become
 // NaN: String(NaN) would be written back and poison the counter for good.
@@ -83,13 +91,12 @@ export default {
       // Health check — tests Worker startup, KV connectivity, and hashing performance
       if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
 
-      // Support page. ?tema=bug pre-fills the message field (used by the "reportar
-      // bug" link on the new-interface banner) — cosmetic only, never trusted server-side.
+      // Support page. ?tema= pre-fills the message field (used by the "reportar
+      // bug"/"sugestão" links on the new-interface banner and footer) — cosmetic
+      // only, never trusted server-side.
       if (path === '/suporte' && method === 'GET') {
-        const prefill = url.searchParams.get('tema') === 'bug'
-          ? { message: 'Encontrei um problema na interface do site: ' }
-          : {};
-        return html(supportHTML(false, '', prefill));
+        const msg = TEMA_PREFILLS[url.searchParams.get('tema')];
+        return html(supportHTML(false, '', msg ? { message: msg } : {}));
       }
       if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
 
@@ -99,9 +106,11 @@ export default {
       // Terms of use
       if (path === '/termos' && method === 'GET') return html(termsHTML());
 
-      // About page (/sobre) — TODO: finalize the copy before exposing it. The
-      // page exists in src/ui/about.js but is intentionally unrouted (hidden
-      // from public view) and left out of the sitemap/footer for now.
+      // About page
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML());
+
+      // Gear list
+      if (path === '/equipamentos' && method === 'GET') return html(gearHTML());
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
@@ -138,8 +147,14 @@ export default {
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
-    ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => console.error('retention prune failed', e)));
-    ctx.waitUntil(pruneOldConsent(env).catch(e => console.error('consent prune failed', e)));
+    ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
+      console.error('retention prune failed', e);
+      return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
+    }));
+    ctx.waitUntil(pruneOldConsent(env).catch(e => {
+      console.error('consent prune failed', e);
+      return sendErrorAlert(env, e, { path: 'cron:pruneOldConsent' }).catch(() => {});
+    }));
   },
 };
 
@@ -164,6 +179,8 @@ async function handleSitemap(env) {
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
+    `  <url><loc>${SITE_URL}/sobre</loc></url>`,
+    `  <url><loc>${SITE_URL}/equipamentos</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
@@ -306,7 +323,7 @@ async function handleDashboardPage(request, env, url) {
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
-async function handleLogin(request, env) {
+export async function handleLogin(request, env) {
   // Throttle brute-force: hard ceiling of login attempts per IP (PBKDF2 is
   // already slow, but this caps automated guessing). Counts every attempt.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -1121,7 +1138,7 @@ export function auditSite(events, env = {}) {
   };
 }
 
-async function handleHealthz(request, env) {
+export async function handleHealthz(request, env) {
   // No KV rate-limit here on purpose. This endpoint is polled by the status
   // monitor on a schedule, and checkRateLimit() does a KV *write* per call — a
   // scarce, account-wide resource (free tier: 1k writes/day, shared with the

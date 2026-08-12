@@ -6,6 +6,56 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
+## Monitoramento — prioridade máxima
+
+- [ ] **Monitoramento de uptime externo, para toda a suite de sites (não só
+      esta página)**
+
+      **Por quê:** o único alerta ativo hoje é `sendErrorAlert()` — dispara
+      e-mail pro admin quando uma exceção chega ao catch-all do `fetch()` do
+      Worker, e agora também quando o cron diário de retenção falha. Isso só
+      funciona quando algo **dentro** do Worker lança uma exceção capturável.
+      Uma queda total — KV fora do ar, deploy quebrado, cron morto em
+      silêncio, ou até o domínio inteiro fora do ar — pode não lançar exceção
+      nenhuma, e passa batido em silêncio mesmo com esse alerta configurado.
+      Só um monitor **externo**, fora da infraestrutura do próprio site, pega
+      isso. `status.lucafchala.com` já sonda `/api/healthz` e `/dashboard`
+      passivamente, mas é um painel que precisa ser checado manualmente — não
+      avisa ninguém sozinho.
+
+      **Escopo — cobrir a suite inteira, não só fotos.lucafchala.com:**
+      - fotos.lucafchala.com — monitorar `/api/healthz` (já rico: KV, D1,
+        heartbeat do cron, autoteste funcional — ver README, seção "Health
+        check e CI").
+      - lucafchala.com (site pessoal) — não tem healthz dedicado hoje;
+        monitorar a home (`/`) por status 200 já cobre o caso básico de queda
+        total, mas não pega uma degradação parcial como o healthz cobre aqui.
+      - Qualquer outro site que o Luca publicar no futuro — mesmo padrão: um
+        monitor por site, apontando pro endpoint mais informativo disponível
+        (healthz dedicado se existir, senão a home).
+
+      **Serviço — ainda não decidido, opções já cogitadas:**
+      - **UptimeRobot** — plano free cobre até 50 monitores, checagem a cada
+        5 min, alerta por e-mail sempre grátis; SMS/push dependem do plano
+        vigente no momento do cadastro (a política já mudou algumas vezes).
+      - **Better Stack (Better Uptime)** — free tier mais enxuto (10
+        monitores, checagem a cada 3 min), mas já vem com status page
+        própria incluída e push gratuito.
+      - **Cloudflare Health Checks** — nativo da mesma conta Cloudflare que
+        já hospeda os Workers, mas historicamente é recurso de plano
+        pago/Enterprise — não confirmado se está disponível no plano atual,
+        checar antes de contar com essa opção.
+      - Qualquer outro provedor de uptime monitoring com tier gratuito
+        equivalente.
+
+      **Ação necessária (manual, não dá pra fazer por aqui):** escolher o
+      provedor, criar conta própria (login/pagamento do Luca, não deste
+      ambiente), configurar um monitor por site apontando pro endpoint
+      certo, e habilitar pelo menos o alerta por e-mail (sempre disponível
+      de graça) — SMS/push como extra se o plano escolhido cobrir sem custo.
+
+---
+
 ## Lançamento
 
 - [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
@@ -61,24 +111,10 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
       Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
       gravar sozinho.
-- [ ] **Monitoramento de uptime externo** batendo em `/api/healthz`
-      (UptimeRobot, Cloudflare Health Checks, etc.) — o alerta por e-mail
-      (`sendErrorAlert`) só dispara quando uma exceção chega ao catch-all do
-      Worker; uma queda total (KV fora do ar, erro de deploy) não
-      necessariamente lança uma exceção capturável e passaria em silêncio sem
-      um ping externo.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente,
       não tem cobertura automática de regressão de layout.
-
----
-
-## Dívidas conhecidas
-
-- [ ] **Página `/sobre` existe mas está fora do ar** — `src/ui/about.js` está
-      escrito e não roteado (fora do sitemap e do rodapé), esperando a revisão
-      do texto. Ou finalizar e publicar, ou remover o arquivo.
 
 ---
 
@@ -103,6 +139,15 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
       acesso/notas já preenchidos, pra criar vários eventos parecidos mais
       rápido sem precisar duplicar um evento real toda vez.
+- [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
+      masonry da galeria (CSS Grid + `layoutMasonry()` calculando
+      `grid-row-end` a partir da altura real renderizada) segue a proporção
+      real de cada thumbnail, mas como o modelo de dados só guarda a URL da
+      foto (não dimensões), o `.thumb` não sabe a altura final até a imagem
+      carregar e o JS recalcular — algum reflow residual é inerente a isso.
+      Guardar `width`/`height` (ou só a razão) no momento em que a foto é
+      adicionada ao evento eliminaria isso de vez (CLS zero), sem custo de
+      requisição extra por foto.
 
 ---
 
@@ -135,8 +180,6 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 
 ### UX
 
-- **Modo claro automático** — respeitar `prefers-color-scheme`. Hoje só existe o
-  escuro; algumas pessoas preferem fundo neutro para ver foto.
 - **Internacionalização (EN/PT)** na galeria e nas páginas de evento.
 - **Link nominado por convidado** — `/casamento-ana-joao?guest=marina` mostra
   "Olá, Marina!" no topo. Toque pessoal sem login.
@@ -161,7 +204,3 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **Contagem de fotos** (manual + auto-contagem opcional via Google Drive API)
   — foi implementada e removida por completo a pedido: as fotos já vêm
   numeradas, o dado era redundante. Não reintroduzir sem necessidade nova.
-- **Tour guiado** (modal de boas-vindas em `/<slug>`) — já não existe no
-  código; o item de "revamp" que estava aqui ficou obsoleto porque não há
-  mais o que revisar. Se um tour guiado fizer sentido de novo no futuro, é
-  melhor desenhar do zero do que recuperar o antigo.

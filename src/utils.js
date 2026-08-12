@@ -171,19 +171,27 @@ export function escape(str) {
 }
 
 // Shared footer block (legal links + copyright) reused across every public
-// page so the six near-identical footers can't drift out of sync as new
-// links get added. The year is computed live — pages render per-request, so
-// the copyright is always current with no cron/build step needed. Callers
+// page so the near-identical footers can't drift out of sync as new links get
+// added. The year is computed live — pages render per-request, so the
+// copyright is always current with no cron/build step needed. Callers
 // provide their own CSS for .legal-link/.footer-copyright (this only returns
-// markup, same contract as escape()/formatDatePT()).
-export function footerLegalLinksHTML() {
+// markup, same contract as escape()/formatDatePT()). `extra` lets a specific
+// page fold one more low-key link into the same row (e.g. event.js's "Ver
+// tour novamente") instead of starting a second, more crowded row — kept out
+// of the default set since it's not relevant on every page. "Sugestões"
+// deliberately lives only in the dismissible update banner, not here — the
+// footer was getting crowded and this link doesn't need to be permanent.
+export function footerLegalLinksHTML(extra = '') {
   const year = new Date().getFullYear();
   return `
     <div class="footer-actions-legal">
+      <a href="/sobre" class="legal-link">Sobre</a>
+      <a href="/equipamentos" class="legal-link">Equipamento</a>
       <a href="/suporte" class="legal-link">Suporte</a>
       <a href="/privacidade" class="legal-link">Privacidade</a>
       <a href="/termos" class="legal-link">Termos</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
+      ${extra}
     </div>
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
 }
@@ -220,6 +228,7 @@ export function updateBannerHTML() {
     <div class="update-banner" id="update-banner">
       <span>✨ Nova interface, melhorada!</span>
       <a href="/suporte?tema=bug">Encontrou um problema? Reportar</a>
+      <a href="/suporte?tema=sugestao">💡 Tem uma sugestão?</a>
       <button type="button" class="ub-close" id="update-banner-close" aria-label="Fechar aviso">×</button>
     </div>`;
 }

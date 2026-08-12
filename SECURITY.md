@@ -100,6 +100,13 @@ than breaking the page they're on — see the `sendXEmail()` helpers in
 `src/utils.js`, all of which catch their own errors and return `null`/`false`
 instead of throwing into the caller.
 
+The daily retention cron (`scheduled()` in `src/index.js`, `wrangler.toml`
+`[triggers]`) now fires the same `sendErrorAlert()` when either of its two
+prune tasks fails, not just `console.error` — a retention bug is as much a
+"you should know about this" event as a request-path exception, and used to
+be visible only in Cloudflare's logs or, indirectly, once the cron heartbeat
+(`/api/healthz`'s `cron.stale`) aged past a day.
+
 ## Response / Prazo de resposta
 
 This is a personal project maintained by one person. We aim to **acknowledge
