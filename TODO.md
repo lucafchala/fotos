@@ -24,35 +24,48 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       avisa ninguém sozinho.
 
       **Escopo — cobrir a suite inteira, não só fotos.lucafchala.com:**
-      - fotos.lucafchala.com — monitorar `/api/healthz` (já rico: KV, D1,
-        heartbeat do cron, autoteste funcional — ver README, seção "Health
-        check e CI").
+      - fotos.lucafchala.com — monitorar **três** endpoints, não um só,
+        proporcional a ser o site mais usado da suite: a home (marcador de
+        conteúdo), `/api/healthz` (já rico: KV, D1, heartbeat do cron,
+        autoteste funcional — ver README, seção "Health check e CI"; o
+        monitor externo pode fazer keyword-match em `"ok":true` como sinal
+        barato de degradação parcial, mesmo sem parsear o JSON inteiro) e
+        `/dashboard` (login renderiza).
       - lucafchala.com (site pessoal) — não tem healthz dedicado hoje;
         monitorar a home (`/`) por status 200 já cobre o caso básico de queda
         total, mas não pega uma degradação parcial como o healthz cobre aqui.
-      - Qualquer outro site que o Luca publicar no futuro — mesmo padrão: um
+      - Todo o resto da suite (`dash`, `paste`, `url`, `keys`, `proof`,
+        `radio`, `rg`, `status`) — um monitor por site na home.
+        `rg.lucafchala.com` já foi adicionado ao monitor **interno**
+        (`status.lucafchala.com`) nesta mesma revisão — faltava cobertura
+        até aqui, interna e externa.
+      - Qualquer site novo que o Luca publicar no futuro — mesmo padrão: um
         monitor por site, apontando pro endpoint mais informativo disponível
-        (healthz dedicado se existir, senão a home).
+        (healthz dedicado se existir, senão a home), acrescentado à lista
+        acima quando publicado.
 
-      **Serviço — ainda não decidido, opções já cogitadas:**
-      - **UptimeRobot** — plano free cobre até 50 monitores, checagem a cada
-        5 min, alerta por e-mail sempre grátis; SMS/push dependem do plano
-        vigente no momento do cadastro (a política já mudou algumas vezes).
-      - **Better Stack (Better Uptime)** — free tier mais enxuto (10
-        monitores, checagem a cada 3 min), mas já vem com status page
-        própria incluída e push gratuito.
-      - **Cloudflare Health Checks** — nativo da mesma conta Cloudflare que
-        já hospeda os Workers, mas historicamente é recurso de plano
-        pago/Enterprise — não confirmado se está disponível no plano atual,
-        checar antes de contar com essa opção.
-      - Qualquer outro provedor de uptime monitoring com tier gratuito
-        equivalente.
+      **Serviço — decidido: HetrixTools (grátis) como principal.** 15
+      monitores de uptime + 15 de blacklist, checagem 1–3 min, multi-região,
+      e — o motivo da escolha — canais de alerta grátis que não são e-mail
+      nem Telegram: Discord, Pushover, ntfy.sh, PushBullet, entre outros
+      (webhook de Discord → app do Discord no celular é o mais simples de
+      configurar e chega quase instantâneo). UptimeRobot (50 monitores, 5
+      min) foi cogitado como principal, mas desde dez/2024 o ToS do free
+      restringe a uso pessoal não-comercial — zona cinzenta dado que fotos
+      também serve entrega a clientes de evento — então rebaixado a
+      **redundância opcional**: um segundo provedor, independente do
+      primeiro (infra e pipeline de alerta diferentes), apontando pros
+      mesmos endpoints, via push do app próprio. Better Stack descartado (só
+      10 monitores, sem folga pra crescer). Cloudflare Health Checks
+      descartado (confirmado: recurso Pro/Business/Enterprise, não está no
+      plano free).
 
-      **Ação necessária (manual, não dá pra fazer por aqui):** escolher o
-      provedor, criar conta própria (login/pagamento do Luca, não deste
-      ambiente), configurar um monitor por site apontando pro endpoint
-      certo, e habilitar pelo menos o alerta por e-mail (sempre disponível
-      de graça) — SMS/push como extra se o plano escolhido cobrir sem custo.
+      **Ação necessária (manual, não dá pra fazer por aqui):** criar a conta
+      HetrixTools (login/pagamento do Luca, não deste ambiente), configurar
+      um monitor por endpoint da lista de escopo acima, criar o webhook do
+      Discord (ou Pushover/ntfy.sh) como canal principal e o e-mail como
+      secundário, e opcionalmente repetir a configuração no UptimeRobot para
+      a redundância. Depois de feito, atualizar este item para concluído.
 
 ---
 
