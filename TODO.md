@@ -6,91 +6,6 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
-## Monitoramento — prioridade máxima
-
-- [ ] **Monitoramento de uptime externo, para toda a suite de sites (não só
-      esta página)**
-
-      **Por quê:** o único alerta ativo hoje é `sendErrorAlert()` — dispara
-      e-mail pro admin quando uma exceção chega ao catch-all do `fetch()` do
-      Worker, e agora também quando o cron diário de retenção falha. Isso só
-      funciona quando algo **dentro** do Worker lança uma exceção capturável.
-      Uma queda total — KV fora do ar, deploy quebrado, cron morto em
-      silêncio, ou até o domínio inteiro fora do ar — pode não lançar exceção
-      nenhuma, e passa batido em silêncio mesmo com esse alerta configurado.
-      Só um monitor **externo**, fora da infraestrutura do próprio site, pega
-      isso. `status.lucafchala.com` já sonda `/api/healthz` e `/dashboard`
-      passivamente, mas é um painel que precisa ser checado manualmente — não
-      avisa ninguém sozinho.
-
-      **Escopo — levantamento completo dos repos `lucafchala/*` (não só o que
-      já estava documentado aqui), varredura feita nesta revisão:**
-      encontrados quatro sites reais sem cobertura nenhuma — nem interna, nem
-      externa — mais um repo morto:
-      - **`pays.lucafchala.com`** — gerenciador de assinaturas, estático,
-        só `localStorage`, sem API própria.
-      - **`treino.lucafchala.com`** — conversor Nippard UPPPL → Hevy,
-        estático, sem backend.
-      - **`edificio-maison-blanche.lucafchala.com`** — site institucional
-        (imobiliário), estático.
-      - **`restricted.lucafchala.com`** — CTF com leaderboard: página
-        estática + Worker próprio (`ctf-leaderboard.lucafchala.workers.dev`).
-        O Worker já ganhou um sub-check funcional no monitor **interno**
-        (`status.lucafchala.com` faz `GET ?action=list` e valida o array
-        `entries`) nesta mesma revisão.
-      - `subs.lucafchala-com` — repo vazio, sem deploy; parece o precursor
-        abandonado do que virou `pays` (o `<title>` de `pays` ainda diz
-        "Subs | Luca F. Chala", resíduo do rename). Nenhuma ação — não há o
-        que monitorar.
-
-      Todos os quatro sites reais já foram adicionados ao monitor
-      **interno** (`status.lucafchala.com`) nesta revisão, junto com
-      `rg.lucafchala.com` (mesma lacuna, fechada antes). O **externo** ainda
-      depende da conta manual (ver abaixo).
-
-      **Escopo do monitor externo — 15 endpoints, no limite exato do free
-      da HetrixTools (ver decisão de serviço abaixo):** um monitor por site
-      na home (`lucafchala.com`, `radio`, `dash`, `paste`, `url`, `keys`,
-      `proof`, `rg`, `pays`, `treino`, `edificio-maison-blanche`,
-      `restricted`, `status` — 13) **mais dois só para fotos**
-      (`fotos.lucafchala.com` e `fotos.lucafchala.com/api/healthz` — o
-      keyword-match em `"ok":true` do healthz é o único sinal de degradação
-      parcial que o monitor burro consegue captar, proporcional a ser o site
-      mais usado da suite). Isso fecha em **15/15** — no limite exato do
-      plano grátis. Por isso `fotos/dashboard` e o Worker do `restricted`
-      **não** ganham monitor externo próprio: o monitor interno já os cobre
-      em profundidade (ver tabela do README do status), e o externo só
-      precisa provar "o site responde", não repetir o que o interno já faz
-      melhor. **Qualquer site novo no futuro estoura esse limite** — as
-      opções nesse momento são: mover um endpoint de menor prioridade para o
-      UptimeRobot (redundância abaixo, que tem folga de sobra), ou assinar
-      um plano pago.
-
-      **Serviço — decidido: HetrixTools (grátis) como principal.** 15
-      monitores de uptime + 15 de blacklist, checagem 1–3 min, multi-região,
-      e — o motivo da escolha — canais de alerta grátis que não são e-mail
-      nem Telegram: Discord, Pushover, ntfy.sh, PushBullet, entre outros
-      (webhook de Discord → app do Discord no celular é o mais simples de
-      configurar e chega quase instantâneo). UptimeRobot (50 monitores, 5
-      min) foi cogitado como principal, mas desde dez/2024 o ToS do free
-      restringe a uso pessoal não-comercial — zona cinzenta dado que fotos
-      também serve entrega a clientes de evento — então rebaixado a
-      **redundância opcional**: um segundo provedor, independente do
-      primeiro (infra e pipeline de alerta diferentes), apontando pros
-      mesmos endpoints, via push do app próprio. Better Stack descartado (só
-      10 monitores, sem folga pra crescer). Cloudflare Health Checks
-      descartado (confirmado: recurso Pro/Business/Enterprise, não está no
-      plano free).
-
-      **Ação necessária (manual, não dá pra fazer por aqui):** criar a conta
-      HetrixTools (login/pagamento do Luca, não deste ambiente), configurar
-      um monitor por endpoint da lista de escopo acima, criar o webhook do
-      Discord (ou Pushover/ntfy.sh) como canal principal e o e-mail como
-      secundário, e opcionalmente repetir a configuração no UptimeRobot para
-      a redundância. Depois de feito, atualizar este item para concluído.
-
----
-
 ## Lançamento
 
 - [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
@@ -239,3 +154,15 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **Contagem de fotos** (manual + auto-contagem opcional via Google Drive API)
   — foi implementada e removida por completo a pedido: as fotos já vêm
   numeradas, o dado era redundante. Não reintroduzir sem necessidade nova.
+- **Monitoramento de uptime terceirizado** (UptimeRobot/HetrixTools/Better
+  Stack) — cogitado e descartado a pedido do dono. O monitoramento continua
+  100% interno (`status.lucafchala.com`), que em troca ganhou cobertura
+  deliberadamente desproporcional em fotos.lucafchala.com (ver seu README,
+  tabela de serviços). Isso significa aceitar conscientemente o ponto único
+  de falha que motivou cogitar um terceiro: `status.lucafchala.com` roda na
+  mesma conta Cloudflare que monitora, então uma queda de conta inteira (ou
+  do Resend, ou do cron do GitHub Actions) não seria detectada por nada
+  aqui. Não reintroduzir sem necessidade nova — se reconsiderado, a análise
+  de provedores (HetrixTools grátis, 15 monitores, canais Discord/Pushover/
+  ntfy.sh; UptimeRobot como redundância) ainda vale, só ficou de fora deste
+  arquivo.
