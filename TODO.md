@@ -23,36 +23,71 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       passivamente, mas é um painel que precisa ser checado manualmente — não
       avisa ninguém sozinho.
 
-      **Escopo — cobrir a suite inteira, não só fotos.lucafchala.com:**
-      - fotos.lucafchala.com — monitorar `/api/healthz` (já rico: KV, D1,
-        heartbeat do cron, autoteste funcional — ver README, seção "Health
-        check e CI").
-      - lucafchala.com (site pessoal) — não tem healthz dedicado hoje;
-        monitorar a home (`/`) por status 200 já cobre o caso básico de queda
-        total, mas não pega uma degradação parcial como o healthz cobre aqui.
-      - Qualquer outro site que o Luca publicar no futuro — mesmo padrão: um
-        monitor por site, apontando pro endpoint mais informativo disponível
-        (healthz dedicado se existir, senão a home).
+      **Escopo — levantamento completo dos repos `lucafchala/*` (não só o que
+      já estava documentado aqui), varredura feita nesta revisão:**
+      encontrados quatro sites reais sem cobertura nenhuma — nem interna, nem
+      externa — mais um repo morto:
+      - **`pays.lucafchala.com`** — gerenciador de assinaturas, estático,
+        só `localStorage`, sem API própria.
+      - **`treino.lucafchala.com`** — conversor Nippard UPPPL → Hevy,
+        estático, sem backend.
+      - **`edificio-maison-blanche.lucafchala.com`** — site institucional
+        (imobiliário), estático.
+      - **`restricted.lucafchala.com`** — CTF com leaderboard: página
+        estática + Worker próprio (`ctf-leaderboard.lucafchala.workers.dev`).
+        O Worker já ganhou um sub-check funcional no monitor **interno**
+        (`status.lucafchala.com` faz `GET ?action=list` e valida o array
+        `entries`) nesta mesma revisão.
+      - `subs.lucafchala-com` — repo vazio, sem deploy; parece o precursor
+        abandonado do que virou `pays` (o `<title>` de `pays` ainda diz
+        "Subs | Luca F. Chala", resíduo do rename). Nenhuma ação — não há o
+        que monitorar.
 
-      **Serviço — ainda não decidido, opções já cogitadas:**
-      - **UptimeRobot** — plano free cobre até 50 monitores, checagem a cada
-        5 min, alerta por e-mail sempre grátis; SMS/push dependem do plano
-        vigente no momento do cadastro (a política já mudou algumas vezes).
-      - **Better Stack (Better Uptime)** — free tier mais enxuto (10
-        monitores, checagem a cada 3 min), mas já vem com status page
-        própria incluída e push gratuito.
-      - **Cloudflare Health Checks** — nativo da mesma conta Cloudflare que
-        já hospeda os Workers, mas historicamente é recurso de plano
-        pago/Enterprise — não confirmado se está disponível no plano atual,
-        checar antes de contar com essa opção.
-      - Qualquer outro provedor de uptime monitoring com tier gratuito
-        equivalente.
+      Todos os quatro sites reais já foram adicionados ao monitor
+      **interno** (`status.lucafchala.com`) nesta revisão, junto com
+      `rg.lucafchala.com` (mesma lacuna, fechada antes). O **externo** ainda
+      depende da conta manual (ver abaixo).
 
-      **Ação necessária (manual, não dá pra fazer por aqui):** escolher o
-      provedor, criar conta própria (login/pagamento do Luca, não deste
-      ambiente), configurar um monitor por site apontando pro endpoint
-      certo, e habilitar pelo menos o alerta por e-mail (sempre disponível
-      de graça) — SMS/push como extra se o plano escolhido cobrir sem custo.
+      **Escopo do monitor externo — 15 endpoints, no limite exato do free
+      da HetrixTools (ver decisão de serviço abaixo):** um monitor por site
+      na home (`lucafchala.com`, `radio`, `dash`, `paste`, `url`, `keys`,
+      `proof`, `rg`, `pays`, `treino`, `edificio-maison-blanche`,
+      `restricted`, `status` — 13) **mais dois só para fotos**
+      (`fotos.lucafchala.com` e `fotos.lucafchala.com/api/healthz` — o
+      keyword-match em `"ok":true` do healthz é o único sinal de degradação
+      parcial que o monitor burro consegue captar, proporcional a ser o site
+      mais usado da suite). Isso fecha em **15/15** — no limite exato do
+      plano grátis. Por isso `fotos/dashboard` e o Worker do `restricted`
+      **não** ganham monitor externo próprio: o monitor interno já os cobre
+      em profundidade (ver tabela do README do status), e o externo só
+      precisa provar "o site responde", não repetir o que o interno já faz
+      melhor. **Qualquer site novo no futuro estoura esse limite** — as
+      opções nesse momento são: mover um endpoint de menor prioridade para o
+      UptimeRobot (redundância abaixo, que tem folga de sobra), ou assinar
+      um plano pago.
+
+      **Serviço — decidido: HetrixTools (grátis) como principal.** 15
+      monitores de uptime + 15 de blacklist, checagem 1–3 min, multi-região,
+      e — o motivo da escolha — canais de alerta grátis que não são e-mail
+      nem Telegram: Discord, Pushover, ntfy.sh, PushBullet, entre outros
+      (webhook de Discord → app do Discord no celular é o mais simples de
+      configurar e chega quase instantâneo). UptimeRobot (50 monitores, 5
+      min) foi cogitado como principal, mas desde dez/2024 o ToS do free
+      restringe a uso pessoal não-comercial — zona cinzenta dado que fotos
+      também serve entrega a clientes de evento — então rebaixado a
+      **redundância opcional**: um segundo provedor, independente do
+      primeiro (infra e pipeline de alerta diferentes), apontando pros
+      mesmos endpoints, via push do app próprio. Better Stack descartado (só
+      10 monitores, sem folga pra crescer). Cloudflare Health Checks
+      descartado (confirmado: recurso Pro/Business/Enterprise, não está no
+      plano free).
+
+      **Ação necessária (manual, não dá pra fazer por aqui):** criar a conta
+      HetrixTools (login/pagamento do Luca, não deste ambiente), configurar
+      um monitor por endpoint da lista de escopo acima, criar o webhook do
+      Discord (ou Pushover/ntfy.sh) como canal principal e o e-mail como
+      secundário, e opcionalmente repetir a configuração no UptimeRobot para
+      a redundância. Depois de feito, atualizar este item para concluído.
 
 ---
 
