@@ -23,26 +23,48 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       passivamente, mas é um painel que precisa ser checado manualmente — não
       avisa ninguém sozinho.
 
-      **Escopo — cobrir a suite inteira, não só fotos.lucafchala.com:**
-      - fotos.lucafchala.com — monitorar **três** endpoints, não um só,
-        proporcional a ser o site mais usado da suite: a home (marcador de
-        conteúdo), `/api/healthz` (já rico: KV, D1, heartbeat do cron,
-        autoteste funcional — ver README, seção "Health check e CI"; o
-        monitor externo pode fazer keyword-match em `"ok":true` como sinal
-        barato de degradação parcial, mesmo sem parsear o JSON inteiro) e
-        `/dashboard` (login renderiza).
-      - lucafchala.com (site pessoal) — não tem healthz dedicado hoje;
-        monitorar a home (`/`) por status 200 já cobre o caso básico de queda
-        total, mas não pega uma degradação parcial como o healthz cobre aqui.
-      - Todo o resto da suite (`dash`, `paste`, `url`, `keys`, `proof`,
-        `radio`, `rg`, `status`) — um monitor por site na home.
-        `rg.lucafchala.com` já foi adicionado ao monitor **interno**
-        (`status.lucafchala.com`) nesta mesma revisão — faltava cobertura
-        até aqui, interna e externa.
-      - Qualquer site novo que o Luca publicar no futuro — mesmo padrão: um
-        monitor por site, apontando pro endpoint mais informativo disponível
-        (healthz dedicado se existir, senão a home), acrescentado à lista
-        acima quando publicado.
+      **Escopo — levantamento completo dos repos `lucafchala/*` (não só o que
+      já estava documentado aqui), varredura feita nesta revisão:**
+      encontrados quatro sites reais sem cobertura nenhuma — nem interna, nem
+      externa — mais um repo morto:
+      - **`pays.lucafchala.com`** — gerenciador de assinaturas, estático,
+        só `localStorage`, sem API própria.
+      - **`treino.lucafchala.com`** — conversor Nippard UPPPL → Hevy,
+        estático, sem backend.
+      - **`edificio-maison-blanche.lucafchala.com`** — site institucional
+        (imobiliário), estático.
+      - **`restricted.lucafchala.com`** — CTF com leaderboard: página
+        estática + Worker próprio (`ctf-leaderboard.lucafchala.workers.dev`).
+        O Worker já ganhou um sub-check funcional no monitor **interno**
+        (`status.lucafchala.com` faz `GET ?action=list` e valida o array
+        `entries`) nesta mesma revisão.
+      - `subs.lucafchala-com` — repo vazio, sem deploy; parece o precursor
+        abandonado do que virou `pays` (o `<title>` de `pays` ainda diz
+        "Subs | Luca F. Chala", resíduo do rename). Nenhuma ação — não há o
+        que monitorar.
+
+      Todos os quatro sites reais já foram adicionados ao monitor
+      **interno** (`status.lucafchala.com`) nesta revisão, junto com
+      `rg.lucafchala.com` (mesma lacuna, fechada antes). O **externo** ainda
+      depende da conta manual (ver abaixo).
+
+      **Escopo do monitor externo — 15 endpoints, no limite exato do free
+      da HetrixTools (ver decisão de serviço abaixo):** um monitor por site
+      na home (`lucafchala.com`, `radio`, `dash`, `paste`, `url`, `keys`,
+      `proof`, `rg`, `pays`, `treino`, `edificio-maison-blanche`,
+      `restricted`, `status` — 13) **mais dois só para fotos**
+      (`fotos.lucafchala.com` e `fotos.lucafchala.com/api/healthz` — o
+      keyword-match em `"ok":true` do healthz é o único sinal de degradação
+      parcial que o monitor burro consegue captar, proporcional a ser o site
+      mais usado da suite). Isso fecha em **15/15** — no limite exato do
+      plano grátis. Por isso `fotos/dashboard` e o Worker do `restricted`
+      **não** ganham monitor externo próprio: o monitor interno já os cobre
+      em profundidade (ver tabela do README do status), e o externo só
+      precisa provar "o site responde", não repetir o que o interno já faz
+      melhor. **Qualquer site novo no futuro estoura esse limite** — as
+      opções nesse momento são: mover um endpoint de menor prioridade para o
+      UptimeRobot (redundância abaixo, que tem folga de sobra), ou assinar
+      um plano pago.
 
       **Serviço — decidido: HetrixTools (grátis) como principal.** 15
       monitores de uptime + 15 de blacklist, checagem 1–3 min, multi-região,
