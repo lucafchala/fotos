@@ -41,6 +41,48 @@ migrations_dir = "migrations"
 # Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
 crons = ["0 3 * * *"]
 
+# ---------------------------------------------------------------------------
+# Observabilidade
+# ---------------------------------------------------------------------------
+# ESTE BLOCO PRECISA EXISTIR AQUI, e não só no painel da Cloudflare.
+#
+# O `wrangler deploy` trata a configuração como fonte da verdade e desliga o
+# que não está declarada. Do próprio código do wrangler (`patchNonVersioned
+# ScriptSettings`):
+#
+#     // If the user hasn't specified observability assume that they want it
+#     // disabled if they have it on. [...] will remove observability if it has
+#     // been removed from their Wrangler configuration file
+#     observability: worker.observability ?? { enabled: false },
+#
+# Ou seja: sem este bloco, todo push na `main` apagava silenciosamente o que
+# tivesse sido ligado no painel. O log voltaria a sumir sem ninguém mexer em
+# nada — e a descoberta viria no meio de um incidente, que é justamente quando
+# não dá para reconstruir o histórico.
+#
+# Sobre `enabled = false` no topo com `logs`/`traces` ligados: não é
+# contradição. O wrangler resolve o aninhado com precedência sobre o de cima —
+#
+#     logs_enabled: observability?.logs?.enabled ?? observability?.enabled === true
+#
+# — então `logs.enabled = true` vale mesmo com o topo em `false`. É a
+# configuração que está no painel hoje, reproduzida aqui tal como está para o
+# deploy parar de brigar com ela.
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
 [env.preview]
 name = "fotos-preview"
 

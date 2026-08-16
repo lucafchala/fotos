@@ -194,6 +194,16 @@ confiar nela.
 conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
 inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
 
+**Observabilidade ligada no painel seria apagada pelo próximo deploy.** Os
+logs e traces foram ligados no painel da Cloudflare, mas o `wrangler.toml` não
+tinha bloco `[observability]` — e o `wrangler deploy` trata a configuração como
+fonte da verdade, desligando o que não está declarado ali. Do próprio código do
+wrangler: *"will remove observability if it has been removed from their Wrangler
+configuration file"*, enviando `{ enabled: false }`. Como o deploy roda a cada
+push na `main`, o log pararia de ser gravado sem ninguém ter mexido em nada — e
+a descoberta viria no meio de um incidente, quando o histórico já se perdeu.
+Bloco fixado no `wrangler.toml` com exatamente os valores do painel.
+
 **Um check do smoke test era estruturalmente incapaz de passar.** A checagem
 "o nonce do cabeçalho aparece no HTML" lia o nonce dos cabeçalhos capturados
 numa requisição e procurava esse valor no corpo de **outra** requisição. Como o

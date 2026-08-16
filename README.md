@@ -1145,6 +1145,43 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 
 O cron diário (`scheduled()`) agora também dispara `sendErrorAlert()` quando `pruneResolvedRemovalRequests` ou `pruneOldConsent` falha — antes só ia pro `console.error`, o que deixava uma falha de retenção visível só nos logs da Cloudflare. Isso ainda não cobre uma queda **total** do Worker (nada capturável é lançado); fechar isso exige um monitor externo, fora do Worker — item em aberto no [TODO.md](./TODO.md), ainda sem serviço decidido.
 
+### Observabilidade (logs e traces da Cloudflare)
+
+Configurada no bloco `[observability]` do **`wrangler.toml`** — e ela **precisa**
+estar lá, não só no painel da Cloudflare.
+
+O motivo está no próprio código do `wrangler`, no passo que grava as
+configurações não-versionadas do script:
+
+```js
+// If the user hasn't specified observability assume that they want it
+// disabled if they have it on. [...] will remove observability if it has
+// been removed from their Wrangler configuration file
+observability: worker.observability ?? { enabled: false },
+```
+
+Ou seja: **o `wrangler deploy` trata a configuração como fonte da verdade e
+desliga o que não estiver declarado ali.** Como o deploy roda a cada push na
+`main`, ligar observabilidade só pelo painel dura até o próximo merge — o log
+para de ser gravado sem ninguém ter mexido em nada, e a descoberta vem no meio
+de um incidente, exatamente quando não dá para reconstruir o histórico.
+
+Sobre o `enabled = false` no topo com `logs` e `traces` ligados: não é
+contradição. O aninhado tem precedência sobre o de cima —
+
+```js
+logs_enabled: observability?.logs?.enabled ?? observability?.enabled === true
+```
+
+— então `logs.enabled = true` vale mesmo com o topo em `false`.
+
+| Chave | Valor | O que faz |
+| --- | --- | --- |
+| `logs.persist` | `true` | Grava os logs na plataforma da Cloudflare, consultáveis no painel |
+| `logs.invocation_logs` | `true` | Uma linha por invocação, além do que o código escreve |
+| `logs.head_sampling_rate` | `1` | 100% — o volume deste site não justifica amostrar |
+| `traces.persist` | `true` | Idem para traces |
+
 CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing em `handleLogin` corre o risco de estourar o limite de CPU do Worker (~50–200 ms dependendo da conta) e retornar 5xx ao usuário tentando logar. O smoke test pós-deploy (`deploy.yml`) também cobre as páginas públicas mais novas (`/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`) e os endpoints de SEO/segurança (`/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/.well-known/security.txt`, `/.well-known/gpc.json`) com `check_status`, e loga (sem falhar o build) se `selftest.problems` do healthz vier não-vazio — isso é sinal de dado de evento mal configurado, não de regressão de código.
 
 ---
