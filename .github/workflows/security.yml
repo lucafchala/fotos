@@ -1,0 +1,251 @@
+name: security
+
+# Análise de segurança separada do `checks.yml` de propósito: aqui rodam etapas
+# lentas (CodeQL) e etapas que dependem de rede (advisories do npm). Misturá-las
+# com lint e testes tornaria o retorno do dia a dia mais lento, e o resultado
+# seria ignorá-las.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Semanal: uma vulnerabilidade nova numa dependência não espera alguém abrir
+    # um PR para aparecer. Sem isto, um projeto parado fica exposto sem sinal.
+    - cron: '0 6 * * 1'
+
+# Permissão mínima por padrão. O token do workflow nasce com escrita em vários
+# escopos; um step comprometido (ou uma action maliciosa) usaria isso para
+# escrever no repositório. Cada job amplia só o que precisa.
+permissions:
+  contents: read
+
+# NOTA — não adicione um job de CodeQL aqui.
+#
+# Este repositório usa o **default setup** do CodeQL, configurado nas
+# Settings do GitHub (Code security → Code scanning). Ele já roda por PR e
+# cobre `javascript-typescript` e `actions`.
+#
+# Um job de CodeQL neste arquivo seria uma "advanced configuration", e o
+# GitHub recusa as duas ao mesmo tempo — o upload do SARIF falha com
+# "CodeQL analyses from advanced configurations cannot be processed when the
+# default setup is enabled", derrubando o workflow inteiro sem que nada esteja
+# errado com o código. Foi exatamente o que aconteceu na primeira versão deste
+# arquivo.
+#
+# Para elevar o rigor da análise, mude a **query suite** para `security-extended`
+# nas Settings do repositório, e não aqui: Settings → Code security → Code
+# scanning → CodeQL → Query suite. A suíte estendida inclui consultas de menor
+# precisão que a padrão omite — num projeto que trata dado pessoal, um falso
+# positivo custa cinco minutos de leitura e um falso negativo custa bem mais.
+
+jobs:
+  dependencies:
+    name: Dependências
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Instalar
+        run: npm ci --no-audit --no-fund
+
+      # `npm audit` cobre o que o Dependabot já vigia, mas falha o build em vez
+      # de abrir um PR que pode ficar semanas sem revisão. O piso é `high`: o
+      # projeto só tem dependências de desenvolvimento (wrangler, eslint,
+      # vitest) e nenhuma delas roda em produção, então falhar em `moderate`
+      # geraria ruído que acabaria sendo silenciado — e um gate silenciado não
+      # protege ninguém.
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
+
+  dependency-review:
+    name: Revisão de dependências (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      # Barra a ENTRADA de uma dependência vulnerável, em vez de descobri-la
+      # depois de mergeada.
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  invariants:
+    name: Invariantes de segurança
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Instalar
+        run: npm ci --no-audit --no-fund
+
+      # As checagens abaixo protegem decisões que um teste unitário não alcança
+      # — coisas que "continuam funcionando" depois de quebradas e por isso
+      # passariam despercebidas numa revisão.
+
+      - name: Nenhuma primitiva de execução dinâmica no servidor
+        run: |
+          set -e
+          # eval/new Function/document.write num Worker que renderiza HTML a
+          # partir de dados de KV transformam um escape esquecido em execução.
+          if grep -rnE '\beval\(|new Function\(|document\.write\(' src/; then
+            echo "FALHA: primitiva de execução dinâmica encontrada em src/"
+            exit 1
+          fi
+          echo "OK: nenhuma."
+
+      - name: A CSP nunca pode aceitar unsafe-eval
+        run: |
+          set -e
+          # Só linhas de código: o termo aparece legitimamente em comentário
+          # explicando por que ele NÃO está na política.
+          if grep -rn "unsafe-eval" src/ | grep -vE ':\s*(//|\*)'; then
+            echo "FALHA: 'unsafe-eval' na CSP"
+            exit 1
+          fi
+          echo "OK: sem unsafe-eval."
+
+      - name: Nenhum segredo com valor embutido no código
+        run: |
+          set -e
+          # Segredo tem que vir de env/binding. O padrão pega atribuição
+          # literal; `env.X` e comparações continuam válidas.
+          if grep -rnE "(SIGNING_SECRET|TURNSTILE_SECRET_KEY|RESEND_API_KEY|ADMIN_PASSWORD|CLOUDFLARE_API_TOKEN)\s*[:=]\s*['\"][^'\"]{8,}" src/ migrations/ wrangler.toml; then
+            echo "FALHA: possível segredo embutido"
+            exit 1
+          fi
+          echo "OK: nenhum segredo literal."
+
+      - name: O portão de CSRF continua antes do roteamento
+        run: |
+          set -e
+          # A posição É o controle: depois do roteamento, cada rota nova teria
+          # de lembrar de chamá-lo. A suíte cobre o comportamento; isto cobre
+          # a estrutura, que é o que se perde num refactor apressado.
+          node -e '
+            const src = require("fs").readFileSync("src/index.js", "utf8");
+            const gate  = src.indexOf("isCrossSiteRequest(request)");
+            const first = src.indexOf("if (path ===");
+            if (gate === -1) { console.error("FALHA: portão de CSRF sumiu de src/index.js"); process.exit(1); }
+            if (gate > first) { console.error("FALHA: o portão de CSRF ficou DEPOIS do roteamento"); process.exit(1); }
+            console.log("OK: portão antes do roteamento.");
+          '
+
+      - name: Todo <script> inline carrega nonce
+        run: |
+          set -e
+          # Um <script> sem nonce fica invisível hoje (o enforced ainda tem
+          # 'unsafe-inline') e quebra silenciosamente no dia da virada para a
+          # política estrita. Melhor descobrir agora.
+          #
+          # Em node, e não num grep: a versão com grep casava com a palavra
+          # "<script>" dentro de COMENTÁRIOS — inclusive o comentário de
+          # markdown.js que explica como o escape neutraliza justamente um
+          # <script>. Um gate que reprova a própria documentação do gate é um
+          # gate que alguém desliga na terceira vez. Aqui as linhas de
+          # comentário e o HTML comentado são ignorados antes da checagem.
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const dir = "src/ui";
+            let bad = [];
+            for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".js"))) {
+              const full = path.join(dir, f);
+              fs.readFileSync(full, "utf8").split("\n").forEach((line, i) => {
+                const t = line.trim();
+                if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
+                if (t.includes("<!--")) return;
+                for (const m of line.matchAll(/<script\b[^>]*>/g)) {
+                  if (!/\bnonce=/.test(m[0])) bad.push(full + ":" + (i + 1) + "  " + m[0].slice(0, 80));
+                }
+              });
+            }
+            if (bad.length) {
+              console.error("FALHA: <script> sem nonce em src/ui/");
+              bad.forEach(b => console.error("  " + b));
+              process.exit(1);
+            }
+            console.log("OK: todos os scripts têm nonce.");
+          '
+
+      - name: Host nunca é reconhecido por prefixo de string
+        run: |
+          set -e
+          # `href.startsWith('https://fotos.lucafchala.com')` aceita
+          # `https://fotos.lucafchala.com.exemplo.com/` e
+          # `https://fotos.lucafchala.com@exemplo.com/` — hosts de terceiros que
+          # só COMEÇAM com o nosso nome. Foi um achado real do CodeQL neste
+          # repositório, em `resolveDocHref`. Quem compara host é `new URL()`.
+          # Linhas de comentário ficam de fora: o próprio comentário que explica
+          # a regra cita o padrão proibido.
+          if grep -rn "startsWith" src/ --include='*.js' \
+             | grep -E "SITE_URL|fotos\.lucafchala\.com" \
+             | grep -vE ':\s*(//|\*)'; then
+            echo "FALHA: host comparado por prefixo de string. Use new URL() e compare .host"
+            exit 1
+          fi
+          echo "OK: nenhum host comparado por prefixo."
+
+      - name: Desescape de entidades em uma passada só
+        run: |
+          set -e
+          # `.replace(/&amp;/g,'&').replace(/&quot;/g,'"')` desescapa DUAS vezes:
+          # `&amp;quot;` vira `&quot;` na primeira troca e aspas de verdade na
+          # segunda — o caractere que fecha um atributo href. Outro achado do
+          # CodeQL. O desescape correto é uma passada só, com tabela
+          # (`unescapeEntities` em src/ui/markdown.js).
+          if grep -rn "&amp;/g" src/ --include='*.js' | grep -vE ':\s*(//|\*)'; then
+            echo "FALHA: desescape encadeado de entidades (risco de desescape duplo)"
+            exit 1
+          fi
+          echo "OK: desescape em passada única."
+
+      - name: Só o link de código-fonte pode apontar para o GitHub
+        run: |
+          set -e
+          # Regra do site: ler a política que rege os seus dados não pode
+          # depender de abrir outro serviço. A única exceção é o link de
+          # código-fonte no rodapé (footerLegalLinksHTML, em src/utils.js).
+          # `src/content/legal-docs.js` é gerado a partir dos markdowns e pode
+          # conter a URL como texto; o renderizador rebaixa qualquer link de
+          # GitHub a texto puro (resolveDocHref), então ele nunca vira <a>.
+          STRAY=$(grep -rn "github\.com" src/ --include='*.js' \
+                  | grep -v 'src/content/legal-docs.js' \
+                  | grep -v 'src/ui/markdown.js' \
+                  | grep -v 'footerLegalLinksHTML' \
+                  | grep -v 'class="legal-link">Código-fonte' || true)
+          if [ -n "$STRAY" ]; then
+            echo "FALHA: link para o GitHub fora do rodapé de código-fonte:"
+            echo "$STRAY"
+            exit 1
+          fi
+          echo "OK: nenhum link extra para o GitHub."
+
+      - name: Documentos legais regenerados a partir do markdown
+        run: |
+          set -e
+          # src/content/legal-docs.js é gerado. Se alguém editar um markdown e
+          # não regenerar, a página publicada passa a mostrar um texto diferente
+          # do documento oficial — divergência silenciosa e do pior tipo, já que
+          # é justamente o conteúdo que promete refletir a realidade.
+          npm run build:legal
+          if ! git diff --quiet -- src/content/legal-docs.js; then
+            echo "FALHA: src/content/legal-docs.js está desatualizado."
+            echo "Rode 'npm run build:legal' e commite o resultado."
+            git diff --stat -- src/content/legal-docs.js
+            exit 1
+          fi
+          echo "OK: documentos em sincronia com o markdown."
+
+      - name: Suíte de segurança
+        run: npx vitest run tests/security.test.js tests/drive-gate.test.js

@@ -38,5 +38,30 @@ PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameS
 ## Onde editar
 Textos: `src/ui/terms.js` e `src/ui/privacy.js`. A versão dos Termos é `TERMS_VERSION` em `src/utils.js` (cada aceite grava essa versão + hash do texto). Retenções: `CONSENT_RETENTION_DAYS` e `REMOVAL_RETENTION_DAYS` em `src/index.js`.
 
+## Nota sobre a Central de Transparência (2026-08)
+
+Privacidade, Termos, política de segurança, o resumo do que é feito com os dados
+e toda a documentação de conformidade (`docs/legal/`) passaram a ter um hub
+público em [`/legal`](https://fotos.lucafchala.com/legal) (também servido em
+`/compliance`). No rodapé, os links "Privacidade" e "Termos" deram lugar a um
+único **"Legal"**, que aponta para esse hub.
+
+**Isso não reduz o acesso às políticas** — ao contrário: os dois documentos
+continuam a um clique, e a página de destino acrescenta o que antes exigia saber
+onde procurar (prazos de retenção, base legal, canais de contato, direito de
+reclamar à ANPD e os documentos de governança na íntegra). A motivação foi
+duplo-propósito: o rodapé estava com seis links competindo por atenção, e os dois
+jurídicos eram justamente os que ninguém clica quando estão soltos ali.
+
+**Efeito no hash dos Termos.** `getTermsHash()` é calculado sobre o HTML
+renderizado de `termsHTML()`, que inclui o rodapé compartilhado
+(`footerLegalLinksHTML()`). Trocar dois links por um muda esse hash. Pela mesma
+razão registrada na nota de linguagem abaixo, **isso não exige nova
+`TERMS_VERSION` nem novo aceite**: nenhum trecho com efeito jurídico foi
+alterado — o escopo da autorização de imagem, a identificação do controlador e
+as referências a responsável legal de menor estão intocados. O hash continua
+sendo a prova forense de qual texto exato foi aceito em cada momento, e cada
+registro antigo segue apontando corretamente para o texto vigente no seu aceite.
+
 ## Nota sobre esta revisão de linguagem (2026-08)
 Passei `terms.js`/`privacy.js` de linguagem impessoal ("contate o dono", "fale com a gente") para primeira pessoa ("fale comigo"), já que o site é assinado por uma única pessoa. **Nenhum trecho com efeito jurídico foi alterado**: a identificação formal do controlador/responsável (nome legal + canal de contato, ponto 8 acima) e as referências a "responsável legal" de menor permanecem intactas, palavra por palavra. Como o hash gravado a cada aceite (`getTermsHash()` em `src/index.js`) é calculado sobre o HTML renderizado de `termsHTML()`, essa edição muda o hash — mas não muda o escopo da autorização nem exige nova versão (`TERMS_VERSION`) ou novo aceite dos usuários já registrados: o hash é a prova forense de qual texto exato foi aceito em cada momento, e continua correto para cada registro antigo (ele referencia o texto vigente naquele aceite, não o texto atual). Nenhum dos pontos "PRECISA de decisão jurídica" acima foi resolvido por esta revisão — continuam pendentes de parecer.

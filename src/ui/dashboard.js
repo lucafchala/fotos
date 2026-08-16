@@ -1,4 +1,5 @@
 import { sortEvents, escape } from '../utils.js';
+import { PASSWORD_MIN_LENGTH } from '../security.js';
 
 const BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -9,7 +10,7 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
-export function loginHTML(opts = {}) {
+export function loginHTML(opts = {}, nonce = '') {
   const { error = false, isSetup = false } = opts;
   const title = isSetup ? 'Criar senha de acesso' : 'Painel administrativo';
   const btnLabel = isSetup ? 'Criar senha e entrar' : 'Entrar';
@@ -73,7 +74,7 @@ export function loginHTML(opts = {}) {
 
 const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
 
-export function dashboardHTML(events, categories = []) {
+export function dashboardHTML(events, categories = [], nonce = '') {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
@@ -421,11 +422,12 @@ export function dashboardHTML(events, categories = []) {
       <p style="font-size:.8rem;color:var(--text2);margin-bottom:1rem">Ações abaixo exigem digitar uma palavra de confirmação.</p>
       <div class="field">
         <label>Nova senha</label>
-        <input type="password" id="new-pass" placeholder="••••••••" autocomplete="new-password">
+        <input type="password" id="new-pass" placeholder="••••••••" autocomplete="new-password" minlength="${PASSWORD_MIN_LENGTH}">
+        <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Mínimo de ${PASSWORD_MIN_LENGTH} caracteres. Use três tipos de caractere (minúscula, maiúscula, número, símbolo) — ou uma frase com 20+ caracteres, que dispensa a mistura.</p>
       </div>
       <div class="field">
         <label>Confirmar senha</label>
-        <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password">
+        <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password" minlength="${PASSWORD_MIN_LENGTH}">
       </div>
       <button class="btn-danger" style="margin-top:.25rem;margin-bottom:1.5rem" onclick="changePassword()">Salvar nova senha</button>
       <div class="field">
@@ -588,7 +590,7 @@ export function dashboardHTML(events, categories = []) {
 
   <div class="toast" id="toast"></div>
 
-  <script>
+  <script nonce="${nonce}">
     let events = ${eventsJSON};
     let categories = ${categoriesJSON};
     let massMode = false;
@@ -598,6 +600,15 @@ export function dashboardHTML(events, categories = []) {
     let metricsData = [];
     let metricsSort = { key: 'views', dir: 'desc' };
     let photoList = [];
+    // Declaradas aqui, junto do resto do estado, e nao la embaixo perto de
+    // stashDraft(): restoreDraft() roda no init, que e ANTES do ponto onde
+    // ficavam. Uma const nao e icada como uma function — a chamada morria numa
+    // ReferenceError de zona morta temporal, engolida pelo try/catch do init,
+    // e o rascunho simplesmente nunca voltava.
+    // (Sem crase neste comentario: todo este script vive dentro de um template
+    // literal, e uma crase solta encerra a string e quebra o modulo inteiro.)
+    const DRAFT_KEY = 'fotos:draft';
+    const DRAFT_MAX_AGE_MS = 3600000; // 1 h — rascunho velho demais confunde mais do que ajuda
     let requestsLoaded = false;
     let lastFocused = null;
     let formSnapshot = '';
@@ -628,6 +639,9 @@ export function dashboardHTML(events, categories = []) {
     refreshCategorySelects();
     renderCategoryManager();
     loadRequests();
+    // Depois de a lista existir: se a sessão expirou no meio de uma edição,
+    // reabre o formulário com o que estava digitado.
+    try { restoreDraft(); } catch(e) { console.error('restoreDraft:', e); }
 
     // ---- Tabs ----
     function switchTab(name, btn) {
@@ -768,6 +782,61 @@ export function dashboardHTML(events, categories = []) {
     }
     function isFormDirty() {
       return document.getElementById('overlay').classList.contains('open') && snapshotForm() !== formSnapshot;
+    }
+
+    // ---- Rascunho de emergência (sessão expirada) ----
+    // A sessão agora morre por inatividade (2 h), e não só pelo teto de 24 h.
+    // Isso é melhor para a segurança e pior para quem estava no meio de uma
+    // edição: o api() manda para o login no 401, e sem isto tudo que estava
+    // digitado ia embora junto. Perder o trabalho de alguém para expirar uma
+    // sessão é um péssimo negócio — então o rascunho vai para o
+    // sessionStorage antes do redirect e volta depois do login.
+    //
+    // sessionStorage e não localStorage: o rascunho pode conter notas internas,
+    // e ele deve morrer junto com a aba, não ficar no disco. Reaproveita
+    // snapshotForm(), que já é a fonte da verdade do que compõe o formulário.
+    function stashDraft() {
+      if (!document.getElementById('overlay').classList.contains('open')) return false;
+      if (!isFormDirty()) return false; // nada alterado, nada a recuperar
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+          editingId, at: Date.now(), form: snapshotForm(),
+        }));
+        return true;
+      } catch (_) { return false; }
+    }
+
+    function restoreDraft() {
+      let raw = null;
+      try {
+        raw = sessionStorage.getItem(DRAFT_KEY);
+        sessionStorage.removeItem(DRAFT_KEY); // só uma tentativa: se falhar, não fica insistindo
+      } catch (_) { return; }
+      if (!raw) return;
+
+      let d;
+      try { d = JSON.parse(raw); } catch (_) { return; }
+      if (!d || !d.form || Date.now() - d.at > DRAFT_MAX_AGE_MS) return;
+      // O evento pode ter sido apagado enquanto a sessão estava expirada.
+      if (d.editingId && !events.some(e => e.id === d.editingId)) return;
+
+      let f;
+      try { f = JSON.parse(d.form); } catch (_) { return; }
+
+      openForm(d.editingId || undefined);
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+      const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+      set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
+      set('f-drive-ig', f.driveIg); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-purl', f.purl); set('f-status', f.status); set('f-access', f.accessType);
+      set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
+      setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon);
+      setChk('f-alert-active', f.alertActive);
+      toggleAlertOpts(!!f.alertActive);
+      if (Array.isArray(f.photos)) { photoList = [...f.photos]; renderPhotoList(); }
+      // NÃO atualiza formSnapshot: o rascunho é justamente "alterações não
+      // salvas", e fechar sem salvar tem que continuar pedindo confirmação.
+      toast('Sua sessão tinha expirado. Recuperei o que você estava editando.', 'ok');
     }
 
     // skipCheck=true is used right after a successful save, where there's
@@ -1257,7 +1326,14 @@ export function dashboardHTML(events, categories = []) {
       const p2 = document.getElementById('new-pass2').value;
       if (!p1) return toast('Digite a nova senha.', 'err');
       if (p1 !== p2) return toast('As senhas não coincidem.', 'err');
-      if (p1.length < 6) return toast('Senha muito curta (mínimo 6 caracteres).', 'err');
+      // O mínimo vem da MESMA constante que o servidor usa (PASSWORD_MIN_LENGTH
+      // em security.js), interpolada aqui. Antes o cliente dizia 6 e o servidor
+      // exigia 12: a pessoa digitava uma senha, passava na checagem local e
+      // levava um erro diferente do outro lado. Regra duplicada é regra que
+      // diverge; interpolar a constante mantém as duas em sincronia.
+      // As regras finas (classes, padrões previsíveis) ficam só no servidor, que
+      // é a autoridade — a mensagem específica dele chega via toast.
+      if (p1.length < ${PASSWORD_MIN_LENGTH}) return toast('Senha muito curta (mínimo ${PASSWORD_MIN_LENGTH} caracteres).', 'err');
       const ok = await confirmDialog({
         title: 'Trocar senha',
         message: 'Você está prestes a trocar a senha de acesso ao painel.',
@@ -1530,7 +1606,10 @@ export function dashboardHTML(events, categories = []) {
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
         // Session expired — send them back to login instead of firing a confusing
-        // "Não autorizado" toast on every subsequent action.
+        // "Não autorizado" toast on every subsequent action. Antes de sair,
+        // guarda o que estava sendo editado: com o corte por inatividade, este
+        // caminho passou a ser alcançável no meio de uma edição.
+        stashDraft();
         window.location.href = '/dashboard';
         throw new Error(data.error || 'Sessão expirada.');
       }

@@ -89,7 +89,7 @@ describe('handleHealthz', () => {
   it('reflects which optional integrations are configured, without leaking their values', async () => {
     const env = { FOTOS: fakeKV({ events: '[]' }), RESEND_API_KEY: 'k', ADMIN_EMAIL: 'a@b.com' };
     const body = await (await handleHealthz(new Request(`${SITE}/api/healthz`), env)).json();
-    expect(body.config).toEqual({ resend: true, turnstile: false, consentDb: false, adminEmail: true });
+    expect(body.config).toEqual({ resend: true, turnstile: false, consentDb: false, adminEmail: true, signing: false });
   });
 
   it('surfaces auditSite problems for a live event with a broken Drive link', async () => {
@@ -164,8 +164,21 @@ describe('handleLogin', () => {
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/Secure/);
     expect(cookie).toMatch(/SameSite=Strict/);
+    // O prefixo __Host- é parte do contrato: o browser só grava um cookie com
+    // esse nome se ele vier Secure, com Path=/ e SEM Domain — que é o que
+    // impede outro host de lucafchala.com de plantar uma sessão aqui.
+    expect(cookie).toMatch(/^__Host-session=/);
+    expect(cookie).toMatch(/Path=\//);
+    expect(cookie).not.toMatch(/Domain=/);
     const token = cookie.match(/session=([a-f0-9]{64})/)[1];
-    expect(env.FOTOS._store.get(`admin_session:${token}`)).toBe('valid');
+    // A sessão deixou de ser a string 'valid' e passou a carregar metadado
+    // (criação, último uso, impressão do cliente) — é o que permite expirar por
+    // inatividade e invalidar quando o cliente muda.
+    const rec = JSON.parse(env.FOTOS._store.get(`admin_session:${token}`));
+    expect(rec.v).toBe(1);
+    expect(typeof rec.createdAt).toBe('number');
+    expect(typeof rec.lastSeen).toBe('number');
+    expect(typeof rec.fp).toBe('string');
   });
 
   it('blocks further attempts once the per-IP login rate limit is spent', async () => {

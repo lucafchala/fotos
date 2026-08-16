@@ -3,7 +3,7 @@ import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootS
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
 
-export function galleryHTML(events, analyticsToken) {
+export function galleryHTML(events, analyticsToken, nonce = '') {
   // getEvents() already filters junk entries, but this is the public homepage:
   // a single null/non-object here throws on `e.visible` and turns the whole
   // gallery into a 500. Second guard so the page degrades (skips the bad row)
@@ -140,7 +140,7 @@ export function galleryHTML(events, analyticsToken) {
   <meta property="og:url" content="${SITE_URL}/">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
-  ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ''}
+  ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonLd}</script>` : ''}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
@@ -200,6 +200,17 @@ export function galleryHTML(events, analyticsToken) {
     .grid{display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:4px;gap:.875rem;margin-top:.875rem;align-items:start}
     @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
+    /* Rede de proteção do masonry.
+       O layout depende de layoutMasonry() atribuir grid-row-end a cada card;
+       enquanto isso não acontece, o grid-auto-rows de 4px faz cada item ocupar
+       4 px de altura e os cards se sobrepõem num amontoado ilegível. Isso vale
+       para os primeiros ~60 ms de TODO carregamento (o script está no fim do
+       body e ainda tem debounce) e para sempre se o JS falhar ou estiver
+       desligado.
+       Um grid-auto-rows:auto como padrão dá um grid comum, que já fica correto —
+       só sem o encaixe irregular. A classe .masonry-ready é posta pelo próprio
+       layoutMasonry(), então a unidade fina só entra quando há quem a use. */
+    .grid:not(.masonry-ready){grid-auto-rows:auto}
     .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
@@ -253,7 +264,7 @@ export function galleryHTML(events, analyticsToken) {
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
   </style>
-  ${perfBootScript('gallery', !!analyticsToken)}
+  ${perfBootScript('gallery', !!analyticsToken, nonce)}
 </head>
 <body>
   ${updateBannerHTML()}
@@ -277,7 +288,7 @@ export function galleryHTML(events, analyticsToken) {
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     (function(){
       var BATCH = ${INITIAL};
       var shown = BATCH;
@@ -366,6 +377,10 @@ export function galleryHTML(events, analyticsToken) {
       // "esticada" que uma passada anterior deixou — sem isso, um resize
       // faria os spans só crescerem, nunca encolherem. ----
       function layoutMasonry() {
+        // Liga a unidade fina de linha só a partir do primeiro cálculo: antes
+        // disso o grid roda em modo comum (ver .grid:not(.masonry-ready)).
+        var gridEl = document.querySelector('.grid');
+        if (gridEl) gridEl.classList.add('masonry-ready');
         var grid = document.querySelector('.grid');
         if (!grid) return;
         var cs = getComputedStyle(grid);
@@ -503,7 +518,7 @@ export function galleryHTML(events, analyticsToken) {
       });
     })();
   </script>
-  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

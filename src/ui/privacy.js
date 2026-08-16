@@ -75,7 +75,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 18 de junho de 2026</p>
+    <p class="updated">Atualizada em 16 de agosto de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -116,6 +116,14 @@ export function privacyHTML() {
     </ul>
     <p>Os dados não são vendidos nem usados para publicidade.</p>
 
+    <h2>4.1. Transferência internacional de dados</h2>
+    <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil.</p>
+    <p>Essa transferência se apoia no <strong>art. 33, inciso III, da LGPD</strong>: cada um desses fornecedores oferece garantias por meio de cláusulas contratuais específicas de proteção de dados (<em>Data Processing Agreements</em>), que incorporam as cláusulas-padrão internacionais e obrigam o fornecedor a um nível de proteção compatível com a lei brasileira.</p>
+    <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
+
+    <h2>4.2. Decisões automatizadas</h2>
+    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você sempre tem o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
+
     <h2>5. Por quanto tempo guardamos</h2>
     <ul>
       <li><strong>Solicitações de remoção:</strong> mantidas enquanto necessárias para atender ao pedido e <strong>apagadas automaticamente em até 6 meses após a resolução</strong>.</li>
@@ -124,9 +132,25 @@ export function privacyHTML() {
     </ul>
 
     <h2>6. Seus direitos</h2>
-    <p>Você pode, a qualquer momento, solicitar acesso, correção, exclusão, anonimização ou informações sobre o tratamento dos seus dados, conforme o art. 18 da LGPD.</p>
-    <p>Para exercer esses direitos, escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a> ou me chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.</p>
-    <p><strong>Para pedir a remoção de uma foto sua</strong>, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página de cada evento. Respondemos em até <strong>15 dias úteis</strong>.</p>
+    <p>O art. 18 da LGPD garante a você, <strong>gratuitamente e sem precisar criar conta</strong>:</p>
+    <ul>
+      <li><strong>Confirmação</strong> de que existe (ou não) tratamento de dados seus;</li>
+      <li><strong>Acesso</strong> aos dados que tenho sobre você;</li>
+      <li><strong>Correção</strong> de dados incompletos, inexatos ou desatualizados;</li>
+      <li><strong>Anonimização, bloqueio ou eliminação</strong> de dados desnecessários, excessivos ou tratados fora da lei;</li>
+      <li><strong>Portabilidade</strong> a outro fornecedor, mediante requisição expressa;</li>
+      <li><strong>Eliminação</strong> dos dados tratados com o seu consentimento;</li>
+      <li><strong>Informação</strong> sobre com quem os dados são compartilhados (está na seção 4 acima);</li>
+      <li><strong>Informação</strong> sobre o que acontece se você não consentir — no caso do acesso às fotos, sem o aceite dos Termos o link do Drive não é liberado, mas isso <em>não</em> impede você de pedir a remoção de uma foto sua;</li>
+      <li><strong>Revogação do consentimento</strong>, a qualquer momento;</li>
+      <li><strong>Oposição</strong> a tratamento feito com base no legítimo interesse — este é o direito que se aplica se você aparece numa foto e nunca preencheu nada aqui.</li>
+    </ul>
+    <p>Para exercer qualquer um deles, escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a> ou me chame no <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.</p>
+    <p><strong>Para pedir a remoção de uma foto sua</strong>, o caminho mais rápido é o botão <em>“Solicitar remoção de foto”</em> no rodapé da página de cada evento. Respondo em até <strong>15 dias</strong>.</p>
+    <p>Para confirmar que o pedido é mesmo seu, posso pedir alguma informação que ajude a te identificar na foto (o evento, o número da imagem). <strong>Não peço documento de identidade como primeiro passo</strong> — exigir RG ou CPF de quem está justamente pedindo menos exposição seria coletar mais dados do que o necessário.</p>
+
+    <h2>6.1. Se você não concordar com a minha resposta</h2>
+    <p>Você pode apresentar reclamação à <strong>Autoridade Nacional de Proteção de Dados (ANPD)</strong>, em <a href="https://www.gov.br/anpd/" target="_blank" rel="noopener">gov.br/anpd</a>, ou aos órgãos de defesa do consumidor. Se eu recusar algum pedido, explico o motivo por escrito, citando o fundamento legal — você não vai receber um “não” sem justificativa.</p>
 
     <h2>7. Alterações nesta política</h2>
     <p>Esta política pode ser atualizada para refletir mudanças no site ou na legislação. A data de atualização no topo indica a versão vigente.</p>
@@ -135,8 +159,20 @@ export function privacyHTML() {
     <p>Os eventos fotografados (formaturas, eventos escolares e familiares) podem incluir <strong>crianças e adolescentes</strong>. O tratamento da imagem de menores observa o <strong>art. 14 da LGPD</strong> e o seu melhor interesse: o consentimento é dado pelos <strong>pais ou pelo responsável legal</strong> — coletado, quando aplicável, junto à instituição contratante no momento do evento e/ou no aceite dos <a href="/termos">Termos de Uso</a> feito por quem acessa as fotos na condição de responsável.</p>
     <p>Pedidos de remoção de imagens de menores têm <strong>prioridade</strong> e podem ser feitos a qualquer momento por um responsável, pelo botão <em>“Solicitar remoção de foto”</em> no rodapé do evento ou por <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
 
-    <h2>9. Incidentes de segurança</h2>
-    <p>Adotamos medidas técnicas e organizacionais para proteger os dados (veja o <a href="/.well-known/security.txt">security.txt</a>). Caso ocorra um incidente que possa acarretar risco ou dano relevante aos titulares, comunicaremos a <strong>Autoridade Nacional de Proteção de Dados (ANPD)</strong> e os titulares afetados em prazo razoável, conforme o art. 48 da LGPD. Suspeitas de vulnerabilidade podem ser reportadas a <a href="mailto:security@lucafchala.com">security@lucafchala.com</a>.</p>
+    <h2>9. Como os dados são protegidos</h2>
+    <p>As medidas não são genéricas — cada uma está implementada e descrita em detalhe na <a href="/legal/seguranca-da-informacao">política de segurança da informação</a>, com o ponteiro para o trecho de código que a executa:</p>
+    <ul>
+      <li><strong>Conexão sempre cifrada</strong> (HTTPS obrigatório) e política de segurança de conteúdo restritiva em todas as páginas.</li>
+      <li><strong>Acesso às fotos protegido no servidor</strong>: o link do Google Drive não fica no código da página — ele só é liberado após a verificação anti-robô e o aceite dos Termos.</li>
+      <li><strong>Painel administrativo</strong> com senha derivada por PBKDF2 (100 mil iterações), sessão curta e limite de tentativas com alerta por e-mail.</li>
+      <li><strong>Coleta mínima</strong>: a mensagem de suporte não é guardada em banco nenhum, e a foto enviada num pedido de remoção não é armazenada — trafega apenas no e-mail.</li>
+      <li><strong>Metadados removidos</strong>: se você envia uma foto para pedir a remoção, os metadados EXIF (que costumam incluir <strong>a localização por GPS</strong> de onde a foto foi tirada, o modelo do aparelho e a hora exata) são <strong>apagados no servidor</strong> antes de qualquer coisa. Você está pedindo menos exposição, não mais.</li>
+      <li><strong>Apagamento automático</strong> dos prazos da seção 5, executado por rotina diária — com verificação de que a rotina de fato rodou.</li>
+    </ul>
+
+    <h2>10. Incidentes de segurança</h2>
+    <p>Caso ocorra um incidente que possa acarretar risco ou dano relevante aos titulares, comunicarei a <strong>ANPD</strong> e as pessoas afetadas em até <strong>3 dias úteis</strong> do meu conhecimento do fato, conforme o art. 48 da LGPD e a Resolução CD/ANPD nº 15/2024. A comunicação dirá o que aconteceu, quais dados foram afetados e o que fazer a respeito.</p>
+    <p>Suspeitas de vulnerabilidade podem ser reportadas a <a href="mailto:security@lucafchala.com">security@lucafchala.com</a> — há chave PGP e política de divulgação responsável no <a href="/.well-known/security.txt">security.txt</a>.</p>
 
     <p class="note">Em caso de dúvida sobre seus dados, fale comigo — a remoção de fotos e o atendimento a pedidos são gratuitos e simples.</p>
   </main>

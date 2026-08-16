@@ -11,6 +11,11 @@ on:
 env:
   WRANGLER_VERSION: '4.114.0'
 
+# Menor privilégio: o deploy fala com a Cloudflare por API token próprio
+# (secret), não pelo token do GitHub — que aqui só precisa ler o código.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -104,6 +109,8 @@ jobs:
           check_status "terms"     "$BASE/termos"        200
           check_status "privacy"   "$BASE/privacidade"   200
           check_status "support"   "$BASE/suporte"       200
+          check_status "legal"     "$BASE/legal"         200
+          check_status "compliance" "$BASE/compliance"   200
 
           # SEO/security discovery endpoints — machine-readable, but a 500 here
           # means a crawler or the security.txt RFC 9116 contact silently breaks.
@@ -139,6 +146,71 @@ jobs:
             -X POST \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "password=smoke-check-wrong"
+
+          # --- Cabeçalhos de segurança -------------------------------------
+          # Um cabeçalho que some não quebra tela nenhuma: o site continua
+          # respondendo 200 e ninguém percebe até um incidente. Por isso os
+          # controles críticos são verificados na resposta REAL de produção, e
+          # não só nos testes unitários que exercitam o construtor deles.
+          echo ""
+          echo "Verificando cabeçalhos de segurança…"
+          HEADERS=$(curl -sI "$BASE/")
+
+          require_header() {
+            local label=$1 pattern=$2
+            if ! echo "$HEADERS" | grep -iqE "$pattern"; then
+              echo "FAIL [header $label]: ausente ou inesperado"
+              echo "$HEADERS"
+              exit 1
+            fi
+            echo "OK   [header $label]"
+          }
+
+          require_header "X-Content-Type-Options"    '^x-content-type-options: *nosniff'
+          require_header "X-Frame-Options"           '^x-frame-options: *DENY'
+          require_header "Strict-Transport-Security" '^strict-transport-security: *max-age=[0-9]+'
+          require_header "Content-Security-Policy"   "^content-security-policy:.*frame-ancestors 'none'"
+          require_header "CSP report-only (estrita)" '^content-security-policy-report-only:'
+          require_header "CSP nonce (na estrita)"    "^content-security-policy-report-only:.*'nonce-"
+
+          # O enforced NÃO pode carregar nonce enquanto houver handler inline:
+          # pela CSP Level 3 o nonce descarta o 'unsafe-inline', e a interface
+          # inteira para de responder. Já aconteceu — este check existe por isso.
+          if curl -sI "$BASE/" | grep -i '^content-security-policy:' | grep -q "nonce-"; then
+            echo "FAIL [CSP]: nonce na política ENFORCED — isso desativa o 'unsafe-inline' e quebra os handlers inline"
+            exit 1
+          fi
+          echo "OK   [CSP]: enforced sem nonce, handlers inline preservados"
+          require_header "Permissions-Policy"        '^permissions-policy:.*camera=\(\)'
+          require_header "COOP"                      '^cross-origin-opener-policy: *same-origin'
+          require_header "Origin-Agent-Cluster"      '^origin-agent-cluster:'
+
+          # O nonce do cabeçalho tem que aparecer na marcação: um nonce que não
+          # bate é o mesmo que não ter nonce.
+          NONCE=$(echo "$HEADERS" | grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//')
+          if [ -z "$NONCE" ]; then echo "FAIL [nonce]: não encontrado no cabeçalho"; exit 1; fi
+          if ! curl -s "$BASE/" | grep -q "nonce=\"$NONCE\""; then
+            echo "FAIL [nonce]: o nonce do cabeçalho não aparece no HTML"
+            exit 1
+          fi
+          echo "OK   [nonce]: cabeçalho e marcação batem"
+
+          # Dados pessoais não podem encostar em cache. /api/healthz é o
+          # representante das respostas de dados nesta checagem.
+          if ! curl -sI "$BASE/api/healthz" | grep -iqE '^cache-control:.*no-store'; then
+            echo "FAIL [no-store]: resposta de API sem no-store"
+            exit 1
+          fi
+          echo "OK   [no-store]: respostas de API não são cacheáveis"
+
+          # CSRF: uma escrita cross-site tem que morrer antes de qualquer
+          # handler. Esta é a checagem mais importante da lista — ela falha
+          # aberto se o portão for removido num refactor.
+          check_status "csrf cross-site" "$BASE/api/events" 403 \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Sec-Fetch-Site: cross-site" \
+            -d '{}'
 
           echo ""
           echo "All smoke tests passed."

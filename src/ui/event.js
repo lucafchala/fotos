@@ -1,8 +1,9 @@
 import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML } from '../utils.js';
+import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
-export function eventHTML(event, year, analyticsToken) {
+export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = '', removalFormToken = '') {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
@@ -81,8 +82,8 @@ export function eventHTML(event, year, analyticsToken) {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://drive.google.com">
   <link rel="preconnect" href="https://lh3.googleusercontent.com">
-  ${perfBootScript('event', !!analyticsToken)}
-  <script type="application/ld+json">${JSON.stringify({
+  ${perfBootScript('event', !!analyticsToken, nonce)}
+  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
@@ -118,6 +119,7 @@ export function eventHTML(event, year, analyticsToken) {
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    ${HONEYPOT_CSS}
     .hero-stage{position:relative}
     /* Chrome sobreposto à foto (back-pill, setas/dots/contador do carrossel, hero
        em si) fica sempre escuro/translúcido nos dois temas — a função dele é
@@ -474,6 +476,9 @@ export function eventHTML(event, year, analyticsToken) {
           <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" class="dv-retry">Tentar novamente</button></p>
           <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
+        <div id="drive-refreshed-note" class="drive-verifying" style="display:none">
+          <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
+        </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
@@ -565,6 +570,7 @@ export function eventHTML(event, year, analyticsToken) {
         <div id="rem-adblock" class="adblock-warn" style="display:none">
           <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
         </div>
+        ${honeypotFieldHTML()}
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div id="rem-error" class="form-error" style="display:none"></div>
         <div class="rem-sheet-foot">
@@ -616,9 +622,19 @@ export function eventHTML(event, year, analyticsToken) {
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const EVENT_SLUG     = ${slugJSON};
     const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
+    // Nonce de página assinado no servidor para ESTE slug, com validade curta.
+    // O /api/drive-link exige que ele venha junto: é o que impede que um token
+    // Turnstile válido seja reaproveitado para varrer os slugs do site sem
+    // nunca carregar uma página. Vazio quando SIGNING_SECRET não está
+    // configurado — nesse caso o servidor não exige o nonce (ver signingSecret
+    // em src/index.js) e o site segue funcionando sem esta camada.
+    const DRIVE_NONCE    = ${JSON.stringify(driveNonce || '')};
+    // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
+    // que chega menos de 3 s depois de a página ser servida é automação.
+    const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
@@ -831,15 +847,26 @@ export function eventHTML(event, year, analyticsToken) {
         body: JSON.stringify({
           slug: EVENT_SLUG,
           turnstileToken: driveTsToken,
+          driveNonce: DRIVE_NONCE,
           consent: true,
           declaration: decl ? decl.checked : undefined,
           name: nameEl ? nameEl.value : '',
         }),
       })
-        .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function(r) {
+          // 410 = o nonce desta página venceu (aba aberta há horas). Não é erro
+          // do visitante e não há o que ele possa fazer na tela: recarregar
+          // busca um nonce novo e o fluxo recomeça sozinho. Qualquer outro
+          // status cai no .catch() de sempre.
+          if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
+          return r.ok ? r.json() : Promise.reject();
+        })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
+          // Deu certo: solta a trava anti-laço, para que uma expiração futura
+          // nesta mesma aba ainda possa se recuperar com uma recarga.
+          try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
           setDriveLinkUI('ready', data);
         })
         .catch(function() {
@@ -853,6 +880,68 @@ export function eventHTML(event, year, analyticsToken) {
           }
         });
     }
+    // O nonce desta pagina vale 2 h. Quem deixou a aba aberta a tarde inteira e
+    // volta para clicar cai num 410 — situacao normal, nao erro dele. Recarregar
+    // resolve, mas recarregar seco devolve a pessoa ao topo da pagina sem
+    // explicacao nenhuma, e ela precisa refazer o caminho todo sem saber por que.
+    //
+    // Entao a recarga deixa um bilhete: ao voltar, o modal reabre sozinho com um
+    // aviso curto. O aceite NAO e remarcado de proposito — consentimento tem que
+    // ser um ato afirmativo da pessoa, e remarcar por ela registraria um aceite
+    // que ninguem deu naquele momento. Fica em um clique, e um clique honesto.
+    // Duas chaves, dois propósitos:
+    //  - drive_reopen  = "ao voltar, reabra o modal" (consumida no load)
+    //  - drive_reloaded = "já tentei recarregar uma vez" (trava anti-laço)
+    // Sem a segunda, isto vira um laço infinito de recarga — e não é hipótese:
+    // o Chrome restaura o estado dos checkboxes ao recarregar, então o aceite
+    // voltava marcado, o gate disparava sozinho, tomava 410 de novo e
+    // recarregava outra vez, para sempre. Foi pego com browser de verdade.
+    function reloadForFreshNonce() {
+      var alreadyTried = null;
+      try { alreadyTried = sessionStorage.getItem('fotos:drive_reloaded'); } catch(_) {}
+      if (alreadyTried === EVENT_SLUG) {
+        // Recarregar não resolveu (segredo rotacionado, relógio torto, algo
+        // fora do normal). Melhor a tela de erro, que oferece "tentar de novo"
+        // e os contatos, do que recarregar a página eternamente.
+        try {
+          sessionStorage.removeItem('fotos:drive_reloaded');
+          sessionStorage.removeItem('fotos:drive_reopen');
+        } catch(_) {}
+        driveLinkState = 'error';
+        setDriveLinkUI('error');
+        return;
+      }
+      try {
+        sessionStorage.setItem('fotos:drive_reopen', EVENT_SLUG);
+        sessionStorage.setItem('fotos:drive_reloaded', EVENT_SLUG);
+      } catch(_) {}
+      location.reload();
+    }
+
+    function maybeReopenAfterRefresh() {
+      var flag = null;
+      try {
+        flag = sessionStorage.getItem('fotos:drive_reopen');
+        sessionStorage.removeItem('fotos:drive_reopen');
+      } catch(_) { return; }
+      if (flag !== EVENT_SLUG) return;
+
+      // O browser restaura o estado dos campos ao recarregar, então o aceite
+      // volta marcado sozinho. Desmarcar é necessário por dois motivos: sem
+      // isso o gate dispara sem ninguém ter clicado em nada (e era metade do
+      // laço acima), e um consentimento tem que ser um ato afirmativo da
+      // pessoa — não um resquício de estado de formulário.
+      var consent = document.getElementById('drive-consent');
+      if (consent) consent.checked = false;
+      var decl = document.getElementById('drive-declaration');
+      if (decl) decl.checked = false;
+      driveLinkState = 'idle';
+
+      var note = document.getElementById('drive-refreshed-note');
+      if (note) note.style.display = '';
+      openModal();
+    }
+
     function retryDriveLink() {
       driveLinkState = 'idle';
       if (driveTsToken) maybeFetchDriveLink();
@@ -1189,6 +1278,8 @@ export function eventHTML(event, year, analyticsToken) {
             fileBase64,
             consent: true,
             turnstileToken: remTsToken,
+            form_token: REMOVAL_FORM_TOKEN,
+            company_website: (document.getElementById('company_website') || {}).value || '',
           }),
         });
         if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || 'Erro ao enviar.'); }
@@ -1250,6 +1341,10 @@ export function eventHTML(event, year, analyticsToken) {
     window.addEventListener('scroll', updateStickyCta, { passive: true });
     window.addEventListener('resize', updateStickyCta);
     updateStickyCta();
+
+    // Se chegamos aqui por causa de um nonce vencido, reabre o modal com o
+    // aviso — ver reloadForFreshNonce().
+    maybeReopenAfterRefresh();
 
     // ---- Idle-attention pulse on the main CTA: draw the eye if the visitor
     // hasn't opened the Drive modal within a while. Cleared the moment they do.
@@ -1370,8 +1465,8 @@ export function eventHTML(event, year, analyticsToken) {
       }
     } catch(_) {}
   </script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
-  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
+  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

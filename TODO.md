@@ -15,40 +15,188 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ## Segurança e anti-abuso
 
-- [ ] **Nonce de curta duração no `/api/drive-link`** — impedir varredura
-      automatizada de todos os slugs. O gate já é verificado no servidor
-      (Turnstile fail-closed + rate limit por IP), mas nada amarra a chamada a
-      uma visita real da página: um script com um token Turnstile válido em mãos
-      consegue varrer vários slugs dentro do limite.
-      _Requer decisão antes de implementar:_ nonce em KV gastaria justamente a
-      cota de escrita que o `/api/perf` foi desenhado para preservar (1000/dia,
-      compartilhada com eventos/sessões/consentimento); a alternativa é um nonce
-      assinado (HMAC) sem estado, que precisa de um secret novo no
-      `wrangler.toml`.
-- [ ] **Auditar vazamento de campos só-admin** — garantir que `internalNotes` (e
-      afins) nunca cheguem ao HTML público. Hoje o objeto do evento é passado
-      inteiro para o template.
+> Boa parte desta seção foi entregue na revisão de segurança de 2026-08.
+> O que sobrou está abaixo, com o motivo de ainda estar aberto.
+
+### Ações do dono (fora do código) — prioridade
+
+- [ ] 🔴 **`npx wrangler secret put SIGNING_SECRET`.** Sem esse secret, o nonce
+      de página do `/api/drive-link` e o token dos formulários públicos ficam
+      **desligados** — o site funciona igual, só sem essas duas camadas.
+      `/api/healthz` e o painel de status acusam a falta até ser resolvido.
+- [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
+      É o único risco residual **alto** do sistema (R3 do
+      [RIPD](./docs/legal/RIPD.md)) e nenhuma medida no código o resolve — a
+      coleta acontece no evento ou no contrato com a escola. Modelos prontos em
+      [`docs/legal/termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
+      o caminho de menor atrito é o Modelo 3, anexado ao contrato.
+- [ ] 🔴 **Confirmar se a conta do Google Drive é Workspace ou pessoal.** Conta
+      pessoal gratuita não tem DPA, o que enfraquece o fundamento do art. 33, III
+      justamente para a transferência de maior impacto (as fotografias). Ver
+      [`transferencia-internacional.md`](./docs/legal/transferencia-internacional.md).
+- [ ] **Parecer jurídico** sobre os pontos marcados ⚖️ em
+      [`checklist-conformidade.md`](./docs/legal/checklist-conformidade.md).
+
+### Código
+
+- [ ] **Concluir a migração da CSP.** Os nonces já estão em todos os `<script>`
+      e a política estrita (sem `'unsafe-inline'`) já roda em **Report-Only**,
+      com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os ~63
+      handlers inline (`onclick="…"`) por listeners delegados — inclusive os que
+      o painel gera dinamicamente via `innerHTML`.
+      > ⚠️ **Não acrescente o nonce à política enforced antes disso.** Pela CSP
+      > Level 3 o nonce descarta o `'unsafe-inline'`, e a interface inteira para
+      > de responder. Já aconteceu nesta branch e só foi pego com browser de
+      > verdade — teste de unidade sobre o texto da política não enxerga isso.
+      > Há teste e smoke test do deploy travando esse caminho agora.
+      Quando os relatórios zerarem, tirar os handlers e então deixar a enforced
+      usar `strict` (`contentSecurityPolicy()` em `src/security.js`).
+- [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
+      sai da galeria, do sitemap e da auditoria, e agora vai com
+      `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz
+      um link de prévia enviado a cliente continuar funcionando). Se a
+      expectativa for "privado", o handler precisa devolver 404 para quem não
+      está logado. Não mudei por conta própria porque quebraria links já
+      compartilhados.
 - [ ] **Login sem senha / recuperação de acesso** — magic link por e-mail via
       Resend (já configurado), substituindo ou complementando a senha do painel.
       Resolve de uma vez a recuperação de senha e boa parte do que 2FA
       cobriria; menos atrito que TOTP.
 - [ ] **2FA/TOTP no painel** — só se o magic link não for suficiente.
-- [ ] **Honeypot** (campo oculto) nos formulários públicos, como segunda camada
-      além do Turnstile.
-- [ ] **Endurecer a CSP** — trocar `script-src 'unsafe-inline'` por nonces nos
-      scripts inline.
-- [ ] **Alerta de login suspeito** — e-mail ao admin após N tentativas falhas
-      (já há rate limit de 10/10 min).
+- [ ] **Hospedar as fontes localmente** — elimina a transferência internacional
+      do Google Fonts (que transmite o IP de cada visitante) e tira uma origem
+      da CSP. O `font-src` já aceita `'self'` desde `c78e6e4`: falta baixar os
+      WOFF2 do Inter, declarar `@font-face` e remover o `<link>` das oito
+      páginas.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
-- [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de
-      remoção (hoje só valida magic bytes + 2 MB).
-- [ ] **CSP em modo report-only** — endpoint `report-to` que loga tentativas de
-      payload bloqueadas pela CSP, para saber se alguém está testando XSS antes
-      de endurecer de vez o `script-src 'unsafe-inline'` (item acima).
-- [ ] **Rate-limit dedicado no formulário de suporte** para mensagens
-      repetidas/idênticas — o Turnstile barra bot, mas um humano ainda consegue
-      mandar a mesma mensagem várias vezes dentro do rate limit geral.
+- [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
+      (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
+      ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
+      corromper a prova que o titular enviou — hoje passam intactos, com o
+      resultado registrado no pedido.
+
+### Entregue em 2026-08 (não reabrir sem necessidade nova)
+
+**Central de Transparência (`/legal`, também `/compliance`) + página por
+documento (`/legal/<slug>`).** Hub público que reúne privacidade, termos,
+política de segurança, o resumo do que é feito com cada dado, os canais de
+contato e os doze documentos de conformidade — **cada um com página própria no
+site**, renderizada do markdown de `docs/legal/`. O rodapé passou a ter um
+único link "Legal" no lugar de "Privacidade" + "Termos", sem perder acesso a
+nada.
+
+> ### ⚠️ Ao editar qualquer documento em `docs/legal/` ou o `SECURITY.md`
+>
+> 1. Rode **`npm run build:legal`** e commite o `src/content/legal-docs.js`
+>    gerado. A CI regenera e compara — esquecer derruba o build, de propósito:
+>    sem isso a página publicada mostraria um texto diferente do documento
+>    oficial.
+> 2. **Nunca edite `src/content/legal-docs.js` à mão.** Ele é gerado.
+> 3. **Não acrescente link para o GitHub** em página nenhuma. Só o
+>    "Código-fonte" do rodapé pode. A CI verifica, e o renderizador rebaixa
+>    qualquer link de GitHub a texto puro de qualquer forma.
+> 4. Documento novo entra em `DOCS`, em `scripts/build-legal-docs.mjs` — é de
+>    lá que saem o slug, o card da Central, a rota e o sitemap, todos de uma
+>    lista só.
+> 5. Slug é **contrato público** (está no sitemap, pode estar salvo por
+>    alguém). Renomear quebra link de fora.
+
+Nonce assinado no `/api/drive-link` · honeypot + token de formulário com idade
+mínima · alerta de login suspeito · strip de EXIF (JPEG/PNG/WebP) · CSP
+report-only com coletor · dedupe de mensagens repetidas no suporte · checagem
+de origem contra CSRF · cookie `__Host-` com timeout de inatividade · política
+de senha · correção de injeção de fórmula em CSV · `no-store` nas respostas de
+dados · higienização do restore de backup · `npm audit` + dependency-review +
+invariantes de CI.
+
+**Correções encontradas na verificação com browser (não apareciam em teste
+unitário):**
+
+- **CSP quebrava a interface inteira.** Nonce e `'unsafe-inline'` juntos na
+  política aplicada: pela CSP Level 3 o nonce descarta o `'unsafe-inline'`, e os
+  ~63 handlers `onclick` paravam de executar. Os testes passavam porque
+  afirmavam que a *string* continha `'unsafe-inline'`.
+- **Laço infinito de recarga no gate do Drive** — o Chrome restaura checkbox ao
+  recarregar, o aceite voltava marcado, o gate disparava sozinho e tomava 410 de
+  novo.
+- **Mensagem de suporte podia sumir sem sinal** — a chave de dedupe era gravada
+  antes de o envio dar certo.
+- **Sessão com `createdAt` corrompido virava sessão sem teto** — TTL NaN, escrita
+  recusada em silêncio.
+
+**Atrito removido:** rascunho do painel sobrevive à expiração de sessão ·
+política de senha em sincronia entre cliente e servidor · corrigir e reenviar o
+formulário de suporte não trava mais no piso de idade · nonce vencido reabre o
+modal com aviso em vez de recarregar seco.
+
+**Achados da revisão formal de código (`/code-review`), todos corrigidos:**
+
+- 🔴 **O formulário de remoção estava quebrado.** O cliente enviava
+  `form_token`, o servidor lia `body.formToken`. Com o `SIGNING_SECRET`
+  configurado, todo pedido de remoção levava 403 — o canal que a LGPD exige,
+  morto em silêncio. Abrir o modal no browser não pegava; só um envio completo
+  pega, e agora há teste de ponta a ponta mais uma guarda estrutural sobre o
+  nome do campo nos dois lados.
+- **Login barrado ainda gastava cota de KV.** `noteFailedLogin` gravava mesmo
+  para tentativa já recusada pelo rate limit: mil POSTs não autenticados
+  esgotariam as 1000 escritas/dia da conta e derrubariam eventos, sessões e
+  consentimento.
+- **Tentativa barrada consumia o orçamento diário do login.** Os dois limites
+  eram chamados juntos, então as 60/dia acabavam dez vezes mais rápido — um IP
+  de NAT compartilhado trancava o dono por 24 h em um minuto.
+- **Alerta de força bruta podia nunca disparar.** `attempts === 5` num contador
+  de KV não atômico: duas requisições concorrentes pulam de 4 para 6. Agora `>=`.
+- **Galeria sem JavaScript ficava ilegível.** O masonry depende de JS para
+  definir a altura de cada card; sem ele (e nos primeiros ~60 ms de todo
+  carregamento) os cards colapsavam para 4 px e se sobrepunham. Agora o grid
+  cai num layout comum até o cálculo acontecer. Verificado com JS desligado.
+- **`?tema=toString`** pré-preenchia o campo de mensagem do suporte com
+  `function toString() { [native code] }` (lookup em protótipo).
+
+**CodeQL:** já roda pelo *default setup* do GitHub (Settings → Code security),
+que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
+`security.yml` seria uma "advanced configuration" e o GitHub recusa as duas ao
+mesmo tempo — foi o que derrubou a primeira versão do workflow. Para elevar o
+rigor, mude a *query suite* para `security-extended` nas Settings, não no YAML.
+
+Ele encontrou três achados neste PR que nem a revisão manual nem a suíte
+pegaram — todos corrigidos, cada um com teste de regressão que foi verificado
+falhando contra o código antigo:
+
+- **Host reconhecido por prefixo de string** (`src/ui/markdown.js`). O link
+  absoluto do próprio site virava caminho relativo via
+  `href.startsWith('https://fotos.lucafchala.com')`. Isso aceita
+  `https://fotos.lucafchala.com.exemplo.com/x` e
+  `https://fotos.lucafchala.com@exemplo.com/x` — hosts de terceiros que só
+  *começam* com o nosso nome — e devolvia o resto fatiado, que o navegador lê
+  como caminho relativo. Agora quem decide é `new URL()` comparando `host`. A
+  regra que rebaixa GitHub a texto continua por substring de propósito: é
+  negação, e alcance a mais ali erra para o lado seguro.
+- **Desescape duplo do destino do link** (`src/ui/markdown.js`). O destino chega
+  escapado e era desescapado em `replace` encadeados; `&amp;quot;` perdia duas
+  camadas em vez de uma e virava aspas de verdade — o caractere que fecha o
+  atributo `href`. O `escape()` da emissão ainda segurava a fuga, mas depender
+  do último passo é frágil. Agora é uma passada só, que nunca reexamina o que
+  acabou de produzir.
+- **O próprio teste checava GitHub por substring** (`tests/security.test.js`).
+  `href.includes('github.com')` erra nos dois sentidos: aprova
+  `https://github.com.exemplo.com/` e reprova `https://exemplo.com/?ref=github.com`.
+  O invariante é para onde o clique leva, então agora cada `href` é resolvido
+  contra a origem do site e comparado por `host`.
+
+A lição operacional: a análise estática achou o que três passagens de revisão
+manual não acharam, e os três achados eram da mesma família (comparar URL como
+texto). Vale reler qualquer checagem de origem/host com esse olhar antes de
+confiar nela.
+
+**Lint cobria só `src` e `tests`.** `scripts/build-legal-docs.mjs` — que gera o
+conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
+inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
+
+**Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
+`driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
+campo, não despejam o objeto do evento. Nada a corrigir.
 
 ---
 

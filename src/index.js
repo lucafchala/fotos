@@ -6,15 +6,24 @@ import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
 import { aboutHTML } from './ui/about.js';
 import { gearHTML } from './ui/gear.js';
+import { legalHTML } from './ui/legal.js';
+import { docHTML } from './ui/doc.js';
+import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, safeUrl, isLikelyImage, csvResponse,
+  toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
-  sendErrorAlert,
+  sendErrorAlert, sendLoginAlert,
+  SESSION_TTL_SECS, sessionCookie, sessionRecord,
 } from './utils.js';
+import {
+  generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
+  isCrossSiteRequest, signToken, verifyToken, validatePassword,
+  HONEYPOT_FIELD, honeypotTripped,
+} from './security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
@@ -24,6 +33,10 @@ const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this
 const TEMA_PREFILLS = {
   bug: 'Encontrei um problema na interface do site: ',
   sugestao: 'Tenho uma sugestão para o site: ',
+  // Caminho de remoção para quem chega pela Central de Transparência sem saber
+  // de qual projeto a foto é. O caminho principal continua sendo o botão no
+  // rodapé de cada evento, que já vem com o projeto identificado.
+  remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
 };
 
 // KV counters are plain strings, so a corrupted/absent value must never become
@@ -43,6 +56,70 @@ export function toCount(v) {
   return Number.isSafeInteger(n) ? n : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Segredo de assinatura dos tokens sem estado
+// ---------------------------------------------------------------------------
+// Um único segredo cobre o nonce de página do /api/drive-link e o token dos
+// formulários públicos; `purpose` no payload separa os usos.
+//
+// Sem o segredo configurado, os dois controles ficam DESLIGADOS em vez de
+// recusarem tudo. Essa escolha é deliberada e vai contra o "fail closed" que o
+// resto do arquivo segue, então merece justificativa: um segredo ausente é erro
+// de configuração de deploy, e fail-closed aqui significaria "ninguém baixa
+// foto nenhuma e nenhum formulário envia" — uma indisponibilidade total do site
+// causada por um controle *adicional*, colocado em cima de defesas que
+// continuam de pé (Turnstile fail-closed, rate limit, consentimento). O
+// contrapeso é não deixar isso silencioso: `auditSite()` acusa a falta, ela
+// aparece em /api/healthz e no painel de status até alguém rodar
+//
+//     npx wrangler secret put SIGNING_SECRET
+//
+// A troca do segredo invalida os tokens em voo (visitante recarrega a página, o
+// cliente já trata `nonce_expired` recarregando sozinho). É o comportamento
+// desejado numa rotação.
+function signingSecret(env) {
+  return env.SIGNING_SECRET || null;
+}
+
+// Janela do nonce de página do Drive. Generosa de propósito: o gate é o último
+// passo de uma leitura de Termos, e ninguém deve perder o acesso porque leu com
+// calma. Duas horas ainda deixam o token inútil como ferramenta de varredura no
+// dia seguinte.
+export const DRIVE_NONCE_TTL_SECS = 7200;
+
+// Formulários públicos: janela longa (a pessoa pode escrever devagar) com piso
+// de 3 s. O piso é o que pega automação — um bot preenche e envia em
+// milissegundos; humano nenhum lê um formulário e envia em menos de 3 s.
+export const FORM_TOKEN_TTL_SECS = 7200;
+export const FORM_TOKEN_MIN_AGE_SECS = 3;
+
+export async function mintDriveNonce(env, slug) {
+  const secret = signingSecret(env);
+  if (!secret) return '';
+  return signToken(secret, { purpose: 'drive', scope: slug, ttlSecs: DRIVE_NONCE_TTL_SECS });
+}
+
+// `preAged` emite um token que já nasce com a idade mínima cumprida.
+//
+// Serve para as re-renderizações de erro do formulário de suporte. Sem isso,
+// cada erro devolve um token novinho, e quem esqueceu de marcar a caixa de
+// consentimento — corrige e clica em dois segundos — leva "envio rápido demais"
+// por cima do erro anterior. O piso de idade existe para pegar automação no
+// primeiro envio, não para punir quem já está na segunda tentativa.
+//
+// Funciona porque verifyToken deriva o instante de emissão de `exp - ttlSecs`:
+// assinar com um TTL menor faz o token parecer mais velho do que é. O prazo
+// final encurta pelos mesmos 3 s, o que é irrelevante numa janela de 2 h.
+export async function mintFormToken(env, form, { preAged = false } = {}) {
+  const secret = signingSecret(env);
+  if (!secret) return '';
+  return signToken(secret, {
+    purpose: 'form',
+    scope: form,
+    ttlSecs: preAged ? FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS : FORM_TOKEN_TTL_SECS,
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -50,6 +127,22 @@ export default {
     const method = request.method.toUpperCase();
 
     try {
+      // --- CSRF: um único portão antes do roteamento ---------------------
+      // Colocado aqui, e não em cada handler, porque o modo de falha desse
+      // controle é o esquecimento: uma rota nova escrita daqui a um ano não
+      // pode depender de alguém lembrar de chamar o guard. Todo método que
+      // muda estado passa por este ponto, sem exceção declarada em lugar
+      // nenhum. Ver isCrossSiteRequest() para por que SameSite=Strict no
+      // cookie não bastava.
+      if (method !== 'GET' && method !== 'HEAD' && isCrossSiteRequest(request)) {
+        return jsonErr('Origem não permitida.', 403);
+      }
+
+      // Nonce por requisição para os <script> inline. Gerado uma vez e usado
+      // tanto no cabeçalho CSP quanto na marcação, para que os dois não possam
+      // divergir (um nonce no HTML que não bate com o do cabeçalho é
+      // exatamente igual a não ter nonce nenhum).
+      const nonce = generateNonce();
       // PWA assets
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
       if (path === '/icon.svg' && method === 'GET') return handleIcon();
@@ -66,11 +159,11 @@ export default {
       if (path === '/.well-known/gpc.json' && method === 'GET') return handleGpc();
 
       // Gallery index
-      if (path === '/' && method === 'GET') return handleGallery(env);
+      if (path === '/' && method === 'GET') return handleGallery(env, nonce);
 
       // Dashboard routes
-      if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url);
-      if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env);
+      if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url, nonce);
+      if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env, ctx);
       if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
 
       // API routes (require auth)
@@ -95,28 +188,46 @@ export default {
       // bug"/"sugestão" links on the new-interface banner and footer) — cosmetic
       // only, never trusted server-side.
       if (path === '/suporte' && method === 'GET') {
-        const msg = TEMA_PREFILLS[url.searchParams.get('tema')];
-        return html(supportHTML(false, '', msg ? { message: msg } : {}));
+        // Object.hasOwn: sem ele, `?tema=toString` acha Object.prototype.toString
+        // e o textarea abre pré-preenchido com "function toString() { [native
+        // code] }". Inofensivo, mas é lixo visível numa página de suporte.
+        const tema = url.searchParams.get('tema');
+        const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? TEMA_PREFILLS[tema] : undefined;
+        return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
-      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env);
+      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce);
 
       // Privacy policy
-      if (path === '/privacidade' && method === 'GET') return html(privacyHTML());
+      if (path === '/privacidade' && method === 'GET') return html(privacyHTML(), 200, nonce);
 
       // Terms of use
-      if (path === '/termos' && method === 'GET') return html(termsHTML());
+      if (path === '/termos' && method === 'GET') return html(termsHTML(), 200, nonce);
+
+      // Central de Transparência — hub de privacidade/termos/segurança/conformidade.
+      // /compliance responde igual: é o termo que alguém de fora procuraria.
+      if ((path === '/legal' || path === '/compliance') && method === 'GET') return html(legalHTML(), 200, nonce);
+
+      // Cada documento de conformidade tem página própria. Nada aqui manda o
+      // visitante para fora do site: ler a política que rege os próprios dados
+      // não pode depender de abrir outro serviço.
+      const docMatch = path.match(/^\/legal\/([a-z0-9-]+)$/);
+      if (docMatch && method === 'GET') {
+        const doc = findDoc(docMatch[1]);
+        return doc ? html(docHTML(doc), 200, nonce) : notFound();
+      }
 
       // About page
-      if (path === '/sobre' && method === 'GET') return html(aboutHTML());
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML(), 200, nonce);
 
       // Gear list
-      if (path === '/equipamentos' && method === 'GET') return html(gearHTML());
+      if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
       if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
       if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
+      if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
@@ -125,7 +236,7 @@ export default {
 
       // Event detail pages — must be last
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
-      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx);
+      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce);
 
       return notFound();
     } catch (err) {
@@ -161,9 +272,9 @@ export default {
 // ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
-async function handleGallery(env) {
+async function handleGallery(env, nonce) {
   const events = await getEvents(env);
-  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null));
+  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce), 200, nonce);
   // Agent/crawler discovery hints (RFC 8288)
   res.headers.set('Link', `<${SITE_URL}/>; rel="canonical", <${SITE_URL}/sitemap.xml>; rel="sitemap"`);
   return res;
@@ -183,6 +294,8 @@ async function handleSitemap(env) {
     `  <url><loc>${SITE_URL}/equipamentos</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
+    `  <url><loc>${SITE_URL}/legal</loc></url>`,
+    ...LEGAL_DOCS.map(d => `  <url><loc>${SITE_URL}/legal/${d.slug}</loc></url>`),
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
   ];
   for (const e of visible) {
@@ -193,7 +306,7 @@ async function handleSitemap(env) {
   }
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   return new Response(xml, {
-    headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+    headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
   });
 }
 
@@ -219,7 +332,7 @@ function handleRobots() {
     rules + '\n' +
     `Sitemap: ${SITE_URL}/sitemap.xml\n`;
   return new Response(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+    headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
@@ -241,7 +354,7 @@ function handleLlmsTxt() {
     'Source: https://fotos.lucafchala.com\n' +
     'Maintainer: Luca F. Chala <security@lucafchala.com>\n';
   return new Response(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+    headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
@@ -253,7 +366,7 @@ function handleSecurityTxt() {
     `Canonical: ${SITE_URL}/.well-known/security.txt\n` +
     'Preferred-Languages: en, pt-BR\n';
   return new Response(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+    headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
@@ -262,17 +375,26 @@ function handleGpc() {
   // sell/share" opt-out is honored by default. https://globalprivacycontrol.org
   const body = JSON.stringify({ gpc: true, lastUpdate: '2026-06-16' });
   return new Response(body, {
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=86400' },
+    headers: { ...dataSecurityHeaders('application/json; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
 // ---------------------------------------------------------------------------
 // Event page
 // ---------------------------------------------------------------------------
-async function handleEventPage(request, env, slug, ctx) {
+async function handleEventPage(request, env, slug, ctx, nonce) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
+
+  // Projeto marcado como "não visível" é NÃO LISTADO, não privado: sai da
+  // galeria, do sitemap e da auditoria, mas continua abrindo por link direto.
+  // Isso é intencional — é o que faz o link de prévia enviado a um cliente
+  // continuar funcionando —, só que a expectativa de quem clica em "Ocultar"
+  // pode ser outra. Enquanto a semântica não for decidida (registrado no
+  // TODO), no mínimo o projeto não pode ser indexado: sem isto, "oculto" some
+  // da galeria e reaparece no Google.
+  const unlisted = event.visible === false;
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
@@ -293,7 +415,20 @@ async function handleEventPage(request, env, slug, ctx) {
     );
   }
 
-  const res = html(eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null));
+  // Nonce de página: assinado agora, para este slug, e gasto no
+  // /api/drive-link. É o que amarra "pedi o link do Drive" a "carreguei esta
+  // página" — sem ele, um token Turnstile válido servia para varrer slugs.
+  const [driveNonce, removalFormToken] = await Promise.all([
+    mintDriveNonce(env, slug),
+    mintFormToken(env, 'remocao'),
+  ]);
+
+  const res = html(
+    eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null, nonce, driveNonce, removalFormToken),
+    200,
+    nonce
+  );
+  if (unlisted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (!alreadyCounted) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
@@ -301,35 +436,48 @@ async function handleEventPage(request, env, slug, ctx) {
 // ---------------------------------------------------------------------------
 // Dashboard page
 // ---------------------------------------------------------------------------
-async function handleDashboardPage(request, env, url) {
+async function handleDashboardPage(request, env, url, nonce) {
   const stored = await getAdminHash(env);
   if (!stored) {
-    return html('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503);
+    return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
   }
 
   const authed = await verifySession(env, request);
   if (!authed) {
     const hasError = url.searchParams.get('error') === '1';
-    return html(loginHTML({ error: hasError }));
+    return adminHtml(loginHTML({ error: hasError }, nonce), 200, nonce);
   }
 
   const [events, categories] = await Promise.all([getEvents(env, true), getCategories(env)]);
-  return new Response(dashboardHTML(events, categories), {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-    },
-  });
+  return adminHtml(dashboardHTML(events, categories, nonce), 200, nonce);
 }
 
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
-export async function handleLogin(request, env) {
-  // Throttle brute-force: hard ceiling of login attempts per IP (PBKDF2 is
-  // already slow, but this caps automated guessing). Counts every attempt.
+export async function handleLogin(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip, 'login', 10, 600)) {
+
+  // Dois limites em vez de um. O antigo (10 por 10 min) segura a rajada, mas
+  // deixa passar ~1400 tentativas por dia vindas do mesmo IP — folgado demais
+  // para uma senha só. O limite diário fecha essa conta sem atrapalhar quem
+  // erra a senha algumas vezes de manhã e volta à tarde.
+  // Em série, e com saída antecipada: `checkRateLimit` INCREMENTA quando
+  // deixa passar. Chamar os dois de uma vez fazia uma tentativa já barrada
+  // pelo limite de rajada consumir também o orçamento diário — 60 tentativas
+  // "gastas" dez vezes mais rápido do que o pretendido, e um IP compartilhado
+  // (NAT de escola, operadora móvel) trancava o dono do painel por 24 h com um
+  // minuto de tráfego.
+  const burstOk = await checkRateLimit(env, ip, 'login', 10, 600);
+  if (!burstOk) {
+    // Sem noteFailedLogin aqui: ele faz leitura + escrita em KV, e a cota é de
+    // 1000 escritas/dia para a conta inteira. Contabilizar tentativa já barrada
+    // deixava mil POSTs não autenticados esgotarem a cota e derrubarem o que
+    // importa — salvar evento, abrir sessão, gravar consentimento. Quem foi
+    // barrado já está contido; não precisa custar escrita.
+    return redirect('/dashboard?error=1');
+  }
+  if (!await checkRateLimit(env, ip, 'login-day', 60, 86400)) {
     return redirect('/dashboard?error=1');
   }
 
@@ -346,25 +494,62 @@ export async function handleLogin(request, env) {
 
   // No trust-on-first-use: with no stored credential and no ADMIN_PASSWORD
   // secret, login is impossible rather than claimable by the first visitor.
-  if (!stored) return redirect('/dashboard?error=1');
-
-  const ok = await verifyPassword(password, stored);
-  if (!ok) return redirect('/dashboard?error=1');
+  //
+  // O hash roda mesmo sem credencial armazenada. Sem isso, um deploy sem
+  // ADMIN_PASSWORD responde na hora, enquanto um configurado leva ~50 ms de
+  // PBKDF2 — diferença medível de fora, que entrega se o painel tem dono. Não
+  // é o achado mais grave do mundo, mas o conserto custa uma linha.
+  const ok = stored
+    ? await verifyPassword(password, stored)
+    : (await hashPassword(password), false);
+  if (!ok) {
+    ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
+    return redirect('/dashboard?error=1');
+  }
   // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
   if (!stored.startsWith('pbkdf2:')) {
     await env.FOTOS.put('admin_password', await hashPassword(password));
   }
 
   const token = generateToken();
-  await env.FOTOS.put(`admin_session:${token}`, 'valid', { expirationTtl: 86400 });
+  await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
 
   return new Response(null, {
     status: 302,
     headers: {
+      ...dataSecurityHeaders('text/plain; charset=utf-8'),
       Location: '/dashboard',
-      'Set-Cookie': `session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`,
+      'Set-Cookie': sessionCookie(token),
     },
   });
+}
+
+// Contador de falhas por IP, só para alertar (o bloqueio é o rate limit acima).
+// Ao cruzar o piso, dispara um e-mail — com cooldown próprio dentro de
+// sendLoginAlert, então uma força bruta longa não vira flood. Tudo em
+// waitUntil: a resposta ao visitante nunca espera por isto.
+const LOGIN_ALERT_THRESHOLD = 5;
+const LOGIN_ALERT_WINDOW_SECS = 900;
+
+async function noteFailedLogin(env, request, ip) {
+  const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
+  const key = `login-fail:${ip}:${window}`;
+  const attempts = toCount(await env.FOTOS.get(key)) + 1;
+  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS });
+  // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
+  // Numa força bruta paralela — exatamente o caso que o alerta existe para
+  // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
+  // pula de 4 para 6 sem nunca ser igual a 5. O alerta silenciava justamente
+  // no ataque mais sério. O flood continua contido pelo cooldown dentro de
+  // sendLoginAlert.
+  if (attempts >= LOGIN_ALERT_THRESHOLD) {
+    await sendLoginAlert(env, {
+      ip,
+      attempts,
+      windowMins: Math.round(LOGIN_ALERT_WINDOW_SECS / 60),
+      userAgent: (request.headers.get('User-Agent') || '').slice(0, 200),
+    });
+  }
 }
 
 // Stored credential, seeded from the ADMIN_PASSWORD secret when KV is empty
@@ -385,16 +570,21 @@ async function getAdminHash(env) {
 // ---------------------------------------------------------------------------
 async function handleLogout(request, env) {
   const cookies = request.headers.get('Cookie') || '';
-  const match = cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
   if (match) await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => console.error('session delete failed', e));
 
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: '/dashboard',
-      'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
-    },
-  });
+  const headers = new Headers(dataSecurityHeaders('text/plain; charset=utf-8'));
+  headers.set('Location', '/dashboard');
+  // Os dois nomes: o `__Host-` atual e o `session` legado, senão um cookie
+  // antigo sobreviveria ao logout e continuaria sendo enviado.
+  headers.append('Set-Cookie', sessionCookie('', { clear: true }));
+  headers.append('Set-Cookie', 'session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  // Limpa também o que ficou no browser: cache de páginas do painel,
+  // localStorage e o resto. Sem isto, "sair" num computador emprestado deixa
+  // a última tela do painel recuperável pelo botão voltar.
+  headers.set('Clear-Site-Data', '"cache", "cookies", "storage"');
+
+  return new Response(null, { status: 302, headers });
 }
 
 // ---------------------------------------------------------------------------
@@ -796,23 +986,38 @@ export async function handlePerfBeacon(request, env) {
 // ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
-async function handleSupportRequest(request, env) {
+async function handleSupportRequest(request, env, nonce) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  // Toda resposta de erro precisa de um token novo, senão o visitante corrige o
+  // que errou e esbarra num token já gasto/expirado na segunda tentativa.
+  // `ok` distingue a tela de sucesso da re-renderização com erro. No caso de
+  // erro o token sai pré-envelhecido, para que corrigir e reenviar depressa não
+  // esbarre no piso de idade — ver mintFormToken().
+  const page = async (ok, error = '', values = {}, status = 200) =>
+    html(
+      supportHTML(ok, error, values, nonce, await mintFormToken(env, 'suporte', { preAged: !ok })),
+      status,
+      nonce
+    );
+
   const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
   if (!allowed) {
-    return html(supportHTML(false, 'Muitas mensagens enviadas. Tente mais tarde.'), 429);
+    return page(false, 'Muitas mensagens enviadas. Tente mais tarde.', {}, 429);
   }
 
-  let name, email, message, tsToken, consent;
+  let name, email, message, tsToken, consent, honeypot, formToken;
   const ct = request.headers.get('Content-Type') || '';
   if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
     const fd = await request.formData().catch(() => null);
-    if (!fd) return html(supportHTML(false, 'Erro ao processar formulário.'), 400);
+    if (!fd) return page(false, 'Erro ao processar formulário.', {}, 400);
     name = String(fd.get('name') || '').trim().slice(0, 120);
     email = String(fd.get('email') || '').trim().slice(0, 200);
     message = String(fd.get('message') || '').trim().slice(0, 2000);
     tsToken = String(fd.get('cf-turnstile-response') || '');
     consent = String(fd.get('consent') || '');
+    honeypot = String(fd.get(HONEYPOT_FIELD) || '');
+    formToken = String(fd.get('form_token') || '');
   } else {
     let body;
     try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
@@ -821,34 +1026,79 @@ async function handleSupportRequest(request, env) {
     message = String(body.message || '').trim().slice(0, 2000);
     tsToken = String(body['cf-turnstile-response'] || '');
     consent = String(body.consent || '');
+    honeypot = String(body[HONEYPOT_FIELD] || '');
+    formToken = String(body.form_token || '');
   }
 
   // Echo the submitted values back on every validation failure so a stumble
   // (e.g. a Turnstile hiccup) never makes the visitor retype their message.
   const values = { name, email, message };
 
+  // Bot que preencheu a isca: mostra a tela de sucesso e não envia nada. Dizer
+  // "deu errado" só ajudaria a calibrar o bot.
+  if (honeypotTripped(honeypot)) return page(true);
+
+  const formSecret = signingSecret(env);
+  if (formSecret) {
+    const t = await verifyToken(formSecret, formToken, {
+      purpose: 'form',
+      scope: 'suporte',
+      ttlSecs: FORM_TOKEN_TTL_SECS,
+      minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+    });
+    if (!t.ok) {
+      // 'too-fast' é quase sempre automação, mas um humano com autofill muito
+      // rápido cairia aqui também — daí a mensagem pedir só para reenviar.
+      const msg = t.reason === 'too-fast'
+        ? 'Envio rápido demais. Tente novamente.'
+        : 'O formulário expirou. Recarregue a página e envie novamente.';
+      return page(false, msg, values, 403);
+    }
+  }
+
   const tsOk = await verifyTurnstile(tsToken, env);
-  if (!tsOk) return html(supportHTML(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.', values), 403);
+  if (!tsOk) return page(false, 'Verificação de segurança falhou. Recarregue a página e tente novamente.', values, 403);
 
   if (consent !== '1') {
-    return html(supportHTML(false, 'É necessário concordar com a política de privacidade.', values), 400);
+    return page(false, 'É necessário concordar com a política de privacidade.', values, 400);
   }
 
   if (!message) {
-    return html(supportHTML(false, 'A mensagem não pode estar vazia.', values), 400);
+    return page(false, 'A mensagem não pode estar vazia.', values, 400);
   }
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    return html(supportHTML(false, 'E-mail inválido.', values), 400);
+    return page(false, 'E-mail inválido.', values, 400);
   }
 
+  // Supressão de repetição. O Turnstile barra robô, não a pessoa que aperta
+  // enviar cinco vezes com a mesma mensagem — e o resultado disso é a mesma
+  // mensagem cinco vezes na caixa de entrada. A chave é o hash da mensagem por
+  // IP; a resposta é a tela de sucesso, porque para quem enviou o pedido de
+  // fato chegou (da primeira vez).
+  const dupKey = `support-dup:${ip}:${await shortHash(message)}`;
+  if (await env.FOTOS.get(dupKey)) return page(true);
+
+  // A marca de "já recebi esta mensagem" só é gravada DEPOIS de o envio dar
+  // certo. Gravá-la antes cria um jeito silencioso de perder mensagem: se o
+  // Resend falhar, o visitante vê a tela de sucesso, reenvia o mesmo texto, o
+  // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
+  // uma falha de envio deixa o reenvio funcionar.
+  let sent = false;
   try {
-    await sendSupportEmail(env, { name, email, message });
+    sent = await sendSupportEmail(env, { name, email, message });
   } catch (e) {
     console.error('sendSupportEmail:', e);
   }
+  if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
 
-  return html(supportHTML(true));
+  return page(true);
+}
+
+// Hash curto para chaves de KV (dedupe). Não é segredo, só precisa espalhar bem.
+async function shortHash(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf).slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -862,9 +1112,14 @@ async function handleChangePassword(request, env) {
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
   const { password } = body;
-  if (!password || typeof password !== 'string' || password.length < 6) {
-    return jsonErr('Senha muito curta.', 400);
-  }
+  // A regra antiga era "6 caracteres", o que aceita "123456". O painel dá
+  // acesso ao log de consentimento e aos pedidos de remoção — e-mail e telefone
+  // de titulares —, então a credencial precisa aguentar um ataque offline se o
+  // hash algum dia vazar. Ver validatePassword() para o raciocínio de cada
+  // regra (e por que uma frase longa dispensa a exigência de símbolos).
+  const check = validatePassword(password);
+  if (!check.ok) return jsonErr(check.error, 400);
+
   const hash = await hashPassword(password);
   await env.FOTOS.put('admin_password', hash);
 
@@ -876,7 +1131,7 @@ async function handleChangePassword(request, env) {
   // not fail the password change that already succeeded above.
   try {
     const cookies = request.headers.get('Cookie') || '';
-    const currentToken = (cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/) || [])[1];
+    const currentToken = (cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/) || [])[1];
     const { keys } = await env.FOTOS.list({ prefix: 'admin_session:' });
     await Promise.all(
       keys
@@ -901,6 +1156,34 @@ async function handleRemovalRequest(request, env) {
   let body;
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
+  // Honeypot antes de qualquer trabalho caro: se o campo isca veio preenchido,
+  // é bot, e a resposta é um 200 comum de propósito — um 4xx aqui só ensinaria
+  // ao autor do bot que existe um campo a evitar.
+  if (honeypotTripped(body[HONEYPOT_FIELD])) return jsonOk({ ok: true });
+
+  // Token de formulário: prova que este POST veio de um /<slug> que nós
+  // renderizamos, e não de um script batendo direto no endpoint. O piso de
+  // idade (3 s) derruba automação que preenche e envia instantaneamente.
+  const formSecret = signingSecret(env);
+  if (formSecret) {
+    // `form_token`, com underline: é o nome que o cliente envia (ver
+    // src/ui/event.js). Escrito como `formToken` aqui, a verificação lia
+    // sempre string vazia e TODO pedido de remoção levava 403 — o canal que a
+    // LGPD exige, morto em silêncio, e só depois de o SIGNING_SECRET ser
+    // configurado. Há teste cobrindo o envio completo agora.
+    const t = await verifyToken(formSecret, String(body.form_token || ''), {
+      purpose: 'form',
+      scope: 'remocao',
+      ttlSecs: FORM_TOKEN_TTL_SECS,
+      minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+    });
+    if (!t.ok) {
+      return t.reason === 'expired'
+        ? jsonErr('O formulário expirou. Recarregue a página e envie novamente.', 410)
+        : jsonErr('Não foi possível validar o envio. Recarregue a página e tente novamente.', 403);
+    }
+  }
+
   const tsOk = await verifyTurnstile(body.turnstileToken, env);
   if (!tsOk) return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
 
@@ -920,6 +1203,19 @@ async function handleRemovalRequest(request, env) {
     if (!isLikelyImage(fileBase64)) {
       return jsonErr('Envie uma imagem válida (JPEG, PNG, WebP, GIF ou HEIC).', 415);
     }
+  }
+
+  // Metadados fora antes de a foto virar anexo de e-mail. Quem manda uma foto
+  // pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi
+  // tirada — e nós não precisamos delas para atender ao pedido. Ver
+  // stripImageMetadata() em utils.js para o que é tratado e o que passa
+  // intacto (e por quê).
+  let photoMeta = null;
+  let cleanFileBase64 = fileBase64;
+  if (method === 'upload' && fileBase64) {
+    const stripped = stripImageMetadata(fileBase64);
+    cleanFileBase64 = stripped.base64;
+    photoMeta = { stripped: stripped.stripped, format: stripped.format };
   }
 
   const emailTrimmed = String(email || '').trim().toLowerCase();
@@ -945,7 +1241,7 @@ async function handleRemovalRequest(request, env) {
     phone:      phoneTrimmed.slice(0, 50),
     message:    String(message || '').slice(0, 1000),
     fileName:   method === 'upload' ? String(fileName || 'foto').slice(0, 200) : null,
-    fileBase64: method === 'upload' ? fileBase64 : null,
+    fileBase64: method === 'upload' ? cleanFileBase64 : null,
     resolved:   false,
     createdAt:  new Date().toISOString(),
   };
@@ -962,7 +1258,10 @@ async function handleRemovalRequest(request, env) {
   // array, so we can't rely on it staying last. The trim always keeps it (it's
   // unresolved), and writing email statuses onto this reference persists because
   // the same object is still inside `requests` when re-serialized.
-  const newReq = { ...req, fileBase64: null };
+  // O binário nunca é gravado em KV — só viaja no e-mail. `photoMeta` guarda o
+  // resultado da limpeza para que, ao revisar o pedido, dê para saber se a foto
+  // chegou sem metadado ou se o formato não permitiu tratar.
+  const newReq = { ...req, fileBase64: null, photoMeta };
   requests.push(newReq);
 
   const MAX_REQUESTS = 500;
@@ -1123,10 +1422,15 @@ export function auditSite(events, env = {}) {
     turnstile: !!env.TURNSTILE_SECRET_KEY,
     resend: !!env.RESEND_API_KEY,
     adminEmail: !!env.ADMIN_EMAIL,
+    signing: !!env.SIGNING_SECRET,
   };
   if (!forms.turnstile)  problems.push('Turnstile ausente — suporte/remoção/Drive recusam todos os envios');
   if (!forms.resend)     problems.push('Resend ausente — suporte/remoção não disparam e-mail');
   if (!forms.adminEmail) problems.push('ADMIN_EMAIL ausente — suporte/remoção sem destinatário');
+  // Este não quebra nada — por isso precisa aparecer. Sem SIGNING_SECRET o
+  // nonce de página do Drive e o token dos formulários ficam desligados em
+  // silêncio, e o site segue funcionando como se estivesse protegido.
+  if (!forms.signing)    problems.push('SIGNING_SECRET ausente — nonce do Drive e token dos formulários DESLIGADOS');
 
   const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
   if (problems.length > MAX_SELFTEST_PROBLEMS) trimmed.push(`+${problems.length - MAX_SELFTEST_PROBLEMS} outro(s)`);
@@ -1226,12 +1530,70 @@ export async function handleHealthz(request, env) {
       turnstile: !!env.TURNSTILE_SECRET_KEY,
       consentDb: !!env.CONSENT_DB,
       adminEmail: !!env.ADMIN_EMAIL,
+      signing: !!env.SIGNING_SECRET,
     },
     termsVersion: TERMS_VERSION,
     colo: request.cf?.colo || null,
     country: request.cf?.country || null,
     now: new Date().toISOString(),
   }, ok ? 200 : 503);
+}
+
+// ---------------------------------------------------------------------------
+// Coletor de violações de CSP
+// ---------------------------------------------------------------------------
+// Recebe os relatórios da política Report-Only (a estrita, sem 'unsafe-inline').
+// Serve a dois propósitos, nesta ordem:
+//
+//  1. Medir a migração. Cada handler inline que sobrou vira um relatório com
+//     arquivo e linha. Quando parar de chegar relatório de `script-src-attr`, a
+//     política estrita pode virar a enforced sem adivinhação.
+//  2. Detectar tentativa de XSS. Um relatório apontando para um script externo
+//     que ninguém colocou ali é sinal de injeção — e chega antes de alguém
+//     reclamar.
+//
+// Vai para log estruturado, não para KV. Mesma razão do /api/perf: a cota de
+// escrita do KV é de 1000/dia e é compartilhada com eventos, sessões e
+// consentimento; um endpoint que qualquer browser pode acionar não pode
+// encostar nela. O log o Cloudflare já coleta de graça.
+//
+// Amostragem no servidor porque este endpoint não é chamado por nós: um browser
+// hostil pode despejar relatórios à vontade, e o corpo vem de fora.
+const CSP_REPORT_SAMPLE_RATE = 0.2;
+const CSP_REPORT_MAX_BYTES = 8192;
+
+export async function handleCspReport(request, env) {
+  const done = () => new Response(null, { status: 204, headers: dataSecurityHeaders('text/plain; charset=utf-8') });
+  if (Math.random() >= CSP_REPORT_SAMPLE_RATE) return done();
+
+  let raw;
+  try { raw = await request.text(); } catch { return done(); }
+  if (!raw || raw.length > CSP_REPORT_MAX_BYTES) return done();
+
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return done(); }
+
+  // Dois formatos convivem: `report-uri` manda {"csp-report": {...}} e
+  // `report-to`/Reporting API manda um array de {type, body}. Aceitar os dois
+  // evita depender de qual deles o browser do visitante implementa.
+  const reports = Array.isArray(parsed)
+    ? parsed.filter(r => r && r.type === 'csp-violation').map(r => r.body || {})
+    : [parsed['csp-report'] || parsed];
+
+  for (const r of reports.slice(0, 5)) {
+    if (!r || typeof r !== 'object') continue;
+    // Só campos conhecidos, truncados: o corpo é entrada não confiável e vai
+    // parar num log que alguém vai ler.
+    const clip = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null);
+    console.log('csp-violation ' + JSON.stringify({
+      directive: clip(r['effective-directive'] || r.effectiveDirective || r['violated-directive'], 60),
+      blocked: clip(r['blocked-uri'] || r.blockedURL, 200),
+      document: clip(r['document-uri'] || r.documentURL, 200),
+      sample: clip(r['script-sample'] || r.sample, 120),
+      line: typeof (r['line-number'] ?? r.lineNumber) === 'number' ? (r['line-number'] ?? r.lineNumber) : null,
+    }));
+  }
+  return done();
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,6 +1668,30 @@ export async function handleDriveLink(request, env, ctx) {
   const event = events.find(e => e.slug === slug);
   if (!event) return jsonErr('Projeto não encontrado.', 404);
   if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+
+  // Nonce de página. O buraco que ele fecha: o Turnstile prova que existe um
+  // browser do outro lado, mas o token dele não diz PARA QUAL página foi
+  // emitido — então um script com um token válido na mão podia pedir o link de
+  // vários slugs seguidos, dentro do rate limit, sem nunca abrir uma página.
+  // O nonce é assinado no render de /<slug> e só vale para aquele slug.
+  //
+  // 'expired' ganha código próprio (410) porque tem conserto do lado do
+  // cliente: uma aba aberta desde ontem só precisa recarregar, e o JS da página
+  // faz isso sozinho. Um 403 genérico mandaria o visitante para a tela de erro
+  // sem motivo.
+  const secret = signingSecret(env);
+  if (secret) {
+    const nonceCheck = await verifyToken(secret, String(body.driveNonce || ''), {
+      purpose: 'drive',
+      scope: slug,
+      ttlSecs: DRIVE_NONCE_TTL_SECS,
+    });
+    if (!nonceCheck.ok) {
+      return nonceCheck.reason === 'expired'
+        ? jsonErr('Esta página expirou. Recarregue para continuar.', 410)
+        : jsonErr('Requisição inválida. Recarregue a página e tente novamente.', 403);
+    }
+  }
 
   let turnstileOk;
   if (isNoscript) {
@@ -1397,46 +1783,41 @@ async function checkAuth(request, env) {
   return null;
 }
 
-function html(content, status = 200) {
-  return new Response(content, {
-    status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Resource-Policy': 'same-site',
-      'Content-Security-Policy':
-        "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-        "font-src 'self' https://fonts.gstatic.com; " +
-        "img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; " +
-        "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; " +
-        "frame-src https://challenges.cloudflare.com; " +
-        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
-    },
-  });
+// A política de cabeçalhos toda mora em security.js; estes helpers só escolhem
+// qual perfil se aplica. A separação existe para que uma rota nova só precise
+// decidir "isto é HTML público, HTML de painel ou dado?" — e não reescrever
+// uma lista de cabeçalhos que vai divergir da das outras.
+//
+// O `nonce` é opcional para que as páginas de erro (404/500), que não têm
+// script nenhum, continuem chamando html(conteúdo, status) sem cerimônia.
+function html(content, status = 200, nonce = '') {
+  return new Response(content, { status, headers: htmlSecurityHeaders(nonce) });
+}
+
+function adminHtml(content, status = 200, nonce = '') {
+  return new Response(content, { status, headers: adminHtmlSecurityHeaders(nonce) });
 }
 
 function redirect(location) {
-  return new Response(null, { status: 302, headers: { Location: location } });
+  // Mesmo um 302 sai com os cabeçalhos de segurança: é uma resposta da nossa
+  // origem e não há motivo para ela ser a exceção da regra.
+  return new Response(null, {
+    status: 302,
+    headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: location },
+  });
 }
 
 function jsonOk(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
+    headers: dataSecurityHeaders('application/json; charset=utf-8'),
   });
 }
 
 function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
+    headers: dataSecurityHeaders('application/json; charset=utf-8'),
   });
 }
 
@@ -1456,7 +1837,7 @@ function handleManifest() {
   };
   return new Response(JSON.stringify(manifest), {
     status: 200,
-    headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' },
+    headers: { ...dataSecurityHeaders('application/manifest+json', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
 }
 
@@ -1464,7 +1845,7 @@ function handleIcon() {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="48" fill="#0a0a0a"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="140" font-weight="600" fill="#f0ebe5">f.</text></svg>`;
   return new Response(svg, {
     status: 200,
-    headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=604800' },
+    headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=604800' },
   });
 }
 
@@ -1477,7 +1858,7 @@ function handleComingSoonOgImage() {
   const bytes = Uint8Array.from(atob(COMING_SOON_OG_IMAGE_B64), c => c.charCodeAt(0));
   return new Response(bytes, {
     status: 200,
-    headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' },
+    headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=604800' },
   });
 }
 
@@ -1515,6 +1896,33 @@ function sanitizeRestoredEvent(ev) {
   return out;
 }
 
+// Os pedidos de remoção do backup passavam verbatim para o KV. Eles são
+// renderizados no painel e exportados em CSV, então um arquivo adulterado podia
+// plantar campos de tipo inesperado (um objeto onde o template espera string) e
+// registros sem `id`, que colidem no Map de deduplicação. Só as chaves
+// conhecidas sobrevivem, cada uma com o tipo e o tamanho certos.
+const RESTORE_REQUEST_STRINGS = {
+  id: 64, eventSlug: 60, eventTitle: 200, method: 20, value: 500,
+  email: 200, phone: 50, message: 1000, fileName: 200,
+  createdAt: 40, resolvedAt: 40,
+  emailStatus: 220, confirmEmailStatus: 220, resolvedEmailStatus: 220,
+};
+
+export function sanitizeRestoredRequest(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  // Sem id não há como deduplicar nem resolver depois — o registro é inútil.
+  if (typeof r.id !== 'string' || !/^[a-f0-9]{1,64}$/.test(r.id)) return null;
+
+  const out = { resolved: r.resolved === true };
+  for (const [key, max] of Object.entries(RESTORE_REQUEST_STRINGS)) {
+    if (typeof r[key] === 'string') out[key] = r[key].slice(0, max);
+  }
+  // O binário nunca é guardado (só viaja no e-mail); um backup que traga um
+  // não vai reintroduzi-lo em KV.
+  out.fileBase64 = null;
+  return out;
+}
+
 export function mergeRestore(current, backupEvents) {
   const result = [...current];
   let added = 0, updated = 0;
@@ -1544,7 +1952,9 @@ async function handleGetBackup(request, env) {
   const date = new Date().toISOString().split('T')[0];
   return new Response(buildBackup({ events, categories, removalRequests }), {
     headers: {
-      'Content-Type': 'application/json',
+      // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
+      // remoção, com e-mail e telefone de cada titular.
+      ...dataSecurityHeaders('application/json; charset=utf-8'),
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
     },
   });
@@ -1576,9 +1986,15 @@ async function handleRestoreBackup(request, env) {
     const byId = new Map((await getRemovalRequests(env)).map(r => [r.id, r]));
     let rAdded = 0;
     for (const r of body.removalRequests) {
-      if (r && r.id && !byId.has(r.id)) { byId.set(r.id, r); rAdded++; }
+      const clean = sanitizeRestoredRequest(r);
+      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); rAdded++; }
     }
-    await env.FOTOS.put('removal_requests', JSON.stringify([...byId.values()]));
+    // Teto no total: o corpo vem de um arquivo escolhido à mão e nada impedia
+    // um restore de inflar `removal_requests` além do limite de valor do KV,
+    // que falha a escrita e derruba a lista inteira, não só o excedente.
+    const merged = [...byId.values()];
+    trimRequests(merged, 500);
+    await env.FOTOS.put('removal_requests', JSON.stringify(merged));
     result.removalRequestsAdded = rAdded;
   }
 
