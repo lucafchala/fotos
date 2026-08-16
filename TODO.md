@@ -194,6 +194,25 @@ confiar nela.
 conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
 inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
 
+**Um check do smoke test era estruturalmente incapaz de passar.** A checagem
+"o nonce do cabeçalho aparece no HTML" lia o nonce dos cabeçalhos capturados
+numa requisição e procurava esse valor no corpo de **outra** requisição. Como o
+nonce é gerado por requisição — que é exatamente a propriedade que ele deveria
+proteger — os dois nunca poderiam bater.
+
+O defeito ficou escondido porque uma etapa anterior sempre falhava antes de
+chegar nele: primeiro o `HEAD` caindo no 404, e antes disso a CSP. Ou seja, um
+check que eu escrevi só foi de fato exercido no terceiro deploy. A lição é
+específica: **etapa de CI que nunca chegou a rodar não é etapa que passa** — e
+`set -e` faz a primeira falha esconder todas as seguintes. Rodar o passo inteiro
+localmente contra o Worker de verdade, antes de subir, custa dois minutos e
+teria evitado os três ciclos.
+
+Corrigido para uma requisição só (`curl -s -D - -o corpo`), e aproveitei para
+somar a checagem que faltava: **o nonce tem de MUDAR entre requisições**. Um
+nonce constante passaria no teste de "bate com o HTML" e não protegeria nada —
+bastaria ler o valor uma vez e reusar para sempre.
+
 **`SIGNING_SECRET` criado vazio não era distinguido de bem configurado.**
 `wrangler secret put` aceita valor vazio sem reclamar, então "criei o secret" e
 "o secret existe" não são a mesma coisa — e foi exatamente o que aconteceu aqui.
