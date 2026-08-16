@@ -204,13 +204,36 @@ jobs:
 
           # O nonce do cabeçalho tem que aparecer na marcação: um nonce que não
           # bate é o mesmo que não ter nonce.
-          NONCE=$(echo "$HEADERS" | grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//')
+          #
+          # Cabeçalho e corpo têm de vir da MESMA resposta. A primeira versão
+          # desta checagem lia o nonce de `$HEADERS` (capturado lá em cima com
+          # `curl -sI`) e procurava esse valor no HTML de um `curl -s` separado
+          # — duas requisições. Como o nonce é gerado por requisição, os dois
+          # nunca poderiam bater: o teste era estruturalmente incapaz de passar.
+          # Ficou escondido porque uma etapa anterior sempre falhava antes de
+          # chegar aqui. `-D -` com `-o` resolve: uma requisição só, cabeçalho
+          # no stdout e corpo no arquivo.
+          BODY=$(mktemp)
+          H1=$(curl -s -D - -o "$BODY" "$BASE/")
+          extrai_nonce() { grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//'; }
+          NONCE=$(echo "$H1" | extrai_nonce)
           if [ -z "$NONCE" ]; then echo "FAIL [nonce]: não encontrado no cabeçalho"; exit 1; fi
-          if ! curl -s "$BASE/" | grep -q "nonce=\"$NONCE\""; then
-            echo "FAIL [nonce]: o nonce do cabeçalho não aparece no HTML"
+          if ! grep -q "nonce=\"$NONCE\"" "$BODY"; then
+            echo "FAIL [nonce]: o nonce do cabeçalho não aparece no HTML da MESMA resposta"
             exit 1
           fi
-          echo "OK   [nonce]: cabeçalho e marcação batem"
+          echo "OK   [nonce]: cabeçalho e marcação batem na mesma resposta"
+
+          # E o nonce precisa MUDAR entre requisições. Um nonce constante casa
+          # com a checagem acima e não protege nada: quem quer injetar script
+          # basta ler o valor uma vez e reusar para sempre. É a falha que
+          # sobrevive a um teste de "bate com o HTML".
+          NONCE2=$(curl -s -D - -o /dev/null "$BASE/" | extrai_nonce)
+          if [ -z "$NONCE2" ] || [ "$NONCE" = "$NONCE2" ]; then
+            echo "FAIL [nonce]: o mesmo nonce em duas requisições — nonce constante não protege nada"
+            exit 1
+          fi
+          echo "OK   [nonce]: muda a cada requisição"
 
           # Dados pessoais não podem encostar em cache. /api/healthz é o
           # representante das respostas de dados nesta checagem.
