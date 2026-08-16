@@ -17,6 +17,13 @@ import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionC
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
+import { readFileSync } from 'node:fs';
+
+// Lidos como texto para as guardas estruturais: há acoplamentos entre cliente e
+// servidor (nome de campo de formulário) que nenhum tipo garante e cujo modo de
+// falha é o silêncio.
+const indexSource = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/ui/event.js', import.meta.url), 'utf8');
 
 const SECRET = 'segredo-de-teste-para-hmac';
 
@@ -828,5 +835,147 @@ describe('páginas dos documentos legais', () => {
   it('links every document from the trust center', async () => {
     const body = await (await get('/legal')).text();
     for (const doc of LEGAL_DOCS) expect(body, doc.slug).toContain(`href="/legal/${doc.slug}"`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('envio completo dos formulários públicos', () => {
+  // Estes testes existem por causa de um defeito real: o handler de remoção
+  // lia `body.formToken` enquanto o cliente enviava `form_token`. Com o
+  // SIGNING_SECRET configurado, TODO pedido de remoção levava 403 — o canal
+  // que a LGPD exige, morto em silêncio. Abrir o modal no browser não pegava:
+  // só um envio de ponta a ponta pega.
+  function kv(initial = {}) {
+    const store = new Map(Object.entries({ events: '[]', ...initial }));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const ctx = { waitUntil: () => {} };
+  const EVENTS = JSON.stringify([{
+    id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public',
+    driveUrl: 'https://drive.google.com/x', driveUrlInstagram: '', visible: true, comingSoon: false,
+    photos: [], thumbnailUrl: '', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+  }]);
+
+  const env = () => ({
+    FOTOS: kv({ events: EVENTS }),
+    SIGNING_SECRET: 'segredo-de-teste',
+    TURNSTILE_SECRET_KEY: 'ts',
+  });
+
+  const postRemoval = (e, body) => worker.fetch(new Request('https://fotos.lucafchala.com/api/removal-request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '9.9.9.9' },
+    body: JSON.stringify(body),
+  }), e, ctx);
+
+  it('accepts a real removal request end to end', async () => {
+    const e = env();
+    // Token pré-envelhecido: o piso de idade é para automação, e aqui
+    // simulamos alguém que preencheu o formulário com calma.
+    const token = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'pessoa@example.com', phone: '11999999999',
+      consent: true, turnstileToken: 'ok',
+      form_token: token, // <- o nome que o cliente realmente envia
+    });
+    expect(res.status, await res.text()).toBe(200);
+
+    // E o pedido foi mesmo gravado, não só aceito.
+    const stored = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    expect(stored).toHaveLength(1);
+    expect(stored[0].email).toBe('pessoa@example.com');
+  });
+
+  it('still refuses a removal request with no token', async () => {
+    const e = env();
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'a@b.c', phone: '11999999999', consent: true, turnstileToken: 'ok',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses a removal request whose token was minted for the support form', async () => {
+    const e = env();
+    const wrong = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'suporte', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'a@b.c', phone: '11999999999', consent: true, turnstileToken: 'ok', form_token: wrong,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('names the token field exactly as the client sends it', () => {
+    // Guarda estrutural contra a recaída: se um lado renomear o campo, o outro
+    // continua funcionando e o formulário morre em silêncio. Barato de fixar.
+    expect(eventSource).toContain('form_token: REMOVAL_FORM_TOKEN');
+    expect(indexSource).toContain('body.form_token');
+    expect(indexSource).not.toContain('body.formToken');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('rate limit do login não se auto-sabota', () => {
+  function kv() {
+    const store = new Map();
+    let writes = 0;
+    return {
+      async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { writes++; store.set(k, v); },
+      async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; },
+      get writes() { return writes; },
+      _store: store,
+    };
+  }
+  const post = pw => new Request('https://fotos.lucafchala.com/dashboard/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '7.7.7.7' },
+    body: new URLSearchParams({ password: pw }).toString(),
+  });
+
+  it('stops writing to KV once the burst limit is spent', async () => {
+    // A cota de escrita do KV é de 1000/dia para a conta inteira e é
+    // compartilhada com eventos, sessões e consentimento. Contabilizar
+    // tentativa já barrada deixava mil POSTs não autenticados esgotarem a cota
+    // e derrubarem o site — um jeito barato demais de causar dano.
+    const FOTOS = kv();
+    const env = { FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' };
+    const ctx = { waitUntil: p => p };
+
+    for (let i = 0; i < 12; i++) await worker.fetch(post('errada'), env, ctx);
+    const afterBurst = FOTOS.writes;
+
+    for (let i = 0; i < 40; i++) await worker.fetch(post('errada'), env, ctx);
+    const extra = FOTOS.writes - afterBurst;
+
+    expect(extra, 'tentativas já barradas não podem custar escrita em KV').toBe(0);
+  });
+
+  it('does not let blocked attempts eat the daily budget', async () => {
+    // O limite diário (60) existe para conter a força bruta sustentada. Se
+    // tentativas já barradas pela rajada também o consumissem, ele acabaria dez
+    // vezes mais rápido e trancaria o dono do painel por 24 h — um IP de NAT
+    // compartilhado fazia isso em um minuto.
+    const FOTOS = kv();
+    const env = { FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' };
+    const ctx = { waitUntil: p => p };
+
+    for (let i = 0; i < 200; i++) await worker.fetch(post('errada'), env, ctx);
+
+    const daily = [...FOTOS._store.entries()].find(([k]) => k.includes('ratelimit:login-day:'));
+    expect(daily, 'contador diário deve existir').toBeTruthy();
+    expect(Number(daily[1]), 'só o que passou pela rajada conta no orçamento diário')
+      .toBeLessThanOrEqual(10);
   });
 });

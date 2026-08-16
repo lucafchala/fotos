@@ -130,6 +130,30 @@ política de senha em sincronia entre cliente e servidor · corrigir e reenviar 
 formulário de suporte não trava mais no piso de idade · nonce vencido reabre o
 modal com aviso em vez de recarregar seco.
 
+**Achados da revisão formal de código (`/code-review`), todos corrigidos:**
+
+- 🔴 **O formulário de remoção estava quebrado.** O cliente enviava
+  `form_token`, o servidor lia `body.formToken`. Com o `SIGNING_SECRET`
+  configurado, todo pedido de remoção levava 403 — o canal que a LGPD exige,
+  morto em silêncio. Abrir o modal no browser não pegava; só um envio completo
+  pega, e agora há teste de ponta a ponta mais uma guarda estrutural sobre o
+  nome do campo nos dois lados.
+- **Login barrado ainda gastava cota de KV.** `noteFailedLogin` gravava mesmo
+  para tentativa já recusada pelo rate limit: mil POSTs não autenticados
+  esgotariam as 1000 escritas/dia da conta e derrubariam eventos, sessões e
+  consentimento.
+- **Tentativa barrada consumia o orçamento diário do login.** Os dois limites
+  eram chamados juntos, então as 60/dia acabavam dez vezes mais rápido — um IP
+  de NAT compartilhado trancava o dono por 24 h em um minuto.
+- **Alerta de força bruta podia nunca disparar.** `attempts === 5` num contador
+  de KV não atômico: duas requisições concorrentes pulam de 4 para 6. Agora `>=`.
+- **Galeria sem JavaScript ficava ilegível.** O masonry depende de JS para
+  definir a altura de cada card; sem ele (e nos primeiros ~60 ms de todo
+  carregamento) os cards colapsavam para 4 px e se sobrepunham. Agora o grid
+  cai num layout comum até o cálculo acontecer. Verificado com JS desligado.
+- **`?tema=toString`** pré-preenchia o campo de mensagem do suporte com
+  `function toString() { [native code] }` (lookup em protótipo).
+
 **CodeQL:** já roda pelo *default setup* do GitHub (Settings → Code security),
 que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
 `security.yml` seria uma "advanced configuration" e o GitHub recusa as duas ao

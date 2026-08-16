@@ -200,6 +200,17 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .grid{display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:4px;gap:.875rem;margin-top:.875rem;align-items:start}
     @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
+    /* Rede de proteção do masonry.
+       O layout depende de layoutMasonry() atribuir grid-row-end a cada card;
+       enquanto isso não acontece, o grid-auto-rows de 4px faz cada item ocupar
+       4 px de altura e os cards se sobrepõem num amontoado ilegível. Isso vale
+       para os primeiros ~60 ms de TODO carregamento (o script está no fim do
+       body e ainda tem debounce) e para sempre se o JS falhar ou estiver
+       desligado.
+       Um grid-auto-rows:auto como padrão dá um grid comum, que já fica correto —
+       só sem o encaixe irregular. A classe .masonry-ready é posta pelo próprio
+       layoutMasonry(), então a unidade fina só entra quando há quem a use. */
+    .grid:not(.masonry-ready){grid-auto-rows:auto}
     .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
@@ -366,6 +377,10 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       // "esticada" que uma passada anterior deixou — sem isso, um resize
       // faria os spans só crescerem, nunca encolherem. ----
       function layoutMasonry() {
+        // Liga a unidade fina de linha só a partir do primeiro cálculo: antes
+        // disso o grid roda em modo comum (ver .grid:not(.masonry-ready)).
+        var gridEl = document.querySelector('.grid');
+        if (gridEl) gridEl.classList.add('masonry-ready');
         var grid = document.querySelector('.grid');
         if (!grid) return;
         var cs = getComputedStyle(grid);

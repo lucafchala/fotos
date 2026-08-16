@@ -47,11 +47,13 @@ export default [
         Request: 'readonly',
         Headers: 'readonly',
         URL: 'readonly',
+        URLSearchParams: 'readonly',
         TextEncoder: 'readonly',
         TextDecoder: 'readonly',
         console: 'readonly',
         Buffer: 'readonly',
         structuredClone: 'readonly',
+        globalThis: 'readonly',
       },
     },
     rules: {

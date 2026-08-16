@@ -188,7 +188,11 @@ export default {
       // bug"/"sugestão" links on the new-interface banner and footer) — cosmetic
       // only, never trusted server-side.
       if (path === '/suporte' && method === 'GET') {
-        const msg = TEMA_PREFILLS[url.searchParams.get('tema')];
+        // Object.hasOwn: sem ele, `?tema=toString` acha Object.prototype.toString
+        // e o textarea abre pré-preenchido com "function toString() { [native
+        // code] }". Inofensivo, mas é lixo visível numa página de suporte.
+        const tema = url.searchParams.get('tema');
+        const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? TEMA_PREFILLS[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
       if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce);
@@ -458,10 +462,22 @@ export async function handleLogin(request, env, ctx) {
   // deixa passar ~1400 tentativas por dia vindas do mesmo IP — folgado demais
   // para uma senha só. O limite diário fecha essa conta sem atrapalhar quem
   // erra a senha algumas vezes de manhã e volta à tarde.
+  // Em série, e com saída antecipada: `checkRateLimit` INCREMENTA quando
+  // deixa passar. Chamar os dois de uma vez fazia uma tentativa já barrada
+  // pelo limite de rajada consumir também o orçamento diário — 60 tentativas
+  // "gastas" dez vezes mais rápido do que o pretendido, e um IP compartilhado
+  // (NAT de escola, operadora móvel) trancava o dono do painel por 24 h com um
+  // minuto de tráfego.
   const burstOk = await checkRateLimit(env, ip, 'login', 10, 600);
-  const dailyOk = await checkRateLimit(env, ip, 'login-day', 60, 86400);
-  if (!burstOk || !dailyOk) {
-    ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
+  if (!burstOk) {
+    // Sem noteFailedLogin aqui: ele faz leitura + escrita em KV, e a cota é de
+    // 1000 escritas/dia para a conta inteira. Contabilizar tentativa já barrada
+    // deixava mil POSTs não autenticados esgotarem a cota e derrubarem o que
+    // importa — salvar evento, abrir sessão, gravar consentimento. Quem foi
+    // barrado já está contido; não precisa custar escrita.
+    return redirect('/dashboard?error=1');
+  }
+  if (!await checkRateLimit(env, ip, 'login-day', 60, 86400)) {
     return redirect('/dashboard?error=1');
   }
 
@@ -520,7 +536,13 @@ async function noteFailedLogin(env, request, ip) {
   const key = `login-fail:${ip}:${window}`;
   const attempts = toCount(await env.FOTOS.get(key)) + 1;
   await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS });
-  if (attempts === LOGIN_ALERT_THRESHOLD) {
+  // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
+  // Numa força bruta paralela — exatamente o caso que o alerta existe para
+  // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
+  // pula de 4 para 6 sem nunca ser igual a 5. O alerta silenciava justamente
+  // no ataque mais sério. O flood continua contido pelo cooldown dentro de
+  // sendLoginAlert.
+  if (attempts >= LOGIN_ALERT_THRESHOLD) {
     await sendLoginAlert(env, {
       ip,
       attempts,
@@ -1144,7 +1166,12 @@ async function handleRemovalRequest(request, env) {
   // idade (3 s) derruba automação que preenche e envia instantaneamente.
   const formSecret = signingSecret(env);
   if (formSecret) {
-    const t = await verifyToken(formSecret, String(body.formToken || ''), {
+    // `form_token`, com underline: é o nome que o cliente envia (ver
+    // src/ui/event.js). Escrito como `formToken` aqui, a verificação lia
+    // sempre string vazia e TODO pedido de remoção levava 403 — o canal que a
+    // LGPD exige, morto em silêncio, e só depois de o SIGNING_SECRET ser
+    // configurado. Há teste cobrindo o envio completo agora.
+    const t = await verifyToken(formSecret, String(body.form_token || ''), {
       purpose: 'form',
       scope: 'remocao',
       ttlSecs: FORM_TOKEN_TTL_SECS,
