@@ -170,15 +170,24 @@ jobs:
           require_header "X-Frame-Options"           '^x-frame-options: *DENY'
           require_header "Strict-Transport-Security" '^strict-transport-security: *max-age=[0-9]+'
           require_header "Content-Security-Policy"   "^content-security-policy:.*frame-ancestors 'none'"
-          require_header "CSP nonce"                 "^content-security-policy:.*'nonce-"
           require_header "CSP report-only (estrita)" '^content-security-policy-report-only:'
+          require_header "CSP nonce (na estrita)"    "^content-security-policy-report-only:.*'nonce-"
+
+          # O enforced NÃO pode carregar nonce enquanto houver handler inline:
+          # pela CSP Level 3 o nonce descarta o 'unsafe-inline', e a interface
+          # inteira para de responder. Já aconteceu — este check existe por isso.
+          if curl -sI "$BASE/" | grep -i '^content-security-policy:' | grep -q "nonce-"; then
+            echo "FAIL [CSP]: nonce na política ENFORCED — isso desativa o 'unsafe-inline' e quebra os handlers inline"
+            exit 1
+          fi
+          echo "OK   [CSP]: enforced sem nonce, handlers inline preservados"
           require_header "Permissions-Policy"        '^permissions-policy:.*camera=\(\)'
           require_header "COOP"                      '^cross-origin-opener-policy: *same-origin'
           require_header "Origin-Agent-Cluster"      '^origin-agent-cluster:'
 
           # O nonce do cabeçalho tem que aparecer na marcação: um nonce que não
           # bate é o mesmo que não ter nonce.
-          NONCE=$(echo "$HEADERS" | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//')
+          NONCE=$(echo "$HEADERS" | grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//')
           if [ -z "$NONCE" ]; then echo "FAIL [nonce]: não encontrado no cabeçalho"; exit 1; fi
           if ! curl -s "$BASE/" | grep -q "nonce=\"$NONCE\""; then
             echo "FAIL [nonce]: o nonce do cabeçalho não aparece no HTML"

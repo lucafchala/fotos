@@ -204,7 +204,24 @@ export async function verifySession(env, request) {
   if (!rec || typeof rec !== 'object') return false;
 
   const now = Date.now();
+  // `createdAt` ausente ou corrompido não pode virar "sessão eterna": sem um
+  // início confiável, não dá para dizer se o teto de 24 h já passou, e a
+  // resposta segura para uma credencial ilegível é recusá-la.
+  const createdAt = typeof rec.createdAt === 'number' && Number.isFinite(rec.createdAt) ? rec.createdAt : null;
+  if (createdAt === null) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
   if (rec.fp && rec.fp !== clientFingerprint(request)) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
+  // Teto absoluto verificado no código, e não só pelo TTL do KV. O TTL é a
+  // primeira linha, mas ele é um efeito colateral do armazenamento: se um
+  // registro for reescrito com o prazo errado (foi o que um `createdAt`
+  // corrompido causava, gerando um expirationTtl NaN que a escrita recusava em
+  // silêncio), a sessão sobrevivia além das 24 h sem ninguém notar.
+  if (now - createdAt > SESSION_TTL_SECS * 1000) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
@@ -217,7 +234,9 @@ export async function verifySession(env, request) {
   // requisição. O painel faz várias chamadas por tela e a cota de escrita do KV
   // é de 1000/dia — sem a trava, uma tarde de uso consumiria a cota do site.
   if (typeof rec.lastSeen !== 'number' || now - rec.lastSeen > SESSION_REFRESH_SECS * 1000) {
-    const ttl = Math.max(60, Math.round((rec.createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
+    // O TTL renovado acompanha o teto absoluto: renovar por mais 24 h a cada
+    // uso transformaria a sessão de 24 h numa sessão perpétua.
+    const ttl = Math.max(60, Math.round((createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
     await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
       .catch(e => console.error('session refresh failed', e));
   }

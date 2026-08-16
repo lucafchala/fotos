@@ -522,18 +522,24 @@ Toda página HTML sai com `Content-Security-Policy` **e**
 `Content-Security-Policy-Report-Only`, construídas pela mesma função para que não
 possam divergir:
 
-- A **enforced** ainda tem `'unsafe-inline'` em `script-src`. Não é desleixo: a
-  UI usa handlers inline (`onclick="…"`), e **nonce nenhum cobre handler em
-  atributo**. Tirar o `'unsafe-inline'` hoje quebraria galeria, página de evento
-  e painel.
+- A **enforced** tem `'unsafe-inline'` e **nenhum nonce**. Essa combinação é
+  deliberada: pela CSP Level 3, **a presença de um nonce faz o browser descartar
+  o `'unsafe-inline'`**. Ou seja, `'self' 'unsafe-inline' 'nonce-abc'` não é "os
+  dois" — é só o nonce, e todo `onclick="…"` para de executar. A UI tem uns 63
+  deles; o resultado é galeria, página de evento, gate do Drive e painel mortos
+  ao mesmo tempo. Isso chegou a ser commitado e só foi pego dirigindo um browser
+  de verdade: um teste que afirma que a string da política contém
+  `'unsafe-inline'` passa tranquilo enquanto o browser a ignora.
 - A **report-only** é a política que queremos impor — `'nonce-…'` sem
   `'unsafe-inline'`. Em Report-Only, cada handler remanescente vira um relatório
   em `/api/csp-report` em vez de um elemento quebrado. É a lista de tarefas da
-  migração, medida em produção e não chutada.
+  migração, medida em produção e não chutada. Os `nonce="…"` na marcação existem
+  para *essa* política.
 
-A virada acontece quando os relatórios zerarem: `strict: true` também na
-enforced. Até lá, um `<script>` sem nonce é invisível hoje e quebra no dia da
-virada — por isso a CI recusa um.
+A virada acontece quando os relatórios zerarem: tirar os handlers inline e então
+deixar a enforced usar `strict` também. Até lá, um `<script>` sem nonce é
+invisível hoje e quebra no dia da virada — por isso a CI recusa um, e o smoke
+test do deploy recusa um nonce aparecendo no cabeçalho enforced.
 
 ---
 

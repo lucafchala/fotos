@@ -476,6 +476,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" class="dv-retry">Tentar novamente</button></p>
           <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
+        <div id="drive-refreshed-note" class="drive-verifying" style="display:none">
+          <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
+        </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
@@ -855,12 +858,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           // do visitante e não há o que ele possa fazer na tela: recarregar
           // busca um nonce novo e o fluxo recomeça sozinho. Qualquer outro
           // status cai no .catch() de sempre.
-          if (r.status === 410) { location.reload(); return new Promise(function(){}); }
+          if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
           return r.ok ? r.json() : Promise.reject();
         })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
+          // Deu certo: solta a trava anti-laço, para que uma expiração futura
+          // nesta mesma aba ainda possa se recuperar com uma recarga.
+          try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
           setDriveLinkUI('ready', data);
         })
         .catch(function() {
@@ -874,6 +880,68 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           }
         });
     }
+    // O nonce desta pagina vale 2 h. Quem deixou a aba aberta a tarde inteira e
+    // volta para clicar cai num 410 — situacao normal, nao erro dele. Recarregar
+    // resolve, mas recarregar seco devolve a pessoa ao topo da pagina sem
+    // explicacao nenhuma, e ela precisa refazer o caminho todo sem saber por que.
+    //
+    // Entao a recarga deixa um bilhete: ao voltar, o modal reabre sozinho com um
+    // aviso curto. O aceite NAO e remarcado de proposito — consentimento tem que
+    // ser um ato afirmativo da pessoa, e remarcar por ela registraria um aceite
+    // que ninguem deu naquele momento. Fica em um clique, e um clique honesto.
+    // Duas chaves, dois propósitos:
+    //  - drive_reopen  = "ao voltar, reabra o modal" (consumida no load)
+    //  - drive_reloaded = "já tentei recarregar uma vez" (trava anti-laço)
+    // Sem a segunda, isto vira um laço infinito de recarga — e não é hipótese:
+    // o Chrome restaura o estado dos checkboxes ao recarregar, então o aceite
+    // voltava marcado, o gate disparava sozinho, tomava 410 de novo e
+    // recarregava outra vez, para sempre. Foi pego com browser de verdade.
+    function reloadForFreshNonce() {
+      var alreadyTried = null;
+      try { alreadyTried = sessionStorage.getItem('fotos:drive_reloaded'); } catch(_) {}
+      if (alreadyTried === EVENT_SLUG) {
+        // Recarregar não resolveu (segredo rotacionado, relógio torto, algo
+        // fora do normal). Melhor a tela de erro, que oferece "tentar de novo"
+        // e os contatos, do que recarregar a página eternamente.
+        try {
+          sessionStorage.removeItem('fotos:drive_reloaded');
+          sessionStorage.removeItem('fotos:drive_reopen');
+        } catch(_) {}
+        driveLinkState = 'error';
+        setDriveLinkUI('error');
+        return;
+      }
+      try {
+        sessionStorage.setItem('fotos:drive_reopen', EVENT_SLUG);
+        sessionStorage.setItem('fotos:drive_reloaded', EVENT_SLUG);
+      } catch(_) {}
+      location.reload();
+    }
+
+    function maybeReopenAfterRefresh() {
+      var flag = null;
+      try {
+        flag = sessionStorage.getItem('fotos:drive_reopen');
+        sessionStorage.removeItem('fotos:drive_reopen');
+      } catch(_) { return; }
+      if (flag !== EVENT_SLUG) return;
+
+      // O browser restaura o estado dos campos ao recarregar, então o aceite
+      // volta marcado sozinho. Desmarcar é necessário por dois motivos: sem
+      // isso o gate dispara sem ninguém ter clicado em nada (e era metade do
+      // laço acima), e um consentimento tem que ser um ato afirmativo da
+      // pessoa — não um resquício de estado de formulário.
+      var consent = document.getElementById('drive-consent');
+      if (consent) consent.checked = false;
+      var decl = document.getElementById('drive-declaration');
+      if (decl) decl.checked = false;
+      driveLinkState = 'idle';
+
+      var note = document.getElementById('drive-refreshed-note');
+      if (note) note.style.display = '';
+      openModal();
+    }
+
     function retryDriveLink() {
       driveLinkState = 'idle';
       if (driveTsToken) maybeFetchDriveLink();
@@ -1273,6 +1341,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     window.addEventListener('scroll', updateStickyCta, { passive: true });
     window.addEventListener('resize', updateStickyCta);
     updateStickyCta();
+
+    // Se chegamos aqui por causa de um nonce vencido, reabre o modal com o
+    // aviso — ver reloadForFreshNonce().
+    maybeReopenAfterRefresh();
 
     // ---- Idle-attention pulse on the main CTA: draw the eye if the visitor
     // hasn't opened the Drive modal within a while. Cleared the moment they do.

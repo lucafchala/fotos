@@ -99,19 +99,26 @@ Every HTML response carries **both** `Content-Security-Policy` and
 `Content-Security-Policy-Report-Only`, built from the same source
 (`contentSecurityPolicy()`) so they cannot drift apart.
 
-- The **enforced** policy still allows `'unsafe-inline'` for scripts. This is
-  not laziness: the UI uses inline event handlers (`onclick="…"`), and **no
-  nonce value covers an attribute handler**. Removing `'unsafe-inline'` today
-  would break the gallery, the event page and the whole dashboard.
+- The **enforced** policy allows `'unsafe-inline'` and carries **no nonce**.
+  That combination is deliberate and load-bearing: per CSP Level 3, **a nonce
+  makes the browser discard `'unsafe-inline'`**. So `'self' 'unsafe-inline'
+  'nonce-abc'` is not "both" — it is effectively `'self' 'nonce-abc'`, and every
+  `onclick="…"` attribute handler stops firing. The UI has ~63 of them, so that
+  silently kills the gallery, the event page, the Drive gate and the dashboard.
+  This was actually committed once and caught only by driving a real browser —
+  a unit test asserting the policy *string* contains `'unsafe-inline'` passes
+  happily while the browser ignores it.
 - The **report-only** policy is the one we want to enforce — `'nonce-…'` with no
   `'unsafe-inline'`. Running it in report-only turns each remaining inline
   handler into a report at `/api/csp-report` instead of a broken element. It is
-  the migration's task list, measured in production rather than guessed.
+  the migration's task list, measured in production rather than guessed. The
+  `nonce="…"` attributes in the markup exist for *this* policy.
 
-**The flip happens when the reports stop arriving**: change `strict` to `true`
-for the enforced policy too. Until then, a `<script>` without a nonce is
-invisible today and breaks silently on flip day — so CI rejects one
-(`.github/workflows/security.yml`).
+**The flip happens when the reports stop arriving**: remove the inline handlers,
+then let the enforced policy use `strict` too. Until then, a `<script>` without a
+nonce is invisible today and breaks silently on flip day — so CI rejects one, and
+the deploy smoke test rejects a nonce appearing in the enforced header
+(`.github/workflows/security.yml`, `deploy.yml`).
 
 ## Required secrets
 

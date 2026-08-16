@@ -43,12 +43,14 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
       e a política estrita (sem `'unsafe-inline'`) já roda em **Report-Only**,
       com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os ~63
       handlers inline (`onclick="…"`) por listeners delegados — inclusive os que
-      o painel gera dinamicamente via `innerHTML` — porque **nonce não cobre
-      handler em atributo**. Quando os relatórios zerarem, basta passar `strict`
-      para `true` na política enforced (`contentSecurityPolicy()` em
-      `src/security.js`). Ficou por último de propósito: é um refactor grande na
-      página mais complexa do site, e o Report-Only mede exatamente o que falta
-      antes de arriscar a virada.
+      o painel gera dinamicamente via `innerHTML`.
+      > ⚠️ **Não acrescente o nonce à política enforced antes disso.** Pela CSP
+      > Level 3 o nonce descarta o `'unsafe-inline'`, e a interface inteira para
+      > de responder. Já aconteceu nesta branch e só foi pego com browser de
+      > verdade — teste de unidade sobre o texto da política não enxerga isso.
+      > Há teste e smoke test do deploy travando esse caminho agora.
+      Quando os relatórios zerarem, tirar os handlers e então deixar a enforced
+      usar `strict` (`contentSecurityPolicy()` em `src/security.js`).
 - [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
       sai da galeria, do sitemap e da auditoria, e agora vai com
       `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz

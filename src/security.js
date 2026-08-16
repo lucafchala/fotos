@@ -71,24 +71,36 @@ export function generateNonce() {
 
 // CSP das páginas HTML.
 //
-// `strict` decide entre as duas políticas que servimos ao mesmo tempo:
+// ⚠️ REGRA DA ESPECIFICAÇÃO QUE DERRUBA O SITE INTEIRO SE FOR IGNORADA ⚠️
 //
-//  - strict=false (enforced hoje): mantém 'unsafe-inline' em script-src porque
-//    a UI ainda usa handlers inline (onclick="…"). Handlers em atributo NÃO são
-//    cobertos por nonce — nenhum valor de nonce os libera —, então tirar o
-//    'unsafe-inline' agora quebraria a galeria, a página de evento e o painel
-//    inteiro. Reconhecer isso é mais honesto do que publicar uma CSP "forte"
-//    que na prática precisaria ser revertida no primeiro clique.
+// Na presença de um nonce (ou hash), o browser **descarta o 'unsafe-inline'**.
+// Está no CSP Level 3, e existe justamente para que uma política moderna não
+// seja enfraquecida por um fallback antigo. A consequência prática aqui é
+// brutal: `script-src 'self' 'unsafe-inline' 'nonce-abc'` NÃO é "as duas
+// coisas" — é `script-src 'self' 'nonce-abc'`, e todo handler em atributo
+// (onclick="…") para de executar. Galeria, carrossel, lightbox, gate do Drive,
+// modal de remoção e o painel inteiro morrem de uma vez.
 //
-//  - strict=true (report-only): a política que queremos passar a impor —
-//    'nonce-…' sem 'unsafe-inline'. Como ela roda em Report-Only, cada handler
-//    inline remanescente vira um relatório em /api/csp-report em vez de um
-//    elemento quebrado. É a lista de tarefas da migração, medida em produção e
-//    não chutada, e é a única forma segura de descobrir se sobrou algum caso
-//    antes de trocar o enforced.
+// Isso foi cometido e pego em verificação com browser real: os testes de
+// unidade afirmavam que a string continha 'unsafe-inline' — verdade, e
+// completamente irrelevante, porque o browser o ignorava. Nenhum teste sobre o
+// TEXTO da política pega um erro sobre a SEMÂNTICA dela.
 //
-// Os dois cabeçalhos saem juntos em toda página. O dia da virada é quando os
-// relatórios zerarem: aí `strict` passa a valer para o enforced também.
+// Daí a regra desta função: **o nonce só entra na política estrita.**
+//
+//  - strict=false (enforced hoje): 'unsafe-inline', SEM nonce. É o que mantém
+//    os handlers inline vivos. Todo o resto do endurecimento (object-src,
+//    base-uri, frame-ancestors, upgrade-insecure-requests…) vale normalmente.
+//
+//  - strict=true (report-only): 'nonce-…' SEM 'unsafe-inline' — a política que
+//    queremos passar a impor. Rodando em Report-Only, cada handler inline que
+//    sobrou vira um relatório em /api/csp-report em vez de um elemento
+//    quebrado. É a lista de tarefas da migração, medida em produção.
+//
+// Os dois cabeçalhos saem juntos em toda página. Os `nonce="…"` na marcação
+// servem à política estrita (é o que faz os <script> legítimos passarem nela,
+// deixando só os handlers como violação) e ficam prontos para o dia da virada:
+// quando os relatórios zerarem, `strict` passa a valer para o enforced também.
 export function contentSecurityPolicy(nonce, { strict = false } = {}) {
   // Sem nonce (páginas de erro, que não têm script nenhum) a fonte é omitida em
   // vez de virar um `'nonce-'` vazio. Um token assim é sintaticamente inválido:
@@ -98,7 +110,9 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
   const nonceSrc = nonce ? ` 'nonce-${nonce}'` : '';
   const scriptSrc = strict
     ? `'self'${nonceSrc} ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`
-    : `'self' 'unsafe-inline'${nonceSrc} ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`;
+    // Nada de nonce aqui — ver o aviso acima. Acrescentar um é o mesmo que
+    // apagar o 'unsafe-inline' e quebrar toda a interface.
+    : `'self' 'unsafe-inline' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`;
 
   return [
     "default-src 'self'",
@@ -121,9 +135,14 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
     "frame-ancestors 'none'",
     "base-uri 'none'", // era 'self'; nenhuma página usa <base>, então 'none' é mais apertado
     "form-action 'self'",
-    'upgrade-insecure-requests',
-    `report-uri /api/csp-report`,
-    `report-to csp`,
+    // `upgrade-insecure-requests` só existe na política aplicada. Numa
+    // report-only ela é ignorada pelo browser — e o Chrome ainda registra um
+    // aviso no console a cada carregamento de página. Um aviso permanente no
+    // console de todo visitante é ruído que faz as pessoas pararem de olhar
+    // para o console, que é o oposto do que a report-only quer conseguir.
+    ...(strict ? [] : ['upgrade-insecure-requests']),
+    'report-uri /api/csp-report',
+    'report-to csp',
   ].join('; ');
 }
 

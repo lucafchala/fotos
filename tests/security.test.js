@@ -14,7 +14,7 @@ import {
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION } from '../src/utils.js';
-import worker, { sanitizeRestoredRequest } from '../src/index.js';
+import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS } from '../src/index.js';
 
 const SECRET = 'segredo-de-teste-para-hmac';
 
@@ -267,8 +267,23 @@ describe('cabeçalhos de segurança', () => {
 describe('Content-Security-Policy', () => {
   const nonce = generateNonce();
 
-  it('carries the per-request nonce', () => {
-    expect(contentSecurityPolicy(nonce)).toContain(`'nonce-${nonce}'`);
+  it('NEVER puts a nonce in the enforced policy while inline handlers exist', () => {
+    // Este é o teste mais importante do arquivo. Pela CSP Level 3, a presença
+    // de um nonce faz o browser DESCARTAR o 'unsafe-inline'. Ou seja,
+    // `'self' 'unsafe-inline' 'nonce-x'` não é "os dois" — é só o nonce, e
+    // todo handler onclick="…" para de executar: galeria, carrossel, gate do
+    // Drive, modal de remoção e o painel inteiro morrem juntos.
+    //
+    // Já aconteceu uma vez, e só foi pego em verificação com browser real —
+    // porque um teste sobre o TEXTO da política não enxerga a SEMÂNTICA dela.
+    // Este teste existe para que não aconteça de novo.
+    const enforced = contentSecurityPolicy(nonce);
+    expect(enforced).not.toContain('nonce-');
+    expect(enforced.split('; ').find(d => d.startsWith('script-src'))).toContain("'unsafe-inline'");
+  });
+
+  it('carries the per-request nonce in the strict (report-only) policy', () => {
+    expect(contentSecurityPolicy(nonce, { strict: true })).toContain(`'nonce-${nonce}'`);
   });
 
   it('never permits eval, plugins or framing', () => {
@@ -290,13 +305,15 @@ describe('Content-Security-Policy', () => {
     expect(scriptSrc).toContain(`'nonce-${nonce}'`);
   });
 
-  it('still allows inline handlers in the enforced policy, on purpose', () => {
-    // Se este teste virar vermelho porque alguém tirou o 'unsafe-inline' do
-    // enforced, a UI quebra: nonce não cobre handler em atributo. A virada só
-    // pode acontecer depois que os handlers inline sumirem do HTML.
+  it('keeps the enforced policy hard everywhere except inline scripts', () => {
+    // O 'unsafe-inline' é a única concessão. Se alguém o remover antes de os
+    // handlers saírem do HTML, a UI quebra — e se acrescentar um nonce ao lado
+    // dele, quebra igual (teste acima). Todo o resto continua fechado.
     const enforced = contentSecurityPolicy(nonce);
-    const scriptSrc = enforced.split('; ').find(d => d.startsWith('script-src'));
-    expect(scriptSrc).toContain("'unsafe-inline'");
+    expect(enforced).toContain("object-src 'none'");
+    expect(enforced).toContain("base-uri 'none'");
+    expect(enforced).toContain("frame-ancestors 'none'");
+    expect(enforced).not.toContain("'unsafe-eval'");
   });
 
   it('routes violations to the collector', () => {
@@ -544,19 +561,23 @@ describe('CSRF no dispatcher', () => {
     }
   });
 
-  it('binds the CSP nonce in the header to the one in the markup', async () => {
-    // Um nonce no HTML que não bate com o do cabeçalho equivale a não ter
-    // nonce nenhum — e o erro é invisível enquanto 'unsafe-inline' estiver lá.
+  it('binds the report-only nonce to the one in the markup', async () => {
+    // Um nonce no HTML que não bate com o do cabeçalho equivale a não ter nonce
+    // nenhum. Como o nonce vive só na política estrita, é o cabeçalho
+    // Report-Only que precisa casar com a marcação — é ele que mede o que falta
+    // para a virada.
     const res = await worker.fetch(new Request('https://fotos.lucafchala.com/'), { FOTOS: kv() }, ctx);
-    const headerNonce = res.headers.get('Content-Security-Policy').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
-    const body = await res.text();
-    expect(body).toContain(`nonce="${headerNonce}"`);
+    const ro = res.headers.get('Content-Security-Policy-Report-Only');
+    const headerNonce = ro.match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
+    expect(await res.text()).toContain(`nonce="${headerNonce}"`);
+    // E o enforced não pode carregar nonce nenhum, senão a página trava.
+    expect(res.headers.get('Content-Security-Policy')).not.toContain('nonce-');
   });
 
   it('gives every response a fresh nonce', async () => {
     const get = async () => (await worker.fetch(
       new Request('https://fotos.lucafchala.com/'), { FOTOS: kv() }, ctx
-    )).headers.get('Content-Security-Policy').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
+    )).headers.get('Content-Security-Policy-Report-Only').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
     expect(await get()).not.toBe(await get());
   });
 });
@@ -566,9 +587,9 @@ describe('CSP sem nonce (páginas de erro)', () => {
     // `'nonce-'` vazio é sintaticamente inválido: o browser descarta o token e
     // a política passa a valer por acidente, não por intenção. Páginas de erro
     // não têm script, então a fonte simplesmente não aparece.
-    const csp = contentSecurityPolicy('');
+    const csp = contentSecurityPolicy('', { strict: true });
     expect(csp).not.toContain("'nonce-'");
-    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com");
+    expect(csp).toContain("script-src 'self' https://challenges.cloudflare.com");
     // O resto da política continua inteiro numa página de erro.
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
@@ -632,5 +653,36 @@ describe('Central de Transparência (/legal)', () => {
 
   it('is listed in the sitemap', async () => {
     expect(await (await get('/sitemap.xml')).text()).toContain('/legal</loc>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('token de formulário pré-envelhecido', () => {
+  it('lets a corrected resubmission through immediately', async () => {
+    // Cenário real: a pessoa esquece de marcar o consentimento, leva o erro,
+    // marca e clica de novo em dois segundos. Sem o pré-envelhecimento ela
+    // levaria "envio rápido demais" por cima do primeiro erro — atrito criado
+    // pela própria defesa anti-bot.
+    const preAged = await signToken(SECRET, {
+      purpose: 'form', scope: 'suporte',
+      ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    const r = await verifyToken(SECRET, preAged, {
+      purpose: 'form', scope: 'suporte',
+      ttlSecs: FORM_TOKEN_TTL_SECS, minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('still stops an instant first submission', async () => {
+    // O piso continua valendo para o token normal — é o primeiro envio que ele
+    // existe para filtrar.
+    const fresh = await signToken(SECRET, { purpose: 'form', scope: 'suporte', ttlSecs: FORM_TOKEN_TTL_SECS });
+    const r = await verifyToken(SECRET, fresh, {
+      purpose: 'form', scope: 'suporte',
+      ttlSecs: FORM_TOKEN_TTL_SECS, minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('too-fast');
   });
 });

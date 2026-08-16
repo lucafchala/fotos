@@ -97,10 +97,25 @@ export async function mintDriveNonce(env, slug) {
   return signToken(secret, { purpose: 'drive', scope: slug, ttlSecs: DRIVE_NONCE_TTL_SECS });
 }
 
-export async function mintFormToken(env, form) {
+// `preAged` emite um token que já nasce com a idade mínima cumprida.
+//
+// Serve para as re-renderizações de erro do formulário de suporte. Sem isso,
+// cada erro devolve um token novinho, e quem esqueceu de marcar a caixa de
+// consentimento — corrige e clica em dois segundos — leva "envio rápido demais"
+// por cima do erro anterior. O piso de idade existe para pegar automação no
+// primeiro envio, não para punir quem já está na segunda tentativa.
+//
+// Funciona porque verifyToken deriva o instante de emissão de `exp - ttlSecs`:
+// assinar com um TTL menor faz o token parecer mais velho do que é. O prazo
+// final encurta pelos mesmos 3 s, o que é irrelevante numa janela de 2 h.
+export async function mintFormToken(env, form, { preAged = false } = {}) {
   const secret = signingSecret(env);
   if (!secret) return '';
-  return signToken(secret, { purpose: 'form', scope: form, ttlSecs: FORM_TOKEN_TTL_SECS });
+  return signToken(secret, {
+    purpose: 'form',
+    scope: form,
+    ttlSecs: preAged ? FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS : FORM_TOKEN_TTL_SECS,
+  });
 }
 
 export default {
@@ -942,8 +957,15 @@ async function handleSupportRequest(request, env, nonce) {
 
   // Toda resposta de erro precisa de um token novo, senão o visitante corrige o
   // que errou e esbarra num token já gasto/expirado na segunda tentativa.
+  // `ok` distingue a tela de sucesso da re-renderização com erro. No caso de
+  // erro o token sai pré-envelhecido, para que corrigir e reenviar depressa não
+  // esbarre no piso de idade — ver mintFormToken().
   const page = async (ok, error = '', values = {}, status = 200) =>
-    html(supportHTML(ok, error, values, nonce, await mintFormToken(env, 'suporte')), status, nonce);
+    html(
+      supportHTML(ok, error, values, nonce, await mintFormToken(env, 'suporte', { preAged: !ok })),
+      status,
+      nonce
+    );
 
   const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
   if (!allowed) {
@@ -1022,13 +1044,19 @@ async function handleSupportRequest(request, env, nonce) {
   // fato chegou (da primeira vez).
   const dupKey = `support-dup:${ip}:${await shortHash(message)}`;
   if (await env.FOTOS.get(dupKey)) return page(true);
-  await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
 
+  // A marca de "já recebi esta mensagem" só é gravada DEPOIS de o envio dar
+  // certo. Gravá-la antes cria um jeito silencioso de perder mensagem: se o
+  // Resend falhar, o visitante vê a tela de sucesso, reenvia o mesmo texto, o
+  // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
+  // uma falha de envio deixa o reenvio funcionar.
+  let sent = false;
   try {
-    await sendSupportEmail(env, { name, email, message });
+    sent = await sendSupportEmail(env, { name, email, message });
   } catch (e) {
     console.error('sendSupportEmail:', e);
   }
+  if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
 
   return page(true);
 }
