@@ -194,6 +194,26 @@ confiar nela.
 conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
 inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
 
+**`HEAD` devolvia 404 no site inteiro.** Todas as rotas casavam com
+`method === 'GET'`, então um `HEAD` atravessava o roteamento sem casar com nada
+e caía no 404: `GET /` respondia 200 e `HEAD /` respondia 404 na mesma URL.
+Não é preciosismo de RFC — monitor de uptime, verificador de link e parte dos
+crawlers pedem `HEAD` justamente para não baixar o corpo, e para todos eles o
+site parecia fora do ar. Agora o `HEAD` delega ao roteamento normal com um GET
+equivalente e descarta só o corpo (mesmo status, mesmos cabeçalhos).
+
+Duas coisas valem registro sobre COMO isso apareceu:
+
+- **O sintoma apontava para o lugar errado.** O smoke test do deploy lê os
+  cabeçalhos com `curl -sI` (que é um HEAD), caiu na página de erro — que não
+  tem script inline e portanto legitimamente não leva nonce — e reprovou com
+  "CSP nonce ausente". Passei a checar o status do próprio HEAD *antes* de
+  olhar qualquer cabeçalho, para o relatório apontar a causa e não o efeito.
+- **Nenhum teste pegava isso**, porque todos os testes de rota mandam GET. O
+  bug era anterior a esta entrega e só ficou visível quando o deploy passou a
+  inspecionar cabeçalhos com HEAD. Agora há teste de paridade GET/HEAD para as
+  rotas públicas, verificado falhando contra o código antigo.
+
 **Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
 `driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
 campo, não despejam o objeto do evento. Nada a corrigir.

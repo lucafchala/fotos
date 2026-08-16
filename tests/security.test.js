@@ -1030,3 +1030,51 @@ describe('rate limit do login não se auto-sabota', () => {
       .toBeLessThanOrEqual(10);
   });
 });
+
+// ---------------------------------------------------------------------------
+// HEAD
+// ---------------------------------------------------------------------------
+describe('HEAD responde como GET', () => {
+  function kv() {
+    const store = new Map([['events', '[]']]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; } };
+  }
+  const ctx = { waitUntil: () => {} };
+  const req = (p, method) => worker.fetch(
+    new Request('https://fotos.lucafchala.com' + p, { method }), { FOTOS: kv() }, ctx);
+
+  // Todas as rotas casam com `method === 'GET'`, então antes disto um HEAD caía
+  // direto no 404: `GET /` devolvia 200 e `HEAD /` devolvia 404 na MESMA URL.
+  // Para monitor de uptime e verificador de link — que pedem HEAD justamente
+  // para não baixar o corpo — o site inteiro parecia fora do ar.
+  it('gives HEAD the same status as GET on every public route', async () => {
+    for (const p of ['/', '/legal', '/privacidade', '/termos', '/suporte', '/sobre',
+                     '/robots.txt', '/sitemap.xml', '/manifest.json', '/legal/registro-de-operacoes']) {
+      const g = await req(p, 'GET');
+      const h = await req(p, 'HEAD');
+      expect(h.status, `${p}: HEAD tem de ter o status do GET`).toBe(g.status);
+      expect(g.status, `${p}: a rota tem de existir para o teste valer algo`).toBe(200);
+    }
+  });
+
+  it('keeps the security headers on HEAD, including the CSP nonce', async () => {
+    const h = await req('/', 'HEAD');
+    // Foi exatamente isto que derrubou o deploy: o smoke test lê os cabeçalhos
+    // com `curl -sI`, caía na resposta 404 (que não tem script inline, logo não
+    // tem nonce) e acusava a CSP. O sintoma apontava para a política; a causa
+    // era o método.
+    expect(h.headers.get('Content-Security-Policy-Report-Only')).toMatch(/'nonce-/);
+    expect(h.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(h.headers.get('Content-Type')).toMatch(/text\/html/);
+  });
+
+  it('sends no body on HEAD', async () => {
+    expect(await (await req('/', 'HEAD')).text()).toBe('');
+    expect((await (await req('/', 'GET')).text()).length).toBeGreaterThan(500);
+  });
+
+  it('still 404s HEAD on a route that does not exist', async () => {
+    expect((await req('/nao-existe-mesmo', 'HEAD')).status).toBe(404);
+  });
+});

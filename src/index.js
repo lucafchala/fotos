@@ -120,8 +120,35 @@ export async function mintFormToken(env, form, { preAged = false } = {}) {
   });
 }
 
-export default {
+// HEAD tem de responder exatamente como GET — mesmo status, mesmos cabeçalhos,
+// sem corpo (RFC 9110 §9.3.2). Todas as rotas abaixo casam com `method ===
+// 'GET'`, então um HEAD caía no 404: `GET /` devolvia 200 e `HEAD /` devolvia
+// 404 na mesma URL.
+//
+// Não é preciosismo de especificação. Monitor de uptime, verificador de link e
+// parte dos crawlers pedem HEAD justamente para não baixar o corpo; para todos
+// eles o site inteiro parecia fora do ar. Foi assim que o smoke test do deploy
+// falhou: ele lê os cabeçalhos com `curl -sI`, recebeu a resposta 404 — que não
+// leva nonce, porque não tem script inline — e reprovou a checagem de nonce.
+// O sintoma apontava para a CSP; a causa era o método.
+//
+// A implementação delega ao roteamento normal com um GET equivalente e descarta
+// o corpo. Custa a mesma leitura de KV que um GET, o que é correto: a promessa
+// do HEAD é que os cabeçalhos sejam os mesmos, e cabeçalho inventado sem passar
+// pelo handler mente sobre status e tipo.
+function stripBody(res) {
+  return new Response(null, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+// Referência nomeada, e não `this.fetch`: `this` some se alguém desestruturar
+// o handler (`const { fetch } = worker`), e o HEAD voltaria a 404 de um jeito
+// que nenhum teste de rota pegaria.
+const worker = {
   async fetch(request, env, ctx) {
+    if (request.method.toUpperCase() === 'HEAD') {
+      const asGet = new Request(request.url, { method: 'GET', headers: request.headers });
+      return stripBody(await worker.fetch(asGet, env, ctx));
+    }
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = request.method.toUpperCase();
@@ -268,6 +295,8 @@ export default {
     }));
   },
 };
+
+export default worker;
 
 // ---------------------------------------------------------------------------
 // Gallery

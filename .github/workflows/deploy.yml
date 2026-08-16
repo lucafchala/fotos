@@ -154,6 +154,23 @@ jobs:
           # não só nos testes unitários que exercitam o construtor deles.
           echo ""
           echo "Verificando cabeçalhos de segurança…"
+
+          # `curl -sI` é um HEAD, e HEAD nem sempre percorre o mesmo caminho que
+          # GET. Quando não percorre, esta etapa inteira passa a inspecionar os
+          # cabeçalhos de uma página de ERRO e acusa a checagem errada: foi o que
+          # aconteceu aqui — todas as rotas casavam com `method === 'GET'`, o
+          # HEAD caía no 404, e o relatório culpou a ausência do nonce na CSP
+          # quando a causa era o método. Conferir o status ANTES de olhar
+          # qualquer cabeçalho faz o erro apontar para o próprio nariz.
+          HEAD_STATUS=$(curl -sI -o /dev/null -w '%{http_code}' "$BASE/")
+          if [ "$HEAD_STATUS" != "200" ]; then
+            echo "FAIL [HEAD /]: $HEAD_STATUS (GET responde 200 na mesma URL?)"
+            echo "HEAD tem de devolver o mesmo status e os mesmos cabeçalhos do GET (RFC 9110 §9.3.2)."
+            echo "Monitor de uptime e verificador de link usam HEAD — para eles o site está fora do ar."
+            exit 1
+          fi
+          echo "OK   [HEAD /]: 200, mesmo caminho do GET"
+
           HEADERS=$(curl -sI "$BASE/")
 
           require_header() {
