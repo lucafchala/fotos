@@ -160,7 +160,7 @@ export function privacyHTML() {
     <p>Pedidos de remoção de imagens de menores têm <strong>prioridade</strong> e podem ser feitos a qualquer momento por um responsável, pelo botão <em>“Solicitar remoção de foto”</em> no rodapé do evento ou por <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
 
     <h2>9. Como os dados são protegidos</h2>
-    <p>As medidas não são genéricas — estão implementadas e são verificáveis, já que o <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener">código deste site é aberto</a>:</p>
+    <p>As medidas não são genéricas — cada uma está implementada e descrita em detalhe na <a href="/legal/seguranca-da-informacao">política de segurança da informação</a>, com o ponteiro para o trecho de código que a executa:</p>
     <ul>
       <li><strong>Conexão sempre cifrada</strong> (HTTPS obrigatório) e política de segurança de conteúdo restritiva em todas as páginas.</li>
       <li><strong>Acesso às fotos protegido no servidor</strong>: o link do Google Drive não fica no código da página — ele só é liberado após a verificação anti-robô e o aceite dos Termos.</li>

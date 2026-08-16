@@ -92,6 +92,8 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | `no-store` on every data response | `dataSecurityHeaders()` | Personal data sitting in a disk or intermediary cache |
 | Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes and `javascript:` URLs |
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
+| Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
+| Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
 
 ### CSP: two policies at once
 
@@ -119,6 +121,35 @@ then let the enforced policy use `strict` too. Until then, a `<script>` without 
 nonce is invisible today and breaks silently on flip day — so CI rejects one, and
 the deploy smoke test rejects a nonce appearing in the enforced header
 (`.github/workflows/security.yml`, `deploy.yml`).
+
+### Outbound links: one exception only
+
+Every legal and compliance document is served **from this site**, at
+`/legal/<slug>`. The only link on the whole site that points to GitHub is the
+footer's "Código-fonte". This is enforced in CI
+(`.github/workflows/security.yml`), and the markdown renderer independently
+demotes *any* `github.com` link found in a document to plain text
+(`resolveDocHref` in `src/ui/markdown.js`) — so the rule holds even if someone
+pastes one into a document later.
+
+Why it matters here rather than being a style preference: sending a visitor to
+a third-party service to read the policy that governs their own data is the
+opposite of transparency, and an external link is a failure point outside our
+control on the one page whose entire promise is being accurate.
+
+### Rendering documents safely
+
+`src/ui/markdown.js` is a purpose-built subset renderer, not a dependency. Its
+security contract is one rule: **escape first, format second.** Every piece of
+text goes through `escape()` before any formatting regex runs, so a `<script>`
+in a document is already `&lt;script&gt;` by the time inline rules act and none
+of them can reconstruct a tag. Doing it the other way round — format, then try
+to clean up — is how markdown sanitizers usually fail. Pinned by
+`tests/security.test.js`.
+
+The document text itself is generated into `src/content/legal-docs.js` from the
+markdown; CI regenerates and diffs it, so a published page can never drift from
+the document it claims to reproduce.
 
 ## Required secrets
 

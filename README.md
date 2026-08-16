@@ -22,6 +22,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Termos de Uso e autorização de uso de imagem (LGPD)](#termos-de-uso-e-autorização-de-uso-de-imagem-lgpd)
 - [Autenticação e segurança](#autenticação-e-segurança)
 - [Conformidade legal (LGPD)](#conformidade-legal-lgpd)
+- [Páginas dos documentos legais](#páginas-dos-documentos-legais)
 - [E-mails transacionais (Resend)](#e-mails-transacionais-resend)
 - [Métricas](#métricas)
 - [Backup e restauração](#backup-e-restauração)
@@ -96,7 +97,12 @@ npm install
 # 2. Login no Cloudflare (uma vez por máquina)
 npx wrangler login
 
-# 3. Subir o dev server
+# 3. (Só se você editou algo em docs/legal/ ou SECURITY.md)
+#    Regerar o módulo com o texto dos documentos legais. A CI falha se você
+#    esquecer — ver "Páginas dos documentos legais".
+npm run build:legal
+
+# 4. Subir o dev server
 npm run dev
 ```
 
@@ -281,19 +287,39 @@ fotos/
 ├── migrations/
 │   ├── 0001_consent.sql    ← tabela D1 image_use_consent (log de consentimento)
 │   └── 0002_access_type.sql← coluna access_type + declaração por tipo de acesso
+├── docs/
+│   └── legal/              ← pacote de conformidade LGPD (fonte da verdade dos textos)
+│       ├── README.md       ← índice + aviso "não é parecer jurídico" + porte do agente
+│       ├── ROPA.md         ← registro das operações (art. 37)
+│       ├── RIPD.md         ← relatório de impacto / DPIA (art. 38)
+│       ├── LIA.md          ← teste de legítimo interesse (art. 10)
+│       ├── politica-de-retencao.md
+│       ├── transferencia-internacional.md
+│       ├── direitos-do-titular.md
+│       ├── plano-resposta-incidentes.md
+│       ├── politica-seguranca-informacao.md
+│       ├── termo-autorizacao-uso-imagem.md
+│       └── checklist-conformidade.md
+├── scripts/
+│   └── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests
-│       └── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
-├── tests/                  ← Vitest (119 testes)
+│       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests (+ cabeçalhos, CSRF, nonce)
+│       ├── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
+│       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
+├── tests/                  ← Vitest (211 testes)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
-│   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate), handlePerfBeacon, toCount
+│   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
 │   ├── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha, os 5 sendXEmail()
-│   └── healthz.test.js     ← handleHealthz, scheduled() (isolamento + alerta de falha), login (rate-limit/cookie), render de /sobre e /equipamentos
+│   ├── healthz.test.js     ← handleHealthz, scheduled(), login (rate-limit/cookie), render de /sobre e /equipamentos
+│   └── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
+    ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
+    ├── content/
+    │   └── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
     └── ui/
         ├── gallery.js      ← HTML da galeria pública /
         ├── event.js        ← HTML da página de projeto /<slug>
@@ -301,11 +327,14 @@ fotos/
         ├── support.js      ← HTML da página de suporte /suporte
         ├── privacy.js      ← HTML da Política de Privacidade /privacidade
         ├── terms.js        ← HTML dos Termos de Uso /termos
+        ├── legal.js        ← HTML da Central de Transparência /legal
+        ├── doc.js          ← HTML de cada documento legal /legal/<slug>
+        ├── markdown.js     ← renderizador de markdown (escapa antes de formatar)
         ├── about.js        ← HTML de /sobre
         └── gear.js         ← HTML de /equipamentos
 ```
 
-Tamanhos aproximados: `index.js` ~85 KB, `dashboard.js` ~80 KB (tem todo o JS do painel inline), `event.js` ~63 KB, `gallery.js` ~24 KB, `utils.js` ~23 KB, `support.js` ~10 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
+Tamanhos aproximados: `legal-docs.js` ~110 KB (texto dos documentos), `index.js` ~90 KB, `dashboard.js` ~85 KB (tem todo o JS do painel inline), `event.js` ~65 KB, `gallery.js` ~24 KB, `utils.js` ~28 KB, `legal.js` ~26 KB, `doc.js` ~10 KB, `support.js` ~10 KB, `security.js` ~14 KB, `markdown.js` ~9 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
 
 ---
 
@@ -437,6 +466,7 @@ compatibilidade sem comprar segurança.
 | GET | `/privacidade` | `privacyHTML()` | Política de Privacidade (LGPD) |
 | GET | `/termos` | `termsHTML()` | Termos de Uso + autorização de uso de imagem |
 | GET | `/legal`, `/compliance` | `legalHTML` | **Central de Transparência** — hub que reúne privacidade, termos, política de segurança, o resumo do que é feito com cada dado, a documentação de conformidade (`docs/legal/`) e os endpoints legíveis por máquina. Existe para que o rodapé precise de **um** link jurídico em vez de dois, sem esconder nada — a página mostra mais do que os dois links soltos mostravam. Estática, sem script |
+| GET | `/legal/<slug>` | `docHTML` | Página própria de cada documento de conformidade, renderizada do markdown de `docs/legal/` (e do `SECURITY.md`). Slug desconhecido → 404, nunca uma página vazia. Estática, sem script. Ver [Páginas dos documentos legais](#páginas-dos-documentos-legais) |
 | GET | `/sobre` | `aboutHTML()` | Bio curta, como funciona o trabalho, contato |
 | GET | `/equipamentos` | `gearHTML()` | Lista de equipamento fotográfico |
 | GET | `/manifest.json` | `handleManifest` | Manifest PWA |
@@ -816,6 +846,122 @@ o caminho de menor atrito é o Modelo 3, anexado ao contrato com a instituição
 > Todos esses documentos foram redigidos com auxílio de IA e **não constituem
 > parecer jurídico**. Os pontos marcados ⚖️ dependem de revisão de advogado(a)
 > com prática em LGPD e direito de imagem.
+
+---
+
+## Páginas dos documentos legais
+
+Todo documento de conformidade tem **página própria no site**, em
+`/legal/<slug>`. Nenhum deles manda o visitante para fora.
+
+### Por que não linkar o repositório
+
+Era assim antes, e estava errado por três motivos que só aparecem quando você
+tenta ler de verdade:
+
+1. **Mandar alguém para outro serviço para ler a política que rege os dados
+   dele é o oposto de transparência.** A pessoa cai numa interface que não é a
+   nossa, com barra de navegação de outro produto, e precisa entender o que é
+   um repositório para se orientar.
+2. **Markdown no GitHub em celular é ruim** — tabela estoura, o tema não
+   acompanha o do site, e o rodapé com os canais de contato some.
+3. **Um link externo é um ponto de falha fora do nosso controle.** Se o repo
+   for renomeado, movido ou fechado, a página de conformidade fica com links
+   mortos — justamente a página cuja promessa é estar correta.
+
+A regra hoje é explícita e verificada pela CI: **só o link "Código-fonte" do
+rodapé aponta para o GitHub.**
+
+### Como o texto chega até a página
+
+O markdown continua sendo a fonte da verdade. Um Worker não tem sistema de
+arquivos, então o conteúdo precisa estar no bundle — e a alternativa (manter o
+texto duplicado à mão num arquivo `.js`) divergiria na primeira edição.
+
+```
+docs/legal/*.md ─┐
+                 ├─► scripts/build-legal-docs.mjs ─► src/content/legal-docs.js ─► docHTML()
+SECURITY.md ─────┘        (npm run build:legal)          (gerado, commitado)
+```
+
+- `src/content/legal-docs.js` é **gerado**. Não edite à mão.
+- Depois de mexer em qualquer `.md`, rode `npm run build:legal` e commite.
+- A CI regenera e compara (`git diff --exit-code`). Editar um documento sem
+  regenerar **derruba o build** — sem isso, a página publicada mostraria um
+  texto diferente do documento oficial, que é a pior divergência possível
+  justamente aqui.
+
+O script também é onde vivem o **slug**, o **título**, o **resumo** e a
+**etiqueta** de cada documento. A mesma lista alimenta a Central de
+Transparência, as rotas e o sitemap — uma cópia a mais divergiria no primeiro
+documento novo.
+
+### Slugs
+
+| Rota | Origem |
+| --- | --- |
+| `/legal/politica-de-seguranca` | `SECURITY.md` |
+| `/legal/registro-de-operacoes` | `docs/legal/ROPA.md` |
+| `/legal/relatorio-de-impacto` | `docs/legal/RIPD.md` |
+| `/legal/legitimo-interesse` | `docs/legal/LIA.md` |
+| `/legal/politica-de-retencao` | `docs/legal/politica-de-retencao.md` |
+| `/legal/transferencia-internacional` | `docs/legal/transferencia-internacional.md` |
+| `/legal/direitos-do-titular` | `docs/legal/direitos-do-titular.md` |
+| `/legal/resposta-a-incidentes` | `docs/legal/plano-resposta-incidentes.md` |
+| `/legal/seguranca-da-informacao` | `docs/legal/politica-seguranca-informacao.md` |
+| `/legal/autorizacao-de-imagem` | `docs/legal/termo-autorizacao-uso-imagem.md` |
+| `/legal/checklist` | `docs/legal/checklist-conformidade.md` |
+| `/legal/sobre-esta-documentacao` | `docs/legal/README.md` |
+
+Os slugs são **contrato público**: aparecem no sitemap e podem ter sido salvos
+por alguém. Renomear um quebra links de fora — se precisar, mantenha o antigo
+redirecionando.
+
+### O renderizador (`src/ui/markdown.js`)
+
+Subconjunto próprio de Markdown, não uma biblioteca. Uma dependência completa
+traria um parser grande, superfície de XSS conhecida e atualizações a
+acompanhar — tudo para renderizar doze arquivos que nós mesmos escrevemos.
+
+**A regra que sustenta a segurança dele: escapar PRIMEIRO, formatar DEPOIS.**
+Todo texto passa por `escape()` antes de qualquer regex de formatação rodar.
+Assim um `<script>` no markdown já é `&lt;script&gt;` quando as regras inline
+agem, e nenhuma delas consegue reconstituir uma tag. A ordem inversa —
+formatar e depois tentar limpar — é exatamente como sanitizadores de markdown
+costumam falhar.
+
+Suporta: títulos (com âncora e índice automático), parágrafos, listas
+ordenadas e não ordenadas, tabelas, blocos de código cercados, citações
+(recursivas — os avisos e os modelos de termo são citações com títulos e
+tabelas dentro), `**negrito**`, `*itálico*`, `` `código` `` e links.
+
+#### O que ele faz com cada link
+
+| Destino no markdown | Vira |
+| --- | --- |
+| `./ROPA.md`, `../../SECURITY.md` | `/legal/<slug>` correspondente |
+| `https://fotos.lucafchala.com/x` | `/x` (relativo, não sai e volta) |
+| `https://` externo | mantido, com `target="_blank" rel="noopener noreferrer"` |
+| `mailto:` | mantido |
+| `#ancora` | mantido |
+| **`github.com` (qualquer)** | **rebaixado a texto puro** |
+| `./TODO.md`, `../../LEGAL.md`, `.js`… | rebaixado a texto puro |
+| `javascript:`, `data:`, `http:` | rebaixado a texto puro |
+
+"Rebaixado a texto puro" significa que o rótulo continua legível e só o link
+some. Isso cumpre a regra do GitHub **sem depender de alguém revisar cada
+markdown antes de publicar**, e evita link morto numa página institucional.
+
+### Detalhes da página (`src/ui/doc.js`)
+
+- **Índice lateral** gerado dos `##`/`###`, mostrado a partir de 3 seções.
+- **Navegação anterior/próximo** na ordem da Central — ler conformidade é
+  navegação sequencial mais vezes do que se imagina.
+- Tabelas rolam dentro do próprio contêiner (`overflow-x`), então documento com
+  tabela larga não empurra a página no celular.
+- `.doc a code{color:inherit}`: vários links têm o nome do arquivo como rótulo,
+  e o rótulo é código inline. Sem essa regra a cor de `<code>` vence a do link
+  e ele fica com cara de texto morto.
 
 ---
 

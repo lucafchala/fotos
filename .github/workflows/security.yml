@@ -154,5 +154,42 @@ jobs:
           fi
           echo "OK: todos os scripts têm nonce."
 
+      - name: Só o link de código-fonte pode apontar para o GitHub
+        run: |
+          set -e
+          # Regra do site: ler a política que rege os seus dados não pode
+          # depender de abrir outro serviço. A única exceção é o link de
+          # código-fonte no rodapé (footerLegalLinksHTML, em src/utils.js).
+          # `src/content/legal-docs.js` é gerado a partir dos markdowns e pode
+          # conter a URL como texto; o renderizador rebaixa qualquer link de
+          # GitHub a texto puro (resolveDocHref), então ele nunca vira <a>.
+          STRAY=$(grep -rn "github\.com" src/ --include='*.js' \
+                  | grep -v 'src/content/legal-docs.js' \
+                  | grep -v 'src/ui/markdown.js' \
+                  | grep -v 'footerLegalLinksHTML' \
+                  | grep -v 'class="legal-link">Código-fonte' || true)
+          if [ -n "$STRAY" ]; then
+            echo "FALHA: link para o GitHub fora do rodapé de código-fonte:"
+            echo "$STRAY"
+            exit 1
+          fi
+          echo "OK: nenhum link extra para o GitHub."
+
+      - name: Documentos legais regenerados a partir do markdown
+        run: |
+          set -e
+          # src/content/legal-docs.js é gerado. Se alguém editar um markdown e
+          # não regenerar, a página publicada passa a mostrar um texto diferente
+          # do documento oficial — divergência silenciosa e do pior tipo, já que
+          # é justamente o conteúdo que promete refletir a realidade.
+          npm run build:legal
+          if ! git diff --quiet -- src/content/legal-docs.js; then
+            echo "FALHA: src/content/legal-docs.js está desatualizado."
+            echo "Rode 'npm run build:legal' e commite o resultado."
+            git diff --stat -- src/content/legal-docs.js
+            exit 1
+          fi
+          echo "OK: documentos em sincronia com o markdown."
+
       - name: Suíte de segurança
         run: npx vitest run tests/security.test.js tests/drive-gate.test.js

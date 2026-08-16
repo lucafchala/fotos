@@ -15,6 +15,8 @@ import {
 } from '../src/security.js';
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION } from '../src/utils.js';
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS } from '../src/index.js';
+import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
+import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 
 const SECRET = 'segredo-de-teste-para-hmac';
 
@@ -684,5 +686,147 @@ describe('token de formulário pré-envelhecido', () => {
     });
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('too-fast');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('markdown dos documentos legais', () => {
+  it('escapes HTML before applying any formatting', () => {
+    // A regra do renderizador: escapar primeiro, formatar depois. Se a ordem
+    // inverter, uma tag no markdown vira uma tag no HTML — que é exatamente
+    // como sanitizadores de markdown costumam falhar.
+    const { html } = renderMarkdown('<script>alert(1)</script> e <img src=x onerror=alert(1)>');
+    // O que importa é que nenhuma TAG sobreviva. A sequência "onerror=" continua
+    // aparecendo — como texto visível dentro de `&lt;img …&gt;`, inerte. Exigir
+    // que a substring suma seria testar a coisa errada e levaria a "consertar"
+    // um comportamento correto.
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('never emits a link to GitHub', () => {
+    // Regra do site: só o link de código-fonte do rodapé leva ao GitHub. O
+    // rótulo sobrevive como texto; o link some.
+    const { html } = renderMarkdown('veja o [repositório](https://github.com/lucafchala/fotos)');
+    expect(html).not.toContain('github.com');
+    expect(html).toContain('repositório');
+    expect(html).not.toContain('<a ');
+  });
+
+  it('rewrites sibling document links to site routes', () => {
+    expect(renderMarkdown('[ROPA](./ROPA.md)').html).toContain('href="/legal/registro-de-operacoes"');
+    expect(renderMarkdown('[Segurança](../../SECURITY.md)').html).toContain('href="/legal/politica-de-seguranca"');
+  });
+
+  it('demotes links to repo files that are not published', () => {
+    // ./TODO.md e ../../LEGAL.md não têm página. Um href para eles seria um
+    // link quebrado numa página institucional.
+    for (const src of ['[TODO](./TODO.md)', '[Legal](../../LEGAL.md)', '[código](../../src/ui/privacy.js)']) {
+      expect(renderMarkdown(src).html).not.toContain('<a ');
+    }
+  });
+
+  it('rejects script-executing schemes', () => {
+    expect(resolveDocHref('javascript:alert(1)')).toBeNull();
+    expect(resolveDocHref('data:text/html,<script>')).toBeNull();
+    expect(resolveDocHref('http://inseguro.example')).toBeNull();
+  });
+
+  it('makes absolute site URLs relative', () => {
+    expect(resolveDocHref('https://fotos.lucafchala.com/privacidade')).toBe('/privacidade');
+  });
+
+  it('keeps external https links, marked safe', () => {
+    const { html } = renderMarkdown('[ANPD](https://www.gov.br/anpd/)');
+    expect(html).toContain('href="https://www.gov.br/anpd/"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  });
+
+  it('renders the structures the documents actually use', () => {
+    const { html, toc } = renderMarkdown([
+      '## Uma seção', '', 'Texto com **negrito** e `código`.', '',
+      '| Dado | Prazo |', '| --- | --- |', '| Consentimento | 5 anos |', '',
+      '- item', '', '> ⚠️ Aviso **forte**', '', '```', 'npm run build', '```',
+    ].join('\n'));
+    expect(html).toContain('<h2 id="uma-secao">');
+    expect(html).toContain('<strong>negrito</strong>');
+    expect(html).toContain('<code>código</code>');
+    expect(html).toContain('<table>');
+    expect(html).toContain('<li>item</li>');
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('<pre><code>npm run build</code></pre>');
+    expect(toc).toEqual([{ id: 'uma-secao', level: 2, title: 'Uma seção' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('páginas dos documentos legais', () => {
+  function kv() {
+    const store = new Map([['events', '[]']]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; } };
+  }
+  const ctx = { waitUntil: () => {} };
+  const get = p => worker.fetch(new Request('https://fotos.lucafchala.com' + p), { FOTOS: kv() }, ctx);
+
+  it('serves every document at its own route', async () => {
+    for (const doc of LEGAL_DOCS) {
+      const res = await get('/legal/' + doc.slug);
+      expect(res.status, doc.slug).toBe(200);
+      const body = await res.text();
+      expect(body, doc.slug).toContain(doc.title);
+      expect(body, doc.slug).not.toContain('${');
+      expect(body, doc.slug).not.toContain('undefined');
+    }
+  });
+
+  // O rodapé compartilhado carrega o link de código-fonte — a única exceção
+  // permitida. A asserção útil não é "nenhum github.com na página", e sim
+  // "nenhum além desse". Removemos a âncora permitida e exigimos que não sobre
+  // nada, o que também pega o caso de alguém trocar o rótulo do rodapé por um
+  // segundo link.
+  const ALLOWED_GITHUB_ANCHOR =
+    '<a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>';
+
+  it('sends no visitor to GitHub from any legal page, except the footer source link', async () => {
+    // A regra é sobre LINKS, não sobre a string. Os documentos citam
+    // "github.com" em prosa (explicando justamente esta regra), e isso é texto
+    // inerte. Testar a substring crua reprovaria a documentação correta e
+    // empurraria para "consertar" o texto em vez do comportamento — então a
+    // asserção percorre os href de verdade.
+    for (const p of ['/legal', ...LEGAL_DOCS.map(d => '/legal/' + d.slug), '/privacidade', '/termos', '/suporte', '/']) {
+      const res = await get(p);
+      expect(res.status, p).toBe(200);
+      const body = await res.text();
+
+      const hrefs = [...body.matchAll(/href="([^"]*)"/g)].map(m => m[1]);
+      const ghLinks = hrefs.filter(h => h.includes('github.com'));
+      expect(ghLinks, `${p}: links para o GitHub`).toEqual(['https://github.com/lucafchala/fotos']);
+
+      // E o único permitido é mesmo o do rodapé de código-fonte.
+      expect(body.split(ALLOWED_GITHUB_ANCHOR).length - 1, `${p}: âncora de código-fonte`).toBe(1);
+    }
+  });
+
+  it('keeps the source-code link in the footer — the one allowed exception', async () => {
+    const body = await (await get('/')).text();
+    expect(body).toContain('https://github.com/lucafchala/fotos');
+    expect(body).toContain('Código-fonte');
+  });
+
+  it('404s an unknown document instead of rendering an empty page', async () => {
+    expect((await get('/legal/nao-existe')).status).toBe(404);
+  });
+
+  it('lists every document in the sitemap', async () => {
+    const xml = await (await get('/sitemap.xml')).text();
+    for (const doc of LEGAL_DOCS) expect(xml, doc.slug).toContain(`/legal/${doc.slug}</loc>`);
+  });
+
+  it('links every document from the trust center', async () => {
+    const body = await (await get('/legal')).text();
+    for (const doc of LEGAL_DOCS) expect(body, doc.slug).toContain(`href="/legal/${doc.slug}"`);
   });
 });

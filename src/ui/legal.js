@@ -1,4 +1,5 @@
 import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT } from '../utils.js';
+import { LEGAL_DOCS } from '../content/legal-docs.js';
 
 // Central de Transparência — o hub que reúne privacidade, termos, segurança e a
 // documentação de conformidade num só lugar.
@@ -19,23 +20,13 @@ import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT } from '../utils.js';
 // constantes do próprio código.
 
 const SITE_URL = 'https://fotos.lucafchala.com';
-const REPO_URL = 'https://github.com/lucafchala/fotos';
 const UPDATED = '2026-08-16';
 
-// Documentos de governança que moram no repositório. Ficam no GitHub em vez de
-// virarem páginas do site de propósito: são documentos de trabalho, revisados
-// junto com o código, e publicá-los versionados é uma garantia melhor do que
-// republicá-los à mão — dá para ver o histórico de cada mudança.
-const GOVERNANCE_DOCS = [
-  ['ROPA.md', 'Registro das operações', 'Cada dado tratado: origem, finalidade, base legal, prazo e destino.', 'Art. 37'],
-  ['RIPD.md', 'Relatório de impacto', 'Os riscos do tratamento, com mitigação e risco residual de cada um.', 'Art. 38'],
-  ['LIA.md', 'Teste de legítimo interesse', 'A análise que sustenta a publicação das fotos, em três etapas.', 'Art. 10'],
-  ['politica-de-retencao.md', 'Política de retenção', 'Por quanto tempo cada dado fica, e o que executa o apagamento.', 'Art. 15, 16'],
-  ['transferencia-internacional.md', 'Transferência internacional', 'Onde os dados são processados e com que fundamento.', 'Art. 33'],
-  ['direitos-do-titular.md', 'Direitos do titular', 'Como um pedido é recebido, verificado, atendido e respondido.', 'Art. 18'],
-  ['plano-resposta-incidentes.md', 'Resposta a incidentes', 'O procedimento das primeiras horas e o critério de comunicação.', 'Art. 48'],
-  ['politica-seguranca-informacao.md', 'Política de segurança', 'As medidas técnicas, cada uma apontando para o código que a implementa.', 'Art. 46'],
-];
+// Documentos de governança, cada um com página própria em /legal/<slug>.
+// Vem da mesma lista que gera as rotas e o sitemap: uma segunda cópia aqui
+// divergiria no primeiro documento novo. `slice(1)` tira a Política de
+// Segurança, que aparece em destaque no bloco de documentos principais.
+const GOVERNANCE_DOCS = LEGAL_DOCS.slice(1);
 
 // Endpoints legíveis por máquina. Listá-los não é enfeite: é o que permite a um
 // pesquisador de segurança, a um crawler ou a um agente automatizado descobrir
@@ -264,7 +255,7 @@ export function legalHTML() {
           <span class="card-desc">As regras de uso do site e o alcance exato da autorização de uso de imagem.</span>
           <span class="card-foot">VERSÃO ${TERMS_VERSION}</span>
         </a>
-        <a class="card" href="${REPO_URL}/blob/main/SECURITY.md" target="_blank" rel="noopener">
+        <a class="card" href="/legal/politica-de-seguranca">
           <span class="card-icon">${iconLock()}</span>
           <span class="card-title">Política de Segurança ${iconArrow()}</span>
           <span class="card-desc">Escopo, canal de reporte, prazo de resposta e as limitações conhecidas — declaradas, não escondidas.</span>
@@ -328,13 +319,13 @@ export function legalHTML() {
 
     <section>
       <h2>Documentação de conformidade</h2>
-      <p class="section-lead">Os documentos de governança que a LGPD prevê, publicados na íntegra e versionados junto com o código — dá para ver o histórico de cada mudança.</p>
+      <p class="section-lead">Os documentos de governança que a LGPD prevê, publicados aqui na íntegra — cada um com página própria, sem precisar sair do site.</p>
       <div class="grid grid-2">
-        ${GOVERNANCE_DOCS.map(([file, title, desc, article]) => `
-        <a class="card" href="${REPO_URL}/blob/main/docs/legal/${file}" target="_blank" rel="noopener">
-          <span class="card-title">${title} ${iconArrow()}</span>
-          <span class="card-desc">${desc}</span>
-          <span class="card-foot">LGPD · ${article.toUpperCase()}</span>
+        ${GOVERNANCE_DOCS.map(d => `
+        <a class="card" href="/legal/${d.slug}">
+          <span class="card-title">${d.title} ${iconArrow()}</span>
+          <span class="card-desc">${d.summary}</span>
+          <span class="card-foot">${d.tag.toUpperCase()}</span>
         </a>`).join('')}
       </div>
       <p class="note">Esses documentos foram redigidos com auxílio de IA a partir da leitura do próprio código e <strong>não constituem parecer jurídico</strong>. Publico-os assim mesmo porque um retrato honesto do que o sistema faz — inclusive dos pontos ainda em aberto, que estão marcados lá dentro — vale mais do que um selo silencioso.</p>

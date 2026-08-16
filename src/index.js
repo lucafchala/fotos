@@ -7,6 +7,8 @@ import { termsHTML } from './ui/terms.js';
 import { aboutHTML } from './ui/about.js';
 import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
+import { docHTML } from './ui/doc.js';
+import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -201,6 +203,15 @@ export default {
       // /compliance responde igual: é o termo que alguém de fora procuraria.
       if ((path === '/legal' || path === '/compliance') && method === 'GET') return html(legalHTML(), 200, nonce);
 
+      // Cada documento de conformidade tem página própria. Nada aqui manda o
+      // visitante para fora do site: ler a política que rege os próprios dados
+      // não pode depender de abrir outro serviço.
+      const docMatch = path.match(/^\/legal\/([a-z0-9-]+)$/);
+      if (docMatch && method === 'GET') {
+        const doc = findDoc(docMatch[1]);
+        return doc ? html(docHTML(doc), 200, nonce) : notFound();
+      }
+
       // About page
       if (path === '/sobre' && method === 'GET') return html(aboutHTML(), 200, nonce);
 
@@ -280,6 +291,7 @@ async function handleSitemap(env) {
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
     `  <url><loc>${SITE_URL}/legal</loc></url>`,
+    ...LEGAL_DOCS.map(d => `  <url><loc>${SITE_URL}/legal/${d.slug}</loc></url>`),
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
   ];
   for (const e of visible) {

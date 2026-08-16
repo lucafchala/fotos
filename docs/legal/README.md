@@ -30,11 +30,45 @@
 | [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md) | Modelos para assinatura: adulto, responsável por menor, e instituição contratante | Art. 7º I, art. 14; CC art. 20 |
 | [`checklist-conformidade.md`](./checklist-conformidade.md) | Estado item a item: o que está pronto, o que falta, o que depende de decisão de terceiro | — |
 
-Tudo isso tem uma **face pública** em
-[`/legal`](https://fotos.lucafchala.com/legal) — a Central de Transparência, que
-reúne os documentos acima, o resumo do que é feito com cada dado, os canais de
-contato e os endpoints legíveis por máquina. Ao mudar qualquer coisa aqui,
-confira se a página continua coerente (`src/ui/legal.js`).
+## Estes arquivos são publicados no site
+
+Cada documento desta pasta (mais o `SECURITY.md` da raiz) tem **página própria**
+em `https://fotos.lucafchala.com/legal/<slug>`, listada na
+[Central de Transparência](https://fotos.lucafchala.com/legal). O visitante lê
+tudo sem sair do site — nenhum link manda ninguém para o repositório.
+
+> ### ⚠️ Depois de editar qualquer arquivo aqui
+>
+> ```bash
+> npm run build:legal   # regenera src/content/legal-docs.js
+> ```
+>
+> E commite o resultado. A CI regenera e compara: **esquecer derruba o build**,
+> de propósito — sem isso a página publicada mostraria um texto diferente do
+> documento oficial, que é a divergência mais grave possível justamente aqui.
+>
+> Para **acrescentar** um documento, adicione-o à lista `DOCS` em
+> `scripts/build-legal-docs.mjs` (slug, título, resumo, etiqueta). É de lá que
+> saem o card da Central, a rota e a entrada no sitemap — uma lista só.
+
+### O que o renderizador faz com os links daqui
+
+O texto é renderizado por `src/ui/markdown.js`, que reescreve os links:
+
+- `./OUTRO.md` e `../../SECURITY.md` → viram a rota do documento no site;
+- `https://fotos.lucafchala.com/x` → vira `/x`;
+- `https://` externo → mantido, abrindo em nova aba;
+- **qualquer link para o `github.com`** → **rebaixado a texto puro**;
+- caminho de arquivo do repositório que não é publicado (`./TODO.md`,
+  `../../LEGAL.md`, `../../src/...`) → também vira texto puro.
+
+Ou seja: pode citar um arquivo do repo no texto à vontade — ele aparece como
+texto, nunca como link morto. Mas **um link entre dois documentos desta pasta
+funciona**, e é a forma preferida de referenciar.
+
+Markdown suportado: títulos, parágrafos, listas, tabelas, blocos de código,
+citações (inclusive com título/tabela dentro), negrito, itálico, código inline
+e links. HTML cru no markdown é **escapado**, não interpretado.
 
 O resumo executivo para a revisão jurídica continua em
 [`../../LEGAL.md`](../../LEGAL.md); os pontos que dependem de parecer estão

@@ -78,13 +78,29 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ### Entregue em 2026-08 (não reabrir sem necessidade nova)
 
-**Central de Transparência (`/legal`, também `/compliance`).** Hub público que
-reúne privacidade, termos, política de segurança, o resumo do que é feito com
-cada dado, os canais de contato e a documentação de `docs/legal/`. O rodapé
-passou a ter um único link "Legal" no lugar de "Privacidade" + "Termos" — sem
-perder acesso a nada, já que a página mostra mais do que os dois links soltos
-mostravam. Ao mexer em `docs/legal/`, confira se `src/ui/legal.js` continua
-coerente (há teste garantindo que Privacidade e Termos seguem a um clique).
+**Central de Transparência (`/legal`, também `/compliance`) + página por
+documento (`/legal/<slug>`).** Hub público que reúne privacidade, termos,
+política de segurança, o resumo do que é feito com cada dado, os canais de
+contato e os doze documentos de conformidade — **cada um com página própria no
+site**, renderizada do markdown de `docs/legal/`. O rodapé passou a ter um
+único link "Legal" no lugar de "Privacidade" + "Termos", sem perder acesso a
+nada.
+
+> ### ⚠️ Ao editar qualquer documento em `docs/legal/` ou o `SECURITY.md`
+>
+> 1. Rode **`npm run build:legal`** e commite o `src/content/legal-docs.js`
+>    gerado. A CI regenera e compara — esquecer derruba o build, de propósito:
+>    sem isso a página publicada mostraria um texto diferente do documento
+>    oficial.
+> 2. **Nunca edite `src/content/legal-docs.js` à mão.** Ele é gerado.
+> 3. **Não acrescente link para o GitHub** em página nenhuma. Só o
+>    "Código-fonte" do rodapé pode. A CI verifica, e o renderizador rebaixa
+>    qualquer link de GitHub a texto puro de qualquer forma.
+> 4. Documento novo entra em `DOCS`, em `scripts/build-legal-docs.mjs` — é de
+>    lá que saem o slug, o card da Central, a rota e o sitemap, todos de uma
+>    lista só.
+> 5. Slug é **contrato público** (está no sitemap, pode estar salvo por
+>    alguém). Renomear quebra link de fora.
 
 Nonce assinado no `/api/drive-link` · honeypot + token de formulário com idade
 mínima · alerta de login suspeito · strip de EXIF (JPEG/PNG/WebP) · CSP
@@ -93,6 +109,26 @@ de origem contra CSRF · cookie `__Host-` com timeout de inatividade · polític
 de senha · correção de injeção de fórmula em CSV · `no-store` nas respostas de
 dados · higienização do restore de backup · `npm audit` + dependency-review +
 invariantes de CI.
+
+**Correções encontradas na verificação com browser (não apareciam em teste
+unitário):**
+
+- **CSP quebrava a interface inteira.** Nonce e `'unsafe-inline'` juntos na
+  política aplicada: pela CSP Level 3 o nonce descarta o `'unsafe-inline'`, e os
+  ~63 handlers `onclick` paravam de executar. Os testes passavam porque
+  afirmavam que a *string* continha `'unsafe-inline'`.
+- **Laço infinito de recarga no gate do Drive** — o Chrome restaura checkbox ao
+  recarregar, o aceite voltava marcado, o gate disparava sozinho e tomava 410 de
+  novo.
+- **Mensagem de suporte podia sumir sem sinal** — a chave de dedupe era gravada
+  antes de o envio dar certo.
+- **Sessão com `createdAt` corrompido virava sessão sem teto** — TTL NaN, escrita
+  recusada em silêncio.
+
+**Atrito removido:** rascunho do painel sobrevive à expiração de sessão ·
+política de senha em sincronia entre cliente e servidor · corrigir e reenviar o
+formulário de suporte não trava mais no piso de idade · nonce vencido reabre o
+modal com aviso em vez de recarregar seco.
 
 **CodeQL:** já roda pelo *default setup* do GitHub (Settings → Code security),
 que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
