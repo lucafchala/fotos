@@ -60,4 +60,26 @@ export default [
       'no-unused-vars': ['warn', { args: 'none' }],
     },
   },
+  {
+    // O gerador de `src/content/legal-docs.js` roda em Node, fora do Worker, e
+    // por isso ficava de fora do lint. Mas é ele que produz o conteúdo servido
+    // ao público: um erro ali publica documento errado em doze páginas. Roda em
+    // Node de verdade, então os globais são os de Node.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        Buffer: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['warn', { args: 'none' }],
+    },
+  },
 ];

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "lint": "eslint src tests eslint.config.js",
+    "lint": "eslint src tests scripts eslint.config.js",
     "build:legal": "node scripts/build-legal-docs.mjs",
     "test": "vitest run"
   },

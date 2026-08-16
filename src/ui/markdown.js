@@ -33,7 +33,7 @@ import { DOC_PATH_TO_SLUG } from '../content/legal-docs.js';
 // Isso cumpre a regra do site (nada leva ao GitHub, exceto o link de
 // código-fonte no rodapé) sem depender de alguém lembrar de revisar cada
 // markdown antes de publicar.
-const SITE_URL = 'https://fotos.lucafchala.com';
+const SITE_HOST = 'fotos.lucafchala.com';
 
 export function resolveDocHref(raw) {
   if (typeof raw !== 'string' || !raw) return null;
@@ -42,7 +42,10 @@ export function resolveDocHref(raw) {
   // Âncora dentro da própria página.
   if (href.startsWith('#')) return href;
 
-  // Nunca deixamos um link para o GitHub sair daqui.
+  // Nunca deixamos um link para o GitHub sair daqui. A comparação por
+  // substring é deliberada e não é a mesma coisa que a de baixo: esta é uma
+  // regra de NEGAÇÃO, então alcance a mais erra para o lado seguro — o link
+  // vira texto puro e ninguém se machuca. Alcance a menos, não.
   if (/github\.com/i.test(href)) return null;
 
   // Documento irmão, em qualquer das formas relativas que os markdowns usam.
@@ -50,22 +53,56 @@ export function resolveDocHref(raw) {
   const slug = DOC_PATH_TO_SLUG[withoutAnchor];
   if (slug) return '/legal/' + slug;
 
-  // URL absoluta do próprio site → relativa, para não sair e voltar.
-  if (href.startsWith(SITE_URL)) return href.slice(SITE_URL.length) || '/';
-
   // Caminho interno já absoluto.
   if (href.startsWith('/')) return href;
 
-  // Externa: só https, e nada de esquema executável.
-  if (/^https:\/\//i.test(href)) return href;
-
-  // Sobrou: caminho de repositório, http:, mailto de arquivo, o que for. Texto.
+  // Antes de tratar o resto como URL: mailto: não sobrevive à checagem de
+  // esquema abaixo e precisa passar aqui.
   if (/^mailto:/i.test(href)) return href;
-  return null;
+
+  // Sobrou URL absoluta. Daqui para frente quem decide é o parser, não uma
+  // comparação de prefixo. `startsWith('https://fotos.lucafchala.com')`
+  // aceitaria `https://fotos.lucafchala.com.exemplo.com/x` e
+  // `https://fotos.lucafchala.com@exemplo.com/x` — dois hosts completamente
+  // diferentes que só *começam* com o nosso nome. É o erro clássico de
+  // validar URL por substring, e o parser não o comete.
+  let url;
+  try {
+    url = new URL(href);
+  } catch {
+    // Caminho de repositório (../../src/ui/privacy.js), link quebrado, o que
+    // for: não é URL, não vira link. Texto.
+    return null;
+  }
+
+  // Só https. `javascript:`, `data:` e `http:` param aqui.
+  if (url.protocol !== 'https:') return null;
+
+  // Próprio site → relativa, para não sair e voltar.
+  if (url.host === SITE_HOST) return (url.pathname + url.search + url.hash) || '/';
+
+  // Externa legítima. Devolve o texto original, sem a normalização do parser,
+  // para o href publicado ser exatamente o que o documento escreveu.
+  return href;
 }
 
 function isExternal(href) {
   return /^https:\/\//i.test(href);
+}
+
+// Desfaz o escape de escape() em UMA passada.
+//
+// Encadear `.replace(/&amp;/g,'&').replace(/&quot;/g,'"')` desescapa duas
+// vezes: a primeira troca transforma `&amp;quot;` em `&quot;`, e a segunda o
+// transforma em `"`. Um destino escrito no markdown como `&amp;quot;` — que
+// deveria virar o texto literal `&quot;` — sairia como aspas de verdade,
+// justamente o caractere que fecha o atributo href. O escape() na emissão já
+// impediria a fuga, mas depender do último passo é frágil; a passada única
+// nunca reexamina o que acabou de produzir e o problema deixa de existir.
+const ENTITIES = { '&amp;': '&', '&quot;': '"', '&#x27;': "'", '&lt;': '<', '&gt;': '>' };
+
+function unescapeEntities(s) {
+  return s.replace(/&(?:amp|quot|#x27|lt|gt);/g, m => ENTITIES[m]);
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +124,7 @@ function inline(escaped) {
   // Links: [rótulo](destino). O destino já vem escapado, então desfazemos o
   // escape só para analisá-lo, e reescapamos ao emitir o atributo.
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (whole, label, target) => {
-    const raw = target.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'");
+    const raw = unescapeEntities(target);
     const href = resolveDocHref(raw);
     if (!href) return label; // rebaixado a texto puro
     const attrs = isExternal(href) ? ' target="_blank" rel="noopener noreferrer"' : '';

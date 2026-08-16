@@ -178,6 +178,38 @@ jobs:
             console.log("OK: todos os scripts têm nonce.");
           '
 
+      - name: Host nunca é reconhecido por prefixo de string
+        run: |
+          set -e
+          # `href.startsWith('https://fotos.lucafchala.com')` aceita
+          # `https://fotos.lucafchala.com.exemplo.com/` e
+          # `https://fotos.lucafchala.com@exemplo.com/` — hosts de terceiros que
+          # só COMEÇAM com o nosso nome. Foi um achado real do CodeQL neste
+          # repositório, em `resolveDocHref`. Quem compara host é `new URL()`.
+          # Linhas de comentário ficam de fora: o próprio comentário que explica
+          # a regra cita o padrão proibido.
+          if grep -rn "startsWith" src/ --include='*.js' \
+             | grep -E "SITE_URL|fotos\.lucafchala\.com" \
+             | grep -vE ':\s*(//|\*)'; then
+            echo "FALHA: host comparado por prefixo de string. Use new URL() e compare .host"
+            exit 1
+          fi
+          echo "OK: nenhum host comparado por prefixo."
+
+      - name: Desescape de entidades em uma passada só
+        run: |
+          set -e
+          # `.replace(/&amp;/g,'&').replace(/&quot;/g,'"')` desescapa DUAS vezes:
+          # `&amp;quot;` vira `&quot;` na primeira troca e aspas de verdade na
+          # segunda — o caractere que fecha um atributo href. Outro achado do
+          # CodeQL. O desescape correto é uma passada só, com tabela
+          # (`unescapeEntities` em src/ui/markdown.js).
+          if grep -rn "&amp;/g" src/ --include='*.js' | grep -vE ':\s*(//|\*)'; then
+            echo "FALHA: desescape encadeado de entidades (risco de desescape duplo)"
+            exit 1
+          fi
+          echo "OK: desescape em passada única."
+
       - name: Só o link de código-fonte pode apontar para o GitHub
         run: |
           set -e

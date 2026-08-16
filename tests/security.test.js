@@ -743,6 +743,49 @@ describe('markdown dos documentos legais', () => {
 
   it('makes absolute site URLs relative', () => {
     expect(resolveDocHref('https://fotos.lucafchala.com/privacidade')).toBe('/privacidade');
+    expect(resolveDocHref('https://fotos.lucafchala.com')).toBe('/');
+    expect(resolveDocHref('https://fotos.lucafchala.com/legal?x=1#topo')).toBe('/legal?x=1#topo');
+  });
+
+  // O reconhecimento de "é o nosso site" já foi um `startsWith` na URL inteira.
+  // Os dois casos abaixo passam por esse teste e são hosts de outra pessoa: o
+  // primeiro é um subdomínio de exemplo.com, o segundo usa o nosso nome como
+  // userinfo antes do @. Ambos sairiam fatiados em algo que o navegador leria
+  // como caminho relativo — o link levaria a lugar nenhum na melhor hipótese, e
+  // a lógica que confunde host com prefixo de string é a mesma que, em outro
+  // ponto do código, vira redirecionamento aberto.
+  it('does not mistake a lookalike host for the site itself', () => {
+    expect(resolveDocHref('https://fotos.lucafchala.com.exemplo.com/x'))
+      .toBe('https://fotos.lucafchala.com.exemplo.com/x');
+    expect(resolveDocHref('https://fotos.lucafchala.com@exemplo.com/x'))
+      .toBe('https://fotos.lucafchala.com@exemplo.com/x');
+    expect(resolveDocHref('https://fotos.lucafchala.com.exemplo.com/x')).not.toMatch(/^[/.]/);
+  });
+
+  it('drops targets that are not URLs at all', () => {
+    expect(resolveDocHref('../../src/ui/privacy.js')).toBeNull();
+    expect(resolveDocHref('./nao-mapeado.md')).toBeNull();
+  });
+
+  // O destino chega escapado e precisa ser desescapado para ser analisado.
+  // Feito em passadas encadeadas, `&amp;quot;` viraria `&quot;` na primeira e
+  // aspas de verdade na segunda — o caractere que fecha o atributo href. Aqui
+  // o texto literal `&quot;` tem de sobreviver como texto.
+  it('unescapes the link target exactly once', () => {
+    // O invariante é ida e volta: o destino publicado, desescapado UMA vez,
+    // tem de ser byte a byte o que o documento escreveu. Com o desescape em
+    // passadas encadeadas, `&amp;quot;` perdia uma camada a mais e o destino
+    // ganhava uma aspa que ninguém escreveu.
+    const alvo = 'https://exemplo.com/?a=&quot;&amp;quot;b';
+    const { html } = renderMarkdown(`[x](${alvo})`);
+    const href = html.match(/href="([^"]*)"/)[1];
+    const tabela = { '&amp;': '&', '&quot;': '"', '&#x27;': "'", '&lt;': '<', '&gt;': '>' };
+    expect(href.replace(/&(?:amp|quot|#x27|lt|gt);/g, m => tabela[m])).toBe(alvo);
+
+    // E o atributo continua fechando onde deve: um href só, e nada de atributo
+    // extra nascido de uma aspa solta.
+    expect([...html.matchAll(/href="/g)]).toHaveLength(1);
+    expect(html).not.toMatch(/<a [^>]*\son\w+=/i);
   });
 
   it('keeps external https links, marked safe', () => {
@@ -808,9 +851,17 @@ describe('páginas dos documentos legais', () => {
       expect(res.status, p).toBe(200);
       const body = await res.text();
 
-      const hrefs = [...body.matchAll(/href="([^"]*)"/g)].map(m => m[1]);
-      const ghLinks = hrefs.filter(h => h.includes('github.com'));
-      expect(ghLinks, `${p}: links para o GitHub`).toEqual(['https://github.com/lucafchala/fotos']);
+      // Comparação por HOST, resolvendo cada href contra a origem do site.
+      // `h.includes('github.com')` erraria nos dois sentidos: aprovaria
+      // `https://github.com.exemplo.com/` (host de outra pessoa, que passa por
+      // conter a substring no lugar certo do teste) e reprovaria
+      // `https://exemplo.com/?ref=github.com` (host inocente). O invariante é
+      // sobre para onde o clique leva, então quem responde é o host.
+      const hosts = [...body.matchAll(/href="([^"]*)"/g)].map(m => {
+        try { return new URL(m[1], 'https://fotos.lucafchala.com').host; } catch { return ''; }
+      });
+      const ghLinks = hosts.filter(h => h === 'github.com' || h.endsWith('.github.com'));
+      expect(ghLinks, `${p}: links para o GitHub`).toEqual(['github.com']);
 
       // E o único permitido é mesmo o do rodapé de código-fonte.
       expect(body.split(ALLOWED_GITHUB_ANCHOR).length - 1, `${p}: âncora de código-fonte`).toBe(1);

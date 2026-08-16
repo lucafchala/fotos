@@ -952,6 +952,35 @@ tabelas dentro), `**negrito**`, `*itálico*`, `` `código` `` e links.
 some. Isso cumpre a regra do GitHub **sem depender de alguém revisar cada
 markdown antes de publicar**, e evita link morto numa página institucional.
 
+#### Duas decisões que parecem contraditórias e não são
+
+**O host do próprio site é comparado com `new URL()`, e não com
+`startsWith()`.** A primeira versão fazia
+`href.startsWith('https://fotos.lucafchala.com')` e fatiava o resto. Isso
+aceita `https://fotos.lucafchala.com.exemplo.com/x` (subdomínio de outra
+pessoa) e `https://fotos.lucafchala.com@exemplo.com/x` (o nosso nome como
+*userinfo* antes do `@`): dois hosts de terceiros que só *começam* com o nosso
+nome. O corte devolvia algo como `.exemplo.com/x`, que o navegador lê como
+caminho relativo. Comparar URL por prefixo de string é o mesmo erro que, em
+outro ponto de qualquer código, vira redirecionamento aberto — o parser não o
+comete. Achado pelo CodeQL, não pela revisão manual.
+
+**Mas a regra do GitHub continua sendo uma substring**, de propósito. As duas
+checagens têm sinais opostos: reconhecer "é o nosso site" é uma **permissão**,
+onde alcance a mais deixa passar host alheio; barrar GitHub é uma **negação**,
+onde alcance a mais no máximo rebaixa a texto um link que talvez pudesse ficar.
+Errar para o lado seguro é lados diferentes em cada caso.
+
+**O destino é desescapado em uma passada só.** Ele chega já escapado (a regra
+"escapar primeiro") e precisa voltar ao original para ser analisado. Feito em
+`replace` encadeados — `&amp;` → `&`, depois `&quot;` → `"` — o texto
+`&amp;quot;` perde duas camadas em vez de uma e vira aspas de verdade: o
+caractere que fecha o atributo `href`. O `escape()` da emissão ainda seguraria
+a fuga, mas segurança que depende só do último passo quebra no dia em que
+alguém mexe no último passo. Uma passada única (`/&(?:amp|quot|#x27|lt|gt);/g`)
+nunca reexamina o que acabou de produzir, e o problema deixa de existir em vez
+de ficar contido.
+
 ### Detalhes da página (`src/ui/doc.js`)
 
 - **Índice lateral** gerado dos `##`/`###`, mostrado a partir de 3 seções.

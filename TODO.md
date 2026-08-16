@@ -160,6 +160,40 @@ que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
 mesmo tempo — foi o que derrubou a primeira versão do workflow. Para elevar o
 rigor, mude a *query suite* para `security-extended` nas Settings, não no YAML.
 
+Ele encontrou três achados neste PR que nem a revisão manual nem a suíte
+pegaram — todos corrigidos, cada um com teste de regressão que foi verificado
+falhando contra o código antigo:
+
+- **Host reconhecido por prefixo de string** (`src/ui/markdown.js`). O link
+  absoluto do próprio site virava caminho relativo via
+  `href.startsWith('https://fotos.lucafchala.com')`. Isso aceita
+  `https://fotos.lucafchala.com.exemplo.com/x` e
+  `https://fotos.lucafchala.com@exemplo.com/x` — hosts de terceiros que só
+  *começam* com o nosso nome — e devolvia o resto fatiado, que o navegador lê
+  como caminho relativo. Agora quem decide é `new URL()` comparando `host`. A
+  regra que rebaixa GitHub a texto continua por substring de propósito: é
+  negação, e alcance a mais ali erra para o lado seguro.
+- **Desescape duplo do destino do link** (`src/ui/markdown.js`). O destino chega
+  escapado e era desescapado em `replace` encadeados; `&amp;quot;` perdia duas
+  camadas em vez de uma e virava aspas de verdade — o caractere que fecha o
+  atributo `href`. O `escape()` da emissão ainda segurava a fuga, mas depender
+  do último passo é frágil. Agora é uma passada só, que nunca reexamina o que
+  acabou de produzir.
+- **O próprio teste checava GitHub por substring** (`tests/security.test.js`).
+  `href.includes('github.com')` erra nos dois sentidos: aprova
+  `https://github.com.exemplo.com/` e reprova `https://exemplo.com/?ref=github.com`.
+  O invariante é para onde o clique leva, então agora cada `href` é resolvido
+  contra a origem do site e comparado por `host`.
+
+A lição operacional: a análise estática achou o que três passagens de revisão
+manual não acharam, e os três achados eram da mesma família (comparar URL como
+texto). Vale reler qualquer checagem de origem/host com esse olhar antes de
+confiar nela.
+
+**Lint cobria só `src` e `tests`.** `scripts/build-legal-docs.mjs` — que gera o
+conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
+inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
+
 **Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
 `driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
 campo, não despejam o objeto do evento. Nada a corrigir.

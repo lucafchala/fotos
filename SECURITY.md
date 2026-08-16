@@ -151,6 +151,30 @@ The document text itself is generated into `src/content/legal-docs.js` from the
 markdown; CI regenerates and diffs it, so a published page can never drift from
 the document it claims to reproduce.
 
+Two link-handling rules inside the renderer are worth stating explicitly,
+because they look inconsistent and are not:
+
+- **Recognising this site's own host uses `new URL()` and compares `host`.** A
+  `startsWith()` on the site URL would accept
+  `https://fotos.lucafchala.com.example.com/` and
+  `https://fotos.lucafchala.com@example.com/` — third-party hosts that merely
+  begin with our name — and hand back the sliced remainder, which a browser
+  reads as a relative path. Comparing a URL as a string is the same mistake
+  that becomes an open redirect elsewhere.
+- **Blocking `github.com` stays a substring match, deliberately.** The two
+  checks have opposite signs: recognising our own host is a *permission*, where
+  over-reach admits someone else's host; blocking GitHub is a *denial*, where
+  over-reach at worst demotes a link to text. Failing safe points in a
+  different direction in each case.
+
+The link target is also unescaped in a **single pass**. Chained `replace` calls
+(`&amp;` → `&`, then `&quot;` → `"`) strip two layers off `&amp;quot;` and
+produce a real double quote — the character that closes the `href` attribute.
+The emission-time `escape()` would still contain it, but a control that depends
+only on the last step breaks the day someone edits the last step. All three
+issues were found by CodeQL, not by manual review, and each is pinned by a
+regression test verified to fail against the previous code.
+
 ## Required secrets
 
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
