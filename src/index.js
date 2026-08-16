@@ -107,11 +107,34 @@ export const SIGNING_SECRET_MIN_LENGTH = 32;
 // O valor é normalizado com trim() antes de virar chave, para que um newline
 // colado por acidente não produza uma chave diferente da que a pessoa acha que
 // configurou.
+// Cada estado tem uma mensagem PRÓPRIA, e isso não é preciosismo de texto.
+//
+// A primeira versão dizia "ausente ou vazio" para os dois casos, e isso custou
+// caro na prática: com o secret aparecendo na lista do painel e o site lendo
+// vazio, a mensagem não dizia se o binding não existia ou se existia com valor
+// em branco — que pedem ações opostas (criar vs. recriar com o valor certo).
+// Pior: o painel da Cloudflare **não mostra o valor de um secret**, então esta
+// mensagem é a única coisa no mundo capaz de distinguir os dois. Uma mensagem
+// de diagnóstico que junta dois estados é meio diagnóstico.
 export function signingSecretProblem(env) {
-  const raw = typeof env?.SIGNING_SECRET === 'string' ? env.SIGNING_SECRET.trim() : '';
-  if (!raw) return 'ausente ou vazio';
-  if (raw.length < SIGNING_SECRET_MIN_LENGTH) {
-    return `curto demais (${raw.length} de ${SIGNING_SECRET_MIN_LENGTH} caracteres)`;
+  const raw = env?.SIGNING_SECRET;
+
+  if (raw === undefined || raw === null) {
+    return 'NÃO EXISTE neste Worker — o binding não chegou (confira se salvou no Worker certo)';
+  }
+  if (typeof raw !== 'string') {
+    return `tipo inesperado (${typeof raw}) — esperado texto`;
+  }
+  if (raw === '') {
+    return 'EXISTE neste Worker, mas o valor está VAZIO — recrie colando o valor';
+  }
+
+  const limpo = raw.trim();
+  if (!limpo) {
+    return `EXISTE, mas só contém espaço em branco (${raw.length} caractere(s)) — recrie colando o valor`;
+  }
+  if (limpo.length < SIGNING_SECRET_MIN_LENGTH) {
+    return `curto demais (${limpo.length} de ${SIGNING_SECRET_MIN_LENGTH} caracteres) — o valor entrou cortado`;
   }
   return null;
 }
