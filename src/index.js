@@ -77,8 +77,47 @@ export function toCount(v) {
 // A troca do segredo invalida os tokens em voo (visitante recarrega a página, o
 // cliente já trata `nonce_expired` recarregando sozinho). É o comportamento
 // desejado numa rotação.
+// Piso de tamanho para a chave HMAC. Um segredo de 8 caracteres não é um
+// segredo: dá para varrer o espaço inteiro offline a partir de um único token
+// assinado, e aí o atacante forja nonce de Drive e token de formulário à
+// vontade — pior do que ter o controle desligado, porque o painel diria que
+// está ligado. 32 caracteres aleatórios é o piso que torna isso inviável.
+export const SIGNING_SECRET_MIN_LENGTH = 32;
+
+// Fonte ÚNICA da verdade sobre o estado do segredo.
+//
+// Antes existiam duas decisões separadas: `signingSecret()` para usar a chave e
+// `!!env.SIGNING_SECRET` para relatar o estado no /api/healthz e no painel. Duas
+// checagens do mesmo fato divergem no dia em que uma muda — e a que diverge aqui
+// é a do relatório, ou seja, o painel passaria a dizer "protegido" sobre um
+// segredo que o código de assinatura recusa. Agora as duas leem daqui.
+//
+// O que é recusado, e por quê:
+//
+//  - **Vazio.** `wrangler secret put` aceita valor vazio sem reclamar, então
+//    "criei o secret" e "o secret existe" não são a mesma coisa. Um segredo
+//    criado vazio é indistinguível de nenhum segredo — e tem que ser tratado
+//    como nenhum, não como configurado.
+//  - **Só espaço em branco / quebra de linha.** É o resultado de colar valor no
+//    terminal. Seria truthy em JS e viraria uma chave HMAC de verdade, com o
+//    painel jurando que está tudo certo. É o pior dos três estados possíveis:
+//    o falso verde.
+//  - **Curto demais.** Ver acima.
+//
+// O valor é normalizado com trim() antes de virar chave, para que um newline
+// colado por acidente não produza uma chave diferente da que a pessoa acha que
+// configurou.
+export function signingSecretProblem(env) {
+  const raw = typeof env?.SIGNING_SECRET === 'string' ? env.SIGNING_SECRET.trim() : '';
+  if (!raw) return 'ausente ou vazio';
+  if (raw.length < SIGNING_SECRET_MIN_LENGTH) {
+    return `curto demais (${raw.length} de ${SIGNING_SECRET_MIN_LENGTH} caracteres)`;
+  }
+  return null;
+}
+
 function signingSecret(env) {
-  return env.SIGNING_SECRET || null;
+  return signingSecretProblem(env) ? null : env.SIGNING_SECRET.trim();
 }
 
 // Janela do nonce de página do Drive. Generosa de propósito: o gate é o último
@@ -1451,15 +1490,22 @@ export function auditSite(events, env = {}) {
     turnstile: !!env.TURNSTILE_SECRET_KEY,
     resend: !!env.RESEND_API_KEY,
     adminEmail: !!env.ADMIN_EMAIL,
-    signing: !!env.SIGNING_SECRET,
+    // Mesma função que decide se a chave é usada de fato. Relatar por
+    // `!!env.SIGNING_SECRET` seria uma segunda opinião sobre o mesmo fato, e a
+    // divergência apareceria como painel verde sobre um segredo recusado.
+    signing: signingSecretProblem(env) === null,
   };
   if (!forms.turnstile)  problems.push('Turnstile ausente — suporte/remoção/Drive recusam todos os envios');
   if (!forms.resend)     problems.push('Resend ausente — suporte/remoção não disparam e-mail');
   if (!forms.adminEmail) problems.push('ADMIN_EMAIL ausente — suporte/remoção sem destinatário');
   // Este não quebra nada — por isso precisa aparecer. Sem SIGNING_SECRET o
   // nonce de página do Drive e o token dos formulários ficam desligados em
-  // silêncio, e o site segue funcionando como se estivesse protegido.
-  if (!forms.signing)    problems.push('SIGNING_SECRET ausente — nonce do Drive e token dos formulários DESLIGADOS');
+  // silêncio, e o site segue funcionando como se estivesse protegido. A
+  // mensagem diz QUAL é o defeito, porque "ausente" e "criado vazio" levam a
+  // ações diferentes — no segundo caso a pessoa jura que já resolveu.
+  if (!forms.signing) {
+    problems.push(`SIGNING_SECRET ${signingSecretProblem(env)} — nonce do Drive e token dos formulários DESLIGADOS`);
+  }
 
   const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
   if (problems.length > MAX_SELFTEST_PROBLEMS) trimmed.push(`+${problems.length - MAX_SELFTEST_PROBLEMS} outro(s)`);
@@ -1559,7 +1605,8 @@ export async function handleHealthz(request, env) {
       turnstile: !!env.TURNSTILE_SECRET_KEY,
       consentDb: !!env.CONSENT_DB,
       adminEmail: !!env.ADMIN_EMAIL,
-      signing: !!env.SIGNING_SECRET,
+      // Idem: a mesma pergunta tem uma resposta só no arquivo inteiro.
+      signing: signingSecretProblem(env) === null,
     },
     termsVersion: TERMS_VERSION,
     colo: request.cf?.colo || null,

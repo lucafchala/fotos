@@ -331,7 +331,7 @@ describe('handlePerfBeacon', () => {
 describe('handleDriveLink — nonce de página', () => {
   let env, ctx;
   beforeEach(async () => {
-    env = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: 'assinatura-de-teste' };
+    env = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: 'assinatura-de-teste-longa-o-suficiente' };
     await saveEvents(env, EVENTS);
     ctx = fakeCtx();
     stubTurnstile(true);
