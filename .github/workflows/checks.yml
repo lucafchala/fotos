@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
 
+# O token do workflow nasce com escrita em vários escopos. Nada aqui escreve no
+# repositório, então o menor privilégio é leitura — e uma action comprometida na
+# cadeia deixa de ter para onde escrever.
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest

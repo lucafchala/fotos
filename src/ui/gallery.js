@@ -3,7 +3,7 @@ import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootS
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
 
-export function galleryHTML(events, analyticsToken) {
+export function galleryHTML(events, analyticsToken, nonce = '') {
   // getEvents() already filters junk entries, but this is the public homepage:
   // a single null/non-object here throws on `e.visible` and turns the whole
   // gallery into a 500. Second guard so the page degrades (skips the bad row)
@@ -140,7 +140,7 @@ export function galleryHTML(events, analyticsToken) {
   <meta property="og:url" content="${SITE_URL}/">
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
-  ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ''}
+  ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonLd}</script>` : ''}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
@@ -253,7 +253,7 @@ export function galleryHTML(events, analyticsToken) {
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
   </style>
-  ${perfBootScript('gallery', !!analyticsToken)}
+  ${perfBootScript('gallery', !!analyticsToken, nonce)}
 </head>
 <body>
   ${updateBannerHTML()}
@@ -277,7 +277,7 @@ export function galleryHTML(events, analyticsToken) {
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     (function(){
       var BATCH = ${INITIAL};
       var shown = BATCH;
@@ -503,7 +503,7 @@ export function galleryHTML(events, analyticsToken) {
       });
     })();
   </script>
-  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

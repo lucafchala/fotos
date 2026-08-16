@@ -1,6 +1,7 @@
 import { escape, footerLegalLinksHTML } from '../utils.js';
+import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
-export function supportHTML(sent = false, error = '', values = {}) {
+export function supportHTML(sent = false, error = '', values = {}, nonce = '', formToken = '') {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -21,7 +22,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
   </script> -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -48,6 +49,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    ${HONEYPOT_CSS}
     header{padding:1.25rem 1.5rem}
     .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
     .back:hover{color:var(--text-2)}
@@ -121,6 +123,11 @@ export function supportHTML(sent = false, error = '', values = {}) {
     ${sent ? `<div class="success">Mensagem enviada! Entrarei em contato em breve.</div>` : `
     ${error ? `<div class="error-msg">${escape(error)}</div>` : ''}
     <form method="POST" action="/api/suporte">
+      <!-- Token assinado no servidor ao renderizar esta página. Prova que o
+           envio veio de um formulário nosso e não de um POST direto, e o piso
+           de idade (3 s) derruba automação que preenche instantaneamente. -->
+      <input type="hidden" name="form_token" value="${escape(formToken || '')}">
+      ${honeypotFieldHTML()}
       <div>
         <label for="name">Nome (opcional)</label>
         <input type="text" id="name" name="name" placeholder="Seu nome" maxlength="120" autocomplete="name" value="${escape(values.name || '')}">
@@ -145,7 +152,7 @@ export function supportHTML(sent = false, error = '', values = {}) {
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
-    <script>
+    <script nonce="${nonce}">
       function supportBtn(){return document.getElementById('support-submit');}
       function showSupportAdblock(){var w=document.getElementById('support-adblock');if(w)w.style.display='';}
       function onTurnstileSuccess(){var b=supportBtn();if(b)b.disabled=false;}

@@ -40,6 +40,16 @@ issue before any public disclosure.
 - **Google Drive links are shareable.** Photos are delivered via Google Drive
   links. Once a legitimate visitor passes the consent gate, the link can be
   reshared — that is inherent to Drive sharing, not a vulnerability.
+- **No COEP header.** `Cross-Origin-Embedder-Policy: require-corp` would blank
+  the gallery: the photos come from `lh3.googleusercontent.com`, which does not
+  send CORP. Its absence is a decision, not an oversight.
+- **HSTS is not `preload`ed.** `max-age` is two years with `includeSubDomains`,
+  but submitting the domain to the preload list is a near-irreversible
+  commitment covering the whole apex domain — that is the owner's call, not a
+  side effect of a commit.
+- **`'unsafe-inline'` is still in the enforced `script-src`.** See "CSP: two
+  policies at once" below — this is a measured, staged migration, not an
+  oversight.
 - **The ad-blocker fallback path is intentionally weaker.** The Drive gate
   (`POST /api/drive-link`) fail-closes on a real Turnstile token: a
   missing/invalid token returns 403 and the link is never included in the
@@ -50,17 +60,75 @@ issue before any public disclosure.
   outright for that audience. This is a conscious accessibility/delivery
   trade-off, not a bypass anyone can silently rely on for bulk scraping (it's
   rate-limited and audited), but it is a known, weaker path.
-- **No per-page nonce yet on `/api/drive-link`.** The endpoint is rate-limited
-  per IP but doesn't yet bind a request to having actually loaded that
-  specific event page, so a script holding a valid Turnstile token could in
-  principle probe multiple slugs within the rate limit. Tracked in
-  [`TODO.md`](./TODO.md) (Etapa 3.1).
+- **Unlisted ≠ private.** A project toggled off ("Ocultar") leaves the gallery,
+  the sitemap and the self-test, and is served with `X-Robots-Tag: noindex`,
+  but **still opens on a direct link** — that is what keeps a preview link sent
+  to a client working. If you need a project to be genuinely inaccessible,
+  delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
+  a semantics decision.
 - Best-effort, non-atomic counters (`views`, `drive_clicks`): undercounting
   under load is expected.
 - Rate limits are abuse-mitigation, not a hard guarantee.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
+
+## Controls / Controles
+
+A map of what protects what. Every item is pinned by `tests/security.test.js` or
+`tests/drive-gate.test.js`; the policy itself lives in one place, `src/security.js`.
+
+| Control | Where | What it stops |
+| --- | --- | --- |
+| Same-origin gate on every write, **before routing** | `src/index.js` dispatcher | CSRF, including the same-site case a `SameSite=Strict` cookie still allows |
+| Signed page nonce (HMAC, slug-bound, 2 h) | `/api/drive-link` | Sweeping every slug with one valid Turnstile token |
+| Signed form token + honeypot | `/suporte`, removal form | Bots posting straight at the endpoints |
+| `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
+| Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
+| Layered login rate limit + e-mail alert | `handleLogin()` | Silent brute force |
+| Password policy (12+, classes, weak patterns) | `validatePassword()` | An offline attack against a leaked hash |
+| CSV formula-injection guard | `csvCell()` | `=HYPERLINK(...)` in a visitor-supplied field executing in the admin's spreadsheet |
+| EXIF/GPS stripping on uploads | `stripImageMetadata()` | A removal request handing us the GPS coordinates of the photo |
+| `no-store` on every data response | `dataSecurityHeaders()` | Personal data sitting in a disk or intermediary cache |
+| Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes and `javascript:` URLs |
+| Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
+
+### CSP: two policies at once
+
+Every HTML response carries **both** `Content-Security-Policy` and
+`Content-Security-Policy-Report-Only`, built from the same source
+(`contentSecurityPolicy()`) so they cannot drift apart.
+
+- The **enforced** policy still allows `'unsafe-inline'` for scripts. This is
+  not laziness: the UI uses inline event handlers (`onclick="…"`), and **no
+  nonce value covers an attribute handler**. Removing `'unsafe-inline'` today
+  would break the gallery, the event page and the whole dashboard.
+- The **report-only** policy is the one we want to enforce — `'nonce-…'` with no
+  `'unsafe-inline'`. Running it in report-only turns each remaining inline
+  handler into a report at `/api/csp-report` instead of a broken element. It is
+  the migration's task list, measured in production rather than guessed.
+
+**The flip happens when the reports stop arriving**: change `strict` to `true`
+for the enforced policy too. Until then, a `<script>` without a nonce is
+invisible today and breaks silently on flip day — so CI rejects one
+(`.github/workflows/security.yml`).
+
+## Required secrets
+
+`ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
+**`SIGNING_SECRET`** — see `wrangler.toml` for what each does.
+
+`SIGNING_SECRET` deserves a note: unlike the others, its absence **breaks
+nothing**. The Drive page nonce and the form tokens simply stop being required,
+and the site keeps serving as if it were protected. That is a deliberate
+trade-off (a missing secret is a deploy error, and failing closed here would
+take the whole photo delivery down over an *additional* layer), made safe by
+never being silent: `auditSite()` flags it, and it shows up in `/api/healthz`
+and on the status dashboard until someone runs:
+
+```bash
+npx wrangler secret put SIGNING_SECRET
+```
 
 ## Invariants for contributors / Invariantes ao mexer no código
 
@@ -121,3 +189,16 @@ requests. The privacy policy is at
 [`/privacidade`](https://fotos.lucafchala.com/privacidade); data-subject and
 removal requests can be made through
 [`/suporte`](https://fotos.lucafchala.com/suporte) or the contact above.
+
+The full compliance pack lives in [`docs/legal/`](./docs/legal/): records of
+processing (ROPA), the data-protection impact assessment (RIPD), the legitimate
+interest assessment (LIA), the retention policy, the international-transfer
+mapping, the data-subject request procedure, the incident response plan, and
+image-authorization templates. Start at
+[`docs/legal/README.md`](./docs/legal/README.md); the open items are listed in
+[`docs/legal/checklist-conformidade.md`](./docs/legal/checklist-conformidade.md).
+
+**If you are reporting a personal-data incident**, follow
+[`docs/legal/plano-resposta-incidentes.md`](./docs/legal/plano-resposta-incidentes.md)
+— the ANPD notification window is **3 business days** from the moment the
+controller becomes aware.

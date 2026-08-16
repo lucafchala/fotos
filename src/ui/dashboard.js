@@ -9,7 +9,7 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
-export function loginHTML(opts = {}) {
+export function loginHTML(opts = {}, nonce = '') {
   const { error = false, isSetup = false } = opts;
   const title = isSetup ? 'Criar senha de acesso' : 'Painel administrativo';
   const btnLabel = isSetup ? 'Criar senha e entrar' : 'Entrar';
@@ -73,7 +73,7 @@ export function loginHTML(opts = {}) {
 
 const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
 
-export function dashboardHTML(events, categories = []) {
+export function dashboardHTML(events, categories = [], nonce = '') {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
@@ -588,7 +588,7 @@ export function dashboardHTML(events, categories = []) {
 
   <div class="toast" id="toast"></div>
 
-  <script>
+  <script nonce="${nonce}">
     let events = ${eventsJSON};
     let categories = ${categoriesJSON};
     let massMode = false;

@@ -1,8 +1,9 @@
 import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML } from '../utils.js';
+import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
-export function eventHTML(event, year, analyticsToken) {
+export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = '', removalFormToken = '') {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
@@ -81,8 +82,8 @@ export function eventHTML(event, year, analyticsToken) {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://drive.google.com">
   <link rel="preconnect" href="https://lh3.googleusercontent.com">
-  ${perfBootScript('event', !!analyticsToken)}
-  <script type="application/ld+json">${JSON.stringify({
+  ${perfBootScript('event', !!analyticsToken, nonce)}
+  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
@@ -118,6 +119,7 @@ export function eventHTML(event, year, analyticsToken) {
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    ${HONEYPOT_CSS}
     .hero-stage{position:relative}
     /* Chrome sobreposto à foto (back-pill, setas/dots/contador do carrossel, hero
        em si) fica sempre escuro/translúcido nos dois temas — a função dele é
@@ -565,6 +567,7 @@ export function eventHTML(event, year, analyticsToken) {
         <div id="rem-adblock" class="adblock-warn" style="display:none">
           <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
         </div>
+        ${honeypotFieldHTML()}
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div id="rem-error" class="form-error" style="display:none"></div>
         <div class="rem-sheet-foot">
@@ -616,9 +619,19 @@ export function eventHTML(event, year, analyticsToken) {
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const EVENT_SLUG     = ${slugJSON};
     const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
+    // Nonce de página assinado no servidor para ESTE slug, com validade curta.
+    // O /api/drive-link exige que ele venha junto: é o que impede que um token
+    // Turnstile válido seja reaproveitado para varrer os slugs do site sem
+    // nunca carregar uma página. Vazio quando SIGNING_SECRET não está
+    // configurado — nesse caso o servidor não exige o nonce (ver signingSecret
+    // em src/index.js) e o site segue funcionando sem esta camada.
+    const DRIVE_NONCE    = ${JSON.stringify(driveNonce || '')};
+    // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
+    // que chega menos de 3 s depois de a página ser servida é automação.
+    const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
     const PHOTOS         = ${photosJSON};
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
@@ -831,12 +844,20 @@ export function eventHTML(event, year, analyticsToken) {
         body: JSON.stringify({
           slug: EVENT_SLUG,
           turnstileToken: driveTsToken,
+          driveNonce: DRIVE_NONCE,
           consent: true,
           declaration: decl ? decl.checked : undefined,
           name: nameEl ? nameEl.value : '',
         }),
       })
-        .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function(r) {
+          // 410 = o nonce desta página venceu (aba aberta há horas). Não é erro
+          // do visitante e não há o que ele possa fazer na tela: recarregar
+          // busca um nonce novo e o fluxo recomeça sozinho. Qualquer outro
+          // status cai no .catch() de sempre.
+          if (r.status === 410) { location.reload(); return new Promise(function(){}); }
+          return r.ok ? r.json() : Promise.reject();
+        })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
@@ -1189,6 +1210,8 @@ export function eventHTML(event, year, analyticsToken) {
             fileBase64,
             consent: true,
             turnstileToken: remTsToken,
+            form_token: REMOVAL_FORM_TOKEN,
+            company_website: (document.getElementById('company_website') || {}).value || '',
           }),
         });
         if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || 'Erro ao enviar.'); }
@@ -1370,8 +1393,8 @@ export function eventHTML(event, year, analyticsToken) {
       }
     } catch(_) {}
   </script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
-  ${analyticsToken ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
+  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
 </body>
 </html>`;
 }

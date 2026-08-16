@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleDriveLink, handlePerfBeacon, toCount } from '../src/index.js';
+import { handleDriveLink, handlePerfBeacon, toCount, mintDriveNonce } from '../src/index.js';
+import { signToken } from '../src/security.js';
 import { saveEvents, ACCESS_DECLARATIONS } from '../src/utils.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
@@ -316,5 +317,87 @@ describe('handlePerfBeacon', () => {
 
   it('does not require the PERF binding to exist', async () => {
     expect((await handlePerfBeacon(beacon({ page: 'event' }), {})).status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nonce de página (amarra a chamada a uma visita real da página do evento)
+// ---------------------------------------------------------------------------
+// O gate já falhava fechado no Turnstile, mas o token do Turnstile não diz PARA
+// QUAL página foi emitido. Sem o nonce, um script com um token válido na mão
+// pedia o link de um slug atrás do outro sem nunca abrir uma página. Estes
+// testes fixam justamente isso: o link só sai para quem apresenta um nonce
+// assinado por nós, para aquele slug, dentro do prazo.
+describe('handleDriveLink — nonce de página', () => {
+  let env, ctx;
+  beforeEach(async () => {
+    env = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: 'assinatura-de-teste' };
+    await saveEvents(env, EVENTS);
+    ctx = fakeCtx();
+    stubTurnstile(true);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('hands out the link when the nonce matches the slug', async () => {
+    const nonce = await mintDriveNonce(env, 'casamento-ana');
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true, driveNonce: nonce }), env, ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+  });
+
+  it('refuses a request with no nonce at all', async () => {
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true }), env, ctx);
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain('drive.google.com');
+  });
+
+  it('refuses a nonce minted for a DIFFERENT event — the enumeration case', async () => {
+    // Este é o ataque que o nonce existe para impedir: carregar uma página
+    // qualquer, guardar o nonce e usá-lo para varrer os outros slugs.
+    const nonce = await mintDriveNonce(env, 'familia-silva');
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true, driveNonce: nonce }), env, ctx);
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain('drive.google.com');
+  });
+
+  it('refuses a forged nonce', async () => {
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true, driveNonce: 'zzzz.forjado' }), env, ctx);
+    expect(res.status).toBe(403);
+  });
+
+  it('answers 410 for an expired page, so the client can just reload', async () => {
+    // Distinção deliberada: 410 faz o JS da página recarregar sozinho (aba
+    // aberta desde ontem), 403 é tratado como tentativa de burlar. Trocar os
+    // dois transforma um caso normal em tela de erro.
+    const expired = await signToken(env.SIGNING_SECRET, { purpose: 'drive', scope: 'casamento-ana', ttlSecs: -60 });
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true, driveNonce: expired }), env, ctx);
+    expect(res.status).toBe(410);
+  });
+
+  it('stays disabled — not fail-closed — when SIGNING_SECRET is absent', async () => {
+    // Escolha consciente e documentada: um segredo ausente é erro de deploy, e
+    // recusar tudo aqui derrubaria a entrega das fotos por causa de uma camada
+    // ADICIONAL. As defesas de baixo (Turnstile fail-closed, rate limit,
+    // consentimento) continuam valendo, e auditSite() acusa a falta.
+    const envNoSecret = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret' };
+    await saveEvents(envNoSecret, EVENTS);
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true }), envNoSecret, fakeCtx());
+    expect(res.status).toBe(200);
+  });
+
+  it('still refuses a bad Turnstile token even with a valid nonce', async () => {
+    // O nonce soma, não substitui: as duas checagens têm que valer juntas.
+    stubTurnstile(false);
+    const nonce = await mintDriveNonce(env, 'casamento-ana');
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 'ruim', consent: true, driveNonce: nonce }), env, ctx);
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain('drive.google.com');
   });
 });

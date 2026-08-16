@@ -15,40 +15,78 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ## Segurança e anti-abuso
 
-- [ ] **Nonce de curta duração no `/api/drive-link`** — impedir varredura
-      automatizada de todos os slugs. O gate já é verificado no servidor
-      (Turnstile fail-closed + rate limit por IP), mas nada amarra a chamada a
-      uma visita real da página: um script com um token Turnstile válido em mãos
-      consegue varrer vários slugs dentro do limite.
-      _Requer decisão antes de implementar:_ nonce em KV gastaria justamente a
-      cota de escrita que o `/api/perf` foi desenhado para preservar (1000/dia,
-      compartilhada com eventos/sessões/consentimento); a alternativa é um nonce
-      assinado (HMAC) sem estado, que precisa de um secret novo no
-      `wrangler.toml`.
-- [ ] **Auditar vazamento de campos só-admin** — garantir que `internalNotes` (e
-      afins) nunca cheguem ao HTML público. Hoje o objeto do evento é passado
-      inteiro para o template.
+> Boa parte desta seção foi entregue na revisão de segurança de 2026-08.
+> O que sobrou está abaixo, com o motivo de ainda estar aberto.
+
+### Ações do dono (fora do código) — prioridade
+
+- [ ] 🔴 **`npx wrangler secret put SIGNING_SECRET`.** Sem esse secret, o nonce
+      de página do `/api/drive-link` e o token dos formulários públicos ficam
+      **desligados** — o site funciona igual, só sem essas duas camadas.
+      `/api/healthz` e o painel de status acusam a falta até ser resolvido.
+- [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
+      É o único risco residual **alto** do sistema (R3 do
+      [RIPD](./docs/legal/RIPD.md)) e nenhuma medida no código o resolve — a
+      coleta acontece no evento ou no contrato com a escola. Modelos prontos em
+      [`docs/legal/termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
+      o caminho de menor atrito é o Modelo 3, anexado ao contrato.
+- [ ] 🔴 **Confirmar se a conta do Google Drive é Workspace ou pessoal.** Conta
+      pessoal gratuita não tem DPA, o que enfraquece o fundamento do art. 33, III
+      justamente para a transferência de maior impacto (as fotografias). Ver
+      [`transferencia-internacional.md`](./docs/legal/transferencia-internacional.md).
+- [ ] **Parecer jurídico** sobre os pontos marcados ⚖️ em
+      [`checklist-conformidade.md`](./docs/legal/checklist-conformidade.md).
+
+### Código
+
+- [ ] **Concluir a migração da CSP.** Os nonces já estão em todos os `<script>`
+      e a política estrita (sem `'unsafe-inline'`) já roda em **Report-Only**,
+      com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os ~63
+      handlers inline (`onclick="…"`) por listeners delegados — inclusive os que
+      o painel gera dinamicamente via `innerHTML` — porque **nonce não cobre
+      handler em atributo**. Quando os relatórios zerarem, basta passar `strict`
+      para `true` na política enforced (`contentSecurityPolicy()` em
+      `src/security.js`). Ficou por último de propósito: é um refactor grande na
+      página mais complexa do site, e o Report-Only mede exatamente o que falta
+      antes de arriscar a virada.
+- [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
+      sai da galeria, do sitemap e da auditoria, e agora vai com
+      `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz
+      um link de prévia enviado a cliente continuar funcionando). Se a
+      expectativa for "privado", o handler precisa devolver 404 para quem não
+      está logado. Não mudei por conta própria porque quebraria links já
+      compartilhados.
 - [ ] **Login sem senha / recuperação de acesso** — magic link por e-mail via
       Resend (já configurado), substituindo ou complementando a senha do painel.
       Resolve de uma vez a recuperação de senha e boa parte do que 2FA
       cobriria; menos atrito que TOTP.
 - [ ] **2FA/TOTP no painel** — só se o magic link não for suficiente.
-- [ ] **Honeypot** (campo oculto) nos formulários públicos, como segunda camada
-      além do Turnstile.
-- [ ] **Endurecer a CSP** — trocar `script-src 'unsafe-inline'` por nonces nos
-      scripts inline.
-- [ ] **Alerta de login suspeito** — e-mail ao admin após N tentativas falhas
-      (já há rate limit de 10/10 min).
+- [ ] **Hospedar as fontes localmente** — elimina a transferência internacional
+      do Google Fonts (que transmite o IP de cada visitante) e tira uma origem
+      da CSP. O `font-src` já aceita `'self'` desde `c78e6e4`: falta baixar os
+      WOFF2 do Inter, declarar `@font-face` e remover o `<link>` das oito
+      páginas.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
-- [ ] **Strip de EXIF / metadados** das imagens enviadas no formulário de
-      remoção (hoje só valida magic bytes + 2 MB).
-- [ ] **CSP em modo report-only** — endpoint `report-to` que loga tentativas de
-      payload bloqueadas pela CSP, para saber se alguém está testando XSS antes
-      de endurecer de vez o `script-src 'unsafe-inline'` (item acima).
-- [ ] **Rate-limit dedicado no formulário de suporte** para mensagens
-      repetidas/idênticas — o Turnstile barra bot, mas um humano ainda consegue
-      mandar a mesma mensagem várias vezes dentro do rate limit geral.
+- [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
+      (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
+      ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
+      corromper a prova que o titular enviou — hoje passam intactos, com o
+      resultado registrado no pedido.
+
+### Entregue em 2026-08 (não reabrir sem necessidade nova)
+
+Nonce assinado no `/api/drive-link` · honeypot + token de formulário com idade
+mínima · alerta de login suspeito · strip de EXIF (JPEG/PNG/WebP) · CSP
+report-only com coletor · dedupe de mensagens repetidas no suporte · checagem
+de origem contra CSRF · cookie `__Host-` com timeout de inatividade · política
+de senha · correção de injeção de fórmula em CSV · `no-store` nas respostas de
+dados · higienização do restore de backup · CodeQL + `npm audit` +
+dependency-review + invariantes de CI.
+
+**Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
+`driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
+campo, não despejam o objeto do evento. Nada a corrigir.
 
 ---
 

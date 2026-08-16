@@ -3,6 +3,27 @@ main = "src/index.js"
 compatibility_date = "2024-11-01"
 account_id = "e5869d6881e992cf4681ce85583a6ab2"
 
+# Secrets (definidos por `npx wrangler secret put <NOME>`, nunca aqui):
+#
+#   ADMIN_PASSWORD        senha inicial do painel; semeia o hash em KV no
+#                         primeiro acesso e depois pode ser trocada pelo painel
+#   TURNSTILE_SECRET_KEY  verificação anti-robô; a ausência faz TODOS os
+#                         formulários recusarem envio (fail closed, proposital)
+#   RESEND_API_KEY        e-mails transacionais e alertas
+#   ADMIN_EMAIL           destinatário dos alertas e das notificações
+#   SIGNING_SECRET        assina o nonce de página do /api/drive-link e o token
+#                         dos formulários públicos (HMAC-SHA256, sem estado)
+#   CF_ANALYTICS_TOKEN    token da Web Analytics (opcional)
+#
+# ATENÇÃO ao SIGNING_SECRET: diferente dos outros, a ausência dele NÃO quebra
+# nada — os dois controles simplesmente não são exigidos, e o site segue
+# funcionando como se estivesse protegido. Foi uma escolha consciente (um
+# segredo faltando é erro de deploy, e recusar tudo derrubaria a entrega das
+# fotos por causa de uma camada adicional), com o contrapeso de nunca ser
+# silenciosa: `auditSite()` acusa a falta, ela aparece em /api/healthz e no
+# painel de status até alguém rodar `npx wrangler secret put SIGNING_SECRET`.
+# Ver a justificativa completa em signingSecret(), src/index.js.
+
 [[kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
