@@ -195,11 +195,20 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 > protegido. Por isso `signingSecretProblem()` — a **única** função que decide o
 > assunto — recusa três estados, e o `/api/healthz` diz qual deles é o caso:
 >
-> | Valor | Estado | Por quê |
+> | Valor | O que o `/api/healthz` diz | Por quê |
 > | --- | --- | --- |
-> | vazio | `ausente ou vazio` | Indistinguível de não ter secret |
-> | só espaço / `\n` | `ausente ou vazio` | Seria *truthy* em JS e viraria chave HMAC de verdade, com o painel dizendo que está tudo certo — o **falso verde**, pior que o vermelho honesto |
+> | binding ausente | `NÃO EXISTE neste Worker` | Não chegou — provavelmente salvo no Worker errado (há um `fotos-preview`) |
+> | vazio | `EXISTE neste Worker, mas o valor está VAZIO` | O nome está lá e o valor não; recriar colando o valor |
+> | só espaço / `\n` | `EXISTE, mas só contém espaço em branco (N)` | Seria *truthy* em JS e viraria chave HMAC de verdade, com o painel dizendo que está tudo certo — o **falso verde** |
 > | < 32 caracteres | `curto demais (N de 32)` | Cai numa varredura offline a partir de um único token assinado; daí em diante dá para forjar nonce e token de formulário |
+>
+> **Cada estado tem uma mensagem própria de propósito.** A primeira versão dizia
+> `ausente ou vazio` para os dois primeiros, e isso custou um ciclo inteiro de
+> investigação em produção: o secret aparecia na lista do painel, o site lia
+> vazio, e a mensagem não dizia qual dos dois era — sendo que eles pedem ações
+> opostas (criar vs. recriar). O agravante: **o painel da Cloudflare não mostra
+> o valor de um secret**, então esta mensagem é a *única* coisa capaz de
+> distingui-los. Não existe segunda fonte para consultar.
 >
 > O valor passa por `trim()` antes de virar chave, para que um newline colado por
 > acidente não gere uma chave diferente da que você acha que configurou.

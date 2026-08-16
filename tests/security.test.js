@@ -1093,10 +1093,36 @@ describe('SIGNING_SECRET: criado não é o mesmo que configurado', () => {
   // existência da variável — concordaria. Um segredo criado vazio tem de ser
   // tratado como segredo nenhum.
   it('treats an empty or whitespace-only secret as absent', () => {
-    expect(signingSecretProblem({ SIGNING_SECRET: '' })).toBe('ausente ou vazio');
-    expect(signingSecretProblem({ SIGNING_SECRET: '   ' })).toBe('ausente ou vazio');
-    expect(signingSecretProblem({ SIGNING_SECRET: '\n' })).toBe('ausente ou vazio');
-    expect(signingSecretProblem({})).toBe('ausente ou vazio');
+    for (const v of ['', '   ', '\n']) {
+      expect(signingSecretProblem({ SIGNING_SECRET: v }), JSON.stringify(v)).not.toBeNull();
+    }
+    expect(signingSecretProblem({})).not.toBeNull();
+  });
+
+  // O painel da Cloudflare NÃO mostra o valor de um secret. Quando o nome
+  // aparece na lista e o site lê vazio, esta mensagem é a única coisa capaz de
+  // dizer se o binding não chegou ou se chegou em branco — e as duas situações
+  // pedem ações opostas (criar vs. recriar colando o valor). Uma mensagem que
+  // junta as duas é meio diagnóstico, e foi assim que a primeira versão
+  // desperdiçou um ciclo de investigação.
+  it('tells apart a missing binding from one that arrived empty', () => {
+    const naoExiste = signingSecretProblem({});
+    const vazio = signingSecretProblem({ SIGNING_SECRET: '' });
+    const branco = signingSecretProblem({ SIGNING_SECRET: '   ' });
+    const curto = signingSecretProblem({ SIGNING_SECRET: 'abc' });
+
+    expect(new Set([naoExiste, vazio, branco, curto]).size,
+      'cada estado precisa de uma mensagem distinta').toBe(4);
+
+    expect(naoExiste).toMatch(/NÃO EXISTE/);
+    expect(vazio).toMatch(/EXISTE/);
+    expect(vazio).toMatch(/VAZIO/);
+    expect(branco).toMatch(/espaço em branco/);
+    expect(curto).toMatch(/curto demais/);
+
+    // E o texto tem de dizer o que fazer, não só o que está errado.
+    expect(vazio).toMatch(/recrie/i);
+    expect(naoExiste).toMatch(/Worker/);
   });
 
   // Pior que desligado: ligado com chave adivinhável. Um segredo curto cai numa

@@ -194,6 +194,23 @@ confiar nela.
 conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
 inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
 
+**A mensagem de diagnóstico do secret juntava dois estados.** `"ausente ou
+vazio"` cobria tanto "o binding não chegou neste Worker" quanto "chegou com
+valor em branco" — situações que pedem ações opostas (criar vs. recriar colando
+o valor). Isso custou um ciclo inteiro de investigação em produção: o secret
+aparecia na lista do painel e o site lia vazio, e a mensagem não dizia qual dos
+dois era.
+
+O agravante é que **o painel da Cloudflare não mostra o valor de um secret**,
+então esta mensagem é a única coisa capaz de distinguir os dois estados — não
+há segunda fonte para consultar. Uma mensagem de diagnóstico que junta dois
+casos é meio diagnóstico, e o meio que falta é justamente o que decide a ação.
+
+Agora cada estado tem texto próprio, e o texto diz o que fazer, não só o que
+está errado. O teste exige que os quatro estados produzam quatro mensagens
+distintas — comparar por `Set(...).size` impede que alguém volte a fundi-las
+sem o teste reclamar.
+
 **Observabilidade ligada no painel seria apagada pelo próximo deploy.** Os
 logs e traces foram ligados no painel da Cloudflare, mas o `wrangler.toml` não
 tinha bloco `[observability]` — e o `wrangler deploy` trata a configuração como
