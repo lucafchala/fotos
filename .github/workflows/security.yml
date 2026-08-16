@@ -148,11 +148,35 @@ jobs:
           # Um <script> sem nonce fica invisível hoje (o enforced ainda tem
           # 'unsafe-inline') e quebra silenciosamente no dia da virada para a
           # política estrita. Melhor descobrir agora.
-          if grep -rnP '<script(?![^>]*nonce=)[^>]*>' --include='*.js' src/ui/ | grep -v '<!--'; then
-            echo "FALHA: <script> sem nonce em src/ui/"
-            exit 1
-          fi
-          echo "OK: todos os scripts têm nonce."
+          #
+          # Em node, e não num grep: a versão com grep casava com a palavra
+          # "<script>" dentro de COMENTÁRIOS — inclusive o comentário de
+          # markdown.js que explica como o escape neutraliza justamente um
+          # <script>. Um gate que reprova a própria documentação do gate é um
+          # gate que alguém desliga na terceira vez. Aqui as linhas de
+          # comentário e o HTML comentado são ignorados antes da checagem.
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const dir = "src/ui";
+            let bad = [];
+            for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".js"))) {
+              const full = path.join(dir, f);
+              fs.readFileSync(full, "utf8").split("\n").forEach((line, i) => {
+                const t = line.trim();
+                if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
+                if (t.includes("<!--")) return;
+                for (const m of line.matchAll(/<script\b[^>]*>/g)) {
+                  if (!/\bnonce=/.test(m[0])) bad.push(full + ":" + (i + 1) + "  " + m[0].slice(0, 80));
+                }
+              });
+            }
+            if (bad.length) {
+              console.error("FALHA: <script> sem nonce em src/ui/");
+              bad.forEach(b => console.error("  " + b));
+              process.exit(1);
+            }
+            console.log("OK: todos os scripts têm nonce.");
+          '
 
       - name: Só o link de código-fonte pode apontar para o GitHub
         run: |
