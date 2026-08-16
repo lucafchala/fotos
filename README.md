@@ -181,11 +181,34 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 > em `/api/healthz` e no painel de status até alguém rodar:
 >
 > ```bash
-> npx wrangler secret put SIGNING_SECRET   # qualquer string aleatória longa
+> # Gere um valor forte em vez de inventar um — 32 caracteres é o PISO:
+> openssl rand -base64 48 | npx wrangler secret put SIGNING_SECRET
 > ```
 >
 > Trocar o secret invalida os tokens em voo — o visitante recarrega a página e o
 > cliente já trata isso sozinho. É o comportamento desejado numa rotação.
+>
+> #### "Criei o secret" não é o mesmo que "o secret está configurado"
+>
+> `wrangler secret put` aceita **valor vazio sem reclamar**. O secret passa a
+> existir no painel da Cloudflare, a pessoa risca o item da lista, e nada está
+> protegido. Por isso `signingSecretProblem()` — a **única** função que decide o
+> assunto — recusa três estados, e o `/api/healthz` diz qual deles é o caso:
+>
+> | Valor | Estado | Por quê |
+> | --- | --- | --- |
+> | vazio | `ausente ou vazio` | Indistinguível de não ter secret |
+> | só espaço / `\n` | `ausente ou vazio` | Seria *truthy* em JS e viraria chave HMAC de verdade, com o painel dizendo que está tudo certo — o **falso verde**, pior que o vermelho honesto |
+> | < 32 caracteres | `curto demais (N de 32)` | Cai numa varredura offline a partir de um único token assinado; daí em diante dá para forjar nonce e token de formulário |
+>
+> O valor passa por `trim()` antes de virar chave, para que um newline colado por
+> acidente não gere uma chave diferente da que você acha que configurou.
+>
+> O relatório do painel lê **da mesma função** que decide se a chave é usada.
+> Antes eram duas perguntas separadas (`!!env.SIGNING_SECRET` de um lado,
+> `signingSecret()` do outro) sobre o mesmo fato — e duas opiniões sobre um fato
+> só divergem no dia em que uma muda, com o painel ficando verde sobre um segredo
+> que o código de assinatura recusa.
 
 Variáveis lidas como `env.<NOME>` dentro de `fetch(request, env, ctx)`.
 
@@ -430,6 +453,24 @@ Coletado server-side em `handleDriveLink` (`POST /api/drive-link`) a partir de `
 ## Rotas HTTP
 
 Roteador único em `src/index.js`, baseado em cadeia de `if`s. Ordem importa — a regex `/^\/([a-z0-9][a-z0-9-]*)$/` que casa páginas de evento é **a última**, para não capturar `/dashboard`, `/suporte`, etc.
+
+### `HEAD` — antes de qualquer roteamento
+
+Toda rota da tabela abaixo casa com `method === 'GET'`. Um `HEAD` atravessaria a
+cadeia inteira sem casar com nada e cairia no 404 — `GET /` respondendo 200 e
+`HEAD /` respondendo 404 na **mesma URL**.
+
+Isso não é detalhe de especificação. Monitor de uptime, verificador de link e
+parte dos crawlers pedem `HEAD` exatamente para não baixar o corpo; para todos
+eles o site inteiro estaria fora do ar. Foi assim que o smoke test do deploy
+falhou pela primeira vez — ele lê cabeçalhos com `curl -sI`, recebeu a página de
+erro e acusou a CSP, quando a causa era o método.
+
+Por isso o `HEAD` é resolvido **antes** do roteador: a requisição é refeita como
+`GET`, passa pelo roteamento normal, e só o corpo é descartado. Custa a mesma
+leitura de KV que um `GET`, o que é o certo — a promessa do `HEAD` é que os
+cabeçalhos sejam os do `GET`, e cabeçalho montado sem passar pelo handler mente
+sobre status e tipo. Paridade coberta por teste e pelo smoke test do deploy.
 
 ### Portão de CSRF — antes do roteamento
 

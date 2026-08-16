@@ -14,7 +14,7 @@ import {
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION } from '../src/utils.js';
-import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS } from '../src/index.js';
+import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { readFileSync } from 'node:fs';
@@ -910,7 +910,10 @@ describe('envio completo dos formulários públicos', () => {
 
   const env = () => ({
     FOTOS: kv({ events: EVENTS }),
-    SIGNING_SECRET: 'segredo-de-teste',
+    // Comprimento realista: abaixo do piso de SIGNING_SECRET_MIN_LENGTH o
+    // código recusa a chave e o token de formulário deixa de ser exigido —
+    // este teste passaria a validar o caminho SEM assinatura sem avisar.
+    SIGNING_SECRET: 'segredo-de-teste-longo-o-suficiente-32',
     TURNSTILE_SECRET_KEY: 'ts',
   });
 
@@ -1028,5 +1031,121 @@ describe('rate limit do login não se auto-sabota', () => {
     expect(daily, 'contador diário deve existir').toBeTruthy();
     expect(Number(daily[1]), 'só o que passou pela rajada conta no orçamento diário')
       .toBeLessThanOrEqual(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HEAD
+// ---------------------------------------------------------------------------
+describe('HEAD responde como GET', () => {
+  function kv() {
+    const store = new Map([['events', '[]']]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; } };
+  }
+  const ctx = { waitUntil: () => {} };
+  const req = (p, method) => worker.fetch(
+    new Request('https://fotos.lucafchala.com' + p, { method }), { FOTOS: kv() }, ctx);
+
+  // Todas as rotas casam com `method === 'GET'`, então antes disto um HEAD caía
+  // direto no 404: `GET /` devolvia 200 e `HEAD /` devolvia 404 na MESMA URL.
+  // Para monitor de uptime e verificador de link — que pedem HEAD justamente
+  // para não baixar o corpo — o site inteiro parecia fora do ar.
+  it('gives HEAD the same status as GET on every public route', async () => {
+    for (const p of ['/', '/legal', '/privacidade', '/termos', '/suporte', '/sobre',
+                     '/robots.txt', '/sitemap.xml', '/manifest.json', '/legal/registro-de-operacoes']) {
+      const g = await req(p, 'GET');
+      const h = await req(p, 'HEAD');
+      expect(h.status, `${p}: HEAD tem de ter o status do GET`).toBe(g.status);
+      expect(g.status, `${p}: a rota tem de existir para o teste valer algo`).toBe(200);
+    }
+  });
+
+  it('keeps the security headers on HEAD, including the CSP nonce', async () => {
+    const h = await req('/', 'HEAD');
+    // Foi exatamente isto que derrubou o deploy: o smoke test lê os cabeçalhos
+    // com `curl -sI`, caía na resposta 404 (que não tem script inline, logo não
+    // tem nonce) e acusava a CSP. O sintoma apontava para a política; a causa
+    // era o método.
+    expect(h.headers.get('Content-Security-Policy-Report-Only')).toMatch(/'nonce-/);
+    expect(h.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(h.headers.get('Content-Type')).toMatch(/text\/html/);
+  });
+
+  it('sends no body on HEAD', async () => {
+    expect(await (await req('/', 'HEAD')).text()).toBe('');
+    expect((await (await req('/', 'GET')).text()).length).toBeGreaterThan(500);
+  });
+
+  it('still 404s HEAD on a route that does not exist', async () => {
+    expect((await req('/nao-existe-mesmo', 'HEAD')).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Estado do SIGNING_SECRET
+// ---------------------------------------------------------------------------
+describe('SIGNING_SECRET: criado não é o mesmo que configurado', () => {
+  const bom = 'x'.repeat(SIGNING_SECRET_MIN_LENGTH);
+
+  // `wrangler secret put` aceita valor vazio sem reclamar. Quem roda o comando
+  // fica convencido de que resolveu, e o painel — se ele olhasse só para a
+  // existência da variável — concordaria. Um segredo criado vazio tem de ser
+  // tratado como segredo nenhum.
+  it('treats an empty or whitespace-only secret as absent', () => {
+    expect(signingSecretProblem({ SIGNING_SECRET: '' })).toBe('ausente ou vazio');
+    expect(signingSecretProblem({ SIGNING_SECRET: '   ' })).toBe('ausente ou vazio');
+    expect(signingSecretProblem({ SIGNING_SECRET: '\n' })).toBe('ausente ou vazio');
+    expect(signingSecretProblem({})).toBe('ausente ou vazio');
+  });
+
+  // Pior que desligado: ligado com chave adivinhável. Um segredo curto cai numa
+  // varredura offline a partir de um único token assinado, e a partir daí dá
+  // para forjar nonce de Drive e token de formulário — com o painel dizendo que
+  // a proteção está ativa.
+  it('rejects a secret too short to be an HMAC key', () => {
+    expect(signingSecretProblem({ SIGNING_SECRET: 'curto' })).toMatch(/curto demais/);
+    expect(signingSecretProblem({ SIGNING_SECRET: 'x'.repeat(SIGNING_SECRET_MIN_LENGTH - 1) }))
+      .toMatch(/curto demais/);
+    expect(signingSecretProblem({ SIGNING_SECRET: bom })).toBeNull();
+  });
+
+  it('does not mint tokens with a rejected secret, and does with a good one', async () => {
+    expect(await mintFormToken({ SIGNING_SECRET: '' }, 'suporte')).toBe('');
+    expect(await mintFormToken({ SIGNING_SECRET: '   ' }, 'suporte')).toBe('');
+    expect(await mintFormToken({ SIGNING_SECRET: 'curto' }, 'suporte')).toBe('');
+    expect(await mintFormToken({ SIGNING_SECRET: bom }, 'suporte')).not.toBe('');
+  });
+
+  // Um newline colado por acidente no fim do valor não pode produzir uma chave
+  // diferente da que a pessoa acha que configurou.
+  it('normalises surrounding whitespace so a pasted newline is not a different key', async () => {
+    const a = await mintFormToken({ SIGNING_SECRET: bom }, 'suporte');
+    const b = await mintFormToken({ SIGNING_SECRET: `  ${bom}\n` }, 'suporte');
+    expect(a).not.toBe('');
+    expect(b).not.toBe('');
+    // Tokens carregam expiração, então não são iguais byte a byte; o que precisa
+    // bater é a chave. Um token assinado com um valor tem de validar no outro.
+    const env = { SIGNING_SECRET: `  ${bom}\n` };
+    const res = await worker.fetch(
+      new Request('https://fotos.lucafchala.com/legal'), { ...env, FOTOS: {
+        async get() { return null; }, async put() {}, async delete() {},
+        async list() { return { keys: [], list_complete: true }; } } }, { waitUntil: () => {} });
+    expect(res.status).toBe(200);
+  });
+
+  // O relatório e o uso têm de responder a mesma coisa. Se divergirem, o painel
+  // fica verde sobre um segredo que o código de assinatura recusa — que é a
+  // única falha desta lista capaz de passar despercebida para sempre.
+  it('never reports signing as active when no token can be minted', async () => {
+    for (const v of ['', '   ', '\n', 'curto', 'x'.repeat(SIGNING_SECRET_MIN_LENGTH - 1)]) {
+      const relatado = signingSecretProblem({ SIGNING_SECRET: v }) === null;
+      const funciona = (await mintFormToken({ SIGNING_SECRET: v }, 'suporte')) !== '';
+      expect(relatado, `valor ${JSON.stringify(v)}: relatório e realidade divergem`).toBe(funciona);
+    }
+    const relatado = signingSecretProblem({ SIGNING_SECRET: bom }) === null;
+    const funciona = (await mintFormToken({ SIGNING_SECRET: bom }, 'suporte')) !== '';
+    expect(relatado).toBe(true);
+    expect(funciona).toBe(true);
   });
 });

@@ -142,7 +142,7 @@ describe('cronStale (healthz cron heartbeat)', () => {
 });
 
 describe('auditSite (healthz functional self-test)', () => {
-  const FULL_ENV = { TURNSTILE_SECRET_KEY: 'x', RESEND_API_KEY: 'y', ADMIN_EMAIL: 'a@b.c', SIGNING_SECRET: 'z' };
+  const FULL_ENV = { TURNSTILE_SECRET_KEY: 'x', RESEND_API_KEY: 'y', ADMIN_EMAIL: 'a@b.c', SIGNING_SECRET: 'z'.repeat(40) };
   const liveEvent = (over = {}) => ({ slug: 's' + Math.random().toString(36).slice(2, 7), title: 'T', visible: true, comingSoon: false, status: 'entregue', driveUrl: 'https://drive.google.com/drive/folders/abc', ...over });
 
   it('is clean for healthy events + fully-configured forms, and nominates a sample', () => {

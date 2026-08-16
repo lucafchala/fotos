@@ -194,6 +194,54 @@ confiar nela.
 conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
 inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
 
+**`SIGNING_SECRET` criado vazio não era distinguido de bem configurado.**
+`wrangler secret put` aceita valor vazio sem reclamar, então "criei o secret" e
+"o secret existe" não são a mesma coisa — e foi exatamente o que aconteceu aqui.
+O caso vazio já falhava seguro por acidente (string vazia é falsy em JS), mas
+dois vizinhos dele não:
+
+- **Só espaço/quebra de linha** (o resultado de colar valor no terminal) é
+  *truthy*: viraria uma chave HMAC de verdade, com o painel jurando que a
+  proteção está ativa. É o falso verde, o pior dos estados possíveis.
+- **Segredo curto** era aceito sem piso. Uma chave de 8 caracteres cai numa
+  varredura offline a partir de um único token assinado; daí em diante dá para
+  forjar nonce de Drive e token de formulário — pior do que ter o controle
+  desligado, porque o painel diria que está ligado.
+
+Agora há uma fonte única (`signingSecretProblem`): recusa vazio, espaço em
+branco e menos de 32 caracteres, e normaliza com `trim()` para que um newline
+colado não produza uma chave diferente da que a pessoa configurou. O relatório
+do `/api/healthz` e do painel lê **da mesma função** que decide se a chave é
+usada — antes eram duas opiniões (`!!env.SIGNING_SECRET`) sobre o mesmo fato, e
+a divergência apareceria como painel verde sobre segredo recusado. A mensagem
+diz qual é o defeito ("ausente ou vazio" vs. "curto demais (N de 32)"), porque
+as duas situações levam a ações diferentes.
+
+Efeito colateral que valeu registro: os fixtures dos testes usavam segredos de
+16 caracteres e passaram a cair abaixo do piso — os testes de token de
+formulário voltaram a passar validando o caminho **sem** assinatura. Corrigidos
+para comprimento realista, senão a suíte estaria verde testando outra coisa.
+
+**`HEAD` devolvia 404 no site inteiro.** Todas as rotas casavam com
+`method === 'GET'`, então um `HEAD` atravessava o roteamento sem casar com nada
+e caía no 404: `GET /` respondia 200 e `HEAD /` respondia 404 na mesma URL.
+Não é preciosismo de RFC — monitor de uptime, verificador de link e parte dos
+crawlers pedem `HEAD` justamente para não baixar o corpo, e para todos eles o
+site parecia fora do ar. Agora o `HEAD` delega ao roteamento normal com um GET
+equivalente e descarta só o corpo (mesmo status, mesmos cabeçalhos).
+
+Duas coisas valem registro sobre COMO isso apareceu:
+
+- **O sintoma apontava para o lugar errado.** O smoke test do deploy lê os
+  cabeçalhos com `curl -sI` (que é um HEAD), caiu na página de erro — que não
+  tem script inline e portanto legitimamente não leva nonce — e reprovou com
+  "CSP nonce ausente". Passei a checar o status do próprio HEAD *antes* de
+  olhar qualquer cabeçalho, para o relatório apontar a causa e não o efeito.
+- **Nenhum teste pegava isso**, porque todos os testes de rota mandam GET. O
+  bug era anterior a esta entrega e só ficou visível quando o deploy passou a
+  inspecionar cabeçalhos com HEAD. Agora há teste de paridade GET/HEAD para as
+  rotas públicas, verificado falhando contra o código antigo.
+
 **Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
 `driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
 campo, não despejam o objeto do evento. Nada a corrigir.
