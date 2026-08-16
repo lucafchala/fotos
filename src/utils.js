@@ -258,6 +258,16 @@ export function escape(str) {
 // of the default set since it's not relevant on every page. "Sugestões"
 // deliberately lives only in the dismissible update banner, not here — the
 // footer was getting crowded and this link doesn't need to be permanent.
+// "Privacidade" e "Termos" viraram um único link "Legal", que aponta para a
+// Central de Transparência (/legal) — de onde os dois continuam a um clique.
+// O rodapé estava com seis links competindo por atenção, e os dois jurídicos
+// eram justamente os que ninguém clica quando estão soltos ali.
+//
+// Isso NÃO reduz o acesso às políticas, ao contrário: a página de destino
+// mostra o resumo do que é feito com os dados, os prazos, os canais de contato
+// e a documentação de conformidade inteira — tudo que antes exigia saber onde
+// procurar. Um único link nomeado é também o padrão de quem trata conformidade
+// como algo a exibir, não a esconder.
 export function footerLegalLinksHTML(extra = '') {
   const year = new Date().getFullYear();
   return `
@@ -265,8 +275,7 @@ export function footerLegalLinksHTML(extra = '') {
       <a href="/sobre" class="legal-link">Sobre</a>
       <a href="/equipamentos" class="legal-link">Equipamento</a>
       <a href="/suporte" class="legal-link">Suporte</a>
-      <a href="/privacidade" class="legal-link">Privacidade</a>
-      <a href="/termos" class="legal-link">Termos</a>
+      <a href="/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
       ${extra}
     </div>

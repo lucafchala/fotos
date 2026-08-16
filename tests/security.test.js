@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION } from '../src/utils.js';
 import worker, { sanitizeRestoredRequest } from '../src/index.js';
 
 const SECRET = 'segredo-de-teste-para-hmac';
@@ -572,5 +572,65 @@ describe('CSP sem nonce (páginas de erro)', () => {
     // O resto da política continua inteiro numa página de erro.
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('Central de Transparência (/legal)', () => {
+  function kv() {
+    const store = new Map([['events', '[]']]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; } };
+  }
+  const ctx = { waitUntil: () => {} };
+  const get = p => worker.fetch(new Request('https://fotos.lucafchala.com' + p), { FOTOS: kv() }, ctx);
+
+  it('serves the hub at /legal and at /compliance', async () => {
+    for (const p of ['/legal', '/compliance']) {
+      const res = await get(p);
+      expect(res.status, p).toBe(200);
+      expect(res.headers.get('Content-Type'), p).toMatch(/text\/html/);
+    }
+  });
+
+  it('renders no unresolved template values', async () => {
+    // A página é montada por template string a partir de constantes. Um nome
+    // errado numa interpolação não quebra nada — só imprime "undefined" no meio
+    // de uma página institucional, que é o pior lugar para isso acontecer.
+    const body = await (await get('/legal')).text();
+    expect(body).not.toContain('undefined');
+    expect(body).not.toContain('[object');
+    expect(body).not.toContain('${');
+  });
+
+  it('keeps the mandatory legal documents one click away', async () => {
+    // O rodapé passou a ter um único link "Legal" no lugar de "Privacidade" e
+    // "Termos". Isso só é aceitável enquanto esta página realmente levar aos
+    // dois — se um deles sumir daqui, ele fica inalcançável pelo rodapé.
+    const body = await (await get('/legal')).text();
+    expect(body).toContain('href="/privacidade"');
+    expect(body).toContain('href="/termos"');
+    expect(body).toContain('privacidade@lucafchala.com');
+    expect(body).toContain('security@lucafchala.com');
+    expect(body).toContain('gov.br/anpd');
+  });
+
+  it('pins the Terms version it advertises to the one actually in force', async () => {
+    // A página anuncia a versão dos Termos. Se ela ficar para trás de
+    // TERMS_VERSION, o site passa a exibir publicamente um número errado sobre
+    // o texto que as pessoas aceitaram.
+    const body = await (await get('/legal')).text();
+    expect(body).toContain(TERMS_VERSION);
+  });
+
+  it('is reachable from the footer of every public page', async () => {
+    for (const p of ['/', '/privacidade', '/termos', '/sobre', '/suporte', '/equipamentos', '/legal']) {
+      const body = await (await get(p)).text();
+      expect(body, p).toContain('href="/legal" class="legal-link"');
+    }
+  });
+
+  it('is listed in the sitemap', async () => {
+    expect(await (await get('/sitemap.xml')).text()).toContain('/legal</loc>');
   });
 });

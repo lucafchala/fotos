@@ -6,6 +6,7 @@ import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
 import { aboutHTML } from './ui/about.js';
 import { gearHTML } from './ui/gear.js';
+import { legalHTML } from './ui/legal.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -30,6 +31,10 @@ const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this
 const TEMA_PREFILLS = {
   bug: 'Encontrei um problema na interface do site: ',
   sugestao: 'Tenho uma sugestão para o site: ',
+  // Caminho de remoção para quem chega pela Central de Transparência sem saber
+  // de qual projeto a foto é. O caminho principal continua sendo o botão no
+  // rodapé de cada evento, que já vem com o projeto identificado.
+  remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
 };
 
 // KV counters are plain strings, so a corrupted/absent value must never become
@@ -177,6 +182,10 @@ export default {
       // Terms of use
       if (path === '/termos' && method === 'GET') return html(termsHTML(), 200, nonce);
 
+      // Central de Transparência — hub de privacidade/termos/segurança/conformidade.
+      // /compliance responde igual: é o termo que alguém de fora procuraria.
+      if ((path === '/legal' || path === '/compliance') && method === 'GET') return html(legalHTML(), 200, nonce);
+
       // About page
       if (path === '/sobre' && method === 'GET') return html(aboutHTML(), 200, nonce);
 
@@ -255,6 +264,7 @@ async function handleSitemap(env) {
     `  <url><loc>${SITE_URL}/equipamentos</loc></url>`,
     `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
     `  <url><loc>${SITE_URL}/termos</loc></url>`,
+    `  <url><loc>${SITE_URL}/legal</loc></url>`,
     `  <url><loc>${SITE_URL}/suporte</loc></url>`,
   ];
   for (const e of visible) {

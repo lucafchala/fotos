@@ -436,6 +436,7 @@ compatibilidade sem comprar segurança.
 | GET | `/suporte` | `supportHTML()` | Página de contato com WhatsApp + e-mail + formulário |
 | GET | `/privacidade` | `privacyHTML()` | Política de Privacidade (LGPD) |
 | GET | `/termos` | `termsHTML()` | Termos de Uso + autorização de uso de imagem |
+| GET | `/legal`, `/compliance` | `legalHTML` | **Central de Transparência** — hub que reúne privacidade, termos, política de segurança, o resumo do que é feito com cada dado, a documentação de conformidade (`docs/legal/`) e os endpoints legíveis por máquina. Existe para que o rodapé precise de **um** link jurídico em vez de dois, sem esconder nada — a página mostra mais do que os dois links soltos mostravam. Estática, sem script |
 | GET | `/sobre` | `aboutHTML()` | Bio curta, como funciona o trabalho, contato |
 | GET | `/equipamentos` | `gearHTML()` | Lista de equipamento fotográfico |
 | GET | `/manifest.json` | `handleManifest` | Manifest PWA |
@@ -769,6 +770,12 @@ Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a respos
 ---
 
 ## Conformidade legal (LGPD)
+
+A face pública disso é a **Central de Transparência** em
+[`/legal`](https://fotos.lucafchala.com/legal) (também em `/compliance`): reúne
+privacidade, termos, política de segurança, o resumo do que é feito com cada
+dado, os canais de contato e a documentação abaixo. É o que permitiu o rodapé
+ter **um** link jurídico em vez de dois, sem esconder nada.
 
 O pacote completo está em [`docs/legal/`](./docs/legal/). Ele foi escrito
 **lendo o código**, não presumindo o que o código deveria fazer — cada medida

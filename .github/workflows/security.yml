@@ -19,30 +19,26 @@ on:
 permissions:
   contents: read
 
+# NOTA — não adicione um job de CodeQL aqui.
+#
+# Este repositório usa o **default setup** do CodeQL, configurado nas
+# Settings do GitHub (Code security → Code scanning). Ele já roda por PR e
+# cobre `javascript-typescript` e `actions`.
+#
+# Um job de CodeQL neste arquivo seria uma "advanced configuration", e o
+# GitHub recusa as duas ao mesmo tempo — o upload do SARIF falha com
+# "CodeQL analyses from advanced configurations cannot be processed when the
+# default setup is enabled", derrubando o workflow inteiro sem que nada esteja
+# errado com o código. Foi exatamente o que aconteceu na primeira versão deste
+# arquivo.
+#
+# Para elevar o rigor da análise, mude a **query suite** para `security-extended`
+# nas Settings do repositório, e não aqui: Settings → Code security → Code
+# scanning → CodeQL → Query suite. A suíte estendida inclui consultas de menor
+# precisão que a padrão omite — num projeto que trata dado pessoal, um falso
+# positivo custa cinco minutos de leitura e um falso negativo custa bem mais.
+
 jobs:
-  codeql:
-    name: CodeQL
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write   # publicar o resultado na aba Security
-      actions: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: javascript-typescript
-          # security-extended acrescenta consultas de menor precisão que a
-          # suíte padrão omite. Num projeto que trata dado pessoal, um falso
-          # positivo custa cinco minutos de leitura; um falso negativo custa
-          # bem mais.
-          queries: security-extended
-
-      - name: Analyze
-        uses: github/codeql-action/analyze@v4
-
   dependencies:
     name: Dependências
     runs-on: ubuntu-latest

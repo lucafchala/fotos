@@ -109,6 +109,8 @@ jobs:
           check_status "terms"     "$BASE/termos"        200
           check_status "privacy"   "$BASE/privacidade"   200
           check_status "support"   "$BASE/suporte"       200
+          check_status "legal"     "$BASE/legal"         200
+          check_status "compliance" "$BASE/compliance"   200
 
           # SEO/security discovery endpoints — machine-readable, but a 500 here
           # means a crawler or the security.txt RFC 9116 contact silently breaks.

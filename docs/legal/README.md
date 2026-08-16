@@ -30,6 +30,12 @@
 | [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md) | Modelos para assinatura: adulto, responsável por menor, e instituição contratante | Art. 7º I, art. 14; CC art. 20 |
 | [`checklist-conformidade.md`](./checklist-conformidade.md) | Estado item a item: o que está pronto, o que falta, o que depende de decisão de terceiro | — |
 
+Tudo isso tem uma **face pública** em
+[`/legal`](https://fotos.lucafchala.com/legal) — a Central de Transparência, que
+reúne os documentos acima, o resumo do que é feito com cada dado, os canais de
+contato e os endpoints legíveis por máquina. Ao mudar qualquer coisa aqui,
+confira se a página continua coerente (`src/ui/legal.js`).
+
 O resumo executivo para a revisão jurídica continua em
 [`../../LEGAL.md`](../../LEGAL.md); os pontos que dependem de parecer estão
 listados lá e referenciados aqui.

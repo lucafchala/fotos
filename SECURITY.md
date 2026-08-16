@@ -190,6 +190,12 @@ requests. The privacy policy is at
 removal requests can be made through
 [`/suporte`](https://fotos.lucafchala.com/suporte) or the contact above.
 
+A public trust center is published at
+[`/legal`](https://fotos.lucafchala.com/legal) (also `/compliance`), bringing
+together the privacy policy, the terms, this policy, a plain-language summary of
+what is done with each piece of data, the contact channels and the
+machine-readable endpoints.
+
 The full compliance pack lives in [`docs/legal/`](./docs/legal/): records of
 processing (ROPA), the data-protection impact assessment (RIPD), the legitimate
 interest assessment (LIA), the retention policy, the international-transfer

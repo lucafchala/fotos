@@ -76,13 +76,27 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ### Entregue em 2026-08 (não reabrir sem necessidade nova)
 
+**Central de Transparência (`/legal`, também `/compliance`).** Hub público que
+reúne privacidade, termos, política de segurança, o resumo do que é feito com
+cada dado, os canais de contato e a documentação de `docs/legal/`. O rodapé
+passou a ter um único link "Legal" no lugar de "Privacidade" + "Termos" — sem
+perder acesso a nada, já que a página mostra mais do que os dois links soltos
+mostravam. Ao mexer em `docs/legal/`, confira se `src/ui/legal.js` continua
+coerente (há teste garantindo que Privacidade e Termos seguem a um clique).
+
 Nonce assinado no `/api/drive-link` · honeypot + token de formulário com idade
 mínima · alerta de login suspeito · strip de EXIF (JPEG/PNG/WebP) · CSP
 report-only com coletor · dedupe de mensagens repetidas no suporte · checagem
 de origem contra CSRF · cookie `__Host-` com timeout de inatividade · política
 de senha · correção de injeção de fórmula em CSV · `no-store` nas respostas de
-dados · higienização do restore de backup · CodeQL + `npm audit` +
-dependency-review + invariantes de CI.
+dados · higienização do restore de backup · `npm audit` + dependency-review +
+invariantes de CI.
+
+**CodeQL:** já roda pelo *default setup* do GitHub (Settings → Code security),
+que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
+`security.yml` seria uma "advanced configuration" e o GitHub recusa as duas ao
+mesmo tempo — foi o que derrubou a primeira versão do workflow. Para elevar o
+rigor, mude a *query suite* para `security-extended` nas Settings, não no YAML.
 
 **Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
 `driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
