@@ -265,11 +265,33 @@ Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
 
 Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Veja **Rollback** abaixo.
 
-### 2. Manual
+### 2. Manual, pelo GitHub (funciona do celular)
+
+**Actions** → workflow **Deploy** → **Run workflow** → branch `main`.
+
+O `deploy.yml` aceita `workflow_dispatch`, e o job é **exatamente o mesmo** do
+push: a suíte roda antes de tocar em produção e o smoke test roda depois. Um
+disparo manual não pula nenhum portão.
+
+Serve para as situações que pedem republicação e **não têm commit nenhum** por
+natureza — antes delas, a única saída era inventar um commit vazio:
+
+- **Rotação de secret.** Um secret novo vale na hora, mas nada reexecuta o smoke
+  test para confirmar que entrou. Foi o caso do `SIGNING_SECRET`: só dava para
+  saber esperando o próximo merge.
+- **Rollback**, republicando um commit anterior sem reescrever a história.
+- **Reverificar a produção** depois de mexer em algo fora do repositório
+  (binding de KV, domínio, painel da Cloudflare).
+
+### 3. Manual, pela linha de comando
 
 ```bash
 npx wrangler deploy
 ```
+
+Atalho de emergência. Pula a suíte, as migrações e o smoke test — publica o que
+estiver na sua árvore de trabalho, inclusive o que você esqueceu de commitar.
+Prefira o disparo pelo Actions.
 
 ### Rollback
 
