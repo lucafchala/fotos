@@ -211,6 +211,81 @@ está errado. O teste exige que os quatro estados produzam quatro mensagens
 distintas — comparar por `Set(...).size` impede que alguém volte a fundi-las
 sem o teste reclamar.
 
+### Revisão de código sobre a entrega inteira — seis achados
+
+Rodada depois de tudo mergeado, sobre os 18 commits. Cinco corrigidos, um
+decidido conscientemente. Todos verificados **rodando o site**, não só na suíte.
+
+**1. Cookie legado sombreava a sessão nova — e um vizinho podia forçar isso.**
+O mais grave. `verifySession` casava `(?:__Host-)?session=` num padrão único, e
+`match()` devolve a PRIMEIRA ocorrência: com `session=antigo; __Host-session=novo`
+o ANTIGO vencia. Duas consequências:
+
+- quem tinha sessão aberta antes da migração ficava em **loop de login** — o
+  login gravava o cookie novo e o legado continuava sombreando;
+- pior, era **forçável de fora**. Um host vizinho de `lucafchala.com` grava
+  `session=` de domínio, mas não `__Host-session` — é justamente essa a garantia
+  do prefixo. Bastavam 64 hexadecimais quaisquer para derrubar o painel: o
+  ataque exato que o `__Host-` foi adotado para impedir.
+
+Confirmado dirigindo o painel: com o código antigo, `/api/metrics` devolvia
+**401** sob o cookie hostil; com a correção, **200**. Além da precedência
+explícita, o login passou a apagar o legado — o logout já fazia, e a assimetria
+era o bug.
+
+**2. Anexo de remoção saía com GPS quando o formato não era limpável.**
+`isLikelyImage()` aceitava HEIC, AVIF e GIF; `stripImageMetadata()` só sabe
+limpar JPEG, PNG e WebP. As duas listas divergiam em silêncio, e HEIC é o padrão
+do iPhone — ou seja, o caminho comum. A foto de quem **pede remoção** saía por
+e-mail com as coordenadas, enquanto a política publicada afirmava sem ressalva
+que os metadados são apagados. Falha de conformidade, não só de código.
+
+Corrigido tornando o portão a **própria capacidade de limpar**: se o strip não
+confirmou, a foto não vai. Não há segunda lista para divergir, e ensinar
+HEIC ao strip no futuro abre o portão sozinho.
+
+**3. `HEAD` gastava escrita em KV.** Introduzido pela correção de HEAD desta
+mesma entrega: o re-dispatch como GET passava pelo contador de visitas. Um
+monitor de uptime de minuto em minuto = **1440 escritas/dia contra a cota de
+1000/dia** — o contador sozinho derrubaria eventos, sessões e consentimento — e
+ainda inflava a contagem pública com robô. Medido no harness: 10 HEADs = 0
+escritas; 1 GET = 1 escrita.
+
+**4. O teto de pedidos de remoção não era teto.** `trimRequests` preservava
+todos os não-resolvidos e só aparava os resolvidos. `sanitizeRestoredRequest`
+marca todo registro restaurado como `resolved: false`, então um backup grande
+passava inteiro, estourava o limite de 25 MB por valor do KV, e a escrita falhava
+**depois** de eventos e categorias já gravados — restore pela metade.
+
+**5. `//host/x` passava como caminho interno no markdown.** Outro bug desta
+entrega. `href.startsWith('/')` casa URL protocol-relative, que o browser
+resolve como `https://host/x`. Saía como link externo sem `rel="noopener"`,
+pulando a validação de esquema e host logo abaixo.
+
+**6. `/api/healthz` público diz qual controle está desligado — MANTIDO.**
+Este não foi corrigido, e a decisão é consciente:
+
+- O que vaza é que o `SIGNING_SECRET` falta, logo o nonce de página e os tokens
+  de formulário estão off. O valor disso para um atacante é reusar um token
+  Turnstile entre páginas — **os slugs já são públicos**, estão no
+  `sitemap.xml`. É controle de abuso, não de confidencialidade.
+- Esconder custa a sinalização que se provou útil: foi exatamente essa mensagem
+  que fez o secret vazio ser descoberto e corrigido.
+- No estado normal (`problems: []`) não há vazamento nenhum. Ele só aparece
+  quando há algo errado — que é quando você mais precisa ver.
+
+**Se o modelo de ameaça mudar**, o caminho é servir o detalhe só com sessão de
+admin e deixar público apenas `{ ok, kv, latências, cron }`. O painel de status
+já degrada sozinho quando os campos faltam (`autoteste indisponível`), então a
+mudança é de um lado só. Não faça isso sem necessidade: o custo é perder o
+alarme.
+
+**Uma observação de método:** todos os cinco defeitos corrigidos foram
+verificados **dirigindo o site**, e a diferença apareceu. A recusa de HEIC dizia
+`(unknown)` em vez de `(heic)` — só visível rodando —, e um JPEG malformado
+recebia o conselho "converta para JPEG", que é absurdo para quem acabou de
+mandar um. As duas coisas foram corrigidas depois de ver a saída real.
+
 **Observabilidade ligada no painel seria apagada pelo próximo deploy.** Os
 logs e traces foram ligados no painel da Cloudflare, mas o `wrangler.toml` não
 tinha bloco `[observability]` — e o `wrangler deploy` trata a configuração como

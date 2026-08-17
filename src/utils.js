@@ -187,7 +187,26 @@ export function sessionRecord(request) {
 // de 24 h do KV, sem inatividade e sem vínculo com o cliente que a abriu.
 export async function verifySession(env, request) {
   const cookies = request.headers.get('Cookie') || '';
-  const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
+
+  // `__Host-session` PRIMEIRO; o cookie legado só como fallback.
+  //
+  // Isto era um padrão único com `(?:__Host-)?`, e `match()` devolve a PRIMEIRA
+  // ocorrência — então `session=antigo; __Host-session=novo` resolvia para o
+  // ANTIGO. Duas consequências, ambas ruins:
+  //
+  //  1. Quem tinha sessão aberta antes da migração para `__Host-` ficava em
+  //     loop de login: o login gravava o cookie novo, o legado continuava
+  //     sombreando, e a sessão nunca era encontrada no KV.
+  //  2. Pior, era forçável de fora. Um host vizinho de `lucafchala.com`
+  //     consegue gravar `session=` de domínio, mas **não** `__Host-session`
+  //     (é justamente essa a garantia do prefixo). Bastava ele escrever 64
+  //     hexadecimais quaisquer para derrubar o painel — exatamente o ataque
+  //     que o prefixo `__Host-` foi adotado para impedir.
+  //
+  // Ordem explícita resolve as duas: o cookie que só a nossa origem consegue
+  // gravar tem precedência sobre o que qualquer vizinho grava.
+  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
+             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
   if (!match) return false;
 
   const token = match[1];
@@ -548,6 +567,15 @@ export function stripImageMetadata(b64) {
     if (bytes[0] === 0xFF && bytes[1] === 0xD8) { format = 'jpeg'; cleaned = stripJpeg(bytes); }
     else if (bytes[0] === 0x89 && bytes[1] === 0x50) { format = 'png'; cleaned = stripPng(bytes); }
     else if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'RIFF') { format = 'webp'; cleaned = stripWebp(bytes); }
+    // Os que sabemos NOMEAR mas não limpar. Reconhecê-los não os aceita — o
+    // chamador recusa tudo que volta com stripped:false. É só para a recusa
+    // dizer "(heic)" em vez de "(unknown)": quem recebe a mensagem precisa
+    // saber qual arquivo converter, e "unknown" não ajuda ninguém a agir.
+    else if (String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp') {
+      const marca = String.fromCharCode(...bytes.slice(8, 12)).toLowerCase();
+      format = marca.startsWith('avif') ? 'avif' : 'heic';
+    }
+    else if (String.fromCharCode(bytes[0], bytes[1], bytes[2]) === 'GIF') { format = 'gif'; }
   } catch {
     cleaned = null;
   }

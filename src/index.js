@@ -206,10 +206,14 @@ function stripBody(res) {
 // o handler (`const { fetch } = worker`), e o HEAD voltaria a 404 de um jeito
 // que nenhum teste de rota pegaria.
 const worker = {
-  async fetch(request, env, ctx) {
+  // `interno` NÃO vem da rede: o Workers chama `fetch(request, env, ctx)` com
+  // três argumentos, então o quarto só existe quando somos nós mesmos chamando
+  // logo abaixo. É o que torna a flag inforjável — um cliente não consegue
+  // pedir para não ser contado, porque não existe cabeçalho para isso.
+  async fetch(request, env, ctx, interno = {}) {
     if (request.method.toUpperCase() === 'HEAD') {
       const asGet = new Request(request.url, { method: 'GET', headers: request.headers });
-      return stripBody(await worker.fetch(asGet, env, ctx));
+      return stripBody(await worker.fetch(asGet, env, ctx, { headOnly: true }));
     }
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -325,7 +329,7 @@ const worker = {
 
       // Event detail pages — must be last
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
-      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce);
+      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
       return notFound();
     } catch (err) {
@@ -473,7 +477,7 @@ function handleGpc() {
 // ---------------------------------------------------------------------------
 // Event page
 // ---------------------------------------------------------------------------
-async function handleEventPage(request, env, slug, ctx, nonce) {
+async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
@@ -493,8 +497,20 @@ async function handleEventPage(request, env, slug, ctx, nonce) {
   // KV read-modify-write is not atomic, so concurrent visits can undercount —
   // these are soft analytics, not hard metrics.
   const cookieName = `fv_${slug}`;
+  //
+  // HEAD não conta. O HEAD é resolvido reexecutando a rota como GET, então sem
+  // esta exceção todo HEAD sem cookie gastava uma ESCRITA em KV — e HEAD é o
+  // método que monitor de uptime e verificador de link usam. Um monitor de
+  // minuto em minuto são 1440 escritas/dia contra uma cota de 1000/dia no
+  // plano free: o contador de visitas sozinho derrubaria eventos, sessões e
+  // consentimento. E ainda inflaria a contagem pública com robô.
+  //
+  // O Set-Cookie também fica de fora: emitido numa resposta de HEAD, ele
+  // marcaria o visitante como "já contado" e o GET seguinte — o de verdade —
+  // não contaria. É uma divergência mínima entre os cabeçalhos de HEAD e GET,
+  // aceita de propósito, e é o único ponto em que os dois não são idênticos.
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
-  if (!alreadyCounted) {
+  if (!alreadyCounted && !headOnly) {
     const viewKey = `views:${slug}`;
     ctx.waitUntil(
       env.FOTOS.get(viewKey).then(async v => {
@@ -520,7 +536,7 @@ async function handleEventPage(request, env, slug, ctx, nonce) {
     nonce
   );
   if (unlisted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
-  if (!alreadyCounted) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
+  if (!alreadyCounted && !headOnly) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
 
@@ -605,14 +621,20 @@ export async function handleLogin(request, env, ctx) {
   const token = generateToken();
   await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
 
-  return new Response(null, {
-    status: 302,
-    headers: {
-      ...dataSecurityHeaders('text/plain; charset=utf-8'),
-      Location: '/dashboard',
-      'Set-Cookie': sessionCookie(token),
-    },
+  const headers = new Headers({
+    ...dataSecurityHeaders('text/plain; charset=utf-8'),
+    Location: '/dashboard',
   });
+  headers.append('Set-Cookie', sessionCookie(token));
+  // Mata o cookie legado no MESMO passo em que emite o novo. O logout já fazia
+  // isso; o login não, e essa assimetria era o bug: quem tinha `session=` de
+  // antes da migração recebia o `__Host-session` novo com o antigo ainda vivo
+  // ao lado, e ficava em loop de login enquanto o legado não expirasse.
+  // Reemitir com Max-Age=0 é a única forma de apagá-lo — não dá para "não
+  // enviar" um cookie que já está no browser.
+  headers.append('Set-Cookie', 'session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+
+  return new Response(null, { status: 302, headers });
 }
 
 // Contador de falhas por IP, só para alertar (o bloqueio é o rate limit acima).
@@ -1292,19 +1314,55 @@ async function handleRemovalRequest(request, env) {
     }
     // Confirm it's actually an image (magic bytes), not an arbitrary blob.
     if (!isLikelyImage(fileBase64)) {
-      return jsonErr('Envie uma imagem válida (JPEG, PNG, WebP, GIF ou HEIC).', 415);
+      return jsonErr('Envie uma imagem válida (JPEG, PNG ou WebP).', 415);
     }
   }
 
   // Metadados fora antes de a foto virar anexo de e-mail. Quem manda uma foto
   // pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi
-  // tirada — e nós não precisamos delas para atender ao pedido. Ver
-  // stripImageMetadata() em utils.js para o que é tratado e o que passa
-  // intacto (e por quê).
+  // tirada — e nós não precisamos delas para atender ao pedido.
+  //
+  // O PORTÃO É A PRÓPRIA CAPACIDADE DE LIMPAR, e não uma segunda lista de
+  // formatos. `isLikelyImage()` aceita HEIC, AVIF e GIF; `stripImageMetadata()`
+  // só sabe limpar JPEG, PNG e WebP. As duas listas divergiam em silêncio, e o
+  // resultado era o pior possível: a foto de quem pede remoção saía por e-mail
+  // com o GPS intacto, enquanto a política de privacidade publicada afirmava,
+  // sem ressalva, que os metadados são apagados. HEIC é o padrão do iPhone,
+  // então esse era o caminho comum, não o exótico.
+  //
+  // Manter duas listas em sintonia é uma promessa que se quebra sozinha. Aqui
+  // não há lista: se `stripped` voltar falso, por qualquer motivo, a foto não
+  // vai. Suportar HEIC no futuro passa a ser só ensinar stripImageMetadata —
+  // este portão abre junto, sem ninguém lembrar de nada.
   let photoMeta = null;
   let cleanFileBase64 = fileBase64;
   if (method === 'upload' && fileBase64) {
     const stripped = stripImageMetadata(fileBase64);
+    if (!stripped.stripped) {
+      // Duas causas com conselhos OPOSTOS, e mandar o conselho errado é pior
+      // que não dar conselho:
+      //
+      //  - Formato que não sabemos limpar (HEIC, AVIF, GIF) → converter resolve.
+      //  - Formato que sabemos limpar mas cujo arquivo saiu fora do padrão →
+      //    "converta para JPEG" é absurdo para quem acabou de mandar um JPEG.
+      //    Os parsers aqui abortam ao primeiro byte fora de lugar, de
+      //    propósito: preferimos recusar a devolver uma imagem corrompida.
+      const sabemosLimpar = ['jpeg', 'png', 'webp'].includes(stripped.format);
+      return jsonErr(
+        sabemosLimpar
+          ? `Este arquivo ${stripped.format.toUpperCase()} tem uma estrutura fora do padrão e não ` +
+            'consegui apagar os metadados dele com segurança — e não envio foto sem apagá-los, ' +
+            'porque costumam incluir a localização por GPS. Abra a foto, salve/exporte de novo ' +
+            '(ou tire um print dela) e envie o novo arquivo. Ou identifique a foto pelo ' +
+            'número/link, sem anexo.'
+          : `Não consigo apagar os metadados de um arquivo ${stripped.format.toUpperCase()}, e não ` +
+            'envio foto sem apagá-los — eles costumam incluir a localização por GPS de onde ela ' +
+            'foi tirada. Converta para JPEG, PNG ou WebP e envie de novo. No iPhone: Ajustes → ' +
+            'Câmera → Formatos → "Mais compatível". Ou identifique a foto pelo número/link, ' +
+            'sem anexo.',
+        415
+      );
+    }
     cleanFileBase64 = stripped.base64;
     photoMeta = { stripped: stripped.stripped, format: stripped.format };
   }
@@ -1387,11 +1445,26 @@ async function handleRemovalRequest(request, env) {
 // handleRemovalRequest relies on the freshly-pushed request surviving this.
 export function trimRequests(requests, max) {
   if (requests.length <= max) return requests;
-  const unresolved = requests.filter(r => !r.resolved);
-  const resolved = requests.filter(r => r.resolved)
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-    .slice(0, Math.max(0, max - unresolved.length));
-  requests.splice(0, requests.length, ...unresolved, ...resolved);
+
+  // `max` é TETO, não sugestão.
+  //
+  // A versão anterior preservava TODOS os não-resolvidos e só aparava os
+  // resolvidos, então o teto não valia quando os não-resolvidos sozinhos já o
+  // ultrapassavam. No fluxo normal isso quase nunca acontece — os pedidos
+  // chegam devagar e o admin resolve. Mas `handleRestoreBackup` mescla um
+  // arquivo arbitrário, e `sanitizeRestoredRequest` marca todo registro
+  // restaurado como `resolved: false`: um backup grande passava inteiro,
+  // estourava o limite de 25 MB por valor do KV, e a escrita falhava DEPOIS
+  // de eventos e categorias já terem sido gravados — restore pela metade.
+  //
+  // Prioridade continua sendo dos não-resolvidos (são pedidos de titular em
+  // aberto, prazo legal correndo). O que muda é que, se nem eles couberem, os
+  // mais antigos também caem, em vez de o teto ser ignorado.
+  const maisNovoPrimeiro = (a, b) => String(b.createdAt).localeCompare(String(a.createdAt));
+  const unresolved = requests.filter(r => !r.resolved).sort(maisNovoPrimeiro);
+  const resolved = requests.filter(r => r.resolved).sort(maisNovoPrimeiro);
+
+  requests.splice(0, requests.length, ...[...unresolved, ...resolved].slice(0, max));
   return requests;
 }
 

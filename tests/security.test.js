@@ -13,8 +13,8 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION } from '../src/utils.js';
-import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken } from '../src/index.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession } from '../src/utils.js';
+import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { readFileSync } from 'node:fs';
@@ -1173,5 +1173,222 @@ describe('SIGNING_SECRET: criado não é o mesmo que configurado', () => {
     const funciona = (await mintFormToken({ SIGNING_SECRET: bom }, 'suporte')) !== '';
     expect(relatado).toBe(true);
     expect(funciona).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Achados da revisão de código
+// ---------------------------------------------------------------------------
+describe('precedência do cookie de sessão', () => {
+  const TOKEN_NOVO = 'a'.repeat(64);
+  const TOKEN_LIXO = 'b'.repeat(64);
+
+  function kv(sessoes = {}) {
+    const store = new Map(Object.entries(sessoes));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const req = cookie => new Request('https://fotos.lucafchala.com/dashboard', { headers: { Cookie: cookie, 'User-Agent': 'ua-de-teste' } });
+  const sessaoValida = () => JSON.stringify({
+    createdAt: Date.now(), lastSeenAt: Date.now(),
+    fp: clientFingerprint(req('')),
+  });
+
+  // Um host vizinho de lucafchala.com consegue gravar `session=` de domínio,
+  // mas NÃO `__Host-session` — é exatamente essa a garantia do prefixo. Com um
+  // padrão único e `(?:__Host-)?`, `match()` devolvia a PRIMEIRA ocorrência e o
+  // cookie do vizinho vencia: 64 hexadecimais quaisquer derrubavam o painel.
+  it('prefers __Host-session over a legacy cookie a sibling host can write', async () => {
+    const env = { FOTOS: kv({ [`admin_session:${TOKEN_NOVO}`]: sessaoValida() }) };
+    const cookie = `session=${TOKEN_LIXO}; __Host-session=${TOKEN_NOVO}`;
+    expect(await verifySession(env, req(cookie)), 'o cookie do vizinho não pode sombrear o nosso').toBe(true);
+  });
+
+  // Mesma raiz, sem atacante nenhum: quem tinha sessão aberta antes da migração
+  // ficava em loop de login, porque o legado sombreava o cookie recém-emitido.
+  it('does not let a stale legacy cookie shadow a freshly issued session', async () => {
+    const env = { FOTOS: kv({ [`admin_session:${TOKEN_NOVO}`]: sessaoValida() }) };
+    expect(await verifySession(env, req(`session=${TOKEN_LIXO}; __Host-session=${TOKEN_NOVO}`))).toBe(true);
+    // ...e a ordem inversa no cabeçalho não pode mudar a resposta.
+    expect(await verifySession(env, req(`__Host-session=${TOKEN_NOVO}; session=${TOKEN_LIXO}`))).toBe(true);
+  });
+
+  // O fallback continua existindo: sessão legada legítima segue valendo.
+  it('still accepts a legacy cookie when no __Host- cookie is present', async () => {
+    const env = { FOTOS: kv({ [`admin_session:${TOKEN_NOVO}`]: sessaoValida() }) };
+    expect(await verifySession(env, req(`session=${TOKEN_NOVO}`))).toBe(true);
+  });
+});
+
+describe('anexo de remoção: o portão é a capacidade de limpar', () => {
+  function kv() {
+    const store = new Map([['events', JSON.stringify([{
+      id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public',
+      driveUrl: 'https://drive.google.com/x', visible: true, comingSoon: false,
+      photos: [], thumbnailUrl: '', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+    }])]]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const post = body => worker.fetch(new Request('https://fotos.lucafchala.com/api/removal-request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '7.7.7.7' },
+    body: JSON.stringify(body),
+  }), { FOTOS: kv(), TURNSTILE_SECRET_KEY: 'ts' }, { waitUntil: () => {} });
+
+  // HEIC é o padrão do iPhone e passava por isLikelyImage(), mas
+  // stripImageMetadata() não sabe limpá-lo. A foto de quem PEDE REMOÇÃO saía
+  // por e-mail com o GPS intacto, enquanto a política publicada afirmava sem
+  // ressalva que os metadados são apagados.
+  it('refuses a HEIC upload instead of emailing it with GPS intact', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    // ftyp + marca heic: o suficiente para isLikelyImage aceitar.
+    const heic = new Uint8Array(64);
+    heic.set([0x00, 0x00, 0x00, 0x20], 0);
+    for (const [i, c] of [...'ftypheic'].entries()) heic[4 + i] = c.charCodeAt(0);
+
+    const res = await post({
+      eventSlug: 'evento', method: 'upload', fileName: 'foto.heic',
+      fileBase64: base64FromBytes(heic),
+      email: 'a@b.c', phone: '11999999999', consent: true, turnstileToken: 'ok',
+    });
+    const corpo = await res.json();
+    expect(res.status, JSON.stringify(corpo)).toBe(415);
+    // A recusa tem de ensinar a saída, não só dizer não.
+    expect(corpo.error).toMatch(/JPEG/);
+    expect(corpo.error).toMatch(/iPhone/);
+  });
+
+  // O invariante que substitui as duas listas: o que não foi limpo não é
+  // enviado, qualquer que seja o formato.
+  it('never attaches a file that stripImageMetadata could not clean', () => {
+    for (const bytes of [
+      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 1, 1, 1, 1, 1]), // GIF89a
+      new Uint8Array(Array(16).fill(0)),                                       // lixo
+    ]) {
+      expect(stripImageMetadata(base64FromBytes(bytes)).stripped,
+        'formato não-limpável não pode reportar stripped:true').toBe(false);
+    }
+  });
+});
+
+describe('HEAD não custa escrita em KV nem infla contagem', () => {
+  function kv() {
+    const store = new Map([['events', JSON.stringify([{
+      id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public',
+      driveUrl: 'https://drive.google.com/x', visible: true, comingSoon: false,
+      photos: [], thumbnailUrl: '', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+    }])]]);
+    const escritas = [];
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { escritas.push(k); store.set(k, v); },
+      async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _escritas: escritas };
+  }
+  // waitUntil precisa ser AGUARDADO: o contador roda fora do caminho da
+  // resposta, e um teste que não espera pelas promessas mediria o nada.
+  const bater = async (method) => {
+    const FOTOS = kv();
+    const pendentes = [];
+    const env = { FOTOS };
+    const ctx = { waitUntil: p => pendentes.push(p) };
+
+    // getEvents() guarda `events` num cache de MÓDULO com TTL. Entre testes do
+    // mesmo arquivo isso vaza: sem forçar uma releitura, este teste enxerga a
+    // lista de outro describe e o evento não existe (404). /api/healthz é o
+    // único caminho que chama getEvents(env, true), então serve de primer.
+    // Em produção o cache é por isolate e desejado; o vazamento é só entre
+    // testes — mas custa um 404 confuso a quem escrever o próximo teste.
+    await worker.fetch(new Request('https://fotos.lucafchala.com/api/healthz'), env, ctx);
+    FOTOS._escritas.length = 0;
+
+    const res = await worker.fetch(
+      new Request('https://fotos.lucafchala.com/evento', { method }), env, ctx);
+    await Promise.all(pendentes);
+    return { status: res.status, escritas: FOTOS._escritas, res };
+  };
+
+  // O HEAD é resolvido reexecutando a rota como GET, então sem exceção
+  // explícita todo HEAD sem cookie gastava uma escrita. Um monitor de uptime
+  // de minuto em minuto = 1440 escritas/dia contra uma cota de 1000/dia:
+  // o contador de visitas sozinho derrubaria eventos, sessões e consentimento.
+  it('writes to KV on GET but never on HEAD', async () => {
+    const get = await bater('GET');
+    expect(get.status).toBe(200);
+    expect(get.escritas.filter(k => k.startsWith('views:')), 'GET conta').toHaveLength(1);
+
+    const head = await bater('HEAD');
+    expect(head.status, 'HEAD continua respondendo como GET').toBe(200);
+    expect(head.escritas, 'HEAD não pode gravar NADA em KV').toEqual([]);
+  });
+
+  // Se o HEAD emitisse o cookie de "já contado", o GET seguinte — o de verdade
+  // — deixaria de contar. O monitor apagaria a visita do humano.
+  it('does not send the already-counted cookie on HEAD', async () => {
+    const head = await bater('HEAD');
+    const cookies = head.res.headers.get('Set-Cookie') || '';
+    expect(cookies).not.toMatch(/fv_evento=1/);
+  });
+});
+
+describe('teto de pedidos de remoção é teto', () => {
+  const fazer = (n, resolved) => Array.from({ length: n }, (_, i) => ({
+    id: `r${i}`, resolved, createdAt: new Date(2020, 0, 1 + i).toISOString(),
+  }));
+
+  // O teto só aparava os RESOLVIDOS, então não valia quando os não-resolvidos
+  // sozinhos já o ultrapassavam. `sanitizeRestoredRequest` marca todo registro
+  // restaurado como resolved:false, então um backup grande passava inteiro,
+  // estourava o limite de 25 MB por valor do KV, e a escrita falhava DEPOIS de
+  // eventos e categorias já gravados — restore pela metade.
+  it('caps even when every record is unresolved', () => {
+    const lista = fazer(700, false);
+    trimRequests(lista, 500);
+    expect(lista).toHaveLength(500);
+  });
+
+  it('keeps the newest when it has to cut unresolved ones', () => {
+    const lista = fazer(600, false);
+    trimRequests(lista, 500);
+    // fazer() gera do mais antigo para o mais novo; sobreviver = ser recente.
+    expect(lista.some(r => r.id === 'r599'), 'o mais novo sobrevive').toBe(true);
+    expect(lista.some(r => r.id === 'r0'), 'o mais antigo cai').toBe(false);
+  });
+
+  it('still prioritises unresolved over resolved', () => {
+    const lista = [...fazer(300, true), ...fazer(300, false)];
+    trimRequests(lista, 400);
+    expect(lista).toHaveLength(400);
+    expect(lista.filter(r => !r.resolved), 'nenhum pedido em aberto foi descartado').toHaveLength(300);
+  });
+
+  it('leaves a list under the cap untouched', () => {
+    const lista = fazer(10, false);
+    const antes = lista.map(r => r.id);
+    trimRequests(lista, 500);
+    expect(lista.map(r => r.id)).toEqual(antes);
+  });
+});
+
+describe('markdown: URL protocol-relative não é caminho interno', () => {
+  // `//exemplo.com/x` começa com `/` e era devolvida crua como se fosse um
+  // caminho do site, pulando a validação de esquema e host — e sem
+  // rel="noopener", porque isExternal() testa ^https:// e `//` não casa.
+  it('does not treat //host/path as an internal path', () => {
+    expect(resolveDocHref('//exemplo.com/x')).toBeNull();
+    expect(resolveDocHref('//exemplo.com')).toBeNull();
+  });
+
+  it('keeps real internal paths working', () => {
+    expect(resolveDocHref('/privacidade')).toBe('/privacidade');
+    expect(resolveDocHref('/legal/registro-de-operacoes')).toBe('/legal/registro-de-operacoes');
+  });
+
+  it('renders a protocol-relative target as plain text, with no anchor', () => {
+    const { html } = renderMarkdown('veja [isto](//exemplo.com/x)');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('//exemplo.com');
+    expect(html).toContain('isto');
   });
 });
