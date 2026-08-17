@@ -4,6 +4,15 @@ Galeria pública de fotos do fotógrafo Luca F. Chala — site de **entrega** de
 
 URL de produção: <https://fotos.lucafchala.com>
 
+> ### 👋 Voltando ao projeto depois de um tempo?
+>
+> Comece por **[RETOMADA.md](./RETOMADA.md)**, não por aqui. São dez minutos e
+> cobre o que verificar antes de mexer, as sete armadilhas que já custaram horas
+> nesta base, e onde olhar quando algo quebra.
+>
+> Este README é a **referência completa** — bom para consultar, denso demais para
+> reconstruir contexto.
+
 ---
 
 ## Sumário
@@ -11,6 +20,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Visão geral](#visão-geral)
 - [Stack e arquitetura](#stack-e-arquitetura)
 - [Como rodar localmente](#como-rodar-localmente)
+- [Verificação (rodar o site de verdade)](./docs/VERIFICACAO.md)
 - [Configuração (KV, secrets, env vars)](#configuração-kv-secrets-env-vars)
 - [Deploy](#deploy)
 - [Estrutura de arquivos](#estrutura-de-arquivos)

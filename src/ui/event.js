@@ -546,7 +546,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         </div>
         <div id="rem-upload-field" class="rem-field" style="display:none">
           <label>Foto</label>
-          <input type="file" id="rem-file" accept="image/*">
+          <!-- Lista explícita, e não image/*: o servidor recusa o que não
+               consegue limpar de metadados (HEIC, AVIF, GIF), e image/* fazia
+               o iPhone oferecer justamente o HEIC para depois levar 415. -->
+          <input type="file" id="rem-file" accept="image/jpeg,image/png,image/webp">
         </div>
 
         <div class="rem-field">

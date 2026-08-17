@@ -53,8 +53,16 @@ export function resolveDocHref(raw) {
   const slug = DOC_PATH_TO_SLUG[withoutAnchor];
   if (slug) return '/legal/' + slug;
 
-  // Caminho interno já absoluto.
-  if (href.startsWith('/')) return href;
+  // Caminho interno já absoluto — mas `//exemplo.com/x` também começa com `/`
+  // e NÃO é interno: é URL protocol-relative, que o browser resolve como
+  // `https://exemplo.com/x`. Sem a segunda condição ela era devolvida crua,
+  // pulando a validação de esquema e de host logo abaixo, e ainda saía sem
+  // `rel="noopener noreferrer"` — porque `isExternal()` testa `^https://` e um
+  // `//` não casa. Link externo disfarçado de caminho interno.
+  //
+  // Com a exclusão, `//exemplo.com/x` cai no `new URL(href)` mais abaixo, que
+  // lança sem base e rebaixa o link a texto puro.
+  if (href.startsWith('/') && !href.startsWith('//')) return href;
 
   // Antes de tratar o resto como URL: mailto: não sobrevive à checagem de
   // esquema abaixo e precisa passar aqui.

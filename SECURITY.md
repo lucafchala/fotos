@@ -175,6 +175,34 @@ only on the last step breaks the day someone edits the last step. All three
 issues were found by CodeQL, not by manual review, and each is pinned by a
 regression test verified to fail against the previous code.
 
+## Two controls that failed silently, and how they were found
+
+Both were found by code review over the whole change, then confirmed by
+**driving the running site** — neither was visible in a green test suite.
+
+**A sibling host could take the admin panel down.** `verifySession` matched
+`(?:__Host-)?session=` in a single pattern, and `match()` returns the *first*
+occurrence — so a plain `session=` cookie won over `__Host-session`. Any host
+under `lucafchala.com` can write a domain cookie but **cannot** write a
+`__Host-` one; that asymmetry is the entire point of the prefix. Writing 64
+arbitrary hex characters was enough to lock the owner out. Confirmed against
+the running panel: `/api/metrics` returned **401** under the hostile cookie
+before the fix, **200** after. The `__Host-` cookie now takes precedence, and
+login clears the legacy one (logout already did — the asymmetry was the bug).
+
+**A removal request could email the requester's GPS coordinates.**
+`isLikelyImage()` accepted HEIC, AVIF and GIF; `stripImageMetadata()` only
+strips JPEG, PNG and WebP. Two lists, drifting apart in silence — and HEIC is
+the iPhone default, so this was the common path, not the exotic one. Someone
+asking to be *removed* from a photo was handing over where it was taken, while
+the published privacy policy stated without qualification that metadata is
+erased.
+
+The fix is not a third list. The gate is now **the strip itself**: if
+`stripImageMetadata` does not confirm a clean result, the attachment is refused.
+Teaching the stripper HEIC later opens the gate on its own, with nobody having
+to remember.
+
 ## Required secrets
 
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
