@@ -4,6 +4,22 @@ on:
   push:
     branches: [main]
 
+  # Disparo manual, pela aba Actions (funciona do celular).
+  #
+  # Sem isto, a única forma de republicar era inventar um commit vazio — e as
+  # situações que pedem republicação não têm commit nenhum por natureza:
+  #
+  #  - **Rotação de secret.** Um secret novo vale na hora, mas nada reexecuta o
+  #    smoke test para confirmar. Foi exatamente o caso do SIGNING_SECRET: a
+  #    única forma de saber se tinha entrado era esperar o próximo merge.
+  #  - **Rollback.** Republicar um commit anterior sem reescrever a história.
+  #  - **Reverificar a produção** depois de mexer em algo fora do repositório
+  #    (binding de KV, configuração de domínio, painel da Cloudflare).
+  #
+  # O job é o mesmo do push: roda a suíte antes de tocar em produção e o smoke
+  # test depois. Um disparo manual não pula nenhum portão.
+  workflow_dispatch:
+
 # Uma única fonte da verdade para a versão do wrangler usada nos dois steps que
 # falam com a Cloudflare (migrations D1 e deploy). Tem que acompanhar a major do
 # devDependency em package.json — se divergir, a produção roda numa versão que
