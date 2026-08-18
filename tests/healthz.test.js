@@ -216,3 +216,38 @@ describe('public pages render without throwing', () => {
     expect(html.trim().endsWith('</html>')).toBe(true);
   });
 });
+
+// Servir da cópia é ótimo para o visitante e péssimo para o painel: sem isto o
+// healthz diria `kv: true` no meio de uma queda e nada ficaria vermelho.
+describe('healthz quando a lista vem da cópia de sobrevivência', () => {
+  function fakeCaches() {
+    const store = new Map();
+    return { default: {
+      async put(k, res) { store.set(String(k), await res.text()); },
+      async match(k) { const v = store.get(String(k)); return v === undefined ? undefined : new Response(v); },
+    } };
+  }
+
+  it('reporta kv:false e diz que as edições não chegam ao visitante', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const EV = [{ id: '1', slug: 'piauifut-2026', title: 'PiauiFut+ 2026', visible: true,
+      driveUrl: 'https://drive.google.com/drive/folders/ok', comingSoon: true }];
+    vi.resetModules();
+    {
+      const u = await import('../src/utils.js');
+      await u.getEvents({ FOTOS: { async get() { return JSON.stringify(EV); }, async put() {} } }, true);
+    }
+    vi.resetModules();
+    const idx = await import('../src/index.js');
+    const down = { FOTOS: { async get() { throw new Error('KV GET failed: 503'); }, async put() { throw new Error('nope'); } } };
+    const res = await idx.handleHealthz(new Request(`${SITE}/api/healthz`), down);
+    const body = await res.json();
+    // O site está de pé — e mesmo assim isto é uma queda, e tem de aparecer.
+    expect(body.kv).toBe(false);
+    expect(body.ok).toBe(false);
+    expect(res.status).toBe(503);
+    expect(body.selftest.problems.join(' ')).toMatch(/servindo a lista de projetos de uma cópia/);
+    vi.unstubAllGlobals(); vi.restoreAllMocks();
+  });
+});

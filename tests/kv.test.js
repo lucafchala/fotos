@@ -169,6 +169,118 @@ describe('contadores agregados', () => {
   });
 });
 
+// Cache API de mentira: um Map com a mesma superfície que o `caches.default` do
+// Workers. Existe para que a CÓPIA DE SOBREVIVÊNCIA seja exercitada de verdade
+// — em vitest `caches` não existe, e sem isto o caminho que salva um isolate
+// frio nunca rodaria em teste nenhum.
+function fakeCaches() {
+  const store = new Map();
+  return {
+    _store: store,
+    default: {
+      async put(key, res) { store.set(String(key), await res.text()); },
+      async match(key) {
+        const v = store.get(String(key));
+        return v === undefined ? undefined : new Response(v);
+      },
+    },
+  };
+}
+
+// Isolate novo: `_cache` e o espelho são estado de módulo, e é justamente ele
+// que decide o resultado destes casos.
+async function coldIsolate() {
+  vi.resetModules();
+  return import('../src/utils.js');
+}
+
+const EVENTS = [{ id: '1', slug: 'piauifut-2026', title: 'PiauiFut+ 2026', visible: true,
+  driveUrl: 'https://drive.google.com/drive/folders/ok' }];
+
+const kvDown = () => ({ FOTOS: {
+  async get() { throw new Error('KV GET failed: 503'); },
+  async put() { throw new Error('KV PUT failed: 503'); },
+} });
+
+// A promessa do site é entregar foto. O KV é a única dependência no caminho
+// crítico: sem a lista de eventos não há slug, não há evento e não há link.
+describe('getEvents com o KV de leitura fora', () => {
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('serve o cache do isolate mesmo VENCIDO em vez de derrubar a página', async () => {
+    const utils = await coldIsolate();
+    const env = { FOTOS: fakeKV() };
+    await utils.saveEvents(env, structuredClone(EVENTS));
+    vi.setSystemTime(Date.now() + 120_000);                 // muito além do TTL de 30 s
+    const got = await utils.getEvents(kvDown());
+    expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
+  });
+
+  it('serve da cópia na Cache API num isolate FRIO — o caso comum numa queda', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    // Um isolate anterior leu do KV e deixou a cópia.
+    {
+      const utils = await coldIsolate();
+      await utils.getEvents({ FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) }, true);
+    }
+    expect([...caches._store.keys()]).toHaveLength(1);
+    // Agora um isolate novo pega o KV fora e nunca viu a lista.
+    const utils = await coldIsolate();
+    const got = await utils.getEvents(kvDown());
+    expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
+    expect(utils.eventsFallbackCount()).toBe(1);
+  });
+
+  it('valida a forma da cópia igual à do KV (uma cópia corrompida não derruba)', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    await caches.default.put('https://fotos.invalid/__events', new Response('{não é json'));
+    const utils = await coldIsolate();
+    expect(await utils.getEvents(kvDown())).toEqual([]);
+  });
+
+  it('propaga a falha quando não há cache NEM cópia — 500 honesto', async () => {
+    vi.stubGlobal('caches', fakeCaches());
+    const utils = await coldIsolate();
+    // Devolver [] aqui viraria "o site não tem projeto nenhum": 404 em tudo e
+    // painel verde. Assumir a falha é melhor do que mentir sobre não ter dado.
+    await expect(utils.getEvents(kvDown())).rejects.toThrow(/KV GET failed/);
+  });
+
+  it('só reescreve a cópia quando o valor muda', async () => {
+    const caches = fakeCaches();
+    let writes = 0;
+    const put = caches.default.put.bind(caches.default);
+    caches.default.put = async (...a) => { writes++; return put(...a); };
+    vi.stubGlobal('caches', caches);
+    const utils = await coldIsolate();
+    const env = { FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) };
+    for (let i = 0; i < 5; i++) await utils.getEvents(env, true);
+    expect(writes).toBe(1);
+  });
+
+  it('a cópia não é gravada quando o KV recusa a escrita', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    const utils = await coldIsolate();
+    const env = { FOTOS: { async get() { return null; }, async put() { throw new Error('KV PUT failed: 429'); } } };
+    await expect(utils.saveEvents(env, EVENTS)).rejects.toThrow();
+    // Espelhar um valor que não chegou a ser gravado faria a cópia contradizer
+    // a fonte — e o visitante veria uma edição que o dono não conseguiu salvar.
+    expect(caches._store.size).toBe(0);
+  });
+});
+
+describe('getCategories com o KV fora', () => {
+  it('cai nos padrões em vez de derrubar a galeria pela legenda', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await getCategories(kvDown())).toEqual(DEFAULT_CATEGORIES);
+    vi.restoreAllMocks();
+  });
+});
+
 describe('getEvents / saveEvents', () => {
   it('round-trips events through KV (fresh read bypasses the cache)', async () => {
     const env = { FOTOS: fakeKV() };

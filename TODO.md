@@ -447,6 +447,16 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 > Não duplicar a conta aqui: ela muda quando o código muda, e duas cópias
 > divergem.
 
+- [ ] **Estender a resiliência a queda de KV para além do caminho das fotos.**
+      Galeria, página do projeto e portão do Drive sobrevivem hoje a uma queda
+      de leitura (cópia na Cache API, ver
+      [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)).
+      Ainda respondem 500 numa queda total: o formulário de suporte (leitura da
+      chave de deduplicação), o de remoção (`removal_requests`) e o login do
+      painel (`admin_password`, `verifySession`). Ordem de prioridade correta —
+      entregar foto vem primeiro —, mas o formulário de remoção é canal de
+      direito do titular e merece pelo menos falhar com mensagem em vez de 500.
+      No login o certo é falhar **fechado**, nunca servir sessão de cópia.
 - [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
       um SHA conhecido em vez de arqueologia no log. Procedimento no
       [README](./README.md#rollback); hoje o repo não tem nenhuma tag.

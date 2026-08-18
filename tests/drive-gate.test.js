@@ -436,6 +436,65 @@ describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () 
   });
 });
 
+// O que o site promete é entregar foto. O KV é a única dependência no caminho
+// crítico: sem a lista de eventos não há slug, não há evento e não há link. Uma
+// queda de LEITURA do KV derrubava galeria, página do projeto e portão de uma
+// vez, com 500.
+describe('handleDriveLink — KV de leitura totalmente fora', () => {
+  function fakeCaches() {
+    const store = new Map();
+    return { _store: store, default: {
+      async put(k, res) { store.set(String(k), await res.text()); },
+      async match(k) { const v = store.get(String(k)); return v === undefined ? undefined : new Response(v); },
+    } };
+  }
+  const kvDown = () => ({
+    FOTOS: { async get() { throw new Error('KV GET failed: 503'); },
+             async put() { throw new Error('KV PUT failed: 503'); } },
+    TURNSTILE_SECRET_KEY: 'secret',
+  });
+
+  // Isolate frio com a cópia já deixada por outro: é o caso comum numa queda —
+  // tráfego novo cai em isolate novo, sem nada em memória.
+  async function coldWithMirror(caches) {
+    vi.resetModules();
+    {
+      const u = await import('../src/utils.js');
+      await u.getEvents({ FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) }, true);
+    }
+    vi.resetModules();
+    return import('../src/index.js');
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('continua entregando o link do Drive', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const idx = await coldWithMirror();
+    stubTurnstile(true);
+    const res = await idx.handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), kvDown(), fakeCtx());
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+  });
+
+  it('e nenhuma recusa do portão vira 200 por causa disso', async () => {
+    // Servir de cópia não pode virar bypass: o que o portão recusa com o KV são,
+    // recusa com o KV fora.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const idx = await coldWithMirror();
+    const env = kvDown();
+    stubTurnstile(true);
+    expect((await idx.handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), env, fakeCtx())).status).toBe(400);
+    expect((await idx.handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), env, fakeCtx())).status).toBe(403);
+    expect((await idx.handleDriveLink(req({ slug: 'nao-existe', turnstileToken: 't', consent: true }), env, fakeCtx())).status).toBe(404);
+    stubTurnstile(false);
+    expect((await idx.handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'x', consent: true }), env, fakeCtx())).status).toBe(403);
+  });
+});
+
 describe('handleDriveLink — nonce de página', () => {
   let env, ctx;
   beforeEach(async () => {

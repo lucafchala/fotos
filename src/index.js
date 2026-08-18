@@ -14,6 +14,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   noteKvWriteFailure, kvWriteHealth, toCount, bumpCounter, flushCounters,
+  eventsFallbackCount,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -1633,6 +1634,16 @@ export function auditSite(events, env = {}, kvWrites = { failing: false }) {
   // as escritas de visitante falham isoladas de propósito — mas contador de
   // visitas, rate limit e sessão nova param até a virada UTC, e nada disso é
   // visível de fora. Só cai da lista quando 30 min se passam sem nova recusa.
+  // Servindo da cópia de sobrevivência: as fotos saem, mas a lista pode estar
+  // velha — qualquer projeto criado, escondido ou corrigido agora não aparece
+  // para o visitante até o KV voltar. É exatamente o tipo de coisa que não
+  // quebra nada visivelmente e por isso precisa estar escrita aqui.
+  if (kvWrites && kvWrites.servingStale) {
+    problems.push(
+      'KV de leitura fora — servindo a lista de projetos de uma cópia; ' +
+      'edições feitas agora não chegam ao visitante'
+    );
+  }
   if (kvWrites && kvWrites.failing) {
     problems.push(
       `escrita em KV recusada há ${kvWrites.agoSecs}s — provável cota diária esgotada; ` +
@@ -1673,6 +1684,12 @@ export async function handleHealthz(request, env) {
   let events = null;
   let eventsList = [];
   const kvT0 = Date.now();
+  // A cópia de sobrevivência (Cache API) faz o getEvents continuar respondendo
+  // com o KV fora — ótimo para o visitante, péssimo para o healthz, que passaria
+  // a dizer `kv: true` no meio de uma queda e deixaria o painel verde. O
+  // contador de quedas resolve: comparado antes e depois, ele diz se ESTA
+  // leitura veio do KV ou da cópia, sem depender de janela de tempo.
+  const fallbacksBefore = eventsFallbackCount();
   try {
     eventsList = await getEvents(env, true);
     kv = true;
@@ -1680,6 +1697,10 @@ export async function handleHealthz(request, env) {
   } catch {
     // KV unavailable — kv/events keep their pre-failure values, so ok flips false
   }
+  const servingStale = eventsFallbackCount() > fallbacksBefore;
+  // Servindo de cópia é queda de KV, e tem de aparecer como queda: o site está
+  // de pé, mas qualquer edição de projeto feita agora não chega ao visitante.
+  if (servingStale) kv = false;
   const kvLatencyMs = Date.now() - kvT0;
 
   // --- D1 consent log (optional/best-effort): a missing or unscoped binding
@@ -1735,7 +1756,7 @@ export async function handleHealthz(request, env) {
   // reads): broken/missing Drive links on live events, bad data, and form
   // backends that are unset. This is what surfaces "something went wrong" on the
   // status dashboard, not just hard 500s. ---
-  const selftest = auditSite(eventsList, env, kvWriteHealth());
+  const selftest = auditSite(eventsList, env, { ...kvWriteHealth(), servingStale });
 
   // --- The rest of the extended surface is derived from already-loaded data and
   // env bindings — ZERO additional KV reads. `config` exposes only booleans

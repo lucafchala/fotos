@@ -188,6 +188,48 @@ remainder is `ratelimit:drive-link`, one per visitor — and that one stays, sin
 a limiter that does not persist immediately does not limit. The ceiling is now
 set by a security control rather than by bookkeeping.
 
+### The event list survives KV being unavailable
+
+KV is the only hard dependency on the critical path: without the event list
+there is no slug, no event, and no Drive link. A KV **read** outage used to take
+the gallery, the project pages and the Drive gate down together, with a 500 —
+the site's one promise, delivering photos, broken by an outage in a store it
+consults only to find the right folder URL.
+
+`getEvents()` now degrades in three steps, newest data first:
+
+1. **The isolate's own cache, even expired.** It was previously discarded once
+   past its 30 s TTL, so an isolate holding a perfectly good list answered 500
+   the moment KV faltered. Thirty seconds stale is still the right list.
+2. **A copy in the Cache API.** Free, no write quota, and — unlike module state
+   — it lives in the colo rather than the isolate, which is what covers a *cold*
+   isolate. That is the common case in an outage: new traffic lands on new
+   isolates with nothing in memory.
+3. **Rethrow.** With no cache and no copy there is nothing to serve. Returning
+   an empty list here would turn an outage into "the site exists and has no
+   projects" — 404 everywhere, `ok:true` on healthz, nothing red on the
+   dashboard. Lying about having no data is worse than admitting the failure.
+
+The copy is written only when the stored value changes, and only after KV has
+accepted the write, so it can never contradict the source.
+
+**What this costs, stated plainly.** While serving from the copy, the visitor
+may see a list that is out of date: a project hidden, corrected, or deleted
+*during the outage* still appears. In practice the window is the outage itself —
+the copy is refreshed on any successful read of a changed value — and it is
+bounded further by the fact that a KV that cannot be read usually cannot be
+written either, so there is no new state to miss. The trade is deliberate:
+delivering photos from a possibly-minutes-old list beats delivering nothing.
+
+Two things that are **not** relaxed while degraded, both pinned by
+`tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses
+normally (missing consent, failed Turnstile, `comingSoon`, unknown slug), and
+`/api/healthz` reports `kv:false` and flips `ok:false`, naming the degradation
+in `problems`. The site staying up must never make the dashboard look green —
+so the fallback increments a counter that healthz compares before and after its
+own read, which tells it whether *that* read came from KV or from the copy,
+rather than guessing from a time window.
+
 ### Outbound links: one exception only
 
 Every legal and compliance document is served **from this site**, at

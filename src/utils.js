@@ -34,34 +34,142 @@ export const ACCESS_DECLARATIONS = {
   private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
 };
 
+// Cópia de sobrevivência da lista de eventos, na Cache API.
+//
+// A promessa do site é entregar foto. Tudo o mais — contador, rate limit,
+// painel — é acessório, e o KV é a única dependência no caminho crítico: sem a
+// lista de eventos não há slug, não há evento e não há link do Drive. Uma
+// indisponibilidade de LEITURA do KV derrubava a galeria, a página do projeto e
+// o portão do Drive de uma vez, com 500.
+//
+// A Cache API é a saída certa aqui: é gratuita, não tem cota de escrita, vive
+// no colo (não no isolate) e por isso sobrevive à troca de isolate, que é
+// justamente o buraco que o cache de módulo não cobre. Não é banco de dados —
+// pode ser despejada a qualquer momento e é por colo, não global — mas como
+// último recurso antes do 500 ela é exatamente do tamanho do problema.
+//
+// URL sintética: a Cache API exige uma chave http(s), e este host não existe.
+const EVENTS_CACHE_KEY = 'https://fotos.invalid/__events';
+// Sete dias. Não é "por quanto tempo o dado vale", é "por quanto tempo ainda
+// prefiro dado velho a um 500" — e a resposta é: mais do que qualquer queda de
+// KV plausível.
+const EVENTS_CACHE_TTL_S = 7 * 24 * 3600;
+let _mirroredRaw = null;
+
+function cacheStore() {
+  // Ausente no vitest e em qualquer runtime que não seja o Workers. Sem ela as
+  // outras camadas continuam valendo — a função inteira é best-effort.
+  return (typeof caches !== 'undefined' && caches && caches.default) || null;
+}
+
+// Só grava quando o valor MUDOU: a cópia é um espelho, não um log, e reescrever
+// a cada leitura gastaria CPU do isolate à toa no caminho de resposta.
+async function mirrorEvents(raw) {
+  const store = cacheStore();
+  if (!store || typeof raw !== 'string' || raw === _mirroredRaw) return;
+  try {
+    await store.put(EVENTS_CACHE_KEY, new Response(raw, {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${EVENTS_CACHE_TTL_S}` },
+    }));
+    _mirroredRaw = raw;
+  } catch (e) {
+    console.error('events mirror write failed', e);
+  }
+}
+
+async function readMirroredEvents() {
+  const store = cacheStore();
+  if (!store) return null;
+  try {
+    const hit = await store.match(EVENTS_CACHE_KEY);
+    return hit ? await hit.text() : null;
+  } catch (e) {
+    console.error('events mirror read failed', e);
+    return null;
+  }
+}
+
+// Quantas vezes uma leitura caiu para a cópia de sobrevivência. É contador, e
+// não booleano com prazo, para o /api/healthz conseguir dizer se ESTA leitura
+// degradou — comparando o valor antes e depois da chamada — em vez de "alguma
+// leitura degradou nos últimos N minutos".
+let _fallbackCount = 0;
+export function eventsFallbackCount() { return _fallbackCount; }
+
+// Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
+// duas versões disso divergiriam, e a cópia é justamente o caminho que ninguém
+// exercita no dia a dia.
+function parseEvents(data) {
+  if (!data) return [];
+  try {
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(e => e && typeof e === 'object' && !Array.isArray(e));
+  } catch { return []; }
+}
+
 // fresh=true bypasses the isolate-local cache — required on admin reads and
 // any read-modify-write, where 30 s of staleness could clobber another
 // isolate's recent save.
 export async function getEvents(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
-  const data = await env.FOTOS.get('events');
+
+  let data;
+  try {
+    data = await env.FOTOS.get('events');
+  } catch (e) {
+    // KV fora. A ordem das quedas é do dado mais novo para o mais velho, e
+    // qualquer uma delas é melhor do que 500 na entrega das fotos.
+    //
+    // 1) O cache do próprio isolate, mesmo VENCIDO. Antes ele era descartado
+    //    aqui: passados os 30 s de TTL, um isolate que tinha a lista na mão
+    //    respondia 500 assim que o KV falhava. Velho por 30 s continua sendo a
+    //    lista certa.
+    if (_cache) {
+      _fallbackCount++;
+      console.error('KV read failed; serving events from the isolate cache', e);
+      return _cache;
+    }
+    // 2) A cópia na Cache API — o que salva um isolate FRIO, que é o caso comum
+    //    numa queda: tráfego novo cai em isolate novo, sem cache de módulo.
+    const mirrored = await readMirroredEvents();
+    if (mirrored !== null) {
+      _fallbackCount++;
+      console.error('KV read failed; serving events from the cache mirror', e);
+      _cache = parseEvents(mirrored);
+      _cacheAt = now;
+      return _cache;
+    }
+    // 3) Sem cópia nenhuma não há o que servir. Propaga: devolver [] aqui
+    //    transformaria uma queda de KV em "o site existe e não tem projeto
+    //    nenhum" — 404 em tudo, `ok:true` no healthz e nada vermelho no painel.
+    //    Mentir sobre não ter dado é pior do que assumir a falha.
+    throw e;
+  }
+
   // Single choke point for shape validation: every caller (gallery, event page,
   // dashboard, metrics, healthz, backup) reads through here, so one guard keeps
   // a corrupted `events` value — a bad restore, a hand-edited KV entry, a
   // truncated write — from throwing on `e.visible` / `e.slug` and 500-ing the
   // whole public site. Non-array payloads and non-object entries are dropped
   // instead of propagating; the next save then self-heals the stored value.
-  _cache = data ? ((() => {
-    try {
-      const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(e => e && typeof e === 'object' && !Array.isArray(e));
-    } catch { return []; }
-  })()) : [];
+  _cache = parseEvents(data);
   _cacheAt = now;
+  // Espelha o texto cru, não o objeto já filtrado: a cópia tem de ser o que o
+  // KV guardava, para a validação de forma acontecer na leitura dela também.
+  if (typeof data === 'string') await mirrorEvents(data);
   return _cache;
 }
 
 export async function saveEvents(env, events) {
   _cache = events;
   _cacheAt = Date.now();
-  await env.FOTOS.put('events', JSON.stringify(events));
+  const raw = JSON.stringify(events);
+  await env.FOTOS.put('events', raw);
+  // Depois do KV aceitar, e não antes: espelhar um valor que não chegou a ser
+  // gravado faria a cópia contradizer a fonte.
+  await mirrorEvents(raw);
 }
 
 // Categories are user-managed (created/deleted from the dashboard) and stored
@@ -72,7 +180,16 @@ export const MAX_CATEGORIES = 30;
 export const MAX_CATEGORY_LEN = 40;
 
 export async function getCategories(env) {
-  const data = await env.FOTOS.get('categories');
+  let data;
+  try {
+    data = await env.FOTOS.get('categories');
+  } catch (e) {
+    // Categoria é rótulo de filtro, não conteúdo: com o KV fora, cair nos
+    // padrões deixa a galeria de pé com as fotos certas e no máximo um chip
+    // fora do lugar. Propagar derrubaria a página inteira por causa da legenda.
+    console.error('KV read failed; falling back to the default categories', e);
+    return [...DEFAULT_CATEGORIES];
+  }
   if (!data) return [...DEFAULT_CATEGORIES];
   try {
     const arr = JSON.parse(data);

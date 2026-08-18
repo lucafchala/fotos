@@ -169,7 +169,31 @@ test ficou dois deploys sem nunca executar, e era estruturalmente incapaz de
 passar. Ao mexer no `deploy.yml`, extraia o passo e rode local — veja
 `docs/VERIFICACAO.md`.
 
-### 5.8. O relógio do Workers não anda durante execução síncrona
+### 5.8. Queda de LEITURA do KV não derruba mais a entrega das fotos
+
+O KV é a única dependência no caminho crítico: sem a lista de eventos não há
+slug, não há evento e não há link do Drive. Uma queda de leitura derrubava
+galeria, página do projeto e portão de uma vez, com 500.
+
+`getEvents()` cai em três degraus, do dado mais novo para o mais velho: o cache
+do próprio isolate **mesmo vencido** (antes era descartado passados os 30 s de
+TTL — velho por 30 s continua sendo a lista certa), depois uma **cópia na Cache
+API** (gratuita, sem cota de escrita, e vive no colo em vez do isolate, que é o
+que salva um isolate frio), e só então propaga o erro. Devolver `[]` seria pior
+do que falhar: viraria "o site não tem projeto nenhum", com 404 em tudo e painel
+verde.
+
+Duas coisas **não** afrouxam enquanto degradado, e há teste para as duas: o
+portão do Drive recusa exatamente o que recusaria normalmente, e o `/api/healthz`
+responde `kv:false` com o motivo em `problems`. O site de pé não pode deixar o
+painel verde.
+
+O preço, dito na cara: servindo da cópia, o visitante pode ver uma lista
+desatualizada — um projeto escondido ou apagado durante a queda ainda aparece. A
+janela é a própria queda, e quem não consegue ler o KV normalmente também não
+consegue gravar, então quase nunca há estado novo a perder.
+
+### 5.9. O relógio do Workers não anda durante execução síncrona
 
 `Date.now()` fica **congelado** entre operações de I/O — é mitigação de ataque de
 temporização. Medir CPU de dentro do isolate, portanto, é impossível: o
