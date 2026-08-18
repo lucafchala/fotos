@@ -78,9 +78,9 @@ continua correto no pago.** Item por item, com o motivo:
 
 ### 4.1. A agregação dos contadores FICA — este é o item importante
 
-`bumpCounter()` / `flushCounters()` em `src/utils.js` (commit `5643a7c`) somam os
-incrementos na memória do isolate e gravam uma vez por janela, em vez de uma vez
-por visitante.
+`bumpCounter()` / `flushCounters()` em `src/utils.js` gravam direto, **exceto**
+quando a mesma chave já foi gravada há menos de um segundo — aí o incremento
+espera e sai junto com os outros, num lote só.
 
 Parece existir por causa da cota diária. **Não é.** O KV limita a **uma escrita
 por segundo na mesma chave**, e esse limite **não sobe no plano pago** —
@@ -88,20 +88,23 @@ escritas concorrentes na mesma chave levam 429. O contador de visitas de um
 projeto é exatamente isso: uma chave só (`views:<slug>`), com todo o público
 daquele projeto batendo nela.
 
-Voltar a gravar por visitante faria o pico de um lançamento — que é justamente
-quando as visitas importam — bater no teto por chave e perder contagem com erro,
-no plano pago igual ao gratuito. A agregação é o que transforma N visitantes
-por segundo em uma escrita por janela.
+Tirar esse piso faria o pico de um lançamento — que é justamente quando as
+visitas importam — bater no teto por chave e perder contagem com erro 429, no
+plano pago igual ao gratuito. O piso é o que transforma N visitantes no mesmo
+segundo em uma escrita.
 
 A conta, para poder ser conferida em vez de aceita: sem agregação, o contador
 grava uma vez por visitante novo (o cookie `fv_<slug>` segura repetição por 1 h).
 Passar de **1 visitante novo por segundo no mesmo projeto** já encosta no teto —
 e não é o número médio que importa, é a rajada. Um link jogado num grupo grande
 de WhatsApp produz dezenas de aberturas no mesmo segundo, todas na mesma chave.
-Com a agregação, essas dezenas viram uma escrita.
+Com o piso, essas dezenas viram uma escrita.
 
-**Não reverta o `5643a7c`.** Se quiser mais resolução, o caminho é diminuir
-`COUNTER_FLUSH_MS`, nunca remover a agregação.
+**Não remova o piso por chave nem a drenagem agendada.** Medido: tráfego
+espalhado custa 4 escritas por visitante engajado, rajada de 40 simultâneos custa
+2,1 — e nos dois casos a contagem sai exata. Essa exatidão é recente e custou
+dois defeitos silenciosos (ver RETOMADA §5.3): mexer aqui sem reproduzir os dois
+formatos de tráfego no harness é como o projeto perdeu contagem duas vezes.
 
 ### 4.2. A sobrevivência a queda de KV FICA
 

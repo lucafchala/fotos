@@ -28,19 +28,26 @@ público contra um teto que não se mexe.
 
 O limite mais apertado é **escrita em KV: 1000/dia para a conta inteira**,
 compartilhada com o `status.lucafchala.com`. Medido no harness do
-[`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md), com 200 visitantes simulados:
+[`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md), com 40 visitantes simulados nos
+dois formatos de tráfego:
 
 | item | custo |
 | --- | --- |
-| visitante engajado (abre → aceita os Termos → clica no Drive) | **1,01 escrita** |
-| projeto "em breve" (sem link para entregar) | 2 escritas |
+| visitante engajado, tráfego **espalhado** | **4 escritas** |
+| visitante engajado, em **rajada** (chegam juntos) | **~2,1 escritas** |
 | POST de lixo em `/api/track-drive` | 0 |
 | status page (amostra de latência, regime normal) | ~48/dia |
-| **teto prático** | **~940 visitantes/dia** |
+| **teto prático** | **~250 a ~475 visitantes/dia**, conforme o formato do tráfego |
 
-Eram 4 escritas por visitante (~250/dia) antes de os contadores serem agregados.
-O que sobra é `ratelimit:drive-link`, uma por visitante, e essa fica: um limite
-que não grava na hora não limita.
+Duas das quatro escritas são rate limit (`drive-link` e `drive`), uma por
+visitante cada, e ficam: um limite que não grava na hora não limita. As outras
+duas são os contadores, que **agregam sob concorrência**: quarenta visitantes
+chegando juntos gastam 2 escritas de contador em vez de 80, sem perder contagem.
+
+> Uma versão anterior desta tabela dizia **1,01 escrita/visitante** e teto de
+> ~985/dia. O número era artefato de um defeito: os contadores estavam sendo
+> descartados em vez de gravados, então o "barato" era o custo de não contar.
+> Corrigido e medido de novo, agora com as 40 de 40 contagens batendo.
 
 Os outros limites não chegam perto — 28 eventos contra 1 GB de KV, uma linha de
 consentimento por liberação contra 100 mil linhas/dia no D1, um punhado de

@@ -13,8 +13,8 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  noteKvWriteFailure, kvWriteHealth, toCount, bumpCounter, flushCounters,
-  eventsFallbackCount,
+  noteKvFailure, kvHealth, toCount, bumpCounter, flushCounters,
+  eventsFallbackHealth,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -309,7 +309,7 @@ const worker = {
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
-      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
+      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env, ctx);
       if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
       if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
       if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
@@ -607,13 +607,29 @@ export async function handleLogin(request, env, ctx) {
     ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
     return redirect('/dashboard?error=1');
   }
-  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
+  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login. Isolada:
+  // a migração é oportunista, e falhar nela não pode impedir um login com senha
+  // já conferida — na próxima vez ela tenta de novo.
   if (!stored.startsWith('pbkdf2:')) {
-    await env.FOTOS.put('admin_password', await hashPassword(password));
+    await env.FOTOS.put('admin_password', await hashPassword(password))
+      .catch(e => noteKvFailure('escrita', e, 'migração do hash da senha'));
   }
 
   const token = generateToken();
-  await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
+  // Esta escrita é a única do fluxo que NÃO dá para contornar: sem sessão
+  // gravada não há login, e servir uma sessão "de mentira" seria pior do que
+  // recusar. Mas o 500 cru que ela produzia era o pior dos dois mundos — o dono
+  // via uma tela de erro genérica no meio de um incidente de KV, e o healthz
+  // continuava verde porque ninguém registrava a falha.
+  //
+  // Agora: registra (o healthz passa a acusar) e devolve o mesmo redirect de
+  // erro do resto do login, que a tela de login sabe exibir.
+  try {
+    await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
+  } catch (e) {
+    noteKvFailure('escrita', e, 'abertura de sessão do painel');
+    return redirect('/dashboard?error=1');
+  }
 
   const headers = new Headers({
     ...dataSecurityHeaders('text/plain; charset=utf-8'),
@@ -645,7 +661,7 @@ async function noteFailedLogin(env, request, ip) {
   // Isolada: com a cota de escrita estourada, uma exceção aqui pularia
   // justamente o alerta de força bruta. A contagem já está em `attempts`.
   await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
-    .catch(e => noteKvWriteFailure(e, 'login-fail counter'));
+    .catch(e => noteKvFailure('escrita', e, 'login-fail counter'));
   // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
   // Numa força bruta paralela — exatamente o caso que o alerta existe para
   // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
@@ -1003,7 +1019,7 @@ async function handleMetrics(request, env) {
 // ---------------------------------------------------------------------------
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
-export async function handleTrackDrive(request, env) {
+export async function handleTrackDrive(request, env, ctx) {
   // Ordem importa por causa da cota: `checkRateLimit` GRAVA em KV, e a cota é
   // de 1000 escritas/dia para a conta inteira. Com o rate limit na frente, todo
   // POST de lixo neste endpoint — que é público, aceita corpo qualquer e passa
@@ -1031,18 +1047,28 @@ export async function handleTrackDrive(request, env) {
   const event = events.find(e => e.slug === slug);
   if (!event || event.comingSoon) return jsonOk({ ok: true });
 
-  // Sem rate limit por KV, pelo mesmo motivo que o /api/perf não tem: o
-  // checkRateLimit faz leitura + ESCRITA em KV, então ele custava exatamente o
-  // recurso que existia para proteger — dobrava o preço do beacon em vez de
-  // baixá-lo. Agora que o contador é agregado, um flood não gera escrita
-  // nenhuma a mais: mil POSTs no mesmo minuto viram a mesma única escrita da
-  // janela. A agregação virou o limite, e é um limite melhor, porque não
-  // depende do IP do visitante.
+  // O rate limit continua aqui, e a tentativa de tirá-lo foi um erro que vale
+  // registrar: o raciocínio era "a agregação virou o limite, um flood não gera
+  // escrita a mais". Não fecha. A agregação grava uma vez por JANELA, e a
+  // janela é de 10 s — um flood sustentado são 6 escritas/min, 360/hora,
+  // ~8600/dia numa cota de 1000/dia. Ela reduz o custo por requisição, não o
+  // custo por hora, e é justamente o custo por hora que um atacante controla.
+  // Sem limite por IP, o endpoint público vira a maneira mais barata de
+  // esvaziar a cota que este PR inteiro existe para proteger — e ainda deixa
+  // `drive_clicks` forjável por curl, já que o portão de CSRF passa quem não
+  // manda cabeçalho de browser.
   //
-  // O que ainda contém abuso aqui: o portão de CSRF antes do roteamento, o
-  // slug ter de existir e não estar "em breve", e o teto de um evento por
-  // chave — nada disso custa escrita.
-  bumpCounter(env, null, `drive_clicks:${slug}`);
+  // O que MUDOU e continua valendo: ele agora roda depois das checagens de
+  // graça, então POST de lixo custa zero escrita. O ganho era esse; o limite
+  // nunca foi o problema.
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
+
+  // O ctx vem do roteador: sem ele, o flush que acabou de ESVAZIAR o mapa podia
+  // ser descartado junto com a requisição, e o lote sumia sem nunca ser tentado
+  // de novo.
+  const work = bumpCounter(env, ctx, `drive_clicks:${slug}`);
+  if (work && !(ctx && typeof ctx.waitUntil === 'function')) await work;
   return jsonOk({ ok: true });
 }
 
@@ -1638,10 +1664,10 @@ export function auditSite(events, env = {}, kvWrites = { failing: false }) {
   // velha — qualquer projeto criado, escondido ou corrigido agora não aparece
   // para o visitante até o KV voltar. É exatamente o tipo de coisa que não
   // quebra nada visivelmente e por isso precisa estar escrita aqui.
-  if (kvWrites && kvWrites.servingStale) {
+  if (kvWrites && kvWrites.stale) {
     problems.push(
-      'KV de leitura fora — servindo a lista de projetos de uma cópia; ' +
-      'edições feitas agora não chegam ao visitante'
+      `leitura de KV falhou há ${kvWrites.agoSecs}s — visitante servido da ${kvWrites.source}; ` +
+      'edições feitas agora podem não chegar até o KV voltar'
     );
   }
   if (kvWrites && kvWrites.failing) {
@@ -1684,12 +1710,11 @@ export async function handleHealthz(request, env) {
   let events = null;
   let eventsList = [];
   const kvT0 = Date.now();
-  // A cópia de sobrevivência (Cache API) faz o getEvents continuar respondendo
-  // com o KV fora — ótimo para o visitante, péssimo para o healthz, que passaria
-  // a dizer `kv: true` no meio de uma queda e deixaria o painel verde. O
-  // contador de quedas resolve: comparado antes e depois, ele diz se ESTA
-  // leitura veio do KV ou da cópia, sem depender de janela de tempo.
-  const fallbacksBefore = eventsFallbackCount();
+  // `fresh: true` aqui não é só para furar o cache: é o que faz esta leitura
+  // NUNCA cair para a cópia de sobrevivência. Ou seja, `kv` reflete o KV de
+  // verdade — se ele estiver fora, isto lança e `kv` fica false, como deve ser.
+  // A saúde do binding é medida pela própria leitura, não inferida de estado
+  // compartilhado com outras requisições.
   try {
     eventsList = await getEvents(env, true);
     kv = true;
@@ -1697,10 +1722,6 @@ export async function handleHealthz(request, env) {
   } catch {
     // KV unavailable — kv/events keep their pre-failure values, so ok flips false
   }
-  const servingStale = eventsFallbackCount() > fallbacksBefore;
-  // Servindo de cópia é queda de KV, e tem de aparecer como queda: o site está
-  // de pé, mas qualquer edição de projeto feita agora não chega ao visitante.
-  if (servingStale) kv = false;
   const kvLatencyMs = Date.now() - kvT0;
 
   // --- D1 consent log (optional/best-effort): a missing or unscoped binding
@@ -1756,7 +1777,7 @@ export async function handleHealthz(request, env) {
   // reads): broken/missing Drive links on live events, bad data, and form
   // backends that are unset. This is what surfaces "something went wrong" on the
   // status dashboard, not just hard 500s. ---
-  const selftest = auditSite(eventsList, env, { ...kvWriteHealth(), servingStale });
+  const selftest = auditSite(eventsList, env, { ...kvHealth(), ...eventsFallbackHealth() });
 
   // --- The rest of the extended surface is derived from already-loaded data and
   // env bindings — ZERO additional KV reads. `config` exposes only booleans

@@ -129,24 +129,27 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-**Os contadores não gastam mais uma escrita por visitante.** Eles gastavam, e
-isso fazia o custo do site crescer junto com o público contra uma cota fixa —
-medido no harness de `docs/VERIFICACAO.md`: 4 escritas por visitante engajado,
-teto de ~250/dia. Hoje `views:` e `drive_clicks:` passam por `bumpCounter()`
-(utils.js): os incrementos se somam na memória do isolate e viram **uma escrita
-por janela**, não uma por pessoa. Medido de novo com 200 visitantes simulados:
-**1,01 escrita por visitante**, com as contagens batendo exatamente (200 e 200).
+**Os contadores agregam sob concorrência, e só sob concorrência.** `views:` e
+`drive_clicks:` passam por `bumpCounter()` (utils.js). Medido no harness de
+`docs/VERIFICACAO.md`:
 
-O que sobra é `ratelimit:drive-link`, uma por visitante — e essa fica, porque é
-o limite que protege o portão do Drive; não dá para limitar de verdade sem
-gravar na hora. Teto atual: **~985 visitantes/dia**, agora imposto por um
-controle de segurança e não pela contabilidade.
+| formato do tráfego | escritas/visitante | contagem |
+| --- | --- | --- |
+| espalhado (sequencial) | 4,00 | 40/40 exatas |
+| rajada (40 simultâneos) | 2,10 | 40/40 exatas |
 
-O que se perde na agregação é o que estiver pendente quando o isolate morrer. É
-perda aceita e já declarada no SECURITY.md (contadores são best-effort), e o
-cron diário descarrega o que sobrou. Se um dia isso ainda apertar, os caminhos
-são o plano pago do Workers ou tirar os contadores do KV de vez (`/api/perf` e
-`/api/csp-report` já mostram como: log estruturado).
+Duas das quatro são rate limit, uma por visitante cada, e ficam. As outras duas
+são os contadores: numa rajada, 40 visitas viram 2 escritas em vez de 40.
+
+**Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.**
+Adiar o primeiro incremento perdia a contagem inteira em tráfego esparso (o
+isolate morre antes do segundo, e o cron não alcança: roda em outro isolate com
+o mapa vazio). Depois, um carimbo de janela ÚNICO para todas as chaves fez a
+primeira chave a gravar bloquear as outras, e a cauda da rajada não era gravada
+por ninguém — 50 visitantes viraram `views: 1`. Hoje o piso é **por chave** (1 s,
+casado com o limite do KV de uma escrita por segundo na mesma chave, que não
+sobe nem no plano pago), e o que o piso adia é drenado por um `waitUntil`
+agendado — não pela esperança de que chegue outra requisição.
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 

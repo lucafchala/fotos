@@ -396,18 +396,28 @@ describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () 
     expect(env.FOTOS._store.get('drive_clicks:em-breve')).toBeUndefined();
   });
 
-  it('conta o clique de verdade, agregado numa escrita só', async () => {
+  it('conta os cliques sem perder nenhum', async () => {
     resetCounters();
-    // Dez cliques, uma escrita: é o que tira o custo do site de cima do volume
-    // de público. Antes eram duas escritas POR clique (rate limit + contador).
-    const antes = env.FOTOS._store.size;
+    const ctx = fakeCtx();
     for (let i = 0; i < 10; i++) {
-      const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+      const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
       expect(res.status).toBe(200);
     }
-    expect(env.FOTOS._store.size, 'nada gravado antes do flush').toBe(antes);
+    await ctx.settle();
     await flushCounters(env);
     expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('10');
+  });
+
+  it('o rate limit por IP continua barrando um flood', async () => {
+    resetCounters();
+    // 60/hora por IP é o teto, e ele fica. A agregação limita o custo por
+    // REQUISIÇÃO, não por hora: sem o limite, um flood sustentado custaria uma
+    // escrita por janela — ~8600/dia contra uma cota de 1000/dia.
+    const ctx = fakeCtx();
+    for (let i = 0; i < 65; i++) await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
+    await ctx.settle();
+    await flushCounters(env);
+    expect(Number(env.FOTOS._store.get('drive_clicks:casamento-ana'))).toBe(60);
   });
 
   it('soma em cima do que já estava no KV, sem perder a contagem anterior', async () => {

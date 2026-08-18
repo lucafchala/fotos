@@ -33,7 +33,9 @@ function fakeCtx() {
   return { waitUntil: p => pending.push(p), settle: () => Promise.all(pending) };
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+// `useRealTimers` junto: um teste que adianta o relógio e não o devolve
+// contamina os seguintes — e o cache de módulo do getEvents é sensível a tempo.
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('handleHealthz', () => {
   it('reports ok:true with a working KV and no D1 binding', async () => {
@@ -239,15 +241,47 @@ describe('healthz quando a lista vem da cópia de sobrevivência', () => {
       await u.getEvents({ FOTOS: { async get() { return JSON.stringify(EV); }, async put() {} } }, true);
     }
     vi.resetModules();
+    const utils = await import('../src/utils.js');
     const idx = await import('../src/index.js');
     const down = { FOTOS: { async get() { throw new Error('KV GET failed: 503'); }, async put() { throw new Error('nope'); } } };
+
+    // Uma leitura de VISITANTE (fresh=false) cai para a cópia e continua servindo.
+    expect((await utils.getEvents(down)).length).toBe(1);
+
     const res = await idx.handleHealthz(new Request(`${SITE}/api/healthz`), down);
     const body = await res.json();
-    // O site está de pé — e mesmo assim isto é uma queda, e tem de aparecer.
+    // `kv` vem da PRÓPRIA leitura do healthz, que usa fresh e por isso nunca cai
+    // para a cópia. Site de pé continua sendo queda de KV, e tem de aparecer.
     expect(body.kv).toBe(false);
     expect(body.ok).toBe(false);
     expect(res.status).toBe(503);
-    expect(body.selftest.problems.join(' ')).toMatch(/servindo a lista de projetos de uma cópia/);
+    expect(body.selftest.problems.join(' ')).toMatch(/leitura de KV falhou/);
+    vi.unstubAllGlobals(); vi.restoreAllMocks();
+  });
+
+  it('não declara kv:false só porque OUTRA requisição caiu para a cópia', async () => {
+    // O sinal já foi um contador de módulo comparado antes/depois. Como o
+    // estado é compartilhado por todas as requisições do isolate, a queda de uma
+    // requisição concorrente fazia o healthz devolver 503 e reprovar o smoke
+    // test do deploy, tendo lido do KV sem problema nenhum.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const EV = [{ id: '1', slug: 'a', title: 'A', visible: true, driveUrl: 'https://drive.google.com/drive/folders/x' }];
+    vi.resetModules();
+    const utils = await import('../src/utils.js');
+    const idx = await import('../src/index.js');
+    const up = { FOTOS: { async get() { return JSON.stringify(EV); }, async put() {} } };
+    await utils.getEvents(up, true);                       // deixa a cópia pronta
+    const down = { FOTOS: { async get() { throw new Error('KV GET failed'); }, async put() {} } };
+    // Vencer o cache de 30 s do módulo, senão a leitura seguinte nem encosta no
+    // KV e não haveria queda nenhuma para registrar.
+    vi.setSystemTime(Date.now() + 60_000);
+    await utils.getEvents(down);                           // "outra requisição" degradou
+    const body = await (await idx.handleHealthz(new Request(`${SITE}/api/healthz`), up)).json();
+    expect(body.kv, 'o KV respondeu a ESTA leitura').toBe(true);
+    expect(body.ok).toBe(true);
+    // O aviso continua aparecendo, como aviso — sem derrubar o ok.
+    expect(body.selftest.problems.join(' ')).toMatch(/leitura de KV falhou/);
     vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
 });

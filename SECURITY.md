@@ -70,7 +70,9 @@ issue before any public disclosure.
   under load is expected.
 - Rate limits are abuse-mitigation, not a hard guarantee. In particular they
   **stop counting when KV refuses a write** — see "Rate limits fail open when KV
-  cannot record them" below.
+  cannot record them" below. They are not, however, optional: see the same
+  section for why `/api/track-drive` keeps its per-IP limit even with counters
+  coalesced.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
@@ -150,43 +152,52 @@ things bound it:
   write quota, so a counter that has passed the limit keeps refusing — the
   fail-open covers the request that was going to be allowed anyway, not a
   blanket bypass. Pinned by `tests/kv.test.js`.
-- **It is never silent.** Every refused write is recorded
-  (`noteKvWriteFailure()`), and `/api/healthz` reports it in `problems` until 30
-  minutes pass with no new refusal — so the status dashboard goes red while
+- **It is never silent.** Every refused operation is recorded
+  (`noteKvFailure()`), and `/api/healthz` reports it in `problems` until 30
+  minutes pass with no new failure — so the status dashboard goes red while
   counters and limiters are degraded, instead of the site quietly serving on
   with neither. The record is isolate-local and costs nothing: persisting it
-  would need the very write that was just refused.
+  would need the very write that was just refused. It records **which
+  operation** failed, because the message names a cause: a failed *read* logged
+  as a write made healthz assert "probably out of daily write quota" for a fault
+  that has nothing to do with the write quota, sending whoever investigates to
+  the wrong place mid-incident.
 
 The other half is not spending the quota in the first place, and that is a
 question of shape rather than of tuning: a counter written once per visitor
 makes the site's cost grow with its audience, against a ceiling that does not
 move. Three changes take that out:
 
-- **Counters are aggregated, not written per request.** `views:` and
-  `drive_clicks:` go through `bumpCounter()`, which sums increments in the
-  isolate's memory and writes once per window (`flushCounters()`). A hundred
-  visitors in the same minute cost one write per key instead of a hundred. What
-  is lost is whatever is pending when an isolate dies — already-declared
-  best-effort behaviour, and the daily cron flushes the tail. The pending map is
-  bounded by the number of events, because callers validate the slug first, so
-  no flood can grow it.
-- **`/api/track-drive` no longer carries its own KV rate limit.** It cost a
-  write to protect a write — doubling the price of the beacon rather than
-  lowering it, the same reasoning `/api/perf` already states. With the counter
-  aggregated, a flood adds no writes at all: the aggregation *is* the bound, and
-  a better one, since it does not depend on the visitor's IP. What still
-  contains abuse there costs nothing: the CSRF gate ahead of routing, and the
-  slug having to name a real event that is not `comingSoon`.
+- **Counters coalesce under concurrency, and only under concurrency.** `views:`
+  and `drive_clicks:` go through `bumpCounter()`, which writes through unless the
+  same key was written less than a second ago — a floor matching KV's own limit
+  of one write per second per key, which the paid plan does **not** lift.
+  Whatever the floor defers is drained by a scheduled `waitUntil`, so it never
+  depends on another request happening to arrive. Measured: spread-out traffic
+  costs 4 writes per engaged visitor with counts exact; forty visitors arriving
+  together cost 2.1, also exact, because forty view increments collapse into two
+  writes. Two earlier designs got this wrong, both silently — deferring the
+  *first* increment lost the count outright on sparse traffic (the isolate dies
+  before a second one, and the daily cron cannot rescue it: different isolate,
+  empty map), and a *single* window timestamp shared across keys let the first
+  key to write block every other one, so a burst's tail was never written at all
+  — fifty visitors recorded as one. The pending map is bounded by the number of
+  events, because callers validate the slug first, so no flood can grow it.
+- **`/api/track-drive` keeps its per-IP rate limit**, and an attempt to drop it
+  is worth recording as a mistake. The reasoning was "the aggregation is the
+  bound now, so a flood adds no writes." It does not hold: coalescing is bounded
+  by a per-key floor of one second, so a sustained flood still costs up to sixty
+  writes a minute on that key — far past a 1000/day quota. Coalescing lowers the
+  cost per request, not the cost per hour, and the cost per hour is what an
+  attacker controls. Without a per-IP limit the public endpoint becomes the
+  cheapest way to drain the very quota this section is about, and leaves
+  `drive_clicks` forgeable by curl, since the CSRF gate deliberately passes
+  clients that send no browser headers.
 - **Validation that costs nothing runs first.** `/api/track-drive` used to call
   `checkRateLimit()` before parsing the body, so junk POSTs burned quota while
-  counting nothing. Same reasoning already applied to `handleLogin()`, which
-  deliberately does not count an attempt the burst limiter already refused.
-
-Measured over 200 simulated engaged visitors: **1.01 KV writes per visitor**,
-down from 4, with the recorded counts exact (200 views, 200 clicks). The
-remainder is `ratelimit:drive-link`, one per visitor — and that one stays, since
-a limiter that does not persist immediately does not limit. The ceiling is now
-set by a security control rather than by bookkeeping.
+  counting nothing. That reorder is the real saving, and it is intact: junk
+  POSTs now cost zero writes. Same reasoning already applied to `handleLogin()`,
+  which deliberately does not count an attempt the burst limiter already refused.
 
 ### The event list survives KV being unavailable
 
@@ -221,14 +232,24 @@ bounded further by the fact that a KV that cannot be read usually cannot be
 written either, so there is no new state to miss. The trade is deliberate:
 delivering photos from a possibly-minutes-old list beats delivering nothing.
 
+**The fallback is for visitors only.** `getEvents(env, true)` — the `fresh` read
+used by every admin path and every read-modify-write — never falls back; it
+propagates. Serving a stale list there is not graceful degradation, it is a
+staged data loss: the `saveEvents` that follows would write the old list back
+over the new one, deleting every project changed since the copy was taken.
+Failing costs the owner an error message; the alternative costs the projects.
+
 Two things that are **not** relaxed while degraded, both pinned by
 `tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses
 normally (missing consent, failed Turnstile, `comingSoon`, unknown slug), and
-`/api/healthz` reports `kv:false` and flips `ok:false`, naming the degradation
-in `problems`. The site staying up must never make the dashboard look green —
-so the fallback increments a counter that healthz compares before and after its
-own read, which tells it whether *that* read came from KV or from the copy,
-rather than guessing from a time window.
+`/api/healthz` reports `kv:false` and flips `ok:false`. The site staying up must
+never make the dashboard look green. Because healthz reads with `fresh`, that
+`kv` flag is measured by its own read rather than inferred: an earlier version
+compared a module-global fallback counter before and after, and since that state
+is shared by every request in the isolate, one *concurrent* visitor falling back
+made healthz answer 503 and fail the deploy smoke test while its own read had
+succeeded. The visitor-side degradation is still reported, as an advisory line in
+`problems` with a time window — which is all module state can honestly claim.
 
 ### Outbound links: one exception only
 

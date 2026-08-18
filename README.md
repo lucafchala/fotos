@@ -1107,6 +1107,10 @@ Dois contadores em KV, ambos por evento:
 - `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. Race conditions são possíveis em alta concorrência (read-modify-write não atômico), mas o erro de contagem é aceitável para o caso de uso.
 - `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive" antes de abrir a modal externa. Rate-limit: 60/h por IP (60 cliques por hora por IP é mais que suficiente).
 
+Os dois passam por `bumpCounter()` (`src/utils.js`), que **não grava um `put` por requisição**. O primeiro incremento de cada isolate grava na hora; os que chegam nos 10 s seguintes se somam na memória e viram um lote só. É o que impede o custo em KV de crescer junto com o público — e a gravação imediata do primeiro é o que impede tráfego esparso de perder a contagem inteira, já que um isolate ocioso morre antes de qualquer segundo incremento (e o cron não alcança: roda em outro isolate, com o mapa vazio).
+
+O rate-limit do `/api/track-drive` continua existindo **apesar** da agregação, e roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo custe zero escrita. A agregação limita o custo por *requisição*; sem o limite por IP, um flood sustentado ainda custaria uma escrita por janela — ~8600/dia contra a cota de 1000/dia do plano gratuito.
+
 Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores em paralelo via `Promise.all`.
 
 Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYTICS_TOKEN`). Quando definido, o beacon é injetado nas páginas públicas e o painel da Cloudflare mostra agregados (pageviews, dispositivos, países, referrers) sem cookies e sem tracking individual.

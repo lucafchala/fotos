@@ -89,12 +89,38 @@ async function readMirroredEvents() {
   }
 }
 
-// Quantas vezes uma leitura caiu para a cópia de sobrevivência. É contador, e
-// não booleano com prazo, para o /api/healthz conseguir dizer se ESTA leitura
-// degradou — comparando o valor antes e depois da chamada — em vez de "alguma
-// leitura degradou nos últimos N minutos".
-let _fallbackCount = 0;
-export function eventsFallbackCount() { return _fallbackCount; }
+// Registro de que alguma leitura de VISITANTE caiu para a cópia de
+// sobrevivência. Sinal com janela, no mesmo formato do `kvHealth`.
+//
+// Já foi um contador comparado antes/depois pelo healthz, para dizer se ESTA
+// leitura degradou. Não funcionava: o estado é do módulo, compartilhado por
+// todas as requisições do isolate, então a queda de uma requisição CONCORRENTE
+// fazia o healthz declarar `kv:false`, `ok:false` e 503 — reprovando o smoke
+// test do deploy — mesmo tendo lido do KV sem problema nenhum.
+//
+// Hoje o healthz decide `kv` pela PRÓPRIA leitura (que usa `fresh` e por isso
+// nunca cai para a cópia), e isto aqui é só um aviso: "o visitante andou sendo
+// servido de cópia há pouco". Que é exatamente o que dá para afirmar com
+// estado de módulo.
+const EVENTS_FALLBACK_TTL_MS = 60_000;
+let _fallbackAt = 0;
+let _fallbackSource = '';
+
+function noteEventsFallback(source) {
+  _fallbackAt = Date.now();
+  _fallbackSource = source;
+}
+
+export function eventsFallbackHealth(now = Date.now()) {
+  if (!_fallbackAt || now - _fallbackAt > EVENTS_FALLBACK_TTL_MS) return { stale: false };
+  return { stale: true, agoSecs: Math.round((now - _fallbackAt) / 1000), source: _fallbackSource };
+}
+
+// Exportado para os testes, que compartilham o módulo entre casos.
+export function resetEventsFallback() {
+  _fallbackAt = 0;
+  _fallbackSource = '';
+}
 
 // Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
 // duas versões disso divergiriam, e a cópia é justamente o caminho que ninguém
@@ -119,15 +145,23 @@ export async function getEvents(env, fresh = false) {
   try {
     data = await env.FOTOS.get('events');
   } catch (e) {
-    // KV fora. A ordem das quedas é do dado mais novo para o mais velho, e
-    // qualquer uma delas é melhor do que 500 na entrega das fotos.
+    // `fresh` NUNCA cai para a cópia. Quem pede fresh é leitura de admin ou
+    // read-modify-write (criar, editar, esconder, apagar projeto, restaurar
+    // backup): ali servir dado velho não é degradar com elegância, é preparar
+    // uma PERDA DE DADOS — o `saveEvents` seguinte gravaria a lista antiga por
+    // cima, apagando tudo o que mudou desde que a cópia foi feita. Falhar aqui
+    // custa uma mensagem de erro ao dono; a alternativa custa os projetos.
+    if (fresh) throw e;
+
+    // Daqui para baixo é só caminho de VISITANTE, onde a lista velha ainda
+    // entrega a foto certa. A ordem é do dado mais novo para o mais velho.
     //
     // 1) O cache do próprio isolate, mesmo VENCIDO. Antes ele era descartado
     //    aqui: passados os 30 s de TTL, um isolate que tinha a lista na mão
     //    respondia 500 assim que o KV falhava. Velho por 30 s continua sendo a
     //    lista certa.
     if (_cache) {
-      _fallbackCount++;
+      noteEventsFallback('cache do isolate');
       console.error('KV read failed; serving events from the isolate cache', e);
       return _cache;
     }
@@ -135,7 +169,7 @@ export async function getEvents(env, fresh = false) {
     //    numa queda: tráfego novo cai em isolate novo, sem cache de módulo.
     const mirrored = await readMirroredEvents();
     if (mirrored !== null) {
-      _fallbackCount++;
+      noteEventsFallback('cópia na Cache API');
       console.error('KV read failed; serving events from the cache mirror', e);
       _cache = parseEvents(mirrored);
       _cacheAt = now;
@@ -179,17 +213,18 @@ export const DEFAULT_CATEGORIES = ['Formatura', 'Casamento', 'Ensaio', 'Evento',
 export const MAX_CATEGORIES = 30;
 export const MAX_CATEGORY_LEN = 40;
 
+// Uma falha de LEITURA aqui propaga, de propósito. Já caiu nos padrões, e era
+// perda de dados esperando acontecer: todos os chamadores são rotas de admin
+// (painel, criar/editar projeto, criar/apagar categoria, backup/restore) — a
+// galeria pública deriva os filtros dos próprios eventos e nunca passa por
+// aqui. Então o "fallback" não mantinha página nenhuma de pé; só entregava a
+// lista errada para caminhos que a GRAVAM de volta (`handleCreateCategory`,
+// `handleRestoreBackup`), apagando para sempre as categorias do dono.
+//
+// Um valor corrompido continua caindo nos padrões: ali não há o que preservar,
+// e a próxima gravação conserta o valor guardado.
 export async function getCategories(env) {
-  let data;
-  try {
-    data = await env.FOTOS.get('categories');
-  } catch (e) {
-    // Categoria é rótulo de filtro, não conteúdo: com o KV fora, cair nos
-    // padrões deixa a galeria de pé com as fotos certas e no máximo um chip
-    // fora do lugar. Propagar derrubaria a página inteira por causa da legenda.
-    console.error('KV read failed; falling back to the default categories', e);
-    return [...DEFAULT_CATEGORIES];
-  }
+  const data = await env.FOTOS.get('categories');
   if (!data) return [...DEFAULT_CATEGORIES];
   try {
     const arr = JSON.parse(data);
@@ -374,7 +409,7 @@ export async function verifySession(env, request) {
     // uso transformaria a sessão de 24 h numa sessão perpétua.
     const ttl = Math.max(60, Math.round((createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
     await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
-      .catch(e => noteKvWriteFailure(e, 'session refresh'));
+      .catch(e => noteKvFailure('escrita', e, 'session refresh'));
   }
   return true;
 }
@@ -396,36 +431,45 @@ export async function verifySession(env, request) {
 // fotos de todo mundo para não deixar passar uma requisição extra é o pior dos
 // dois lados. O contrapeso é não ser silencioso: a falha fica registrada e o
 // `/api/healthz` grita — mesmo padrão do SIGNING_SECRET.
-const KV_WRITE_FAIL_TTL_MS = 30 * 60_000;
-let _kvWriteFailAt = 0;
-let _kvWriteFailReason = '';
+const KV_FAIL_TTL_MS = 30 * 60_000;
+let _kvFailAt = 0;
+let _kvFailOp = '';
+let _kvFailReason = '';
 
 // Registro local do isolate, sem custo: guardar isso em KV exigiria justamente
 // a escrita que acabou de ser recusada. Como todo estado de módulo em Workers,
 // vale só para este isolate — mas cota estourada é uma condição da conta
 // inteira, que dura até a virada UTC, então qualquer isolate que ainda esteja
 // servindo tráfego vê o mesmo erro em segundos.
-export function noteKvWriteFailure(err, context = '') {
-  _kvWriteFailAt = Date.now();
-  _kvWriteFailReason = String(err && err.message ? err.message : err).slice(0, 120);
-  console.error(`KV write refused${context ? ` (${context})` : ''}`, err);
+// `op` é 'escrita' ou 'leitura', e não é detalhe cosmético: a mensagem que o
+// painel mostra parte daqui, e ela ACUSA UMA CAUSA. Uma falha de leitura
+// registrada como escrita fazia o healthz afirmar "provável cota diária
+// esgotada" para um problema que não tem nada a ver com a cota de escrita —
+// mandando quem for investigar para o lugar errado, no meio de um incidente.
+export function noteKvFailure(op, err, context = '') {
+  _kvFailAt = Date.now();
+  _kvFailOp = op;
+  _kvFailReason = String(err && err.message ? err.message : err).slice(0, 120);
+  console.error(`KV ${op} refused${context ? ` (${context})` : ''}`, err);
 }
 
-export function kvWriteHealth(now = Date.now()) {
-  if (!_kvWriteFailAt || now - _kvWriteFailAt > KV_WRITE_FAIL_TTL_MS) return { failing: false };
+export function kvHealth(now = Date.now()) {
+  if (!_kvFailAt || now - _kvFailAt > KV_FAIL_TTL_MS) return { failing: false };
   return {
     failing: true,
-    agoSecs: Math.round((now - _kvWriteFailAt) / 1000),
-    reason: _kvWriteFailReason,
+    op: _kvFailOp,
+    agoSecs: Math.round((now - _kvFailAt) / 1000),
+    reason: _kvFailReason,
   };
 }
 
 // Exportado para os testes, que compartilham o módulo entre casos (a mesma
 // armadilha do cache de `getEvents`). Produção nunca limpa à mão — o registro
 // envelhece sozinho.
-export function resetKvWriteHealth() {
-  _kvWriteFailAt = 0;
-  _kvWriteFailReason = '';
+export function resetKvHealth() {
+  _kvFailAt = 0;
+  _kvFailOp = '';
+  _kvFailReason = '';
 }
 
 // ---------------------------------------------------------------------------
@@ -450,40 +494,99 @@ export function resetKvWriteHealth() {
 //
 // O mapa é naturalmente limitado: só entram chaves de eventos que existem
 // (quem chama valida antes), então nem um flood cria mapa grande.
-const COUNTER_FLUSH_MS = 10_000;
-const COUNTER_FLUSH_MAX_KEYS = 20;
+// Piso por CHAVE, casado com o limite do KV: uma escrita por segundo na mesma
+// chave (limite que NÃO sobe no plano pago). É isso que a agregação protege —
+// não a cota diária, que era a leitura errada da primeira versão.
+const COUNTER_KEY_MIN_INTERVAL_MS = 1000;
 const _pendingCounters = new Map();
-let _lastCounterFlush = 0;
+const _lastWriteByKey = new Map();
 let _flushInFlight = null;
 
 // Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
 // viraria 500 numa página que só queria contar uma visita.
+//
+// Devolve a promessa da gravação, para quem não tem `ctx` conseguir aguardá-la.
+//
+// O flush é registrado em TODA requisição, e não só quando uma janela vence.
+// As duas versões anteriores erraram aqui, cada uma de um jeito:
+//
+//   • adiar o primeiro incremento do isolate perdia a contagem inteira em
+//     tráfego esparso, porque o isolate morria antes do segundo;
+//   • um carimbo de janela ÚNICO para todas as chaves fazia a primeira chave a
+//     gravar bloquear as outras pelos 10 s seguintes, e o que estivesse pendente
+//     no fim do tráfego não era gravado por ninguém. Medido no harness: 50
+//     visitantes viraram `views: 3` e nenhum `drive_clicks`.
+//
+// Agora quem agrega é a CONCORRÊNCIA, não o relógio: requisições simultâneas
+// dividem o mesmo mapa e a trava `_flushInFlight` faz uma gravação cobrir todas.
+// Tráfego sequencial grava uma vez por evento — contagem exata. Sob rajada numa
+// mesma chave, o piso de 1 s adia o excedente para o flush seguinte, que é
+// exatamente o que o limite do KV exige.
 export function bumpCounter(env, ctx, key, by = 1) {
   try {
     _pendingCounters.set(key, (_pendingCounters.get(key) || 0) + by);
-    const now = Date.now();
-    if (!_lastCounterFlush) _lastCounterFlush = now;
-    const due = now - _lastCounterFlush >= COUNTER_FLUSH_MS
-      || _pendingCounters.size >= COUNTER_FLUSH_MAX_KEYS;
-    if (!due) return;
     const work = flushCounters(env);
-    // waitUntil mantém o isolate vivo até a gravação terminar sem segurar a
-    // resposta. Sem ctx (cron, teste), a promessa é aguardada por quem chamou.
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(work);
+    // O que o piso por chave adiou precisa de alguém para gravar depois. Sem
+    // isto, só a chegada de OUTRA requisição drenava o mapa — e quando a rajada
+    // termina, não chega outra: a cauda inteira se perdia. Medido no harness,
+    // 50 visitantes em menos de um segundo viravam `views: 1`.
+    //
+    // `waitUntil` segura o isolate vivo enquanto o timer corre, então a drenagem
+    // acontece sem depender de tráfego futuro e sem atrasar a resposta.
+    if (_pendingCounters.size) scheduleDrain(env, ctx);
+    return work;
   } catch (e) {
-    noteKvWriteFailure(e, 'bumpCounter');
+    noteKvFailure('escrita', e, 'bumpCounter');
+    return null;
   }
+}
+
+// Uma drenagem agendada por vez: várias requisições numa rajada não podem virar
+// vários timers gravando a mesma chave em paralelo.
+let _drainScheduled = false;
+function scheduleDrain(env, ctx) {
+  if (_drainScheduled || !ctx || typeof ctx.waitUntil !== 'function') return;
+  _drainScheduled = true;
+  ctx.waitUntil((async () => {
+    try {
+      await new Promise(r => setTimeout(r, COUNTER_KEY_MIN_INTERVAL_MS));
+      await flushCounters(env);
+    } finally {
+      _drainScheduled = false;
+    }
+  })());
 }
 
 // Uma passada por vez: sem a trava, duas requisições simultâneas leriam o mesmo
 // valor do KV e uma sobrescreveria a outra — o mesmo bug de contagem que a
 // agregação existe para reduzir.
+//
+// Quem chega no meio de uma passada ESPERA e roda de novo, em vez de receber a
+// promessa da passada em curso e ir embora. A diferença importa para quem
+// aguarda o flush de propósito (o cron diário, os testes): devolver a passada
+// alheia é dizer "gravei" sobre um incremento que entrou no mapa depois que ela
+// já tinha copiado o lote.
 export async function flushCounters(env) {
-  if (_flushInFlight) return _flushInFlight;
+  if (_flushInFlight) {
+    await _flushInFlight.catch(() => {});
+    return flushCounters(env);
+  }
   if (_pendingCounters.size === 0) return;
-  const batch = [..._pendingCounters.entries()];
-  _pendingCounters.clear();
-  _lastCounterFlush = Date.now();
+
+  const now = Date.now();
+  // Só entram no lote as chaves que respeitam o piso. As demais FICAM
+  // pendentes — não são descartadas — e saem no próximo flush.
+  const batch = [];
+  for (const [key, delta] of _pendingCounters) {
+    const last = _lastWriteByKey.get(key) || 0;
+    if (now - last < COUNTER_KEY_MIN_INTERVAL_MS) continue;
+    batch.push([key, delta]);
+    _pendingCounters.delete(key);
+    _lastWriteByKey.set(key, now);
+  }
+  if (batch.length === 0) return;
+
   _flushInFlight = (async () => {
     for (const [key, delta] of batch) {
       try {
@@ -493,7 +596,7 @@ export async function flushCounters(env) {
         // Delta descartado de propósito. Reinserir no mapa faria a cota
         // estourada acumular para sempre e tentar de novo a cada requisição,
         // gastando leitura sem nunca conseguir gravar.
-        noteKvWriteFailure(e, `contador ${key} (+${delta})`);
+        noteKvFailure('escrita', e, `contador ${key} (+${delta})`);
       }
     }
   })().finally(() => { _flushInFlight = null; });
@@ -503,8 +606,9 @@ export async function flushCounters(env) {
 // Só para os testes, que compartilham o módulo entre casos.
 export function resetCounters() {
   _pendingCounters.clear();
-  _lastCounterFlush = 0;
+  _lastWriteByKey.clear();
   _flushInFlight = null;
+  _drainScheduled = false;
 }
 
 export function pendingCounters() {
@@ -543,7 +647,7 @@ export async function checkRateLimit(env, ip, key, limit, windowSecs) {
     // Sem leitura não há contagem. Deixa passar em vez de derrubar a rota —
     // com o KV fora, quem depende dele (galeria, evento) já falha sozinho e com
     // mensagem própria; um 500 vindo daqui só esconderia a causa.
-    noteKvWriteFailure(e, `ratelimit:${key} (read)`);
+    noteKvFailure('leitura', e, `ratelimit:${key}`);
     return true;
   }
   // NaN >= limit is false, so a corrupted counter used to fail *open* — the
@@ -555,7 +659,7 @@ export async function checkRateLimit(env, ip, key, limit, windowSecs) {
     await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
   } catch (e) {
     // A verificação acima já passou: o que falhou foi só a contabilidade.
-    noteKvWriteFailure(e, `ratelimit:${key}`);
+    noteKvFailure('escrita', e, `ratelimit:${key}`);
   }
   return true;
 }

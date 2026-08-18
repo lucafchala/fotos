@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
-  kvWriteHealth, resetKvWriteHealth,
+  kvHealth, resetKvHealth,
   bumpCounter, flushCounters, resetCounters, pendingCounters,
 } from '../src/utils.js';
 
@@ -46,8 +46,8 @@ function writeExhaustedKV(initial = {}) {
 }
 
 describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
-  beforeEach(() => { resetKvWriteHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
-  afterEach(() => { vi.restoreAllMocks(); resetKvWriteHealth(); });
+  beforeEach(() => { resetKvHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetKvHealth(); });
 
   it('não propaga a exceção — a rota que chama não pode virar 500', async () => {
     const env = { FOTOS: writeExhaustedKV() };
@@ -75,10 +75,10 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
   });
 
   it('registra a falha para o healthz — falhar aberto não pode ser silencioso', async () => {
-    expect(kvWriteHealth().failing).toBe(false);
+    expect(kvHealth().failing).toBe(false);
     const env = { FOTOS: writeExhaustedKV() };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
-    const health = kvWriteHealth();
+    const health = kvHealth();
     expect(health.failing).toBe(true);
     expect(health.reason).toContain('429');
   });
@@ -86,8 +86,8 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
   it('o registro envelhece sozinho depois de 30 min sem nova recusa', async () => {
     const env = { FOTOS: writeExhaustedKV() };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
-    expect(kvWriteHealth(Date.now() + 29 * 60_000).failing).toBe(true);
-    expect(kvWriteHealth(Date.now() + 31 * 60_000).failing).toBe(false);
+    expect(kvHealth(Date.now() + 29 * 60_000).failing).toBe(true);
+    expect(kvHealth(Date.now() + 31 * 60_000).failing).toBe(false);
   });
 });
 
@@ -95,49 +95,73 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
 // escritas/dia) e o movimento não. Agregar é o que troca "uma escrita por
 // visitante" por "uma escrita por janela".
 describe('contadores agregados', () => {
-  beforeEach(() => { resetCounters(); resetKvWriteHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  beforeEach(() => { resetCounters(); resetKvHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
   afterEach(() => { vi.restoreAllMocks(); resetCounters(); });
 
-  it('cem incrementos no mesmo slug viram UMA escrita', async () => {
+  // `ctx` de mentira que COLETA e aguarda o waitUntil, como o Workers faz. Sem
+  // ele a drenagem agendada nunca roda e o teste mediria o nada — a mesma
+  // pegadinha que o docs/VERIFICACAO.md descreve para o harness.
+  const fakeCtx = () => { const p = []; return { waitUntil: x => p.push(Promise.resolve(x).catch(() => {})), settle: () => Promise.all(p) }; };
+
+  it('grava na hora quando o tráfego é espalhado — contagem exata, zero perda', async () => {
     const env = { FOTOS: fakeKV() };
+    await bumpCounter(env, null, 'views:piauifut-2026');
+    expect(env.FOTOS._store.get('views:piauifut-2026')).toBe('1');
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('agrega uma rajada na MESMA chave e não perde a cauda', async () => {
+    // O piso de 1 s por chave existe por causa do limite do KV (uma escrita por
+    // segundo na mesma chave, que não sobe nem no plano pago). O que ele adia
+    // tem de ser gravado por alguém: a drenagem agendada é esse alguém, e sem
+    // ela a cauda da rajada sumia — 50 visitantes viraram `views: 1` no harness.
+    const env = { FOTOS: fakeKV() };
+    const ctx = fakeCtx();
+    for (let i = 0; i < 100; i++) bumpCounter(env, ctx, 'views:piauifut-2026');
     let escritas = 0;
     const put = env.FOTOS.put.bind(env.FOTOS);
     env.FOTOS.put = async (...a) => { escritas++; return put(...a); };
-    for (let i = 0; i < 100; i++) bumpCounter(env, null, 'views:piauifut-2026');
-    await flushCounters(env);
-    expect(escritas).toBe(1);
-    expect(env.FOTOS._store.get('views:piauifut-2026')).toBe('100');
+    await ctx.settle();
+    expect(env.FOTOS._store.get('views:piauifut-2026'), 'nenhuma contagem pode sumir').toBe('100');
+    expect(escritas, 'a rajada inteira cabe numa gravação a mais').toBeLessThanOrEqual(2);
+    expect(pendingCounters().size).toBe(0);
   });
 
-  it('não grava nada antes do flush', async () => {
+  it('uma chave nova não espera o piso de outra', async () => {
+    // O carimbo de janela já foi único para todas as chaves: a primeira a
+    // gravar bloqueava as outras, e `drive_clicks` ficava sem nenhuma escrita
+    // enquanto `views` segurava o relógio.
     const env = { FOTOS: fakeKV() };
-    bumpCounter(env, null, 'views:x');
-    expect(env.FOTOS._store.size).toBe(0);
-    expect(pendingCounters().get('views:x')).toBe(1);
+    await bumpCounter(env, null, 'views:a');
+    await bumpCounter(env, null, 'drive_clicks:a');
+    expect(env.FOTOS._store.get('views:a')).toBe('1');
+    expect(env.FOTOS._store.get('drive_clicks:a')).toBe('1');
   });
 
   it('soma sobre o valor já gravado e zera o pendente', async () => {
     const env = { FOTOS: fakeKV({ 'views:x': '7' }) };
-    bumpCounter(env, null, 'views:x');
-    bumpCounter(env, null, 'views:x');
-    await flushCounters(env);
+    const ctx = fakeCtx();
+    bumpCounter(env, ctx, 'views:x');
+    bumpCounter(env, ctx, 'views:x');
+    await ctx.settle();
     expect(env.FOTOS._store.get('views:x')).toBe('9');
     expect(pendingCounters().size).toBe(0);
   });
 
   it('mantém slugs separados', async () => {
     const env = { FOTOS: fakeKV() };
-    bumpCounter(env, null, 'views:a');
-    bumpCounter(env, null, 'views:b');
-    bumpCounter(env, null, 'views:a');
-    await flushCounters(env);
+    const ctx = fakeCtx();
+    bumpCounter(env, ctx, 'views:a');
+    bumpCounter(env, ctx, 'views:b');
+    bumpCounter(env, ctx, 'views:a');
+    await ctx.settle();
     expect(env.FOTOS._store.get('views:a')).toBe('2');
     expect(env.FOTOS._store.get('views:b')).toBe('1');
   });
 
   it('não grava "NaN" quando o valor guardado está corrompido', async () => {
     const env = { FOTOS: fakeKV({ 'views:x': 'NaN' }) };
-    bumpCounter(env, null, 'views:x');
+    await bumpCounter(env, null, 'views:x');
     await flushCounters(env);
     expect(env.FOTOS._store.get('views:x')).toBe('1');
   });
@@ -149,17 +173,20 @@ describe('contadores agregados', () => {
 
   it('com a cota estourada, descarta o delta em vez de acumular para sempre', async () => {
     const env = { FOTOS: writeExhaustedKV() };
-    bumpCounter(env, null, 'views:x');
+    await bumpCounter(env, null, 'views:x');
     await flushCounters(env);
     expect(pendingCounters().size, 'o delta não pode voltar para a fila').toBe(0);
-    expect(kvWriteHealth().failing, 'e o healthz precisa saber').toBe(true);
+    expect(kvHealth().failing, 'e o healthz precisa saber').toBe(true);
   });
 
-  it('dois flushes ao mesmo tempo não se atropelam', async () => {
+  it('dois flushes ao mesmo tempo não se atropelam nem perdem o que chegou no meio', async () => {
     const env = { FOTOS: fakeKV({ 'views:x': '0' }) };
-    for (let i = 0; i < 5; i++) bumpCounter(env, null, 'views:x');
+    const ctx = fakeCtx();
+    for (let i = 0; i < 5; i++) bumpCounter(env, ctx, 'views:x');
     await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
+    await ctx.settle();
     expect(env.FOTOS._store.get('views:x')).toBe('5');
+    expect(pendingCounters().size).toBe(0);
   });
 
   it('flush sem nada pendente não gasta escrita', async () => {
@@ -230,7 +257,7 @@ describe('getEvents com o KV de leitura fora', () => {
     const utils = await coldIsolate();
     const got = await utils.getEvents(kvDown());
     expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
-    expect(utils.eventsFallbackCount()).toBe(1);
+    expect(utils.eventsFallbackHealth().stale).toBe(true);
   });
 
   it('valida a forma da cópia igual à do KV (uma cópia corrompida não derruba)', async () => {
@@ -274,10 +301,12 @@ describe('getEvents com o KV de leitura fora', () => {
 });
 
 describe('getCategories com o KV fora', () => {
-  it('cai nos padrões em vez de derrubar a galeria pela legenda', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await getCategories(kvDown())).toEqual(DEFAULT_CATEGORIES);
-    vi.restoreAllMocks();
+  it('PROPAGA em vez de devolver os padrões — devolver seria perda de dados', async () => {
+    // Todos os chamadores são rotas de admin, e duas delas GRAVAM a lista de
+    // volta (criar categoria, restaurar backup). Devolver os padrões ali
+    // apagaria para sempre as categorias do dono. A galeria pública não passa
+    // por aqui: ela deriva os filtros dos próprios eventos.
+    await expect(getCategories(kvDown())).rejects.toThrow(/KV GET failed/);
   });
 });
 
