@@ -257,21 +257,84 @@ export async function verifySession(env, request) {
     // uso transformaria a sessão de 24 h numa sessão perpétua.
     const ttl = Math.max(60, Math.round((createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
     await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
-      .catch(e => console.error('session refresh failed', e));
+      .catch(e => noteKvWriteFailure(e, 'session refresh'));
   }
   return true;
+}
+
+// A cota de escrita do KV é de 1000/dia no plano free, para a conta inteira, e
+// quando ela estoura o KV passa a RECUSAR escrita — leitura continua normal, e
+// a recusa chega como EXCEÇÃO, não como valor de retorno. Um dia de tráfego
+// grande (lançamento de projeto, link no Instagram) chega lá: cada visitante
+// gasta escrita no contador de visitas e no rate limit do portão do Drive.
+//
+// Sem tratamento, essa exceção sobe de `checkRateLimit` até o catch do
+// `fetch()` e vira **500 para todo mundo no portão do Drive** — as fotos param
+// de sair exatamente no dia de maior público — e trava o login do painel, ou
+// seja, o dono perde o acesso justo quando precisa investigar.
+//
+// Por isso a escrita do contador é isolada e o limite deixa passar quando ela
+// falha. É uma decisão consciente na mesma direção do resto do projeto: o rate
+// limit é mitigação de abuso, não garantia (ver SECURITY.md), e recusar as
+// fotos de todo mundo para não deixar passar uma requisição extra é o pior dos
+// dois lados. O contrapeso é não ser silencioso: a falha fica registrada e o
+// `/api/healthz` grita — mesmo padrão do SIGNING_SECRET.
+const KV_WRITE_FAIL_TTL_MS = 30 * 60_000;
+let _kvWriteFailAt = 0;
+let _kvWriteFailReason = '';
+
+// Registro local do isolate, sem custo: guardar isso em KV exigiria justamente
+// a escrita que acabou de ser recusada. Como todo estado de módulo em Workers,
+// vale só para este isolate — mas cota estourada é uma condição da conta
+// inteira, que dura até a virada UTC, então qualquer isolate que ainda esteja
+// servindo tráfego vê o mesmo erro em segundos.
+export function noteKvWriteFailure(err, context = '') {
+  _kvWriteFailAt = Date.now();
+  _kvWriteFailReason = String(err && err.message ? err.message : err).slice(0, 120);
+  console.error(`KV write refused${context ? ` (${context})` : ''}`, err);
+}
+
+export function kvWriteHealth(now = Date.now()) {
+  if (!_kvWriteFailAt || now - _kvWriteFailAt > KV_WRITE_FAIL_TTL_MS) return { failing: false };
+  return {
+    failing: true,
+    agoSecs: Math.round((now - _kvWriteFailAt) / 1000),
+    reason: _kvWriteFailReason,
+  };
+}
+
+// Exportado para os testes, que compartilham o módulo entre casos (a mesma
+// armadilha do cache de `getEvents`). Produção nunca limpa à mão — o registro
+// envelhece sozinho.
+export function resetKvWriteHealth() {
+  _kvWriteFailAt = 0;
+  _kvWriteFailReason = '';
 }
 
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   const window = Math.floor(Date.now() / (windowSecs * 1000));
   const kvKey = `ratelimit:${key}:${ip}:${window}`;
-  const raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  let raw;
+  try {
+    raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  } catch (e) {
+    // Sem leitura não há contagem. Deixa passar em vez de derrubar a rota —
+    // com o KV fora, quem depende dele (galeria, evento) já falha sozinho e com
+    // mensagem própria; um 500 vindo daqui só esconderia a causa.
+    noteKvWriteFailure(e, `ratelimit:${key} (read)`);
+    return true;
+  }
   // NaN >= limit is false, so a corrupted counter used to fail *open* — the
   // limit silently stopped applying for that key/IP/window, and String(NaN)
   // kept it corrupted. Treating unparseable as 0 keeps the limiter counting.
   const count = Number.isFinite(raw) ? raw : 0;
   if (count >= limit) return false;
-  await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
+  try {
+    await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
+  } catch (e) {
+    // A verificação acima já passou: o que falhou foi só a contabilidade.
+    noteKvWriteFailure(e, `ratelimit:${key}`);
+  }
   return true;
 }
 

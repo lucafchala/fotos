@@ -114,6 +114,23 @@ Free tier. Qualquer coisa que grave por requisição é um risco existencial: o
 contador de visualizações sozinho, contando HEAD, gastava 1440/dia. Antes de
 adicionar um `put()` num caminho público, calcule o pior caso.
 
+**Estourar a cota não derruba mais o site.** Quando a cota acaba, o KV recusa
+escrita — e a recusa vem como *exceção*, não como valor de retorno. Ela subia do
+`checkRateLimit` até o catch do `fetch()` e virava 500 no `/api/drive-link`: as
+fotos paravam de sair no dia de maior público, e o login do painel caía junto.
+Hoje a escrita do contador é isolada e o limite deixa passar quando só ela
+falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
+`problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
+real para contar.
+
+Conta de guardanapo para um lançamento: cada visitante engajado custa ~3
+escritas (visita + portão do Drive + clique). Mil escritas acabam por volta de
+**300 visitantes/dia** — e aí contador, rate limit e sessão nova param até a
+virada UTC. O site continua entregando as fotos; o `healthz` fica vermelho.
+Se um projeto for passar disso com folga, a decisão é subir para o plano pago
+do Workers ou tirar os contadores do KV (o `/api/perf` e o `/api/csp-report` já
+mostram o caminho: log estruturado em vez de KV).
+
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 
 Sem ele, o nonce de página e os tokens de formulário **desligam em silêncio** e o

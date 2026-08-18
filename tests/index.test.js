@@ -198,6 +198,17 @@ describe('auditSite (healthz functional self-test)', () => {
     expect(r.problems[r.problems.length - 1]).toMatch(/^\+\d+ outro\(s\)$/);
   });
 
+  it('flags a refused KV write — falhar aberto no rate limit não pode ser silencioso', () => {
+    // A cota de escrita (1000/dia) estoura num dia de público grande. O site
+    // segue servindo as fotos de propósito, então o healthz é o único lugar
+    // onde isso aparece.
+    expect(auditSite([liveEvent()], FULL_ENV).problems).toEqual([]);
+    const r = auditSite([liveEvent()], FULL_ENV, { failing: true, agoSecs: 12, reason: 'KV PUT failed: 429' });
+    expect(r.ok).toBe(false);
+    expect(r.problems.some(p => p.includes('cota diária esgotada'))).toBe(true);
+    expect(r.problems.some(p => p.includes('429'))).toBe(true);
+  });
+
   it('never throws on garbage input', () => {
     expect(() => auditSite(null)).not.toThrow();
     expect(() => auditSite([null, 42, {}], {})).not.toThrow();

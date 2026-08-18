@@ -13,6 +13,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
+  noteKvWriteFailure, kvWriteHealth,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -518,7 +519,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
         // wrote "NaN" back — poisoning the counter permanently, since every
         // later increment re-read "NaN". toCount() falls back to 0.
         await env.FOTOS.put(viewKey, String(toCount(v) + 1));
-      }).catch(e => console.error('view counter failed', e))
+      }).catch(e => noteKvWriteFailure(e, 'view counter'))
     );
   }
 
@@ -648,7 +649,10 @@ async function noteFailedLogin(env, request, ip) {
   const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
   const key = `login-fail:${ip}:${window}`;
   const attempts = toCount(await env.FOTOS.get(key)) + 1;
-  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS });
+  // Isolada: com a cota de escrita estourada, uma exceção aqui pularia
+  // justamente o alerta de força bruta. A contagem já está em `attempts`.
+  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
+    .catch(e => noteKvWriteFailure(e, 'login-fail counter'));
   // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
   // Numa força bruta paralela — exatamente o caso que o alerta existe para
   // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
@@ -1006,18 +1010,35 @@ async function handleMetrics(request, env) {
 // ---------------------------------------------------------------------------
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
-async function handleTrackDrive(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
-  if (!allowed) return jsonOk({ ok: true });
-
+export async function handleTrackDrive(request, env) {
+  // Ordem importa por causa da cota: `checkRateLimit` GRAVA em KV, e a cota é
+  // de 1000 escritas/dia para a conta inteira. Com o rate limit na frente, todo
+  // POST de lixo neste endpoint — que é público, aceita corpo qualquer e passa
+  // pelo portão de CSRF quando o cliente não manda cabeçalho de browser
+  // (decisão deliberada, ver isCrossSiteRequest) — custava uma escrita sem
+  // nunca contar nada: 60 por IP por hora, de graça, contra a mesma cota de que
+  // dependem evento, sessão e consentimento. É a mesma conta que já tinha sido
+  // feita no handleLogin, e a mesma resposta: o que é grátis vem primeiro.
+  //
+  // Agora nada aqui grava antes de saber que existe um clique real para contar:
+  // corpo, formato do slug e existência do evento são de graça (o getEvents tem
+  // cache de isolate e leitura tem cota 100× maior). O rate limit continua
+  // valendo para quem passa por tudo isso, que é o único caso capaz de gastar.
   let body;
   try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
+
+  const events = await getEvents(env);
+  if (!events.some(e => e.slug === slug)) return jsonOk({ ok: true });
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
+  if (!allowed) return jsonOk({ ok: true });
+
   const key = `drive_clicks:${slug}`;
   const v = await env.FOTOS.get(key).catch(() => null);
-  await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => console.error('drive-click counter failed', e));
+  await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => noteKvWriteFailure(e, 'drive-click counter'));
   return jsonOk({ ok: true });
 }
 
@@ -1550,7 +1571,7 @@ export function cronStale(lastIso, now = Date.now()) {
 // offending slug, and nominates one healthy event as a `sample` the dashboard
 // can deep-probe (its Drive gate + removal form).
 const MAX_SELFTEST_PROBLEMS = 12;
-export function auditSite(events, env = {}) {
+export function auditSite(events, env = {}, kvWrites = { failing: false }) {
   const problems = [];
   const seen = new Set();
   let driveOk = 0, driveBad = 0, live = 0;
@@ -1601,6 +1622,19 @@ export function auditSite(events, env = {}) {
   // ações diferentes — no segundo caso a pessoa jura que já resolveu.
   if (!forms.signing) {
     problems.push(`SIGNING_SECRET ${signingSecretProblem(env)} — nonce do Drive e token dos formulários DESLIGADOS`);
+  }
+
+  // Mesma lógica do item acima: não derruba nada, por isso precisa aparecer.
+  // Escrita recusada no KV é quase sempre a cota diária (1000/dia, plano free)
+  // estourada por um dia de público grande. O site continua servindo as fotos —
+  // as escritas de visitante falham isoladas de propósito — mas contador de
+  // visitas, rate limit e sessão nova param até a virada UTC, e nada disso é
+  // visível de fora. Só cai da lista quando 30 min se passam sem nova recusa.
+  if (kvWrites && kvWrites.failing) {
+    problems.push(
+      `escrita em KV recusada há ${kvWrites.agoSecs}s — provável cota diária esgotada; ` +
+      `contadores e rate limit desligados até a virada UTC${kvWrites.reason ? ` (${kvWrites.reason})` : ''}`
+    );
   }
 
   const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
@@ -1679,7 +1713,7 @@ export async function handleHealthz(request, env) {
   // reads): broken/missing Drive links on live events, bad data, and form
   // backends that are unset. This is what surfaces "something went wrong" on the
   // status dashboard, not just hard 500s. ---
-  const selftest = auditSite(eventsList, env);
+  const selftest = auditSite(eventsList, env, kvWriteHealth());
 
   // --- The rest of the extended surface is derived from already-loaded data and
   // env bindings — ZERO additional KV reads. `config` exposes only booleans

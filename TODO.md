@@ -371,6 +371,18 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 
 ## Operação
 
+- [ ] 🔴 **Decidir o teto de escrita do KV antes de um projeto de público
+      grande.** A cota do plano free é de **1000 escritas/dia para a conta
+      inteira**, e cada visitante engajado custa ~3 (visita + portão do Drive +
+      clique): a conta fecha por volta de **300 visitantes/dia**. Passando
+      disso, o site continua entregando as fotos — a recusa de escrita virou
+      fail-open isolado e o `/api/healthz` acusa em `problems` (ver
+      [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)) —
+      mas contador, rate limit e sessão nova ficam parados até a virada UTC.
+      Dois caminhos: subir para o Workers Paid, ou tirar os contadores do KV e
+      mandá-los para log/Analytics Engine, como já fazem `/api/perf` e
+      `/api/csp-report`. **A escolha é anterior ao lançamento, não posterior:**
+      depois de estourada, a cota só volta na virada do dia UTC.
 - [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
       um SHA conhecido em vez de arqueologia no log. Procedimento no
       [README](./README.md#rollback); hoje o repo não tem nenhuma tag.

@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES } from '../src/utils.js';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
+  kvWriteHealth, resetKvWriteHealth,
+} from '../src/utils.js';
 
 // Minimal in-memory stand-in for a Workers KV namespace. Ignores expirationTtl
 // (the tests run inside a single rate-limit window, so TTL is irrelevant).
@@ -29,6 +32,61 @@ describe('checkRateLimit', () => {
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(true);
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(false);
     expect(await checkRateLimit(env, 'b', 'k', 1, 600)).toBe(true);
+  });
+});
+
+// KV que atingiu a cota diária de escrita (1000/dia no plano free): leitura
+// continua respondendo, escrita é RECUSADA — e a recusa vem como exceção. É o
+// estado esperado num dia de lançamento com público grande.
+function writeExhaustedKV(initial = {}) {
+  const kv = fakeKV(initial);
+  kv.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+  return kv;
+}
+
+describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
+  beforeEach(() => { resetKvWriteHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetKvWriteHealth(); });
+
+  it('não propaga a exceção — a rota que chama não pode virar 500', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
+  });
+
+  it('deixa passar quando só a contabilidade falhou: a verificação já tinha passado', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    const results = [];
+    for (let i = 0; i < 3; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'drive-link', 1, 3600));
+    expect(results).toEqual([true, true, true]);
+  });
+
+  it('continua barrando quando o contador JÁ passou do limite antes da cota estourar', async () => {
+    // Escrita recusada não zera o que já estava gravado: a leitura ainda vale,
+    // então quem já estourou o limite continua barrado.
+    const window = Math.floor(Date.now() / (3600 * 1000));
+    const env = { FOTOS: writeExhaustedKV({ [`ratelimit:drive-link:1.2.3.4:${window}`]: '60' }) };
+    expect(await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).toBe(false);
+  });
+
+  it('deixa passar, sem lançar, quando nem a LEITURA responde', async () => {
+    const env = { FOTOS: { async get() { throw new Error('KV GET failed'); }, async put() {} } };
+    await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
+  });
+
+  it('registra a falha para o healthz — falhar aberto não pode ser silencioso', async () => {
+    expect(kvWriteHealth().failing).toBe(false);
+    const env = { FOTOS: writeExhaustedKV() };
+    await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
+    const health = kvWriteHealth();
+    expect(health.failing).toBe(true);
+    expect(health.reason).toContain('429');
+  });
+
+  it('o registro envelhece sozinho depois de 30 min sem nova recusa', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
+    expect(kvWriteHealth(Date.now() + 29 * 60_000).failing).toBe(true);
+    expect(kvWriteHealth(Date.now() + 31 * 60_000).failing).toBe(false);
   });
 });
 

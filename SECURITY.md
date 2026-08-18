@@ -68,7 +68,9 @@ issue before any public disclosure.
   a semantics decision.
 - Best-effort, non-atomic counters (`views`, `drive_clicks`): undercounting
   under load is expected.
-- Rate limits are abuse-mitigation, not a hard guarantee.
+- Rate limits are abuse-mitigation, not a hard guarantee. In particular they
+  **stop counting when KV refuses a write** — see "Rate limits fail open when KV
+  cannot record them" below.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
@@ -121,6 +123,47 @@ then let the enforced policy use `strict` too. Until then, a `<script>` without 
 nonce is invisible today and breaks silently on flip day — so CI rejects one, and
 the deploy smoke test rejects a nonce appearing in the enforced header
 (`.github/workflows/security.yml`, `deploy.yml`).
+
+### Rate limits fail open when KV cannot record them
+
+`checkRateLimit()` reads a counter from KV and writes it back. The write is the
+part that can be refused: the free tier allows **1000 KV writes per day for the
+whole account**, and once that is spent KV rejects writes — as a thrown
+exception — while reads keep working normally. A day of real traffic reaches
+that ceiling on its own, because every visitor spends writes on the view counter
+and on the Drive gate's own limiter.
+
+Left unhandled, that exception propagated out of `checkRateLimit()` into the
+top-level `fetch()` catch and became a **500 on `/api/drive-link`** — photo
+delivery down for everyone, on the busiest day of the site's life — and a 500 on
+`/dashboard/login`, locking the owner out at exactly the moment they would go
+looking for the cause. Neither error said anything about a quota.
+
+So the counter write is isolated, and a request whose limit check already passed
+is allowed through when only the bookkeeping fails. This is a deliberate fail
+**open**, in the same direction as `SIGNING_SECRET`: refusing every visitor's
+photos in order not to let one extra request through is the worse side of the
+trade, and rate limits here are abuse-mitigation rather than a guarantee. Two
+things bound it:
+
+- **A limit already exceeded still blocks.** Reads are unaffected by a spent
+  write quota, so a counter that has passed the limit keeps refusing — the
+  fail-open covers the request that was going to be allowed anyway, not a
+  blanket bypass. Pinned by `tests/kv.test.js`.
+- **It is never silent.** Every refused write is recorded
+  (`noteKvWriteFailure()`), and `/api/healthz` reports it in `problems` until 30
+  minutes pass with no new refusal — so the status dashboard goes red while
+  counters and limiters are degraded, instead of the site quietly serving on
+  with neither. The record is isolate-local and costs nothing: persisting it
+  would need the very write that was just refused.
+
+The other half is not spending the quota in the first place. `/api/track-drive`
+is public and accepts any body, and it used to call `checkRateLimit()` — a
+write — *before* parsing that body, so junk POSTs burned quota while counting
+nothing. Validation that costs nothing (body shape, slug format, whether the
+event exists) now runs first, and only a request that has something real to
+count can spend a write. Same reasoning already applied to `handleLogin()`,
+which deliberately does not count an attempt the burst limiter already refused.
 
 ### Outbound links: one exception only
 

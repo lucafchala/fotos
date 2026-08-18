@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleDriveLink, handlePerfBeacon, toCount, mintDriveNonce } from '../src/index.js';
+import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
 import { saveEvents, ACCESS_DECLARATIONS } from '../src/utils.js';
 
@@ -200,6 +200,43 @@ describe('handleDriveLink — grants', () => {
   });
 });
 
+// Dia de lançamento: a cota de escrita do KV (1000/dia, plano free) estoura no
+// meio do público. Antes, a exceção da escrita recusada subia de checkRateLimit
+// e virava 500 no portão do Drive — as fotos paravam de sair exatamente na hora
+// de maior movimento, e nada no código dizia que era a cota.
+describe('handleDriveLink — cota de escrita do KV estourada', () => {
+  it('continua entregando o link (a escrita recusada não pode virar 500)', async () => {
+    stubTurnstile(true);
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }),
+      { ...env, FOTOS: broken },
+      fakeCtx()
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+  });
+
+  it('e nenhuma das recusas do portão vira 200 por causa disso', async () => {
+    // O fail-open é só do contador. Consentimento, Turnstile e "em breve"
+    // continuam recusando, senão a cota estourada viraria um bypass.
+    stubTurnstile(true);
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const brokenEnv = { ...env, FOTOS: broken };
+    const semConsentimento = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), brokenEnv, fakeCtx());
+    expect(semConsentimento.status).toBe(400);
+    const emBreve = await handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), brokenEnv, fakeCtx());
+    expect(emBreve.status).toBe(403);
+    stubTurnstile(false);
+    const turnstileRuim = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'bad', consent: true }), brokenEnv, fakeCtx());
+    expect(turnstileRuim.status).toBe(403);
+  });
+});
+
 describe('handleDriveLink — consent audit', () => {
   it('writes the audit row with the server texts, ignoring client-supplied ones', async () => {
     stubTurnstile(true);
@@ -328,6 +365,41 @@ describe('handlePerfBeacon', () => {
 // pedia o link de um slug atrás do outro sem nunca abrir uma página. Estes
 // testes fixam justamente isso: o link só sai para quem apresenta um nonce
 // assinado por nós, para aquele slug, dentro do prazo.
+// A cota de escrita do KV é o recurso que decide se o site aguenta um dia de
+// lançamento. Este endpoint é público e aceita corpo qualquer, então gastar
+// escrita antes de saber que há um clique real para contar é um ralo direto.
+describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () => {
+  const post = (body, ip = '9.9.9.9') => new Request(`${SITE}/api/track-drive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+  const writes = kv => { let n = 0; const orig = kv.put.bind(kv); kv.put = async (...a) => { n++; return orig(...a); }; return () => n; };
+
+  it('não gasta escrita nenhuma com corpo inválido, slug inválido ou evento inexistente', async () => {
+    const count = writes(env.FOTOS);
+    for (const body of ['{nao json', {}, { slug: '../../etc/passwd' }, { slug: 'nao-existe' }]) {
+      const res = await handleTrackDrive(post(body), env);
+      expect(res.status).toBe(200);
+    }
+    expect(count()).toBe(0);
+  });
+
+  it('conta o clique de verdade (rate limit + contador)', async () => {
+    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+    expect(res.status).toBe(200);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('1');
+  });
+
+  it('não vira 500 quando a cota de escrita está estourada', async () => {
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), { ...env, FOTOS: broken });
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('handleDriveLink — nonce de página', () => {
   let env, ctx;
   beforeEach(async () => {
