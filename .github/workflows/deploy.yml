@@ -142,12 +142,15 @@ jobs:
           echo "Health response: $HEALTH"
           echo "$HEALTH" | grep -q '"ok":true' || { echo "FAIL [healthz]: unexpected response"; exit 1; }
 
-          HASH_MS=$(echo "$HEALTH" | grep -o '"hashMs":[0-9]*' | cut -d: -f2)
-          echo "OK   [healthz]: hashing took ${HASH_MS}ms"
-          if [ -n "$HASH_MS" ] && [ "$HASH_MS" -gt 200 ]; then
-            echo "FAIL [healthz]: hashing took ${HASH_MS}ms — too slow, login will timeout"
-            exit 1
-          fi
+          # Sem checagem de tempo de hash aqui, e o motivo importa: o Workers
+          # congela Date.now() durante execução síncrona, então o healthz não
+          # tinha como medir o próprio PBKDF2 — publicava "hashMs":0 sempre, e
+          # este portão comparava 0 com 200 a cada deploy desde que foi escrito.
+          # Mais um caso do §5.7: etapa que nunca poderia reprovar.
+          #
+          # O orçamento de CPU continua coberto pelo sinal real, logo abaixo e
+          # logo acima: estourá-lo mata a requisição, e aí o healthz não volta
+          # "ok":true e o login não volta 302. É isso que reprova o deploy.
 
           # Functional self-test (broken Drive links, missing form secrets, etc.)
           # is data/config, not a code regression from this deploy — log it, but

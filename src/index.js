@@ -1662,7 +1662,7 @@ export async function handleHealthz(request, env) {
   // --- Core: KV is the binding the whole app depends on, and a read failure
   // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
   // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on
-  // (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  // (`"ok":true`), while reporting *which* subsystem broke.
   //
   // KV-frugal by design: one read of `events` proves both that the binding
   // responds AND that the main store is a valid array — so we dropped the old
@@ -1697,10 +1697,29 @@ export async function handleHealthz(request, env) {
     d1LatencyMs = Date.now() - t0;
   }
 
-  // --- PBKDF2 hash — confirms login hashing completes within the CPU budget. ---
-  const t0 = Date.now();
+  // --- PBKDF2 — canário do orçamento de CPU do login. ---
+  //
+  // O hash roda; o tempo dele NÃO é publicado, porque não dá para medi-lo aqui.
+  // O Workers congela `Date.now()` durante execução síncrona (mitigação de
+  // ataque de temporização): o relógio só anda depois de I/O. Um PBKDF2 de 100k
+  // iterações é CPU pura, sem I/O no meio, então `Date.now()` antes e depois
+  // devolve o MESMO valor e a conta dava `hashMs: 0` — sempre, em produção,
+  // desde que foi escrita. Confirmado no log do último deploy: `hashMs: 0` ao
+  // lado de `kvLatencyMs: 6` e `d1LatencyMs: 84`, que passam por I/O e por isso
+  // são reais.
+  //
+  // Zero não é um hash rápido, é um número que não existe — e ele alimentava
+  // três portões incapazes de reprovar: o `HASH_MS -gt 200` do deploy.yml, o
+  // `hashMs > HASH_BUDGET_MS` do painel de status, e a linha "hash 0ms" que o
+  // painel exibia como se fosse desempenho excelente. É a armadilha do
+  // RETOMADA §5.7 de novo, no portão que deveria vigiar justamente a CPU.
+  //
+  // O que de fato protege continua de pé, e é o sinal real: se o hash não
+  // couber no orçamento de CPU, o Workers mata a requisição e esta rota
+  // responde 5xx. O smoke test cobre isso (healthz `ok:true` + login 302, não
+  // 5xx) e o painel de status também (`h.status >= 500` → down). Medir CPU de
+  // dentro do isolate não é possível; de fora, quem conta é o 5xx.
   await hashPassword('healthcheck');
-  const hashMs = Date.now() - t0;
 
   // --- Cron heartbeat (best-effort, one KV read): detects a silently dead daily
   // schedule. This is the second of the two KV reads; the throwaway `__healthz__`
@@ -1727,7 +1746,10 @@ export async function handleHealthz(request, env) {
   const ok = kv && events !== null;
   return jsonOk({
     // Stable contract (smoke test + existing dashboard parsing): keep these names.
-    ok, kv, events, d1, hashMs,
+    // `hashMs` saiu daqui de propósito — ver o comentário do PBKDF2 acima. Os
+    // dois consumidores testam `typeof === 'number'` antes de usar, então a
+    // ausência some sozinha em vez de virar "NaN" na tela.
+    ok, kv, events, d1,
     // Extended surface (no extra KV reads).
     kvLatencyMs,
     d1LatencyMs,

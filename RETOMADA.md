@@ -169,6 +169,28 @@ test ficou dois deploys sem nunca executar, e era estruturalmente incapaz de
 passar. Ao mexer no `deploy.yml`, extraia o passo e rode local — veja
 `docs/VERIFICACAO.md`.
 
+### 5.8. O relógio do Workers não anda durante execução síncrona
+
+`Date.now()` fica **congelado** entre operações de I/O — é mitigação de ataque de
+temporização. Medir CPU de dentro do isolate, portanto, é impossível: o
+`t0`/`t1` em volta de um PBKDF2 de 100k iterações devolve o mesmo valor, e a
+subtração dá **zero**.
+
+O `healthz` publicou `"hashMs": 0` em toda resposta de produção desde que a
+linha foi escrita, e três coisas consumiam esse zero como se fosse medida: o
+portão `HASH_MS -gt 200` do `deploy.yml`, o `hashMs > HASH_BUDGET_MS` do painel
+de status, e a linha "hash 0ms" que o painel mostrava como desempenho ótimo. Um
+§5.7 dentro do outro — o portão que deveria vigiar o limite de CPU era o que não
+podia reprovar.
+
+O contraste está na mesma resposta: `kvLatencyMs` e `d1LatencyMs` são reais,
+porque passam por I/O e aí o relógio anda.
+
+**Regra prática:** só dá para cronometrar aqui o que atravessa I/O. Para custo de
+CPU, o sinal é de fora — estourar o orçamento mata a requisição e vira 5xx, que
+o smoke test e o painel já detectam. Se precisar do número, ele está nas métricas
+do Worker no painel da Cloudflare, não no seu código.
+
 ---
 
 ## 6. Como fazer uma mudança

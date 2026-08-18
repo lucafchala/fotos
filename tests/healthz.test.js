@@ -44,7 +44,11 @@ describe('handleHealthz', () => {
     expect(body.ok).toBe(true);
     expect(body.kv).toBe(true);
     expect(body.events).toBe(0);
-    expect(typeof body.hashMs).toBe('number');
+    // `hashMs` não existe mais: o Workers congela Date.now() durante execução
+    // síncrona, então medi-lo de dentro sempre devolvia 0 e alimentava três
+    // portões incapazes de reprovar. O hash continua rodando — o que protege é
+    // ele estourar a CPU e virar 5xx, não um número medido aqui.
+    expect(body).not.toHaveProperty('hashMs');
     expect(body.d1).toBe('absent');
   });
 
