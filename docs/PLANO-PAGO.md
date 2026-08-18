@@ -93,6 +93,13 @@ quando as visitas importam — bater no teto por chave e perder contagem com err
 no plano pago igual ao gratuito. A agregação é o que transforma N visitantes
 por segundo em uma escrita por janela.
 
+A conta, para poder ser conferida em vez de aceita: sem agregação, o contador
+grava uma vez por visitante novo (o cookie `fv_<slug>` segura repetição por 1 h).
+Passar de **1 visitante novo por segundo no mesmo projeto** já encosta no teto —
+e não é o número médio que importa, é a rajada. Um link jogado num grupo grande
+de WhatsApp produz dezenas de aberturas no mesmo segundo, todas na mesma chave.
+Com a agregação, essas dezenas viram uma escrita.
+
 **Não reverta o `5643a7c`.** Se quiser mais resolução, o caminho é diminuir
 `COUNTER_FLUSH_MS`, nunca remover a agregação.
 
