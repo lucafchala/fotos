@@ -167,10 +167,20 @@ kvReads:        { limit: 10000000, period: 'mês', … },
 workerRequests: { limit: 10000000, period: 'mês', … },
 ```
 
-> ⚠️ `period: 'dia'` é usado no código para calcular a janela e para escrever
-> "hoje (zera à meia-noite UTC)" na mensagem. Se `'mês'` ainda não existir como
-> período suportado, implemente-o em vez de mentir o rótulo — um painel que diz
-> "hoje" sobre um número mensal é pior do que painel nenhum.
+> ⚠️ **`'mês'` não existe hoje — não basta trocar a string.** Verificado: o
+> arquivo só sabe calcular uma janela de dia, em `utcDayWindow()`, e `period` é
+> apenas um rótulo repassado para a saída (e usado na frase "hoje (zera à
+> meia-noite UTC)"). Trocar o rótulo sem implementar a janela faria o painel
+> comparar o consumo **de hoje** contra um limite **mensal** — todos os
+> percentuais ficariam ~30× baixos demais, e o painel deixaria de avisar
+> justamente quando devesse.
+>
+> O que fazer: acrescentar um `utcMonthWindow()` ao lado do `utcDayWindow()`
+> (primeiro dia do mês UTC até agora) e escolher a janela por `def.period` na
+> hora de montar as consultas. As queries GraphQL já filtram por
+> `datetime_geq/leq` e `date_geq/leq`, então só muda o `since`. Confira a
+> retenção da analytics da conta: se ela não cobrir o mês inteiro, o número
+> mensal vem truncado e é melhor mostrar a janela real do que fingir o mês.
 
 **Conferir:** abra `status.lucafchala.com`, o bloco de cotas deve mostrar
 percentuais baixos e nenhum item vermelho.
