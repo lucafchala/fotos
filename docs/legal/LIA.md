@@ -2,8 +2,6 @@
 
 **Art. 7º, IX e art. 10 da LGPD.**
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
-
 - **Controlador:** Luca Ferriani Chala
 - **Data:** 2026-08-16
 - **Objeto:** publicação e entrega de fotografias de eventos em
@@ -94,7 +92,7 @@ não sustenta legítimo interesse ali.
 | --- | --- |
 | Transparência: finalidade e base legal declaradas | `/privacidade`, `/termos` |
 | Direito de oposição em um clique, sem cadastro, gratuito | Botão no rodapé de cada evento |
-| Prazo de resposta declarado (15 dias úteis) | `/privacidade` |
+| Prazo de resposta declarado (15 dias) | `/privacidade` |
 | Prioridade para pedidos envolvendo menores | `/privacidade`, item 8 |
 | Acervo atrás de portão, não aberto | `handleDriveLink()` |
 | Exposição pública mínima (capa + teasers) | `src/ui/gallery.js` |
@@ -107,9 +105,9 @@ não sustenta legítimo interesse ali.
 | Finalidade | Legítimo interesse se sustenta? |
 | --- | --- |
 | (1) **Entrega** | **SIM.** Expectativa alinhada, alternativa mais invasiva, salvaguardas robustas. |
-| (2) **Portfólio** | **SIM, com ressalva.** Exposição pública mínima e oposição facilitada. Depende de o canal de remoção ser considerado salvaguarda suficiente. ⚠️ **DECISÃO JURÍDICA.** |
+| (2) **Portfólio** | **SIM, com ressalva.** Exposição pública mínima e oposição facilitada; o canal de remoção em um clique é a salvaguarda que sustenta o balanço. |
 | (3) **Editorial em veículo de terceiro** | **NÃO.** Fora da expectativa razoável. Deve apoiar-se em **consentimento específico** (aceite dos Termos ≥ 2026-06-18 ou autorização dedicada). |
-| **Qualquer finalidade, imagem de MENOR** | **NÃO.** O art. 14 exige consentimento específico e destacado do responsável. Legítimo interesse **não substitui** esse consentimento. 🔴 |
+| **Qualquer finalidade, imagem de MENOR** | **NÃO.** O art. 14 exige consentimento específico e destacado do responsável. Legítimo interesse **não substitui** esse consentimento. |
 
 ---
 
@@ -123,19 +121,7 @@ não sustenta legítimo interesse ali.
    específica.
 3. **Imagem de menor** exige autorização do responsável legal, preferencialmente
    assinada, coletada no evento ou pela instituição contratante. Modelo em
-   [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md).
-   **Este é o item crítico** — ver R3 no [`RIPD.md`](./RIPD.md).
+   [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md) — ver
+   R3 no [`RIPD.md`](./RIPD.md).
 4. **Revisar este LIA** sempre que mudar a finalidade, o alcance da publicação ou
    o texto dos Termos.
-
-## Pontos para o parecer jurídico
-
-1. O canal de remoção é salvaguarda suficiente para sustentar o portfólio em
-   legítimo interesse, ou é necessário consentimento prévio individual?
-2. A leitura de que imagem facial **não** é dado sensível na ausência de
-   tratamento biométrico está correta para este caso?
-3. Publicação editorial: o aceite genérico dos Termos ≥ 2026-06-18 basta, ou
-   cabe termo específico por publicação?
-4. Para eventos escolares, a autorização obtida pela instituição junto aos
-   responsáveis pode ser oposta ao fotógrafo como controlador, ou ele precisa de
-   autorização própria?

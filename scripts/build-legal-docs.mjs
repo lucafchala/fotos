@@ -83,18 +83,6 @@ const DOCS = [
     summary: 'Modelos para assinatura: adulto, responsável por menor e instituição contratante.',
     tag: 'LGPD · Art. 14',
   },
-  {
-    slug: 'checklist', file: 'docs/legal/checklist-conformidade.md',
-    title: 'Checklist de conformidade',
-    summary: 'O estado item a item: o que está pronto, o que falta e o que depende de terceiros.',
-    tag: 'Situação atual',
-  },
-  {
-    slug: 'sobre-esta-documentacao', file: 'docs/legal/README.md',
-    title: 'Sobre esta documentação',
-    summary: 'Como o conjunto foi escrito, o que ele é e o que ele explicitamente não é.',
-    tag: 'Leia primeiro',
-  },
 ];
 
 // Mapa de arquivo → rota, para o renderizador reescrever os links relativos

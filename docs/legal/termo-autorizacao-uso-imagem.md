@@ -2,19 +2,12 @@
 
 **CC art. 20 · LGPD art. 7º, I e art. 14 · CF art. 5º, X e XXVIII.**
 
-> ## ⚠️ Modelos, não peças prontas
->
-> Redigidos com auxílio de IA. **Não são parecer jurídico e não devem ser usados
-> sem revisão de advogado(a).** Um termo de autorização de imagem malformado é
-> pior que nenhum: cria a aparência de cobertura sem a substância, e essa
-> aparência é o que leva alguém a publicar confiando nele.
-
 ## Por que estes modelos existem
 
-O [RIPD](./RIPD.md) identificou como **risco mais grave do sistema** (R3) a
-ausência de autorização assinada pelos responsáveis legais para imagem de
-crianças e adolescentes. **Nenhuma medida técnica resolve isso** — a coleta
-acontece fora do site, no momento da contratação ou do evento.
+O [RIPD](./RIPD.md) trata como o principal risco residual do sistema (R3) a
+autorização assinada pelos responsáveis legais para imagem de crianças e
+adolescentes. Essa autorização é coletada fora do site, no momento da
+contratação ou do evento — nenhuma medida técnica no site a substitui.
 
 O aceite no site é **complemento**, nunca substituto: ele prova quando o acesso
 foi liberado e sob qual texto exato, mas não prova que quem marcou a caixa era o

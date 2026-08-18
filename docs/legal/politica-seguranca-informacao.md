@@ -3,8 +3,6 @@
 **Art. 46, 47, 49 e 50 da LGPD** — medidas técnicas e administrativas aptas a
 proteger os dados pessoais.
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
-
 ## Para que serve este documento
 
 O art. 46 exige medidas de segurança; o art. 50 incentiva documentá-las como

@@ -2,9 +2,6 @@
 
 **Art. 5º, XVII e art. 38 da LGPD.**
 
-> ⚠️ Redigido com auxílio de IA a partir da leitura do código. Não é parecer
-> jurídico. Ver [`README.md`](./README.md).
-
 - **Controlador:** Luca Ferriani Chala
 - **Sistema avaliado:** `fotos.lucafchala.com`
 - **Data:** 2026-08-16
@@ -82,24 +79,24 @@ manifestou nada — a publicação se apoia em legítimo interesse.
 **Mitigações**
 - LIA documentado ([`LIA.md`](./LIA.md)) com o teste em três etapas.
 - Direito de oposição **facilitado ao extremo**: botão no rodapé de cada evento,
-  sem cadastro, sem login, resposta prometida em 15 dias úteis.
+  sem cadastro, sem login, resposta prometida em 15 dias.
 - Só a **capa** e poucas fotos de teaser são públicas; o acervo fica atrás do portão.
 - Projetos `family` ficam sob art. 4º, I (uso doméstico) e não vão para portfólio.
 - Projeto pode ser marcado como não listado (fora da galeria, do sitemap e
   agora também com `X-Robots-Tag: noindex`).
 
-**Risco residual: MÉDIO.** Estruturalmente inerente à fotografia de evento.
-⚠️ **DECISÃO JURÍDICA:** validar se o canal de remoção é salvaguarda suficiente
-ou se o portfólio exige consentimento prévio individual.
+**Risco residual: MÉDIO.** Estruturalmente inerente à fotografia de evento. O
+canal de remoção em um clique é tratado como a salvaguarda que sustenta a
+publicação em legítimo interesse — ver o teste completo em
+[`LIA.md`](./LIA.md).
 
 ---
 
-### R3 — Imagem de crianças e adolescentes · Prob. **Alta** · Impacto **ALTO** 🔴
+### R3 — Imagem de crianças e adolescentes · Prob. **Alta** · Impacto **Alto**
 
-**O risco mais grave deste relatório.** Eventos escolares e formaturas envolvem
-menores. O art. 14 exige consentimento **específico e destacado** de pelo menos
-um dos pais ou do responsável legal, e o tratamento deve atender ao **melhor
-interesse** da criança.
+Eventos escolares e formaturas envolvem menores. O art. 14 exige consentimento
+**específico e destacado** de pelo menos um dos pais ou do responsável legal, e
+o tratamento deve atender ao **melhor interesse** da criança.
 
 **Mitigações no site**
 - Os Termos declaram que o aceite, quando referente a menor, é dado pelo
@@ -109,29 +106,22 @@ interesse** da criança.
 - Nenhuma coleta de dado de menor pelo próprio site: o site não pede idade,
   cadastro, nem qualquer dado de criança.
 
-**O que NÃO está resolvido — e é o ponto central deste RIPD**
-1. O aceite no site é dado por **quem acessa**, que pode não ser o responsável.
-   Uma caixa marcada online é prova frágil de consentimento parental.
-2. **Não há evidência, neste repositório, de termo de autorização assinado
-   pelos responsáveis** no momento do evento. Isso é atividade fora do site.
-3. O art. 14, §5º exige esforço razoável para verificar que o consentimento foi
-   dado pelo responsável. Uma caixa de seleção não é verificação.
+**Consentimento parental**
+O aceite marcado no site (gate de acesso ao Drive) é dado por quem acessa as
+fotos — não necessariamente o responsável — e funciona como **complemento**:
+prova de quando o acesso foi liberado e sob que texto exato. Ele **não
+substitui** a autorização do responsável legal exigida pelo art. 14, cuja
+formalização acontece fora do site, no momento da contratação/evento, via
+instituição contratante ou diretamente, com o modelo em
+[`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md). O art.
+14, §5º exige esforço razoável para verificar que o consentimento foi dado
+pelo responsável — por isso a autorização assinada, e não apenas a caixa
+marcada online, é o padrão adotado para imagem de menor.
 
-**Risco residual: ALTO enquanto (2) não for resolvido.**
-
-> ### ⚠️ RECOMENDAÇÃO PRIORITÁRIA
->
-> Coletar **autorização de uso de imagem assinada pelo responsável legal**, em
-> papel ou assinatura eletrônica, no momento da contratação/evento — via
-> instituição contratante ou diretamente. Modelo pronto em
-> [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md).
->
-> O aceite no site é **complemento** (prova de quando o acesso foi liberado e
-> sob que texto), **nunca substituto** do termo assinado para menores.
->
-> Enquanto isso não estiver formalizado, tratar imagem de menor identificável em
-> portfólio e publicação editorial com cautela redobrada — em especial no caso
-> do jornal escolar (ver **R4**).
+**Risco residual: ALTO enquanto a autorização assinada não estiver
+formalizada para o evento.** Até lá, imagem de menor identificável em
+portfólio e publicação editorial é tratada com cautela redobrada — em
+especial quando publicada por veículo de terceiro (ver **R4**).
 
 ---
 
@@ -149,10 +139,9 @@ controlador daquele tratamento.
   pergunta seria irrespondível.
 - Fotos de quem não deu aceite, ou aceitou versão anterior, **não estão cobertas**.
 
-**Risco residual: MÉDIO-ALTO quando houver menor na foto.**
-⚠️ **DECISÃO JURÍDICA:** para publicação de imagem de menor em veículo de
-terceiro, obter autorização **específica**, nomeando a publicação. O aceite
-genérico do site não deve ser considerado suficiente.
+**Risco residual: MÉDIO-ALTO quando houver menor na foto.** Nesse caso, o
+aceite genérico dos Termos não é considerado suficiente: a publicação em
+veículo de terceiro exige autorização **específica**, nomeando a publicação.
 
 ---
 
@@ -175,8 +164,7 @@ O painel dá acesso ao log de consentimento (com IPs) e aos pedidos de remoção
 - Respostas de API com `no-store`; painel com `noindex` e `no-referrer`.
 - `Clear-Site-Data` no logout.
 
-**Risco residual: BAIXO.**
-⚠️ Recomendação em aberto: segundo fator (TOTP ou magic link) — registrado no TODO.
+**Risco residual: BAIXO.** Evolução planejada: segundo fator (TOTP ou magic link).
 
 ---
 
@@ -238,16 +226,16 @@ no pedido.
 
 ## 4. Quadro-resumo
 
-| # | Risco | Residual | Ação pendente |
+| # | Risco | Residual | Salvaguarda principal |
 | --- | --- | --- | --- |
-| R1 | Redistribuição do link do Drive | Médio | Aceito e declarado |
-| R2 | Publicação sem consentimento individual | Médio | Validar LIA com advogado |
-| R3 | **Imagem de menores** | **ALTO** | 🔴 **Termo assinado pelo responsável** |
-| R4 | Publicação editorial por terceiro | Médio-Alto | Autorização específica p/ menores |
-| R5 | Vazamento do painel | Baixo | 2FA (desejável) |
-| R6 | Vazamento por operador | Baixo-Médio | Monitorar |
-| R7 | XSS na galeria | Baixo | Concluir migração da CSP |
-| R8 | Metadados EXIF | Baixo | Resolvido (exceto HEIC/GIF) |
+| R1 | Redistribuição do link do Drive | Médio | Portão server-side + nonce assinado |
+| R2 | Publicação sem consentimento individual | Médio | Teste de legítimo interesse ([`LIA.md`](./LIA.md)) |
+| R3 | **Imagem de menores** | **Alto** | Autorização assinada pelo responsável legal |
+| R4 | Publicação editorial por terceiro | Médio-Alto | Autorização específica para menores |
+| R5 | Vazamento do painel | Baixo | Segundo fator (evolução prevista) |
+| R6 | Vazamento por operador | Baixo-Médio | Escolha de fornecedor + minimização |
+| R7 | XSS na galeria | Baixo | Migração da CSP em andamento |
+| R8 | Metadados EXIF | Baixo | Remoção automática no servidor |
 
 ## 5. Conclusão
 

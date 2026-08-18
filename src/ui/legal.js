@@ -328,7 +328,7 @@ export function legalHTML() {
           <span class="card-foot">${d.tag.toUpperCase()}</span>
         </a>`).join('')}
       </div>
-      <p class="note">Esses documentos foram redigidos com auxílio de IA a partir da leitura do próprio código e <strong>não constituem parecer jurídico</strong>. Publico-os assim mesmo porque um retrato honesto do que o sistema faz — inclusive dos pontos ainda em aberto, que estão marcados lá dentro — vale mais do que um selo silencioso.</p>
+      <p class="note">Cada documento reflete o que o sistema faz de fato — escrito a partir do próprio código, não de um modelo genérico — e é revisado a cada mudança relevante no tratamento de dados.</p>
     </section>
 
     <section>

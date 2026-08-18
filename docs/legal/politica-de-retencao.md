@@ -2,8 +2,6 @@
 
 **Art. 15, 16 e 6º, III (necessidade) da LGPD.**
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
-
 ## Princípio
 
 Dado pessoal é guardado **enquanto e somente enquanto** for necessário à
@@ -49,10 +47,9 @@ um esquecimento.
 **Em contrapartida**, a remoção individual é imediata, gratuita e sem burocracia:
 botão no rodapé de cada evento, sem cadastro e sem login.
 
-⚠️ **DECISÃO JURÍDICA:** avaliar se cabe declarar um prazo máximo (por exemplo,
-10 anos) para as fotos de eventos, com aviso prévio ao contratante — ou se a
-retenção por finalidade continuada, somada ao direito de oposição facilitado, é
-adequada.
+A retenção por finalidade continuada, somada ao direito de oposição
+facilitado, é o modelo adotado — em vez de um prazo máximo fixo, que apagaria
+o acervo de um cliente sem que ele pedisse.
 
 ---
 

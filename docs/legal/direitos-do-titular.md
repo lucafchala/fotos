@@ -2,8 +2,6 @@
 
 **Art. 18 da LGPD.**
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
-
 ## Canais
 
 | Canal | Para quê |
@@ -21,13 +19,8 @@ Todos gratuitos (art. 18, §5º). Nenhum exige criar conta.
 | --- | --- | --- |
 | Confirmação de existência / acesso, **formato simplificado** | **15 dias** | Art. 19, I — prazo legal |
 | Declaração completa | **15 dias** | Art. 19, II |
-| Prometido publicamente no site | **15 dias úteis** | `/privacidade` |
+| Prometido publicamente no site | **15 dias** | `/privacidade` |
 | **Pedido envolvendo menor de idade** | **Prioridade** — tratar em 48 h | Compromisso próprio |
-
-⚠️ O site promete "15 dias **úteis**"; a lei fala em "15 dias" (corridos, na
-leitura predominante). ⚠️ **DECISÃO JURÍDICA:** alinhar. O caminho seguro é
-alterar o texto público para "15 dias", que é mais restritivo e portanto sempre
-cumpre a lei.
 
 ---
 

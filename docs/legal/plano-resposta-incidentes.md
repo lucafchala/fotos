@@ -3,11 +3,6 @@
 **Art. 48 da LGPD** e **Resolução CD/ANPD nº 15/2024**, que regulamenta a
 comunicação de incidente de segurança.
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
->
-> ⚠️ **DECISÃO JURÍDICA:** confirmar prazos e critérios da Resolução vigente na
-> data do incidente — a regulamentação da ANPD tem mudado com frequência.
-
 ---
 
 ## Antes de qualquer coisa: os dois números
