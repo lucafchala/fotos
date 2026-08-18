@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, flushCounters, pendingCounters, resetCounters } from '../src/utils.js';
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
@@ -1306,7 +1306,13 @@ describe('HEAD não custa escrita em KV nem infla contagem', () => {
     const res = await worker.fetch(
       new Request('https://fotos.lucafchala.com/evento', { method }), env, ctx);
     await Promise.all(pendentes);
-    return { status: res.status, escritas: FOTOS._escritas, res };
+    // O contador de visitas é agregado na memória do isolate (bumpCounter) e só
+    // vira escrita na virada da janela, então olhar apenas `_escritas` mediria
+    // o momento do flush, não o que foi contado. O flush forçado traz a
+    // contagem para o KV e mantém o invariante do teste — "GET conta, HEAD
+    // não" — verificável no mesmo lugar de antes.
+    await flushCounters(env);
+    return { status: res.status, escritas: FOTOS._escritas, res, pendentes: pendingCounters() };
   };
 
   // O HEAD é resolvido reexecutando a rota como GET, então sem exceção
@@ -1314,13 +1320,19 @@ describe('HEAD não custa escrita em KV nem infla contagem', () => {
   // de minuto em minuto = 1440 escritas/dia contra uma cota de 1000/dia:
   // o contador de visitas sozinho derrubaria eventos, sessões e consentimento.
   it('writes to KV on GET but never on HEAD', async () => {
+    resetCounters();
     const get = await bater('GET');
     expect(get.status).toBe(200);
     expect(get.escritas.filter(k => k.startsWith('views:')), 'GET conta').toHaveLength(1);
 
+    resetCounters();
     const head = await bater('HEAD');
     expect(head.status, 'HEAD continua respondendo como GET').toBe(200);
     expect(head.escritas, 'HEAD não pode gravar NADA em KV').toEqual([]);
+    // E não pode nem entrar na fila de agregação: contar em memória e gravar
+    // dez minutos depois seria a mesma visita fantasma, só que mais difícil de
+    // achar.
+    expect([...head.pendentes.keys()], 'HEAD não pode nem acumular').toEqual([]);
   });
 
   // Se o HEAD emitisse o cookie de "já contado", o GET seguinte — o de verdade

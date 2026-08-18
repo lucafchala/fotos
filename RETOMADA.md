@@ -123,15 +123,24 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-Conta para um lançamento, **medida** no harness de `docs/VERIFICACAO.md` (o
-`put` do KV falso conta as escritas), não estimada: um visitante que abre o
-projeto, aceita os Termos e clica no Drive custa **4 escritas** —
-`views:<slug>`, `ratelimit:drive-link`, `ratelimit:drive`, `drive_clicks:<slug>`.
-Mil escritas acabam em **~250 visitantes/dia**, e aí contador, rate limit e
-sessão nova param até a virada UTC. O site continua entregando as fotos; o
-`healthz` fica vermelho. Se um projeto for passar disso com folga, a decisão é
-subir para o plano pago do Workers ou tirar os contadores do KV (o `/api/perf` e
-o `/api/csp-report` já mostram o caminho: log estruturado em vez de KV).
+**Os contadores não gastam mais uma escrita por visitante.** Eles gastavam, e
+isso fazia o custo do site crescer junto com o público contra uma cota fixa —
+medido no harness de `docs/VERIFICACAO.md`: 4 escritas por visitante engajado,
+teto de ~250/dia. Hoje `views:` e `drive_clicks:` passam por `bumpCounter()`
+(utils.js): os incrementos se somam na memória do isolate e viram **uma escrita
+por janela**, não uma por pessoa. Medido de novo com 200 visitantes simulados:
+**1,01 escrita por visitante**, com as contagens batendo exatamente (200 e 200).
+
+O que sobra é `ratelimit:drive-link`, uma por visitante — e essa fica, porque é
+o limite que protege o portão do Drive; não dá para limitar de verdade sem
+gravar na hora. Teto atual: **~985 visitantes/dia**, agora imposto por um
+controle de segurança e não pela contabilidade.
+
+O que se perde na agregação é o que estiver pendente quando o isolate morrer. É
+perda aceita e já declarada no SECURITY.md (contadores são best-effort), e o
+cron diário descarrega o que sobrou. Se um dia isso ainda apertar, os caminhos
+são o plano pago do Workers ou tirar os contadores do KV de vez (`/api/perf` e
+`/api/csp-report` já mostram como: log estruturado).
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 

@@ -157,13 +157,36 @@ things bound it:
   with neither. The record is isolate-local and costs nothing: persisting it
   would need the very write that was just refused.
 
-The other half is not spending the quota in the first place. `/api/track-drive`
-is public and accepts any body, and it used to call `checkRateLimit()` — a
-write — *before* parsing that body, so junk POSTs burned quota while counting
-nothing. Validation that costs nothing (body shape, slug format, whether the
-event exists) now runs first, and only a request that has something real to
-count can spend a write. Same reasoning already applied to `handleLogin()`,
-which deliberately does not count an attempt the burst limiter already refused.
+The other half is not spending the quota in the first place, and that is a
+question of shape rather than of tuning: a counter written once per visitor
+makes the site's cost grow with its audience, against a ceiling that does not
+move. Three changes take that out:
+
+- **Counters are aggregated, not written per request.** `views:` and
+  `drive_clicks:` go through `bumpCounter()`, which sums increments in the
+  isolate's memory and writes once per window (`flushCounters()`). A hundred
+  visitors in the same minute cost one write per key instead of a hundred. What
+  is lost is whatever is pending when an isolate dies — already-declared
+  best-effort behaviour, and the daily cron flushes the tail. The pending map is
+  bounded by the number of events, because callers validate the slug first, so
+  no flood can grow it.
+- **`/api/track-drive` no longer carries its own KV rate limit.** It cost a
+  write to protect a write — doubling the price of the beacon rather than
+  lowering it, the same reasoning `/api/perf` already states. With the counter
+  aggregated, a flood adds no writes at all: the aggregation *is* the bound, and
+  a better one, since it does not depend on the visitor's IP. What still
+  contains abuse there costs nothing: the CSRF gate ahead of routing, and the
+  slug having to name a real event that is not `comingSoon`.
+- **Validation that costs nothing runs first.** `/api/track-drive` used to call
+  `checkRateLimit()` before parsing the body, so junk POSTs burned quota while
+  counting nothing. Same reasoning already applied to `handleLogin()`, which
+  deliberately does not count an attempt the burst limiter already refused.
+
+Measured over 200 simulated engaged visitors: **1.01 KV writes per visitor**,
+down from 4, with the recorded counts exact (200 views, 200 clicks). The
+remainder is `ratelimit:drive-link`, one per visitor — and that one stays, since
+a limiter that does not persist immediately does not limit. The ceiling is now
+set by a security control rather than by bookkeeping.
 
 ### Outbound links: one exception only
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
-import { saveEvents, ACCESS_DECLARATIONS } from '../src/utils.js';
+import { saveEvents, ACCESS_DECLARATIONS, flushCounters, resetCounters } from '../src/utils.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -377,6 +377,7 @@ describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () 
   const writes = kv => { let n = 0; const orig = kv.put.bind(kv); kv.put = async (...a) => { n++; return orig(...a); }; return () => n; };
 
   it('não gasta escrita nenhuma com corpo inválido, slug inválido ou evento inexistente', async () => {
+    resetCounters();
     const count = writes(env.FOTOS);
     for (const body of ['{nao json', {}, { slug: '../../etc/passwd' }, { slug: 'nao-existe' }]) {
       const res = await handleTrackDrive(post(body), env);
@@ -386,20 +387,47 @@ describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () 
   });
 
   it('ignora um projeto "em breve" — a página dele nem desenha o botão do Drive', async () => {
+    resetCounters();
     const count = writes(env.FOTOS);
     const res = await handleTrackDrive(post({ slug: 'em-breve' }), env);
     expect(res.status).toBe(200);
+    await flushCounters(env);
     expect(count()).toBe(0);
     expect(env.FOTOS._store.get('drive_clicks:em-breve')).toBeUndefined();
   });
 
-  it('conta o clique de verdade (rate limit + contador)', async () => {
-    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
-    expect(res.status).toBe(200);
+  it('conta o clique de verdade, agregado numa escrita só', async () => {
+    resetCounters();
+    // Dez cliques, uma escrita: é o que tira o custo do site de cima do volume
+    // de público. Antes eram duas escritas POR clique (rate limit + contador).
+    const antes = env.FOTOS._store.size;
+    for (let i = 0; i < 10; i++) {
+      const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+      expect(res.status).toBe(200);
+    }
+    expect(env.FOTOS._store.size, 'nada gravado antes do flush').toBe(antes);
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('10');
+  });
+
+  it('soma em cima do que já estava no KV, sem perder a contagem anterior', async () => {
+    resetCounters();
+    env.FOTOS._store.set('drive_clicks:casamento-ana', '42');
+    await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('43');
+  });
+
+  it('recomeça do zero se o valor guardado estiver corrompido, em vez de gravar NaN', async () => {
+    resetCounters();
+    env.FOTOS._store.set('drive_clicks:casamento-ana', '12abc');
+    await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+    await flushCounters(env);
     expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('1');
   });
 
   it('não vira 500 quando a cota de escrita está estourada', async () => {
+    resetCounters();
     const events = await env.FOTOS.get('events');
     const broken = fakeKV({ events });
     broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };

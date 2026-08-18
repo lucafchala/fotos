@@ -371,19 +371,18 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 
 ## Operação
 
-- [ ] 🔴 **Decidir o teto de escrita do KV antes de um projeto de público
-      grande.** A cota do plano free é de **1000 escritas/dia para a conta
-      inteira**, e cada visitante engajado custa **4** (visita + portão do Drive
-      + rate limit do clique + contador do clique — medido, não estimado): a
-      conta fecha em **~250 visitantes/dia**. Passando
-      disso, o site continua entregando as fotos — a recusa de escrita virou
-      fail-open isolado e o `/api/healthz` acusa em `problems` (ver
-      [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)) —
-      mas contador, rate limit e sessão nova ficam parados até a virada UTC.
-      Dois caminhos: subir para o Workers Paid, ou tirar os contadores do KV e
-      mandá-los para log/Analytics Engine, como já fazem `/api/perf` e
-      `/api/csp-report`. **A escolha é anterior ao lançamento, não posterior:**
-      depois de estourada, a cota só volta na virada do dia UTC.
+- [ ] **Reavaliar o teto de escrita do KV se um projeto passar de ~1000
+      visitantes/dia.** Não é mais bloqueio de lançamento: os contadores foram
+      agregados (`bumpCounter()`), o custo caiu de 4 escritas por visitante para
+      **1,01** (medido com 200 visitantes simulados, contagens batendo exatas) e
+      o teto subiu de ~250 para **~985 visitantes/dia**. O que sobra é
+      `ratelimit:drive-link`, uma por visitante, e essa fica porque é controle
+      de segurança — limitar de verdade exige gravar na hora. Se um dia apertar:
+      Workers Paid, ou tirar os contadores do KV e mandá-los para log/Analytics
+      Engine, como já fazem `/api/perf` e `/api/csp-report`. Passando do teto o
+      site continua entregando as fotos (fail-open isolado, `/api/healthz` acusa
+      em `problems` — ver
+      [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)).
 - [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
       um SHA conhecido em vez de arqueologia no log. Procedimento no
       [README](./README.md#rollback); hoje o repo não tem nenhuma tag.

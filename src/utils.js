@@ -311,6 +311,111 @@ export function resetKvWriteHealth() {
   _kvWriteFailReason = '';
 }
 
+// ---------------------------------------------------------------------------
+// Contadores agregados: uma escrita por janela, não uma por visitante
+// ---------------------------------------------------------------------------
+// O problema que isto resolve é de escala, não de correção. Um `put()` por
+// visitante faz o custo do site crescer junto com o público — exatamente a
+// direção errada, porque a cota (1000/dia, conta inteira) é fixa. Medido no
+// harness: 4 escritas por visitante engajado, ou seja teto de ~250/dia. Um
+// projeto divulgado passa disso numa tarde, e aí param os contadores, o rate
+// limit e a abertura de sessão.
+//
+// Aqui os incrementos são somados na memória do isolate e gravados de tempos em
+// tempos. Cem visitantes no mesmo minuto viram UMA escrita por slug em vez de
+// cem, e o custo passa a depender do tempo, não do movimento.
+//
+// O que se perde: o que estiver pendente quando o isolate morrer. É perda
+// aceita e já declarada — os contadores são "best-effort, non-atomic" no
+// SECURITY.md, e a leitura-modificação-escrita nunca foi atômica entre
+// isolates. O que NÃO se perde é entregar a foto, que é o que a cota gasta
+// protegia mal.
+//
+// O mapa é naturalmente limitado: só entram chaves de eventos que existem
+// (quem chama valida antes), então nem um flood cria mapa grande.
+const COUNTER_FLUSH_MS = 10_000;
+const COUNTER_FLUSH_MAX_KEYS = 20;
+const _pendingCounters = new Map();
+let _lastCounterFlush = 0;
+let _flushInFlight = null;
+
+// Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
+// viraria 500 numa página que só queria contar uma visita.
+export function bumpCounter(env, ctx, key, by = 1) {
+  try {
+    _pendingCounters.set(key, (_pendingCounters.get(key) || 0) + by);
+    const now = Date.now();
+    if (!_lastCounterFlush) _lastCounterFlush = now;
+    const due = now - _lastCounterFlush >= COUNTER_FLUSH_MS
+      || _pendingCounters.size >= COUNTER_FLUSH_MAX_KEYS;
+    if (!due) return;
+    const work = flushCounters(env);
+    // waitUntil mantém o isolate vivo até a gravação terminar sem segurar a
+    // resposta. Sem ctx (cron, teste), a promessa é aguardada por quem chamou.
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(work);
+  } catch (e) {
+    noteKvWriteFailure(e, 'bumpCounter');
+  }
+}
+
+// Uma passada por vez: sem a trava, duas requisições simultâneas leriam o mesmo
+// valor do KV e uma sobrescreveria a outra — o mesmo bug de contagem que a
+// agregação existe para reduzir.
+export async function flushCounters(env) {
+  if (_flushInFlight) return _flushInFlight;
+  if (_pendingCounters.size === 0) return;
+  const batch = [..._pendingCounters.entries()];
+  _pendingCounters.clear();
+  _lastCounterFlush = Date.now();
+  _flushInFlight = (async () => {
+    for (const [key, delta] of batch) {
+      try {
+        const current = await env.FOTOS.get(key);
+        await env.FOTOS.put(key, String(toCount(current) + delta));
+      } catch (e) {
+        // Delta descartado de propósito. Reinserir no mapa faria a cota
+        // estourada acumular para sempre e tentar de novo a cada requisição,
+        // gastando leitura sem nunca conseguir gravar.
+        noteKvWriteFailure(e, `contador ${key} (+${delta})`);
+      }
+    }
+  })().finally(() => { _flushInFlight = null; });
+  return _flushInFlight;
+}
+
+// Só para os testes, que compartilham o módulo entre casos.
+export function resetCounters() {
+  _pendingCounters.clear();
+  _lastCounterFlush = 0;
+  _flushInFlight = null;
+}
+
+export function pendingCounters() {
+  return new Map(_pendingCounters);
+}
+
+// Contadores em KV são strings, e uma corrompida lida com parseInt puro devolve
+// NaN — `String(NaN)` grava "NaN" de volta e envenena o contador para sempre,
+// porque todo incremento seguinte relê "NaN".
+//
+// Estrito de propósito: parseInt sozinho salva um prefixo ("12abc" -> 12) e
+// aceita negativo ("-5"), então um valor meio corrompido seria adotado como se
+// fosse a contagem real. Contador é inteiro não-negativo ou é lixo — o resto
+// recomeça do 0 em vez de carregar sujeira adiante.
+//
+// Mora aqui, e não em index.js, porque o flush de contadores precisa dele e
+// utils.js não pode importar de index.js (importaria em círculo). index.js
+// reexporta, para que o contrato dos valores-veneno continue preso pelos testes
+// que já existem.
+export function toCount(v) {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const s = v.trim();
+  if (!/^\d+$/.test(s)) return 0;
+  const n = parseInt(s, 10);
+  return Number.isSafeInteger(n) ? n : 0;
+}
+
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   const window = Math.floor(Date.now() / (windowSecs * 1000));
   const kvKey = `ratelimit:${key}:${ip}:${window}`;

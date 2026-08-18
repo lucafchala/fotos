@@ -13,7 +13,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  noteKvWriteFailure, kvWriteHealth,
+  noteKvWriteFailure, kvWriteHealth, toCount, bumpCounter, flushCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -41,21 +41,11 @@ const TEMA_PREFILLS = {
 };
 
 // KV counters are plain strings, so a corrupted/absent value must never become
-// NaN: String(NaN) would be written back and poison the counter for good.
-//
-// Strict on purpose: parseInt alone salvages a prefix ("12abc" -> 12) and
-// accepts negatives ("-5"), so a partially-corrupted value would be silently
-// adopted as if it were the real count. A counter is a non-negative integer or
-// it is garbage — anything else restarts from 0 rather than carrying junk
-// forward. Exported so the poison-value contract is pinned by tests.
-export function toCount(v) {
-  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
-  if (typeof v !== 'string') return 0;
-  const s = v.trim();
-  if (!/^\d+$/.test(s)) return 0;
-  const n = parseInt(s, 10);
-  return Number.isSafeInteger(n) ? n : 0;
-}
+// A implementação mora em utils.js (o flush de contadores precisa dela e não
+// pode importar daqui em círculo). Reexportada para não quebrar quem já
+// importava daqui — inclusive os testes que prendem o contrato dos
+// valores-veneno.
+export { toCount };
 
 // ---------------------------------------------------------------------------
 // Segredo de assinatura dos tokens sem estado
@@ -352,6 +342,11 @@ const worker = {
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
+    // Descarrega o que sobrou pendente nos contadores. Sem isto, o resto de uma
+    // janela que não chegou a completar se perde quando o isolate morre — e o
+    // fim do dia (justamente o rabo de um lançamento) é quando o tráfego cai e
+    // ninguém dispara o flush.
+    ctx.waitUntil(flushCounters(env).catch(e => console.error('counter flush failed', e)));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -512,15 +507,12 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // aceita de propósito, e é o único ponto em que os dois não são idênticos.
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   if (!alreadyCounted && !headOnly) {
-    const viewKey = `views:${slug}`;
-    ctx.waitUntil(
-      env.FOTOS.get(viewKey).then(async v => {
-        // A non-numeric stored value used to make this NaN, and String(NaN)
-        // wrote "NaN" back — poisoning the counter permanently, since every
-        // later increment re-read "NaN". toCount() falls back to 0.
-        await env.FOTOS.put(viewKey, String(toCount(v) + 1));
-      }).catch(e => noteKvWriteFailure(e, 'view counter'))
-    );
+    // Agregado, não gravado na hora: era UMA escrita por visitante, o que fazia
+    // o custo do site crescer junto com o público contra uma cota fixa. Agora
+    // os incrementos se somam na memória do isolate e viram uma escrita por
+    // janela — ver bumpCounter() em utils.js. O cookie de 1 h continua sendo o
+    // que evita contar a mesma pessoa duas vezes.
+    bumpCounter(env, ctx, `views:${slug}`);
   }
 
   // Nonce de página: assinado agora, para este slug, e gasto no
@@ -1038,13 +1030,18 @@ export async function handleTrackDrive(request, env) {
   const event = events.find(e => e.slug === slug);
   if (!event || event.comingSoon) return jsonOk({ ok: true });
 
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
-  if (!allowed) return jsonOk({ ok: true });
-
-  const key = `drive_clicks:${slug}`;
-  const v = await env.FOTOS.get(key).catch(() => null);
-  await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => noteKvWriteFailure(e, 'drive-click counter'));
+  // Sem rate limit por KV, pelo mesmo motivo que o /api/perf não tem: o
+  // checkRateLimit faz leitura + ESCRITA em KV, então ele custava exatamente o
+  // recurso que existia para proteger — dobrava o preço do beacon em vez de
+  // baixá-lo. Agora que o contador é agregado, um flood não gera escrita
+  // nenhuma a mais: mil POSTs no mesmo minuto viram a mesma única escrita da
+  // janela. A agregação virou o limite, e é um limite melhor, porque não
+  // depende do IP do visitante.
+  //
+  // O que ainda contém abuso aqui: o portão de CSRF antes do roteamento, o
+  // slug ter de existir e não estar "em breve", e o teto de um evento por
+  // chave — nada disso custa escrita.
+  bumpCounter(env, null, `drive_clicks:${slug}`);
   return jsonOk({ ok: true });
 }
 

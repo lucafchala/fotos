@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
   kvWriteHealth, resetKvWriteHealth,
+  bumpCounter, flushCounters, resetCounters, pendingCounters,
 } from '../src/utils.js';
 
 // Minimal in-memory stand-in for a Workers KV namespace. Ignores expirationTtl
@@ -87,6 +88,84 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
     expect(kvWriteHealth(Date.now() + 29 * 60_000).failing).toBe(true);
     expect(kvWriteHealth(Date.now() + 31 * 60_000).failing).toBe(false);
+  });
+});
+
+// O custo do site não pode crescer junto com o público: a cota é fixa (1000
+// escritas/dia) e o movimento não. Agregar é o que troca "uma escrita por
+// visitante" por "uma escrita por janela".
+describe('contadores agregados', () => {
+  beforeEach(() => { resetCounters(); resetKvWriteHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetCounters(); });
+
+  it('cem incrementos no mesmo slug viram UMA escrita', async () => {
+    const env = { FOTOS: fakeKV() };
+    let escritas = 0;
+    const put = env.FOTOS.put.bind(env.FOTOS);
+    env.FOTOS.put = async (...a) => { escritas++; return put(...a); };
+    for (let i = 0; i < 100; i++) bumpCounter(env, null, 'views:piauifut-2026');
+    await flushCounters(env);
+    expect(escritas).toBe(1);
+    expect(env.FOTOS._store.get('views:piauifut-2026')).toBe('100');
+  });
+
+  it('não grava nada antes do flush', async () => {
+    const env = { FOTOS: fakeKV() };
+    bumpCounter(env, null, 'views:x');
+    expect(env.FOTOS._store.size).toBe(0);
+    expect(pendingCounters().get('views:x')).toBe(1);
+  });
+
+  it('soma sobre o valor já gravado e zera o pendente', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': '7' }) };
+    bumpCounter(env, null, 'views:x');
+    bumpCounter(env, null, 'views:x');
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('views:x')).toBe('9');
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('mantém slugs separados', async () => {
+    const env = { FOTOS: fakeKV() };
+    bumpCounter(env, null, 'views:a');
+    bumpCounter(env, null, 'views:b');
+    bumpCounter(env, null, 'views:a');
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('views:a')).toBe('2');
+    expect(env.FOTOS._store.get('views:b')).toBe('1');
+  });
+
+  it('não grava "NaN" quando o valor guardado está corrompido', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': 'NaN' }) };
+    bumpCounter(env, null, 'views:x');
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('views:x')).toBe('1');
+  });
+
+  it('nunca lança para quem chamou — é caminho de resposta do visitante', () => {
+    expect(() => bumpCounter(null, null, 'views:x')).not.toThrow();
+    expect(() => bumpCounter({ FOTOS: null }, null, 'views:x')).not.toThrow();
+  });
+
+  it('com a cota estourada, descarta o delta em vez de acumular para sempre', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    bumpCounter(env, null, 'views:x');
+    await flushCounters(env);
+    expect(pendingCounters().size, 'o delta não pode voltar para a fila').toBe(0);
+    expect(kvWriteHealth().failing, 'e o healthz precisa saber').toBe(true);
+  });
+
+  it('dois flushes ao mesmo tempo não se atropelam', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': '0' }) };
+    for (let i = 0; i < 5; i++) bumpCounter(env, null, 'views:x');
+    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
+    expect(env.FOTOS._store.get('views:x')).toBe('5');
+  });
+
+  it('flush sem nada pendente não gasta escrita', async () => {
+    const env = { FOTOS: fakeKV() };
+    await flushCounters(env);
+    expect(env.FOTOS._store.size).toBe(0);
   });
 });
 
