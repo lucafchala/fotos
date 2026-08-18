@@ -89,37 +89,20 @@ async function readMirroredEvents() {
   }
 }
 
-// Registro de que alguma leitura de VISITANTE caiu para a cópia de
-// sobrevivência. Sinal com janela, no mesmo formato do `kvHealth`.
-//
-// Já foi um contador comparado antes/depois pelo healthz, para dizer se ESTA
-// leitura degradou. Não funcionava: o estado é do módulo, compartilhado por
-// todas as requisições do isolate, então a queda de uma requisição CONCORRENTE
-// fazia o healthz declarar `kv:false`, `ok:false` e 503 — reprovando o smoke
-// test do deploy — mesmo tendo lido do KV sem problema nenhum.
-//
-// Hoje o healthz decide `kv` pela PRÓPRIA leitura (que usa `fresh` e por isso
-// nunca cai para a cópia), e isto aqui é só um aviso: "o visitante andou sendo
-// servido de cópia há pouco". Que é exatamente o que dá para afirmar com
-// estado de módulo.
-const EVENTS_FALLBACK_TTL_MS = 60_000;
-let _fallbackAt = 0;
-let _fallbackSource = '';
-
+// A queda para a cópia de sobrevivência entra no mesmo registro de degradações
+// (`noteDegraded`) que todo o resto. Já foi um contador comparado antes/depois
+// pelo healthz, para dizer se ESTA leitura degradou; não funcionava, porque o
+// estado é do módulo e a queda de uma requisição CONCORRENTE fazia o healthz
+// declarar `kv:false` e 503 — reprovando o smoke test do deploy — tendo lido do
+// KV sem problema nenhum. Hoje o healthz decide `kv` pela PRÓPRIA leitura (que
+// usa `fresh` e por isso nunca cai para a cópia), e isto aqui é o aviso de que
+// o visitante andou sendo servido de cópia: exatamente o que estado de módulo
+// consegue afirmar com honestidade.
 function noteEventsFallback(source) {
-  _fallbackAt = Date.now();
-  _fallbackSource = source;
-}
-
-export function eventsFallbackHealth(now = Date.now()) {
-  if (!_fallbackAt || now - _fallbackAt > EVENTS_FALLBACK_TTL_MS) return { stale: false };
-  return { stale: true, agoSecs: Math.round((now - _fallbackAt) / 1000), source: _fallbackSource };
-}
-
-// Exportado para os testes, que compartilham o módulo entre casos.
-export function resetEventsFallback() {
-  _fallbackAt = 0;
-  _fallbackSource = '';
+  noteDegraded(
+    'lista de projetos vindo de cópia',
+    `KV de leitura fora; servindo da ${source}. Edições feitas agora podem não chegar ao visitante até o KV voltar`
+  );
 }
 
 // Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
@@ -431,45 +414,65 @@ export async function verifySession(env, request) {
 // fotos de todo mundo para não deixar passar uma requisição extra é o pior dos
 // dois lados. O contrapeso é não ser silencioso: a falha fica registrada e o
 // `/api/healthz` grita — mesmo padrão do SIGNING_SECRET.
-const KV_FAIL_TTL_MS = 30 * 60_000;
-let _kvFailAt = 0;
-let _kvFailOp = '';
-let _kvFailReason = '';
+// ---------------------------------------------------------------------------
+// Registro de degradações: um lugar só, para nada falhar calado
+// ---------------------------------------------------------------------------
+// A promessa operacional do projeto é que nada se degrade em silêncio. O site
+// foi desenhado para continuar entregando foto quando as coisas quebram — cota
+// de escrita estourada, KV de leitura fora, contador recusado — e é justamente
+// isso que torna o aviso obrigatório: sem ele, "o site está no ar" vira prova de
+// que está tudo bem, quando pode ser o oposto.
+//
+// Isto começou como dois registradores separados (um para KV, um para a queda
+// para a cópia de eventos) e ia virar três. Três lugares para lembrar de avisar
+// é como se esquece de avisar. Agora é um: quem degradar chama `noteDegraded`, e
+// o /api/healthz relata tudo o que estiver dentro da janela — sem precisar que
+// alguém se lembre de acrescentar a linha nova ao painel.
+//
+// Estado de módulo, de propósito e sem custo: persistir exigiria justamente a
+// escrita que pode estar sendo recusada. Vale para o isolate que registrou —
+// aceitável porque essas condições são da conta inteira e duram, então qualquer
+// isolate servindo tráfego encontra a mesma falha em segundos.
+const DEGRADED_TTL_MS = 30 * 60_000;
+const _degraded = new Map();
 
-// Registro local do isolate, sem custo: guardar isso em KV exigiria justamente
-// a escrita que acabou de ser recusada. Como todo estado de módulo em Workers,
-// vale só para este isolate — mas cota estourada é uma condição da conta
-// inteira, que dura até a virada UTC, então qualquer isolate que ainda esteja
-// servindo tráfego vê o mesmo erro em segundos.
-// `op` é 'escrita' ou 'leitura', e não é detalhe cosmético: a mensagem que o
-// painel mostra parte daqui, e ela ACUSA UMA CAUSA. Uma falha de leitura
-// registrada como escrita fazia o healthz afirmar "provável cota diária
-// esgotada" para um problema que não tem nada a ver com a cota de escrita —
-// mandando quem for investigar para o lugar errado, no meio de um incidente.
+// `label` é a chave de deduplicação (a mesma degradação repetida não vira várias
+// linhas) e também o texto que aparece no painel. Escreva-o como a frase que
+// você gostaria de ler às 2h da manhã: o que quebrou, e o que deixou de
+// funcionar por causa disso.
+export function noteDegraded(label, detail = '', err = null) {
+  _degraded.set(label, {
+    at: Date.now(),
+    detail: String(detail).slice(0, 160),
+  });
+  console.error(`degradado: ${label}${detail ? ` — ${detail}` : ''}`, err || '');
+}
+
+// Mais recente primeiro: numa cascata, a última coisa a quebrar costuma ser a
+// consequência, e a primeira, a causa — mas quem olha o painel quer ver o que
+// está acontecendo agora.
+export function degradedHealth(now = Date.now()) {
+  const out = [];
+  for (const [label, { at, detail }] of _degraded) {
+    if (now - at > DEGRADED_TTL_MS) continue;
+    out.push({ label, detail, agoSecs: Math.round((now - at) / 1000) });
+  }
+  return out.sort((a, b) => a.agoSecs - b.agoSecs);
+}
+
+export function resetDegraded() { _degraded.clear(); }
+
+// Atalho para o caso mais comum: uma operação de KV recusada. `op` é 'escrita'
+// ou 'leitura', e a distinção não é cosmética — a mensagem ACUSA UMA CAUSA, e
+// uma falha de leitura relatada como escrita mandava quem fosse investigar
+// procurar cota de escrita esgotada, que não tem nada a ver.
 export function noteKvFailure(op, err, context = '') {
-  _kvFailAt = Date.now();
-  _kvFailOp = op;
-  _kvFailReason = String(err && err.message ? err.message : err).slice(0, 120);
-  console.error(`KV ${op} refused${context ? ` (${context})` : ''}`, err);
-}
-
-export function kvHealth(now = Date.now()) {
-  if (!_kvFailAt || now - _kvFailAt > KV_FAIL_TTL_MS) return { failing: false };
-  return {
-    failing: true,
-    op: _kvFailOp,
-    agoSecs: Math.round((now - _kvFailAt) / 1000),
-    reason: _kvFailReason,
-  };
-}
-
-// Exportado para os testes, que compartilham o módulo entre casos (a mesma
-// armadilha do cache de `getEvents`). Produção nunca limpa à mão — o registro
-// envelhece sozinho.
-export function resetKvHealth() {
-  _kvFailAt = 0;
-  _kvFailOp = '';
-  _kvFailReason = '';
+  const motivo = String(err && err.message ? err.message : err).slice(0, 120);
+  noteDegraded(
+    `KV: ${op} recusada`,
+    `${context ? `${context} — ` : ''}${motivo}${op === 'escrita' ? ' (se for cota diária, volta na virada UTC)' : ''}`,
+    err
+  );
 }
 
 // ---------------------------------------------------------------------------

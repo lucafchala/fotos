@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
-import { saveEvents, ACCESS_DECLARATIONS, flushCounters, resetCounters } from '../src/utils.js';
+import { saveEvents, ACCESS_DECLARATIONS, flushCounters, resetCounters, degradedHealth, resetDegraded } from '../src/utils.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -502,6 +502,54 @@ describe('handleDriveLink — KV de leitura totalmente fora', () => {
     expect((await idx.handleDriveLink(req({ slug: 'nao-existe', turnstileToken: 't', consent: true }), env, fakeCtx())).status).toBe(404);
     stubTurnstile(false);
     expect((await idx.handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'x', consent: true }), env, fakeCtx())).status).toBe(403);
+  });
+});
+
+// O registro de consentimento é a peça de não-repúdio da conformidade LGPD, e
+// era a gravação mais silenciosa do site: o INSERT é best-effort de propósito
+// (recusar as fotos por um problema nosso puniria o visitante), mas "best-effort"
+// nunca deveria ter significado "e ninguém fica sabendo".
+describe('handleDriveLink — o consentimento não pode falhar calado', () => {
+  function d1Quebrado() {
+    return { prepare: () => ({ bind: () => ({ run: async () => { throw new Error('D1_ERROR: no such table'); } }) }) };
+  }
+
+  it('entrega as fotos, avisa o dono por e-mail e acusa no healthz', async () => {
+    resetDegraded();
+    const emails = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url?.url || url);
+      if (u.includes('api.resend.com')) { emails.push(init); return new Response('{}', { status: 200 }); }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const ctx = fakeCtx();
+    const env2 = { ...env, CONSENT_DB: d1Quebrado(), RESEND_API_KEY: 'k', ADMIN_EMAIL: 'dono@example.com' };
+    const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env2, ctx);
+    await ctx.settle();
+
+    // 1) O visitante não é punido por um problema nosso.
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+    // 2) O dono é avisado (push).
+    expect(emails.length, 'o dono precisa receber e-mail').toBe(1);
+    // 3) E fica no healthz (pull), para o painel de status virar alerta.
+    const d = degradedHealth();
+    expect(d.some(x => /consentimento/.test(x.label)), 'o healthz precisa acusar').toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it('quando o D1 aceita, nada disso dispara', async () => {
+    resetDegraded();
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    const db = fakeD1();
+    const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), { ...env, CONSENT_DB: db }, ctx);
+    await ctx.settle();
+    expect(res.status).toBe(200);
+    expect(db.rows).toHaveLength(1);
+    expect(degradedHealth()).toEqual([]);
   });
 });
 

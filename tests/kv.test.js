@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
-  kvHealth, resetKvHealth,
+  degradedHealth, resetDegraded,
   bumpCounter, flushCounters, resetCounters, pendingCounters,
 } from '../src/utils.js';
 
@@ -46,8 +46,8 @@ function writeExhaustedKV(initial = {}) {
 }
 
 describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
-  beforeEach(() => { resetKvHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
-  afterEach(() => { vi.restoreAllMocks(); resetKvHealth(); });
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
 
   it('não propaga a exceção — a rota que chama não pode virar 500', async () => {
     const env = { FOTOS: writeExhaustedKV() };
@@ -75,19 +75,19 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
   });
 
   it('registra a falha para o healthz — falhar aberto não pode ser silencioso', async () => {
-    expect(kvHealth().failing).toBe(false);
+    expect(degradedHealth()).toEqual([]);
     const env = { FOTOS: writeExhaustedKV() };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
-    const health = kvHealth();
-    expect(health.failing).toBe(true);
-    expect(health.reason).toContain('429');
+    const [d] = degradedHealth();
+    expect(d.label).toMatch(/KV: escrita recusada/);
+    expect(d.detail).toContain('429');
   });
 
   it('o registro envelhece sozinho depois de 30 min sem nova recusa', async () => {
     const env = { FOTOS: writeExhaustedKV() };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
-    expect(kvHealth(Date.now() + 29 * 60_000).failing).toBe(true);
-    expect(kvHealth(Date.now() + 31 * 60_000).failing).toBe(false);
+    expect(degradedHealth(Date.now() + 29 * 60_000)).toHaveLength(1);
+    expect(degradedHealth(Date.now() + 31 * 60_000)).toEqual([]);
   });
 });
 
@@ -95,7 +95,7 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
 // escritas/dia) e o movimento não. Agregar é o que troca "uma escrita por
 // visitante" por "uma escrita por janela".
 describe('contadores agregados', () => {
-  beforeEach(() => { resetCounters(); resetKvHealth(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  beforeEach(() => { resetCounters(); resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
   afterEach(() => { vi.restoreAllMocks(); resetCounters(); });
 
   // `ctx` de mentira que COLETA e aguarda o waitUntil, como o Workers faz. Sem
@@ -176,7 +176,7 @@ describe('contadores agregados', () => {
     await bumpCounter(env, null, 'views:x');
     await flushCounters(env);
     expect(pendingCounters().size, 'o delta não pode voltar para a fila').toBe(0);
-    expect(kvHealth().failing, 'e o healthz precisa saber').toBe(true);
+    expect(degradedHealth().length, 'e o healthz precisa saber').toBeGreaterThan(0);
   });
 
   it('dois flushes ao mesmo tempo não se atropelam nem perdem o que chegou no meio', async () => {
@@ -257,7 +257,7 @@ describe('getEvents com o KV de leitura fora', () => {
     const utils = await coldIsolate();
     const got = await utils.getEvents(kvDown());
     expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
-    expect(utils.eventsFallbackHealth().stale).toBe(true);
+    expect(utils.degradedHealth().some(d => /cópia/.test(d.label))).toBe(true);
   });
 
   it('valida a forma da cópia igual à do KV (uma cópia corrompida não derruba)', async () => {

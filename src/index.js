@@ -13,8 +13,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  noteKvFailure, kvHealth, toCount, bumpCounter, flushCounters,
-  eventsFallbackHealth,
+  noteKvFailure, noteDegraded, degradedHealth, toCount, bumpCounter, flushCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -347,7 +346,7 @@ const worker = {
     // janela que não chegou a completar se perde quando o isolate morre — e o
     // fim do dia (justamente o rabo de um lançamento) é quando o tráfego cai e
     // ninguém dispara o flush.
-    ctx.waitUntil(flushCounters(env).catch(e => console.error('counter flush failed', e)));
+    ctx.waitUntil(flushCounters(env).catch(e => noteKvFailure('escrita', e, 'flush de contadores no cron')));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -1601,7 +1600,7 @@ export function cronStale(lastIso, now = Date.now()) {
 // offending slug, and nominates one healthy event as a `sample` the dashboard
 // can deep-probe (its Drive gate + removal form).
 const MAX_SELFTEST_PROBLEMS = 12;
-export function auditSite(events, env = {}, kvWrites = { failing: false }) {
+export function auditSite(events, env = {}, degradacoes = []) {
   const problems = [];
   const seen = new Set();
   let driveOk = 0, driveBad = 0, live = 0;
@@ -1654,27 +1653,18 @@ export function auditSite(events, env = {}, kvWrites = { failing: false }) {
     problems.push(`SIGNING_SECRET ${signingSecretProblem(env)} — nonce do Drive e token dos formulários DESLIGADOS`);
   }
 
-  // Mesma lógica do item acima: não derruba nada, por isso precisa aparecer.
-  // Escrita recusada no KV é quase sempre a cota diária (1000/dia, plano free)
-  // estourada por um dia de público grande. O site continua servindo as fotos —
-  // as escritas de visitante falham isoladas de propósito — mas contador de
-  // visitas, rate limit e sessão nova param até a virada UTC, e nada disso é
-  // visível de fora. Só cai da lista quando 30 min se passam sem nova recusa.
-  // Servindo da cópia de sobrevivência: as fotos saem, mas a lista pode estar
-  // velha — qualquer projeto criado, escondido ou corrigido agora não aparece
-  // para o visitante até o KV voltar. É exatamente o tipo de coisa que não
-  // quebra nada visivelmente e por isso precisa estar escrita aqui.
-  if (kvWrites && kvWrites.stale) {
-    problems.push(
-      `leitura de KV falhou há ${kvWrites.agoSecs}s — visitante servido da ${kvWrites.source}; ` +
-      'edições feitas agora podem não chegar até o KV voltar'
-    );
-  }
-  if (kvWrites && kvWrites.failing) {
-    problems.push(
-      `escrita em KV recusada há ${kvWrites.agoSecs}s — provável cota diária esgotada; ` +
-      `contadores e rate limit desligados até a virada UTC${kvWrites.reason ? ` (${kvWrites.reason})` : ''}`
-    );
+  // Mesma lógica do SIGNING_SECRET acima: nada disto derruba o site, e é
+  // exatamente por isso que precisa aparecer. Um site no ar não é prova de que
+  // está tudo bem quando ele foi desenhado para continuar servindo enquanto as
+  // peças cedem. Cada entrada some sozinha 30 min depois da última ocorrência.
+  //
+  // Toda degradação registrada entra aqui, sem lista fixa. É o ponto do desenho:
+  // quem acrescentar uma degradação nova em qualquer lugar do código chama
+  // `noteDegraded()` e ela aparece no painel sozinha — ninguém precisa lembrar
+  // de vir editar esta função. Antes eram dois `if` escritos à mão, e o terceiro
+  // caso (consentimento) teria sido esquecido exatamente por isso.
+  for (const d of (Array.isArray(degradacoes) ? degradacoes : [])) {
+    problems.push(`${d.label} (há ${d.agoSecs}s)${d.detail ? ` — ${d.detail}` : ''}`);
   }
 
   const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
@@ -1777,7 +1767,7 @@ export async function handleHealthz(request, env) {
   // reads): broken/missing Drive links on live events, bad data, and form
   // backends that are unset. This is what surfaces "something went wrong" on the
   // status dashboard, not just hard 500s. ---
-  const selftest = auditSite(eventsList, env, { ...kvHealth(), ...eventsFallbackHealth() });
+  const selftest = auditSite(eventsList, env, degradedHealth());
 
   // --- The rest of the extended surface is derived from already-loaded data and
   // env bindings — ZERO additional KV reads. `config` exposes only booleans
@@ -2018,7 +2008,24 @@ export async function handleDriveLink(request, env, ctx) {
           asn, as_org, colo, user_agent, accept_language, referrer, page_url)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(...vals);
-    ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+    // Esta é a gravação mais importante do site, e era a mais silenciosa. Ela é
+    // best-effort de propósito — recusar as fotos porque o log falhou puniria o
+    // visitante por um problema nosso —, mas "best-effort" nunca deveria ter
+    // significado "e ninguém fica sabendo": o registro de consentimento é a peça
+    // de não-repúdio da conformidade LGPD. Perdê-lo em silêncio é o pior modo de
+    // falha do sistema inteiro, porque o site continua parecendo perfeito.
+    //
+    // Agora falha com barulho nos dois canais: e-mail para o dono (throttle
+    // global de 15 min dentro do sendErrorAlert, que nunca lança) e linha no
+    // /api/healthz, que o painel de status transforma em alerta.
+    ctx.waitUntil(stmt.run().catch(e => {
+      noteDegraded(
+        'registro de consentimento não gravou',
+        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+        e
+      );
+      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+    }));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a

@@ -198,15 +198,20 @@ describe('auditSite (healthz functional self-test)', () => {
     expect(r.problems[r.problems.length - 1]).toMatch(/^\+\d+ outro\(s\)$/);
   });
 
-  it('flags a refused KV write — falhar aberto no rate limit não pode ser silencioso', () => {
-    // A cota de escrita (1000/dia) estoura num dia de público grande. O site
-    // segue servindo as fotos de propósito, então o healthz é o único lugar
-    // onde isso aparece.
+  it('relata QUALQUER degradação registrada, sem lista fixa', () => {
+    // O site é desenhado para continuar servindo enquanto as peças cedem, então
+    // "está no ar" não é prova de que está tudo bem — o healthz é o único lugar
+    // onde isso aparece. A lista é genérica de propósito: quem registrar uma
+    // degradação nova em qualquer ponto do código aparece aqui sozinho, sem
+    // ninguém precisar lembrar de editar o auditSite.
     expect(auditSite([liveEvent()], FULL_ENV).problems).toEqual([]);
-    const r = auditSite([liveEvent()], FULL_ENV, { failing: true, agoSecs: 12, reason: 'KV PUT failed: 429' });
+    const r = auditSite([liveEvent()], FULL_ENV, [
+      { label: 'KV: escrita recusada', detail: 'KV PUT failed: 429', agoSecs: 12 },
+      { label: 'registro de consentimento não gravou', detail: 'D1 recusou o INSERT', agoSecs: 3 },
+    ]);
     expect(r.ok).toBe(false);
-    expect(r.problems.some(p => p.includes('cota diária esgotada'))).toBe(true);
-    expect(r.problems.some(p => p.includes('429'))).toBe(true);
+    expect(r.problems.some(p => p.includes('KV: escrita recusada') && p.includes('429'))).toBe(true);
+    expect(r.problems.some(p => p.includes('registro de consentimento não gravou'))).toBe(true);
   });
 
   it('never throws on garbage input', () => {

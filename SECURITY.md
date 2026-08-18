@@ -152,16 +152,25 @@ things bound it:
   write quota, so a counter that has passed the limit keeps refusing — the
   fail-open covers the request that was going to be allowed anyway, not a
   blanket bypass. Pinned by `tests/kv.test.js`.
-- **It is never silent.** Every refused operation is recorded
-  (`noteKvFailure()`), and `/api/healthz` reports it in `problems` until 30
-  minutes pass with no new failure — so the status dashboard goes red while
-  counters and limiters are degraded, instead of the site quietly serving on
-  with neither. The record is isolate-local and costs nothing: persisting it
-  would need the very write that was just refused. It records **which
+- **It is never silent**, and that is a property of the whole system rather than
+  of this one control. Anything that degrades calls `noteDegraded(label, detail)`,
+  and `/api/healthz` reports every entry in `problems` until 30 minutes pass
+  without a repeat — so the status dashboard goes red while the site is quietly
+  serving on with counters and limiters switched off. This matters more here than
+  in a system that simply falls over: **everything below is designed to keep
+  delivering photos while pieces fail, which means "the site is up" is not
+  evidence that anything is fine.** The alarm is what closes that gap.
+
+  It is one recorder on purpose. It began as two — one for KV, one for the events
+  fallback — and the third case (the consent log) was about to be a third. Three
+  places to remember to raise an alarm is how an alarm gets forgotten; with one,
+  a new degradation anywhere in the code appears on the dashboard without anyone
+  editing `auditSite()`. `noteKvFailure()` is a thin wrapper that records **which
   operation** failed, because the message names a cause: a failed *read* logged
   as a write made healthz assert "probably out of daily write quota" for a fault
-  that has nothing to do with the write quota, sending whoever investigates to
-  the wrong place mid-incident.
+  with nothing to do with the write quota, sending whoever investigates to the
+  wrong place mid-incident. The record is isolate-local and costs nothing:
+  persisting it would need the very write that was just refused.
 
 The other half is not spending the quota in the first place, and that is a
 question of shape rather than of tuning: a counter written once per visitor
@@ -198,6 +207,24 @@ move. Three changes take that out:
   counting nothing. That reorder is the real saving, and it is intact: junk
   POSTs now cost zero writes. Same reasoning already applied to `handleLogin()`,
   which deliberately does not count an attempt the burst limiter already refused.
+
+### The consent log fails loudly now
+
+`POST /api/drive-link` writes one row per acceptance to D1, and that row is the
+non-repudiation evidence behind the whole LGPD posture: which Terms text, which
+version, which declaration, when, by whom. The write is `ctx.waitUntil` and
+best-effort by design — refusing a visitor their photos because *our* audit log
+is down punishes the wrong person — but "best-effort" had come to mean "and
+nobody finds out". A failed insert logged one line to `console.error` and the
+site carried on looking perfect.
+
+That is the worst failure mode in the system: the photos are delivered, the
+consent that authorised delivering them is not recorded, and nothing anywhere
+says so. It now fails on both channels — `sendErrorAlert()` emails the owner
+(globally throttled to one per 15 minutes, and it never throws) and
+`noteDegraded()` puts it on `/api/healthz`, which the status dashboard turns
+into an alert. Pinned by `tests/drive-gate.test.js`, verified failing against
+the previous `console.error`.
 
 ### The event list survives KV being unavailable
 

@@ -255,7 +255,7 @@ describe('healthz quando a lista vem da cópia de sobrevivência', () => {
     expect(body.kv).toBe(false);
     expect(body.ok).toBe(false);
     expect(res.status).toBe(503);
-    expect(body.selftest.problems.join(' ')).toMatch(/leitura de KV falhou/);
+    expect(body.selftest.problems.join(' ')).toMatch(/lista de projetos vindo de cópia/);
     vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
 
@@ -281,7 +281,7 @@ describe('healthz quando a lista vem da cópia de sobrevivência', () => {
     expect(body.kv, 'o KV respondeu a ESTA leitura').toBe(true);
     expect(body.ok).toBe(true);
     // O aviso continua aparecendo, como aviso — sem derrubar o ok.
-    expect(body.selftest.problems.join(' ')).toMatch(/leitura de KV falhou/);
+    expect(body.selftest.problems.join(' ')).toMatch(/lista de projetos vindo de cópia/);
     vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
 });
