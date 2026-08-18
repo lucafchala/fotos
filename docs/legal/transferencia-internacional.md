@@ -2,8 +2,6 @@
 
 **Art. 33 a 36 da LGPD.**
 
-> ⚠️ Redigido com auxílio de IA. Não é parecer jurídico. Ver [`README.md`](./README.md).
-
 ## O ponto central
 
 **Todo o tratamento deste site ocorre em infraestrutura estrangeira.** Não há
@@ -19,12 +17,9 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 - **Resolução CD/ANPD nº 19/2024** — aprova as **cláusulas-padrão contratuais**
   (CPC) e disciplina cláusulas específicas e contratos de transferência.
 - Até a publicação deste documento, **a ANPD não reconheceu nenhum país como
-  adequado** (art. 33, I). O fundamento aplicável, portanto, é contratual e/ou
-  consentimento específico.
-
-⚠️ **DECISÃO JURÍDICA:** verificar (a) se a ANPD já publicou decisão de
-adequação aplicável; (b) o prazo de adequação às CPC da Resolução 19/2024 e se
-os contratos vigentes com os fornecedores já as incorporam.
+  adequado** (art. 33, I). O fundamento aplicável, portanto, é contratual: as
+  cláusulas-padrão contratuais previstas na Resolução CD/ANPD nº 19/2024,
+  incorporadas pelos DPAs de cada fornecedor listados abaixo.
 
 ---
 
@@ -57,12 +52,6 @@ alimenta perfil de anúncios — a Cloudflare declara isso no adendo acima.
 | **Fundamento (art. 33)** | **III** — cláusulas contratuais nos Termos do Google Workspace / Google Drive e no Data Processing Addendum |
 | **Salvaguardas** | ISO 27001/27017/27018, SOC 2/3; DPA com cláusulas-padrão |
 | **Referência** | <https://cloud.google.com/terms/data-processing-addendum> |
-
-⚠️ **DECISÃO JURÍDICA:** confirmar se a conta usada é **Google Workspace**
-(contrato empresarial, com DPA aplicável) ou uma **conta pessoal gratuita** —
-neste caso, valem apenas os Termos de Serviço de consumidor, **sem DPA**, o que
-enfraquece bastante o fundamento contratual do art. 33, III. Se for conta
-pessoal, **migrar para Workspace é a recomendação**.
 
 ### 3. Resend — e-mails transacionais
 

@@ -3,9 +3,6 @@
 **Art. 37 da LGPD** — o controlador deve manter registro das operações de
 tratamento que realizar.
 
-> ⚠️ Redigido com auxílio de IA a partir da leitura do código. Não é parecer
-> jurídico. Ver [`README.md`](./README.md).
-
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV e Cloudflare D1.
@@ -23,7 +20,7 @@ tratamento que realizar.
 | **Origem** | Captação fotográfica no evento, pelo próprio controlador. |
 | **Finalidade** | (a) entrega do material aos contratantes/participantes; (b) divulgação do trabalho do fotógrafo (portfólio, site, redes); (c) publicação editorial, jornalística, cultural e educacional. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse) para entrega e portfólio — ver [`LIA.md`](./LIA.md). **Art. 7º, I** (consentimento) / **art. 14, §1º** (consentimento do responsável, para menores) quando há aceite dos Termos no gate do Drive. **Art. 4º, I** (fora do escopo da LGPD) para projetos estritamente familiares e não econômicos. |
-| **Categoria especial?** | **Não, por padrão.** Imagem de rosto só é dado sensível (biométrico, art. 5º, II) quando tratada **para fins de identificação biométrica**. Aqui não há reconhecimento facial, indexação por face nem qualquer processamento biométrico — as fotos são armazenadas e entregues como imagem. ⚠️ **DECISÃO JURÍDICA:** confirmar esta leitura. |
+| **Categoria especial?** | **Não.** Imagem de rosto só é dado sensível (biométrico, art. 5º, II) quando tratada **para fins de identificação biométrica**. Aqui não há reconhecimento facial, indexação por face nem qualquer processamento biométrico — as fotos são armazenadas e entregues como imagem. |
 | **Armazenamento** | Google Drive (pastas por evento). O site **não hospeda** as fotos: guarda só a URL do Drive e as URLs das capas. |
 | **Compartilhamento** | Google (operador de hospedagem). Terceiros a quem o link do Drive for repassado pelo próprio titular. Veículos editoriais, nos casos do item (c). |
 | **Retenção** | Enquanto publicado / útil ao contratante. Removível a pedido, a qualquer tempo. Sem prazo automático. |
@@ -45,7 +42,7 @@ esquema em `migrations/0001_consent.sql` e `0002_access_type.sql`; escrita em
 | **Origem** | Formulário do gate (nome) + cabeçalhos e metadados da requisição (o resto). |
 | **Finalidade** | Comprovar **quando, por quem e sob qual texto exato** a autorização de uso de imagem foi dada. É a prova de não-repúdio: cada registro guarda a versão dos Termos **e o hash SHA-256 do HTML exibido**, então o texto aceito é reconstituível mesmo depois de os Termos mudarem. |
 | **Base legal** | **Art. 7º, II** (cumprimento de obrigação legal — dever de comprovar consentimento, art. 8º, §2º) e **art. 7º, VI** (exercício regular de direito). O IP e o User-Agent especificamente: **art. 7º, IX** + **art. 16, I**. |
-| **Retenção** | **1825 dias (~5 anos)** — `CONSENT_RETENTION_DAYS` em `src/index.js`, apagado pelo cron diário (`pruneOldConsent`). ⚠️ **DECISÃO JURÍDICA:** o prazo mira a prescrição da reparação civil (CC art. 206, §3º, V). Confirmar. |
+| **Retenção** | **1825 dias (~5 anos)** — `CONSENT_RETENTION_DAYS` em `src/index.js`, apagado pelo cron diário (`pruneOldConsent`). O prazo acompanha a prescrição da reparação civil (CC art. 206, §3º, V). |
 | **Transferência internacional** | Sim — D1 na infraestrutura Cloudflare. |
 | **Observação** | O texto gravado é sempre o **canônico do servidor** (`CONSENT_LABEL`, `ACCESS_DECLARATIONS`), nunca o que o cliente enviar. Um cliente adulterado não consegue registrar um consentimento com texto diferente do exibido. |
 

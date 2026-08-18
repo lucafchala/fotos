@@ -516,7 +516,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       </div>
 
       <div id="rem-form">
-        <p class="rem-intro">Identificou uma foto que quer remover? Preencha com suas informações de contato — analisaremos o pedido e você receberá uma confirmação por e-mail. <strong style="color:var(--text-muted)">Respondemos em até 15 dias úteis.</strong></p>
+        <p class="rem-intro">Identificou uma foto que quer remover? Preencha com suas informações de contato — analisaremos o pedido e você receberá uma confirmação por e-mail. <strong style="color:var(--text-muted)">Respondemos em até 15 dias.</strong></p>
 
         <div class="rem-field">
           <label>Identificar a foto por</label>

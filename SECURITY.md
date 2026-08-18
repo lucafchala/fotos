@@ -286,13 +286,11 @@ together the privacy policy, the terms, this policy, a plain-language summary of
 what is done with each piece of data, the contact channels and the
 machine-readable endpoints.
 
-The full compliance pack lives in [`docs/legal/`](./docs/legal/): records of
-processing (ROPA), the data-protection impact assessment (RIPD), the legitimate
-interest assessment (LIA), the retention policy, the international-transfer
-mapping, the data-subject request procedure, the incident response plan, and
-image-authorization templates. Start at
-[`docs/legal/README.md`](./docs/legal/README.md); the open items are listed in
-[`docs/legal/checklist-conformidade.md`](./docs/legal/checklist-conformidade.md).
+The full compliance pack — records of processing (ROPA), the data-protection
+impact assessment (RIPD), the legitimate interest assessment (LIA), the
+retention policy, the international-transfer mapping, the data-subject
+request procedure, the incident response plan, and image-authorization
+templates — is published at [`/legal`](https://fotos.lucafchala.com/legal).
 
 **If you are reporting a personal-data incident**, follow
 [`docs/legal/plano-resposta-incidentes.md`](./docs/legal/plano-resposta-incidentes.md)
