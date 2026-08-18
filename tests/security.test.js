@@ -16,6 +16,7 @@ import {
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, flushCounters, pendingCounters, resetCounters } from '../src/utils.js';
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
+import { eventHTML } from '../src/ui/event.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { readFileSync } from 'node:fs';
 
@@ -1402,5 +1403,40 @@ describe('markdown: URL protocol-relative não é caminho interno', () => {
     expect(html).not.toContain('<a ');
     expect(html).not.toContain('//exemplo.com');
     expect(html).toContain('isto');
+  });
+});
+
+// O campo de nome do portão do Drive alimenta `consenter_name`, que é a peça de
+// não-repúdio do registro de consentimento. Marcar o aceite DISPARA o pedido na
+// hora ("no click needed"), e o nome é lido naquele instante — então a ordem dos
+// elementos na tela decide se o que a pessoa digitou chega ou não ao banco.
+describe('portão do Drive: o campo de nome vem antes do aceite', () => {
+  const EV = {
+    id: '1', slug: 'alemanha', title: 'Alemanha', accessType: 'public',
+    driveUrl: 'https://drive.google.com/drive/folders/x', photos: [],
+  };
+
+  it('o nome aparece ANTES da caixa de aceite na marcação', () => {
+    const html = eventHTML(EV, 2026, null, 'n', 'dn', 'ft');
+    const nome = html.indexOf('id="drive-name-toggle"');
+    const aceite = html.indexOf('id="drive-consent"');
+    expect(nome).toBeGreaterThan(-1);
+    expect(aceite).toBeGreaterThan(-1);
+    // Com o nome embaixo, quem lê de cima para baixo marca o aceite primeiro, o
+    // pedido sai com o nome vazio, e o que for digitado depois é descartado em
+    // silêncio — não existe um segundo pedido para levá-lo.
+    expect(nome, 'o convite para incluir o nome tem de vir antes do aceite').toBeLessThan(aceite);
+  });
+
+  it('o campo é congelado quando o link fica pronto, em vez de aceitar texto sem efeito', () => {
+    const html = eventHTML(EV, 2026, null, 'n', 'dn', 'ft');
+    expect(html).toContain('function lockDriveName()');
+    // No sucesso, e só no sucesso: no erro o Turnstile renova o token e tenta de
+    // novo, e essa tentativa ainda pode levar um nome digitado no meio.
+    const lockCall = html.indexOf('lockDriveName();');
+    const readyState = html.indexOf("driveLinkState = 'ready';");
+    const errorState = html.indexOf("driveLinkState = 'error';");
+    expect(lockCall).toBeGreaterThan(readyState);
+    expect(lockCall).toBeLessThan(errorState);
   });
 });
