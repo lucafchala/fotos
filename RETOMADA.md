@@ -123,13 +123,15 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-Conta de guardanapo para um lançamento: cada visitante engajado custa ~3
-escritas (visita + portão do Drive + clique). Mil escritas acabam por volta de
-**300 visitantes/dia** — e aí contador, rate limit e sessão nova param até a
-virada UTC. O site continua entregando as fotos; o `healthz` fica vermelho.
-Se um projeto for passar disso com folga, a decisão é subir para o plano pago
-do Workers ou tirar os contadores do KV (o `/api/perf` e o `/api/csp-report` já
-mostram o caminho: log estruturado em vez de KV).
+Conta para um lançamento, **medida** no harness de `docs/VERIFICACAO.md` (o
+`put` do KV falso conta as escritas), não estimada: um visitante que abre o
+projeto, aceita os Termos e clica no Drive custa **4 escritas** —
+`views:<slug>`, `ratelimit:drive-link`, `ratelimit:drive`, `drive_clicks:<slug>`.
+Mil escritas acabam em **~250 visitantes/dia**, e aí contador, rate limit e
+sessão nova param até a virada UTC. O site continua entregando as fotos; o
+`healthz` fica vermelho. Se um projeto for passar disso com folga, a decisão é
+subir para o plano pago do Workers ou tirar os contadores do KV (o `/api/perf` e
+o `/api/csp-report` já mostram o caminho: log estruturado em vez de KV).
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 

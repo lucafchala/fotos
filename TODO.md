@@ -373,8 +373,9 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 
 - [ ] 🔴 **Decidir o teto de escrita do KV antes de um projeto de público
       grande.** A cota do plano free é de **1000 escritas/dia para a conta
-      inteira**, e cada visitante engajado custa ~3 (visita + portão do Drive +
-      clique): a conta fecha por volta de **300 visitantes/dia**. Passando
+      inteira**, e cada visitante engajado custa **4** (visita + portão do Drive
+      + rate limit do clique + contador do clique — medido, não estimado): a
+      conta fecha em **~250 visitantes/dia**. Passando
       disso, o site continua entregando as fotos — a recusa de escrita virou
       fail-open isolado e o `/api/healthz` acusa em `problems` (ver
       [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)) —

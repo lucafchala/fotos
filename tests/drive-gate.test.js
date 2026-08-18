@@ -385,6 +385,14 @@ describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () 
     expect(count()).toBe(0);
   });
 
+  it('ignora um projeto "em breve" — a página dele nem desenha o botão do Drive', async () => {
+    const count = writes(env.FOTOS);
+    const res = await handleTrackDrive(post({ slug: 'em-breve' }), env);
+    expect(res.status).toBe(200);
+    expect(count()).toBe(0);
+    expect(env.FOTOS._store.get('drive_clicks:em-breve')).toBeUndefined();
+  });
+
   it('conta o clique de verdade (rate limit + contador)', async () => {
     const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
     expect(res.status).toBe(200);

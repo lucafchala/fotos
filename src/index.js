@@ -1029,8 +1029,14 @@ export async function handleTrackDrive(request, env) {
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
 
+  // `comingSoon` entra aqui pelo mesmo motivo que entra no portão do Drive: um
+  // projeto anunciado antes das fotos é o mais divulgado do site e o mais fácil
+  // de achar, e a página dele nem desenha o botão do Drive — então clique
+  // nenhum pode vir dela. O que chegasse aqui seria POST direto, gastando duas
+  // escritas e inflando a métrica de um projeto que não entregou foto nenhuma.
   const events = await getEvents(env);
-  if (!events.some(e => e.slug === slug)) return jsonOk({ ok: true });
+  const event = events.find(e => e.slug === slug);
+  if (!event || event.comingSoon) return jsonOk({ ok: true });
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
