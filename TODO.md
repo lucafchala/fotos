@@ -6,12 +6,18 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
-## Plano gratuito — a restrição que decide o resto
+## Plano gratuito — a restrição que decide o resto (até a assinatura)
 
-**Decisão do dono: o projeto fica no plano gratuito.** Não é provisório e não é
-para ser reavaliado a cada aperto. Isso não é uma nota de rodapé sobre custo — é
-a restrição de projeto mais forte que existe aqui, e qualquer item deste arquivo
-que a contrarie está errado, não a decisão.
+> 🔜 **A decisão mudou: o dono vai assinar o Workers Paid.** Enquanto o
+> pagamento não acontecer, tudo nesta seção continua valendo e o código no
+> `main` está correto como está. Depois de assinar, o passo a passo da compra e
+> a lista do que mexer (e do que **não** mexer) estão em
+> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md) — inclusive por que a agregação
+> dos contadores tem de ficar mesmo no plano pago.
+
+**Enquanto isso, o projeto está no plano gratuito.** Isso não é uma nota de
+rodapé sobre custo — é a restrição de projeto mais forte que existe aqui, e
+qualquer item deste arquivo que a contrarie está errado, não a decisão.
 
 **O que ela quer dizer na prática:** toda proposta passa por "quanto isso custa
 de cota?" antes de "quanto isso melhora o site?". Um recurso que gasta escrita em
@@ -571,10 +577,14 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 
 ## Decidido não fazer
 
-- **Pagar por serviço da Cloudflare** — Workers Paid (US$ 5/mês), Cloudflare
-  Images, Stream, plano Pro. Decisão do dono, registrada aqui para não ser
-  redescutida a cada aperto de cota. O que cada um resolveria e por que não é
-  necessário:
+- **Pagar por qualquer serviço da Cloudflare ALÉM do Workers Paid** — Cloudflare
+  Images, Stream, plano Pro. Registrado aqui para não ser redescutido a cada
+  aperto.
+  > 🔜 **O Workers Paid saiu desta lista**: o dono decidiu assinar. Ver
+  > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). O que ele compra — teto de
+  > CPU, requisições e escrita em KV sem limite diário — está lá, junto com o
+  > que **não** muda com dinheiro (o limite de 1 escrita/s por chave).
+  O que cada um dos outros resolveria e por que continua não sendo necessário:
   - **Workers Paid** compraria teto de CPU, requisições sem limite diário e 1
     milhão de escritas de KV/mês. Nada disso falta hoje: o PBKDF2 do login roda
     em produção no gratuito (verificado no smoke test do deploy — healthz

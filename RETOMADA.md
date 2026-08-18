@@ -110,6 +110,12 @@ vaza**: um teste vê a lista de eventos de outro e você recebe um 404 confuso.
 
 ### 5.3. Cota de KV é 1000 escritas/dia
 
+> 🔜 Este número é do plano gratuito, e o dono decidiu assinar o Workers Paid.
+> Compra e checklist em [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). **Um
+> limite não muda com dinheiro:** 1 escrita por segundo **na mesma chave**. É
+> ele que faz a agregação dos contadores continuar necessária no plano pago —
+> não reverta pensando que era só cota.
+
 Free tier. Qualquer coisa que grave por requisição é um risco existencial: o
 contador de visualizações sozinho, contando HEAD, gastava 1440/dia. Antes de
 adicionar um `put()` num caminho público, calcule o pior caso.
@@ -276,6 +282,7 @@ voltar:
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | O que falta, o que foi decidido e por quê |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
+| [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |
 
