@@ -455,6 +455,21 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
       </div>
       <div id="drive-gate">
+        <!--
+          O nome vem ANTES das caixas de aceite, e a ordem e o proprio conserto.
+          Marcar o aceite dispara o pedido na hora (ver maybeFetchDriveLink,
+          "no click needed"), e fetchDriveLink le o campo NAQUELE instante.
+          Com o campo embaixo, quem lia a tela de cima para baixo marcava o
+          aceite primeiro, recebia o link, e so entao via "+ incluir meu nome":
+          o que digitasse ali era descartado em silencio, porque o estado ja era
+          ready e nao existe um segundo pedido. Um campo opcional que ignora o
+          que a pessoa escreveu e pior do que nao ter campo, ainda mais este,
+          que existe para dar nome ao consentimento.
+        -->
+        <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" onclick="toggleDriveName()">+ incluir meu nome (opcional)</button>
+        <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
+          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
+        </div>
         ${declaration ? `<label class="drive-consent">
           <input type="checkbox" id="drive-declaration" onchange="onDriveConsent()">
           <span>${escape(declaration)}</span>
@@ -463,10 +478,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
           <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e autorizo o uso da minha imagem conforme descrito neles.</span>
         </label>
-        <button type="button" id="drive-name-toggle" class="drive-name-toggle" onclick="toggleDriveName()">+ incluir meu nome (opcional)</button>
-        <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:.625rem;margin-bottom:0">
-          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
-        </div>
         <p id="drive-gate-hint" style="display:none"></p>
         <div id="drive-verify-error" class="drive-verifying" style="display:none">
           <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</p>
@@ -870,6 +881,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           // Deu certo: solta a trava anti-laço, para que uma expiração futura
           // nesta mesma aba ainda possa se recuperar com uma recarga.
           try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
+          // A partir daqui o nome já foi (ou não foi) registrado, e não há
+          // segundo pedido: deixar o campo editável seria oferecer uma ação sem
+          // efeito. Trancado só no sucesso, de propósito — no erro o Turnstile
+          // renova o token e tenta de novo, e essa tentativa ainda deve poder
+          // levar um nome digitado no meio do caminho.
+          lockDriveName();
           setDriveLinkUI('ready', data);
         })
         .catch(function() {
@@ -1030,6 +1047,20 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       w.style.display = '';
       if (t) t.style.display = 'none';
       const i = document.getElementById('drive-name'); if (i) i.focus();
+    }
+    // Depois que o link saiu, o nome já foi para o registro (ou ficou de fora) e
+    // não há como mandá-lo depois. Some com o convite e congela o que foi
+    // enviado, em vez de deixar um campo que aceita texto e não faz nada.
+    function lockDriveName() {
+      const t = document.getElementById('drive-name-toggle');
+      if (t) t.style.display = 'none';
+      const w = document.getElementById('drive-name-wrap');
+      const i = document.getElementById('drive-name');
+      if (!w || !i) return;
+      if (i.value.trim() === '') { w.style.display = 'none'; return; }
+      i.readOnly = true;
+      i.style.opacity = '.6';
+      i.title = 'Nome registrado com o seu consentimento.';
     }
     function closeModal() {
       document.getElementById('modal').classList.remove('open');

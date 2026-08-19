@@ -13,9 +13,11 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, flushCounters, pendingCounters, resetCounters } from '../src/utils.js';
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
+import { eventHTML } from '../src/ui/event.js';
+import { degradedHealth, resetDegraded } from '../src/utils.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { readFileSync } from 'node:fs';
 
@@ -923,6 +925,34 @@ describe('envio completo dos formulários públicos', () => {
     body: JSON.stringify(body),
   }), e, ctx);
 
+  it('avisa que um pedido de remoção ficou sem e-mail — direito do titular tem relógio', async () => {
+    // O pedido é gravado antes do envio, então nada se perde. Mas o AVISO é o
+    // que faz alguém agir dentro do prazo: sem ele, o pedido fica parado no
+    // painel esperando que o dono resolva abrir a tela por conta própria.
+    resetDegraded();
+    const e = env();                       // sem RESEND_API_KEY
+    const token = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'pessoa@example.com', phone: '11999999999',
+      consent: true, turnstileToken: 'ok', form_token: token,
+    });
+    expect(res.status, await res.text()).toBe(200);   // o titular não é punido pelo nosso problema
+    // e o pedido está salvo, que é o que impede a perda
+    expect(JSON.parse(e.FOTOS._store.get('removal_requests') || '[]')).toHaveLength(1);
+    const aviso = degradedHealth().find(d => /pedido de remoção/.test(d.label));
+    expect(aviso, 'o dono precisa ser avisado').toBeTruthy();
+    // E o aviso NÃO pode carregar o detalhe do erro: ele vem do corpo cru da
+    // resposta da Resend, e o e-mail levava nome, e-mail, telefone e mensagem
+    // de um titular exercendo direito sobre os próprios dados. O motivo fica no
+    // `emailStatus` do pedido, que só o painel lê.
+    expect(aviso.detail).not.toMatch(/pessoa@example\.com|11999999999/);
+    resetDegraded();
+  });
+
   it('accepts a real removal request end to end', async () => {
     const e = env();
     // Token pré-envelhecido: o piso de idade é para automação, e aqui
@@ -1306,7 +1336,13 @@ describe('HEAD não custa escrita em KV nem infla contagem', () => {
     const res = await worker.fetch(
       new Request('https://fotos.lucafchala.com/evento', { method }), env, ctx);
     await Promise.all(pendentes);
-    return { status: res.status, escritas: FOTOS._escritas, res };
+    // O contador de visitas é agregado na memória do isolate (bumpCounter) e só
+    // vira escrita na virada da janela, então olhar apenas `_escritas` mediria
+    // o momento do flush, não o que foi contado. O flush forçado traz a
+    // contagem para o KV e mantém o invariante do teste — "GET conta, HEAD
+    // não" — verificável no mesmo lugar de antes.
+    await flushCounters(env);
+    return { status: res.status, escritas: FOTOS._escritas, res, pendentes: pendingCounters() };
   };
 
   // O HEAD é resolvido reexecutando a rota como GET, então sem exceção
@@ -1314,13 +1350,19 @@ describe('HEAD não custa escrita em KV nem infla contagem', () => {
   // de minuto em minuto = 1440 escritas/dia contra uma cota de 1000/dia:
   // o contador de visitas sozinho derrubaria eventos, sessões e consentimento.
   it('writes to KV on GET but never on HEAD', async () => {
+    resetCounters();
     const get = await bater('GET');
     expect(get.status).toBe(200);
     expect(get.escritas.filter(k => k.startsWith('views:')), 'GET conta').toHaveLength(1);
 
+    resetCounters();
     const head = await bater('HEAD');
     expect(head.status, 'HEAD continua respondendo como GET').toBe(200);
     expect(head.escritas, 'HEAD não pode gravar NADA em KV').toEqual([]);
+    // E não pode nem entrar na fila de agregação: contar em memória e gravar
+    // dez minutos depois seria a mesma visita fantasma, só que mais difícil de
+    // achar.
+    expect([...head.pendentes.keys()], 'HEAD não pode nem acumular').toEqual([]);
   });
 
   // Se o HEAD emitisse o cookie de "já contado", o GET seguinte — o de verdade
@@ -1390,5 +1432,40 @@ describe('markdown: URL protocol-relative não é caminho interno', () => {
     expect(html).not.toContain('<a ');
     expect(html).not.toContain('//exemplo.com');
     expect(html).toContain('isto');
+  });
+});
+
+// O campo de nome do portão do Drive alimenta `consenter_name`, que é a peça de
+// não-repúdio do registro de consentimento. Marcar o aceite DISPARA o pedido na
+// hora ("no click needed"), e o nome é lido naquele instante — então a ordem dos
+// elementos na tela decide se o que a pessoa digitou chega ou não ao banco.
+describe('portão do Drive: o campo de nome vem antes do aceite', () => {
+  const EV = {
+    id: '1', slug: 'alemanha', title: 'Alemanha', accessType: 'public',
+    driveUrl: 'https://drive.google.com/drive/folders/x', photos: [],
+  };
+
+  it('o nome aparece ANTES da caixa de aceite na marcação', () => {
+    const html = eventHTML(EV, 2026, null, 'n', 'dn', 'ft');
+    const nome = html.indexOf('id="drive-name-toggle"');
+    const aceite = html.indexOf('id="drive-consent"');
+    expect(nome).toBeGreaterThan(-1);
+    expect(aceite).toBeGreaterThan(-1);
+    // Com o nome embaixo, quem lê de cima para baixo marca o aceite primeiro, o
+    // pedido sai com o nome vazio, e o que for digitado depois é descartado em
+    // silêncio — não existe um segundo pedido para levá-lo.
+    expect(nome, 'o convite para incluir o nome tem de vir antes do aceite').toBeLessThan(aceite);
+  });
+
+  it('o campo é congelado quando o link fica pronto, em vez de aceitar texto sem efeito', () => {
+    const html = eventHTML(EV, 2026, null, 'n', 'dn', 'ft');
+    expect(html).toContain('function lockDriveName()');
+    // No sucesso, e só no sucesso: no erro o Turnstile renova o token e tenta de
+    // novo, e essa tentativa ainda pode levar um nome digitado no meio.
+    const lockCall = html.indexOf('lockDriveName();');
+    const readyState = html.indexOf("driveLinkState = 'ready';");
+    const errorState = html.indexOf("driveLinkState = 'error';");
+    expect(lockCall).toBeGreaterThan(readyState);
+    expect(lockCall).toBeLessThan(errorState);
   });
 });

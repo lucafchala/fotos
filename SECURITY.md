@@ -68,7 +68,11 @@ issue before any public disclosure.
   a semantics decision.
 - Best-effort, non-atomic counters (`views`, `drive_clicks`): undercounting
   under load is expected.
-- Rate limits are abuse-mitigation, not a hard guarantee.
+- Rate limits are abuse-mitigation, not a hard guarantee. In particular they
+  **stop counting when KV refuses a write** — see "Rate limits fail open when KV
+  cannot record them" below. They are not, however, optional: see the same
+  section for why `/api/track-drive` keeps its per-IP limit even with counters
+  coalesced.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
@@ -121,6 +125,205 @@ then let the enforced policy use `strict` too. Until then, a `<script>` without 
 nonce is invisible today and breaks silently on flip day — so CI rejects one, and
 the deploy smoke test rejects a nonce appearing in the enforced header
 (`.github/workflows/security.yml`, `deploy.yml`).
+
+### Rate limits fail open when KV cannot record them
+
+`checkRateLimit()` reads a counter from KV and writes it back. The write is the
+part that can be refused: the free tier allows **1000 KV writes per day for the
+whole account**, and once that is spent KV rejects writes — as a thrown
+exception — while reads keep working normally. A day of real traffic reaches
+that ceiling on its own, because every visitor spends writes on the view counter
+and on the Drive gate's own limiter.
+
+Left unhandled, that exception propagated out of `checkRateLimit()` into the
+top-level `fetch()` catch and became a **500 on `/api/drive-link`** — photo
+delivery down for everyone, on the busiest day of the site's life — and a 500 on
+`/dashboard/login`, locking the owner out at exactly the moment they would go
+looking for the cause. Neither error said anything about a quota.
+
+So the counter write is isolated, and a request whose limit check already passed
+is allowed through when only the bookkeeping fails. This is a deliberate fail
+**open**, in the same direction as `SIGNING_SECRET`: refusing every visitor's
+photos in order not to let one extra request through is the worse side of the
+trade, and rate limits here are abuse-mitigation rather than a guarantee. Two
+things bound it:
+
+- **A limit already exceeded still blocks.** Reads are unaffected by a spent
+  write quota, so a counter that has passed the limit keeps refusing — the
+  fail-open covers the request that was going to be allowed anyway, not a
+  blanket bypass. Pinned by `tests/kv.test.js`.
+- **It is never silent**, and that is a property of the whole system rather than
+  of this one control. Anything that degrades calls `noteDegraded(label, detail)`,
+  and `/api/healthz` reports every entry in `problems` until 30 minutes pass
+  without a repeat — so the status dashboard goes red while the site is quietly
+  serving on with counters and limiters switched off. This matters more here than
+  in a system that simply falls over: **everything below is designed to keep
+  delivering photos while pieces fail, which means "the site is up" is not
+  evidence that anything is fine.** The alarm is what closes that gap.
+
+  It is one recorder on purpose. It began as two — one for KV, one for the events
+  fallback — and the third case (the consent log) was about to be a third. Three
+  places to remember to raise an alarm is how an alarm gets forgotten; with one,
+  a new degradation anywhere in the code appears on the dashboard without anyone
+  editing `auditSite()`. `noteKvFailure()` is a thin wrapper that records **which
+  operation** failed, because the message names a cause: a failed *read* logged
+  as a write made healthz assert "probably out of daily write quota" for a fault
+  with nothing to do with the write quota, sending whoever investigates to the
+  wrong place mid-incident. The record is isolate-local and costs nothing:
+  persisting it would need the very write that was just refused.
+
+The other half is not spending the quota in the first place, and that is a
+question of shape rather than of tuning: a counter written once per visitor
+makes the site's cost grow with its audience, against a ceiling that does not
+move. Three changes take that out:
+
+- **Counters coalesce under concurrency, and only under concurrency.** `views:`
+  and `drive_clicks:` go through `bumpCounter()`, which writes through unless the
+  same key was written less than a second ago — a floor matching KV's own limit
+  of one write per second per key, which the paid plan does **not** lift.
+  Whatever the floor defers is drained by a scheduled `waitUntil`, so it never
+  depends on another request happening to arrive. Measured: spread-out traffic
+  costs 4 writes per engaged visitor with counts exact; forty visitors arriving
+  together cost 2.1, also exact, because forty view increments collapse into two
+  writes. Two earlier designs got this wrong, both silently — deferring the
+  *first* increment lost the count outright on sparse traffic (the isolate dies
+  before a second one, and the daily cron cannot rescue it: different isolate,
+  empty map), and a *single* window timestamp shared across keys let the first
+  key to write block every other one, so a burst's tail was never written at all
+  — fifty visitors recorded as one. The pending map is bounded by the number of
+  events, because callers validate the slug first, so no flood can grow it.
+- **`/api/track-drive` keeps its per-IP rate limit**, and an attempt to drop it
+  is worth recording as a mistake. The reasoning was "the aggregation is the
+  bound now, so a flood adds no writes." It does not hold: coalescing is bounded
+  by a per-key floor of one second, so a sustained flood still costs up to sixty
+  writes a minute on that key — far past a 1000/day quota. Coalescing lowers the
+  cost per request, not the cost per hour, and the cost per hour is what an
+  attacker controls. Without a per-IP limit the public endpoint becomes the
+  cheapest way to drain the very quota this section is about, and leaves
+  `drive_clicks` forgeable by curl, since the CSRF gate deliberately passes
+  clients that send no browser headers.
+- **Validation that costs nothing runs first.** `/api/track-drive` used to call
+  `checkRateLimit()` before parsing the body, so junk POSTs burned quota while
+  counting nothing. That reorder is the real saving, and it is intact: junk
+  POSTs now cost zero writes. Same reasoning already applied to `handleLogin()`,
+  which deliberately does not count an attempt the burst limiter already refused.
+
+### The consent log fails loudly now
+
+`POST /api/drive-link` writes one row per acceptance to D1, and that row is the
+non-repudiation evidence behind the whole LGPD posture: which Terms text, which
+version, which declaration, when, by whom. The write is `ctx.waitUntil` and
+best-effort by design — refusing a visitor their photos because *our* audit log
+is down punishes the wrong person — but "best-effort" had come to mean "and
+nobody finds out". A failed insert logged one line to `console.error` and the
+site carried on looking perfect.
+
+That is the worst failure mode in the system: the photos are delivered, the
+consent that authorised delivering them is not recorded, and nothing anywhere
+says so. It now fails on both channels — `sendErrorAlert()` emails the owner
+(globally throttled to one per 15 minutes, and it never throws) and
+`noteDegraded()` puts it on `/api/healthz`, which the status dashboard turns
+into an alert. Pinned by `tests/drive-gate.test.js`, verified failing against
+the previous `console.error`.
+
+### Logout says so when it does not actually revoke
+
+`POST /dashboard/logout` deletes the session record from KV. That delete is not
+housekeeping — **it is the revocation**. The cookie is cleared in the browser
+either way, so someone who clicks "sair" lands on the login screen and believes
+they are out, while the token stays accepted by the server until its 24-hour TTL
+runs out. Anyone holding a copy taken before the logout keeps the panel.
+
+The timing is the sharp part: a KV **delete spends write quota** like a `put`
+does, so the day of heavy traffic — the day the 1000/day account ceiling is
+actually reached — is the day logging out can quietly stop revoking. And the
+`Clear-Site-Data` header two lines below names the scenario the handler has in
+mind: a borrowed computer.
+
+Failing here must not interrupt the logout (leaving the admin signed in *in the
+browser* is the worse outcome), so the redirect and both cookie clears happen
+regardless. What changed is that it is no longer a `console.error` nobody reads:
+the failure goes to `noteDegraded()` — so `/api/healthz` reports it and the
+status dashboard goes red — and to `sendErrorAlert()`. Pinned by
+`tests/kv.test.js`, verified failing against the previous code.
+
+The same reasoning applies to the **session sweep after a password change**
+(`PUT /api/settings/password`). Changing the password is what you do when you
+believe it has leaked, and the sweep of the other sessions is what evicts
+whoever is already inside. The sweep is deliberately best-effort — a KV hiccup
+must not undo a password change that already succeeded — but its `Promise.all`
+rejects on the first delete that fails, so the sweep can also be *partial*.
+Either way the admin used to get a plain `ok: true` while old sessions stayed
+open for up to 24 hours. It now records a degradation and emails.
+
+### A support message that was never sent no longer shows a success screen
+
+`/suporte` is the site's contact channel, and unlike a removal request — which
+is stored in D1 — a support message exists **only inside the email**. There is
+no copy anywhere. So a refused send is not a delayed message, it is a lost one.
+
+The handler used to return the success screen regardless of whether the send
+worked, which sent the visitor away believing their message had arrived. That
+is the same trade `getEvents()` already resolves in the other direction when it
+rethrows instead of returning an empty list: **claiming to have the data is
+worse than admitting the failure.** A failed send now returns the form with an
+error, the submitted values still filled in (resending must not cost retyping)
+and the direct address to write to instead — and it records a degradation and
+emails the owner, because a contact form that is silently swallowing messages is
+exactly the kind of outage nobody reports, since the only people who can see it
+are the ones whose message vanished. Pinned by `tests/kv.test.js`.
+
+### The event list survives KV being unavailable
+
+KV is the only hard dependency on the critical path: without the event list
+there is no slug, no event, and no Drive link. A KV **read** outage used to take
+the gallery, the project pages and the Drive gate down together, with a 500 —
+the site's one promise, delivering photos, broken by an outage in a store it
+consults only to find the right folder URL.
+
+`getEvents()` now degrades in three steps, newest data first:
+
+1. **The isolate's own cache, even expired.** It was previously discarded once
+   past its 30 s TTL, so an isolate holding a perfectly good list answered 500
+   the moment KV faltered. Thirty seconds stale is still the right list.
+2. **A copy in the Cache API.** Free, no write quota, and — unlike module state
+   — it lives in the colo rather than the isolate, which is what covers a *cold*
+   isolate. That is the common case in an outage: new traffic lands on new
+   isolates with nothing in memory.
+3. **Rethrow.** With no cache and no copy there is nothing to serve. Returning
+   an empty list here would turn an outage into "the site exists and has no
+   projects" — 404 everywhere, `ok:true` on healthz, nothing red on the
+   dashboard. Lying about having no data is worse than admitting the failure.
+
+The copy is written only when the stored value changes, and only after KV has
+accepted the write, so it can never contradict the source.
+
+**What this costs, stated plainly.** While serving from the copy, the visitor
+may see a list that is out of date: a project hidden, corrected, or deleted
+*during the outage* still appears. In practice the window is the outage itself —
+the copy is refreshed on any successful read of a changed value — and it is
+bounded further by the fact that a KV that cannot be read usually cannot be
+written either, so there is no new state to miss. The trade is deliberate:
+delivering photos from a possibly-minutes-old list beats delivering nothing.
+
+**The fallback is for visitors only.** `getEvents(env, true)` — the `fresh` read
+used by every admin path and every read-modify-write — never falls back; it
+propagates. Serving a stale list there is not graceful degradation, it is a
+staged data loss: the `saveEvents` that follows would write the old list back
+over the new one, deleting every project changed since the copy was taken.
+Failing costs the owner an error message; the alternative costs the projects.
+
+Two things that are **not** relaxed while degraded, both pinned by
+`tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses
+normally (missing consent, failed Turnstile, `comingSoon`, unknown slug), and
+`/api/healthz` reports `kv:false` and flips `ok:false`. The site staying up must
+never make the dashboard look green. Because healthz reads with `fresh`, that
+`kv` flag is measured by its own read rather than inferred: an earlier version
+compared a module-global fallback counter before and after, and since that state
+is shared by every request in the isolate, one *concurrent* visitor falling back
+made healthz answer 503 and fail the deploy smoke test while its own read had
+succeeded. The visitor-side degradation is still reported, as an advisory line in
+`problems` with a time window — which is all module state can honestly claim.
 
 ### Outbound links: one exception only
 

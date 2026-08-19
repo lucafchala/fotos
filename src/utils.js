@@ -34,34 +34,159 @@ export const ACCESS_DECLARATIONS = {
   private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
 };
 
+// Cópia de sobrevivência da lista de eventos, na Cache API.
+//
+// A promessa do site é entregar foto. Tudo o mais — contador, rate limit,
+// painel — é acessório, e o KV é a única dependência no caminho crítico: sem a
+// lista de eventos não há slug, não há evento e não há link do Drive. Uma
+// indisponibilidade de LEITURA do KV derrubava a galeria, a página do projeto e
+// o portão do Drive de uma vez, com 500.
+//
+// A Cache API é a saída certa aqui: é gratuita, não tem cota de escrita, vive
+// no colo (não no isolate) e por isso sobrevive à troca de isolate, que é
+// justamente o buraco que o cache de módulo não cobre. Não é banco de dados —
+// pode ser despejada a qualquer momento e é por colo, não global — mas como
+// último recurso antes do 500 ela é exatamente do tamanho do problema.
+//
+// URL sintética: a Cache API exige uma chave http(s), e este host não existe.
+const EVENTS_CACHE_KEY = 'https://fotos.invalid/__events';
+// Sete dias. Não é "por quanto tempo o dado vale", é "por quanto tempo ainda
+// prefiro dado velho a um 500" — e a resposta é: mais do que qualquer queda de
+// KV plausível.
+const EVENTS_CACHE_TTL_S = 7 * 24 * 3600;
+let _mirroredRaw = null;
+
+function cacheStore() {
+  // Ausente no vitest e em qualquer runtime que não seja o Workers. Sem ela as
+  // outras camadas continuam valendo — a função inteira é best-effort.
+  return (typeof caches !== 'undefined' && caches && caches.default) || null;
+}
+
+// Só grava quando o valor MUDOU: a cópia é um espelho, não um log, e reescrever
+// a cada leitura gastaria CPU do isolate à toa no caminho de resposta.
+async function mirrorEvents(raw) {
+  const store = cacheStore();
+  if (!store || typeof raw !== 'string' || raw === _mirroredRaw) return;
+  try {
+    await store.put(EVENTS_CACHE_KEY, new Response(raw, {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${EVENTS_CACHE_TTL_S}` },
+    }));
+    _mirroredRaw = raw;
+  } catch (e) {
+    console.error('events mirror write failed', e);
+  }
+}
+
+async function readMirroredEvents() {
+  const store = cacheStore();
+  if (!store) return null;
+  try {
+    const hit = await store.match(EVENTS_CACHE_KEY);
+    return hit ? await hit.text() : null;
+  } catch (e) {
+    console.error('events mirror read failed', e);
+    return null;
+  }
+}
+
+// A queda para a cópia de sobrevivência entra no mesmo registro de degradações
+// (`noteDegraded`) que todo o resto. Já foi um contador comparado antes/depois
+// pelo healthz, para dizer se ESTA leitura degradou; não funcionava, porque o
+// estado é do módulo e a queda de uma requisição CONCORRENTE fazia o healthz
+// declarar `kv:false` e 503 — reprovando o smoke test do deploy — tendo lido do
+// KV sem problema nenhum. Hoje o healthz decide `kv` pela PRÓPRIA leitura (que
+// usa `fresh` e por isso nunca cai para a cópia), e isto aqui é o aviso de que
+// o visitante andou sendo servido de cópia: exatamente o que estado de módulo
+// consegue afirmar com honestidade.
+function noteEventsFallback(source) {
+  noteDegraded(
+    'lista de projetos vindo de cópia',
+    `KV de leitura fora; servindo da ${source}. Edições feitas agora podem não chegar ao visitante até o KV voltar`
+  );
+}
+
+// Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
+// duas versões disso divergiriam, e a cópia é justamente o caminho que ninguém
+// exercita no dia a dia.
+function parseEvents(data) {
+  if (!data) return [];
+  try {
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(e => e && typeof e === 'object' && !Array.isArray(e));
+  } catch { return []; }
+}
+
 // fresh=true bypasses the isolate-local cache — required on admin reads and
 // any read-modify-write, where 30 s of staleness could clobber another
 // isolate's recent save.
 export async function getEvents(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
-  const data = await env.FOTOS.get('events');
+
+  let data;
+  try {
+    data = await env.FOTOS.get('events');
+  } catch (e) {
+    // `fresh` NUNCA cai para a cópia. Quem pede fresh é leitura de admin ou
+    // read-modify-write (criar, editar, esconder, apagar projeto, restaurar
+    // backup): ali servir dado velho não é degradar com elegância, é preparar
+    // uma PERDA DE DADOS — o `saveEvents` seguinte gravaria a lista antiga por
+    // cima, apagando tudo o que mudou desde que a cópia foi feita. Falhar aqui
+    // custa uma mensagem de erro ao dono; a alternativa custa os projetos.
+    if (fresh) throw e;
+
+    // Daqui para baixo é só caminho de VISITANTE, onde a lista velha ainda
+    // entrega a foto certa. A ordem é do dado mais novo para o mais velho.
+    //
+    // 1) O cache do próprio isolate, mesmo VENCIDO. Antes ele era descartado
+    //    aqui: passados os 30 s de TTL, um isolate que tinha a lista na mão
+    //    respondia 500 assim que o KV falhava. Velho por 30 s continua sendo a
+    //    lista certa.
+    if (_cache) {
+      noteEventsFallback('cache do isolate');
+      console.error('KV read failed; serving events from the isolate cache', e);
+      return _cache;
+    }
+    // 2) A cópia na Cache API — o que salva um isolate FRIO, que é o caso comum
+    //    numa queda: tráfego novo cai em isolate novo, sem cache de módulo.
+    const mirrored = await readMirroredEvents();
+    if (mirrored !== null) {
+      noteEventsFallback('cópia na Cache API');
+      console.error('KV read failed; serving events from the cache mirror', e);
+      _cache = parseEvents(mirrored);
+      _cacheAt = now;
+      return _cache;
+    }
+    // 3) Sem cópia nenhuma não há o que servir. Propaga: devolver [] aqui
+    //    transformaria uma queda de KV em "o site existe e não tem projeto
+    //    nenhum" — 404 em tudo, `ok:true` no healthz e nada vermelho no painel.
+    //    Mentir sobre não ter dado é pior do que assumir a falha.
+    throw e;
+  }
+
   // Single choke point for shape validation: every caller (gallery, event page,
   // dashboard, metrics, healthz, backup) reads through here, so one guard keeps
   // a corrupted `events` value — a bad restore, a hand-edited KV entry, a
   // truncated write — from throwing on `e.visible` / `e.slug` and 500-ing the
   // whole public site. Non-array payloads and non-object entries are dropped
   // instead of propagating; the next save then self-heals the stored value.
-  _cache = data ? ((() => {
-    try {
-      const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(e => e && typeof e === 'object' && !Array.isArray(e));
-    } catch { return []; }
-  })()) : [];
+  _cache = parseEvents(data);
   _cacheAt = now;
+  // Espelha o texto cru, não o objeto já filtrado: a cópia tem de ser o que o
+  // KV guardava, para a validação de forma acontecer na leitura dela também.
+  if (typeof data === 'string') await mirrorEvents(data);
   return _cache;
 }
 
 export async function saveEvents(env, events) {
   _cache = events;
   _cacheAt = Date.now();
-  await env.FOTOS.put('events', JSON.stringify(events));
+  const raw = JSON.stringify(events);
+  await env.FOTOS.put('events', raw);
+  // Depois do KV aceitar, e não antes: espelhar um valor que não chegou a ser
+  // gravado faria a cópia contradizer a fonte.
+  await mirrorEvents(raw);
 }
 
 // Categories are user-managed (created/deleted from the dashboard) and stored
@@ -71,6 +196,16 @@ export const DEFAULT_CATEGORIES = ['Formatura', 'Casamento', 'Ensaio', 'Evento',
 export const MAX_CATEGORIES = 30;
 export const MAX_CATEGORY_LEN = 40;
 
+// Uma falha de LEITURA aqui propaga, de propósito. Já caiu nos padrões, e era
+// perda de dados esperando acontecer: todos os chamadores são rotas de admin
+// (painel, criar/editar projeto, criar/apagar categoria, backup/restore) — a
+// galeria pública deriva os filtros dos próprios eventos e nunca passa por
+// aqui. Então o "fallback" não mantinha página nenhuma de pé; só entregava a
+// lista errada para caminhos que a GRAVAM de volta (`handleCreateCategory`,
+// `handleRestoreBackup`), apagando para sempre as categorias do dono.
+//
+// Um valor corrompido continua caindo nos padrões: ali não há o que preservar,
+// e a próxima gravação conserta o valor guardado.
 export async function getCategories(env) {
   const data = await env.FOTOS.get('categories');
   if (!data) return [...DEFAULT_CATEGORIES];
@@ -257,21 +392,295 @@ export async function verifySession(env, request) {
     // uso transformaria a sessão de 24 h numa sessão perpétua.
     const ttl = Math.max(60, Math.round((createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
     await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
-      .catch(e => console.error('session refresh failed', e));
+      .catch(e => noteKvFailure('escrita', e, 'session refresh'));
   }
   return true;
+}
+
+// A cota de escrita do KV é de 1000/dia no plano free, para a conta inteira, e
+// quando ela estoura o KV passa a RECUSAR escrita — leitura continua normal, e
+// a recusa chega como EXCEÇÃO, não como valor de retorno. Um dia de tráfego
+// grande (lançamento de projeto, link no Instagram) chega lá: cada visitante
+// gasta escrita no contador de visitas e no rate limit do portão do Drive.
+//
+// Sem tratamento, essa exceção sobe de `checkRateLimit` até o catch do
+// `fetch()` e vira **500 para todo mundo no portão do Drive** — as fotos param
+// de sair exatamente no dia de maior público — e trava o login do painel, ou
+// seja, o dono perde o acesso justo quando precisa investigar.
+//
+// Por isso a escrita do contador é isolada e o limite deixa passar quando ela
+// falha. É uma decisão consciente na mesma direção do resto do projeto: o rate
+// limit é mitigação de abuso, não garantia (ver SECURITY.md), e recusar as
+// fotos de todo mundo para não deixar passar uma requisição extra é o pior dos
+// dois lados. O contrapeso é não ser silencioso: a falha fica registrada e o
+// `/api/healthz` grita — mesmo padrão do SIGNING_SECRET.
+// ---------------------------------------------------------------------------
+// Registro de degradações: um lugar só, para nada falhar calado
+// ---------------------------------------------------------------------------
+// A promessa operacional do projeto é que nada se degrade em silêncio. O site
+// foi desenhado para continuar entregando foto quando as coisas quebram — cota
+// de escrita estourada, KV de leitura fora, contador recusado — e é justamente
+// isso que torna o aviso obrigatório: sem ele, "o site está no ar" vira prova de
+// que está tudo bem, quando pode ser o oposto.
+//
+// Isto começou como dois registradores separados (um para KV, um para a queda
+// para a cópia de eventos) e ia virar três. Três lugares para lembrar de avisar
+// é como se esquece de avisar. Agora é um: quem degradar chama `noteDegraded`, e
+// o /api/healthz relata tudo o que estiver dentro da janela — sem precisar que
+// alguém se lembre de acrescentar a linha nova ao painel.
+//
+// Estado de módulo, de propósito e sem custo: persistir exigiria justamente a
+// escrita que pode estar sendo recusada. Vale para o isolate que registrou —
+// aceitável porque essas condições são da conta inteira e duram, então qualquer
+// isolate servindo tráfego encontra a mesma falha em segundos.
+const DEGRADED_TTL_MS = 30 * 60_000;
+const _degraded = new Map();
+
+// `label` é a chave de deduplicação (a mesma degradação repetida não vira várias
+// linhas) e também o texto que aparece no painel. Escreva-o como a frase que
+// você gostaria de ler às 2h da manhã: o que quebrou, e o que deixou de
+// funcionar por causa disso.
+// Tudo o que entra aqui atravessa `umaLinha()` antes de virar log ou texto de
+// painel. O `detail` carrega mensagem de erro de sistema externo (KV, D1,
+// Resend) e identificador de evento — dados que não vêm de nós. Uma quebra de
+// linha no meio disso forja uma entrada de log inteira, e é assim que se apaga
+// o rastro de um incidente escrevendo dentro do próprio relato dele. O slug já
+// é validado antes de chegar aqui, mas um saneamento que depende de todo
+// chamador ter validado é um saneamento que cede no primeiro chamador novo.
+function umaLinha(v) {
+  return String(v)
+    // Controles C0/C1 e separadores de linha Unicode, escritos por codigo-ponto
+    // e nao por caractere colado: um intervalo literal aqui fica ilegivel no
+    // editor seguinte, e foi assim que a primeira versao disto saiu errada.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
+export function noteDegraded(label, detail = '', err = null) {
+  const rotulo = umaLinha(label);
+  const texto = umaLinha(detail);
+  _degraded.set(rotulo, { at: Date.now(), detail: texto });
+  console.error(`degradado: ${rotulo}${texto ? ` — ${texto}` : ''}`, err || '');
+}
+
+// Mais recente primeiro: numa cascata, a última coisa a quebrar costuma ser a
+// consequência, e a primeira, a causa — mas quem olha o painel quer ver o que
+// está acontecendo agora.
+export function degradedHealth(now = Date.now()) {
+  const out = [];
+  for (const [label, { at, detail }] of _degraded) {
+    if (now - at > DEGRADED_TTL_MS) continue;
+    out.push({ label, detail, agoSecs: Math.round((now - at) / 1000) });
+  }
+  return out.sort((a, b) => a.agoSecs - b.agoSecs);
+}
+
+export function resetDegraded() { _degraded.clear(); }
+
+// Atalho para o caso mais comum: uma operação de KV recusada. `op` é 'escrita'
+// ou 'leitura', e a distinção não é cosmética — a mensagem ACUSA UMA CAUSA, e
+// uma falha de leitura relatada como escrita mandava quem fosse investigar
+// procurar cota de escrita esgotada, que não tem nada a ver.
+export function noteKvFailure(op, err, context = '') {
+  const motivo = String(err && err.message ? err.message : err).slice(0, 120);
+  noteDegraded(
+    `KV: ${op} recusada`,
+    `${context ? `${context} — ` : ''}${motivo}${op === 'escrita' ? ' (se for cota diária, volta na virada UTC)' : ''}`,
+    err
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contadores agregados: uma escrita por janela, não uma por visitante
+// ---------------------------------------------------------------------------
+// O problema que isto resolve é de escala, não de correção. Um `put()` por
+// visitante faz o custo do site crescer junto com o público — exatamente a
+// direção errada, porque a cota (1000/dia, conta inteira) é fixa. Medido no
+// harness: 4 escritas por visitante engajado, ou seja teto de ~250/dia. Um
+// projeto divulgado passa disso numa tarde, e aí param os contadores, o rate
+// limit e a abertura de sessão.
+//
+// Aqui os incrementos são somados na memória do isolate e gravados de tempos em
+// tempos. Cem visitantes no mesmo minuto viram UMA escrita por slug em vez de
+// cem, e o custo passa a depender do tempo, não do movimento.
+//
+// O que se perde: o que estiver pendente quando o isolate morrer. É perda
+// aceita e já declarada — os contadores são "best-effort, non-atomic" no
+// SECURITY.md, e a leitura-modificação-escrita nunca foi atômica entre
+// isolates. O que NÃO se perde é entregar a foto, que é o que a cota gasta
+// protegia mal.
+//
+// O mapa é naturalmente limitado: só entram chaves de eventos que existem
+// (quem chama valida antes), então nem um flood cria mapa grande.
+// Piso por CHAVE, casado com o limite do KV: uma escrita por segundo na mesma
+// chave (limite que NÃO sobe no plano pago). É isso que a agregação protege —
+// não a cota diária, que era a leitura errada da primeira versão.
+const COUNTER_KEY_MIN_INTERVAL_MS = 1000;
+const _pendingCounters = new Map();
+const _lastWriteByKey = new Map();
+let _flushInFlight = null;
+
+// Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
+// viraria 500 numa página que só queria contar uma visita.
+//
+// Devolve a promessa da gravação, para quem não tem `ctx` conseguir aguardá-la.
+//
+// O flush é registrado em TODA requisição, e não só quando uma janela vence.
+// As duas versões anteriores erraram aqui, cada uma de um jeito:
+//
+//   • adiar o primeiro incremento do isolate perdia a contagem inteira em
+//     tráfego esparso, porque o isolate morria antes do segundo;
+//   • um carimbo de janela ÚNICO para todas as chaves fazia a primeira chave a
+//     gravar bloquear as outras pelos 10 s seguintes, e o que estivesse pendente
+//     no fim do tráfego não era gravado por ninguém. Medido no harness: 50
+//     visitantes viraram `views: 3` e nenhum `drive_clicks`.
+//
+// Agora quem agrega é a CONCORRÊNCIA, não o relógio: requisições simultâneas
+// dividem o mesmo mapa e a trava `_flushInFlight` faz uma gravação cobrir todas.
+// Tráfego sequencial grava uma vez por evento — contagem exata. Sob rajada numa
+// mesma chave, o piso de 1 s adia o excedente para o flush seguinte, que é
+// exatamente o que o limite do KV exige.
+export function bumpCounter(env, ctx, key, by = 1) {
+  try {
+    _pendingCounters.set(key, (_pendingCounters.get(key) || 0) + by);
+    const work = flushCounters(env);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(work);
+    // O que o piso por chave adiou precisa de alguém para gravar depois. Sem
+    // isto, só a chegada de OUTRA requisição drenava o mapa — e quando a rajada
+    // termina, não chega outra: a cauda inteira se perdia. Medido no harness,
+    // 50 visitantes em menos de um segundo viravam `views: 1`.
+    //
+    // `waitUntil` segura o isolate vivo enquanto o timer corre, então a drenagem
+    // acontece sem depender de tráfego futuro e sem atrasar a resposta.
+    if (_pendingCounters.size) scheduleDrain(env, ctx);
+    return work;
+  } catch (e) {
+    noteKvFailure('escrita', e, 'bumpCounter');
+    return null;
+  }
+}
+
+// Uma drenagem agendada por vez: várias requisições numa rajada não podem virar
+// vários timers gravando a mesma chave em paralelo.
+let _drainScheduled = false;
+function scheduleDrain(env, ctx) {
+  if (_drainScheduled || !ctx || typeof ctx.waitUntil !== 'function') return;
+  _drainScheduled = true;
+  ctx.waitUntil((async () => {
+    try {
+      await new Promise(r => setTimeout(r, COUNTER_KEY_MIN_INTERVAL_MS));
+      await flushCounters(env);
+    } finally {
+      _drainScheduled = false;
+    }
+  })());
+}
+
+// Uma passada por vez: sem a trava, duas requisições simultâneas leriam o mesmo
+// valor do KV e uma sobrescreveria a outra — o mesmo bug de contagem que a
+// agregação existe para reduzir.
+//
+// Quem chega no meio de uma passada ESPERA e roda de novo, em vez de receber a
+// promessa da passada em curso e ir embora. A diferença importa para quem
+// aguarda o flush de propósito (o cron diário, os testes): devolver a passada
+// alheia é dizer "gravei" sobre um incremento que entrou no mapa depois que ela
+// já tinha copiado o lote.
+export async function flushCounters(env) {
+  if (_flushInFlight) {
+    await _flushInFlight.catch(() => {});
+    return flushCounters(env);
+  }
+  if (_pendingCounters.size === 0) return;
+
+  const now = Date.now();
+  // Só entram no lote as chaves que respeitam o piso. As demais FICAM
+  // pendentes — não são descartadas — e saem no próximo flush.
+  const batch = [];
+  for (const [key, delta] of _pendingCounters) {
+    const last = _lastWriteByKey.get(key) || 0;
+    if (now - last < COUNTER_KEY_MIN_INTERVAL_MS) continue;
+    batch.push([key, delta]);
+    _pendingCounters.delete(key);
+    _lastWriteByKey.set(key, now);
+  }
+  if (batch.length === 0) return;
+
+  _flushInFlight = (async () => {
+    for (const [key, delta] of batch) {
+      try {
+        const current = await env.FOTOS.get(key);
+        await env.FOTOS.put(key, String(toCount(current) + delta));
+      } catch (e) {
+        // Delta descartado de propósito. Reinserir no mapa faria a cota
+        // estourada acumular para sempre e tentar de novo a cada requisição,
+        // gastando leitura sem nunca conseguir gravar.
+        noteKvFailure('escrita', e, `contador ${key} (+${delta})`);
+      }
+    }
+  })().finally(() => { _flushInFlight = null; });
+  return _flushInFlight;
+}
+
+// Só para os testes, que compartilham o módulo entre casos.
+export function resetCounters() {
+  _pendingCounters.clear();
+  _lastWriteByKey.clear();
+  _flushInFlight = null;
+  _drainScheduled = false;
+}
+
+export function pendingCounters() {
+  return new Map(_pendingCounters);
+}
+
+// Contadores em KV são strings, e uma corrompida lida com parseInt puro devolve
+// NaN — `String(NaN)` grava "NaN" de volta e envenena o contador para sempre,
+// porque todo incremento seguinte relê "NaN".
+//
+// Estrito de propósito: parseInt sozinho salva um prefixo ("12abc" -> 12) e
+// aceita negativo ("-5"), então um valor meio corrompido seria adotado como se
+// fosse a contagem real. Contador é inteiro não-negativo ou é lixo — o resto
+// recomeça do 0 em vez de carregar sujeira adiante.
+//
+// Mora aqui, e não em index.js, porque o flush de contadores precisa dele e
+// utils.js não pode importar de index.js (importaria em círculo). index.js
+// reexporta, para que o contrato dos valores-veneno continue preso pelos testes
+// que já existem.
+export function toCount(v) {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const s = v.trim();
+  if (!/^\d+$/.test(s)) return 0;
+  const n = parseInt(s, 10);
+  return Number.isSafeInteger(n) ? n : 0;
 }
 
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   const window = Math.floor(Date.now() / (windowSecs * 1000));
   const kvKey = `ratelimit:${key}:${ip}:${window}`;
-  const raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  let raw;
+  try {
+    raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+  } catch (e) {
+    // Sem leitura não há contagem. Deixa passar em vez de derrubar a rota —
+    // com o KV fora, quem depende dele (galeria, evento) já falha sozinho e com
+    // mensagem própria; um 500 vindo daqui só esconderia a causa.
+    noteKvFailure('leitura', e, `ratelimit:${key}`);
+    return true;
+  }
   // NaN >= limit is false, so a corrupted counter used to fail *open* — the
   // limit silently stopped applying for that key/IP/window, and String(NaN)
   // kept it corrupted. Treating unparseable as 0 keeps the limiter counting.
   const count = Number.isFinite(raw) ? raw : 0;
   if (count >= limit) return false;
-  await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
+  try {
+    await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
+  } catch (e) {
+    // A verificação acima já passou: o que falhou foi só a contabilidade.
+    noteKvFailure('escrita', e, `ratelimit:${key}`);
+  }
   return true;
 }
 

@@ -198,6 +198,22 @@ describe('auditSite (healthz functional self-test)', () => {
     expect(r.problems[r.problems.length - 1]).toMatch(/^\+\d+ outro\(s\)$/);
   });
 
+  it('relata QUALQUER degradação registrada, sem lista fixa', () => {
+    // O site é desenhado para continuar servindo enquanto as peças cedem, então
+    // "está no ar" não é prova de que está tudo bem — o healthz é o único lugar
+    // onde isso aparece. A lista é genérica de propósito: quem registrar uma
+    // degradação nova em qualquer ponto do código aparece aqui sozinho, sem
+    // ninguém precisar lembrar de editar o auditSite.
+    expect(auditSite([liveEvent()], FULL_ENV).problems).toEqual([]);
+    const r = auditSite([liveEvent()], FULL_ENV, [
+      { label: 'KV: escrita recusada', detail: 'KV PUT failed: 429', agoSecs: 12 },
+      { label: 'registro de consentimento não gravou', detail: 'D1 recusou o INSERT', agoSecs: 3 },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.problems.some(p => p.includes('KV: escrita recusada') && p.includes('429'))).toBe(true);
+    expect(r.problems.some(p => p.includes('registro de consentimento não gravou'))).toBe(true);
+  });
+
   it('never throws on garbage input', () => {
     expect(() => auditSite(null)).not.toThrow();
     expect(() => auditSite([null, 42, {}], {})).not.toThrow();

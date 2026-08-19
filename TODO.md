@@ -6,8 +6,96 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ---
 
+## Plano gratuito — a restrição que decide o resto (até a assinatura)
+
+> 🔜 **A decisão mudou: o dono vai assinar o Workers Paid.** Enquanto o
+> pagamento não acontecer, tudo nesta seção continua valendo e o código no
+> `main` está correto como está. Depois de assinar, o passo a passo da compra e
+> a lista do que mexer (e do que **não** mexer) estão em
+> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md) — inclusive por que a agregação
+> dos contadores tem de ficar mesmo no plano pago.
+
+**Enquanto isso, o projeto está no plano gratuito.** Isso não é uma nota de
+rodapé sobre custo — é a restrição de projeto mais forte que existe aqui, e
+qualquer item deste arquivo que a contrarie está errado, não a decisão.
+
+**O que ela quer dizer na prática:** toda proposta passa por "quanto isso custa
+de cota?" antes de "quanto isso melhora o site?". Um recurso que gasta escrita em
+KV por visitante não é caro — é *inviável*, porque o custo cresce junto com o
+público contra um teto que não se mexe.
+
+### O orçamento, medido
+
+O limite mais apertado é **escrita em KV: 1000/dia para a conta inteira**,
+compartilhada com o `status.lucafchala.com`. Medido no harness do
+[`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md), com 40 visitantes simulados nos
+dois formatos de tráfego:
+
+| item | custo |
+| --- | --- |
+| visitante engajado, tráfego **espalhado** | **4 escritas** |
+| visitante engajado, em **rajada** (chegam juntos) | **~2,1 escritas** |
+| POST de lixo em `/api/track-drive` | 0 |
+| status page (amostra de latência, regime normal) | ~48/dia |
+| **teto prático** | **~250 a ~475 visitantes/dia**, conforme o formato do tráfego |
+
+Duas das quatro escritas são rate limit (`drive-link` e `drive`), uma por
+visitante cada, e ficam: um limite que não grava na hora não limita. As outras
+duas são os contadores, que **agregam sob concorrência**: quarenta visitantes
+chegando juntos gastam 2 escritas de contador em vez de 80, sem perder contagem.
+
+> Uma versão anterior desta tabela dizia **1,01 escrita/visitante** e teto de
+> ~985/dia. O número era artefato de um defeito: os contadores estavam sendo
+> descartados em vez de gravados, então o "barato" era o custo de não contar.
+> Corrigido e medido de novo, agora com as 40 de 40 contagens batendo.
+
+Os outros limites não chegam perto — 28 eventos contra 1 GB de KV, uma linha de
+consentimento por liberação contra 100 mil linhas/dia no D1, um punhado de
+requisições por visitante contra 100 mil/dia. **As fotos não passam pelo
+Worker** (saem do `lh3.googleusercontent.com` direto para o browser), e é isso
+que mantém a conta de requisições irrelevante.
+
+### O que acontece se estourar
+
+Nada de catastrófico, e isso é resultado de trabalho, não sorte:
+
+1. **As fotos continuam saindo.** A recusa de escrita é isolada e o portão do
+   Drive deixa passar quem já tinha passado na verificação (fail-open
+   deliberado, ver [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)).
+2. **Param até a virada UTC:** contador de visitas, contador de cliques, rate
+   limit e abertura de sessão nova no painel.
+3. **O dono é avisado.** O `/api/healthz` acusa em `problems`, o painel de
+   status vira `degraded` e dispara e-mail. O alerta foi consertado para
+   sobreviver à própria cota estourada — antes, a escrita recusada derrubava a
+   varredura antes do envio, e o aviso de "estourei os limites" ficava desligado
+   por ter estourado os limites.
+
+### Se um dia o teto ficar pequeno
+
+Nesta ordem, e **nenhuma delas é pagar**:
+
+- [ ] **Contadores fora do KV.** `views:` e `drive_clicks:` para log estruturado
+      / Analytics Engine, como `/api/perf` e `/api/csp-report` já fazem. Elimina
+      o que sobrou de contabilidade, mas perde o número no painel — só vale se o
+      número deixar de valer a escrita.
+- [ ] **Rate limit em Durable Object.** DO entrou no plano gratuito em 2025.
+      Levaria a última escrita por visitante (`ratelimit:drive-link`) a zero, e
+      com contagem exata em vez de eventual. É a saída mais limpa e a mais
+      trabalhosa.
+- [ ] **Amostrar o contador de visitas** (contar 1 em N e multiplicar). Barato
+      de implementar; o honesto seria admitir, antes, que o número vira
+      estimativa.
+
+---
+
 ## Lançamento
 
+- [ ] **Ligar o painel de cotas do status.** `CF_API_TOKEN` (Account
+      Analytics:Read) + `CF_ACCOUNT_ID` nas variáveis do Pages. Sem eles o
+      `/api/quota-stats` responde `configured: false` e o painel esconde o
+      bloco — ou seja, o consumo real das cotas fica invisível justamente sob a
+      política de ficar no gratuito. É o instrumento que torna a seção acima
+      verificável em vez de teórica.
 - [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
 - [ ] Link na homepage pessoal (lucafchala.com)
 
@@ -20,10 +108,6 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 
 ### Ações do dono (fora do código) — prioridade
 
-- [ ] 🔴 **`npx wrangler secret put SIGNING_SECRET`.** Sem esse secret, o nonce
-      de página do `/api/drive-link` e o token dos formulários públicos ficam
-      **desligados** — o site funciona igual, só sem essas duas camadas.
-      `/api/healthz` e o painel de status acusam a falta até ser resolvido.
 - [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
       É o único risco residual **alto** do sistema (R3 do
       [RIPD](./docs/legal/RIPD.md)) e nenhuma medida no código o resolve — a
@@ -371,13 +455,32 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 
 ## Operação
 
+> O orçamento de cota e o que fazer quando ele apertar estão em
+> [Plano gratuito](#plano-gratuito--a-restrição-que-decide-o-resto), no topo.
+> Não duplicar a conta aqui: ela muda quando o código muda, e duas cópias
+> divergem.
+
+- [ ] **Estender a resiliência a queda de KV para além do caminho das fotos.**
+      Galeria, página do projeto e portão do Drive sobrevivem hoje a uma queda
+      de leitura (cópia na Cache API, ver
+      [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)).
+      Ainda respondem 500 numa queda total: o formulário de suporte (leitura da
+      chave de deduplicação), o de remoção (`removal_requests`) e o login do
+      painel (`admin_password`, `verifySession`). Ordem de prioridade correta —
+      entregar foto vem primeiro —, mas o formulário de remoção é canal de
+      direito do titular e merece pelo menos falhar com mensagem em vez de 500.
+      No login o certo é falhar **fechado**, nunca servir sessão de cópia.
 - [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
       um SHA conhecido em vez de arqueologia no log. Procedimento no
       [README](./README.md#rollback); hoje o repo não tem nenhuma tag.
 - [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
-      hoje só cai em log estruturado. Basta criar o binding `PERF` do Analytics
-      Engine no `wrangler.toml`; o handler já trata os dois casos e passa a
-      gravar sozinho.
+      hoje só cai em log estruturado, e **provavelmente fica assim**. O handler
+      já trata os dois casos: sem o binding `PERF`, nada quebra. Antes de mexer,
+      confirmar se o Analytics Engine está disponível no plano gratuito — as
+      fontes divergem e historicamente ele exigia o Workers Paid, o que sob a
+      política de ficar no gratuito encerra o assunto. O log estruturado que o
+      Cloudflare já coleta cobre o uso real (`wrangler tail`, Workers Logs); o
+      que se perde é série histórica, não o dado.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente,
@@ -388,16 +491,33 @@ campo, não despejam o objeto do evento. Nada a corrigir.
 ## Recursos planejados
 
 - [ ] **Senha por evento** (acesso privado)
-- [ ] **Migrar imagens para Cloudflare R2** — resolve preview no WhatsApp e
-      cache das capas de uma vez só.
+- [ ] **Migrar as capas para Cloudflare R2** — resolve preview no WhatsApp e
+      cache das capas de uma vez só, e **cabe no plano gratuito**.
   > **Por que não dá para só adicionar `Cache-Control` nas imagens do Drive:**
   > `sizedDriveThumb()` devolve uma URL do `lh3.googleusercontent.com` que vai
   > direto no `src` da `<img>`. Quem busca essa imagem é o browser, falando com
-  > o Google — o Worker não está no caminho e não tem resposta para carimbar. Só
-  > passaria a ter se as imagens fossem servidas por uma rota nossa, e aí cada
-  > thumbnail vira uma requisição de Worker: uma galeria de 12 cards sai de 1
-  > para 13 requisições, contra a cota de 100 mil/dia. Por isso o cache das
-  > capas não foi feito à parte — está embutido neste item.
+  > o Google — o Worker não está no caminho e não tem resposta para carimbar.
+  >
+  > **Correção da conta que estava aqui:** a versão anterior desta nota dizia
+  > que servir as imagens custaria uma requisição de Worker por thumbnail (1 →
+  > 13 numa galeria de 12 cards, contra a cota de 100 mil/dia) e por isso o item
+  > ficou parado. Isso vale para uma **rota nossa no Worker**, não para o R2: um
+  > bucket com **domínio personalizado** é servido direto pela borda da
+  > Cloudflare, **sem Worker no caminho**. A galeria continua custando 1
+  > requisição de Worker. As leituras viram operações Class B do R2, cuja
+  > franquia é de **10 milhões/mês** — outra ordem de grandeza, e não a cota
+  > apertada.
+  >
+  > **Custo real:** franquia de 10 GB de armazenamento, 1 milhão de Class A
+  > (uploads), 10 milhões de Class B (leituras), egresso zero. Só as **capas e
+  > thumbnails** vão para o R2 — a foto em resolução cheia continua no Drive —
+  > então 28 projetos são um arredondamento contra 10 GB. Ressalva: o R2 em
+  > geral pede cartão cadastrado mesmo para usar a franquia gratuita.
+  >
+  > **Por que vale a pena agora:** o `og:image` de um projeto normal aponta hoje
+  > para o `lh3.googleusercontent.com`, e o crawler do WhatsApp é irregular com
+  > imagem hospedada no Google. Um link de projeto que abre com a capa no
+  > WhatsApp é outra coisa, e é por WhatsApp que um link de evento se espalha.
 - [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
 - [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
       destaca em vermelho os atrasados.
@@ -464,6 +584,31 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 
 ## Decidido não fazer
 
+- **Pagar por qualquer serviço da Cloudflare ALÉM do Workers Paid** — Cloudflare
+  Images, Stream, plano Pro. Registrado aqui para não ser redescutido a cada
+  aperto.
+  > 🔜 **O Workers Paid saiu desta lista**: o dono decidiu assinar. Ver
+  > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). O que ele compra — teto de
+  > CPU, requisições e escrita em KV sem limite diário — está lá, junto com o
+  > que **não** muda com dinheiro (o limite de 1 escrita/s por chave).
+  O que cada um dos outros resolveria e por que continua não sendo necessário:
+  - **Workers Paid** compraria teto de CPU, requisições sem limite diário e 1
+    milhão de escritas de KV/mês. Nada disso falta hoje: o PBKDF2 do login roda
+    em produção no gratuito (verificado no smoke test do deploy — healthz
+    `ok:true` e login 302), as requisições não chegam perto de 100 mil/dia
+    porque as fotos não passam pelo Worker, e a escrita em KV foi para ~1 por
+    visitante. Se um dia apertar, os três caminhos da seção
+    [Plano gratuito](#plano-gratuito--a-restrição-que-decide-o-resto) vêm antes.
+  - **Cloudflare Images** vende transformação de imagem, que este site não faz —
+    o Drive já devolve thumbnail no tamanho pedido (`sizedDriveThumb()`), e a
+    hospedagem das capas cabe na franquia do R2.
+  - **Plano Pro** é WAF e otimização de imagem. CSP, Turnstile, portão de CSRF e
+    rate limit já cobrem o que o WAF compraria aqui.
+  - **Stream** não se aplica: não há vídeo.
+  > A exceção que **não** é serviço da Cloudflare: se a conta do Google Drive
+  > for pessoal, migrar para Workspace continua em aberto — e por motivo de
+  > conformidade (DPA para o art. 33, III), não de armazenamento. Ver a seção
+  > de ações do dono.
 - **Avaliações por estrelas** — foi implementado e removido a pedido do dono.
   Não reintroduzir sem necessidade nova.
 - **QR Code** — removido junto com a lib quebrada (e a entrada de CSP do

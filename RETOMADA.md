@@ -110,9 +110,46 @@ vaza**: um teste vê a lista de eventos de outro e você recebe um 404 confuso.
 
 ### 5.3. Cota de KV é 1000 escritas/dia
 
+> 🔜 Este número é do plano gratuito, e o dono decidiu assinar o Workers Paid.
+> Compra e checklist em [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). **Um
+> limite não muda com dinheiro:** 1 escrita por segundo **na mesma chave**. É
+> ele que faz a agregação dos contadores continuar necessária no plano pago —
+> não reverta pensando que era só cota.
+
 Free tier. Qualquer coisa que grave por requisição é um risco existencial: o
 contador de visualizações sozinho, contando HEAD, gastava 1440/dia. Antes de
 adicionar um `put()` num caminho público, calcule o pior caso.
+
+**Estourar a cota não derruba mais o site.** Quando a cota acaba, o KV recusa
+escrita — e a recusa vem como *exceção*, não como valor de retorno. Ela subia do
+`checkRateLimit` até o catch do `fetch()` e virava 500 no `/api/drive-link`: as
+fotos paravam de sair no dia de maior público, e o login do painel caía junto.
+Hoje a escrita do contador é isolada e o limite deixa passar quando só ela
+falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
+`problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
+real para contar.
+
+**Os contadores agregam sob concorrência, e só sob concorrência.** `views:` e
+`drive_clicks:` passam por `bumpCounter()` (utils.js). Medido no harness de
+`docs/VERIFICACAO.md`:
+
+| formato do tráfego | escritas/visitante | contagem |
+| --- | --- | --- |
+| espalhado (sequencial) | 4,00 | 40/40 exatas |
+| rajada (40 simultâneos) | 2,10 | 40/40 exatas |
+
+Duas das quatro são rate limit, uma por visitante cada, e ficam. As outras duas
+são os contadores: numa rajada, 40 visitas viram 2 escritas em vez de 40.
+
+**Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.**
+Adiar o primeiro incremento perdia a contagem inteira em tráfego esparso (o
+isolate morre antes do segundo, e o cron não alcança: roda em outro isolate com
+o mapa vazio). Depois, um carimbo de janela ÚNICO para todas as chaves fez a
+primeira chave a gravar bloquear as outras, e a cauda da rajada não era gravada
+por ninguém — 50 visitantes viraram `views: 1`. Hoje o piso é **por chave** (1 s,
+casado com o limite do KV de uma escrita por segundo na mesma chave, que não
+sobe nem no plano pago), e o que o piso adia é drenado por um `waitUntil`
+agendado — não pela esperança de que chegue outra requisição.
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 
@@ -140,6 +177,52 @@ Com `set -e`, a primeira falha esconde todas as seguintes. Um check do smoke
 test ficou dois deploys sem nunca executar, e era estruturalmente incapaz de
 passar. Ao mexer no `deploy.yml`, extraia o passo e rode local — veja
 `docs/VERIFICACAO.md`.
+
+### 5.8. Queda de LEITURA do KV não derruba mais a entrega das fotos
+
+O KV é a única dependência no caminho crítico: sem a lista de eventos não há
+slug, não há evento e não há link do Drive. Uma queda de leitura derrubava
+galeria, página do projeto e portão de uma vez, com 500.
+
+`getEvents()` cai em três degraus, do dado mais novo para o mais velho: o cache
+do próprio isolate **mesmo vencido** (antes era descartado passados os 30 s de
+TTL — velho por 30 s continua sendo a lista certa), depois uma **cópia na Cache
+API** (gratuita, sem cota de escrita, e vive no colo em vez do isolate, que é o
+que salva um isolate frio), e só então propaga o erro. Devolver `[]` seria pior
+do que falhar: viraria "o site não tem projeto nenhum", com 404 em tudo e painel
+verde.
+
+Duas coisas **não** afrouxam enquanto degradado, e há teste para as duas: o
+portão do Drive recusa exatamente o que recusaria normalmente, e o `/api/healthz`
+responde `kv:false` com o motivo em `problems`. O site de pé não pode deixar o
+painel verde.
+
+O preço, dito na cara: servindo da cópia, o visitante pode ver uma lista
+desatualizada — um projeto escondido ou apagado durante a queda ainda aparece. A
+janela é a própria queda, e quem não consegue ler o KV normalmente também não
+consegue gravar, então quase nunca há estado novo a perder.
+
+### 5.9. O relógio do Workers não anda durante execução síncrona
+
+`Date.now()` fica **congelado** entre operações de I/O — é mitigação de ataque de
+temporização. Medir CPU de dentro do isolate, portanto, é impossível: o
+`t0`/`t1` em volta de um PBKDF2 de 100k iterações devolve o mesmo valor, e a
+subtração dá **zero**.
+
+O `healthz` publicou `"hashMs": 0` em toda resposta de produção desde que a
+linha foi escrita, e três coisas consumiam esse zero como se fosse medida: o
+portão `HASH_MS -gt 200` do `deploy.yml`, o `hashMs > HASH_BUDGET_MS` do painel
+de status, e a linha "hash 0ms" que o painel mostrava como desempenho ótimo. Um
+§5.7 dentro do outro — o portão que deveria vigiar o limite de CPU era o que não
+podia reprovar.
+
+O contraste está na mesma resposta: `kvLatencyMs` e `d1LatencyMs` são reais,
+porque passam por I/O e aí o relógio anda.
+
+**Regra prática:** só dá para cronometrar aqui o que atravessa I/O. Para custo de
+CPU, o sinal é de fora — estourar o orçamento mata a requisição e vira 5xx, que
+o smoke test e o painel já detectam. Se precisar do número, ele está nas métricas
+do Worker no painel da Cloudflare, não no seu código.
 
 ---
 
@@ -202,6 +285,7 @@ voltar:
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | O que falta, o que foi decidido e por quê |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
+| [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |
 

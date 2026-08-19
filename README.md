@@ -270,8 +270,15 @@ Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
    - `GET /manifest.json` retorna 200
    - `GET /icon.svg` retorna 200
    - `GET /__no_such_route__` retorna 404
-   - `GET /api/healthz` retorna `{"ok":true,…,"hashMs":<n>}` e `hashMs ≤ 200` (acima disso, login estouraria o orçamento de CPU do Worker)
+   - `GET /api/healthz` retorna `{"ok":true,…}`
    - `POST /dashboard/login` com senha errada retorna 302 (e não 5xx — 5xx indicaria CPU timeout)
+
+   > O smoke test **não** mede o tempo do hash, e não dá para medir: o Workers
+   > congela `Date.now()` durante execução síncrona, então o `hashMs` que existia
+   > aqui era zero por construção e o portão que o comparava com 200 nunca podia
+   > reprovar (RETOMADA §5.9). O orçamento de CPU é vigiado pelo sinal real —
+   > estourá-lo mata a requisição, e aí o `healthz` não volta `ok:true` e o login
+   > não volta 302. Esses dois checks *são* o portão de CPU.
 
 Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Veja **Rollback** abaixo.
 
@@ -559,7 +566,7 @@ compatibilidade sem comprar segurança.
 | POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
 | POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP estrita (que roda em Report-Only). Serve a dois fins: medir quantos handlers inline faltam para a virada da política, e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
-| GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, hashMs, …}` (+ `kvLatencyMs`, `cron`, `config`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status |
+| GET | `/api/healthz` | `handleHealthz` | `{ok, kv, events, d1, …}` (+ `kvLatencyMs`, `cron`, `config`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status |
 
 ### Autenticadas (cookie `__Host-session` válido)
 
@@ -1100,6 +1107,10 @@ Dois contadores em KV, ambos por evento:
 - `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. Race conditions são possíveis em alta concorrência (read-modify-write não atômico), mas o erro de contagem é aceitável para o caso de uso.
 - `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive" antes de abrir a modal externa. Rate-limit: 60/h por IP (60 cliques por hora por IP é mais que suficiente).
 
+Os dois passam por `bumpCounter()` (`src/utils.js`), que **não grava um `put` por requisição**. O primeiro incremento de cada isolate grava na hora; os que chegam nos 10 s seguintes se somam na memória e viram um lote só. É o que impede o custo em KV de crescer junto com o público — e a gravação imediata do primeiro é o que impede tráfego esparso de perder a contagem inteira, já que um isolate ocioso morre antes de qualquer segundo incremento (e o cron não alcança: roda em outro isolate, com o mapa vazio).
+
+O rate-limit do `/api/track-drive` continua existindo **apesar** da agregação, e roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo custe zero escrita. A agregação limita o custo por *requisição*; sem o limite por IP, um flood sustentado ainda custaria uma escrita por janela — ~8600/dia contra a cota de 1000/dia do plano gratuito.
+
 Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores em paralelo via `Promise.all`.
 
 Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYTICS_TOKEN`). Quando definido, o beacon é injetado nas páginas públicas e o painel da Cloudflare mostra agregados (pageviews, dispositivos, países, referrers) sem cookies e sem tracking individual.
@@ -1174,15 +1185,17 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 1. **Sem rate-limit** (de propósito): o `checkRateLimit` faria um *write* no KV por chamada, e o monitor de status bate aqui de forma agendada — o write por chamada não compensava o teto de 10/min (o trabalho do healthz é limitado e fica atrás da borda/DDoS da Cloudflare). Resultado: o healthz **só lê** o KV, nunca grava.
 2. **Leitura 1/2 (KV):** `getEvents(env, true)` — uma única leitura de `events` confirma que o binding KV responde **e** que a chave principal ainda é um array válido. Reporta a contagem em `events` e o tempo em `kvLatencyMs`. (Substituiu a antiga sonda descartável `__healthz__`: a mesma leitura agora faz trabalho útil.)
 3. Se o binding `CONSENT_DB` existir, um `SELECT 1` checa o D1 (log de consentimento) e cronometra em `d1LatencyMs` — não é KV. É **best-effort**: `d1` vira `"down"` mas isso *não* derruba o `ok` (um D1 ausente/sem escopo nunca pode reprovar o deploy — ver `deploy.yml`).
-4. `await hashPassword('healthcheck')` cronometrado — confirma que o PBKDF2 cabe no budget de CPU do Worker (não é KV).
+4. `await hashPassword('healthcheck')` — canário do budget de CPU do Worker (não é KV). **Não cronometrado**: o Workers congela `Date.now()` durante execução síncrona, então o antigo `hashMs` era zero por construção (RETOMADA §5.9). O que prova o orçamento é o hash *completar*: se não couber, a requisição morre e o endpoint devolve 5xx.
 5. **Leitura 2/2 (KV):** `cron` `{ lastRunAt, ageHours, stale }` — heartbeat gravado pelo `scheduled` em `cron:last`, que detecta um cron *silenciosamente morto*.
 6. **Autoteste funcional (`selftest`) — ZERO leituras extras de KV** (roda sobre o array de `events` já carregado no passo 2, via `auditSite`): sinaliza coisas que "deram errado" e que um 500 não pegaria — `{ ok, problems[], drive: { ok, bad, live }, forms: { turnstile, resend, adminEmail }, sample }`. Detecta **links do Google Drive ausentes/inválidos** em eventos publicados (acesso ao Drive quebrado), **dados inconsistentes** (slug duplicado → rotas colidem, status fora do enum, evento sem título), e **dependências de formulário ausentes** (Turnstile/Resend/`ADMIN_EMAIL` — sem elas os formulários de suporte/remoção/Drive recusam ou não entregam envios). `sample` aponta um evento publicado saudável para o dashboard fazer deep-probe (gate do Drive + form de remoção). `auditSite` é puro e tem teste unitário.
 7. **Resto do diagnóstico — ZERO leituras extras de KV:** `config` `{ resend, turnstile, consentDb, adminEmail }` (booleanos a partir dos bindings — segredos de produção presentes, sem vazar valores), `termsVersion`, `colo`/`country` (de `request.cf`) e `now`.
-8. Retorna `{ ok, kv, events, d1, hashMs, … }`. `ok` é `true` (HTTP 200) só quando o KV respondeu e `events` é um array; caso contrário `ok:false` com HTTP 503. (O `selftest.ok` é independente do `ok` de topo — um link de Drive quebrado não derruba o healthz nem reprova o deploy; só acende o alerta no dashboard.)
+8. Retorna `{ ok, kv, events, d1, … }`. `ok` é `true` (HTTP 200) só quando a lista veio **do próprio KV** e `events` é um array; caso contrário `ok:false` com HTTP 503.
+
+   > **Por que "do próprio KV" e não só "a leitura funcionou":** com o KV fora, `getEvents()` serve de uma cópia de sobrevivência (cache do isolate, depois Cache API — ver [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)), então o site continua entregando as fotos. Isso é ótimo para o visitante e péssimo para o painel: sem distinguir as duas origens, o healthz diria `kv:true` no meio de uma queda e nada ficaria vermelho. Um contador de quedas comparado antes e depois da leitura resolve — ele diz se **esta** leitura veio do KV ou da cópia. Site de pé **não** pode deixar o painel verde. (O `selftest.ok` é independente do `ok` de topo — um link de Drive quebrado não derruba o healthz nem reprova o deploy; só acende o alerta no dashboard.)
 
 **Frugal em KV:** o endpoint continua fazendo **2 leituras de KV** por chamada (`events` + `cron:last`), exatamente como antes desta expansão — a sonda `__healthz__` redundante foi trocada pelo heartbeat do cron. Contagens de backlog/categorias foram deliberadamente deixadas de fora daqui (custariam uma leitura cada e não sinalizam *falha*); um admin não configurado já é pego pela sonda `/dashboard` (503) do dashboard de status.
 
-`ok` e `hashMs` continuam presentes e com o mesmo significado — o smoke test do CI segue funcionando. Todos os campos extras são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint e disseca **cada** campo para sinalizar qualquer anomalia (cron parado, KV lento, segredo de hardening ausente) sem depender de CORS. O heartbeat do cron é puro o suficiente para ter teste unitário (`cronStale`, em `tests/index.test.js`) — e `handleHealthz()` em si (KV/D1 caindo, `cron.stale`, `config`, `selftest`) e o `scheduled()` que grava esse heartbeat têm cobertura própria em `tests/healthz.test.js`, incluindo o isolamento entre as duas tarefas de limpeza do cron (uma falhar não impede a outra nem o heartbeat).
+`ok` continua presente e com o mesmo significado — o smoke test do CI segue funcionando. (`hashMs` foi removido: era zero por construção, ver RETOMADA §5.9.) Todos os campos extras são consumidos pelo dashboard de status (`status.lucafchala.com`), que faz fetch server-side deste endpoint e disseca **cada** campo para sinalizar qualquer anomalia (cron parado, KV lento, segredo de hardening ausente) sem depender de CORS. O heartbeat do cron é puro o suficiente para ter teste unitário (`cronStale`, em `tests/index.test.js`) — e `handleHealthz()` em si (KV/D1 caindo, `cron.stale`, `config`, `selftest`) e o `scheduled()` que grava esse heartbeat têm cobertura própria em `tests/healthz.test.js`, incluindo o isolamento entre as duas tarefas de limpeza do cron (uma falhar não impede a outra nem o heartbeat).
 
 O cron diário (`scheduled()`) agora também dispara `sendErrorAlert()` quando `pruneResolvedRemovalRequests` ou `pruneOldConsent` falha — antes só ia pro `console.error`, o que deixava uma falha de retenção visível só nos logs da Cloudflare. Isso ainda não cobre uma queda **total** do Worker (nada capturável é lançado); fechar isso exige um monitor externo, fora do Worker — item em aberto no [TODO.md](./TODO.md), ainda sem serviço decidido.
 
@@ -1223,7 +1236,7 @@ logs_enabled: observability?.logs?.enabled ?? observability?.enabled === true
 | `logs.head_sampling_rate` | `1` | 100% — o volume deste site não justifica amostrar |
 | `traces.persist` | `true` | Idem para traces |
 
-CI (smoke tests) considera `hashMs > 200` como **falha**: acima disso, o hashing em `handleLogin` corre o risco de estourar o limite de CPU do Worker (~50–200 ms dependendo da conta) e retornar 5xx ao usuário tentando logar. O smoke test pós-deploy (`deploy.yml`) também cobre as páginas públicas mais novas (`/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`) e os endpoints de SEO/segurança (`/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/.well-known/security.txt`, `/.well-known/gpc.json`) com `check_status`, e loga (sem falhar o build) se `selftest.problems` do healthz vier não-vazio — isso é sinal de dado de evento mal configurado, não de regressão de código.
+O orçamento de CPU do hashing é vigiado pelo sinal real, não por um número: estourá-lo mata a requisição, então o CI reprova pelo `healthz` não voltar `ok:true` e pelo login não voltar 302. (Havia aqui um portão `hashMs > 200`; ele nunca podia reprovar, porque o Workers congela `Date.now()` durante execução síncrona — RETOMADA §5.9.) O smoke test pós-deploy (`deploy.yml`) também cobre as páginas públicas mais novas (`/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`) e os endpoints de SEO/segurança (`/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/.well-known/security.txt`, `/.well-known/gpc.json`) com `check_status`, e loga (sem falhar o build) se `selftest.problems` do healthz vier não-vazio — isso é sinal de dado de evento mal configurado, não de regressão de código.
 
 ---
 
@@ -1309,7 +1322,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **Sem preview no WhatsApp**: Open Graph image aponta para `lh3.googleusercontent.com`, que o WhatsApp às vezes não consegue scrapear. R2 resolveria.
 - **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
-- **CPU budget do Worker**: o hashing PBKDF2 (100k iterações, ~50 ms) é vigiado pelo `/api/healthz` (o CI falha se `hashMs > 200`). Ao mexer no `iterations`, acompanhe esse número.
+- **CPU budget do Worker**: o hashing PBKDF2 (100k iterações) roda no `/api/healthz` como canário — se não couber no orçamento de CPU, a requisição morre e o CI reprova (healthz sem `ok:true`, login sem 302). Não dá para medir o tempo de dentro do isolate (RETOMADA §5.9); ao mexer no `iterations`, o número real está nas métricas do Worker no painel da Cloudflare.
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
 - **Log de consentimento é best-effort**: o D1 (`CONSENT_DB`) está provisionado e o `/api/healthz` reporta `d1: "ok"`, mas a gravação roda em `ctx.waitUntil` — se o insert falhar, o visitante recebe o link do mesmo jeito e a falha só aparece no log. Se o binding for removido, o aceite continua barrando o acesso normalmente, porém sem registro (no-op silencioso).

@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES } from '../src/utils.js';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
+  degradedHealth, resetDegraded, noteDegraded,
+  bumpCounter, flushCounters, resetCounters, pendingCounters,
+} from '../src/utils.js';
 
 // Minimal in-memory stand-in for a Workers KV namespace. Ignores expirationTtl
 // (the tests run inside a single rate-limit window, so TTL is irrelevant).
@@ -29,6 +33,326 @@ describe('checkRateLimit', () => {
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(true);
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(false);
     expect(await checkRateLimit(env, 'b', 'k', 1, 600)).toBe(true);
+  });
+});
+
+// KV que atingiu a cota diária de escrita (1000/dia no plano free): leitura
+// continua respondendo, escrita é RECUSADA — e a recusa vem como exceção. É o
+// estado esperado num dia de lançamento com público grande.
+function writeExhaustedKV(initial = {}) {
+  const kv = fakeKV(initial);
+  kv.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+  return kv;
+}
+
+describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  it('não propaga a exceção — a rota que chama não pode virar 500', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
+  });
+
+  it('deixa passar quando só a contabilidade falhou: a verificação já tinha passado', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    const results = [];
+    for (let i = 0; i < 3; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'drive-link', 1, 3600));
+    expect(results).toEqual([true, true, true]);
+  });
+
+  it('continua barrando quando o contador JÁ passou do limite antes da cota estourar', async () => {
+    // Escrita recusada não zera o que já estava gravado: a leitura ainda vale,
+    // então quem já estourou o limite continua barrado.
+    const window = Math.floor(Date.now() / (3600 * 1000));
+    const env = { FOTOS: writeExhaustedKV({ [`ratelimit:drive-link:1.2.3.4:${window}`]: '60' }) };
+    expect(await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).toBe(false);
+  });
+
+  it('deixa passar, sem lançar, quando nem a LEITURA responde', async () => {
+    const env = { FOTOS: { async get() { throw new Error('KV GET failed'); }, async put() {} } };
+    await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
+  });
+
+  it('registra a falha para o healthz — falhar aberto não pode ser silencioso', async () => {
+    expect(degradedHealth()).toEqual([]);
+    const env = { FOTOS: writeExhaustedKV() };
+    await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
+    const [d] = degradedHealth();
+    expect(d.label).toMatch(/KV: escrita recusada/);
+    expect(d.detail).toContain('429');
+  });
+
+  it('o registro envelhece sozinho depois de 30 min sem nova recusa', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
+    expect(degradedHealth(Date.now() + 29 * 60_000)).toHaveLength(1);
+    expect(degradedHealth(Date.now() + 31 * 60_000)).toEqual([]);
+  });
+});
+
+// O custo do site não pode crescer junto com o público: a cota é fixa (1000
+// escritas/dia) e o movimento não. Agregar é o que troca "uma escrita por
+// visitante" por "uma escrita por janela".
+describe('registro de degradações', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  it('não deixa quebra de linha forjar uma entrada de log', () => {
+    // O `detail` carrega mensagem de erro de sistema externo (KV, D1, Resend) e
+    // identificador de evento — nada disso vem de nós. Uma quebra de linha ali
+    // escreve uma entrada de log inteira, que é como se apaga o rastro de um
+    // incidente por dentro do próprio relato dele.
+    noteDegraded('rotulo\ninjetado\r\n2026-01-01 ENTRADA FALSA', 'a\u0000b\u2028c');
+    const [d] = degradedHealth();
+    expect(d.label).toBe('rotulo injetado 2026-01-01 ENTRADA FALSA');
+    expect(d.detail).toBe('a b c');
+    // eslint-disable-next-line no-control-regex
+    expect(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(d.label + d.detail)).toBe(false);
+  });
+
+  it('limita o tamanho, para um erro enorme não virar o painel inteiro', () => {
+    noteDegraded('x'.repeat(500), 'y'.repeat(500));
+    const [d] = degradedHealth();
+    expect(d.label.length).toBeLessThanOrEqual(160);
+    expect(d.detail.length).toBeLessThanOrEqual(160);
+  });
+
+  it('a mesma degradação repetida não vira várias linhas', () => {
+    noteDegraded('mesma coisa', 'primeira');
+    noteDegraded('mesma coisa', 'segunda');
+    expect(degradedHealth()).toHaveLength(1);
+    expect(degradedHealth()[0].detail).toBe('segunda');
+  });
+});
+
+describe('contadores agregados', () => {
+  beforeEach(() => { resetCounters(); resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetCounters(); });
+
+  // `ctx` de mentira que COLETA e aguarda o waitUntil, como o Workers faz. Sem
+  // ele a drenagem agendada nunca roda e o teste mediria o nada — a mesma
+  // pegadinha que o docs/VERIFICACAO.md descreve para o harness.
+  const fakeCtx = () => { const p = []; return { waitUntil: x => p.push(Promise.resolve(x).catch(() => {})), settle: () => Promise.all(p) }; };
+
+  it('grava na hora quando o tráfego é espalhado — contagem exata, zero perda', async () => {
+    const env = { FOTOS: fakeKV() };
+    await bumpCounter(env, null, 'views:piauifut-2026');
+    expect(env.FOTOS._store.get('views:piauifut-2026')).toBe('1');
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('agrega uma rajada na MESMA chave e não perde a cauda', async () => {
+    // O piso de 1 s por chave existe por causa do limite do KV (uma escrita por
+    // segundo na mesma chave, que não sobe nem no plano pago). O que ele adia
+    // tem de ser gravado por alguém: a drenagem agendada é esse alguém, e sem
+    // ela a cauda da rajada sumia — 50 visitantes viraram `views: 1` no harness.
+    const env = { FOTOS: fakeKV() };
+    const ctx = fakeCtx();
+    for (let i = 0; i < 100; i++) bumpCounter(env, ctx, 'views:piauifut-2026');
+    let escritas = 0;
+    const put = env.FOTOS.put.bind(env.FOTOS);
+    env.FOTOS.put = async (...a) => { escritas++; return put(...a); };
+    await ctx.settle();
+    expect(env.FOTOS._store.get('views:piauifut-2026'), 'nenhuma contagem pode sumir').toBe('100');
+    expect(escritas, 'a rajada inteira cabe numa gravação a mais').toBeLessThanOrEqual(2);
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('uma chave nova não espera o piso de outra', async () => {
+    // O carimbo de janela já foi único para todas as chaves: a primeira a
+    // gravar bloqueava as outras, e `drive_clicks` ficava sem nenhuma escrita
+    // enquanto `views` segurava o relógio.
+    const env = { FOTOS: fakeKV() };
+    await bumpCounter(env, null, 'views:a');
+    await bumpCounter(env, null, 'drive_clicks:a');
+    expect(env.FOTOS._store.get('views:a')).toBe('1');
+    expect(env.FOTOS._store.get('drive_clicks:a')).toBe('1');
+  });
+
+  it('soma sobre o valor já gravado e zera o pendente', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': '7' }) };
+    const ctx = fakeCtx();
+    bumpCounter(env, ctx, 'views:x');
+    bumpCounter(env, ctx, 'views:x');
+    await ctx.settle();
+    expect(env.FOTOS._store.get('views:x')).toBe('9');
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('mantém slugs separados', async () => {
+    const env = { FOTOS: fakeKV() };
+    const ctx = fakeCtx();
+    bumpCounter(env, ctx, 'views:a');
+    bumpCounter(env, ctx, 'views:b');
+    bumpCounter(env, ctx, 'views:a');
+    await ctx.settle();
+    expect(env.FOTOS._store.get('views:a')).toBe('2');
+    expect(env.FOTOS._store.get('views:b')).toBe('1');
+  });
+
+  it('não grava "NaN" quando o valor guardado está corrompido', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': 'NaN' }) };
+    await bumpCounter(env, null, 'views:x');
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('views:x')).toBe('1');
+  });
+
+  it('nunca lança para quem chamou — é caminho de resposta do visitante', () => {
+    expect(() => bumpCounter(null, null, 'views:x')).not.toThrow();
+    expect(() => bumpCounter({ FOTOS: null }, null, 'views:x')).not.toThrow();
+  });
+
+  it('com a cota estourada, descarta o delta em vez de acumular para sempre', async () => {
+    const env = { FOTOS: writeExhaustedKV() };
+    await bumpCounter(env, null, 'views:x');
+    await flushCounters(env);
+    expect(pendingCounters().size, 'o delta não pode voltar para a fila').toBe(0);
+    expect(degradedHealth().length, 'e o healthz precisa saber').toBeGreaterThan(0);
+  });
+
+  it('dois flushes ao mesmo tempo não se atropelam nem perdem o que chegou no meio', async () => {
+    const env = { FOTOS: fakeKV({ 'views:x': '0' }) };
+    const ctx = fakeCtx();
+    for (let i = 0; i < 5; i++) bumpCounter(env, ctx, 'views:x');
+    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
+    await ctx.settle();
+    expect(env.FOTOS._store.get('views:x')).toBe('5');
+    expect(pendingCounters().size).toBe(0);
+  });
+
+  it('não entra em laço quando TUDO está bloqueado pelo piso', async () => {
+    // `flushCounters` espera a passada em voo e chama a si mesmo. Se o piso por
+    // chave bloqueasse tudo e a função ainda assim marcasse uma passada em
+    // andamento, os dois se alimentariam para sempre — laço infinito dentro de
+    // um Worker é CPU estourada e 500, não um teste lento.
+    const env = { FOTOS: fakeKV() };
+    await bumpCounter(env, null, 'views:x');        // grava e arma o piso
+    bumpCounter(env, null, 'views:x');              // fica pendente, bloqueado
+    const antes = Date.now();
+    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
+    expect(Date.now() - antes, 'tem de retornar na hora, não girar').toBeLessThan(1000);
+    expect(pendingCounters().get('views:x'), 'e o pendente continua guardado').toBe(1);
+  });
+
+  it('flush sem nada pendente não gasta escrita', async () => {
+    const env = { FOTOS: fakeKV() };
+    await flushCounters(env);
+    expect(env.FOTOS._store.size).toBe(0);
+  });
+});
+
+// Cache API de mentira: um Map com a mesma superfície que o `caches.default` do
+// Workers. Existe para que a CÓPIA DE SOBREVIVÊNCIA seja exercitada de verdade
+// — em vitest `caches` não existe, e sem isto o caminho que salva um isolate
+// frio nunca rodaria em teste nenhum.
+function fakeCaches() {
+  const store = new Map();
+  return {
+    _store: store,
+    default: {
+      async put(key, res) { store.set(String(key), await res.text()); },
+      async match(key) {
+        const v = store.get(String(key));
+        return v === undefined ? undefined : new Response(v);
+      },
+    },
+  };
+}
+
+// Isolate novo: `_cache` e o espelho são estado de módulo, e é justamente ele
+// que decide o resultado destes casos.
+async function coldIsolate() {
+  vi.resetModules();
+  return import('../src/utils.js');
+}
+
+const EVENTS = [{ id: '1', slug: 'piauifut-2026', title: 'PiauiFut+ 2026', visible: true,
+  driveUrl: 'https://drive.google.com/drive/folders/ok' }];
+
+const kvDown = () => ({ FOTOS: {
+  async get() { throw new Error('KV GET failed: 503'); },
+  async put() { throw new Error('KV PUT failed: 503'); },
+} });
+
+// A promessa do site é entregar foto. O KV é a única dependência no caminho
+// crítico: sem a lista de eventos não há slug, não há evento e não há link.
+describe('getEvents com o KV de leitura fora', () => {
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('serve o cache do isolate mesmo VENCIDO em vez de derrubar a página', async () => {
+    const utils = await coldIsolate();
+    const env = { FOTOS: fakeKV() };
+    await utils.saveEvents(env, structuredClone(EVENTS));
+    vi.setSystemTime(Date.now() + 120_000);                 // muito além do TTL de 30 s
+    const got = await utils.getEvents(kvDown());
+    expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
+  });
+
+  it('serve da cópia na Cache API num isolate FRIO — o caso comum numa queda', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    // Um isolate anterior leu do KV e deixou a cópia.
+    {
+      const utils = await coldIsolate();
+      await utils.getEvents({ FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) }, true);
+    }
+    expect([...caches._store.keys()]).toHaveLength(1);
+    // Agora um isolate novo pega o KV fora e nunca viu a lista.
+    const utils = await coldIsolate();
+    const got = await utils.getEvents(kvDown());
+    expect(got.map(e => e.slug)).toEqual(['piauifut-2026']);
+    expect(utils.degradedHealth().some(d => /cópia/.test(d.label))).toBe(true);
+  });
+
+  it('valida a forma da cópia igual à do KV (uma cópia corrompida não derruba)', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    await caches.default.put('https://fotos.invalid/__events', new Response('{não é json'));
+    const utils = await coldIsolate();
+    expect(await utils.getEvents(kvDown())).toEqual([]);
+  });
+
+  it('propaga a falha quando não há cache NEM cópia — 500 honesto', async () => {
+    vi.stubGlobal('caches', fakeCaches());
+    const utils = await coldIsolate();
+    // Devolver [] aqui viraria "o site não tem projeto nenhum": 404 em tudo e
+    // painel verde. Assumir a falha é melhor do que mentir sobre não ter dado.
+    await expect(utils.getEvents(kvDown())).rejects.toThrow(/KV GET failed/);
+  });
+
+  it('só reescreve a cópia quando o valor muda', async () => {
+    const caches = fakeCaches();
+    let writes = 0;
+    const put = caches.default.put.bind(caches.default);
+    caches.default.put = async (...a) => { writes++; return put(...a); };
+    vi.stubGlobal('caches', caches);
+    const utils = await coldIsolate();
+    const env = { FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) };
+    for (let i = 0; i < 5; i++) await utils.getEvents(env, true);
+    expect(writes).toBe(1);
+  });
+
+  it('a cópia não é gravada quando o KV recusa a escrita', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    const utils = await coldIsolate();
+    const env = { FOTOS: { async get() { return null; }, async put() { throw new Error('KV PUT failed: 429'); } } };
+    await expect(utils.saveEvents(env, EVENTS)).rejects.toThrow();
+    // Espelhar um valor que não chegou a ser gravado faria a cópia contradizer
+    // a fonte — e o visitante veria uma edição que o dono não conseguiu salvar.
+    expect(caches._store.size).toBe(0);
+  });
+});
+
+describe('getCategories com o KV fora', () => {
+  it('PROPAGA em vez de devolver os padrões — devolver seria perda de dados', async () => {
+    // Todos os chamadores são rotas de admin, e duas delas GRAVAM a lista de
+    // volta (criar categoria, restaurar backup). Devolver os padrões ali
+    // apagaria para sempre as categorias do dono. A galeria pública não passa
+    // por aqui: ela deriva os filtros dos próprios eventos.
+    await expect(getCategories(kvDown())).rejects.toThrow(/KV GET failed/);
   });
 });
 
@@ -93,5 +417,215 @@ describe('resilience to corrupted KV values', () => {
     const results = [];
     for (let i = 0; i < 4; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'login', 2, 600));
     expect(results).toEqual([true, true, false, false]);
+  });
+});
+
+// O logout apaga o registro da sessão no KV. Esse delete NÃO é limpeza: ele é a
+// revogação. O cookie sai do browser de qualquer jeito, então quem clicou em
+// "sair" vê a tela de login e acredita ter saído — mas se o KV recusou o
+// delete, o token continua válido no servidor até o TTL de 24 h, e qualquer
+// cópia dele feita antes continua abrindo o painel.
+//
+// Delete conta como escrita na cota do KV (1000/dia, conta inteira). Ou seja: o
+// dia de tráfego grande, que é quando a cota estoura, é exatamente o dia em que
+// sair do painel para de revogar. E o comentário do `Clear-Site-Data` no
+// handler diz qual é o cenário que ele tem em mente — computador emprestado.
+describe('logout quando o KV recusa o delete', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  const TOKEN = 'a'.repeat(64);
+
+  // `coldIsolate()` acima chama `vi.resetModules()`, então um `import` dinâmico
+  // depois dele devolve um registro NOVO: o `index.js` recém-carregado enxerga
+  // um `utils.js` recém-carregado, com outro mapa de degradações — e não o que
+  // o import do topo deste arquivo leu. Os dois módulos têm que vir do mesmo
+  // registro, senão o teste confere um mapa que ninguém escreveu e falha só
+  // quando roda junto com o resto da suíte.
+  async function carregar() {
+    const index = await import('../src/index.js');
+    const utils = await import('../src/utils.js');
+    utils.resetDegraded();
+    return { handleLogout: index.handleLogout, degradedHealth: utils.degradedHealth };
+  }
+
+  function logoutRequest() {
+    return new Request('https://fotos.lucafchala.com/dashboard/logout', {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${TOKEN}` },
+    });
+  }
+
+  it('registra a degradação: uma sessão que não foi revogada não pode passar em silêncio', async () => {
+    const { handleLogout, degradedHealth: lidos } = await carregar();
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+
+    await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/logout/i);
+  });
+
+  it('mesmo assim limpa os cookies e redireciona: falhar aqui não pode prender o admin logado no browser', async () => {
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+    const { handleLogout } = await carregar();
+
+    const res = await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/dashboard');
+    const cookies = res.headers.getSetCookie().join(' | ');
+    expect(cookies).toMatch(/__Host-session=;/);
+    expect(cookies).toMatch(/(^|\| )session=;/);
+  });
+
+  it('no caminho normal não inventa degradação nenhuma', async () => {
+    const { handleLogout, degradedHealth: lidos } = await carregar();
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+
+    await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    expect(kv._store.has(`admin_session:${TOKEN}`)).toBe(false);
+    expect(lidos()).toEqual([]);
+  });
+});
+
+// Diferente do pedido de remoção — que fica gravado no D1 —, a mensagem de
+// /suporte só existe dentro do e-mail. Um envio que falha é uma mensagem
+// perdida, sem cópia em lugar nenhum, e a tela de sucesso mandava o visitante
+// embora achando que tinha chegado.
+// Host exato, não pedaço de string: ver o comentário em mockFetch.
+function hostDe(u) {
+  try { return new URL(u).hostname; } catch { return ''; }
+}
+
+describe('formulário de suporte quando o envio falha', () => {
+  const env = () => ({
+    FOTOS: fakeKV(),
+    TURNSTILE_SECRET_KEY: 'ts',
+    RESEND_API_KEY: 'rs',
+    ADMIN_EMAIL: 'dono@exemplo.com',
+  });
+
+  function pedido() {
+    return new Request('https://fotos.lucafchala.com/api/suporte', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Fulana',
+        email: 'fulana@exemplo.com',
+        message: 'quero as fotos do jogo de sábado',
+        consent: '1',
+        'cf-turnstile-response': 'token-ok',
+      }),
+    });
+  }
+
+  // Turnstile aprova; o Resend é quem cai.
+  function mockFetch({ resendOk }) {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const u = String(url);
+      // Compara `hostname` em vez de `includes()`. Num mock isso parece
+      // preciosismo, mas é a mesma regra que o SECURITY.md já exige do
+      // resolveDocHref: `includes('api.resend.com')` casa também com
+      // `api.resend.com.exemplo.com` e com `exemplo.com/?x=api.resend.com`. Um
+      // mock que erra o destino faz o teste afirmar coisa sobre a requisição
+      // errada — e o CodeQL marca o padrão onde quer que ele apareça, com razão:
+      // a diferença entre teste e produção é quem copia o trecho depois.
+      switch (hostDe(u)) {
+        case 'challenges.cloudflare.com':
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        case 'api.resend.com':
+          if (!resendOk) throw new Error('Resend indisponível');
+          return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 });
+        default:
+          throw new Error(`fetch inesperado: ${u}`);
+      }
+    }));
+  }
+
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); resetDegraded(); });
+
+  it('não mostra tela de sucesso para uma mensagem que não saiu', async () => {
+    mockFetch({ resendOk: false });
+    const { handleSupportRequest } = await import('../src/index.js');
+
+    const res = await handleSupportRequest(pedido(), env(), 'nonce');
+    const corpo = await res.text();
+
+    expect(res.status).toBe(503);
+    // E devolve o texto preenchido: reenviar não pode custar redigitar.
+    expect(corpo).toContain('quero as fotos do jogo de sábado');
+  });
+
+  it('registra a degradação: o canal de contato estar mudo precisa aparecer no painel', async () => {
+    mockFetch({ resendOk: false });
+    const { handleSupportRequest } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    await handleSupportRequest(pedido(), env(), 'nonce');
+
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/suporte/i);
+  });
+
+  it('envio que deu certo continua sendo sucesso, sem degradação', async () => {
+    mockFetch({ resendOk: true });
+    const { handleSupportRequest } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    const res = await handleSupportRequest(pedido(), env(), 'nonce');
+
+    expect(res.status).toBe(200);
+    expect(lidos()).toEqual([]);
+  });
+});
+
+// Trocar a senha é o que se faz quando se desconfia que ela vazou. A varredura
+// das outras sessões é o que expulsa quem já estava dentro — sem ela, a senha
+// nova passa a valer e o intruso continua no painel por até 24 h, com o admin
+// vendo "ok" e acreditando ter fechado a porta.
+describe('troca de senha quando a varredura de sessões falha', () => {
+  const TOKEN = 'b'.repeat(64);
+
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  function kvComDeleteQuebrado() {
+    const kv = fakeKV({
+      [`admin_session:${TOKEN}`]: 'valid',
+      'admin_session:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc': 'valid',
+    });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+    return kv;
+  }
+
+  function pedido() {
+    return new Request('https://fotos.lucafchala.com/api/settings/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `__Host-session=${TOKEN}` },
+      body: JSON.stringify({ password: 'uma frase longa de teste 2026' }),
+    });
+  }
+
+  it('registra a degradação em vez de só logar', async () => {
+    const { handleChangePassword } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    const res = await handleChangePassword(pedido(), { FOTOS: kvComDeleteQuebrado() });
+
+    // A senha nova vale: a troca em si deu certo e não é desfeita.
+    expect(res.status).toBe(200);
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/sess/i);
   });
 });

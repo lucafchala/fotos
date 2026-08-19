@@ -13,6 +13,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
+  noteKvFailure, noteDegraded, degradedHealth, toCount, bumpCounter, flushCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -40,21 +41,11 @@ const TEMA_PREFILLS = {
 };
 
 // KV counters are plain strings, so a corrupted/absent value must never become
-// NaN: String(NaN) would be written back and poison the counter for good.
-//
-// Strict on purpose: parseInt alone salvages a prefix ("12abc" -> 12) and
-// accepts negatives ("-5"), so a partially-corrupted value would be silently
-// adopted as if it were the real count. A counter is a non-negative integer or
-// it is garbage — anything else restarts from 0 rather than carrying junk
-// forward. Exported so the poison-value contract is pinned by tests.
-export function toCount(v) {
-  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
-  if (typeof v !== 'string') return 0;
-  const s = v.trim();
-  if (!/^\d+$/.test(s)) return 0;
-  const n = parseInt(s, 10);
-  return Number.isSafeInteger(n) ? n : 0;
-}
+// A implementação mora em utils.js (o flush de contadores precisa dela e não
+// pode importar daqui em círculo). Reexportada para não quebrar quem já
+// importava daqui — inclusive os testes que prendem o contrato dos
+// valores-veneno.
+export { toCount };
 
 // ---------------------------------------------------------------------------
 // Segredo de assinatura dos tokens sem estado
@@ -257,7 +248,7 @@ const worker = {
       // Dashboard routes
       if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url, nonce);
       if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env, ctx);
-      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
+      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env, ctx);
 
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
@@ -269,7 +260,7 @@ const worker = {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
+      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
@@ -288,7 +279,7 @@ const worker = {
         const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? TEMA_PREFILLS[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
-      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce);
+      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce, ctx);
 
       // Privacy policy
       if (path === '/privacidade' && method === 'GET') return html(privacyHTML(), 200, nonce);
@@ -317,7 +308,7 @@ const worker = {
 
       // Public API
       if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
-      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env);
+      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env, ctx);
       if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
       if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
       if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
@@ -351,6 +342,11 @@ const worker = {
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
+    // Descarrega o que sobrou pendente nos contadores. Sem isto, o resto de uma
+    // janela que não chegou a completar se perde quando o isolate morre — e o
+    // fim do dia (justamente o rabo de um lançamento) é quando o tráfego cai e
+    // ninguém dispara o flush.
+    ctx.waitUntil(flushCounters(env).catch(e => noteKvFailure('escrita', e, 'flush de contadores no cron')));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -511,15 +507,12 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // aceita de propósito, e é o único ponto em que os dois não são idênticos.
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   if (!alreadyCounted && !headOnly) {
-    const viewKey = `views:${slug}`;
-    ctx.waitUntil(
-      env.FOTOS.get(viewKey).then(async v => {
-        // A non-numeric stored value used to make this NaN, and String(NaN)
-        // wrote "NaN" back — poisoning the counter permanently, since every
-        // later increment re-read "NaN". toCount() falls back to 0.
-        await env.FOTOS.put(viewKey, String(toCount(v) + 1));
-      }).catch(e => console.error('view counter failed', e))
-    );
+    // Agregado, não gravado na hora: era UMA escrita por visitante, o que fazia
+    // o custo do site crescer junto com o público contra uma cota fixa. Agora
+    // os incrementos se somam na memória do isolate e viram uma escrita por
+    // janela — ver bumpCounter() em utils.js. O cookie de 1 h continua sendo o
+    // que evita contar a mesma pessoa duas vezes.
+    bumpCounter(env, ctx, `views:${slug}`);
   }
 
   // Nonce de página: assinado agora, para este slug, e gasto no
@@ -613,13 +606,29 @@ export async function handleLogin(request, env, ctx) {
     ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
     return redirect('/dashboard?error=1');
   }
-  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login
+  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login. Isolada:
+  // a migração é oportunista, e falhar nela não pode impedir um login com senha
+  // já conferida — na próxima vez ela tenta de novo.
   if (!stored.startsWith('pbkdf2:')) {
-    await env.FOTOS.put('admin_password', await hashPassword(password));
+    await env.FOTOS.put('admin_password', await hashPassword(password))
+      .catch(e => noteKvFailure('escrita', e, 'migração do hash da senha'));
   }
 
   const token = generateToken();
-  await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
+  // Esta escrita é a única do fluxo que NÃO dá para contornar: sem sessão
+  // gravada não há login, e servir uma sessão "de mentira" seria pior do que
+  // recusar. Mas o 500 cru que ela produzia era o pior dos dois mundos — o dono
+  // via uma tela de erro genérica no meio de um incidente de KV, e o healthz
+  // continuava verde porque ninguém registrava a falha.
+  //
+  // Agora: registra (o healthz passa a acusar) e devolve o mesmo redirect de
+  // erro do resto do login, que a tela de login sabe exibir.
+  try {
+    await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
+  } catch (e) {
+    noteKvFailure('escrita', e, 'abertura de sessão do painel');
+    return redirect('/dashboard?error=1');
+  }
 
   const headers = new Headers({
     ...dataSecurityHeaders('text/plain; charset=utf-8'),
@@ -648,7 +657,10 @@ async function noteFailedLogin(env, request, ip) {
   const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
   const key = `login-fail:${ip}:${window}`;
   const attempts = toCount(await env.FOTOS.get(key)) + 1;
-  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS });
+  // Isolada: com a cota de escrita estourada, uma exceção aqui pularia
+  // justamente o alerta de força bruta. A contagem já está em `attempts`.
+  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
+    .catch(e => noteKvFailure('escrita', e, 'login-fail counter'));
   // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
   // Numa força bruta paralela — exatamente o caso que o alerta existe para
   // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
@@ -681,10 +693,28 @@ async function getAdminHash(env) {
 // ---------------------------------------------------------------------------
 // Logout
 // ---------------------------------------------------------------------------
-async function handleLogout(request, env) {
+export async function handleLogout(request, env, ctx) {
   const cookies = request.headers.get('Cookie') || '';
   const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
-  if (match) await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => console.error('session delete failed', e));
+  // Este delete não é limpeza, é a revogação. O cookie sai do browser logo
+  // abaixo de qualquer forma, então quem clicou em "sair" vê a tela de login e
+  // acredita ter saído — enquanto o token continua aceito pelo servidor até o
+  // TTL de 24 h. Delete gasta cota de escrita do KV, então o dia de tráfego
+  // grande é justamente o dia em que sair do painel pode parar de revogar.
+  // Falhar aqui não pode interromper o logout (deixar o admin logado no browser
+  // é pior), mas também não pode ser um `console.error` que ninguém lê.
+  if (match) {
+    await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => {
+      noteDegraded(
+        'logout não revogou a sessão',
+        'o KV recusou apagar o registro; o cookie saiu do browser, mas o token segue válido até expirar sozinho',
+        e,
+      );
+      // O aviso por e-mail não segura a resposta: o logout já falhou uma vez,
+      // não vai também ficar lento por causa do aviso.
+      ctx?.waitUntil(sendErrorAlert(env, e, { path: 'POST /dashboard/logout (session delete)' }).catch(() => {}));
+    });
+  }
 
   const headers = new Headers(dataSecurityHeaders('text/plain; charset=utf-8'));
   headers.set('Location', '/dashboard');
@@ -1006,18 +1036,56 @@ async function handleMetrics(request, env) {
 // ---------------------------------------------------------------------------
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
-async function handleTrackDrive(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'drive', 60, 3600);
-  if (!allowed) return jsonOk({ ok: true });
-
+export async function handleTrackDrive(request, env, ctx) {
+  // Ordem importa por causa da cota: `checkRateLimit` GRAVA em KV, e a cota é
+  // de 1000 escritas/dia para a conta inteira. Com o rate limit na frente, todo
+  // POST de lixo neste endpoint — que é público, aceita corpo qualquer e passa
+  // pelo portão de CSRF quando o cliente não manda cabeçalho de browser
+  // (decisão deliberada, ver isCrossSiteRequest) — custava uma escrita sem
+  // nunca contar nada: 60 por IP por hora, de graça, contra a mesma cota de que
+  // dependem evento, sessão e consentimento. É a mesma conta que já tinha sido
+  // feita no handleLogin, e a mesma resposta: o que é grátis vem primeiro.
+  //
+  // Agora nada aqui grava antes de saber que existe um clique real para contar:
+  // corpo, formato do slug e existência do evento são de graça (o getEvents tem
+  // cache de isolate e leitura tem cota 100× maior). O rate limit continua
+  // valendo para quem passa por tudo isso, que é o único caso capaz de gastar.
   let body;
   try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
-  const key = `drive_clicks:${slug}`;
-  const v = await env.FOTOS.get(key).catch(() => null);
-  await env.FOTOS.put(key, String(toCount(v) + 1)).catch(e => console.error('drive-click counter failed', e));
+
+  // `comingSoon` entra aqui pelo mesmo motivo que entra no portão do Drive: um
+  // projeto anunciado antes das fotos é o mais divulgado do site e o mais fácil
+  // de achar, e a página dele nem desenha o botão do Drive — então clique
+  // nenhum pode vir dela. O que chegasse aqui seria POST direto, gastando duas
+  // escritas e inflando a métrica de um projeto que não entregou foto nenhuma.
+  const events = await getEvents(env);
+  const event = events.find(e => e.slug === slug);
+  if (!event || event.comingSoon) return jsonOk({ ok: true });
+
+  // O rate limit continua aqui, e a tentativa de tirá-lo foi um erro que vale
+  // registrar: o raciocínio era "a agregação virou o limite, um flood não gera
+  // escrita a mais". Não fecha. A agregação grava uma vez por JANELA, e a
+  // janela é de 10 s — um flood sustentado são 6 escritas/min, 360/hora,
+  // ~8600/dia numa cota de 1000/dia. Ela reduz o custo por requisição, não o
+  // custo por hora, e é justamente o custo por hora que um atacante controla.
+  // Sem limite por IP, o endpoint público vira a maneira mais barata de
+  // esvaziar a cota que este PR inteiro existe para proteger — e ainda deixa
+  // `drive_clicks` forjável por curl, já que o portão de CSRF passa quem não
+  // manda cabeçalho de browser.
+  //
+  // O que MUDOU e continua valendo: ele agora roda depois das checagens de
+  // graça, então POST de lixo custa zero escrita. O ganho era esse; o limite
+  // nunca foi o problema.
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
+
+  // O ctx vem do roteador: sem ele, o flush que acabou de ESVAZIAR o mapa podia
+  // ser descartado junto com a requisição, e o lote sumia sem nunca ser tentado
+  // de novo.
+  const work = bumpCounter(env, ctx, `drive_clicks:${slug}`);
+  if (work && !(ctx && typeof ctx.waitUntil === 'function')) await work;
   return jsonOk({ ok: true });
 }
 
@@ -1099,7 +1167,7 @@ export async function handlePerfBeacon(request, env) {
 // ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
-async function handleSupportRequest(request, env, nonce) {
+export async function handleSupportRequest(request, env, nonce, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
   // Toda resposta de erro precisa de um token novo, senão o visitante corrige o
@@ -1198,12 +1266,37 @@ async function handleSupportRequest(request, env, nonce) {
   // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
   // uma falha de envio deixa o reenvio funcionar.
   let sent = false;
+  let falha = null;
   try {
     sent = await sendSupportEmail(env, { name, email, message });
   } catch (e) {
-    console.error('sendSupportEmail:', e);
+    falha = e;
   }
   if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
+
+  if (!sent) {
+    // A mensagem só existe no e-mail: diferente do pedido de remoção, que fica
+    // gravado, aqui não há cópia nenhuma. Um envio que falhou é uma mensagem
+    // perdida — e a tela de sucesso fazia o visitante ir embora achando que
+    // tinha chegado. É a mesma escolha que `getEvents()` já faz ao propagar em
+    // vez de devolver lista vazia: mentir sobre ter o dado é pior que admitir
+    // a falha. Os valores voltam preenchidos, então reenviar não custa
+    // redigitar, e a mensagem dá o endereço direto para quem não quiser tentar
+    // de novo.
+    noteDegraded(
+      'mensagem de suporte não enviada',
+      'o Resend recusou o envio; o formulário de /suporte não está entregando mensagem nenhuma',
+      falha,
+    );
+    ctx?.waitUntil(sendErrorAlert(env, falha || new Error('sendSupportEmail returned false'),
+      { path: 'POST /suporte (send)' }).catch(() => {}));
+    return page(
+      false,
+      'Não conseguimos enviar sua mensagem agora. Tente novamente em alguns minutos ou escreva direto para suporte@lucafchala.com.',
+      values,
+      503,
+    );
+  }
 
   return page(true);
 }
@@ -1217,7 +1310,7 @@ async function shortHash(text) {
 // ---------------------------------------------------------------------------
 // API: Change password
 // ---------------------------------------------------------------------------
-async function handleChangePassword(request, env) {
+export async function handleChangePassword(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
@@ -1252,7 +1345,19 @@ async function handleChangePassword(request, env) {
         .map(k => env.FOTOS.delete(k.name))
     );
   } catch (e) {
-    console.error('session sweep after password change failed', e);
+    // Trocar a senha é o que se faz quando se desconfia que ela vazou, e a
+    // varredura é o que expulsa quem já estava dentro. Se ela falha, a senha
+    // nova passa a valer e as sessões antigas continuam abrindo o painel por
+    // até 24 h — com o admin vendo "ok" e acreditando ter fechado a porta.
+    // O Promise.all acima também rejeita no primeiro delete que falhar, então
+    // a varredura pode ter sido parcial. Não desfaz a troca de senha (ela deu
+    // certo), mas não pode ficar só num console.error.
+    noteDegraded(
+      'troca de senha não encerrou as outras sessões',
+      'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
+      e,
+    );
+    ctx?.waitUntil(sendErrorAlert(env, e, { path: 'PUT /api/settings/password (session sweep)' }).catch(() => {}));
   }
 
   return jsonOk({ ok: true });
@@ -1418,12 +1523,35 @@ async function handleRemovalRequest(request, env) {
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
-  // Send notification to admin
+  // Send notification to admin.
+  //
+  // O pedido já está gravado acima, então nada se perde — mas o AVISO é o que
+  // faz alguém agir dentro do prazo, e um pedido de remoção é exercício de
+  // direito do titular, com relógio correndo. Falhar aqui deixava o pedido
+  // parado no painel esperando que o dono resolvesse abrir a tela por conta
+  // própria. Vai para o registro de degradações, que o healthz publica e o
+  // painel de status transforma em alerta.
   try {
     const sent = await sendRemovalEmail(env, req);
     newReq.emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
+    if (!sent) {
+      noteDegraded(
+        'pedido de remoção sem aviso por e-mail',
+        'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
+      );
+    }
   } catch (err) {
+    // O detalhe do erro fica AQUI — no próprio pedido, que só o painel lê — e
+    // não no aviso. A mensagem vem do corpo cru da resposta da Resend, e o
+    // e-mail carregava nome, e-mail, telefone e mensagem de um titular
+    // exercendo direito sobre os próprios dados. Repetir isso no log
+    // compartilhado não acrescenta nada que o painel já não mostre, e espalha
+    // dado pessoal por um lugar a mais.
     newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    noteDegraded(
+      'pedido de remoção sem aviso por e-mail',
+      'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
+    );
   }
 
   // Send confirmation to requester
@@ -1550,7 +1678,7 @@ export function cronStale(lastIso, now = Date.now()) {
 // offending slug, and nominates one healthy event as a `sample` the dashboard
 // can deep-probe (its Drive gate + removal form).
 const MAX_SELFTEST_PROBLEMS = 12;
-export function auditSite(events, env = {}) {
+export function auditSite(events, env = {}, degradacoes = []) {
   const problems = [];
   const seen = new Set();
   let driveOk = 0, driveBad = 0, live = 0;
@@ -1603,6 +1731,20 @@ export function auditSite(events, env = {}) {
     problems.push(`SIGNING_SECRET ${signingSecretProblem(env)} — nonce do Drive e token dos formulários DESLIGADOS`);
   }
 
+  // Mesma lógica do SIGNING_SECRET acima: nada disto derruba o site, e é
+  // exatamente por isso que precisa aparecer. Um site no ar não é prova de que
+  // está tudo bem quando ele foi desenhado para continuar servindo enquanto as
+  // peças cedem. Cada entrada some sozinha 30 min depois da última ocorrência.
+  //
+  // Toda degradação registrada entra aqui, sem lista fixa. É o ponto do desenho:
+  // quem acrescentar uma degradação nova em qualquer lugar do código chama
+  // `noteDegraded()` e ela aparece no painel sozinha — ninguém precisa lembrar
+  // de vir editar esta função. Antes eram dois `if` escritos à mão, e o terceiro
+  // caso (consentimento) teria sido esquecido exatamente por isso.
+  for (const d of (Array.isArray(degradacoes) ? degradacoes : [])) {
+    problems.push(`${d.label} (há ${d.agoSecs}s)${d.detail ? ` — ${d.detail}` : ''}`);
+  }
+
   const trimmed = problems.slice(0, MAX_SELFTEST_PROBLEMS);
   if (problems.length > MAX_SELFTEST_PROBLEMS) trimmed.push(`+${problems.length - MAX_SELFTEST_PROBLEMS} outro(s)`);
 
@@ -1625,7 +1767,7 @@ export async function handleHealthz(request, env) {
   // --- Core: KV is the binding the whole app depends on, and a read failure
   // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
   // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on
-  // (`"ok":true`/`"hashMs"`), while reporting *which* subsystem broke.
+  // (`"ok":true`), while reporting *which* subsystem broke.
   //
   // KV-frugal by design: one read of `events` proves both that the binding
   // responds AND that the main store is a valid array — so we dropped the old
@@ -1636,6 +1778,11 @@ export async function handleHealthz(request, env) {
   let events = null;
   let eventsList = [];
   const kvT0 = Date.now();
+  // `fresh: true` aqui não é só para furar o cache: é o que faz esta leitura
+  // NUNCA cair para a cópia de sobrevivência. Ou seja, `kv` reflete o KV de
+  // verdade — se ele estiver fora, isto lança e `kv` fica false, como deve ser.
+  // A saúde do binding é medida pela própria leitura, não inferida de estado
+  // compartilhado com outras requisições.
   try {
     eventsList = await getEvents(env, true);
     kv = true;
@@ -1660,10 +1807,29 @@ export async function handleHealthz(request, env) {
     d1LatencyMs = Date.now() - t0;
   }
 
-  // --- PBKDF2 hash — confirms login hashing completes within the CPU budget. ---
-  const t0 = Date.now();
+  // --- PBKDF2 — canário do orçamento de CPU do login. ---
+  //
+  // O hash roda; o tempo dele NÃO é publicado, porque não dá para medi-lo aqui.
+  // O Workers congela `Date.now()` durante execução síncrona (mitigação de
+  // ataque de temporização): o relógio só anda depois de I/O. Um PBKDF2 de 100k
+  // iterações é CPU pura, sem I/O no meio, então `Date.now()` antes e depois
+  // devolve o MESMO valor e a conta dava `hashMs: 0` — sempre, em produção,
+  // desde que foi escrita. Confirmado no log do último deploy: `hashMs: 0` ao
+  // lado de `kvLatencyMs: 6` e `d1LatencyMs: 84`, que passam por I/O e por isso
+  // são reais.
+  //
+  // Zero não é um hash rápido, é um número que não existe — e ele alimentava
+  // três portões incapazes de reprovar: o `HASH_MS -gt 200` do deploy.yml, o
+  // `hashMs > HASH_BUDGET_MS` do painel de status, e a linha "hash 0ms" que o
+  // painel exibia como se fosse desempenho excelente. É a armadilha do
+  // RETOMADA §5.7 de novo, no portão que deveria vigiar justamente a CPU.
+  //
+  // O que de fato protege continua de pé, e é o sinal real: se o hash não
+  // couber no orçamento de CPU, o Workers mata a requisição e esta rota
+  // responde 5xx. O smoke test cobre isso (healthz `ok:true` + login 302, não
+  // 5xx) e o painel de status também (`h.status >= 500` → down). Medir CPU de
+  // dentro do isolate não é possível; de fora, quem conta é o 5xx.
   await hashPassword('healthcheck');
-  const hashMs = Date.now() - t0;
 
   // --- Cron heartbeat (best-effort, one KV read): detects a silently dead daily
   // schedule. This is the second of the two KV reads; the throwaway `__healthz__`
@@ -1679,7 +1845,7 @@ export async function handleHealthz(request, env) {
   // reads): broken/missing Drive links on live events, bad data, and form
   // backends that are unset. This is what surfaces "something went wrong" on the
   // status dashboard, not just hard 500s. ---
-  const selftest = auditSite(eventsList, env);
+  const selftest = auditSite(eventsList, env, degradedHealth());
 
   // --- The rest of the extended surface is derived from already-loaded data and
   // env bindings — ZERO additional KV reads. `config` exposes only booleans
@@ -1690,7 +1856,10 @@ export async function handleHealthz(request, env) {
   const ok = kv && events !== null;
   return jsonOk({
     // Stable contract (smoke test + existing dashboard parsing): keep these names.
-    ok, kv, events, d1, hashMs,
+    // `hashMs` saiu daqui de propósito — ver o comentário do PBKDF2 acima. Os
+    // dois consumidores testam `typeof === 'number'` antes de usar, então a
+    // ausência some sozinha em vez de virar "NaN" na tela.
+    ok, kv, events, d1,
     // Extended surface (no extra KV reads).
     kvLatencyMs,
     d1LatencyMs,
@@ -1917,7 +2086,24 @@ export async function handleDriveLink(request, env, ctx) {
           asn, as_org, colo, user_agent, accept_language, referrer, page_url)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(...vals);
-    ctx.waitUntil(stmt.run().catch(e => console.error('consent insert failed', e)));
+    // Esta é a gravação mais importante do site, e era a mais silenciosa. Ela é
+    // best-effort de propósito — recusar as fotos porque o log falhou puniria o
+    // visitante por um problema nosso —, mas "best-effort" nunca deveria ter
+    // significado "e ninguém fica sabendo": o registro de consentimento é a peça
+    // de não-repúdio da conformidade LGPD. Perdê-lo em silêncio é o pior modo de
+    // falha do sistema inteiro, porque o site continua parecendo perfeito.
+    //
+    // Agora falha com barulho nos dois canais: e-mail para o dono (throttle
+    // global de 15 min dentro do sendErrorAlert, que nunca lança) e linha no
+    // /api/healthz, que o painel de status transforma em alerta.
+    ctx.waitUntil(stmt.run().catch(e => {
+      noteDegraded(
+        'registro de consentimento não gravou',
+        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+        e
+      );
+      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+    }));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a

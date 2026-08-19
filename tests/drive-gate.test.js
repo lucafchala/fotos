@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleDriveLink, handlePerfBeacon, toCount, mintDriveNonce } from '../src/index.js';
+import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
-import { saveEvents, ACCESS_DECLARATIONS } from '../src/utils.js';
+import { saveEvents, ACCESS_DECLARATIONS, flushCounters, resetCounters, degradedHealth, resetDegraded } from '../src/utils.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -200,6 +200,43 @@ describe('handleDriveLink — grants', () => {
   });
 });
 
+// Dia de lançamento: a cota de escrita do KV (1000/dia, plano free) estoura no
+// meio do público. Antes, a exceção da escrita recusada subia de checkRateLimit
+// e virava 500 no portão do Drive — as fotos paravam de sair exatamente na hora
+// de maior movimento, e nada no código dizia que era a cota.
+describe('handleDriveLink — cota de escrita do KV estourada', () => {
+  it('continua entregando o link (a escrita recusada não pode virar 500)', async () => {
+    stubTurnstile(true);
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const res = await handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }),
+      { ...env, FOTOS: broken },
+      fakeCtx()
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+  });
+
+  it('e nenhuma das recusas do portão vira 200 por causa disso', async () => {
+    // O fail-open é só do contador. Consentimento, Turnstile e "em breve"
+    // continuam recusando, senão a cota estourada viraria um bypass.
+    stubTurnstile(true);
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const brokenEnv = { ...env, FOTOS: broken };
+    const semConsentimento = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), brokenEnv, fakeCtx());
+    expect(semConsentimento.status).toBe(400);
+    const emBreve = await handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), brokenEnv, fakeCtx());
+    expect(emBreve.status).toBe(403);
+    stubTurnstile(false);
+    const turnstileRuim = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'bad', consent: true }), brokenEnv, fakeCtx());
+    expect(turnstileRuim.status).toBe(403);
+  });
+});
+
 describe('handleDriveLink — consent audit', () => {
   it('writes the audit row with the server texts, ignoring client-supplied ones', async () => {
     stubTurnstile(true);
@@ -328,6 +365,199 @@ describe('handlePerfBeacon', () => {
 // pedia o link de um slug atrás do outro sem nunca abrir uma página. Estes
 // testes fixam justamente isso: o link só sai para quem apresenta um nonce
 // assinado por nós, para aquele slug, dentro do prazo.
+// A cota de escrita do KV é o recurso que decide se o site aguenta um dia de
+// lançamento. Este endpoint é público e aceita corpo qualquer, então gastar
+// escrita antes de saber que há um clique real para contar é um ralo direto.
+describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () => {
+  const post = (body, ip = '9.9.9.9') => new Request(`${SITE}/api/track-drive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+  const writes = kv => { let n = 0; const orig = kv.put.bind(kv); kv.put = async (...a) => { n++; return orig(...a); }; return () => n; };
+
+  it('não gasta escrita nenhuma com corpo inválido, slug inválido ou evento inexistente', async () => {
+    resetCounters();
+    const count = writes(env.FOTOS);
+    for (const body of ['{nao json', {}, { slug: '../../etc/passwd' }, { slug: 'nao-existe' }]) {
+      const res = await handleTrackDrive(post(body), env);
+      expect(res.status).toBe(200);
+    }
+    expect(count()).toBe(0);
+  });
+
+  it('ignora um projeto "em breve" — a página dele nem desenha o botão do Drive', async () => {
+    resetCounters();
+    const count = writes(env.FOTOS);
+    const res = await handleTrackDrive(post({ slug: 'em-breve' }), env);
+    expect(res.status).toBe(200);
+    await flushCounters(env);
+    expect(count()).toBe(0);
+    expect(env.FOTOS._store.get('drive_clicks:em-breve')).toBeUndefined();
+  });
+
+  it('conta os cliques sem perder nenhum', async () => {
+    resetCounters();
+    const ctx = fakeCtx();
+    for (let i = 0; i < 10; i++) {
+      const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
+      expect(res.status).toBe(200);
+    }
+    await ctx.settle();
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('10');
+  });
+
+  it('o rate limit por IP continua barrando um flood', async () => {
+    resetCounters();
+    // 60/hora por IP é o teto, e ele fica. A agregação limita o custo por
+    // REQUISIÇÃO, não por hora: sem o limite, um flood sustentado custaria uma
+    // escrita por janela — ~8600/dia contra uma cota de 1000/dia.
+    const ctx = fakeCtx();
+    for (let i = 0; i < 65; i++) await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
+    await ctx.settle();
+    await flushCounters(env);
+    expect(Number(env.FOTOS._store.get('drive_clicks:casamento-ana'))).toBe(60);
+  });
+
+  it('soma em cima do que já estava no KV, sem perder a contagem anterior', async () => {
+    resetCounters();
+    env.FOTOS._store.set('drive_clicks:casamento-ana', '42');
+    await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('43');
+  });
+
+  it('recomeça do zero se o valor guardado estiver corrompido, em vez de gravar NaN', async () => {
+    resetCounters();
+    env.FOTOS._store.set('drive_clicks:casamento-ana', '12abc');
+    await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
+    await flushCounters(env);
+    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('1');
+  });
+
+  it('não vira 500 quando a cota de escrita está estourada', async () => {
+    resetCounters();
+    const events = await env.FOTOS.get('events');
+    const broken = fakeKV({ events });
+    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
+    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), { ...env, FOTOS: broken });
+    expect(res.status).toBe(200);
+  });
+});
+
+// O que o site promete é entregar foto. O KV é a única dependência no caminho
+// crítico: sem a lista de eventos não há slug, não há evento e não há link. Uma
+// queda de LEITURA do KV derrubava galeria, página do projeto e portão de uma
+// vez, com 500.
+describe('handleDriveLink — KV de leitura totalmente fora', () => {
+  function fakeCaches() {
+    const store = new Map();
+    return { _store: store, default: {
+      async put(k, res) { store.set(String(k), await res.text()); },
+      async match(k) { const v = store.get(String(k)); return v === undefined ? undefined : new Response(v); },
+    } };
+  }
+  const kvDown = () => ({
+    FOTOS: { async get() { throw new Error('KV GET failed: 503'); },
+             async put() { throw new Error('KV PUT failed: 503'); } },
+    TURNSTILE_SECRET_KEY: 'secret',
+  });
+
+  // Isolate frio com a cópia já deixada por outro: é o caso comum numa queda —
+  // tráfego novo cai em isolate novo, sem nada em memória.
+  async function coldWithMirror(caches) {
+    vi.resetModules();
+    {
+      const u = await import('../src/utils.js');
+      await u.getEvents({ FOTOS: fakeKV({ events: JSON.stringify(EVENTS) }) }, true);
+    }
+    vi.resetModules();
+    return import('../src/index.js');
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('continua entregando o link do Drive', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const idx = await coldWithMirror();
+    stubTurnstile(true);
+    const res = await idx.handleDriveLink(
+      req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), kvDown(), fakeCtx());
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+  });
+
+  it('e nenhuma recusa do portão vira 200 por causa disso', async () => {
+    // Servir de cópia não pode virar bypass: o que o portão recusa com o KV são,
+    // recusa com o KV fora.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('caches', fakeCaches());
+    const idx = await coldWithMirror();
+    const env = kvDown();
+    stubTurnstile(true);
+    expect((await idx.handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), env, fakeCtx())).status).toBe(400);
+    expect((await idx.handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), env, fakeCtx())).status).toBe(403);
+    expect((await idx.handleDriveLink(req({ slug: 'nao-existe', turnstileToken: 't', consent: true }), env, fakeCtx())).status).toBe(404);
+    stubTurnstile(false);
+    expect((await idx.handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'x', consent: true }), env, fakeCtx())).status).toBe(403);
+  });
+});
+
+// O registro de consentimento é a peça de não-repúdio da conformidade LGPD, e
+// era a gravação mais silenciosa do site: o INSERT é best-effort de propósito
+// (recusar as fotos por um problema nosso puniria o visitante), mas "best-effort"
+// nunca deveria ter significado "e ninguém fica sabendo".
+describe('handleDriveLink — o consentimento não pode falhar calado', () => {
+  function d1Quebrado() {
+    return { prepare: () => ({ bind: () => ({ run: async () => { throw new Error('D1_ERROR: no such table'); } }) }) };
+  }
+
+  it('entrega as fotos, avisa o dono por e-mail e acusa no healthz', async () => {
+    resetDegraded();
+    const emails = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      // Host exato: `includes('api.resend.com')` casaria também com
+      // `api.resend.com.exemplo.com`. Ver a mesma regra no SECURITY.md, em
+      // resolveDocHref — comparar URL como string é o erro que vira open
+      // redirect quando alguém copia o trecho para fora do teste.
+      let host;
+      try { host = new URL(String(url?.url || url)).hostname; } catch { host = ''; }
+      if (host === 'api.resend.com') { emails.push(init); return new Response('{}', { status: 200 }); }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const ctx = fakeCtx();
+    const env2 = { ...env, CONSENT_DB: d1Quebrado(), RESEND_API_KEY: 'k', ADMIN_EMAIL: 'dono@example.com' };
+    const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env2, ctx);
+    await ctx.settle();
+
+    // 1) O visitante não é punido por um problema nosso.
+    expect(res.status).toBe(200);
+    expect((await res.json()).driveUrl).toBe('https://drive.google.com/drive/folders/ok');
+    // 2) O dono é avisado (push).
+    expect(emails.length, 'o dono precisa receber e-mail').toBe(1);
+    // 3) E fica no healthz (pull), para o painel de status virar alerta.
+    const d = degradedHealth();
+    expect(d.some(x => /consentimento/.test(x.label)), 'o healthz precisa acusar').toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it('quando o D1 aceita, nada disso dispara', async () => {
+    resetDegraded();
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    const db = fakeD1();
+    const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), { ...env, CONSENT_DB: db }, ctx);
+    await ctx.settle();
+    expect(res.status).toBe(200);
+    expect(db.rows).toHaveLength(1);
+    expect(degradedHealth()).toEqual([]);
+  });
+});
+
 describe('handleDriveLink — nonce de página', () => {
   let env, ctx;
   beforeEach(async () => {
