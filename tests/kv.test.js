@@ -189,6 +189,20 @@ describe('contadores agregados', () => {
     expect(pendingCounters().size).toBe(0);
   });
 
+  it('não entra em laço quando TUDO está bloqueado pelo piso', async () => {
+    // `flushCounters` espera a passada em voo e chama a si mesmo. Se o piso por
+    // chave bloqueasse tudo e a função ainda assim marcasse uma passada em
+    // andamento, os dois se alimentariam para sempre — laço infinito dentro de
+    // um Worker é CPU estourada e 500, não um teste lento.
+    const env = { FOTOS: fakeKV() };
+    await bumpCounter(env, null, 'views:x');        // grava e arma o piso
+    bumpCounter(env, null, 'views:x');              // fica pendente, bloqueado
+    const antes = Date.now();
+    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
+    expect(Date.now() - antes, 'tem de retornar na hora, não girar').toBeLessThan(1000);
+    expect(pendingCounters().get('views:x'), 'e o pendente continua guardado').toBe(1);
+  });
+
   it('flush sem nada pendente não gasta escrita', async () => {
     const env = { FOTOS: fakeKV() };
     await flushCounters(env);
