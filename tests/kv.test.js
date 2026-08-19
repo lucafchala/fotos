@@ -497,6 +497,11 @@ describe('logout quando o KV recusa o delete', () => {
 // /suporte só existe dentro do e-mail. Um envio que falha é uma mensagem
 // perdida, sem cópia em lugar nenhum, e a tela de sucesso mandava o visitante
 // embora achando que tinha chegado.
+// Host exato, não pedaço de string: ver o comentário em mockFetch.
+function hostDe(u) {
+  try { return new URL(u).hostname; } catch { return ''; }
+}
+
 describe('formulário de suporte quando o envio falha', () => {
   const env = () => ({
     FOTOS: fakeKV(),
@@ -523,14 +528,22 @@ describe('formulário de suporte quando o envio falha', () => {
   function mockFetch({ resendOk }) {
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       const u = String(url);
-      if (u.includes('challenges.cloudflare.com')) {
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      // Compara `hostname` em vez de `includes()`. Num mock isso parece
+      // preciosismo, mas é a mesma regra que o SECURITY.md já exige do
+      // resolveDocHref: `includes('api.resend.com')` casa também com
+      // `api.resend.com.exemplo.com` e com `exemplo.com/?x=api.resend.com`. Um
+      // mock que erra o destino faz o teste afirmar coisa sobre a requisição
+      // errada — e o CodeQL marca o padrão onde quer que ele apareça, com razão:
+      // a diferença entre teste e produção é quem copia o trecho depois.
+      switch (hostDe(u)) {
+        case 'challenges.cloudflare.com':
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        case 'api.resend.com':
+          if (!resendOk) throw new Error('Resend indisponível');
+          return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 });
+        default:
+          throw new Error(`fetch inesperado: ${u}`);
       }
-      if (u.includes('api.resend.com')) {
-        if (!resendOk) throw new Error('Resend indisponível');
-        return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 });
-      }
-      throw new Error(`fetch inesperado: ${u}`);
     }));
   }
 

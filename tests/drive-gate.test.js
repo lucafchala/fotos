@@ -518,8 +518,13 @@ describe('handleDriveLink — o consentimento não pode falhar calado', () => {
     resetDegraded();
     const emails = [];
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-      const u = String(url?.url || url);
-      if (u.includes('api.resend.com')) { emails.push(init); return new Response('{}', { status: 200 }); }
+      // Host exato: `includes('api.resend.com')` casaria também com
+      // `api.resend.com.exemplo.com`. Ver a mesma regra no SECURITY.md, em
+      // resolveDocHref — comparar URL como string é o erro que vira open
+      // redirect quando alguém copia o trecho para fora do teste.
+      let host;
+      try { host = new URL(String(url?.url || url)).hostname; } catch { host = ''; }
+      if (host === 'api.resend.com') { emails.push(init); return new Response('{}', { status: 200 }); }
       return new Response(JSON.stringify({ success: true }), { status: 200 });
     }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
