@@ -419,3 +419,76 @@ describe('resilience to corrupted KV values', () => {
     expect(results).toEqual([true, true, false, false]);
   });
 });
+
+// O logout apaga o registro da sessão no KV. Esse delete NÃO é limpeza: ele é a
+// revogação. O cookie sai do browser de qualquer jeito, então quem clicou em
+// "sair" vê a tela de login e acredita ter saído — mas se o KV recusou o
+// delete, o token continua válido no servidor até o TTL de 24 h, e qualquer
+// cópia dele feita antes continua abrindo o painel.
+//
+// Delete conta como escrita na cota do KV (1000/dia, conta inteira). Ou seja: o
+// dia de tráfego grande, que é quando a cota estoura, é exatamente o dia em que
+// sair do painel para de revogar. E o comentário do `Clear-Site-Data` no
+// handler diz qual é o cenário que ele tem em mente — computador emprestado.
+describe('logout quando o KV recusa o delete', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  const TOKEN = 'a'.repeat(64);
+
+  // `coldIsolate()` acima chama `vi.resetModules()`, então um `import` dinâmico
+  // depois dele devolve um registro NOVO: o `index.js` recém-carregado enxerga
+  // um `utils.js` recém-carregado, com outro mapa de degradações — e não o que
+  // o import do topo deste arquivo leu. Os dois módulos têm que vir do mesmo
+  // registro, senão o teste confere um mapa que ninguém escreveu e falha só
+  // quando roda junto com o resto da suíte.
+  async function carregar() {
+    const index = await import('../src/index.js');
+    const utils = await import('../src/utils.js');
+    utils.resetDegraded();
+    return { handleLogout: index.handleLogout, degradedHealth: utils.degradedHealth };
+  }
+
+  function logoutRequest() {
+    return new Request('https://fotos.lucafchala.com/dashboard/logout', {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${TOKEN}` },
+    });
+  }
+
+  it('registra a degradação: uma sessão que não foi revogada não pode passar em silêncio', async () => {
+    const { handleLogout, degradedHealth: lidos } = await carregar();
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+
+    await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/logout/i);
+  });
+
+  it('mesmo assim limpa os cookies e redireciona: falhar aqui não pode prender o admin logado no browser', async () => {
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+    const { handleLogout } = await carregar();
+
+    const res = await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/dashboard');
+    const cookies = res.headers.getSetCookie().join(' | ');
+    expect(cookies).toMatch(/__Host-session=;/);
+    expect(cookies).toMatch(/(^|\| )session=;/);
+  });
+
+  it('no caminho normal não inventa degradação nenhuma', async () => {
+    const { handleLogout, degradedHealth: lidos } = await carregar();
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+
+    await handleLogout(logoutRequest(), { FOTOS: kv });
+
+    expect(kv._store.has(`admin_session:${TOKEN}`)).toBe(false);
+    expect(lidos()).toEqual([]);
+  });
+});

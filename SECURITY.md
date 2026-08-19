@@ -226,6 +226,27 @@ says so. It now fails on both channels — `sendErrorAlert()` emails the owner
 into an alert. Pinned by `tests/drive-gate.test.js`, verified failing against
 the previous `console.error`.
 
+### Logout says so when it does not actually revoke
+
+`POST /dashboard/logout` deletes the session record from KV. That delete is not
+housekeeping — **it is the revocation**. The cookie is cleared in the browser
+either way, so someone who clicks "sair" lands on the login screen and believes
+they are out, while the token stays accepted by the server until its 24-hour TTL
+runs out. Anyone holding a copy taken before the logout keeps the panel.
+
+The timing is the sharp part: a KV **delete spends write quota** like a `put`
+does, so the day of heavy traffic — the day the 1000/day account ceiling is
+actually reached — is the day logging out can quietly stop revoking. And the
+`Clear-Site-Data` header two lines below names the scenario the handler has in
+mind: a borrowed computer.
+
+Failing here must not interrupt the logout (leaving the admin signed in *in the
+browser* is the worse outcome), so the redirect and both cookie clears happen
+regardless. What changed is that it is no longer a `console.error` nobody reads:
+the failure goes to `noteDegraded()` — so `/api/healthz` reports it and the
+status dashboard goes red — and to `sendErrorAlert()`. Pinned by
+`tests/kv.test.js`, verified failing against the previous code.
+
 ### The event list survives KV being unavailable
 
 KV is the only hard dependency on the critical path: without the event list

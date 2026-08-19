@@ -248,7 +248,7 @@ const worker = {
       // Dashboard routes
       if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url, nonce);
       if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env, ctx);
-      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env);
+      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env, ctx);
 
       // API routes (require auth)
       if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
@@ -693,10 +693,28 @@ async function getAdminHash(env) {
 // ---------------------------------------------------------------------------
 // Logout
 // ---------------------------------------------------------------------------
-async function handleLogout(request, env) {
+export async function handleLogout(request, env, ctx) {
   const cookies = request.headers.get('Cookie') || '';
   const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
-  if (match) await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => console.error('session delete failed', e));
+  // Este delete não é limpeza, é a revogação. O cookie sai do browser logo
+  // abaixo de qualquer forma, então quem clicou em "sair" vê a tela de login e
+  // acredita ter saído — enquanto o token continua aceito pelo servidor até o
+  // TTL de 24 h. Delete gasta cota de escrita do KV, então o dia de tráfego
+  // grande é justamente o dia em que sair do painel pode parar de revogar.
+  // Falhar aqui não pode interromper o logout (deixar o admin logado no browser
+  // é pior), mas também não pode ser um `console.error` que ninguém lê.
+  if (match) {
+    await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => {
+      noteDegraded(
+        'logout não revogou a sessão',
+        'o KV recusou apagar o registro; o cookie saiu do browser, mas o token segue válido até expirar sozinho',
+        e,
+      );
+      // O aviso por e-mail não segura a resposta: o logout já falhou uma vez,
+      // não vai também ficar lento por causa do aviso.
+      ctx?.waitUntil(sendErrorAlert(env, e, { path: 'POST /dashboard/logout (session delete)' }).catch(() => {}));
+    });
+  }
 
   const headers = new Headers(dataSecurityHeaders('text/plain; charset=utf-8'));
   headers.set('Location', '/dashboard');
