@@ -17,6 +17,7 @@ import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionC
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { eventHTML } from '../src/ui/event.js';
+import { degradedHealth, resetDegraded } from '../src/utils.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { readFileSync } from 'node:fs';
 
@@ -923,6 +924,28 @@ describe('envio completo dos formulários públicos', () => {
     headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '9.9.9.9' },
     body: JSON.stringify(body),
   }), e, ctx);
+
+  it('avisa que um pedido de remoção ficou sem e-mail — direito do titular tem relógio', async () => {
+    // O pedido é gravado antes do envio, então nada se perde. Mas o AVISO é o
+    // que faz alguém agir dentro do prazo: sem ele, o pedido fica parado no
+    // painel esperando que o dono resolva abrir a tela por conta própria.
+    resetDegraded();
+    const e = env();                       // sem RESEND_API_KEY
+    const token = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'pessoa@example.com', phone: '11999999999',
+      consent: true, turnstileToken: 'ok', form_token: token,
+    });
+    expect(res.status, await res.text()).toBe(200);   // o titular não é punido pelo nosso problema
+    // e o pedido está salvo, que é o que impede a perda
+    expect(JSON.parse(e.FOTOS._store.get('removal_requests') || '[]')).toHaveLength(1);
+    expect(degradedHealth().some(d => /pedido de remoção/.test(d.label)), 'o dono precisa ser avisado').toBe(true);
+    resetDegraded();
+  });
 
   it('accepts a real removal request end to end', async () => {
     const e = env();

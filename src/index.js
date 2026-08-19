@@ -1468,12 +1468,30 @@ async function handleRemovalRequest(request, env) {
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
-  // Send notification to admin
+  // Send notification to admin.
+  //
+  // O pedido já está gravado acima, então nada se perde — mas o AVISO é o que
+  // faz alguém agir dentro do prazo, e um pedido de remoção é exercício de
+  // direito do titular, com relógio correndo. Falhar aqui deixava o pedido
+  // parado no painel esperando que o dono resolvesse abrir a tela por conta
+  // própria. Vai para o registro de degradações, que o healthz publica e o
+  // painel de status transforma em alerta.
   try {
     const sent = await sendRemovalEmail(env, req);
     newReq.emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
+    if (!sent) {
+      noteDegraded(
+        'pedido de remoção sem aviso por e-mail',
+        'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
+      );
+    }
   } catch (err) {
     newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    noteDegraded(
+      'pedido de remoção sem aviso por e-mail',
+      `envio falhou: ${String(err.message || err).slice(0, 90)}. O pedido está salvo no painel`,
+      err
+    );
   }
 
   // Send confirmation to requester
