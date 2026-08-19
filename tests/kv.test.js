@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
-  degradedHealth, resetDegraded,
+  degradedHealth, resetDegraded, noteDegraded,
   bumpCounter, flushCounters, resetCounters, pendingCounters,
 } from '../src/utils.js';
 
@@ -94,6 +94,37 @@ describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
 // O custo do site não pode crescer junto com o público: a cota é fixa (1000
 // escritas/dia) e o movimento não. Agregar é o que troca "uma escrita por
 // visitante" por "uma escrita por janela".
+describe('registro de degradações', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  it('não deixa quebra de linha forjar uma entrada de log', () => {
+    // O `detail` carrega mensagem de erro de sistema externo (KV, D1, Resend) e
+    // identificador de evento — nada disso vem de nós. Uma quebra de linha ali
+    // escreve uma entrada de log inteira, que é como se apaga o rastro de um
+    // incidente por dentro do próprio relato dele.
+    noteDegraded('rotulo\ninjetado\r\n2026-01-01 ENTRADA FALSA', 'a\u0000b\u2028c');
+    const [d] = degradedHealth();
+    expect(d.label).toBe('rotulo injetado 2026-01-01 ENTRADA FALSA');
+    expect(d.detail).toBe('a b c');
+    expect(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(d.label + d.detail)).toBe(false);
+  });
+
+  it('limita o tamanho, para um erro enorme não virar o painel inteiro', () => {
+    noteDegraded('x'.repeat(500), 'y'.repeat(500));
+    const [d] = degradedHealth();
+    expect(d.label.length).toBeLessThanOrEqual(160);
+    expect(d.detail.length).toBeLessThanOrEqual(160);
+  });
+
+  it('a mesma degradação repetida não vira várias linhas', () => {
+    noteDegraded('mesma coisa', 'primeira');
+    noteDegraded('mesma coisa', 'segunda');
+    expect(degradedHealth()).toHaveLength(1);
+    expect(degradedHealth()[0].detail).toBe('segunda');
+  });
+});
+
 describe('contadores agregados', () => {
   beforeEach(() => { resetCounters(); resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
   afterEach(() => { vi.restoreAllMocks(); resetCounters(); });

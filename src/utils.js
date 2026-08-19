@@ -440,12 +440,29 @@ const _degraded = new Map();
 // linhas) e também o texto que aparece no painel. Escreva-o como a frase que
 // você gostaria de ler às 2h da manhã: o que quebrou, e o que deixou de
 // funcionar por causa disso.
+// Tudo o que entra aqui atravessa `umaLinha()` antes de virar log ou texto de
+// painel. O `detail` carrega mensagem de erro de sistema externo (KV, D1,
+// Resend) e identificador de evento — dados que não vêm de nós. Uma quebra de
+// linha no meio disso forja uma entrada de log inteira, e é assim que se apaga
+// o rastro de um incidente escrevendo dentro do próprio relato dele. O slug já
+// é validado antes de chegar aqui, mas um saneamento que depende de todo
+// chamador ter validado é um saneamento que cede no primeiro chamador novo.
+function umaLinha(v) {
+  return String(v)
+    // Controles C0/C1 e separadores de linha Unicode, escritos por codigo-ponto
+    // e nao por caractere colado: um intervalo literal aqui fica ilegivel no
+    // editor seguinte, e foi assim que a primeira versao disto saiu errada.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
 export function noteDegraded(label, detail = '', err = null) {
-  _degraded.set(label, {
-    at: Date.now(),
-    detail: String(detail).slice(0, 160),
-  });
-  console.error(`degradado: ${label}${detail ? ` — ${detail}` : ''}`, err || '');
+  const rotulo = umaLinha(label);
+  const texto = umaLinha(detail);
+  _degraded.set(rotulo, { at: Date.now(), detail: texto });
+  console.error(`degradado: ${rotulo}${texto ? ` — ${texto}` : ''}`, err || '');
 }
 
 // Mais recente primeiro: numa cascata, a última coisa a quebrar costuma ser a
