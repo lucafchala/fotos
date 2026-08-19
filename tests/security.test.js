@@ -943,7 +943,13 @@ describe('envio completo dos formulários públicos', () => {
     expect(res.status, await res.text()).toBe(200);   // o titular não é punido pelo nosso problema
     // e o pedido está salvo, que é o que impede a perda
     expect(JSON.parse(e.FOTOS._store.get('removal_requests') || '[]')).toHaveLength(1);
-    expect(degradedHealth().some(d => /pedido de remoção/.test(d.label)), 'o dono precisa ser avisado').toBe(true);
+    const aviso = degradedHealth().find(d => /pedido de remoção/.test(d.label));
+    expect(aviso, 'o dono precisa ser avisado').toBeTruthy();
+    // E o aviso NÃO pode carregar o detalhe do erro: ele vem do corpo cru da
+    // resposta da Resend, e o e-mail levava nome, e-mail, telefone e mensagem
+    // de um titular exercendo direito sobre os próprios dados. O motivo fica no
+    // `emailStatus` do pedido, que só o painel lê.
+    expect(aviso.detail).not.toMatch(/pessoa@example\.com|11999999999/);
     resetDegraded();
   });
 

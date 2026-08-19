@@ -1486,11 +1486,16 @@ async function handleRemovalRequest(request, env) {
       );
     }
   } catch (err) {
+    // O detalhe do erro fica AQUI — no próprio pedido, que só o painel lê — e
+    // não no aviso. A mensagem vem do corpo cru da resposta da Resend, e o
+    // e-mail carregava nome, e-mail, telefone e mensagem de um titular
+    // exercendo direito sobre os próprios dados. Repetir isso no log
+    // compartilhado não acrescenta nada que o painel já não mostre, e espalha
+    // dado pessoal por um lugar a mais.
     newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
-      `envio falhou: ${String(err.message || err).slice(0, 90)}. O pedido está salvo no painel`,
-      err
+      'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
     );
   }
 
