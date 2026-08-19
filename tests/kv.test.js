@@ -107,6 +107,7 @@ describe('registro de degradações', () => {
     const [d] = degradedHealth();
     expect(d.label).toBe('rotulo injetado 2026-01-01 ENTRADA FALSA');
     expect(d.detail).toBe('a b c');
+    // eslint-disable-next-line no-control-regex
     expect(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(d.label + d.detail)).toBe(false);
   });
 
