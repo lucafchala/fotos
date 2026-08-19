@@ -247,6 +247,32 @@ the failure goes to `noteDegraded()` — so `/api/healthz` reports it and the
 status dashboard goes red — and to `sendErrorAlert()`. Pinned by
 `tests/kv.test.js`, verified failing against the previous code.
 
+The same reasoning applies to the **session sweep after a password change**
+(`PUT /api/settings/password`). Changing the password is what you do when you
+believe it has leaked, and the sweep of the other sessions is what evicts
+whoever is already inside. The sweep is deliberately best-effort — a KV hiccup
+must not undo a password change that already succeeded — but its `Promise.all`
+rejects on the first delete that fails, so the sweep can also be *partial*.
+Either way the admin used to get a plain `ok: true` while old sessions stayed
+open for up to 24 hours. It now records a degradation and emails.
+
+### A support message that was never sent no longer shows a success screen
+
+`/suporte` is the site's contact channel, and unlike a removal request — which
+is stored in D1 — a support message exists **only inside the email**. There is
+no copy anywhere. So a refused send is not a delayed message, it is a lost one.
+
+The handler used to return the success screen regardless of whether the send
+worked, which sent the visitor away believing their message had arrived. That
+is the same trade `getEvents()` already resolves in the other direction when it
+rethrows instead of returning an empty list: **claiming to have the data is
+worse than admitting the failure.** A failed send now returns the form with an
+error, the submitted values still filled in (resending must not cost retyping)
+and the direct address to write to instead — and it records a degradation and
+emails the owner, because a contact form that is silently swallowing messages is
+exactly the kind of outage nobody reports, since the only people who can see it
+are the ones whose message vanished. Pinned by `tests/kv.test.js`.
+
 ### The event list survives KV being unavailable
 
 KV is the only hard dependency on the critical path: without the event list

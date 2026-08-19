@@ -492,3 +492,127 @@ describe('logout quando o KV recusa o delete', () => {
     expect(lidos()).toEqual([]);
   });
 });
+
+// Diferente do pedido de remoção — que fica gravado no D1 —, a mensagem de
+// /suporte só existe dentro do e-mail. Um envio que falha é uma mensagem
+// perdida, sem cópia em lugar nenhum, e a tela de sucesso mandava o visitante
+// embora achando que tinha chegado.
+describe('formulário de suporte quando o envio falha', () => {
+  const env = () => ({
+    FOTOS: fakeKV(),
+    TURNSTILE_SECRET_KEY: 'ts',
+    RESEND_API_KEY: 'rs',
+    ADMIN_EMAIL: 'dono@exemplo.com',
+  });
+
+  function pedido() {
+    return new Request('https://fotos.lucafchala.com/api/suporte', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Fulana',
+        email: 'fulana@exemplo.com',
+        message: 'quero as fotos do jogo de sábado',
+        consent: '1',
+        'cf-turnstile-response': 'token-ok',
+      }),
+    });
+  }
+
+  // Turnstile aprova; o Resend é quem cai.
+  function mockFetch({ resendOk }) {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('challenges.cloudflare.com')) {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      if (u.includes('api.resend.com')) {
+        if (!resendOk) throw new Error('Resend indisponível');
+        return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 });
+      }
+      throw new Error(`fetch inesperado: ${u}`);
+    }));
+  }
+
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); resetDegraded(); });
+
+  it('não mostra tela de sucesso para uma mensagem que não saiu', async () => {
+    mockFetch({ resendOk: false });
+    const { handleSupportRequest } = await import('../src/index.js');
+
+    const res = await handleSupportRequest(pedido(), env(), 'nonce');
+    const corpo = await res.text();
+
+    expect(res.status).toBe(503);
+    // E devolve o texto preenchido: reenviar não pode custar redigitar.
+    expect(corpo).toContain('quero as fotos do jogo de sábado');
+  });
+
+  it('registra a degradação: o canal de contato estar mudo precisa aparecer no painel', async () => {
+    mockFetch({ resendOk: false });
+    const { handleSupportRequest } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    await handleSupportRequest(pedido(), env(), 'nonce');
+
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/suporte/i);
+  });
+
+  it('envio que deu certo continua sendo sucesso, sem degradação', async () => {
+    mockFetch({ resendOk: true });
+    const { handleSupportRequest } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    const res = await handleSupportRequest(pedido(), env(), 'nonce');
+
+    expect(res.status).toBe(200);
+    expect(lidos()).toEqual([]);
+  });
+});
+
+// Trocar a senha é o que se faz quando se desconfia que ela vazou. A varredura
+// das outras sessões é o que expulsa quem já estava dentro — sem ela, a senha
+// nova passa a valer e o intruso continua no painel por até 24 h, com o admin
+// vendo "ok" e acreditando ter fechado a porta.
+describe('troca de senha quando a varredura de sessões falha', () => {
+  const TOKEN = 'b'.repeat(64);
+
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  function kvComDeleteQuebrado() {
+    const kv = fakeKV({
+      [`admin_session:${TOKEN}`]: 'valid',
+      'admin_session:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc': 'valid',
+    });
+    kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
+    return kv;
+  }
+
+  function pedido() {
+    return new Request('https://fotos.lucafchala.com/api/settings/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `__Host-session=${TOKEN}` },
+      body: JSON.stringify({ password: 'uma frase longa de teste 2026' }),
+    });
+  }
+
+  it('registra a degradação em vez de só logar', async () => {
+    const { handleChangePassword } = await import('../src/index.js');
+    const { degradedHealth: lidos, resetDegraded: limpa } = await import('../src/utils.js');
+    limpa();
+
+    const res = await handleChangePassword(pedido(), { FOTOS: kvComDeleteQuebrado() });
+
+    // A senha nova vale: a troca em si deu certo e não é desfeita.
+    expect(res.status).toBe(200);
+    const problemas = lidos();
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0].label).toMatch(/sess/i);
+  });
+});

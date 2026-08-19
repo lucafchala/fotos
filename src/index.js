@@ -260,7 +260,7 @@ const worker = {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env);
+      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
@@ -279,7 +279,7 @@ const worker = {
         const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? TEMA_PREFILLS[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
-      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce);
+      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce, ctx);
 
       // Privacy policy
       if (path === '/privacidade' && method === 'GET') return html(privacyHTML(), 200, nonce);
@@ -1167,7 +1167,7 @@ export async function handlePerfBeacon(request, env) {
 // ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
-async function handleSupportRequest(request, env, nonce) {
+export async function handleSupportRequest(request, env, nonce, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
   // Toda resposta de erro precisa de um token novo, senão o visitante corrige o
@@ -1266,12 +1266,37 @@ async function handleSupportRequest(request, env, nonce) {
   // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
   // uma falha de envio deixa o reenvio funcionar.
   let sent = false;
+  let falha = null;
   try {
     sent = await sendSupportEmail(env, { name, email, message });
   } catch (e) {
-    console.error('sendSupportEmail:', e);
+    falha = e;
   }
   if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
+
+  if (!sent) {
+    // A mensagem só existe no e-mail: diferente do pedido de remoção, que fica
+    // gravado, aqui não há cópia nenhuma. Um envio que falhou é uma mensagem
+    // perdida — e a tela de sucesso fazia o visitante ir embora achando que
+    // tinha chegado. É a mesma escolha que `getEvents()` já faz ao propagar em
+    // vez de devolver lista vazia: mentir sobre ter o dado é pior que admitir
+    // a falha. Os valores voltam preenchidos, então reenviar não custa
+    // redigitar, e a mensagem dá o endereço direto para quem não quiser tentar
+    // de novo.
+    noteDegraded(
+      'mensagem de suporte não enviada',
+      'o Resend recusou o envio; o formulário de /suporte não está entregando mensagem nenhuma',
+      falha,
+    );
+    ctx?.waitUntil(sendErrorAlert(env, falha || new Error('sendSupportEmail returned false'),
+      { path: 'POST /suporte (send)' }).catch(() => {}));
+    return page(
+      false,
+      'Não conseguimos enviar sua mensagem agora. Tente novamente em alguns minutos ou escreva direto para suporte@lucafchala.com.',
+      values,
+      503,
+    );
+  }
 
   return page(true);
 }
@@ -1285,7 +1310,7 @@ async function shortHash(text) {
 // ---------------------------------------------------------------------------
 // API: Change password
 // ---------------------------------------------------------------------------
-async function handleChangePassword(request, env) {
+export async function handleChangePassword(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
@@ -1320,7 +1345,19 @@ async function handleChangePassword(request, env) {
         .map(k => env.FOTOS.delete(k.name))
     );
   } catch (e) {
-    console.error('session sweep after password change failed', e);
+    // Trocar a senha é o que se faz quando se desconfia que ela vazou, e a
+    // varredura é o que expulsa quem já estava dentro. Se ela falha, a senha
+    // nova passa a valer e as sessões antigas continuam abrindo o painel por
+    // até 24 h — com o admin vendo "ok" e acreditando ter fechado a porta.
+    // O Promise.all acima também rejeita no primeiro delete que falhar, então
+    // a varredura pode ter sido parcial. Não desfaz a troca de senha (ela deu
+    // certo), mas não pode ficar só num console.error.
+    noteDegraded(
+      'troca de senha não encerrou as outras sessões',
+      'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
+      e,
+    );
+    ctx?.waitUntil(sendErrorAlert(env, e, { path: 'PUT /api/settings/password (session sweep)' }).catch(() => {}));
   }
 
   return jsonOk({ ok: true });
