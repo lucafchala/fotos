@@ -322,6 +322,10 @@ const worker = {
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
       if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
+      // Heartbeat ao Kuma (homelab) em background — prova que fotos está up
+      // sem bloquear a resposta. A latência é medida e reportada.
+      ctx.waitUntil(pushToKuma(env));
+
       return notFound();
     } catch (err) {
       console.error(err);
@@ -1663,6 +1667,22 @@ const CRON_STALE_MS = 26 * 60 * 60 * 1000; // 26h — one daily run + 2h propaga
 // (null/undefined) is NOT stale — a fresh deploy hasn't reached 03:00 yet, so we
 // don't want the status dashboard to cry wolf for the first day. Only an
 // existing-but-old beat counts as a real "the cron stopped" signal.
+// Uptime Kuma push: heartbeat para avisar que fotos está up.
+// Executado em background a cada requisição — não bloqueia a resposta.
+async function pushToKuma(env) {
+  const KUMA_PUSH_URL = 'https://homelab.lucafchala.com/api/push/CUgccpJ7eJ';
+  if (!KUMA_PUSH_URL) return;
+  try {
+    const start = Date.now();
+    const res = await fetch(KUMA_PUSH_URL + '?status=up&msg=OK&ping=' + (Date.now() - start), {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) console.error(`Kuma push failed: ${res.status}`);
+  } catch (e) {
+    console.error('Kuma push error:', e.message);
+  }
+}
+
 export function cronStale(lastIso, now = Date.now()) {
   if (!lastIso) return false;
   const t = new Date(lastIso).getTime();
