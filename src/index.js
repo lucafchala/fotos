@@ -210,6 +210,9 @@ const worker = {
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    // Heartbeat ao Kuma em background — toda requisição, não só 404s
+    ctx.waitUntil(pushToKuma(env));
+
     try {
       // --- CSRF: um único portão antes do roteamento ---------------------
       // Colocado aqui, e não em cada handler, porque o modo de falha desse
