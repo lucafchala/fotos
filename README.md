@@ -77,6 +77,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
 | Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção ~5 anos |
+| Monitoramento | Uptime Kuma (homelab) via heartbeat push a cada requisição — `GET https://homelab.lucafchala.com/api/push/{ID}?status=up&ping={latency}` em background (`ctx.waitUntil`) |
 
 **Sem ORM, sem JSX/React, sem bundler.** O estado principal é uma única chave KV `events` (array JSON de todos os eventos), mais chaves de sessão/contador/rate-limit/categorias. Um banco **D1** (SQLite) guarda apenas o log append-only de consentimento de uso de imagem (`image_use_consent`). As páginas HTML são strings literais geradas em runtime — fácil de ler, fácil de mudar, zero overhead de build.
 
@@ -248,6 +249,25 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 ### Turnstile
 
 Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção e no suporte.
+
+---
+
+## Monitoramento (Uptime Kuma)
+
+Fotos envia um **heartbeat** para Uptime Kuma (rodando no homelab) a cada requisição HTTP, permitindo que o status dashboard (`status.lucafchala.com`) veja que fotos está up.
+
+```
+fetch('https://homelab.lucafchala.com/api/push/{ID}?status=up&msg=OK&ping={latency}')
+  └─ Executa em background com ctx.waitUntil
+  └─ Timeout 5s, falhas logadas (não afeta resposta do visitante)
+```
+
+O heartbeat:
+- ✅ Envia latência (`ping`) para Kuma calcular tendência
+- ✅ Usa o mesmo endpoint que monitorar de fora teria (Kuma push)
+- ✅ Zero overhead: corre em paralelo, não bloqueia
+
+**No status dashboard:** A página checa se `homelab.lucafchala.com` está acessível (verificando a Tunnel), sinaliza Kuma como up/degraded/down baseado nisso, e emite alertas se o homelab ficar offline.
 
 ---
 
