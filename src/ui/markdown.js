@@ -1,6 +1,11 @@
 import { escape } from '../utils.js';
 import { DOC_PATH_TO_SLUG } from '../content/legal-docs.js';
 
+/**
+ * Uma entrada do índice lateral (só h2 e h3 entram).
+ * @typedef {{ id: string, level: number, title: string }} ItemIndice
+ */
+
 // Renderizador de um subconjunto de Markdown, feito sob medida para os
 // documentos de conformidade.
 //
@@ -35,6 +40,10 @@ import { DOC_PATH_TO_SLUG } from '../content/legal-docs.js';
 // markdown antes de publicar.
 const SITE_HOST = 'fotos.lucafchala.com';
 
+/**
+ * @param {unknown} raw
+ * @returns {string|null}
+ */
 export function resolveDocHref(raw) {
   if (typeof raw !== 'string' || !raw) return null;
   const href = raw.trim();
@@ -50,7 +59,7 @@ export function resolveDocHref(raw) {
 
   // Documento irmão, em qualquer das formas relativas que os markdowns usam.
   const withoutAnchor = href.split('#')[0];
-  const slug = DOC_PATH_TO_SLUG[withoutAnchor];
+  const slug = /** @type {Record<string, string>} */ (DOC_PATH_TO_SLUG)[withoutAnchor];
   if (slug) return '/legal/' + slug;
 
   // Caminho interno já absoluto — mas `//exemplo.com/x` também começa com `/`
@@ -94,6 +103,7 @@ export function resolveDocHref(raw) {
   return href;
 }
 
+/** @param {string} href */
 function isExternal(href) {
   return /^https:\/\//i.test(href);
 }
@@ -109,13 +119,15 @@ function isExternal(href) {
 // nunca reexamina o que acabou de produzir e o problema deixa de existir.
 const ENTITIES = { '&amp;': '&', '&quot;': '"', '&#x27;': "'", '&lt;': '<', '&gt;': '>' };
 
+/** @param {string} s */
 function unescapeEntities(s) {
-  return s.replace(/&(?:amp|quot|#x27|lt|gt);/g, m => ENTITIES[m]);
+  return s.replace(/&(?:amp|quot|#x27|lt|gt);/g, /** @param {string} m */ m => /** @type {Record<string, string>} */ (ENTITIES)[m]);
 }
 
 // ---------------------------------------------------------------------------
 // Formatação inline — roda SOBRE texto já escapado
 // ---------------------------------------------------------------------------
+/** @param {string} escaped */
 function inline(escaped) {
   let s = escaped;
 
@@ -123,15 +135,16 @@ function inline(escaped) {
   // negrito nem virar link. O marcador usa caracteres de uso privado, e não
   // algo como " CODE0 ": esse injetaria espaços quando a crase vem colada na
   // palavra vizinha, e ainda poderia casar com as regras seguintes.
+  /** @type {string[]} */
   const codes = [];
-  s = s.replace(/`([^`]+)`/g, (_, code) => {
+  s = s.replace(/`([^`]+)`/g, /** @param {string} _ @param {string} code */ (_, code) => {
     codes.push(code);
     return '\uE000' + (codes.length - 1) + '\uE001';
   });
 
   // Links: [rótulo](destino). O destino já vem escapado, então desfazemos o
   // escape só para analisá-lo, e reescapamos ao emitir o atributo.
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (whole, label, target) => {
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, /** @param {string} whole @param {string} label @param {string} target */ (whole, label, target) => {
     const raw = unescapeEntities(target);
     const href = resolveDocHref(raw);
     if (!href) return label; // rebaixado a texto puro
@@ -142,10 +155,11 @@ function inline(escaped) {
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
 
-  s = s.replace(/\uE000(\d+)\uE001/g, (_, i) => `<code>${escape(codes[Number(i)])}</code>`);
+  s = s.replace(/\uE000(\d+)\uE001/g, /** @param {string} _ @param {string} i */ (_, i) => `<code>${escape(codes[Number(i)])}</code>`);
   return s;
 }
 
+/** @param {unknown} raw */
 function text(raw) {
   return inline(escape(raw));
 }
@@ -153,6 +167,7 @@ function text(raw) {
 // ---------------------------------------------------------------------------
 // Blocos
 // ---------------------------------------------------------------------------
+/** @param {string} line */
 function tableRowCells(line) {
   // Descarta o pipe inicial/final e divide. Não trata pipe escapado — os
   // documentos não usam, e inventar suporte para o que ninguém escreve só cria
@@ -167,14 +182,20 @@ const OL_RE = /^\s*\d+\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const TABLE_SEP_RE = /^\|?[\s:|-]+\|[\s:|-]*$/;
 
+/**
+ * @param {unknown} md
+ * @returns {{ html: string, toc: ItemIndice[] }}
+ */
 export function renderMarkdown(md) {
   const lines = String(md ?? '').replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   let i = 0;
 
   // Índice de headings, para a navegação lateral da página do documento.
+  /** @type {ItemIndice[]} */
   const toc = [];
   const slugCount = new Map();
+  /** @param {string} title */
   const headingId = title => {
     const base = title.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -235,8 +256,16 @@ export function renderMarkdown(md) {
     // --- citação ---
     if (QUOTE_RE.test(line)) {
       const body = [];
-      while (i < lines.length && QUOTE_RE.test(lines[i])) {
-        body.push(lines[i].match(QUOTE_RE)[1]);
+      // Casa UMA vez e usa o resultado como condição, em vez de `test()` seguido
+      // de `match()`. Dois ganhos: metade do trabalho de regex, e o grupo de
+      // captura deixa de depender de `test` e `match` concordarem — o dia em que
+      // alguém acrescentar a flag `g` a um destes padrões, `test` vira stateful
+      // (`lastIndex`) e `match` passa a devolver a lista de ocorrências em vez
+      // dos grupos. As duas coisas quebram calado.
+      for (;;) {
+        const m = i < lines.length ? lines[i].match(QUOTE_RE) : null;
+        if (!m) break;
+        body.push(m[1]);
         i++;
       }
       // Recursivo: as citações dos documentos contêm títulos, listas e tabelas
@@ -251,8 +280,12 @@ export function renderMarkdown(md) {
     if (isUl || isOl) {
       const re = isUl ? UL_RE : OL_RE;
       const items = [];
-      while (i < lines.length && re.test(lines[i])) {
-        let item = lines[i].match(re)[1];
+      // Mesmo motivo da citação acima: uma passada de regex, e o grupo de
+      // captura vem do próprio casamento que autorizou a iteração.
+      for (;;) {
+        const m = i < lines.length ? lines[i].match(re) : null;
+        if (!m) break;
+        let item = m[1];
         i++;
         // Continuação indentada da mesma entrada.
         while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !re.test(lines[i]) && !UL_RE.test(lines[i]) && !OL_RE.test(lines[i])) {

@@ -3,6 +3,11 @@ import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootS
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
 
+/**
+ * @param {import('../utils.js').Evento[]} events
+ * @param {string|null} analyticsToken
+ * @param {string} [nonce]
+ */
 export function galleryHTML(events, analyticsToken, nonce = '') {
   // getEvents() already filters junk entries, but this is the public homepage:
   // a single null/non-object here throws on `e.visible` and turns the whole
@@ -13,8 +18,13 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   const pinned = visible.filter(e => e.pinned === true);
   const rest = visible.filter(e => e.pinned !== true);
 
+  /** @param {import('../utils.js').Evento} e */
   const yearOf = e => e.date ? e.date.slice(0, 4) : String(new Date(eventTime(e)).getFullYear());
 
+  /**
+   * @param {import('../utils.js').Evento} e
+   * @param {{ hidden?: boolean, featured?: boolean }} [opts]
+   */
   const cardHTML = (e, { hidden = false, featured = false } = {}) => {
     const width = featured ? 1600 : 600;
     const thumb = e.thumbnailUrl ? sizedDriveThumb(e.thumbnailUrl, width) : '';

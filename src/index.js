@@ -13,7 +13,8 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
-  noteKvFailure, noteDegraded, degradedHealth, toCount, bumpCounter, flushCounters,
+  noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
+  bumpCounter, readCounter, deleteCounter,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -25,6 +26,17 @@ import {
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
   HONEYPOT_FIELD, honeypotTripped,
 } from './security.js';
+
+// As classes de Durable Object têm de ser exportadas pelo MÓDULO DE ENTRADA: é
+// por aqui que o runtime as encontra a partir dos bindings do wrangler.toml.
+// Reexportar não é estilo, é requisito — sem esta linha o deploy sobe e os
+// bindings ficam apontando para classes que não existem.
+export { Counter, RateLimiter } from './counters.js';
+
+/**
+ * @typedef {import('./utils.js').Env} Env
+ * @typedef {import('./utils.js').Evento} Evento
+ */
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
@@ -107,6 +119,9 @@ export const SIGNING_SECRET_MIN_LENGTH = 32;
 // Pior: o painel da Cloudflare **não mostra o valor de um secret**, então esta
 // mensagem é a única coisa no mundo capaz de distinguir os dois. Uma mensagem
 // de diagnóstico que junta dois estados é meio diagnóstico.
+/**
+ * @param {Partial<Env>} env
+ */
 export function signingSecretProblem(env) {
   const raw = env?.SIGNING_SECRET;
 
@@ -130,8 +145,14 @@ export function signingSecretProblem(env) {
   return null;
 }
 
+/**
+ * @param {Env} env
+ */
 function signingSecret(env) {
-  return signingSecretProblem(env) ? null : env.SIGNING_SECRET.trim();
+  // O `?? ''` é inalcançável: signingSecretProblem() já devolveu não-nulo se o
+  // segredo faltasse. Existe porque o tsc não carrega a prova de uma função
+  // para a outra, e uma asserção `!` esconderia a mesma coisa sem explicar.
+  return signingSecretProblem(env) ? null : (env.SIGNING_SECRET ?? '').trim();
 }
 
 // Janela do nonce de página do Drive. Generosa de propósito: o gate é o último
@@ -146,6 +167,10 @@ export const DRIVE_NONCE_TTL_SECS = 7200;
 export const FORM_TOKEN_TTL_SECS = 7200;
 export const FORM_TOKEN_MIN_AGE_SECS = 3;
 
+/**
+ * @param {Env} env
+ * @param {string} slug
+ */
 export async function mintDriveNonce(env, slug) {
   const secret = signingSecret(env);
   if (!secret) return '';
@@ -163,6 +188,11 @@ export async function mintDriveNonce(env, slug) {
 // Funciona porque verifyToken deriva o instante de emissão de `exp - ttlSecs`:
 // assinar com um TTL menor faz o token parecer mais velho do que é. O prazo
 // final encurta pelos mesmos 3 s, o que é irrelevante numa janela de 2 h.
+/**
+ * @param {Env} env
+ * @param {string} form
+ * @param {{ preAged?: boolean }} [opts]
+ */
 export async function mintFormToken(env, form, { preAged = false } = {}) {
   const secret = signingSecret(env);
   if (!secret) return '';
@@ -189,6 +219,9 @@ export async function mintFormToken(env, form, { preAged = false } = {}) {
 // o corpo. Custa a mesma leitura de KV que um GET, o que é correto: a promessa
 // do HEAD é que os cabeçalhos sejam os mesmos, e cabeçalho inventado sem passar
 // pelo handler mente sobre status e tipo.
+/**
+ * @param {Response} res
+ */
 function stripBody(res) {
   return new Response(null, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
@@ -201,6 +234,13 @@ const worker = {
   // três argumentos, então o quarto só existe quando somos nós mesmos chamando
   // logo abaixo. É o que torna a flag inforjável — um cliente não consegue
   // pedir para não ser contado, porque não existe cabeçalho para isso.
+  /**
+   * @param {Request} request
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   * @param {{ headOnly?: boolean }} [interno]
+   * @returns {Promise<Response>}
+   */
   async fetch(request, env, ctx, interno = {}) {
     if (request.method.toUpperCase() === 'HEAD') {
       const asGet = new Request(request.url, { method: 'GET', headers: request.headers });
@@ -279,7 +319,7 @@ const worker = {
         // e o textarea abre pré-preenchido com "function toString() { [native
         // code] }". Inofensivo, mas é lixo visível numa página de suporte.
         const tema = url.searchParams.get('tema');
-        const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? TEMA_PREFILLS[tema] : undefined;
+        const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? /** @type {Record<string, string>} */ (TEMA_PREFILLS)[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
       if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce, ctx);
@@ -325,10 +365,6 @@ const worker = {
       const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
       if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
-      // Heartbeat ao Kuma (homelab) em background — prova que fotos está up
-      // sem bloquear a resposta. A latência é medida e reportada.
-      ctx.waitUntil(pushToKuma(env));
-
       return notFound();
     } catch (err) {
       console.error(err);
@@ -343,17 +379,17 @@ const worker = {
   // Daily cron: purge resolved removal requests past the retention window so
   // personal data (e-mail/phone) is not kept indefinitely. Configured in
   // wrangler.toml ([triggers] crons).
+  /**
+   * @param {ScheduledController} event
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
   async scheduled(event, env, ctx) {
     // Heartbeat first: stamp the wall-clock the cron last fired so /api/healthz
     // (and the status dashboard) can detect a *silently dead* schedule — a job
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
-    // Descarrega o que sobrou pendente nos contadores. Sem isto, o resto de uma
-    // janela que não chegou a completar se perde quando o isolate morre — e o
-    // fim do dia (justamente o rabo de um lançamento) é quando o tráfego cai e
-    // ninguém dispara o flush.
-    ctx.waitUntil(flushCounters(env).catch(e => noteKvFailure('escrita', e, 'flush de contadores no cron')));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -370,6 +406,10 @@ export default worker;
 // ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
+/**
+ * @param {Env} env
+ * @param {string} nonce
+ */
 async function handleGallery(env, nonce) {
   const events = await getEvents(env);
   const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce), 200, nonce);
@@ -381,9 +421,13 @@ async function handleGallery(env, nonce) {
 // ---------------------------------------------------------------------------
 // SEO: sitemap.xml + robots.txt
 // ---------------------------------------------------------------------------
+/**
+ * @param {Env} env
+ */
 async function handleSitemap(env) {
   const events = await getEvents(env);
   const visible = events.filter(e => e.visible !== false);
+  /** @param {Evento} e */
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
   const urls = [
@@ -480,6 +524,14 @@ function handleGpc() {
 // ---------------------------------------------------------------------------
 // Event page
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {ExecutionContext} ctx
+ * @param {string} nonce
+ * @param {boolean} [headOnly]
+ */
 async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
@@ -543,6 +595,12 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
 // ---------------------------------------------------------------------------
 // Dashboard page
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ * @param {string} nonce
+ */
 async function handleDashboardPage(request, env, url, nonce) {
   const stored = await getAdminHash(env);
   if (!stored) {
@@ -562,6 +620,11 @@ async function handleDashboardPage(request, env, url, nonce) {
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
 export async function handleLogin(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
@@ -616,7 +679,7 @@ export async function handleLogin(request, env, ctx) {
   // Migrate legacy SHA-256 hash to PBKDF2 on first successful login. Isolada:
   // a migração é oportunista, e falhar nela não pode impedir um login com senha
   // já conferida — na próxima vez ela tenta de novo.
-  if (!stored.startsWith('pbkdf2:')) {
+  if (stored && !stored.startsWith('pbkdf2:')) {
     await env.FOTOS.put('admin_password', await hashPassword(password))
       .catch(e => noteKvFailure('escrita', e, 'migração do hash da senha'));
   }
@@ -660,6 +723,11 @@ export async function handleLogin(request, env, ctx) {
 const LOGIN_ALERT_THRESHOLD = 5;
 const LOGIN_ALERT_WINDOW_SECS = 900;
 
+/**
+ * @param {Env} env
+ * @param {Request} request
+ * @param {string} ip
+ */
 async function noteFailedLogin(env, request, ip) {
   const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
   const key = `login-fail:${ip}:${window}`;
@@ -686,6 +754,9 @@ async function noteFailedLogin(env, request, ip) {
 
 // Stored credential, seeded from the ADMIN_PASSWORD secret when KV is empty
 // (fresh deploy / wiped namespace) so there is never an open setup window.
+/**
+ * @param {Env} env
+ */
 async function getAdminHash(env) {
   const stored = await env.FOTOS.get('admin_password');
   if (stored) return stored;
@@ -700,6 +771,11 @@ async function getAdminHash(env) {
 // ---------------------------------------------------------------------------
 // Logout
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
 export async function handleLogout(request, env, ctx) {
   const cookies = request.headers.get('Cookie') || '';
   const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
@@ -754,7 +830,11 @@ export const DEFAULT_EVENT = {
 
 // Fill any field absent (undefined/null) on an existing event with the default,
 // so the normalizer's fallbacks are always well-defined for legacy records.
+/**
+ * @param {Record<string, any>} ev
+ */
 function withEventDefaults(ev) {
+  /** @type {Record<string, any>} */
   const out = { ...DEFAULT_EVENT };
   for (const k of Object.keys(DEFAULT_EVENT)) {
     if (ev[k] !== undefined && ev[k] !== null) out[k] = ev[k];
@@ -762,6 +842,10 @@ function withEventDefaults(ev) {
   return out;
 }
 
+/**
+ * @param {any} pa
+ * @param {any} fallback
+ */
 function normalizePhotosAlert(pa, fallback) {
   return pa && typeof pa === 'object'
     ? { active: pa.active === true, addedAt: pa.addedAt || null, expiresAfterHours: parseInt(pa.expiresAfterHours) || 0 }
@@ -772,8 +856,19 @@ function normalizePhotosAlert(pa, fallback) {
 // in `body` is sanitized; an absent one falls back to `base` (DEFAULT_EVENT on
 // create, the existing event on update). Callers handle id/slug/photos/
 // thumbnail/timestamps separately. `cats` is the list of valid categories.
+/**
+ * @param {Record<string, any>} body corpo JSON do painel — forma não garantida
+ * @param {Record<string, any>} base
+ * @param {string[]} cats
+ */
 export function normalizeEventFields(body, base, cats) {
   const b = withEventDefaults(base);
+  // `v` é `any` de propósito: vem de JSON.parse do corpo, e é justamente o que
+  // cada normalizador abaixo existe para domar.
+  /**
+   * @param {string} key
+   * @param {(v: any) => any} norm
+   */
   const pick = (key, norm) => (body[key] !== undefined ? norm(body[key]) : b[key]);
   return {
     title: pick('title', v => String(v).slice(0, 200)),
@@ -795,6 +890,9 @@ export function normalizeEventFields(body, base, cats) {
 }
 
 // Map a photos array to sanitized https URLs (max 6). Shared by create + update.
+/**
+ * @param {any[]} arr
+ */
 function normalizePhotos(arr) {
   return arr.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean);
 }
@@ -802,6 +900,10 @@ function normalizePhotos(arr) {
 // ---------------------------------------------------------------------------
 // API: Create event
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleCreateEvent(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -839,6 +941,11 @@ async function handleCreateEvent(request, env) {
 // ---------------------------------------------------------------------------
 // API: Update event
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} path
+ */
 async function handleUpdateEvent(request, env, path) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -858,6 +965,7 @@ async function handleUpdateEvent(request, env, path) {
     ? normalizePhotos(body.photos)
     : (existing.photos || []);
 
+  /** @type {Record<string, any>} */
   const updated = {
     ...existing,
     ...normalizeEventFields(body, existing, cats),
@@ -886,6 +994,11 @@ async function handleUpdateEvent(request, env, path) {
 // ---------------------------------------------------------------------------
 // API: Delete event
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} path
+ */
 async function handleDeleteEvent(request, env, path) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -897,19 +1010,33 @@ async function handleDeleteEvent(request, env, path) {
 
   const [removed] = events.splice(idx, 1);
   await saveEvents(env, events);
-  await env.FOTOS.delete(`views:${removed.slug}`).catch(e => console.error('view-counter cleanup failed', e));
+  // Os dois contadores, não só o de visitas: `drive_clicks:<slug>` ficava para
+  // trás na versão em KV e ressurgia somado se um projeto novo reaproveitasse o
+  // slug.
+  await Promise.all([
+    deleteCounter(env, `views:${removed.slug}`),
+    deleteCounter(env, `drive_clicks:${removed.slug}`),
+  ]);
   return jsonOk({ deleted: true });
 }
 
 // ---------------------------------------------------------------------------
 // API: Categories (list / create / delete) + bulk category assignment
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleGetCategories(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   return jsonOk({ categories: await getCategories(env) });
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleCreateCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -931,6 +1058,10 @@ async function handleCreateCategory(request, env) {
   return jsonOk({ categories: cats }, 201);
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleDeleteCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -956,6 +1087,10 @@ async function handleDeleteCategory(request, env) {
   return jsonOk({ categories: remaining, cleared });
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleBulkCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -984,6 +1119,10 @@ async function handleBulkCategory(request, env) {
   return jsonOk({ updated, category });
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleBulkAccessType(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -1015,6 +1154,10 @@ async function handleBulkAccessType(request, env) {
 // API: Metrics
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleMetrics(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -1023,16 +1166,14 @@ async function handleMetrics(request, env) {
   const metrics = await Promise.all(
     events.map(async e => {
       const [v, d] = await Promise.all([
-        env.FOTOS.get(`views:${e.slug}`),
-        env.FOTOS.get(`drive_clicks:${e.slug}`),
+        readCounter(env, `views:${e.slug}`),
+        readCounter(env, `drive_clicks:${e.slug}`),
       ]);
       return {
         slug: e.slug,
         title: e.title,
-        // NaN here would silently corrupt the sort below (and render as "NaN"
-        // in the dashboard table), so coerce unparseable counters to 0.
-        views: toCount(v),
-        driveClicks: toCount(d),
+        views: v,
+        driveClicks: d,
       };
     })
   );
@@ -1043,6 +1184,11 @@ async function handleMetrics(request, env) {
 // ---------------------------------------------------------------------------
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
 export async function handleTrackDrive(request, env, ctx) {
   // Ordem importa por causa da cota: `checkRateLimit` GRAVA em KV, e a cota é
   // de 1000 escritas/dia para a conta inteira. Com o rate limit na frente, todo
@@ -1109,6 +1255,10 @@ export async function handleTrackDrive(request, env, ctx) {
 // Sem rate limit por KV de propósito: checkRateLimit faz leitura+escrita em KV,
 // o que custaria mais do que o próprio beacon economiza. O que limita o volume
 // aqui é a amostragem no cliente, e o corpo é validado e truncado abaixo.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 export async function handlePerfBeacon(request, env) {
   // sendBeacon não espera resposta; 204 encerra sem corpo.
   const done = () => new Response(null, { status: 204 });
@@ -1139,6 +1289,7 @@ export async function handlePerfBeacon(request, env) {
 
   // Só números plausíveis passam: o corpo vem do cliente e pode ser forjado.
   // Um valor absurdo aqui envenenaria a média sem que nada pareça quebrado.
+  /** @param {unknown} v @param {number} max */
   const num = (v, max) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v) : null);
   const nav = body.nav && typeof body.nav === 'object' ? body.nav : {};
   const sample = {
@@ -1174,6 +1325,12 @@ export async function handlePerfBeacon(request, env) {
 // ---------------------------------------------------------------------------
 // Support page form submission (public)
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} nonce
+ * @param {ExecutionContext} ctx
+ */
 export async function handleSupportRequest(request, env, nonce, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
@@ -1182,6 +1339,12 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   // `ok` distingue a tela de sucesso da re-renderização com erro. No caso de
   // erro o token sai pré-envelhecido, para que corrigir e reenviar depressa não
   // esbarre no piso de idade — ver mintFormToken().
+  /**
+   * @param {boolean} ok
+   * @param {string} [error]
+   * @param {{ name?: string, email?: string, message?: string }} [values]
+   * @param {number} [status]
+   */
   const page = async (ok, error = '', values = {}, status = 200) =>
     html(
       supportHTML(ok, error, values, nonce, await mintFormToken(env, 'suporte', { preAged: !ok })),
@@ -1273,6 +1436,9 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
   // uma falha de envio deixa o reenvio funcionar.
   let sent = false;
+  // O que foi LANÇADO, não uma mensagem: segue para `noteDegraded` e para
+  // `sendErrorAlert`, que querem o erro inteiro. `catch` entrega `unknown`.
+  /** @type {unknown} */
   let falha = null;
   try {
     sent = await sendSupportEmail(env, { name, email, message });
@@ -1309,6 +1475,9 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
 }
 
 // Hash curto para chaves de KV (dedupe). Não é segredo, só precisa espalhar bem.
+/**
+ * @param {string} text
+ */
 async function shortHash(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf).slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1317,6 +1486,11 @@ async function shortHash(text) {
 // ---------------------------------------------------------------------------
 // API: Change password
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
 export async function handleChangePassword(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -1373,6 +1547,10 @@ export async function handleChangePassword(request, env, ctx) {
 // ---------------------------------------------------------------------------
 // API: Removal request (public)
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleRemovalRequest(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
@@ -1446,6 +1624,7 @@ async function handleRemovalRequest(request, env) {
   // não há lista: se `stripped` voltar falso, por qualquer motivo, a foto não
   // vai. Suportar HEIC no futuro passa a ser só ensinar stripImageMetadata —
   // este portão abre junto, sem ninguém lembrar de nada.
+  /** @type {Record<string, any>|null} */
   let photoMeta = null;
   let cleanFileBase64 = fileBase64;
   if (method === 'upload' && fileBase64) {
@@ -1512,7 +1691,7 @@ async function handleRemovalRequest(request, env) {
   // Defensive retention: drop resolved requests past the window even if the
   // daily cron has not run yet.
   const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const requests = stored.filter(r => r.resolved
+  const requests = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
     ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
     : true);
   // Hold a reference to the new record: the MAX_REQUESTS trim below reorders the
@@ -1522,6 +1701,12 @@ async function handleRemovalRequest(request, env) {
   // O binário nunca é gravado em KV — só viaja no e-mail. `photoMeta` guarda o
   // resultado da limpeza para que, ao revisar o pedido, dê para saber se a foto
   // chegou sem metadado ou se o formato não permitiu tratar.
+  // `emailStatus`/`confirmEmailStatus` são preenchidos DEPOIS, pelos dois
+  // envios abaixo, e ficam gravados no registro para o painel mostrar por que
+  // um pedido não gerou aviso. Declarados aqui porque a forma inferida do
+  // literal não os inclui — e sem isso a checagem de tipos não enxerga campos
+  // que o painel lê.
+  /** @type {Record<string, any> & { emailStatus?: string, confirmEmailStatus?: string|null }} */
   const newReq = { ...req, fileBase64: null, photoMeta };
   requests.push(newReq);
 
@@ -1554,7 +1739,7 @@ async function handleRemovalRequest(request, env) {
     // exercendo direito sobre os próprios dados. Repetir isso no log
     // compartilhado não acrescenta nada que o painel já não mostre, e espalha
     // dado pessoal por um lugar a mais.
-    newReq.emailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.emailStatus = 'error: ' + errMessage(err).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
       'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
@@ -1566,7 +1751,7 @@ async function handleRemovalRequest(request, env) {
     const sent = await sendConfirmationEmail(env, req);
     newReq.confirmEmailStatus = sent ? 'sent' : null;
   } catch (err) {
-    newReq.confirmEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    newReq.confirmEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
   }
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
@@ -1578,6 +1763,10 @@ async function handleRemovalRequest(request, env) {
 // recent resolved ones up to `max`. Mutates `requests` in place (and returns
 // it). Unresolved records are always retained — the email-status write in
 // handleRemovalRequest relies on the freshly-pushed request surviving this.
+/**
+ * @param {Record<string, any>[]} requests
+ * @param {number} max
+ */
 export function trimRequests(requests, max) {
   if (requests.length <= max) return requests;
 
@@ -1595,14 +1784,18 @@ export function trimRequests(requests, max) {
   // Prioridade continua sendo dos não-resolvidos (são pedidos de titular em
   // aberto, prazo legal correndo). O que muda é que, se nem eles couberem, os
   // mais antigos também caem, em vez de o teto ser ignorado.
+  /** @param {Record<string, any>} a @param {Record<string, any>} b */
   const maisNovoPrimeiro = (a, b) => String(b.createdAt).localeCompare(String(a.createdAt));
   const unresolved = requests.filter(r => !r.resolved).sort(maisNovoPrimeiro);
-  const resolved = requests.filter(r => r.resolved).sort(maisNovoPrimeiro);
+  const resolved = requests.filter(/** @param {Record<string, any>} r */ r => r.resolved).sort(maisNovoPrimeiro);
 
   requests.splice(0, requests.length, ...[...unresolved, ...resolved].slice(0, max));
   return requests;
 }
 
+/**
+ * @param {Env} env
+ */
 async function getRemovalRequests(env) {
   const data = await env.FOTOS.get('removal_requests');
   if (!data) return [];
@@ -1611,10 +1804,13 @@ async function getRemovalRequests(env) {
 
 // Drop resolved requests whose resolvedAt is older than the retention window.
 // Unresolved requests are always kept. Returns true if anything was removed.
+/**
+ * @param {Env} env
+ */
 async function pruneResolvedRemovalRequests(env) {
   const requests = await getRemovalRequests(env);
   const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const kept = requests.filter(r => {
+  const kept = requests.filter(/** @param {Record<string, any>} r */ r => {
     if (!r.resolved) return true;
     const t = new Date(r.resolvedAt || r.createdAt || 0).getTime();
     return t >= cutoff;
@@ -1624,6 +1820,10 @@ async function pruneResolvedRemovalRequests(env) {
   return true;
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleGetRemovalRequests(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -1631,11 +1831,16 @@ async function handleGetRemovalRequests(request, env) {
   return jsonOk([...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} id
+ */
 async function handleResolveRequest(request, env, id) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const requests = await getRemovalRequests(env);
-  const idx = requests.findIndex(r => r.id === id);
+  const idx = requests.findIndex(/** @param {Record<string, any>} r */ r => r.id === id);
   if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
 
   const req = requests[idx];
@@ -1646,7 +1851,7 @@ async function handleResolveRequest(request, env, id) {
     const sent = await sendResolvedEmail(env, req);
     resolvedEmailStatus = sent ? 'sent' : null;
   } catch (err) {
-    resolvedEmailStatus = 'error: ' + String(err.message || err).slice(0, 200);
+    resolvedEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
   }
 
   requests[idx] = {
@@ -1672,6 +1877,9 @@ const CRON_STALE_MS = 26 * 60 * 60 * 1000; // 26h — one daily run + 2h propaga
 // existing-but-old beat counts as a real "the cron stopped" signal.
 // Uptime Kuma push: heartbeat para avisar que fotos está up.
 // Executado em background a cada requisição — não bloqueia a resposta.
+/**
+ * @param {Env} env
+ */
 async function pushToKuma(env) {
   const KUMA_PUSH_URL = 'https://homelab.lucafchala.com/api/push/CUgccpJ7eJ';
   if (!KUMA_PUSH_URL) return;
@@ -1682,10 +1890,14 @@ async function pushToKuma(env) {
     });
     if (!res.ok) console.error(`Kuma push failed: ${res.status}`);
   } catch (e) {
-    console.error('Kuma push error:', e.message);
+    console.error('Kuma push error:', errMessage(e));
   }
 }
 
+/**
+ * @param {string|null|undefined} lastIso
+ * @param {number} [now]
+ */
 export function cronStale(lastIso, now = Date.now()) {
   if (!lastIso) return false;
   const t = new Date(lastIso).getTime();
@@ -1701,10 +1913,16 @@ export function cronStale(lastIso, now = Date.now()) {
 // offending slug, and nominates one healthy event as a `sample` the dashboard
 // can deep-probe (its Drive gate + removal form).
 const MAX_SELFTEST_PROBLEMS = 12;
+/**
+ * @param {Evento[]} events
+ * @param {Partial<Env>} [env] parcial de propósito: a função existe para acusar binding que falta
+ * @param {{label: string, detail?: string, agoSecs?: number}[]} [degradacoes]
+ */
 export function auditSite(events, env = {}, degradacoes = []) {
   const problems = [];
   const seen = new Set();
   let driveOk = 0, driveBad = 0, live = 0;
+  /** @type {string|null} */
   let sample = null;
 
   for (const e of (Array.isArray(events) ? events : [])) {
@@ -1780,6 +1998,10 @@ export function auditSite(events, env = {}, degradacoes = []) {
   };
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 export async function handleHealthz(request, env) {
   // No KV rate-limit here on purpose. This endpoint is polled by the status
   // monitor on a schedule, and checkRateLimit() does a KV *write* per call — a
@@ -1798,7 +2020,9 @@ export async function handleHealthz(request, env) {
   // heartbeat below. Net: still two KV reads per healthz, same as before this
   // diagnostics expansion.
   let kv = false;
+  /** @type {number|null} */
   let events = null;
+  /** @type {any[]} */
   let eventsList = [];
   const kvT0 = Date.now();
   // `fresh: true` aqui não é só para furar o cache: é o que faz esta leitura
@@ -1818,6 +2042,7 @@ export async function handleHealthz(request, env) {
   // --- D1 consent log (optional/best-effort): a missing or unscoped binding
   // must never fail the deploy (see deploy.yml), so it's reported but never ok. ---
   let d1 = 'absent';
+  /** @type {number|null} */
   let d1LatencyMs = null;
   if (env.CONSENT_DB) {
     const t0 = Date.now();
@@ -1926,6 +2151,10 @@ export async function handleHealthz(request, env) {
 const CSP_REPORT_SAMPLE_RATE = 0.2;
 const CSP_REPORT_MAX_BYTES = 8192;
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 export async function handleCspReport(request, env) {
   const done = () => new Response(null, { status: 204, headers: dataSecurityHeaders('text/plain; charset=utf-8') });
   if (Math.random() >= CSP_REPORT_SAMPLE_RATE) return done();
@@ -1948,6 +2177,7 @@ export async function handleCspReport(request, env) {
     if (!r || typeof r !== 'object') continue;
     // Só campos conhecidos, truncados: o corpo é entrada não confiável e vai
     // parar num log que alguém vai ler.
+    /** @param {unknown} v @param {number} n */
     const clip = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null);
     console.log('csp-violation ' + JSON.stringify({
       directive: clip(r['effective-directive'] || r.effectiveDirective || r['violated-directive'], 60),
@@ -1963,6 +2193,10 @@ export async function handleCspReport(request, env) {
 // ---------------------------------------------------------------------------
 // Turnstile verification
 // ---------------------------------------------------------------------------
+/**
+ * @param {string} token
+ * @param {Env} env
+ */
 async function verifyTurnstile(token, env) {
   const secret = env.TURNSTILE_SECRET_KEY;
   if (!secret) return false; // fail closed — a missing secret is a deploy error, not a bypass
@@ -1986,6 +2220,7 @@ async function verifyTurnstile(token, env) {
 // ---------------------------------------------------------------------------
 // Cached SHA-256 (hex) of the exact Terms text shown, so each consent row pins
 // the content — not just the version. Computed once per isolate.
+/** @type {string|null} */
 let _termsHashHex = null;
 async function getTermsHash() {
   if (_termsHashHex) return _termsHashHex;
@@ -2013,6 +2248,11 @@ const CONSENT_COLS = [
 // Exported for the unit suite: this is the one endpoint that hands out the
 // Drive URLs, so its refusals (bad Turnstile, missing consent, coming-soon
 // event) are the security contract worth pinning against regression.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
 export async function handleDriveLink(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
@@ -2066,7 +2306,7 @@ export async function handleDriveLink(request, env, ctx) {
   }
 
   if (body.consent !== true) return jsonErr('É necessário aceitar os Termos de Uso.', 400);
-  const declarationText = ACCESS_DECLARATIONS[event.accessType] || '';
+  const declarationText = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
   if (declarationText && body.declaration !== true) {
     return jsonErr('É necessário confirmar a declaração de acesso.', 400);
   }
@@ -2090,11 +2330,11 @@ export async function handleDriveLink(request, env, ctx) {
       String(body.name || '').trim().slice(0, 120) || null,
       turnstileOk ? 1 : 0,
       ip.slice(0, 64),
-      (request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
+      String(request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
       String(cf.region || '').slice(0, 80),
       String(cf.city || '').slice(0, 120),
       String(cf.timezone || '').slice(0, 64),
-      cf.asn ? parseInt(cf.asn, 10) : null,
+      cf.asn ? parseInt(String(cf.asn), 10) : null,
       String(cf.asOrganization || '').slice(0, 160),
       String(cf.colo || '').slice(0, 16),
       (request.headers.get('User-Agent') || '').slice(0, 400),
@@ -2135,6 +2375,10 @@ export async function handleDriveLink(request, env, ctx) {
   return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleConsentExport(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -2149,6 +2393,9 @@ async function handleConsentExport(request, env) {
 
 // Retention: delete consent rows older than the window (~5 years, see
 // CONSENT_RETENTION_DAYS). Runs in the daily cron.
+/**
+ * @param {Env} env
+ */
 async function pruneOldConsent(env) {
   if (!env.CONSENT_DB) return;
   const cutoff = new Date(Date.now() - CONSENT_RETENTION_DAYS * 86400_000).toISOString();
@@ -2158,6 +2405,10 @@ async function pruneOldConsent(env) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function checkAuth(request, env) {
   const authed = await verifySession(env, request);
   if (!authed) return jsonErr('Não autorizado.', 401);
@@ -2171,14 +2422,27 @@ async function checkAuth(request, env) {
 //
 // O `nonce` é opcional para que as páginas de erro (404/500), que não têm
 // script nenhum, continuem chamando html(conteúdo, status) sem cerimônia.
+/**
+ * @param {string} content
+ * @param {number} [status]
+ * @param {string} [nonce]
+ */
 function html(content, status = 200, nonce = '') {
   return new Response(content, { status, headers: htmlSecurityHeaders(nonce) });
 }
 
+/**
+ * @param {string} content
+ * @param {number} [status]
+ * @param {string} [nonce]
+ */
 function adminHtml(content, status = 200, nonce = '') {
   return new Response(content, { status, headers: adminHtmlSecurityHeaders(nonce) });
 }
 
+/**
+ * @param {string} location
+ */
 function redirect(location) {
   // Mesmo um 302 sai com os cabeçalhos de segurança: é uma resposta da nossa
   // origem e não há motivo para ela ser a exceção da regra.
@@ -2188,6 +2452,10 @@ function redirect(location) {
   });
 }
 
+/**
+ * @param {any} data
+ * @param {number} [status]
+ */
 function jsonOk(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -2195,6 +2463,10 @@ function jsonOk(data, status = 200) {
   });
 }
 
+/**
+ * @param {string} message
+ * @param {number} [status]
+ */
 function jsonErr(message, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -2246,6 +2518,9 @@ function handleComingSoonOgImage() {
 // ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
+/**
+ * @param {{ events: Evento[], categories: string[], removalRequests: Record<string, any>[] }} data
+ */
 export function buildBackup({ events, categories, removalRequests }) {
   return JSON.stringify({
     version: 2,
@@ -2266,13 +2541,16 @@ export function buildBackup({ events, categories, removalRequests }) {
 // including fields this normalizer doesn't know about — restore unchanged.
 const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
 
+/**
+ * @param {any} ev
+ */
 function sanitizeRestoredEvent(ev) {
   const out = { ...ev };
   for (const f of RESTORE_URL_FIELDS) {
     if (out[f] !== undefined) out[f] = toHttps(String(out[f] ?? '').slice(0, 500));
   }
   if (Array.isArray(out.photos)) {
-    out.photos = out.photos.map(u => toHttps(String(u ?? '').slice(0, 500))).filter(Boolean);
+    out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, 500))).filter(Boolean);
   }
   return out;
 }
@@ -2289,11 +2567,15 @@ const RESTORE_REQUEST_STRINGS = {
   emailStatus: 220, confirmEmailStatus: 220, resolvedEmailStatus: 220,
 };
 
+/**
+ * @param {any} r
+ */
 export function sanitizeRestoredRequest(r) {
   if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
   // Sem id não há como deduplicar nem resolver depois — o registro é inútil.
   if (typeof r.id !== 'string' || !/^[a-f0-9]{1,64}$/.test(r.id)) return null;
 
+  /** @type {Record<string, any>} */
   const out = { resolved: r.resolved === true };
   for (const [key, max] of Object.entries(RESTORE_REQUEST_STRINGS)) {
     if (typeof r[key] === 'string') out[key] = r[key].slice(0, max);
@@ -2304,6 +2586,10 @@ export function sanitizeRestoredRequest(r) {
   return out;
 }
 
+/**
+ * @param {Evento[]} current
+ * @param {any[]} backupEvents
+ */
 export function mergeRestore(current, backupEvents) {
   const result = [...current];
   let added = 0, updated = 0;
@@ -2324,6 +2610,10 @@ export function mergeRestore(current, backupEvents) {
   return { events: result, added, updated };
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -2341,6 +2631,10 @@ async function handleGetBackup(request, env) {
   });
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
 async function handleRestoreBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
@@ -2351,6 +2645,9 @@ async function handleRestoreBackup(request, env) {
   const current = await getEvents(env);
   const { events: merged, added, updated } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
+  // `categories` e `removalRequestsAdded` entram depois, só quando o backup
+  // traz essas seções (v2). A forma inferida do literal não as inclui.
+  /** @type {Record<string, any>} */
   const result = { ok: true, added, updated, total: merged.length };
 
   // v2 sections — optional and backward-compatible (v1 backups simply omit them).
@@ -2364,7 +2661,7 @@ async function handleRestoreBackup(request, env) {
   }
 
   if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await getRemovalRequests(env)).map(r => [r.id, r]));
+    const byId = new Map((await getRemovalRequests(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
     let rAdded = 0;
     for (const r of body.removalRequests) {
       const clean = sanitizeRestoredRequest(r);
@@ -2382,6 +2679,11 @@ async function handleRestoreBackup(request, env) {
   return jsonOk(result);
 }
 
+/**
+ * @param {string|number} code
+ * @param {string} message
+ * @param {number} status
+ */
 function errorPage(code, message, status) {
   return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:1.5rem;font-size:.9rem}.links{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><div class="links"><a href="/">← Voltar para a galeria</a><a href="/suporte">Precisa de ajuda? Suporte</a></div></div></body></html>`, status);
 }

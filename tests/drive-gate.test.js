@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
-import { saveEvents, ACCESS_DECLARATIONS, flushCounters, resetCounters, degradedHealth, resetDegraded } from '../src/utils.js';
+import { saveEvents, ACCESS_DECLARATIONS, readCounter, degradedHealth, resetDegraded } from '../src/utils.js';
+import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -63,7 +64,7 @@ function stubTurnstile(success) {
 let env;
 
 beforeEach(async () => {
-  env = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret' };
+  env = withDurableObjects({ FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret' });
   // Seeds KV *and* the isolate-local cache in src/utils.js, which would
   // otherwise leak the previous test's events into this one.
   await saveEvents(env, structuredClone(EVENTS));
@@ -368,80 +369,67 @@ describe('handlePerfBeacon', () => {
 // A cota de escrita do KV é o recurso que decide se o site aguenta um dia de
 // lançamento. Este endpoint é público e aceita corpo qualquer, então gastar
 // escrita antes de saber que há um clique real para contar é um ralo direto.
-describe('handleTrackDrive — nenhuma escrita antes de haver o que contar', () => {
+// Este endpoint é público e aceita corpo qualquer. Validar antes de contar
+// continua certo depois da migração para Durable Object — não mais por causa da
+// cota de escrita do KV, e sim porque contar clique de lixo é métrica errada e
+// porque escrita continua custando (linhas escritas, no envelope novo).
+describe('handleTrackDrive — nada é contado antes de haver clique real', () => {
   const post = (body, ip = '9.9.9.9') => new Request(`${SITE}/api/track-drive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
-  const writes = kv => { let n = 0; const orig = kv.put.bind(kv); kv.put = async (...a) => { n++; return orig(...a); }; return () => n; };
 
-  it('não gasta escrita nenhuma com corpo inválido, slug inválido ou evento inexistente', async () => {
-    resetCounters();
-    const count = writes(env.FOTOS);
+  it('não toca em contador nenhum com corpo inválido, slug inválido ou evento inexistente', async () => {
+    // `_instances` vazio é a afirmação forte: nenhum objeto chegou a ser
+    // endereçado, então não houve leitura nem escrita para contar.
     for (const body of ['{nao json', {}, { slug: '../../etc/passwd' }, { slug: 'nao-existe' }]) {
       const res = await handleTrackDrive(post(body), env);
       expect(res.status).toBe(200);
     }
-    expect(count()).toBe(0);
+    expect(env.COUNTER._instances.size).toBe(0);
   });
 
   it('ignora um projeto "em breve" — a página dele nem desenha o botão do Drive', async () => {
-    resetCounters();
-    const count = writes(env.FOTOS);
     const res = await handleTrackDrive(post({ slug: 'em-breve' }), env);
     expect(res.status).toBe(200);
-    await flushCounters(env);
-    expect(count()).toBe(0);
-    expect(env.FOTOS._store.get('drive_clicks:em-breve')).toBeUndefined();
+    expect(env.COUNTER._instances.size).toBe(0);
   });
 
   it('conta os cliques sem perder nenhum', async () => {
-    resetCounters();
     const ctx = fakeCtx();
     for (let i = 0; i < 10; i++) {
       const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
       expect(res.status).toBe(200);
     }
     await ctx.settle();
-    await flushCounters(env);
-    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('10');
+    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(10);
   });
 
   it('o rate limit por IP continua barrando um flood', async () => {
-    resetCounters();
-    // 60/hora por IP é o teto, e ele fica. A agregação limita o custo por
-    // REQUISIÇÃO, não por hora: sem o limite, um flood sustentado custaria uma
-    // escrita por janela — ~8600/dia contra uma cota de 1000/dia.
+    // 60/hora por IP é o teto, e ele fica. O contador atômico tirou o custo por
+    // requisição, não o teto por hora — e é o custo por hora que um atacante
+    // controla.
     const ctx = fakeCtx();
     for (let i = 0; i < 65; i++) await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
     await ctx.settle();
-    await flushCounters(env);
-    expect(Number(env.FOTOS._store.get('drive_clicks:casamento-ana'))).toBe(60);
+    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(60);
   });
 
-  it('soma em cima do que já estava no KV, sem perder a contagem anterior', async () => {
-    resetCounters();
+  it('adota a contagem que já estava no KV, sem perder o histórico', async () => {
     env.FOTOS._store.set('drive_clicks:casamento-ana', '42');
     await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
-    await flushCounters(env);
-    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('43');
+    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(43);
   });
 
-  it('recomeça do zero se o valor guardado estiver corrompido, em vez de gravar NaN', async () => {
-    resetCounters();
+  it('recomeça do zero se o valor herdado estiver corrompido, em vez de guardar NaN', async () => {
     env.FOTOS._store.set('drive_clicks:casamento-ana', '12abc');
     await handleTrackDrive(post({ slug: 'casamento-ana' }), env);
-    await flushCounters(env);
-    expect(env.FOTOS._store.get('drive_clicks:casamento-ana')).toBe('1');
+    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(1);
   });
 
-  it('não vira 500 quando a cota de escrita está estourada', async () => {
-    resetCounters();
-    const events = await env.FOTOS.get('events');
-    const broken = fakeKV({ events });
-    broken.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
-    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), { ...env, FOTOS: broken });
+  it('não vira 500 quando o contador não pode ser gravado', async () => {
+    const res = await handleTrackDrive(post({ slug: 'casamento-ana' }), { ...env, COUNTER: brokenDONamespace() });
     expect(res.status).toBe(200);
   });
 });
@@ -561,7 +549,7 @@ describe('handleDriveLink — o consentimento não pode falhar calado', () => {
 describe('handleDriveLink — nonce de página', () => {
   let env, ctx;
   beforeEach(async () => {
-    env = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: 'assinatura-de-teste-longa-o-suficiente' };
+    env = withDurableObjects({ FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: 'assinatura-de-teste-longa-o-suficiente' });
     await saveEvents(env, EVENTS);
     ctx = fakeCtx();
     stubTurnstile(true);
@@ -614,7 +602,7 @@ describe('handleDriveLink — nonce de página', () => {
     // recusar tudo aqui derrubaria a entrega das fotos por causa de uma camada
     // ADICIONAL. As defesas de baixo (Turnstile fail-closed, rate limit,
     // consentimento) continuam valendo, e auditSite() acusa a falta.
-    const envNoSecret = { FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret' };
+    const envNoSecret = withDurableObjects({ FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret' });
     await saveEvents(envNoSecret, EVENTS);
     const res = await handleDriveLink(
       req({ slug: 'casamento-ana', turnstileToken: 'ok', consent: true }), envNoSecret, fakeCtx());

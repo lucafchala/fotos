@@ -66,13 +66,14 @@ issue before any public disclosure.
   to a client working. If you need a project to be genuinely inaccessible,
   delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
   a semantics decision.
-- Best-effort, non-atomic counters (`views`, `drive_clicks`): undercounting
-  under load is expected.
+- Counters (`views`, `drive_clicks`) are **atomic** since they moved from KV to
+  Durable Objects: one object per key, calls serialized by the runtime. The
+  undercounting-under-load caveat that used to live here no longer applies.
 - Rate limits are abuse-mitigation, not a hard guarantee. In particular they
-  **stop counting when KV refuses a write** — see "Rate limits fail open when KV
-  cannot record them" below. They are not, however, optional: see the same
-  section for why `/api/track-drive` keeps its per-IP limit even with counters
-  coalesced.
+  **stop counting when the store refuses a write** — see "Rate limits fail open
+  when they cannot be recorded" below. They are not, however, optional: see the
+  same section for why `/api/track-drive` keeps its per-IP limit even with an
+  atomic counter behind it.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.
@@ -126,20 +127,25 @@ nonce is invisible today and breaks silently on flip day — so CI rejects one, 
 the deploy smoke test rejects a nonce appearing in the enforced header
 (`.github/workflows/security.yml`, `deploy.yml`).
 
-### Rate limits fail open when KV cannot record them
+### Rate limits fail open when they cannot be recorded
 
-`checkRateLimit()` reads a counter from KV and writes it back. The write is the
-part that can be refused: the free tier allows **1000 KV writes per day for the
-whole account**, and once that is spent KV rejects writes — as a thrown
-exception — while reads keep working normally. A day of real traffic reaches
-that ceiling on its own, because every visitor spends writes on the view counter
-and on the Drive gate's own limiter.
+`checkRateLimit()` calls a Durable Object that checks and increments a
+fixed-window counter in one serialized step. Any failure of that call — the
+object unreachable, a daily Durable Objects limit spent, a bad deploy leaving
+the binding unset — arrives as a thrown exception.
+
+This used to be a KV read-modify-write, and the failure was routine rather than
+exceptional: the free tier allows **1000 KV writes per day for the whole
+account**, and a single day of real traffic reached that ceiling on its own.
+That is no longer the common case — the Durable Objects free tier allows 100,000
+rows written per day — but the handling stays, because the reason was never the
+quota.
 
 Left unhandled, that exception propagated out of `checkRateLimit()` into the
 top-level `fetch()` catch and became a **500 on `/api/drive-link`** — photo
 delivery down for everyone, on the busiest day of the site's life — and a 500 on
 `/dashboard/login`, locking the owner out at exactly the moment they would go
-looking for the cause. Neither error said anything about a quota.
+looking for the cause. Neither error said anything about the cause.
 
 So the counter write is isolated, and a request whose limit check already passed
 is allowed through when only the bookkeeping fails. This is a deliberate fail
@@ -177,29 +183,29 @@ question of shape rather than of tuning: a counter written once per visitor
 makes the site's cost grow with its audience, against a ceiling that does not
 move. Three changes take that out:
 
-- **Counters coalesce under concurrency, and only under concurrency.** `views:`
-  and `drive_clicks:` go through `bumpCounter()`, which writes through unless the
-  same key was written less than a second ago — a floor matching KV's own limit
-  of one write per second per key, which the paid plan does **not** lift.
-  Whatever the floor defers is drained by a scheduled `waitUntil`, so it never
-  depends on another request happening to arrive. Measured: spread-out traffic
-  costs 4 writes per engaged visitor with counts exact; forty visitors arriving
-  together cost 2.1, also exact, because forty view increments collapse into two
-  writes. Two earlier designs got this wrong, both silently — deferring the
-  *first* increment lost the count outright on sparse traffic (the isolate dies
-  before a second one, and the daily cron cannot rescue it: different isolate,
-  empty map), and a *single* window timestamp shared across keys let the first
-  key to write block every other one, so a burst's tail was never written at all
-  — fifty visitors recorded as one. The pending map is bounded by the number of
-  events, because callers validate the slug first, so no flood can grow it.
+- **Counters live in Durable Objects, one object per key.** `views:` and
+  `drive_clicks:` go through `bumpCounter()`, which calls `increment()` on the
+  object addressed by that key. The runtime serializes calls to a single object,
+  so the increment is atomic and the count is exact under any traffic shape.
+  This replaced an in-memory coalescing scheme (pending map, one-second per-key
+  floor, flush lock, scheduled drain) that existed only because KV has no atomic
+  increment and refuses more than one write per second per key — a limit the
+  paid plan does not lift either. That scheme was correct in the end, but it got
+  there through two silent count-losing defects, and none of the machinery has a
+  reason to exist once the storage primitive is the right one.
+
+  The move also raised the ceiling: Durable Objects on the Workers Free plan
+  allow 100,000 rows written per day, against KV's 1,000 writes per day for the
+  whole account. Existing counts were not reset — an object seeds itself from
+  its old KV value the first time it is touched.
 - **`/api/track-drive` keeps its per-IP rate limit**, and an attempt to drop it
-  is worth recording as a mistake. The reasoning was "the aggregation is the
-  bound now, so a flood adds no writes." It does not hold: coalescing is bounded
-  by a per-key floor of one second, so a sustained flood still costs up to sixty
-  writes a minute on that key — far past a 1000/day quota. Coalescing lowers the
-  cost per request, not the cost per hour, and the cost per hour is what an
-  attacker controls. Without a per-IP limit the public endpoint becomes the
-  cheapest way to drain the very quota this section is about, and leaves
+  is worth recording as a mistake. The reasoning was "the counter is the bound
+  now, so a flood adds no writes." It did not hold then and does not hold now:
+  a counter that absorbs bursts lowers the cost per request, not the cost per
+  hour, and the cost per hour is what an attacker controls. Moving to Durable
+  Objects raised the write ceiling by ~100× but did not remove it. Without a
+  per-IP limit the public endpoint is still the cheapest way to drain it, and
+  leaves
   `drive_clicks` forgeable by curl, since the CSRF gate deliberately passes
   clients that send no browser headers.
 - **Validation that costs nothing runs first.** `/api/track-drive` used to call

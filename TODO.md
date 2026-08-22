@@ -12,8 +12,10 @@ prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
 > pagamento não acontecer, tudo nesta seção continua valendo e o código no
 > `main` está correto como está. Depois de assinar, o passo a passo da compra e
 > a lista do que mexer (e do que **não** mexer) estão em
-> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md) — inclusive por que a agregação
-> dos contadores tem de ficar mesmo no plano pago.
+> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). Nota: a seção §4.1 daquele
+> arquivo dizia que a agregação dos contadores tinha de ficar mesmo no plano
+> pago. Ela saiu — junto com o KV embaixo dela, substituído por Durable Objects
+> no próprio plano gratuito. O arquivo está atualizado.
 
 **Enquanto isso, o projeto está no plano gratuito.** Isso não é uma nota de
 rodapé sobre custo — é a restrição de projeto mais forte que existe aqui, e
@@ -39,10 +41,11 @@ dois formatos de tráfego:
 | status page (amostra de latência, regime normal) | ~48/dia |
 | **teto prático** | **~250 a ~475 visitantes/dia**, conforme o formato do tráfego |
 
-Duas das quatro escritas são rate limit (`drive-link` e `drive`), uma por
-visitante cada, e ficam: um limite que não grava na hora não limita. As outras
-duas são os contadores, que **agregam sob concorrência**: quarenta visitantes
-chegando juntos gastam 2 escritas de contador em vez de 80, sem perder contagem.
+Esse número é da era em que rate limit e contadores viviam no KV. Hoje os
+quatro saíram de lá: os dois rate limits (`drive-link` e `drive`) e os dois
+contadores (`views`, `drive_clicks`) são Durable Objects, e **um visitante não
+gasta mais nenhuma escrita de KV**. O que ainda grava em KV é o painel — lista
+de eventos, sessões, consentimento — e o `cron:last`.
 
 > Uma versão anterior desta tabela dizia **1,01 escrita/visitante** e teto de
 > ~985/dia. O número era artefato de um defeito: os contadores estavam sendo
@@ -61,7 +64,7 @@ Nada de catastrófico, e isso é resultado de trabalho, não sorte:
 
 1. **As fotos continuam saindo.** A recusa de escrita é isolada e o portão do
    Drive deixa passar quem já tinha passado na verificação (fail-open
-   deliberado, ver [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them)).
+   deliberado, ver [SECURITY.md](./SECURITY.md#rate-limits-fail-open-when-they-cannot-be-recorded)).
 2. **Param até a virada UTC:** contador de visitas, contador de cliques, rate
    limit e abertura de sessão nova no painel.
 3. **O dono é avisado.** O `/api/healthz` acusa em `problems`, o painel de
@@ -78,10 +81,12 @@ Nesta ordem, e **nenhuma delas é pagar**:
       / Analytics Engine, como `/api/perf` e `/api/csp-report` já fazem. Elimina
       o que sobrou de contabilidade, mas perde o número no painel — só vale se o
       número deixar de valer a escrita.
-- [ ] **Rate limit em Durable Object.** DO entrou no plano gratuito em 2025.
-      Levaria a última escrita por visitante (`ratelimit:drive-link`) a zero, e
-      com contagem exata em vez de eventual. É a saída mais limpa e a mais
-      trabalhosa.
+- [x] **Rate limit em Durable Object.** ✅ Feito — e junto foi o contador de
+      visitas/cliques, pelo mesmo motivo. `src/counters.js`, no plano gratuito
+      mesmo (DO com backend SQLite). Zerou a escrita em KV por visitante, tornou
+      a contagem exata em vez de eventual, e apagou a agregação em memória
+      inteira (mapa de pendentes, piso de 1 s por chave, trava de flush,
+      drenagem agendada), que só existia porque o KV não tem incremento atômico.
 - [ ] **Amostrar o contador de visitas** (contar 1 em N e multiplicar). Barato
       de implementar; o honesto seria admitir, antes, que o número vira
       estimativa.

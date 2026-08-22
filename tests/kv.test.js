@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
   degradedHealth, resetDegraded, noteDegraded,
-  bumpCounter, flushCounters, resetCounters, pendingCounters,
+  bumpCounter, readCounter, deleteCounter,
 } from '../src/utils.js';
+import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
 
 // Minimal in-memory stand-in for a Workers KV namespace. Ignores expirationTtl
 // (the tests run inside a single rate-limit window, so TTL is irrelevant).
@@ -23,71 +24,66 @@ function fakeKV(initial = {}) {
 
 describe('checkRateLimit', () => {
   it('allows up to the limit then blocks within the same window', async () => {
-    const env = { FOTOS: fakeKV() };
+    const env = withDurableObjects({ FOTOS: fakeKV() });
     const results = [];
     for (let i = 0; i < 5; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'login', 3, 600));
     expect(results).toEqual([true, true, true, false, false]);
   });
   it('tracks each IP independently', async () => {
-    const env = { FOTOS: fakeKV() };
+    const env = withDurableObjects({ FOTOS: fakeKV() });
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(true);
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(false);
     expect(await checkRateLimit(env, 'b', 'k', 1, 600)).toBe(true);
   });
+  it('separa chaves diferentes do mesmo IP', async () => {
+    // `login` e `login-day` correm no mesmo IP e não podem dividir contagem:
+    // era o que fazia uma tentativa barrada pela rajada gastar também o
+    // orçamento diário.
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    expect(await checkRateLimit(env, 'a', 'login', 1, 600)).toBe(true);
+    expect(await checkRateLimit(env, 'a', 'login', 1, 600)).toBe(false);
+    expect(await checkRateLimit(env, 'a', 'login-day', 1, 86400)).toBe(true);
+  });
 });
 
-// KV que atingiu a cota diária de escrita (1000/dia no plano free): leitura
-// continua respondendo, escrita é RECUSADA — e a recusa vem como exceção. É o
-// estado esperado num dia de lançamento com público grande.
-function writeExhaustedKV(initial = {}) {
-  const kv = fakeKV(initial);
-  kv.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
-  return kv;
-}
-
-describe('checkRateLimit quando o KV recusa escrita (cota estourada)', () => {
+describe('checkRateLimit quando o Durable Object não responde', () => {
   beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
   afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
 
-  it('não propaga a exceção — a rota que chama não pode virar 500', async () => {
-    const env = { FOTOS: writeExhaustedKV() };
-    await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
-  });
-
-  it('deixa passar quando só a contabilidade falhou: a verificação já tinha passado', async () => {
-    const env = { FOTOS: writeExhaustedKV() };
-    const results = [];
-    for (let i = 0; i < 3; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'drive-link', 1, 3600));
-    expect(results).toEqual([true, true, true]);
-  });
-
-  it('continua barrando quando o contador JÁ passou do limite antes da cota estourar', async () => {
-    // Escrita recusada não zera o que já estava gravado: a leitura ainda vale,
-    // então quem já estourou o limite continua barrado.
-    const window = Math.floor(Date.now() / (3600 * 1000));
-    const env = { FOTOS: writeExhaustedKV({ [`ratelimit:drive-link:1.2.3.4:${window}`]: '60' }) };
-    expect(await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).toBe(false);
-  });
-
-  it('deixa passar, sem lançar, quando nem a LEITURA responde', async () => {
-    const env = { FOTOS: { async get() { throw new Error('KV GET failed'); }, async put() {} } };
+  it('falha ABERTO — a rota que chama não pode virar 500', async () => {
+    // Decisão de disponibilidade, não de cota: uma falha de contabilidade não
+    // pode derrubar a entrega das fotos nem trancar o dono fora do painel.
+    const env = { FOTOS: fakeKV(), RATELIMIT: brokenDONamespace() };
     await expect(checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600)).resolves.toBe(true);
   });
 
   it('registra a falha para o healthz — falhar aberto não pode ser silencioso', async () => {
     expect(degradedHealth()).toEqual([]);
-    const env = { FOTOS: writeExhaustedKV() };
+    const env = { FOTOS: fakeKV(), RATELIMIT: brokenDONamespace('sem DO') };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
     const [d] = degradedHealth();
-    expect(d.label).toMatch(/KV: escrita recusada/);
-    expect(d.detail).toContain('429');
+    expect(d.label).toMatch(/rate limit indisponível/);
+    expect(d.detail).toContain('drive-link');
   });
 
-  it('o registro envelhece sozinho depois de 30 min sem nova recusa', async () => {
-    const env = { FOTOS: writeExhaustedKV() };
+  it('o registro envelhece sozinho depois de 30 min sem nova falha', async () => {
+    const env = { FOTOS: fakeKV(), RATELIMIT: brokenDONamespace() };
     await checkRateLimit(env, '1.2.3.4', 'drive-link', 60, 3600);
     expect(degradedHealth(Date.now() + 29 * 60_000)).toHaveLength(1);
     expect(degradedHealth(Date.now() + 31 * 60_000)).toEqual([]);
+  });
+
+  it('um registro corrompido não desliga o limite (falha FECHADA)', async () => {
+    // `contagem: NaN` passava em `NaN >= limit` e desligava o controle em
+    // silêncio para aquele par chave/IP. Lixo tem de valer 0, não infinito.
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    const obj = env.RATELIMIT.get(env.RATELIMIT.idFromName('login:1.2.3.4'));
+    await obj.check(2, 600);
+    const st = env.RATELIMIT._instances.get('login:1.2.3.4').ctx.storage;
+    st._map.set('w', { janela: Math.floor(Date.now() / (600 * 1000)), contagem: NaN });
+    const results = [];
+    for (let i = 0; i < 4; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'login', 2, 600));
+    expect(results).toEqual([true, true, false, false]);
   });
 });
 
@@ -126,119 +122,108 @@ describe('registro de degradações', () => {
   });
 });
 
-describe('contadores agregados', () => {
-  beforeEach(() => { resetCounters(); resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
-  afterEach(() => { vi.restoreAllMocks(); resetCounters(); });
+describe('contadores', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
 
-  // `ctx` de mentira que COLETA e aguarda o waitUntil, como o Workers faz. Sem
-  // ele a drenagem agendada nunca roda e o teste mediria o nada — a mesma
-  // pegadinha que o docs/VERIFICACAO.md descreve para o harness.
   const fakeCtx = () => { const p = []; return { waitUntil: x => p.push(Promise.resolve(x).catch(() => {})), settle: () => Promise.all(p) }; };
 
-  it('grava na hora quando o tráfego é espalhado — contagem exata, zero perda', async () => {
-    const env = { FOTOS: fakeKV() };
+  it('conta, e o valor sai pela leitura', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
     await bumpCounter(env, null, 'views:piauifut-2026');
-    expect(env.FOTOS._store.get('views:piauifut-2026')).toBe('1');
-    expect(pendingCounters().size).toBe(0);
+    expect(await readCounter(env, 'views:piauifut-2026')).toBe(1);
   });
 
-  it('agrega uma rajada na MESMA chave e não perde a cauda', async () => {
-    // O piso de 1 s por chave existe por causa do limite do KV (uma escrita por
-    // segundo na mesma chave, que não sobe nem no plano pago). O que ele adia
-    // tem de ser gravado por alguém: a drenagem agendada é esse alguém, e sem
-    // ela a cauda da rajada sumia — 50 visitantes viraram `views: 1` no harness.
-    const env = { FOTOS: fakeKV() };
+  it('uma rajada na MESMA chave não perde nada — é o ponto da migração', async () => {
+    // Este é o caso que o KV não atendia: uma escrita por segundo na mesma
+    // chave, com leitura-modificação-escrita não atômica entre isolates. Cem
+    // visitantes no mesmo instante tinham de virar cem, e viravam 1 ou 3.
+    // Aqui as cem chamadas correm juntas e a contagem sai exata.
+    const env = withDurableObjects({ FOTOS: fakeKV() });
     const ctx = fakeCtx();
     for (let i = 0; i < 100; i++) bumpCounter(env, ctx, 'views:piauifut-2026');
-    let escritas = 0;
-    const put = env.FOTOS.put.bind(env.FOTOS);
-    env.FOTOS.put = async (...a) => { escritas++; return put(...a); };
     await ctx.settle();
-    expect(env.FOTOS._store.get('views:piauifut-2026'), 'nenhuma contagem pode sumir').toBe('100');
-    expect(escritas, 'a rajada inteira cabe numa gravação a mais').toBeLessThanOrEqual(2);
-    expect(pendingCounters().size).toBe(0);
+    expect(await readCounter(env, 'views:piauifut-2026')).toBe(100);
   });
 
-  it('uma chave nova não espera o piso de outra', async () => {
-    // O carimbo de janela já foi único para todas as chaves: a primeira a
-    // gravar bloqueava as outras, e `drive_clicks` ficava sem nenhuma escrita
-    // enquanto `views` segurava o relógio.
-    const env = { FOTOS: fakeKV() };
-    await bumpCounter(env, null, 'views:a');
-    await bumpCounter(env, null, 'drive_clicks:a');
-    expect(env.FOTOS._store.get('views:a')).toBe('1');
-    expect(env.FOTOS._store.get('drive_clicks:a')).toBe('1');
-  });
-
-  it('soma sobre o valor já gravado e zera o pendente', async () => {
-    const env = { FOTOS: fakeKV({ 'views:x': '7' }) };
-    const ctx = fakeCtx();
-    bumpCounter(env, ctx, 'views:x');
-    bumpCounter(env, ctx, 'views:x');
-    await ctx.settle();
-    expect(env.FOTOS._store.get('views:x')).toBe('9');
-    expect(pendingCounters().size).toBe(0);
-  });
-
-  it('mantém slugs separados', async () => {
-    const env = { FOTOS: fakeKV() };
+  it('mantém slugs e métricas separados', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
     const ctx = fakeCtx();
     bumpCounter(env, ctx, 'views:a');
     bumpCounter(env, ctx, 'views:b');
     bumpCounter(env, ctx, 'views:a');
+    bumpCounter(env, ctx, 'drive_clicks:a');
     await ctx.settle();
-    expect(env.FOTOS._store.get('views:a')).toBe('2');
-    expect(env.FOTOS._store.get('views:b')).toBe('1');
+    expect(await readCounter(env, 'views:a')).toBe(2);
+    expect(await readCounter(env, 'views:b')).toBe(1);
+    expect(await readCounter(env, 'drive_clicks:a')).toBe(1);
   });
 
-  it('não grava "NaN" quando o valor guardado está corrompido', async () => {
-    const env = { FOTOS: fakeKV({ 'views:x': 'NaN' }) };
+  it('adota a contagem que estava no KV — migrar não pode zerar o histórico', async () => {
+    // O site tinha contagem acumulada em KV quando a troca aconteceu. O
+    // primeiro toque no objeto assenta esse valor; depois disso o KV não é
+    // mais consultado.
+    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': '742' }) });
     await bumpCounter(env, null, 'views:x');
-    await flushCounters(env);
-    expect(env.FOTOS._store.get('views:x')).toBe('1');
+    expect(await readCounter(env, 'views:x')).toBe(743);
+  });
+
+  it('assenta em 0 quando o valor herdado do KV está corrompido', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': 'NaN' }) });
+    await bumpCounter(env, null, 'views:x');
+    expect(await readCounter(env, 'views:x')).toBe(1);
+  });
+
+  it('um objeto reconstruído recusa um NaN guardado em vez de adotá-lo', async () => {
+    // NaN é `typeof number`, então uma checagem ingênua o adotaria no
+    // nascimento do objeto e o contador ficaria envenenado para sempre
+    // (NaN + 1 = NaN). A checagem só roda no construtor, então o teste precisa
+    // de uma evicção para chegar até ela.
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    await bumpCounter(env, null, 'views:x');
+    env.COUNTER._instances.get('views:x').ctx.storage._map.set('n', NaN);
+
+    env.COUNTER._evict('views:x');
+
+    expect(await readCounter(env, 'views:x'), 'lixo vira 0, não NaN').toBe(0);
+    await bumpCounter(env, null, 'views:x');
+    expect(await readCounter(env, 'views:x')).toBe(1);
   });
 
   it('nunca lança para quem chamou — é caminho de resposta do visitante', () => {
     expect(() => bumpCounter(null, null, 'views:x')).not.toThrow();
-    expect(() => bumpCounter({ FOTOS: null }, null, 'views:x')).not.toThrow();
+    expect(() => bumpCounter({ COUNTER: null }, null, 'views:x')).not.toThrow();
   });
 
-  it('com a cota estourada, descarta o delta em vez de acumular para sempre', async () => {
-    const env = { FOTOS: writeExhaustedKV() };
+  it('com o Durable Object fora, registra a degradação em vez de falhar calado', async () => {
+    const env = { FOTOS: fakeKV(), COUNTER: brokenDONamespace() };
     await bumpCounter(env, null, 'views:x');
-    await flushCounters(env);
-    expect(pendingCounters().size, 'o delta não pode voltar para a fila').toBe(0);
-    expect(degradedHealth().length, 'e o healthz precisa saber').toBeGreaterThan(0);
+    expect(degradedHealth().length, 'o healthz precisa saber').toBeGreaterThan(0);
+    expect(degradedHealth()[0].label).toMatch(/contador não gravado/);
   });
 
-  it('dois flushes ao mesmo tempo não se atropelam nem perdem o que chegou no meio', async () => {
-    const env = { FOTOS: fakeKV({ 'views:x': '0' }) };
-    const ctx = fakeCtx();
-    for (let i = 0; i < 5; i++) bumpCounter(env, ctx, 'views:x');
-    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
-    await ctx.settle();
-    expect(env.FOTOS._store.get('views:x')).toBe('5');
-    expect(pendingCounters().size).toBe(0);
+  it('leitura devolve 0 em vez de derrubar o painel', async () => {
+    const env = { FOTOS: fakeKV(), COUNTER: brokenDONamespace() };
+    expect(await readCounter(env, 'views:x')).toBe(0);
+    expect(degradedHealth().length).toBeGreaterThan(0);
   });
 
-  it('não entra em laço quando TUDO está bloqueado pelo piso', async () => {
-    // `flushCounters` espera a passada em voo e chama a si mesmo. Se o piso por
-    // chave bloqueasse tudo e a função ainda assim marcasse uma passada em
-    // andamento, os dois se alimentariam para sempre — laço infinito dentro de
-    // um Worker é CPU estourada e 500, não um teste lento.
-    const env = { FOTOS: fakeKV() };
-    await bumpCounter(env, null, 'views:x');        // grava e arma o piso
-    bumpCounter(env, null, 'views:x');              // fica pendente, bloqueado
-    const antes = Date.now();
-    await Promise.all([flushCounters(env), flushCounters(env), flushCounters(env)]);
-    expect(Date.now() - antes, 'tem de retornar na hora, não girar').toBeLessThan(1000);
-    expect(pendingCounters().get('views:x'), 'e o pendente continua guardado').toBe(1);
+  it('apagar zera o contador', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    await bumpCounter(env, null, 'views:x', 5);
+    expect(await readCounter(env, 'views:x')).toBe(5);
+    await deleteCounter(env, 'views:x');
+    expect(await readCounter(env, 'views:x')).toBe(0);
   });
 
-  it('flush sem nada pendente não gasta escrita', async () => {
-    const env = { FOTOS: fakeKV() };
-    await flushCounters(env);
-    expect(env.FOTOS._store.size).toBe(0);
+  it('apagar não ressuscita a contagem antiga do KV', async () => {
+    // O assentamento lê o KV na primeira vez. Se ele voltasse a rodar depois do
+    // delete, apagar um projeto e recriar com o mesmo slug traria a contagem
+    // velha de volta.
+    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': '742' }) });
+    await bumpCounter(env, null, 'views:x');
+    await deleteCounter(env, 'views:x');
+    expect(await readCounter(env, 'views:x')).toBe(0);
   });
 });
 
@@ -408,16 +393,7 @@ describe('resilience to corrupted KV values', () => {
     expect(await getEvents(env, true)).toEqual([]);
   });
 
-  it('checkRateLimit still counts when the stored counter is unparseable (fails closed)', async () => {
-    // A poisoned counter used to make parseInt return NaN; NaN >= limit is
-    // false, so the limit stopped applying entirely for that key.
-    const env = { FOTOS: fakeKV() };
-    const window = Math.floor(Date.now() / (600 * 1000));
-    env.FOTOS._store.set(`ratelimit:login:1.2.3.4:${window}`, 'NaN');
-    const results = [];
-    for (let i = 0; i < 4; i++) results.push(await checkRateLimit(env, '1.2.3.4', 'login', 2, 600));
-    expect(results).toEqual([true, true, false, false]);
-  });
+
 });
 
 // O logout apaga o registro da sessão no KV. Esse delete NÃO é limpeza: ele é a
@@ -503,7 +479,7 @@ function hostDe(u) {
 }
 
 describe('formulário de suporte quando o envio falha', () => {
-  const env = () => ({
+  const env = () => withDurableObjects({
     FOTOS: fakeKV(),
     TURNSTILE_SECRET_KEY: 'ts',
     RESEND_API_KEY: 'rs',

@@ -108,17 +108,18 @@ Só se descobre isso abrindo o site num navegador de verdade.
 vaza**: um teste vê a lista de eventos de outro e você recebe um 404 confuso.
 `/api/healthz` é o único caminho que força releitura — use como primer.
 
-### 5.3. Cota de KV é 1000 escritas/dia
+### 5.3. Cota de KV é 1000 escritas/dia — mas os contadores saíram do KV
 
-> 🔜 Este número é do plano gratuito, e o dono decidiu assinar o Workers Paid.
-> Compra e checklist em [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). **Um
-> limite não muda com dinheiro:** 1 escrita por segundo **na mesma chave**. É
-> ele que faz a agregação dos contadores continuar necessária no plano pago —
-> não reverta pensando que era só cota.
+> ✅ **Atualizado.** Os contadores e o rate limit migraram para **Durable
+> Objects** (`src/counters.js`), no plano **gratuito** — 100 mil linhas
+> escritas/dia, incremento atômico, e sem o teto de 1 escrita/s por chave.
+> Nada foi comprado: o Workers Paid continua **não** assinado, e o
+> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md) segue como histórico da decisão.
 
-Free tier. Qualquer coisa que grave por requisição é um risco existencial: o
-contador de visualizações sozinho, contando HEAD, gastava 1440/dia. Antes de
-adicionar um `put()` num caminho público, calcule o pior caso.
+O número de 1000/dia continua valendo para tudo o que **ainda** usa KV: lista de
+eventos, sessões do painel, consentimento, `cron:last`. Antes de adicionar um
+`put()` num caminho público, calcule o pior caso — o contador de visualizações
+sozinho, contando HEAD, gastava 1440/dia quando morava lá.
 
 **Estourar a cota não derruba mais o site.** Quando a cota acaba, o KV recusa
 escrita — e a recusa vem como *exceção*, não como valor de retorno. Ela subia do
@@ -129,27 +130,65 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-**Os contadores agregam sob concorrência, e só sob concorrência.** `views:` e
-`drive_clicks:` passam por `bumpCounter()` (utils.js). Medido no harness de
-`docs/VERIFICACAO.md`:
+**Os contadores são atômicos, um Durable Object por chave.** `views:` e
+`drive_clicks:` passam por `bumpCounter()` (utils.js), que chama `increment()`
+no objeto endereçado por aquela chave. O runtime serializa as chamadas de um
+mesmo objeto, então a contagem sai exata em qualquer formato de tráfego —
+espalhado ou em rajada — sem nada acumulado em memória.
 
-| formato do tráfego | escritas/visitante | contagem |
-| --- | --- | --- |
-| espalhado (sequencial) | 4,00 | 40/40 exatas |
-| rajada (40 simultâneos) | 2,10 | 40/40 exatas |
+**Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.** Os
+dois defeitos são da era do KV e não podem mais acontecer do mesmo jeito, mas o
+que eles ensinam continua: adiar o primeiro incremento perdia a contagem inteira
+em tráfego esparso (o isolate morria antes do segundo), e um carimbo de janela
+ÚNICO para todas as chaves fazia a primeira chave a gravar bloquear as outras —
+50 visitantes viraram `views: 1`. **A lição é sobre o harness, não sobre o
+código:** os dois passaram por revisão e pela suíte. Reproduza os dois formatos
+de tráfego antes de acreditar que uma mudança aqui está certa.
 
-Duas das quatro são rate limit, uma por visitante cada, e ficam. As outras duas
-são os contadores: numa rajada, 40 visitas viram 2 escritas em vez de 40.
+Três armadilhas novas, das que a migração introduziu e os testes já prendem:
 
-**Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.**
-Adiar o primeiro incremento perdia a contagem inteira em tráfego esparso (o
-isolate morre antes do segundo, e o cron não alcança: roda em outro isolate com
-o mapa vazio). Depois, um carimbo de janela ÚNICO para todas as chaves fez a
-primeira chave a gravar bloquear as outras, e a cauda da rajada não era gravada
-por ninguém — 50 visitantes viraram `views: 1`. Hoje o piso é **por chave** (1 s,
-casado com o limite do KV de uma escrita por segundo na mesma chave, que não
-sobe nem no plano pago), e o que o piso adia é drenado por um `waitUntil`
-agendado — não pela esperança de que chegue outra requisição.
+- **I/O externo ABRE o portão de entrada do Durable Object.** Esta é a mais
+  cara, e só apareceu no workerd de verdade. O objeto serializa eventos
+  enquanto uma operação de ARMAZENAMENTO está em voo — mas uma leitura de **KV**
+  não é armazenamento do objeto, é I/O externo, e durante ela outros eventos
+  entram. Com o assentamento (que lê o KV) no caminho do incremento, **100
+  incrementos simultâneos viraram 3**. A correção é o assentamento rodar uma vez
+  só, no construtor, dentro de `ctx.blockConcurrencyWhile()`, e nenhum caminho
+  quente tocar o KV. Se você acrescentar qualquer `await` de rede dentro de um
+  método do objeto, releia este parágrafo antes.
+- `NaN` é `typeof 'number'`. Uma checagem ingênua o adotaria como contagem e
+  envenenaria o contador para sempre (`NaN + 1 = NaN`) — o mesmo veneno que o
+  `toCount` continha na era do KV.
+- `reset()` grava `0` em vez de só apagar tudo. Um objeto vazio é
+  indistinguível de um objeto novo, e o assentamento voltaria a ler o KV: apagar
+  um projeto e recriar outro com o mesmo slug ressuscitaria a contagem antiga.
+
+**E a lição sobre a suíte, que é maior que as três.** O primeiro teste de
+atomicidade rodava contra um dublê em node — e passava, porque a serialização do
+dublê tinha sido escrita por nós. Ele afirmava o que queríamos ouvir. Só quando
+o mesmo teste rodou dentro do workerd (`npm run test:workers`) o `3` apareceu.
+**Não teste contra dublê aquilo que a plataforma é que garante.**
+
+### 5.3-b. Migração de Durable Object quebra o preview do Workers Builds
+
+O Cloudflare Workers Builds — configurado no **painel**, não neste repositório —
+roda `npx wrangler versions upload` a cada PR. Esse caminho **não aplica
+migração de Durable Object**: a API recusa com o código **10211**, dizendo que
+"migrations must be fully applied via a non-versioned deployment".
+
+Então, sempre que um PR introduzir uma migração nova (`[[migrations]]` com uma
+tag nova no `wrangler.toml`), **o build de preview daquele PR vai falhar**. Isso
+é esperado. Não é sinal de código quebrado, e não adianta mexer no código para
+tentar consertar.
+
+A ordem que funciona:
+
+1. merge → o `deploy.yml` roda `wrangler deploy` (não-versionado) → a migração
+   é aplicada e as classes passam a existir;
+2. a partir daí os previews de PR voltam a passar sozinhos.
+
+Não há atalho: migração e código sobem juntos, não dá para aplicar só a migração
+antes. Aconteceu na estreia dos contadores em DO (migração `v1`).
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 
@@ -231,7 +270,17 @@ do Worker no painel da Cloudflare, não no seu código.
 1. Branch a partir de `main`.
 2. Código + teste. **Reintroduza o bug e confirme que o teste falha** — teste de
    regressão que nunca falhou não é teste de regressão.
-3. `npm test && npm run lint`.
+3. `npm run lint && npm run typecheck && npm test && npm run test:coverage`.
+   - **`npm test` são DUAS suítes.** `unit` roda em node com dublês; `workers`
+     roda dentro do workerd, com Durable Objects, KV e D1 de verdade. A segunda
+     existe porque a primeira aprovou um contador que NÃO era atômico — o dublê
+     tinha a serialização que nós mesmos escrevemos. Ver `docs/VERIFICACAO.md §0`.
+   - **`npm run typecheck` está em `strict: true`** e a base passa limpa. É
+     `tsc --checkJs` sobre JSDoc, sem passo de build. Se um arquivo novo não
+     passar, anote o arquivo — não baixe o gate. O raciocínio e a lista de bugs
+     reais que ele já encontrou estão no `tsconfig.json`.
+   - `test:coverage` é catraca: os limiares são o que a suíte já cobre. Se
+     falhar, escreva o teste que falta em vez de baixar o número.
 4. Mexeu em UI, CSP ou rota? **Abra num navegador.** Ver `docs/VERIFICACAO.md`.
 5. Mexeu em `docs/legal/`? `npm run build:legal`.
 6. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de

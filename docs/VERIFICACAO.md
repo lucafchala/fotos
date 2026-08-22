@@ -12,6 +12,31 @@ Este documento é o caminho para fazer isso em poucos minutos.
 
 ---
 
+## 0. As duas suítes — e por que a segunda existe
+
+```bash
+npm run test:unit      # node, com dublês, ~1 s
+npm run test:workers   # dentro do workerd, com DO/KV/D1 de verdade
+npm test               # as duas
+```
+
+A `unit` é a de sempre: rápida, com dublês nossos, boa para lógica e
+roteamento. A `workers` roda o mesmo código **dentro do runtime da Cloudflare**
+(via `@cloudflare/vitest-pool-workers`), com Durable Objects, KV e D1 reais —
+simulados pelo miniflare, mas com o comportamento da plataforma.
+
+A segunda não é luxo, e a história de por que ela existe é curta: o teste que
+afirma que o contador é **atômico** passava na `unit` e estava errado. O dublê
+serializava as chamadas porque nós escrevemos o dublê assim. Rodando no
+workerd, 100 incrementos simultâneos deram **3** — o assentamento lia o KV, e
+I/O externo abre o portão de entrada do objeto.
+
+A regra que sai disso: **o que a PLATAFORMA garante, teste na plataforma.**
+Aritmética, validação e caminho de falha podem morar na `unit`; atomicidade,
+persistência e isolamento, não.
+
+---
+
 ## 1. Wrangler dev — o mais simples
 
 ```bash

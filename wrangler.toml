@@ -37,6 +37,48 @@ database_name = "fotos-consent"
 database_id = "d6bed362-4ddf-459d-a088-48b42aa11fdc"
 migrations_dir = "migrations"
 
+# ---------------------------------------------------------------------------
+# Contadores e rate limit (Durable Objects)
+# ---------------------------------------------------------------------------
+# Trocaram o KV porque ele não tem incremento atômico e recusa mais de uma
+# escrita por segundo na MESMA chave — limite que o plano pago também não sobe.
+# O raciocínio completo está em src/counters.js.
+#
+# `new_sqlite_classes`, e não `new_classes`: no plano gratuito só existe o
+# backend SQLite. Declarar como key-value faria o deploy falhar na conta.
+# A tag da migração é histórico append-only — não reaproveite `v1` para outra
+# mudança; acrescente `v2`.
+#
+# ⚠️ MIGRAÇÃO DE DURABLE OBJECT NÃO SOBE POR `wrangler versions upload`.
+#
+# A API recusa com o código 10211: "migrations must be fully applied via a
+# non-versioned deployment". Ou seja, quem cria a classe é `wrangler deploy`
+# (não-versionado) — que é o que o .github/workflows/deploy.yml roda no push
+# para a main.
+#
+# Isso importa porque o Cloudflare Workers Builds (configurado no PAINEL, não
+# neste repositório) roda `npx wrangler versions upload` a cada PR. Enquanto a
+# migração nova não tiver sido aplicada por um deploy de verdade, esse build
+# FALHA — e a falha é esperada, não é sinal de código quebrado.
+#
+# A ordem que funciona, e que vale para toda migração futura (v2, v3…):
+#   1. merge → deploy.yml roda `wrangler deploy` → a migração é aplicada;
+#   2. a partir daí os previews de PR voltam a passar sozinhos.
+#
+# Não existe atalho: migração e código sobem juntos, não dá para aplicar só a
+# migração antes.
+[[durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter", "RateLimiter"]
+
 [triggers]
 # Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
 crons = ["0 3 * * *"]
@@ -89,3 +131,17 @@ name = "fotos-preview"
 [[env.preview.kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
+
+# O preview precisa dos mesmos bindings: um ambiente sem eles quebra em
+# `env.COUNTER is undefined` no primeiro visitante, e não no deploy.
+[[env.preview.durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[env.preview.durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[[env.preview.migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter", "RateLimiter"]

@@ -54,6 +54,10 @@ export default [
         Buffer: 'readonly',
         structuredClone: 'readonly',
         globalThis: 'readonly',
+        // Válidos tanto em node quanto no workerd, então servem para as duas
+        // suítes (`unit` e `workers`).
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
     rules: {

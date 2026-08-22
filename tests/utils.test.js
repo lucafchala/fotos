@@ -3,6 +3,7 @@ import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
   sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
+  errMessage,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -269,5 +270,34 @@ describe('hashPassword / verifyPassword', () => {
     const legacy = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
     expect(await verifyPassword('legacy-pw', legacy)).toBe(true);
     expect(await verifyPassword('nope', legacy)).toBe(false);
+  });
+});
+
+// `catch` entrega `unknown`. Todo caminho de degradação deste projeto lê a
+// mensagem do que foi lançado, então a extração precisa aguentar o que NÃO é
+// Error — senão o tratador quebra justamente quando está tentando registrar
+// que algo quebrou.
+describe('errMessage', () => {
+  it('tira a mensagem de um Error', () => {
+    expect(errMessage(new Error('KV PUT failed: 429'))).toBe('KV PUT failed: 429');
+  });
+
+  it('aceita uma string lançada direto', () => {
+    expect(errMessage('deu ruim')).toBe('deu ruim');
+  });
+
+  it('aceita um objeto com message que não é Error', () => {
+    // Bibliotecas lançam isto o tempo todo.
+    expect(errMessage({ message: 'falha do fornecedor' })).toBe('falha do fornecedor');
+  });
+
+  it('não inventa mensagem para objeto sem message', () => {
+    expect(errMessage({ status: 500 })).toBe('[object Object]');
+  });
+
+  it('não quebra com null, undefined ou Error sem mensagem', () => {
+    expect(errMessage(null)).toBe('null');
+    expect(errMessage(undefined)).toBe('undefined');
+    expect(errMessage(new Error(''))).toBe('Error');
   });
 });
