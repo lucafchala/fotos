@@ -13,7 +13,8 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, flushCounters, pendingCounters, resetCounters } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter } from '../src/utils.js';
+import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { eventHTML } from '../src/ui/event.js';
@@ -1028,13 +1029,12 @@ describe('rate limit do login não se auto-sabota', () => {
     body: new URLSearchParams({ password: pw }).toString(),
   });
 
-  it('stops writing to KV once the burst limit is spent', async () => {
-    // A cota de escrita do KV é de 1000/dia para a conta inteira e é
-    // compartilhada com eventos, sessões e consentimento. Contabilizar
-    // tentativa já barrada deixava mil POSTs não autenticados esgotarem a cota
-    // e derrubarem o site — um jeito barato demais de causar dano.
+  it('tentativa já barrada não custa escrita nenhuma', async () => {
+    // `noteFailedLogin` faz leitura + escrita em KV. Contabilizar tentativa já
+    // barrada deixava um flood de POSTs não autenticados gastar escrita à toa —
+    // e o rate limit em si já nem toca no KV desde a migração para DO.
     const FOTOS = kv();
-    const env = { FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' };
+    const env = withDurableObjects({ FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' });
     const ctx = { waitUntil: p => p };
 
     for (let i = 0; i < 12; i++) await worker.fetch(post('errada'), env, ctx);
@@ -1043,7 +1043,7 @@ describe('rate limit do login não se auto-sabota', () => {
     for (let i = 0; i < 40; i++) await worker.fetch(post('errada'), env, ctx);
     const extra = FOTOS.writes - afterBurst;
 
-    expect(extra, 'tentativas já barradas não podem custar escrita em KV').toBe(0);
+    expect(extra, 'tentativas já barradas não podem custar escrita').toBe(0);
   });
 
   it('does not let blocked attempts eat the daily budget', async () => {
@@ -1052,14 +1052,14 @@ describe('rate limit do login não se auto-sabota', () => {
     // vezes mais rápido e trancaria o dono do painel por 24 h — um IP de NAT
     // compartilhado fazia isso em um minuto.
     const FOTOS = kv();
-    const env = { FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' };
+    const env = withDurableObjects({ FOTOS, ADMIN_PASSWORD: 'Senha-Longa-De-Teste!' });
     const ctx = { waitUntil: p => p };
 
     for (let i = 0; i < 200; i++) await worker.fetch(post('errada'), env, ctx);
 
-    const daily = [...FOTOS._store.entries()].find(([k]) => k.includes('ratelimit:login-day:'));
-    expect(daily, 'contador diário deve existir').toBeTruthy();
-    expect(Number(daily[1]), 'só o que passou pela rajada conta no orçamento diário')
+    const diario = env.RATELIMIT._instances.get('login-day:7.7.7.7');
+    expect(diario, 'contador diário deve existir').toBeTruthy();
+    expect(diario.ctx.storage._map.get('w').contagem, 'só o que passou pela rajada conta no orçamento diário')
       .toBeLessThanOrEqual(10);
   });
 });
@@ -1303,7 +1303,7 @@ describe('anexo de remoção: o portão é a capacidade de limpar', () => {
   });
 });
 
-describe('HEAD não custa escrita em KV nem infla contagem', () => {
+describe('HEAD não conta visita nem custa escrita', () => {
   function kv() {
     const store = new Map([['events', JSON.stringify([{
       id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public',
@@ -1321,48 +1321,37 @@ describe('HEAD não custa escrita em KV nem infla contagem', () => {
   const bater = async (method) => {
     const FOTOS = kv();
     const pendentes = [];
-    const env = { FOTOS };
+    const env = withDurableObjects({ FOTOS });
     const ctx = { waitUntil: p => pendentes.push(p) };
 
     // getEvents() guarda `events` num cache de MÓDULO com TTL. Entre testes do
     // mesmo arquivo isso vaza: sem forçar uma releitura, este teste enxerga a
     // lista de outro describe e o evento não existe (404). /api/healthz é o
     // único caminho que chama getEvents(env, true), então serve de primer.
-    // Em produção o cache é por isolate e desejado; o vazamento é só entre
-    // testes — mas custa um 404 confuso a quem escrever o próximo teste.
     await worker.fetch(new Request('https://fotos.lucafchala.com/api/healthz'), env, ctx);
     FOTOS._escritas.length = 0;
 
     const res = await worker.fetch(
       new Request('https://fotos.lucafchala.com/evento', { method }), env, ctx);
     await Promise.all(pendentes);
-    // O contador de visitas é agregado na memória do isolate (bumpCounter) e só
-    // vira escrita na virada da janela, então olhar apenas `_escritas` mediria
-    // o momento do flush, não o que foi contado. O flush forçado traz a
-    // contagem para o KV e mantém o invariante do teste — "GET conta, HEAD
-    // não" — verificável no mesmo lugar de antes.
-    await flushCounters(env);
-    return { status: res.status, escritas: FOTOS._escritas, res, pendentes: pendingCounters() };
+    return { status: res.status, escritas: FOTOS._escritas, res, env };
   };
 
   // O HEAD é resolvido reexecutando a rota como GET, então sem exceção
-  // explícita todo HEAD sem cookie gastava uma escrita. Um monitor de uptime
-  // de minuto em minuto = 1440 escritas/dia contra uma cota de 1000/dia:
-  // o contador de visitas sozinho derrubaria eventos, sessões e consentimento.
-  it('writes to KV on GET but never on HEAD', async () => {
-    resetCounters();
+  // explícita todo HEAD sem cookie contava uma visita — e HEAD é o método que
+  // monitor de uptime e verificador de link usam. Continua sendo correção de
+  // MÉTRICA, não de cota: robô não é visitante, em nenhum plano.
+  it('conta a visita no GET e nunca no HEAD', async () => {
     const get = await bater('GET');
     expect(get.status).toBe(200);
-    expect(get.escritas.filter(k => k.startsWith('views:')), 'GET conta').toHaveLength(1);
+    expect(await readCounter(get.env, 'views:evento'), 'GET conta').toBe(1);
 
-    resetCounters();
     const head = await bater('HEAD');
     expect(head.status, 'HEAD continua respondendo como GET').toBe(200);
     expect(head.escritas, 'HEAD não pode gravar NADA em KV').toEqual([]);
-    // E não pode nem entrar na fila de agregação: contar em memória e gravar
-    // dez minutos depois seria a mesma visita fantasma, só que mais difícil de
-    // achar.
-    expect([...head.pendentes.keys()], 'HEAD não pode nem acumular').toEqual([]);
+    // `_instances` vazio diz mais do que "não gravou": o contador nem chegou a
+    // ser endereçado, então não houve nem leitura.
+    expect(head.env.COUNTER._instances.size, 'HEAD não pode nem endereçar o contador').toBe(0);
   });
 
   // Se o HEAD emitisse o cookie de "já contado", o GET seguinte — o de verdade

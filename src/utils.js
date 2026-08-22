@@ -1,5 +1,51 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
 
+/**
+ * Um projeto como ele vive no KV.
+ *
+ * O índice é aberto de propósito. A forma real é validada na LEITURA
+ * (`parseEvents`), que descarta o que não for objeto e deixa passar o resto —
+ * porque o valor pode vir de um restore de backup ou de uma entrada editada à
+ * mão, e a alternativa a validar na porta seria 500 na galeria inteira. Declarar
+ * aqui uma forma exata que o dado não é obrigado a ter só moveria a mentira de
+ * lugar.
+ *
+ * @typedef {Record<string, any>} Evento
+ */
+/**
+ * Os bindings do Worker, como declarados no wrangler.toml, mais os segredos
+ * postos por `wrangler secret put`. Vale como documentação executável do
+ * contrato de deploy: um binding que sumir daqui e do toml para de existir para
+ * quem lê o código, e um que exista só aqui é erro de configuração à espera.
+ *
+ * Os segredos são opcionais porque a ausência deles é um estado REAL e tratado
+ * — `auditSite()` acusa cada falta, e o site continua entregando foto. Ver o
+ * comentário do SIGNING_SECRET no wrangler.toml.
+ *
+ * @typedef {{
+ *   FOTOS: KVNamespace,
+ *   COUNTER: DurableObjectNamespace<import('./counters.js').Counter>,
+ *   RATELIMIT: DurableObjectNamespace<import('./counters.js').RateLimiter>,
+ *   CONSENT_DB?: D1Database,
+ *   PERF?: { writeDataPoint: (d: any) => void },
+ *   ADMIN_PASSWORD?: string,
+ *   TURNSTILE_SECRET_KEY?: string,
+ *   RESEND_API_KEY?: string,
+ *   ADMIN_EMAIL?: string,
+ *   SIGNING_SECRET?: string,
+ *   CF_ANALYTICS_TOKEN?: string,
+ * }} Env
+ */
+
+/**
+ * Um pedido de remoção / mensagem de suporte como chega aos e-mails.
+ * Índice aberto pelo mesmo motivo de `Evento`: o registro é lido do KV e pode
+ * vir de um restore.
+ * @typedef {Record<string, any>} Pedido
+ */
+
+
+/** @type {any[]|null} */
 let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
@@ -54,6 +100,7 @@ const EVENTS_CACHE_KEY = 'https://fotos.invalid/__events';
 // prefiro dado velho a um 500" — e a resposta é: mais do que qualquer queda de
 // KV plausível.
 const EVENTS_CACHE_TTL_S = 7 * 24 * 3600;
+/** @type {string|null} */
 let _mirroredRaw = null;
 
 function cacheStore() {
@@ -64,6 +111,9 @@ function cacheStore() {
 
 // Só grava quando o valor MUDOU: a cópia é um espelho, não um log, e reescrever
 // a cada leitura gastaria CPU do isolate à toa no caminho de resposta.
+/**
+ * @param {string} raw
+ */
 async function mirrorEvents(raw) {
   const store = cacheStore();
   if (!store || typeof raw !== 'string' || raw === _mirroredRaw) return;
@@ -98,6 +148,9 @@ async function readMirroredEvents() {
 // usa `fresh` e por isso nunca cai para a cópia), e isto aqui é o aviso de que
 // o visitante andou sendo servido de cópia: exatamente o que estado de módulo
 // consegue afirmar com honestidade.
+/**
+ * @param {string} source
+ */
 function noteEventsFallback(source) {
   noteDegraded(
     'lista de projetos vindo de cópia',
@@ -108,6 +161,10 @@ function noteEventsFallback(source) {
 // Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
 // duas versões disso divergiriam, e a cópia é justamente o caminho que ninguém
 // exercita no dia a dia.
+/**
+ * @param {string|null|undefined} data
+ * @returns {Evento[]}
+ */
 function parseEvents(data) {
   if (!data) return [];
   try {
@@ -120,6 +177,11 @@ function parseEvents(data) {
 // fresh=true bypasses the isolate-local cache — required on admin reads and
 // any read-modify-write, where 30 s of staleness could clobber another
 // isolate's recent save.
+/**
+ * @param {Env} env
+ * @param {boolean} [fresh]
+ * @returns {Promise<Evento[]>}
+ */
 export async function getEvents(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
@@ -179,6 +241,10 @@ export async function getEvents(env, fresh = false) {
   return _cache;
 }
 
+/**
+ * @param {Env} env
+ * @param {Evento[]} events
+ */
 export async function saveEvents(env, events) {
   _cache = events;
   _cacheAt = Date.now();
@@ -206,6 +272,9 @@ export const MAX_CATEGORY_LEN = 40;
 //
 // Um valor corrompido continua caindo nos padrões: ali não há o que preservar,
 // e a próxima gravação conserta o valor guardado.
+/**
+ * @param {Env} env
+ */
 export async function getCategories(env) {
   const data = await env.FOTOS.get('categories');
   if (!data) return [...DEFAULT_CATEGORIES];
@@ -217,21 +286,35 @@ export async function getCategories(env) {
   }
 }
 
+/**
+ * @param {Env} env
+ * @param {string[]} cats
+ */
 export async function saveCategories(env, cats) {
   await env.FOTOS.put('categories', JSON.stringify(cats));
 }
 
 
+/**
+ * @param {string} hex
+ */
 function hexToBytes(hex) {
   const arr = new Uint8Array(hex.length / 2);
   for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return arr;
 }
 
+/**
+ * @param {Uint8Array} u8
+ */
 function bytesToHex(u8) {
   return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * @param {string} a
+ * @param {string} b
+ */
 export function timingSafeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length !== b.length) return false;
@@ -243,6 +326,11 @@ export function timingSafeEqual(a, b) {
 // 100k measures ~50 ms — within the 200 ms CI healthz budget (deploy.yml).
 // Stored hashes embed their own iteration count, so raising this never
 // breaks existing credentials.
+/**
+ * @param {string} password
+ * @param {string} [saltHex]
+ * @param {number} [iterations]
+ */
 export async function hashPassword(password, saltHex, iterations = 100_000) {
   const enc = new TextEncoder();
   const salt = saltHex
@@ -256,6 +344,10 @@ export async function hashPassword(password, saltHex, iterations = 100_000) {
   return `pbkdf2:${iterations}:${bytesToHex(salt)}:${bytesToHex(new Uint8Array(bits))}`;
 }
 
+/**
+ * @param {string} password
+ * @param {string|null|undefined} stored
+ */
 export async function verifyPassword(password, stored) {
   if (!stored) return false;
   if (!stored.startsWith('pbkdf2:')) {
@@ -293,6 +385,10 @@ export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
 export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
 const SESSION_REFRESH_SECS = 600;          // só reescreve o "lastSeen" a cada 10 min
 
+/**
+ * @param {string} token
+ * @param {{ clear?: boolean }} [opts]
+ */
 export function sessionCookie(token, { clear = false } = {}) {
   const base = `${SESSION_COOKIE}=${clear ? '' : token}; Path=/; HttpOnly; Secure; SameSite=Strict`;
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${SESSION_TTL_SECS}`;
@@ -302,6 +398,9 @@ export function sessionCookie(token, { clear = false } = {}) {
 // porque celular troca de IP o tempo todo (4G <-> Wi-Fi) e amarrar a sessão a
 // ele significaria deslogar o admin no meio de uma edição. O UA muda só quando
 // o browser atualiza, e o custo desse caso é um login a mais.
+/**
+ * @param {Request} request
+ */
 export function clientFingerprint(request) {
   const ua = request.headers.get('User-Agent') || '';
   let h = 2166136261; // FNV-1a de 32 bits: identificador curto, não é segredo
@@ -312,6 +411,9 @@ export function clientFingerprint(request) {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * @param {Request} request
+ */
 export function sessionRecord(request) {
   const now = Date.now();
   return JSON.stringify({ v: 1, createdAt: now, lastSeen: now, fp: clientFingerprint(request) });
@@ -320,6 +422,10 @@ export function sessionRecord(request) {
 // Encerra a sessão por qualquer um dos três motivos e some com a chave. Antes
 // isto era uma comparação com a string 'valid': uma sessão só morria pelo TTL
 // de 24 h do KV, sem inatividade e sem vínculo com o cliente que a abriu.
+/**
+ * @param {Env} env
+ * @param {Request} request
+ */
 export async function verifySession(env, request) {
   const cookies = request.headers.get('Cookie') || '';
 
@@ -447,6 +553,9 @@ const _degraded = new Map();
 // o rastro de um incidente escrevendo dentro do próprio relato dele. O slug já
 // é validado antes de chegar aqui, mas um saneamento que depende de todo
 // chamador ter validado é um saneamento que cede no primeiro chamador novo.
+/**
+ * @param {unknown} v
+ */
 function umaLinha(v) {
   return String(v)
     // Controles C0/C1 e separadores de linha Unicode, escritos por codigo-ponto
@@ -458,6 +567,33 @@ function umaLinha(v) {
     .slice(0, 160);
 }
 
+// Mensagem legível a partir de algo LANÇADO — que não é necessariamente um
+// Error. `catch (e)` entrega `unknown`: pode vir uma string, um objeto de uma
+// biblioteca, ou `undefined` de um `throw` sem valor. Ler `.message` direto
+// funcionava por acidente e quebrava o próprio tratador no caso raro, que é
+// justamente o caso em que se está tentando registrar o que deu errado.
+//
+// O padrão antigo (`e && e.message ? e.message : e`) também mentia: um objeto
+// sem `message` virava a string "[object Object]" no painel.
+/**
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function errMessage(err) {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err) return err;
+  if (err && typeof err === 'object') {
+    const m = /** @type {{ message?: unknown }} */ (err).message;
+    if (typeof m === 'string' && m) return m;
+  }
+  return String(err);
+}
+
+/**
+ * @param {string} label
+ * @param {string} [detail]
+ * @param {unknown} [err] o que foi LANÇADO — pode não ser Error.
+ */
 export function noteDegraded(label, detail = '', err = null) {
   const rotulo = umaLinha(label);
   const texto = umaLinha(detail);
@@ -483,8 +619,13 @@ export function resetDegraded() { _degraded.clear(); }
 // ou 'leitura', e a distinção não é cosmética — a mensagem ACUSA UMA CAUSA, e
 // uma falha de leitura relatada como escrita mandava quem fosse investigar
 // procurar cota de escrita esgotada, que não tem nada a ver.
+/**
+ * @param {'escrita'|'leitura'} op
+ * @param {unknown} err
+ * @param {string} [context]
+ */
 export function noteKvFailure(op, err, context = '') {
-  const motivo = String(err && err.message ? err.message : err).slice(0, 120);
+  const motivo = errMessage(err).slice(0, 120);
   noteDegraded(
     `KV: ${op} recusada`,
     `${context ? `${context} — ` : ''}${motivo}${op === 'escrita' ? ' (se for cota diária, volta na virada UTC)' : ''}`,
@@ -493,146 +634,69 @@ export function noteKvFailure(op, err, context = '') {
 }
 
 // ---------------------------------------------------------------------------
-// Contadores agregados: uma escrita por janela, não uma por visitante
+// Contadores: um Durable Object por chave, incremento atômico
 // ---------------------------------------------------------------------------
-// O problema que isto resolve é de escala, não de correção. Um `put()` por
-// visitante faz o custo do site crescer junto com o público — exatamente a
-// direção errada, porque a cota (1000/dia, conta inteira) é fixa. Medido no
-// harness: 4 escritas por visitante engajado, ou seja teto de ~250/dia. Um
-// projeto divulgado passa disso numa tarde, e aí param os contadores, o rate
-// limit e a abertura de sessão.
+// Aqui morava a agregação em memória — mapa de pendentes, piso de 1 s por
+// chave, trava de flush, drenagem agendada — que existia porque o KV não tem
+// incremento atômico e recusa mais de uma escrita por segundo na mesma chave.
+// O Durable Object dá as duas coisas de graça, então a máquina inteira saiu.
+// O porquê da troca está em src/counters.js.
 //
-// Aqui os incrementos são somados na memória do isolate e gravados de tempos em
-// tempos. Cem visitantes no mesmo minuto viram UMA escrita por slug em vez de
-// cem, e o custo passa a depender do tempo, não do movimento.
-//
-// O que se perde: o que estiver pendente quando o isolate morrer. É perda
-// aceita e já declarada — os contadores são "best-effort, non-atomic" no
-// SECURITY.md, e a leitura-modificação-escrita nunca foi atômica entre
-// isolates. O que NÃO se perde é entregar a foto, que é o que a cota gasta
-// protegia mal.
-//
-// O mapa é naturalmente limitado: só entram chaves de eventos que existem
-// (quem chama valida antes), então nem um flood cria mapa grande.
-// Piso por CHAVE, casado com o limite do KV: uma escrita por segundo na mesma
-// chave (limite que NÃO sobe no plano pago). É isso que a agregação protege —
-// não a cota diária, que era a leitura errada da primeira versão.
-const COUNTER_KEY_MIN_INTERVAL_MS = 1000;
-const _pendingCounters = new Map();
-const _lastWriteByKey = new Map();
-let _flushInFlight = null;
+// O que se ganhou, além da simplicidade: a contagem deixou de ser
+// "best-effort, non-atomic" e passou a ser exata mesmo sob rajada, e nada mais
+// se perde quando o isolate morre com incremento pendente — não há pendente.
 
 // Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
-// viraria 500 numa página que só queria contar uma visita.
-//
-// Devolve a promessa da gravação, para quem não tem `ctx` conseguir aguardá-la.
-//
-// O flush é registrado em TODA requisição, e não só quando uma janela vence.
-// As duas versões anteriores erraram aqui, cada uma de um jeito:
-//
-//   • adiar o primeiro incremento do isolate perdia a contagem inteira em
-//     tráfego esparso, porque o isolate morria antes do segundo;
-//   • um carimbo de janela ÚNICO para todas as chaves fazia a primeira chave a
-//     gravar bloquear as outras pelos 10 s seguintes, e o que estivesse pendente
-//     no fim do tráfego não era gravado por ninguém. Medido no harness: 50
-//     visitantes viraram `views: 3` e nenhum `drive_clicks`.
-//
-// Agora quem agrega é a CONCORRÊNCIA, não o relógio: requisições simultâneas
-// dividem o mesmo mapa e a trava `_flushInFlight` faz uma gravação cobrir todas.
-// Tráfego sequencial grava uma vez por evento — contagem exata. Sob rajada numa
-// mesma chave, o piso de 1 s adia o excedente para o flush seguinte, que é
-// exatamente o que o limite do KV exige.
+// viraria 500 numa página que só queria contar uma visita. Devolve a promessa
+// da gravação, para quem não tem `ctx` conseguir aguardá-la.
+/**
+ * @param {Env} env
+ * @param {{ waitUntil?: (p: Promise<any>) => void }|null} ctx
+ * @param {string} key
+ * @param {number} [by]
+ */
 export function bumpCounter(env, ctx, key, by = 1) {
-  try {
-    _pendingCounters.set(key, (_pendingCounters.get(key) || 0) + by);
-    const work = flushCounters(env);
-    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(work);
-    // O que o piso por chave adiou precisa de alguém para gravar depois. Sem
-    // isto, só a chegada de OUTRA requisição drenava o mapa — e quando a rajada
-    // termina, não chega outra: a cauda inteira se perdia. Medido no harness,
-    // 50 visitantes em menos de um segundo viravam `views: 1`.
-    //
-    // `waitUntil` segura o isolate vivo enquanto o timer corre, então a drenagem
-    // acontece sem depender de tráfego futuro e sem atrasar a resposta.
-    if (_pendingCounters.size) scheduleDrain(env, ctx);
-    return work;
-  } catch (e) {
-    noteKvFailure('escrita', e, 'bumpCounter');
-    return null;
-  }
-}
-
-// Uma drenagem agendada por vez: várias requisições numa rajada não podem virar
-// vários timers gravando a mesma chave em paralelo.
-let _drainScheduled = false;
-function scheduleDrain(env, ctx) {
-  if (_drainScheduled || !ctx || typeof ctx.waitUntil !== 'function') return;
-  _drainScheduled = true;
-  ctx.waitUntil((async () => {
+  const work = (async () => {
     try {
-      await new Promise(r => setTimeout(r, COUNTER_KEY_MIN_INTERVAL_MS));
-      await flushCounters(env);
-    } finally {
-      _drainScheduled = false;
+      const id = env.COUNTER.idFromName(key);
+      await env.COUNTER.get(id).increment(by);
+    } catch (e) {
+      noteDegraded('contador não gravado', `${key} (+${by}) — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     }
-  })());
+  })();
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(work);
+  return work;
 }
 
-// Uma passada por vez: sem a trava, duas requisições simultâneas leriam o mesmo
-// valor do KV e uma sobrescreveria a outra — o mesmo bug de contagem que a
-// agregação existe para reduzir.
-//
-// Quem chega no meio de uma passada ESPERA e roda de novo, em vez de receber a
-// promessa da passada em curso e ir embora. A diferença importa para quem
-// aguarda o flush de propósito (o cron diário, os testes): devolver a passada
-// alheia é dizer "gravei" sobre um incremento que entrou no mapa depois que ela
-// já tinha copiado o lote.
-export async function flushCounters(env) {
-  if (_flushInFlight) {
-    await _flushInFlight.catch(() => {});
-    return flushCounters(env);
+// Leitura para o painel de métricas. Devolve 0 em vez de propagar: o painel
+// mostrando zero é ruim, o painel inteiro em 500 por causa de um contador é
+// pior — e a degradação fica registrada para o healthz.
+/**
+ * @param {Env} env
+ * @param {string} key
+ */
+export async function readCounter(env, key) {
+  try {
+    const id = env.COUNTER.idFromName(key);
+    return toCount(await env.COUNTER.get(id).value());
+  } catch (e) {
+    noteDegraded('contador não lido', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return 0;
   }
-  if (_pendingCounters.size === 0) return;
+}
 
-  const now = Date.now();
-  // Só entram no lote as chaves que respeitam o piso. As demais FICAM
-  // pendentes — não são descartadas — e saem no próximo flush.
-  const batch = [];
-  for (const [key, delta] of _pendingCounters) {
-    const last = _lastWriteByKey.get(key) || 0;
-    if (now - last < COUNTER_KEY_MIN_INTERVAL_MS) continue;
-    batch.push([key, delta]);
-    _pendingCounters.delete(key);
-    _lastWriteByKey.set(key, now);
+// Projeto apagado no painel leva os contadores junto.
+/**
+ * @param {Env} env
+ * @param {string} key
+ */
+export async function deleteCounter(env, key) {
+  try {
+    const id = env.COUNTER.idFromName(key);
+    await env.COUNTER.get(id).reset();
+  } catch (e) {
+    noteDegraded('contador não apagado', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
   }
-  if (batch.length === 0) return;
-
-  _flushInFlight = (async () => {
-    for (const [key, delta] of batch) {
-      try {
-        const current = await env.FOTOS.get(key);
-        await env.FOTOS.put(key, String(toCount(current) + delta));
-      } catch (e) {
-        // Delta descartado de propósito. Reinserir no mapa faria a cota
-        // estourada acumular para sempre e tentar de novo a cada requisição,
-        // gastando leitura sem nunca conseguir gravar.
-        noteKvFailure('escrita', e, `contador ${key} (+${delta})`);
-      }
-    }
-  })().finally(() => { _flushInFlight = null; });
-  return _flushInFlight;
-}
-
-// Só para os testes, que compartilham o módulo entre casos.
-export function resetCounters() {
-  _pendingCounters.clear();
-  _lastWriteByKey.clear();
-  _flushInFlight = null;
-  _drainScheduled = false;
-}
-
-export function pendingCounters() {
-  return new Map(_pendingCounters);
 }
 
 // Contadores em KV são strings, e uma corrompida lida com parseInt puro devolve
@@ -648,6 +712,10 @@ export function pendingCounters() {
 // utils.js não pode importar de index.js (importaria em círculo). index.js
 // reexporta, para que o contrato dos valores-veneno continue preso pelos testes
 // que já existem.
+/**
+ * @param {unknown} v
+ * @returns {number}
+ */
 export function toCount(v) {
   if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : 0;
   if (typeof v !== 'string') return 0;
@@ -657,33 +725,37 @@ export function toCount(v) {
   return Number.isSafeInteger(n) ? n : 0;
 }
 
+// Rate limit de janela fixa, em Durable Object: um objeto por par (chave, IP).
+//
+// Antes eram uma leitura e uma escrita em KV por chamada, com a checagem e o
+// incremento em passos separados — duas requisições simultâneas liam a mesma
+// contagem e ambas passavam. Agora as duas coisas acontecem dentro da mesma
+// chamada serializada pelo runtime, então a corrida some junto com a escrita.
+//
+// Continua falhando ABERTO, e isso não é economia de nada: uma falha de
+// contabilidade não pode derrubar a entrega das fotos nem trancar o dono do
+// lado de fora do painel. O contrapeso é não ser silencioso — a falha entra no
+// registro de degradações e aparece no /api/healthz. Ver SECURITY.md.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} key
+ * @param {number} limit
+ * @param {number} windowSecs
+ */
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
-  const window = Math.floor(Date.now() / (windowSecs * 1000));
-  const kvKey = `ratelimit:${key}:${ip}:${window}`;
-  let raw;
   try {
-    raw = parseInt(await env.FOTOS.get(kvKey) || '0', 10);
+    const id = env.RATELIMIT.idFromName(`${key}:${ip}`);
+    return await env.RATELIMIT.get(id).check(limit, windowSecs);
   } catch (e) {
-    // Sem leitura não há contagem. Deixa passar em vez de derrubar a rota —
-    // com o KV fora, quem depende dele (galeria, evento) já falha sozinho e com
-    // mensagem própria; um 500 vindo daqui só esconderia a causa.
-    noteKvFailure('leitura', e, `ratelimit:${key}`);
+    noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return true;
   }
-  // NaN >= limit is false, so a corrupted counter used to fail *open* — the
-  // limit silently stopped applying for that key/IP/window, and String(NaN)
-  // kept it corrupted. Treating unparseable as 0 keeps the limiter counting.
-  const count = Number.isFinite(raw) ? raw : 0;
-  if (count >= limit) return false;
-  try {
-    await env.FOTOS.put(kvKey, String(count + 1), { expirationTtl: windowSecs });
-  } catch (e) {
-    // A verificação acima já passou: o que falhou foi só a contabilidade.
-    noteKvFailure('escrita', e, `ratelimit:${key}`);
-  }
-  return true;
 }
 
+/**
+ * @param {unknown} str
+ */
 export function escape(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -732,6 +804,10 @@ export function footerLegalLinksHTML(extra = '') {
 // Instagram-branded credit button, reused twice on the event page (main
 // credits section + drive-modal guide box). idSuffix keeps each instance's
 // SVG gradient id unique since both can render on the same document.
+/**
+ * @param {string} idSuffix
+ * @param {string} [label]
+ */
 export function igCreditButtonHTML(idSuffix, label = 'Marque-me') {
   return `
     <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener" class="ig-credit-btn">
@@ -766,6 +842,9 @@ export function updateBannerHTML() {
     </div>`;
 }
 
+/**
+ * @param {unknown} slug
+ */
 export function validateSlug(slug) {
   return typeof slug === 'string' && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug) && slug.length <= 60;
 }
@@ -776,6 +855,10 @@ export function generateId() {
     .join('');
 }
 
+/**
+ * @param {string|null|undefined} dateStr
+ * @returns {string}
+ */
 export function formatDatePT(dateStr) {
   if (!dateStr) return '';
   const parts = dateStr.split('-');
@@ -793,10 +876,16 @@ export function formatDatePT(dateStr) {
 // Canonical event ordering: pinned first, then most recent by date
 // (falling back to createdAt). Shared by the public gallery and the
 // dashboard so the two never drift apart.
+/**
+ * @param {Evento} e
+ */
 export function eventTime(e) {
   return e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 }
 
+/**
+ * @param {Evento[]} events
+ */
 export function sortEvents(events) {
   return [...events].sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
@@ -809,6 +898,10 @@ export function sortEvents(events) {
 // grid loads small images instead of full-resolution originals. Non-Drive URLs
 // (or URLs we don't recognise) are returned untouched. The original files in
 // Drive are never altered.
+/**
+ * @param {string} url
+ * @param {number} width
+ */
 export function sizedDriveThumb(url, width) {
   if (!url || typeof url !== 'string') return url || '';
   const m = url.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
@@ -817,6 +910,9 @@ export function sizedDriveThumb(url, width) {
 
 // Coerce a URL to https and reject script-executing schemes. href/src are
 // script sinks — drop javascript:/data:/anything non-https.
+/**
+ * @param {unknown} url
+ */
 export function toHttps(url) {
   if (typeof url !== 'string') return ''; // was: threw on non-string (e.g. a number from a backup)
   const u = url.startsWith('http://') ? 'https://' + url.slice(7) : url;
@@ -837,6 +933,9 @@ export function toHttps(url) {
 // `javascript:`, escape mata a quebra de atributo. Nenhuma das duas sozinha
 // cobre os dois casos. Em atribuição de propriedade no cliente (el.href = x)
 // safeUrl basta, porque não há parsing de HTML envolvido.
+/**
+ * @param {unknown} url
+ */
 export function safeUrl(url) {
   return toHttps(url);
 }
@@ -866,6 +965,9 @@ const JPEG_STRIP_MARKERS = new Set([
   0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF, 0xFE,
 ]);
 
+/**
+ * @param {Uint8Array} bytes
+ */
 function stripJpeg(bytes) {
   // SOI, depois uma cadeia de segmentos `FF xx <len16> <payload>` até o SOS
   // (0xDA), a partir do qual vêm os dados comprimidos — que copiamos inteiros.
@@ -890,6 +992,9 @@ function stripJpeg(bytes) {
 // imagem muda de aparência ou nem abre.
 const PNG_STRIP_CHUNKS = new Set(['eXIf', 'tEXt', 'iTXt', 'zTXt', 'tIME', 'dSIG']);
 
+/**
+ * @param {Uint8Array} bytes
+ */
 function stripPng(bytes) {
   const SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
   for (let i = 0; i < SIG.length; i++) if (bytes[i] !== SIG[i]) return null;
@@ -914,7 +1019,11 @@ function stripPng(bytes) {
 // arquivo inválido.
 const WEBP_STRIP_CHUNKS = new Set(['EXIF', 'XMP ']);
 
+/**
+ * @param {Uint8Array} bytes
+ */
 function stripWebp(bytes) {
+  /** @param {number} o */
   const tag = o => String.fromCharCode(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
   if (tag(0) !== 'RIFF' || tag(8) !== 'WEBP') return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -935,6 +1044,9 @@ function stripWebp(bytes) {
   return concatBytes([header, bodyBytes]);
 }
 
+/**
+ * @param {Uint8Array[]} chunks
+ */
 function concatBytes(chunks) {
   const total = chunks.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
@@ -943,6 +1055,9 @@ function concatBytes(chunks) {
   return out;
 }
 
+/**
+ * @param {string} b64
+ */
 export function bytesFromBase64(b64) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -950,6 +1065,9 @@ export function bytesFromBase64(b64) {
   return out;
 }
 
+/**
+ * @param {Uint8Array} bytes
+ */
 export function base64FromBytes(bytes) {
   // Em blocos: String.fromCharCode(...bytes) com 2 MB estoura o limite de
   // argumentos da engine.
@@ -965,12 +1083,16 @@ export function base64FromBytes(bytes) {
 // suportado, estrutura inesperada, erro de decodificação) devolve o original
 // com stripped=false: perder o anexo do titular seria pior do que manter o
 // metadado, e o resultado fica registrado para quem revisa o pedido.
+/**
+ * @param {string} b64
+ */
 export function stripImageMetadata(b64) {
   let bytes;
   try { bytes = bytesFromBase64(b64); } catch { return { base64: b64, stripped: false, format: 'unknown' }; }
   if (bytes.length < 12) return { base64: b64, stripped: false, format: 'unknown' };
 
   let format = 'unknown';
+  /** @type {Uint8Array|null} */
   let cleaned = null;
   try {
     if (bytes[0] === 0xFF && bytes[1] === 0xD8) { format = 'jpeg'; cleaned = stripJpeg(bytes); }
@@ -1001,9 +1123,13 @@ export function stripImageMetadata(b64) {
 
 // Sniff magic bytes from the start of a base64 payload to confirm it's an image
 // (not an arbitrary blob smuggled through the removal-upload field).
+/**
+ * @param {string} b64
+ */
 export function isLikelyImage(b64) {
   let head;
   try { head = atob(b64.slice(0, 32)); } catch { return false; }
+  /** @param {number} i */
   const byte = i => head.charCodeAt(i);
   if (byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF) return true;                         // JPEG
   if (byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47) return true;     // PNG
@@ -1035,6 +1161,9 @@ export function isLikelyImage(b64) {
 // deixa de ser executável.
 const CSV_FORMULA_PREFIX = /^[-=+@\t\r]/;
 
+/**
+ * @param {unknown} v
+ */
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
   let s = String(v);
@@ -1047,6 +1176,11 @@ export function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
+/**
+ * @param {string} filename
+ * @param {string[]} cols
+ * @param {Record<string, any>[]} rows
+ */
 export function csvResponse(filename, cols, rows) {
   const head = cols.map(csvCell).join(',');
   const lines = rows.map(r => cols.map(c => csvCell(r[c])).join(','));
@@ -1064,11 +1198,15 @@ export function csvResponse(filename, cols, rows) {
 }
 
 
+/**
+ * @param {Env} env
+ * @param {Pedido} req
+ */
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
 
-  const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' }[req.method] || req.method;
+  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' })[req.method] || req.method;
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
   const html = `
@@ -1088,6 +1226,7 @@ export async function sendRemovalEmail(env, req) {
   <p style="margin-top:24px;font-size:12px;color:#bbb">Gerencie as solicitações em fotos.lucafchala.com/dashboard</p>
 </div>`;
 
+  /** @type {{ from: string, to: (string|undefined)[], subject: string, html: string, attachments?: {filename: string, content: string}[] }} */
   const body = {
     from: 'Fotos <noreply@lucafchala.com>',
     to: [env.ADMIN_EMAIL],
@@ -1115,6 +1254,10 @@ export async function sendRemovalEmail(env, req) {
   return true;
 }
 
+/**
+ * @param {Env} env
+ * @param {Pedido} req
+ */
 export async function sendResolvedEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
@@ -1150,6 +1293,10 @@ export async function sendResolvedEmail(env, req) {
   return true;
 }
 
+/**
+ * @param {Env} env
+ * @param {{ name: string, email: string, message: string }} msg
+ */
 export async function sendSupportEmail(env, { name, email, message }) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
@@ -1194,6 +1341,11 @@ export async function sendSupportEmail(env, { name, email, message }) {
 // includes request bodies/headers/IP — only the error message, a truncated
 // stack, and the route — to avoid ever incidentally mailing visitor PII.
 // Global cooldown (not per-error) so a repeating throw can't flood the inbox.
+/**
+ * @param {Env} env
+ * @param {unknown} err
+ * @param {{ path?: string, method?: string, [k: string]: any }} [context]
+ */
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
@@ -1204,8 +1356,11 @@ export async function sendErrorAlert(env, err, context = {}) {
   } catch { /* KV hiccup shouldn't block the alert or the response */ }
 
   const esc = escape;
-  const message = err && err.message ? String(err.message) : String(err);
-  const stack = err && err.stack ? String(err.stack).slice(0, 2000) : '';
+  // `catch` entrega `unknown`; um narrow explícito é o que deixa ler .stack
+  // sem fingir que todo throw é Error.
+  const e = /** @type {{ message?: unknown, stack?: unknown }} */ (err ?? {});
+  const message = e.message ? String(e.message) : String(err);
+  const stack = e.stack ? String(e.stack).slice(0, 2000) : '';
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -1250,6 +1405,10 @@ export async function sendErrorAlert(env, err, context = {}) {
 // precisão total num e-mail.
 const LOGIN_ALERT_COOLDOWN_SECS = 1800;
 
+/**
+ * @param {Env} env
+ * @param {{ ip: string, attempts: number, windowMins: number, userAgent?: string }} info
+ */
 export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent }) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
@@ -1292,12 +1451,16 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
   }
 }
 
+/**
+ * @param {Env} env
+ * @param {Pedido} req
+ */
 export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
 
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
-  const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' }[req.method] || req.method;
+  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' })[req.method] || req.method;
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -1350,6 +1513,11 @@ const PERF_SAMPLE_RATE = 0.1;
 // Um único beacon por visita, no visibilitychange. Um POST por imagem custaria
 // uma requisição de Worker por foto e transformaria a galeria de 12 cards em 13
 // requisições — o mesmo problema de cota que fez o cache via Worker ser descartado.
+/**
+ * @param {string} page
+ * @param {boolean} enabled
+ * @param {string} [nonce]
+ */
 export function perfBootScript(page, enabled, nonce = '') {
   return `<script${nonce ? ` nonce="${nonce}"` : ''}>(function(){
   var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};

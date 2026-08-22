@@ -29,8 +29,30 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
+      # Checagem de tipos sobre JS puro (checkJs + JSDoc, sem passo de build).
+      # Pega a classe de erro que o lint não vê e a suíte só veria por acaso:
+      # propriedade digitada errada, argumento a menos, `undefined` escapando.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Duas suítes com contratos diferentes, rodadas juntas por `npm test`:
+      #   unit    — node, com dublês, rápida
+      #   workers — dentro do workerd, com Durable Objects/KV/D1 de verdade
+      #
+      # A segunda não é redundância. Foi ela que pegou o incremento NÃO ser
+      # atômico (100 chamadas simultâneas viravam 3): o dublê da primeira tinha
+      # a serialização que nós mesmos escrevemos, então afirmava o que queríamos
+      # ouvir. Se um dia esta etapa ficar lenta demais, mova-a para um job
+      # próprio — não a remova.
+      - name: Tests (unit + workers)
         run: npm test
+
+      # Catraca de cobertura, medida só na suíte `unit`: o provedor v8 depende
+      # de `node:inspector`, que não existe no workerd. Os limiares estão no
+      # vitest.config.js e são o que a suíte já cobre — se esta etapa falhar,
+      # a resposta é escrever o teste que falta, não baixar o número.
+      - name: Coverage ratchet
+        run: npm run test:coverage
 
       - name: Validate JSON files
         run: |

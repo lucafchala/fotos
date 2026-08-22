@@ -10,6 +10,10 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
+/**
+ * @param {{ error?: boolean, isSetup?: boolean }} [opts]
+ * @param {string} [nonce]
+ */
 export function loginHTML(opts = {}, nonce = '') {
   const { error = false, isSetup = false } = opts;
   const title = isSetup ? 'Criar senha de acesso' : 'Painel administrativo';
@@ -72,8 +76,14 @@ export function loginHTML(opts = {}, nonce = '') {
 </html>`;
 }
 
+/** @type {Record<string, string>} */
 const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
 
+/**
+ * @param {import('../utils.js').Evento[]} events
+ * @param {string[]} [categories]
+ * @param {string} [nonce]
+ */
 export function dashboardHTML(events, categories = [], nonce = '') {
   const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
@@ -85,6 +95,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
   const sorted = sortEvents(events);
   const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
+  /** @param {number} n */
   const noun = n => n === 1 ? 'evento' : 'eventos';
   const ssrCount = `${active.length} ${noun(active.length)} ativos`;
   const ssrList = active.length === 0
@@ -160,6 +171,23 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .icon-btn.muted{opacity:.4}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
     .icon-btn.pinned{border-color:#c0a060;color:#c0a060}
+    /* Celular: as cinco ações ganham uma linha só para elas.
+       A conta que obrigava a isto: 5 botões de 34px + 4 vãos = 194px, e
+       .evt-actions era flex-shrink:0, então não cedia nunca. Com a miniatura
+       (48px), os vãos e o respiro da caixa, sobravam ~66px para o título num
+       aparelho de 360px — era o nome do projeto sumindo, não um detalhe de
+       espaçamento.
+       Consertado só no CSS, de propósito: a marcação da linha é gerada em DOIS
+       lugares (servidor e redesenho no cliente) e qualquer correção feita na
+       marcação teria de ser escrita duas vezes, com as duas cópias livres para
+       divergir depois. Aqui não há o que sincronizar.
+       Os 44px são o alvo de toque mínimo recomendado (WCAG 2.5.5); cabem porque
+       agora a linha é inteira deles. */
+    @media(max-width:599px){
+      .evt-item{flex-wrap:wrap;gap:.625rem .75rem}
+      .evt-actions{flex-basis:100%;justify-content:space-between;gap:.25rem}
+      .icon-btn{width:44px;height:44px}
+    }
     /* status badge */
     .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
     .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}

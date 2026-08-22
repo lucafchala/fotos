@@ -37,6 +37,29 @@ database_name = "fotos-consent"
 database_id = "d6bed362-4ddf-459d-a088-48b42aa11fdc"
 migrations_dir = "migrations"
 
+# ---------------------------------------------------------------------------
+# Contadores e rate limit (Durable Objects)
+# ---------------------------------------------------------------------------
+# Trocaram o KV porque ele não tem incremento atômico e recusa mais de uma
+# escrita por segundo na MESMA chave — limite que o plano pago também não sobe.
+# O raciocínio completo está em src/counters.js.
+#
+# `new_sqlite_classes`, e não `new_classes`: no plano gratuito só existe o
+# backend SQLite. Declarar como key-value faria o deploy falhar na conta.
+# A tag da migração é histórico append-only — não reaproveite `v1` para outra
+# mudança; acrescente `v2`.
+[[durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter", "RateLimiter"]
+
 [triggers]
 # Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
 crons = ["0 3 * * *"]
@@ -89,3 +112,17 @@ name = "fotos-preview"
 [[env.preview.kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
+
+# O preview precisa dos mesmos bindings: um ambiente sem eles quebra em
+# `env.COUNTER is undefined` no primeiro visitante, e não no deploy.
+[[env.preview.durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[env.preview.durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[[env.preview.migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter", "RateLimiter"]

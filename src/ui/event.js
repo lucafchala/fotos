@@ -3,16 +3,24 @@ import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
+/**
+ * @param {import('../utils.js').Evento} event
+ * @param {number|string} year
+ * @param {string|null} analyticsToken
+ * @param {string} [nonce]
+ * @param {string} [driveNonce]
+ * @param {string} [removalFormToken]
+ */
 export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = '', removalFormToken = '') {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
-  const declaration = ACCESS_DECLARATIONS[event.accessType] || '';
+  const declaration = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.filter(Boolean)
     : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
 
   // Teasers, not downloads — request right-sized Drive thumbnails so the page loads fast.
-  const displayPhotos = photos.map(u => sizedDriveThumb(u, 1600));
+  const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, 1600));
 
   const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const slugJSON    = JSON.stringify(event.slug || '');
@@ -1505,10 +1513,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 </html>`;
 }
 
+/** @param {number} size */
 function camIcon(size) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg>`;
 }
 
+/** @param {number} size */
 function clockIcon(size) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 }

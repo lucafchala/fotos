@@ -127,6 +127,7 @@ export const LEGAL_DOCS = ${JSON.stringify(docs, null, 2)};
 // Caminho relativo (como aparece dentro dos markdowns) → slug da rota pública.
 export const DOC_PATH_TO_SLUG = ${JSON.stringify(FILE_TO_SLUG, null, 2)};
 
+/** @param {string} slug */
 export function findDoc(slug) {
   return LEGAL_DOCS.find(d => d.slug === slug) || null;
 }

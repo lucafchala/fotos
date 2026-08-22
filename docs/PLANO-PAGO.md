@@ -76,35 +76,31 @@ A tentação natural depois de pagar é remover tudo o que foi feito para caber 
 gratuito. **A maior parte disso não é gambiarra de cota — é código correto que
 continua correto no pago.** Item por item, com o motivo:
 
-### 4.1. A agregação dos contadores FICA — este é o item importante
+### 4.1. A agregação dos contadores JÁ FOI EMBORA — e não por causa de plano
 
-`bumpCounter()` / `flushCounters()` em `src/utils.js` gravam direto, **exceto**
-quando a mesma chave já foi gravada há menos de um segundo — aí o incremento
-espera e sai junto com os outros, num lote só.
+> **Resolvido.** Esta seção dizia "não remova o piso por chave nem a drenagem
+> agendada", e estava certa enquanto os contadores viviam no KV. Eles não vivem
+> mais: migraram para **Durable Objects** (`src/counters.js`), onde o incremento
+> é atômico e não existe teto de uma escrita por segundo por chave. Com o
+> primitivo certo embaixo, a agregação inteira — mapa de pendentes, piso de 1 s,
+> trava de flush, drenagem agendada — deixou de ter motivo e saiu.
 
-Parece existir por causa da cota diária. **Não é.** O KV limita a **uma escrita
-por segundo na mesma chave**, e esse limite **não sobe no plano pago** —
-escritas concorrentes na mesma chave levam 429. O contador de visitas de um
-projeto é exatamente isso: uma chave só (`views:<slug>`), com todo o público
-daquele projeto batendo nela.
+O que a seção argumentava continua verdadeiro sobre o **KV**: ele limita a uma
+escrita por segundo na mesma chave, e esse limite não sobe no plano pago. O erro
+seria concluir daí que a agregação tinha de ficar para sempre. A conclusão certa
+era outra: **o KV é o armazenamento errado para um contador.**
 
-Tirar esse piso faria o pico de um lançamento — que é justamente quando as
-visitas importam — bater no teto por chave e perder contagem com erro 429, no
-plano pago igual ao gratuito. O piso é o que transforma N visitantes no mesmo
-segundo em uma escrita.
+Por que a troca não dependeu de comprar nada: Durable Objects com backend SQLite
+existem no plano **gratuito**, com 100 mil linhas escritas/dia contra as 1000
+escritas/dia do KV para a conta inteira. O envelope subiu ~100×, a contagem
+passou a ser exata sob rajada, e nada foi perdido na migração — cada objeto
+assenta a contagem antiga lendo a chave que tinha no KV, na primeira vez que é
+tocado.
 
-A conta, para poder ser conferida em vez de aceita: sem agregação, o contador
-grava uma vez por visitante novo (o cookie `fv_<slug>` segura repetição por 1 h).
-Passar de **1 visitante novo por segundo no mesmo projeto** já encosta no teto —
-e não é o número médio que importa, é a rajada. Um link jogado num grupo grande
-de WhatsApp produz dezenas de aberturas no mesmo segundo, todas na mesma chave.
-Com o piso, essas dezenas viram uma escrita.
-
-**Não remova o piso por chave nem a drenagem agendada.** Medido: tráfego
-espalhado custa 4 escritas por visitante engajado, rajada de 40 simultâneos custa
-2,1 — e nos dois casos a contagem sai exata. Essa exatidão é recente e custou
-dois defeitos silenciosos (ver RETOMADA §5.3): mexer aqui sem reproduzir os dois
-formatos de tráfego no harness é como o projeto perdeu contagem duas vezes.
+O que **fica valendo** do raciocínio original: a exatidão custou dois defeitos
+silenciosos (ver RETOMADA §5.3). Quem mexer aqui de novo tem de reproduzir os
+dois formatos de tráfego no harness — espalhado e em rajada — antes de acreditar
+na suíte.
 
 ### 4.2. A sobrevivência a queda de KV FICA
 
@@ -118,7 +114,7 @@ página do projeto e no portão do Drive.
 Commit `0bb904f`. A justificativa nunca foi a cota, e sim: uma falha de
 contabilidade não pode derrubar a entrega das fotos. Vale para 429 de cota, para
 queda de KV e para qualquer erro futuro. O raciocínio completo está no
-[`SECURITY.md`](../SECURITY.md#rate-limits-fail-open-when-kv-cannot-record-them).
+[`SECURITY.md`](../SECURITY.md#rate-limits-fail-open-when-they-cannot-be-recorded).
 
 ### 4.4. Validar antes de gastar escrita FICA
 

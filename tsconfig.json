@@ -1,0 +1,67 @@
+{
+  "//": [
+    "Checagem de tipos sem TypeScript: o código continua sendo JavaScript puro",
+    "e não há passo de build. `checkJs` faz o tsc analisar os .js como se",
+    "fossem tipados, usando inferência e o que estiver anotado em JSDoc.",
+    "",
+    "Por que isto vale num projeto sem build: o tsc pega a classe de erro que",
+    "nem o lint nem a suíte pegam — propriedade digitada errada, chamada com",
+    "argumento a menos, `undefined` que escapa de um caminho. É o mesmo tipo de",
+    "defeito silencioso que este projeto já registrou duas vezes nos contadores."
+  ],
+  "//strict": [
+    "`strict: true`, e a base passa limpa. Chegou aqui por medição, não por",
+    "otimismo: começou em 340 erros de `noImplicitAny` e 38 de",
+    "`strictNullChecks`, corrigidos arquivo por arquivo.",
+    "",
+    "O que destravou o grosso foi o typedef `Env` em src/utils.js, que descreve",
+    "os bindings do wrangler.toml — `env` sozinho respondia por 42 erros em",
+    "index.js e 15 em utils.js. Vale como documentação executável do contrato",
+    "de deploy: um binding que suma daqui e do toml deixa de existir para quem",
+    "lê o código.",
+    "",
+    "Erros REAIS que a checagem encontrou, e não apenas anotações faltando:",
+    "  · `events` no healthz guardava uma CONTAGEM e estava anotado como lista;",
+    "  · `falha` no /suporte guarda o erro lançado, não uma string;",
+    "  · `sample` em auditSite() guarda um slug, não o evento;",
+    "  · `formatDatePT` anotado como `unknown` contaminava ui/legal.js dois",
+    "    arquivos adiante;",
+    "  · `sendErrorAlert` lia `err.message`/`err.stack` sem narrow — um throw",
+    "    que não fosse Error quebrava o próprio tratador de erro;",
+    "  · `validatePassword` agora é união discriminada, então `check.error` só",
+    "    existe onde de fato existe.",
+    "",
+    "Manter em `true`. Se um arquivo novo não passar, anote o arquivo novo — o",
+    "que não se faz é baixar o gate: um gate vermelho por padrão não é gate."
+  ],
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": [
+      "es2022"
+    ],
+    "types": [
+      "@cloudflare/workers-types"
+    ],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/content/legal-docs.js"
+  ]
+}

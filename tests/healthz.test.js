@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import worker, { handleHealthz, handleLogin } from '../src/index.js';
 import { hashPassword } from '../src/utils.js';
+import { withDurableObjects } from './helpers/do.js';
 import { aboutHTML } from '../src/ui/about.js';
 import { gearHTML } from '../src/ui/gear.js';
 
@@ -189,7 +190,7 @@ describe('handleLogin', () => {
 
   it('blocks further attempts once the per-IP login rate limit is spent', async () => {
     const stored = await hashPassword('correct-horse');
-    const env = { FOTOS: fakeKV({ admin_password: stored }) };
+    const env = withDurableObjects({ FOTOS: fakeKV({ admin_password: stored }) });
     for (let i = 0; i < 10; i++) {
       await handleLogin(loginReq('wrong-guess', '5.5.5.5'), env);
     }

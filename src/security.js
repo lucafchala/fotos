@@ -101,6 +101,10 @@ export function generateNonce() {
 // servem à política estrita (é o que faz os <script> legítimos passarem nela,
 // deixando só os handlers como violação) e ficam prontos para o dia da virada:
 // quando os relatórios zerarem, `strict` passa a valer para o enforced também.
+/**
+ * @param {string} nonce
+ * @param {{ strict?: boolean }} [opts]
+ */
 export function contentSecurityPolicy(nonce, { strict = false } = {}) {
   // Sem nonce (páginas de erro, que não têm script nenhum) a fonte é omitida em
   // vez de virar um `'nonce-'` vazio. Um token assim é sintaticamente inválido:
@@ -147,6 +151,7 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
 }
 
 // Cabeçalhos de uma página HTML pública.
+/** @param {string} nonce */
 export function htmlSecurityHeaders(nonce) {
   return {
     ...baseHeaders(),
@@ -167,6 +172,7 @@ export function htmlSecurityHeaders(nonce) {
 // Cabeçalhos das páginas autenticadas (painel e login). Além do que a página
 // pública leva: nada de cache em disco compartilhado, nada de indexação e
 // nenhum referrer vazando URL de painel para terceiros.
+/** @param {string} nonce */
 export function adminHtmlSecurityHeaders(nonce) {
   return {
     ...htmlSecurityHeaders(nonce),
@@ -187,7 +193,14 @@ export function adminHtmlSecurityHeaders(nonce) {
 // controle que realmente importa: /api/metrics, /api/backup e
 // /api/consent/export devolvem dados pessoais e não podem encostar em cache
 // intermediário nem no cache de disco do browser.
+/**
+ * @param {string} contentType
+ * @param {{ store?: boolean }} [opts]
+ */
 export function dataSecurityHeaders(contentType, { store = false } = {}) {
+  // Record<string, string>: o bloco `no-store` abaixo acrescenta chaves que não
+  // estão no literal, e a forma inferida as recusaria.
+  /** @type {Record<string, string>} */
   const headers = {
     ...baseHeaders(),
     'Content-Type': contentType,
@@ -223,6 +236,7 @@ export function dataSecurityHeaders(contentType, { store = false } = {}) {
 // Sec-Fetch-Site nem Origin não é um browser, e um não-browser não sofre CSRF —
 // ele já controla a própria requisição. Bloquear por ausência custaria
 // compatibilidade sem comprar segurança.
+/** @param {Request} request */
 export function isCrossSiteRequest(request) {
   const secFetchSite = request.headers.get('Sec-Fetch-Site');
   if (secFetchSite) {
@@ -264,6 +278,7 @@ export function isCrossSiteRequest(request) {
 const encoder = new TextEncoder();
 const keyCache = new Map();
 
+/** @param {string} secret */
 async function hmacKey(secret) {
   let key = keyCache.get(secret);
   if (!key) {
@@ -275,6 +290,9 @@ async function hmacKey(secret) {
   return key;
 }
 
+// Uint8Array, não ArrayBuffer: o spread abaixo precisa de algo iterável, e um
+// ArrayBuffer cru não é. Os dois chamadores já embrulham com `new Uint8Array(sig)`.
+/** @param {Uint8Array} bytes */
 function b64url(bytes) {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -282,6 +300,10 @@ function b64url(bytes) {
 // Comparação em tempo constante sobre strings ASCII. Duplicada de utils.js de
 // propósito: security.js não importa utils.js para que a dependência aponte só
 // num sentido (utils -> security), sem ciclo.
+/**
+ * @param {string} a
+ * @param {string} b
+ */
 function timingSafeEqualStr(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length !== b.length) return false;
@@ -293,6 +315,10 @@ function timingSafeEqualStr(a, b) {
 // Assina `purpose|scope|exp`. `purpose` separa os usos (um token de formulário
 // não vale como nonce de Drive nem vice-versa) e `scope` amarra ao recurso
 // (o slug do evento).
+/**
+ * @param {string} secret
+ * @param {{ purpose: string, scope?: string, ttlSecs: number }} opts
+ */
 export async function signToken(secret, { purpose, scope = '', ttlSecs }) {
   const exp = Math.floor(Date.now() / 1000) + ttlSecs;
   const payload = `${purpose}|${scope}|${exp}`;
@@ -303,6 +329,11 @@ export async function signToken(secret, { purpose, scope = '', ttlSecs }) {
 // Devolve um motivo em vez de um booleano: o chamador precisa distinguir
 // "expirou" (recarregue a página — recuperável, e é o que acontece com uma aba
 // aberta desde ontem) de "assinatura inválida" (alguém forjando).
+/**
+ * @param {string} secret
+ * @param {unknown} token
+ * @param {{ purpose: string, scope?: string, ttlSecs?: number|null, minAgeSecs?: number }} opts
+ */
 export async function verifyToken(secret, token, { purpose, scope = '', ttlSecs = null, minAgeSecs = 0 }) {
   if (typeof token !== 'string' || !token) return { ok: false, reason: 'missing' };
   const dot = token.indexOf('.');
@@ -345,6 +376,10 @@ export async function verifyToken(secret, token, { purpose, scope = '', ttlSecs 
 // clássica ("foto.jpg.exe") normalizando para uma extensão de imagem conhecida.
 const SAFE_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'avif'];
 
+/**
+ * @param {unknown} name
+ * @param {string} [fallback]
+ */
 export function sanitizeFilename(name, fallback = 'foto.jpg') {
   if (typeof name !== 'string' || !name.trim()) return fallback;
 
@@ -390,6 +425,10 @@ const WEAK_PATTERNS = [
   /^(?:fotos|lucafchala|luca|chala|galeria|dashboard|painel)/i,
 ];
 
+/**
+ * @param {unknown} password
+ * @returns {{ ok: true } | { ok: false, error: string }}
+ */
 export function validatePassword(password) {
   if (typeof password !== 'string') return { ok: false, error: 'Senha inválida.' };
   if (password.length < PASSWORD_MIN_LENGTH) {
@@ -441,6 +480,7 @@ export function honeypotFieldHTML() {
 // checa `display`/`visibility` antes de preencher.
 export const HONEYPOT_CSS = '.hp-field{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}';
 
+/** @param {unknown} value */
 export function honeypotTripped(value) {
   return typeof value === 'string' && value.trim() !== '';
 }

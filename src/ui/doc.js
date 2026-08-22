@@ -15,6 +15,9 @@ import { LEGAL_DOCS } from '../content/legal-docs.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
+/**
+ * @param {{ slug: string, title: string, markdown: string, [k: string]: any }} doc
+ */
 export function docHTML(doc) {
   const { html, toc } = renderMarkdown(doc.markdown);
 

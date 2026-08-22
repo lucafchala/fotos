@@ -1,6 +1,13 @@
 import { escape, footerLegalLinksHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
+/**
+ * @param {boolean} [sent]
+ * @param {string} [error]
+ * @param {{ name?: string, email?: string, message?: string }} [values]
+ * @param {string} [nonce]
+ * @param {string} [formToken]
+ */
 export function supportHTML(sent = false, error = '', values = {}, nonce = '', formToken = '') {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
