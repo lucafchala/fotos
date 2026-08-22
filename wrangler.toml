@@ -48,6 +48,25 @@ migrations_dir = "migrations"
 # backend SQLite. Declarar como key-value faria o deploy falhar na conta.
 # A tag da migração é histórico append-only — não reaproveite `v1` para outra
 # mudança; acrescente `v2`.
+#
+# ⚠️ MIGRAÇÃO DE DURABLE OBJECT NÃO SOBE POR `wrangler versions upload`.
+#
+# A API recusa com o código 10211: "migrations must be fully applied via a
+# non-versioned deployment". Ou seja, quem cria a classe é `wrangler deploy`
+# (não-versionado) — que é o que o .github/workflows/deploy.yml roda no push
+# para a main.
+#
+# Isso importa porque o Cloudflare Workers Builds (configurado no PAINEL, não
+# neste repositório) roda `npx wrangler versions upload` a cada PR. Enquanto a
+# migração nova não tiver sido aplicada por um deploy de verdade, esse build
+# FALHA — e a falha é esperada, não é sinal de código quebrado.
+#
+# A ordem que funciona, e que vale para toda migração futura (v2, v3…):
+#   1. merge → deploy.yml roda `wrangler deploy` → a migração é aplicada;
+#   2. a partir daí os previews de PR voltam a passar sozinhos.
+#
+# Não existe atalho: migração e código sobem juntos, não dá para aplicar só a
+# migração antes.
 [[durable_objects.bindings]]
 name = "COUNTER"
 class_name = "Counter"
