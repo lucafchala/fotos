@@ -14,7 +14,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, generateId, checkRateLimit,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
-  bumpCounter, readCounter, deleteCounter,
+  bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
@@ -1013,10 +1013,7 @@ async function handleDeleteEvent(request, env, path) {
   // Os dois contadores, não só o de visitas: `drive_clicks:<slug>` ficava para
   // trás na versão em KV e ressurgia somado se um projeto novo reaproveitasse o
   // slug.
-  await Promise.all([
-    deleteCounter(env, `views:${removed.slug}`),
-    deleteCounter(env, `drive_clicks:${removed.slug}`),
-  ]);
+  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`]);
   return jsonOk({ deleted: true });
 }
 
@@ -1163,20 +1160,20 @@ async function handleMetrics(request, env) {
   if (authErr) return authErr;
 
   const events = await getEvents(env, true);
-  const metrics = await Promise.all(
-    events.map(async e => {
-      const [v, d] = await Promise.all([
-        readCounter(env, `views:${e.slug}`),
-        readCounter(env, `drive_clicks:${e.slug}`),
-      ]);
-      return {
-        slug: e.slug,
-        title: e.title,
-        views: v,
-        driveClicks: d,
-      };
-    })
-  );
+
+  // UMA leitura em lote, e não duas por projeto. Chamada de Durable Object é
+  // subrequisição, e o plano gratuito permite 50 por invocação: com 28
+  // projetos, o laço antigo pedia 57 e a aba inteira morria com "Erro ao
+  // carregar métricas". Ver o comentário no topo de src/counters.js.
+  const chaves = events.flatMap(e => [`views:${e.slug}`, `drive_clicks:${e.slug}`]);
+  const contagens = await readCounters(env, chaves);
+
+  const metrics = events.map(e => ({
+    slug: e.slug,
+    title: e.title,
+    views: contagens[`views:${e.slug}`] || 0,
+    driveClicks: contagens[`drive_clicks:${e.slug}`] || 0,
+  }));
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
 }
