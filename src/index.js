@@ -26,6 +26,10 @@ import {
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
   HONEYPOT_FIELD, honeypotTripped,
 } from './security.js';
+import {
+  SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
+  FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
+} from './config.js';
 
 // As classes de Durable Object têm de ser exportadas pelo MÓDULO DE ENTRADA: é
 // por aqui que o runtime as encontra a partir dos bindings do wrangler.toml.
@@ -83,9 +87,7 @@ export { toCount };
 // Piso de tamanho para a chave HMAC. Um segredo de 8 caracteres não é um
 // segredo: dá para varrer o espaço inteiro offline a partir de um único token
 // assinado, e aí o atacante forja nonce de Drive e token de formulário à
-// vontade — pior do que ter o controle desligado, porque o painel diria que
-// está ligado. 32 caracteres aleatórios é o piso que torna isso inviável.
-export const SIGNING_SECRET_MIN_LENGTH = 32;
+// Ver SIGNING_SECRET_MIN_LENGTH em src/config.js.
 
 // Fonte ÚNICA da verdade sobre o estado do segredo.
 //
@@ -157,15 +159,7 @@ function signingSecret(env) {
 
 // Janela do nonce de página do Drive. Generosa de propósito: o gate é o último
 // passo de uma leitura de Termos, e ninguém deve perder o acesso porque leu com
-// calma. Duas horas ainda deixam o token inútil como ferramenta de varredura no
-// dia seguinte.
-export const DRIVE_NONCE_TTL_SECS = 7200;
 
-// Formulários públicos: janela longa (a pessoa pode escrever devagar) com piso
-// de 3 s. O piso é o que pega automação — um bot preenche e envia em
-// milissegundos; humano nenhum lê um formulário e envia em menos de 3 s.
-export const FORM_TOKEN_TTL_SECS = 7200;
-export const FORM_TOKEN_MIN_AGE_SECS = 3;
 
 /**
  * @param {Env} env
@@ -818,15 +812,6 @@ export async function handleLogout(request, env, ctx) {
 // ---------------------------------------------------------------------------
 const EVENT_STATUSES = ['em-edicao', 'em-revisao', 'entregue', 'arquivado'];
 
-// Fallback values for a brand-new event and for any field a legacy event is
-// missing. Create passes this as the base; update passes the existing event.
-export const DEFAULT_EVENT = {
-  title: '', longDescription: '',
-  driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
-  projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false,
-  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
-};
 
 // Fill any field absent (undefined/null) on an existing event with the default,
 // so the normalizer's fallbacks are always well-defined for legacy records.

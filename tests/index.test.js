@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, DEFAULT_EVENT, cronStale, auditSite } from '../src/index.js';
+import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite } from '../src/index.js';
+import { DEFAULT_EVENT } from '../src/config.js';
 
 const CATS = ['Casamento', 'Ensaio'];
 

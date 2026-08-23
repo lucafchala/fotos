@@ -15,7 +15,8 @@ import {
 } from '../src/security.js';
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
-import worker, { sanitizeRestoredRequest, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, signingSecretProblem, SIGNING_SECRET_MIN_LENGTH, mintFormToken, trimRequests } from '../src/index.js';
+import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests } from '../src/index.js';
+import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { eventHTML } from '../src/ui/event.js';
 import { degradedHealth, resetDegraded } from '../src/utils.js';
