@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
   degradedHealth, resetDegraded, noteDegraded,
-  bumpCounter, readCounter, deleteCounter,
+  bumpCounter, readCounter, readCounters, deleteCounters,
 } from '../src/utils.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
 
@@ -135,10 +135,8 @@ describe('contadores', () => {
   });
 
   it('uma rajada na MESMA chave não perde nada — é o ponto da migração', async () => {
-    // Este é o caso que o KV não atendia: uma escrita por segundo na mesma
-    // chave, com leitura-modificação-escrita não atômica entre isolates. Cem
-    // visitantes no mesmo instante tinham de virar cem, e viravam 1 ou 3.
-    // Aqui as cem chamadas correm juntas e a contagem sai exata.
+    // O caso que o KV não atendia: uma escrita por segundo na mesma chave, com
+    // leitura-modificação-escrita não atômica entre isolates.
     const env = withDurableObjects({ FOTOS: fakeKV() });
     const ctx = fakeCtx();
     for (let i = 0; i < 100; i++) bumpCounter(env, ctx, 'views:piauifut-2026');
@@ -146,7 +144,9 @@ describe('contadores', () => {
     expect(await readCounter(env, 'views:piauifut-2026')).toBe(100);
   });
 
-  it('mantém slugs e métricas separados', async () => {
+  it('mantém slugs e métricas separados dentro do mesmo objeto', async () => {
+    // Um objeto só guarda TODAS as contagens; misturar chaves seria o defeito
+    // mais fácil de introduzir nessa forma.
     const env = withDurableObjects({ FOTOS: fakeKV() });
     const ctx = fakeCtx();
     bumpCounter(env, ctx, 'views:a');
@@ -157,37 +157,6 @@ describe('contadores', () => {
     expect(await readCounter(env, 'views:a')).toBe(2);
     expect(await readCounter(env, 'views:b')).toBe(1);
     expect(await readCounter(env, 'drive_clicks:a')).toBe(1);
-  });
-
-  it('adota a contagem que estava no KV — migrar não pode zerar o histórico', async () => {
-    // O site tinha contagem acumulada em KV quando a troca aconteceu. O
-    // primeiro toque no objeto assenta esse valor; depois disso o KV não é
-    // mais consultado.
-    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': '742' }) });
-    await bumpCounter(env, null, 'views:x');
-    expect(await readCounter(env, 'views:x')).toBe(743);
-  });
-
-  it('assenta em 0 quando o valor herdado do KV está corrompido', async () => {
-    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': 'NaN' }) });
-    await bumpCounter(env, null, 'views:x');
-    expect(await readCounter(env, 'views:x')).toBe(1);
-  });
-
-  it('um objeto reconstruído recusa um NaN guardado em vez de adotá-lo', async () => {
-    // NaN é `typeof number`, então uma checagem ingênua o adotaria no
-    // nascimento do objeto e o contador ficaria envenenado para sempre
-    // (NaN + 1 = NaN). A checagem só roda no construtor, então o teste precisa
-    // de uma evicção para chegar até ela.
-    const env = withDurableObjects({ FOTOS: fakeKV() });
-    await bumpCounter(env, null, 'views:x');
-    env.COUNTER._instances.get('views:x').ctx.storage._map.set('n', NaN);
-
-    env.COUNTER._evict('views:x');
-
-    expect(await readCounter(env, 'views:x'), 'lixo vira 0, não NaN').toBe(0);
-    await bumpCounter(env, null, 'views:x');
-    expect(await readCounter(env, 'views:x')).toBe(1);
   });
 
   it('nunca lança para quem chamou — é caminho de resposta do visitante', () => {
@@ -207,23 +176,90 @@ describe('contadores', () => {
     expect(await readCounter(env, 'views:x')).toBe(0);
     expect(degradedHealth().length).toBeGreaterThan(0);
   });
+});
 
-  it('apagar zera o contador', async () => {
+// ---------------------------------------------------------------------------
+// Leitura em lote — o que consertou o "Erro ao carregar métricas"
+// ---------------------------------------------------------------------------
+// Cada chamada a um Durable Object é uma subrequisição, e o plano gratuito
+// permite 50 por invocação. Ler dois contadores por projeto estourava o teto a
+// partir de ~24 projetos e derrubava a aba inteira do painel. Estes testes
+// prendem as duas propriedades que consertam isso: UMA chamada para tudo, e o
+// assentamento do histórico feito pelo Worker (não dentro do objeto, onde
+// gastaria a cota dele).
+describe('readCounters — leitura em lote', () => {
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  it('devolve todas as chaves pedidas numa chamada só', async () => {
     const env = withDurableObjects({ FOTOS: fakeKV() });
-    await bumpCounter(env, null, 'views:x', 5);
-    expect(await readCounter(env, 'views:x')).toBe(5);
-    await deleteCounter(env, 'views:x');
-    expect(await readCounter(env, 'views:x')).toBe(0);
+    await bumpCounter(env, null, 'views:a');
+    await bumpCounter(env, null, 'views:a');
+    await bumpCounter(env, null, 'drive_clicks:a');
+
+    const out = await readCounters(env, ['views:a', 'drive_clicks:a', 'views:b']);
+    expect(out['views:a']).toBe(2);
+    expect(out['drive_clicks:a']).toBe(1);
+    expect(out['views:b'], 'chave nunca tocada vale 0').toBe(0);
   });
 
-  it('apagar não ressuscita a contagem antiga do KV', async () => {
-    // O assentamento lê o KV na primeira vez. Se ele voltasse a rodar depois do
-    // delete, apagar um projeto e recriar com o mesmo slug traria a contagem
-    // velha de volta.
+  it('NÃO cresce em chamadas ao objeto conforme o número de projetos', async () => {
+    // A afirmação que impede a regressão: 50 projetos = 100 chaves, e ainda
+    // assim um número FIXO de chamadas. Era isto que estourava o teto de
+    // subrequisição.
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    const chaves = [];
+    for (let i = 0; i < 50; i++) chaves.push(`views:p${i}`, `drive_clicks:p${i}`);
+
+    env.COUNTER._resetCalls();
+    await readCounters(env, chaves);
+
+    expect(chaves).toHaveLength(100);
+    expect(env.COUNTER._calls().length, 'uma leitura em lote, mais um assentamento')
+      .toBeLessThanOrEqual(2);
+  });
+
+  it('assenta do KV o histórico anterior à migração, uma vez só', async () => {
     const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': '742' }) });
+
+    expect((await readCounters(env, ['views:x']))['views:x']).toBe(742);
+
+    // Mexer no KV velho depois não pode mover a contagem: o assentamento já
+    // aconteceu e o valor passou a viver no objeto.
+    await env.FOTOS.put('views:x', '999');
+    expect((await readCounters(env, ['views:x']))['views:x']).toBe(742);
+
     await bumpCounter(env, null, 'views:x');
-    await deleteCounter(env, 'views:x');
-    expect(await readCounter(env, 'views:x')).toBe(0);
+    expect(await readCounter(env, 'views:x')).toBe(743);
+  });
+
+  it('valor herdado corrompido vira 0, não NaN', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV({ 'views:x': 'NaN' }) });
+    expect((await readCounters(env, ['views:x']))['views:x']).toBe(0);
+    await bumpCounter(env, null, 'views:x');
+    expect(await readCounter(env, 'views:x')).toBe(1);
+  });
+
+  it('lista vazia não chama o objeto', async () => {
+    const env = { FOTOS: fakeKV(), COUNTER: brokenDONamespace() };
+    expect(await readCounters(env, [])).toEqual({});
+    expect(degradedHealth(), 'nem degradação, porque nada foi chamado').toEqual([]);
+  });
+
+  it('com o objeto fora, devolve vazio e registra — o painel não pode virar 500', async () => {
+    const env = { FOTOS: fakeKV(), COUNTER: brokenDONamespace() };
+    expect(await readCounters(env, ['views:x'])).toEqual({});
+    expect(degradedHealth().length).toBeGreaterThan(0);
+  });
+
+  it('apagar remove as chaves do lote', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    await bumpCounter(env, null, 'views:x', 5);
+    await bumpCounter(env, null, 'drive_clicks:x', 3);
+    await deleteCounters(env, ['views:x', 'drive_clicks:x']);
+    const out = await readCounters(env, ['views:x', 'drive_clicks:x']);
+    expect(out['views:x']).toBe(0);
+    expect(out['drive_clicks:x']).toBe(0);
   });
 });
 

@@ -646,6 +646,34 @@ export function noteKvFailure(op, err, context = '') {
 // "best-effort, non-atomic" e passou a ser exata mesmo sob rajada, e nada mais
 // se perde quando o isolate morre com incremento pendente — não há pendente.
 
+// Nome fixo: todos os contadores moram no MESMO objeto. Ver o comentário em
+// src/counters.js para por que não é um objeto por chave (resposta curta: o
+// painel lê tudo de uma vez, e chamada de DO é subrequisição — 50 por
+// invocação no plano gratuito).
+const COUNTER_OBJ = 'contadores';
+
+/**
+ * A superfície RPC que este módulo usa do Counter. Declarada à mão porque a
+ * inferência sobre `DurableObjectNamespace<Counter>` estoura a profundidade do
+ * tsc ("Type instantiation is excessively deep") — e um `any` aqui esconderia
+ * justamente os nomes que quebrariam num rename.
+ * @typedef {{
+ *   increment: (key: string, by?: number) => Promise<number>,
+ *   value: (key: string) => Promise<number>,
+ *   snapshot: (keys: string[]) => Promise<{ counts: Record<string, number>, missing: string[] }>,
+ *   seed: (map: Record<string, unknown>) => Promise<void>,
+ *   remove: (keys: string[]) => Promise<void>,
+ * }} CounterRPC
+ */
+
+/**
+ * @param {Env} env
+ * @returns {CounterRPC}
+ */
+function counterStub(env) {
+  return /** @type {any} */ (env.COUNTER.get(env.COUNTER.idFromName(COUNTER_OBJ)));
+}
+
 // Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
 // viraria 500 numa página que só queria contar uma visita. Devolve a promessa
 // da gravação, para quem não tem `ctx` conseguir aguardá-la.
@@ -658,8 +686,7 @@ export function noteKvFailure(op, err, context = '') {
 export function bumpCounter(env, ctx, key, by = 1) {
   const work = (async () => {
     try {
-      const id = env.COUNTER.idFromName(key);
-      await env.COUNTER.get(id).increment(by);
+      await counterStub(env).increment(key, by);
     } catch (e) {
       noteDegraded('contador não gravado', `${key} (+${by}) — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     }
@@ -668,34 +695,63 @@ export function bumpCounter(env, ctx, key, by = 1) {
   return work;
 }
 
-// Leitura para o painel de métricas. Devolve 0 em vez de propagar: o painel
-// mostrando zero é ruim, o painel inteiro em 500 por causa de um contador é
-// pior — e a degradação fica registrada para o healthz.
 /**
  * @param {Env} env
  * @param {string} key
  */
 export async function readCounter(env, key) {
   try {
-    const id = env.COUNTER.idFromName(key);
-    return toCount(await env.COUNTER.get(id).value());
+    return toCount(await counterStub(env).value(key));
   } catch (e) {
     noteDegraded('contador não lido', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return 0;
   }
 }
 
-// Projeto apagado no painel leva os contadores junto.
+// Leitura em LOTE, para o painel. Uma subrequisição para todos os projetos,
+// em vez de duas por projeto — é o que conserta o "Erro ao carregar métricas"
+// que aparecia a partir de ~24 projetos.
+//
+// O assentamento do histórico acontece aqui, e não dentro do objeto: ler o KV
+// lá dentro gastaria a cota de subrequisição DELE, que é o mesmo erro um nível
+// abaixo. Aqui as leituras de KV são do Worker, servidas do cache de borda, e
+// só acontecem uma vez — depois do primeiro `seed()` nada mais falta.
 /**
  * @param {Env} env
- * @param {string} key
+ * @param {string[]} keys
+ * @returns {Promise<Record<string, number>>}
  */
-export async function deleteCounter(env, key) {
+export async function readCounters(env, keys) {
+  if (!keys.length) return {};
   try {
-    const id = env.COUNTER.idFromName(key);
-    await env.COUNTER.get(id).reset();
+    const stub = counterStub(env);
+    const { counts, missing } = await stub.snapshot(keys);
+
+    if (missing.length) {
+      /** @type {Record<string, unknown>} */
+      const doKv = {};
+      await Promise.all(missing.map(/** @param {string} k */ async k => {
+        try { doKv[k] = await env.FOTOS.get(k); } catch { doKv[k] = null; }
+      }));
+      await stub.seed(doKv);
+      for (const k of missing) counts[k] = toCount(doKv[k]);
+    }
+    return counts;
   } catch (e) {
-    noteDegraded('contador não apagado', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    noteDegraded('contadores não lidos', `lote de ${keys.length} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return {};
+  }
+}
+
+/**
+ * @param {Env} env
+ * @param {string[]} keys
+ */
+export async function deleteCounters(env, keys) {
+  try {
+    await counterStub(env).remove(keys);
+  } catch (e) {
+    noteDegraded('contadores não apagados', `${keys.join(', ')} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
   }
 }
 
