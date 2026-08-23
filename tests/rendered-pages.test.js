@@ -56,12 +56,34 @@ function paginas() {
   };
 }
 
+// Insensível a maiúsculas, e isto NÃO é preciosismo — foi um achado do CodeQL
+// nesta própria suíte, e ele estava certo.
+//
+// O parser de HTML trata nome de tag e nome de atributo sem distinguir caixa:
+// `</SCRIPT>` fecha um bloco exatamente como `</script>`. Uma varredura
+// sensível a caixa, portanto, deixa passar justamente a injeção que esta suíte
+// existe para pegar — o teste ficaria verde sobre uma página que o browser
+// quebra. Uma verificação que só enxerga a forma bem-comportada do problema é
+// pior do que nenhuma, porque passa a impressão de estar coberta.
+const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+const RE_SCRIPT_ABRE = /<script\b/gi;
+const RE_SCRIPT_FECHA = /<\/script\s*>/gi;
+const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
+
 /** @param {string} html */
-function blocos(html) {
-  const todos = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)];
+export function blocos(html) {
+  const todos = [...html.matchAll(RE_SCRIPT_BLOCO)];
   return {
-    js: todos.filter(m => !/type\s*=\s*["']application\/ld\+json["']/.test(m[1])).map(m => m[2]),
-    jsonld: todos.filter(m => /application\/ld\+json/.test(m[1])).map(m => m[2]),
+    js: todos.filter(m => !RE_JSON_LD.test(m[1])).map(m => m[2]),
+    jsonld: todos.filter(m => RE_JSON_LD.test(m[1])).map(m => m[2]),
+  };
+}
+
+/** Abre/fecha, para o teste de fechamento precoce. */
+export function contaScriptTags(html) {
+  return {
+    abre: (html.match(RE_SCRIPT_ABRE) || []).length,
+    fecha: (html.match(RE_SCRIPT_FECHA) || []).length,
   };
 }
 
@@ -90,8 +112,7 @@ describe('scripts embutidos nas páginas', () => {
     // BROWSER, independentemente de estar dentro de uma string JS. É o motivo
     // de event.js escapar `<` e `>` ao serializar o `photosJSON`.
     for (const [nome, html] of Object.entries(paginas())) {
-      const abre = (html.match(/<script/g) || []).length;
-      const fecha = (html.match(/<\/script>/g) || []).length;
+      const { abre, fecha } = contaScriptTags(html);
       expect(fecha, `${nome}: <script> e </script> desbalanceados`).toBe(abre);
     }
   });
@@ -140,5 +161,31 @@ describe('painel: dado guardado não vira marcação', () => {
     const html = dashboardHTML([{ ...EVENTO, thumbnailUrl: 'javascript:alert(1)' }], [], 'NONCE');
     expect(html).not.toMatch(/src=["']javascript:/i);
     expect(html).not.toMatch(/src=["'][^"']*javascript:/i);
+  });
+});
+
+describe('a própria varredura desta suíte', () => {
+  // Achado do CodeQL sobre este arquivo (`Bad HTML filtering regexp`), fechado
+  // com o teste que prova o conserto em vez de uma supressão. Um verificador
+  // que só enxerga a forma minúscula do problema deixa passar exatamente o que
+  // ele deveria pegar — e ainda dá a impressão de estar cobrindo.
+  it('enxerga <SCRIPT> em qualquer caixa', () => {
+    const { js } = blocos('<SCRIPT>var a = 1;</SCRIPT>');
+    expect(js).toEqual(['var a = 1;']);
+  });
+
+  it('conta o fechamento em qualquer caixa, e com espaço antes do >', () => {
+    // `</script >` é fechamento válido para o parser de HTML.
+    expect(contaScriptTags('<script>a</SCRIPT >')).toEqual({ abre: 1, fecha: 1 });
+  });
+
+  it('não confunde uma tag que só COMEÇA com "script"', () => {
+    expect(contaScriptTags('<scriptish>')).toEqual({ abre: 0, fecha: 0 });
+  });
+
+  it('reconhece o JSON-LD com o atributo em maiúsculas', () => {
+    const { js, jsonld } = blocos('<script TYPE="application/ld+json">{"a":1}</script>');
+    expect(jsonld).toEqual(['{"a":1}']);
+    expect(js).toEqual([]);
   });
 });
