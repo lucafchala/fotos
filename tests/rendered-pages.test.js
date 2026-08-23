@@ -56,18 +56,36 @@ function paginas() {
   };
 }
 
-// Insensível a maiúsculas, e isto NÃO é preciosismo — foi um achado do CodeQL
-// nesta própria suíte, e ele estava certo.
+// ---------------------------------------------------------------------------
+// Como se reconhece uma tag <script> — e por que não é óbvio
+// ---------------------------------------------------------------------------
+// Estas expressões saíram erradas DUAS vezes, e as duas foram apontadas pelo
+// CodeQL sobre este próprio arquivo (`Bad HTML filtering regexp`). Vale
+// registrar as duas, porque o erro é o mesmo nos dois casos: escrever o padrão
+// pensando no HTML que NÓS emitimos, quando o que importa é o que o PARSER
+// aceita.
 //
-// O parser de HTML trata nome de tag e nome de atributo sem distinguir caixa:
-// `</SCRIPT>` fecha um bloco exatamente como `</script>`. Uma varredura
-// sensível a caixa, portanto, deixa passar justamente a injeção que esta suíte
-// existe para pegar — o teste ficaria verde sobre uma página que o browser
-// quebra. Uma verificação que só enxerga a forma bem-comportada do problema é
-// pior do que nenhuma, porque passa a impressão de estar coberta.
-const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+//   1. **Caixa.** Nome de tag e de atributo não distinguem maiúscula:
+//      `</SCRIPT>` fecha um bloco igual a `</script>`, e `TYPE=` vale como
+//      `type=`. Faltava o flag `i`.
+//
+//   2. **Atributos na tag de fechamento.** Uma tag de fechamento pode carregar
+//      atributos — o tokenizador os analisa e os DESCARTA, mas a tag fecha do
+//      mesmo jeito. Ou seja, `</script foo="bar">` encerra o bloco, e um
+//      `\s*` antes do `>` não alcança isso.
+//
+// A consequência, nos dois casos, é a mesma e é o que torna isso grave num
+// arquivo de teste: a checagem de fechamento precoce existe justamente para
+// pegar um `</script>` aparecendo onde não devia. Cega para essas formas, ela
+// ficaria VERDE sobre uma página que o browser quebra. Uma verificação que só
+// enxerga a variante bem-comportada do problema é pior do que nenhuma, porque
+// passa a impressão de estar coberta — a mesma armadilha que o resto desta
+// suíte existe para desarmar.
+//
+// Daí `[^>]*` no fechamento, e não `\s*`: tudo até o `>`, como o tokenizador.
+const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
 const RE_SCRIPT_ABRE = /<script\b/gi;
-const RE_SCRIPT_FECHA = /<\/script\s*>/gi;
+const RE_SCRIPT_FECHA = /<\/script\b[^>]*>/gi;
 const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
 
 /** @param {string} html */
@@ -177,6 +195,19 @@ describe('a própria varredura desta suíte', () => {
   it('conta o fechamento em qualquer caixa, e com espaço antes do >', () => {
     // `</script >` é fechamento válido para o parser de HTML.
     expect(contaScriptTags('<script>a</SCRIPT >')).toEqual({ abre: 1, fecha: 1 });
+  });
+
+  it('enxerga uma tag de fechamento COM atributos', () => {
+    // O tokenizador analisa os atributos de uma tag de fechamento e os
+    // descarta — mas a tag fecha. `</script foo="bar">` encerra o bloco, e um
+    // padrão que só admite espaço em branco antes do `>` não vê isso.
+    expect(contaScriptTags('<script>a</script foo="bar">')).toEqual({ abre: 1, fecha: 1 });
+    const { js } = blocos('<script>var a = 1;</script data-x>');
+    expect(js).toEqual(['var a = 1;']);
+  });
+
+  it('não confunde o fechamento de uma tag de nome diferente', () => {
+    expect(contaScriptTags('</scriptish>')).toEqual({ abre: 0, fecha: 0 });
   });
 
   it('não confunde uma tag que só COMEÇA com "script"', () => {
