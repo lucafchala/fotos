@@ -210,6 +210,22 @@ describe('a própria varredura desta suíte', () => {
     expect(contaScriptTags('</scriptish>')).toEqual({ abre: 0, fecha: 0 });
   });
 
+  it('casa o contraexemplo exato que o CodeQL apontou', () => {
+    // Vem literalmente do alerta (`</script\t\n bar>`): tabulação, quebra de
+    // linha E um atributo solto, tudo dentro da tag de fechamento. Fixado aqui
+    // com o valor cru porque um contraexemplo dado pelo próprio analisador é o
+    // melhor caso de regressão que existe — não é hipótese nossa sobre o que
+    // pode aparecer, é a forma que a ferramenta sabe que quebra o padrão.
+    expect(contaScriptTags('<script>a</script\t\n bar>')).toEqual({ abre: 1, fecha: 1 });
+    expect(blocos('<script>var a=1;</script\t\n bar>').js).toEqual(['var a=1;']);
+  });
+
+  it('casa a tag de fechamento com barra de auto-fechamento', () => {
+    // `</script/>` é erro de parsing para a especificação, mas ainda assim é
+    // uma tag de fechamento — o tokenizador segue em frente e fecha o bloco.
+    expect(contaScriptTags('<script>a</script/>')).toEqual({ abre: 1, fecha: 1 });
+  });
+
   it('não confunde uma tag que só COMEÇA com "script"', () => {
     expect(contaScriptTags('<scriptish>')).toEqual({ abre: 0, fecha: 0 });
   });
