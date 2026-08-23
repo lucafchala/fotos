@@ -169,6 +169,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .icon-btn:hover{border-color:#3a3a3a;color:var(--text)}
     .icon-btn.danger:hover{border-color:var(--red);color:var(--red)}
     .icon-btn.muted{opacity:.4}
+    .metrics-nota{font-size:.75rem;color:var(--text3);line-height:1.5;margin:-.25rem 0 1rem;max-width:60ch}
+    .metrics-resumo{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
+    .resumo-card{flex:1 1 120px;background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:.7rem .8rem}
+    .resumo-num{font-size:1.25rem;font-weight:600;line-height:1.1}
+    .resumo-lab{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:.15rem}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
     .icon-btn.pinned{border-color:#c0a060;color:#c0a060}
     /* Celular: as cinco ações ganham uma linha só para elas.
@@ -413,9 +418,15 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <!-- METRICS TAB -->
   <div id="tab-metrics" class="panel">
     <div class="panel-head">
-      <h2>Visualizações</h2>
+      <h2>Visitantes</h2>
       <button class="btn-sm" id="metrics-export" onclick="exportMetricsCSV()" style="display:none">⬇ Exportar CSV</button>
     </div>
+    <p class="metrics-nota">
+      Conta <strong>visitante único por hora</strong>, não recarregamento: abrir a
+      mesma página de novo no mesmo navegador não soma. Por isso o número não se
+      mexe quando você testa recarregando — é assim de propósito.
+    </p>
+    <div id="metrics-resumo" class="metrics-resumo" hidden></div>
     <div id="metrics-body"><p class="empty">Carregando…</p></div>
   </div>
 
@@ -1333,12 +1344,14 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td>
           <td class="views-cell"><span class="views-bar" style="width:\${pct}%"></span><span class="views-badge">\${m.views || 0}</span></td>
           <td><span class="views-badge" style="color:#4a7a4a">\${m.driveClicks || 0}</span></td>
+          <td><span class="views-badge" style="color:var(--text3)">\${(m.views || 0) ? Math.round(taxa(m) * 100) + '%' : '—'}</span></td>
         </tr>\`;
       }).join('');
       body.innerHTML = \`<table class="metrics-table"><thead><tr>
         <th>Projeto</th>
-        <th class="sortable" onclick="sortMetrics('views')">Visualizações\${ind('views')}</th>
-        <th class="sortable" onclick="sortMetrics('driveClicks')">Abriu Drive\${ind('driveClicks')}</th>
+        <th class="sortable" onclick="sortMetrics('views')" title="Visitantes únicos por hora">Visitantes\${ind('views')}</th>
+        <th class="sortable" onclick="sortMetrics('driveClicks')" title="Quantos abriram o link do Drive">Abriu Drive\${ind('driveClicks')}</th>
+        <th class="sortable" onclick="sortMetrics('taxa')" title="Abriu Drive ÷ visitantes">Taxa\${ind('taxa')}</th>
       </tr></thead><tbody>\${rows}</tbody></table>\`;
     }
 
