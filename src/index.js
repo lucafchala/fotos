@@ -2635,6 +2635,15 @@ function sanitizeRestoredEvent(ev) {
   if (Array.isArray(out.photos)) {
     out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, 500))).filter(Boolean);
   }
+  // Os dois campos de ENUM. Todo caminho normal os valida
+  // (`normalizeEventFields` recusa o que não estiver na lista); o restore não
+  // passa por lá, então eram a porta por onde um valor arbitrário entrava — e
+  // os dois desembocam em atributo de HTML no painel (`class="st-…"`, e o
+  // rótulo do badge). O escape no sink já cobre a marcação; isto impede que o
+  // valor absurdo chegue a ser GRAVADO, que é o que faz a lista de status do
+  // painel continuar significando alguma coisa.
+  if (out.status !== undefined && !EVENT_STATUSES.includes(out.status)) out.status = DEFAULT_EVENT.status;
+  if (out.accessType !== undefined && !ACCESS_TYPES.includes(out.accessType)) out.accessType = DEFAULT_EVENT.accessType;
   return out;
 }
 

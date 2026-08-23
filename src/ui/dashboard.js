@@ -1,4 +1,4 @@
-import { sortEvents, escape } from '../utils.js';
+import { sortEvents, escape, safeUrl } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 
 const BASE = `
@@ -103,12 +103,12 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     : active.map(e => {
         const st = e.status || 'entregue';
         const thumb = e.thumbnailUrl
-          ? `<img class="evt-thumb" src="${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">`
+          ? `<img class="evt-thumb" src="${esc(safeUrl(e.thumbnailUrl))}" alt="" onerror="this.style.display='none'">`
           : `<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>`;
         return `<div class="evt-item${e.visible === false ? ' hidden-evt' : ''}" id="evt-${esc(e.id)}">
           ${thumb}
           <div class="evt-info">
-            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${st}">${STATUS_LABELS_SSR[st] || st}</span></div>
+            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${esc(st)}">${esc(STATUS_LABELS_SSR[st] || st)}</span></div>
             <div class="evt-slug">/${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
@@ -731,30 +731,30 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       }
       list.innerHTML = sorted.map(e => {
         const thumb = e.thumbnailUrl
-          ? \`<img class="evt-thumb" src="\${esc(e.thumbnailUrl)}" alt="" onerror="this.style.display='none'">\`
+          ? \`<img class="evt-thumb" src="\${esc(safeUrl(e.thumbnailUrl))}" alt="" onerror="this.style.display='none'">\`
           : \`<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>\`;
         const eyeIcon = e.visible !== false
           ? \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\`
           : \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>\`;
         const pinIcon = \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="\${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg>\`;
         const st = e.status || 'entregue';
-        return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${e.id}">
-          \${massMode ? \`<input type="checkbox" class="evt-check" data-id="\${e.id}" \${selectedIds.has(e.id) ? 'checked' : ''}>\` : ''}
+        return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${esc(e.id)}">
+          \${massMode ? \`<input type="checkbox" class="evt-check" data-id="\${esc(e.id)}" \${selectedIds.has(e.id) ? 'checked' : ''}>\` : ''}
           \${thumb}
           <div class="evt-info">
-            <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${st}">\${STATUS_LABELS[st]}</span></div>
+            <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${esc(st)}">\${esc(STATUS_LABELS[st] || st)}</span></div>
             <div class="evt-slug">/\${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
-            <button class="icon-btn \${e.pinned ? 'pinned' : ''}" data-action="pin" data-id="\${e.id}" title="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}" aria-label="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}">\${pinIcon}</button>
-            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" data-action="vis" data-id="\${e.id}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}" aria-label="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}">\${eyeIcon}</button>
-            <button class="icon-btn" data-action="edit" data-id="\${e.id}" title="Editar" aria-label="Editar">
+            <button class="icon-btn \${e.pinned ? 'pinned' : ''}" data-action="pin" data-id="\${esc(e.id)}" title="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}" aria-label="\${e.pinned ? 'Remover destaque' : 'Destacar na galeria'}">\${pinIcon}</button>
+            <button class="icon-btn \${e.visible === false ? 'muted' : ''}" data-action="vis" data-id="\${esc(e.id)}" title="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}" aria-label="\${e.visible !== false ? 'Ocultar' : 'Mostrar'}">\${eyeIcon}</button>
+            <button class="icon-btn" data-action="edit" data-id="\${esc(e.id)}" title="Editar" aria-label="Editar">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn" data-action="dup" data-id="\${e.id}" title="Duplicar" aria-label="Duplicar">
+            <button class="icon-btn" data-action="dup" data-id="\${esc(e.id)}" title="Duplicar" aria-label="Duplicar">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             </button>
-            <button class="icon-btn danger" data-action="del" data-id="\${e.id}" title="Excluir" aria-label="Excluir">
+            <button class="icon-btn danger" data-action="del" data-id="\${esc(e.id)}" title="Excluir" aria-label="Excluir">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             </button>
           </div>
@@ -1668,6 +1668,23 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       // cell in the metrics table (0 views showed blank instead of "0").
       if (s === null || s === undefined) return '';
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+    }
+
+    // Espelho do safeUrl/toHttps de utils.js, pelo mesmo motivo do esc() acima:
+    // isto roda no browser, onde não há import de módulo.
+    //
+    // Vem em par com o esc(), nunca sozinho — é o contrato documentado em
+    // utils.js: esc() fecha o atributo mas NÃO mata o esquema, e safeUrl() mata
+    // o esquema mas devolve URL crua, que pode conter aspas. Um esquema
+    // javascript: guardado no KV por um restore de backup (que mescla
+    // verbatim) precisa dos dois para não ficar a um clique da execução.
+    function safeUrl(u) {
+      if (typeof u !== 'string') return '';
+      const v = u.startsWith('http://') ? 'https://' + u.slice(7) : u;
+      // Comparação de prefixo em vez de regex: uma barra escapada dentro de
+      // um literal de template vira ruído de escape que o linter reprova, e o
+      // teste é o mesmo.
+      return v.slice(0, 8).toLowerCase() === 'https://' ? v : '';
     }
 
     // ---- Toast ----
