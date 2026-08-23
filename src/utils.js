@@ -34,6 +34,7 @@ import { dataSecurityHeaders, sanitizeFilename } from './security.js';
  *   ADMIN_EMAIL?: string,
  *   SIGNING_SECRET?: string,
  *   CF_ANALYTICS_TOKEN?: string,
+ *   KUMA_PUSH_URL?: string,
  * }} Env
  */
 
@@ -358,6 +359,20 @@ export async function verifyPassword(password, stored) {
   }
   const [, rawIterations, saltHex] = stored.split(':');
   const iterations = parseInt(rawIterations, 10);
+  // Um hash guardado ilegível não pode virar EXCEÇÃO. `deriveBits` recusa uma
+  // contagem de iterações que não seja inteiro positivo, então um valor
+  // corrompido em `admin_password` (`pbkdf2:abc:...`, um restore torto, uma
+  // escrita truncada) lançava de dentro do login — 500 na tela, em vez do
+  // "senha incorreta" que o fluxo sabe tratar. O 500 é pior de duas maneiras:
+  // esconde a causa real do dono e desvia do redirect que conta a tentativa.
+  //
+  // O teto existe pelo outro lado: a contagem vem do próprio registro, e um
+  // número absurdo (`pbkdf2:99999999999:...`) é uma forma barata de estourar o
+  // orçamento de CPU do Worker a cada tentativa de login — negação de serviço
+  // sobre o único caminho de entrada do painel. Fora da faixa, a credencial é
+  // tratada como ilegível: recusa e ninguém entra com ela.
+  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 1_000_000) return false;
+  if (typeof saltHex !== 'string' || !/^[0-9a-f]+$/.test(saltHex) || saltHex.length % 2 !== 0) return false;
   const candidate = await hashPassword(password, saltHex, iterations);
   return timingSafeEqual(candidate, stored);
 }

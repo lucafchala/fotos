@@ -292,3 +292,30 @@ describe('mergeRestore hardening', () => {
     expect(ev.someFutureField).toEqual({ a: 1 });
   });
 });
+
+describe('mergeRestore: campos de enum', () => {
+  // O restore é o único caminho que grava eventos sem passar por
+  // `normalizeEventFields`, e `status`/`accessType` desembocam em atributo de
+  // HTML no painel. O escape no sink cobre a marcação; isto impede que o valor
+  // absurdo chegue a ser gravado.
+  it('normaliza um status fora da lista para o padrão', () => {
+    const { events } = mergeRestore([], [{ id: 'a', status: '" onmouseover="alert(1)' }]);
+    expect(events[0].status).toBe(DEFAULT_EVENT.status);
+  });
+  it('normaliza um accessType fora da lista para o padrão', () => {
+    const { events } = mergeRestore([], [{ id: 'a', accessType: 'inventado' }]);
+    expect(events[0].accessType).toBe(DEFAULT_EVENT.accessType);
+  });
+  it('preserva um status e um accessType legítimos', () => {
+    const { events } = mergeRestore([], [{ id: 'a', status: 'arquivado', accessType: 'family' }]);
+    expect(events[0].status).toBe('arquivado');
+    expect(events[0].accessType).toBe('family');
+  });
+  it('não inventa os campos num evento que não os traz', () => {
+    // Backups antigos legítimos podem simplesmente não ter as chaves; criá-las
+    // aqui mudaria o registro em vez de sanear o que veio.
+    const { events } = mergeRestore([], [{ id: 'a', title: 'T' }]);
+    expect('status' in events[0]).toBe(false);
+    expect('accessType' in events[0]).toBe(false);
+  });
+});

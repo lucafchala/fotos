@@ -177,6 +177,7 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 | `ADMIN_PASSWORD` | Apenas em deploy novo / KV zerado | Semeia a senha do dashboard quando `admin_password` não existe no KV. **Não há mais setup público de primeira execução** — sem KV e sem este secret, o login fica bloqueado |
 | `TURNSTILE_SECRET_KEY` | Sim (fail-closed) | Verificação Turnstile do formulário de suporte e remoção de fotos. Se ausente, esses formulários são bloqueados |
 | `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link` e o token dos formulários públicos (HMAC-SHA256, sem estado). Ver o aviso abaixo |
+| `KUMA_PUSH_URL` | Não | URL de push do Uptime Kuma (`https://<host>/api/push/<token>`), para o heartbeat de disponibilidade. Sem ela o heartbeat não acontece e nada mais muda. **É uma credencial**: o token do monitor está embutido na URL, e quem o tem consegue manter um monitor verde sobre um serviço caído — por isso ela não mora no código, que é público |
 
 > ### ⚠️ `SIGNING_SECRET` falha **aberto**, não fechado
 >
