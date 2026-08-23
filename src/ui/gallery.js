@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -27,7 +27,12 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
    */
   const cardHTML = (e, { hidden = false, featured = false } = {}) => {
     const width = featured ? 1600 : 600;
-    const thumb = e.thumbnailUrl ? sizedDriveThumb(e.thumbnailUrl, width) : '';
+    // safeUrl no SINK, como manda o contrato documentado em utils.js: escape()
+    // sozinho fecha o atributo mas não mata o esquema, e `thumbnailUrl` pode
+    // ter entrado no KV por um caminho que não passou por toHttps() (registro
+    // antigo, restore de backup mesclado verbatim). Composto com o escape() da
+    // interpolação abaixo, o par cobre os dois riscos.
+    const thumb = e.thumbnailUrl ? safeUrl(sizedDriveThumb(e.thumbnailUrl, width)) : '';
     const title = escape((e.title || '').toLowerCase());
     const catLower = escape((e.category || '').toLowerCase());
     const cls = [

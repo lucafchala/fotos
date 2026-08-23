@@ -7,13 +7,13 @@
 // de um teste próprio afirmando o comportamento negativo ("isto tem que ser
 // recusado"), não só o positivo.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   isCrossSiteRequest, signToken, verifyToken, sanitizeFilename, validatePassword,
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
@@ -1457,5 +1457,218 @@ describe('portão do Drive: o campo de nome vem antes do aceite', () => {
     const errorState = html.indexOf("driveLinkState = 'error';");
     expect(lockCall).toBeGreaterThan(readyState);
     expect(lockCall).toBeLessThan(errorState);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Achados da revisão de auditoria. Cada bloco abaixo prende um defeito REAL
+// encontrado lendo o código, não um caso hipotético — e prende o comportamento
+// pelo lado NEGATIVO ("isto tem que ser recusado"), porque todos eles falhavam
+// em silêncio: nenhum quebrava uma tela, nenhum aparecia num teste funcional.
+// ---------------------------------------------------------------------------
+describe('auditoria: invariantes e entradas não confiáveis', () => {
+  const TOKEN = 'a'.repeat(64);
+
+  function kvComSessao(initial = {}) {
+    const store = new Map(Object.entries({
+      events: '[]',
+      [`admin_session:${TOKEN}`]: 'valid',
+      ...initial,
+    }));
+    return {
+      async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); },
+      async list({ prefix = '' } = {}) {
+        return { keys: [...store.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name })), list_complete: true, cursor: null };
+      },
+      _store: store,
+    };
+  }
+  const ctx = { waitUntil: () => {} };
+  const admin = (url, method, body) => new Request(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Sec-Fetch-Site': 'same-origin',
+      Cookie: `__Host-session=${TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  // -------------------------------------------------------------------------
+  // Um só destaque — a invariante que o painel já assumia e o servidor só
+  // mantinha em metade dos caminhos de escrita.
+  // -------------------------------------------------------------------------
+  it('criar um projeto destacado desfaz o destaque anterior', async () => {
+    // O update já fazia isso; a criação não. `normalizeEventFields` aceita
+    // `pinned: true` no corpo, então dava para ficar com DOIS destaques — e a
+    // galeria ordena por `pinned` primeiro, de modo que a ordem passava a ser
+    // decidida pelo desempate de data em vez de pelo dono. O painel depende
+    // desta garantia explicitamente (o "duplicar" limpa o pinned do clone
+    // "porque o servidor garante um só").
+    const env = withDurableObjects({
+      FOTOS: kvComSessao({
+        events: JSON.stringify([{ id: 'velho', slug: 'velho', title: 'Velho', pinned: true, driveUrl: 'https://drive.google.com/a' }]),
+      }),
+    });
+    const res = await worker.fetch(admin('https://fotos.lucafchala.com/api/events', 'POST', {
+      slug: 'novo', title: 'Novo', driveUrl: 'https://drive.google.com/b', pinned: true,
+    }), env, ctx);
+    expect(res.status, await res.clone().text()).toBe(201);
+
+    const events = JSON.parse(env.FOTOS._store.get('events'));
+    expect(events.filter(e => e.pinned)).toHaveLength(1);
+    expect(events.find(e => e.pinned).slug).toBe('novo');
+  });
+
+  it('criar um projeto SEM destaque não mexe no destaque existente', async () => {
+    // O contrapeso do teste acima: a limpeza só pode acontecer quando o
+    // projeto novo realmente pede destaque.
+    const env = withDurableObjects({
+      FOTOS: kvComSessao({
+        events: JSON.stringify([{ id: 'velho', slug: 'velho', title: 'Velho', pinned: true, driveUrl: 'https://drive.google.com/a' }]),
+      }),
+    });
+    const res = await worker.fetch(admin('https://fotos.lucafchala.com/api/events', 'POST', {
+      slug: 'novo', title: 'Novo', driveUrl: 'https://drive.google.com/b',
+    }), env, ctx);
+    expect(res.status).toBe(201);
+    const events = JSON.parse(env.FOTOS._store.get('events'));
+    expect(events.find(e => e.slug === 'velho').pinned).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // `eventSlug` era o único campo do corpo público sem forma nem teto.
+  // -------------------------------------------------------------------------
+  it('recusa um pedido de remoção com eventSlug fora da gramática de slug', async () => {
+    // Todos os outros campos levam `.slice()`; este ia cru para dentro do
+    // valor gravado em `removal_requests`. Um slug de megabytes é uma forma
+    // barata de estourar o teto de 25 MB por valor do KV — e a escrita que
+    // falha derruba a LISTA INTEIRA de pedidos, não só o excedente.
+    const env = withDurableObjects({
+      FOTOS: kvComSessao(),
+      TURNSTILE_SECRET_KEY: 'ts',
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+    const res = await worker.fetch(new Request('https://fotos.lucafchala.com/api/removal-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '9.9.9.9' },
+      body: JSON.stringify({
+        eventSlug: 'x'.repeat(5000),
+        method: 'number', value: '42',
+        email: 'a@b.co', phone: '11999999999',
+        consent: true, turnstileToken: 'ok',
+      }),
+    }), env, ctx);
+    expect(res.status).toBe(400);
+    // E nada foi gravado — o ponto do controle é não deixar o valor crescer.
+    expect(env.FOTOS._store.get('removal_requests')).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Restore é read-modify-write: tem de ler o KV de verdade.
+  // -------------------------------------------------------------------------
+  it('o restore de backup lê o KV de verdade — nunca a cópia de sobrevivência', () => {
+    // Guarda estrutural, e não de comportamento, de propósito: o defeito é a
+    // AUSÊNCIA de um argumento, e um teste de comportamento sobre cache de
+    // isolate seria frágil e dependeria de relógio.
+    //
+    // Por que importa: sem `fresh`, uma falha de LEITURA do KV cai para a
+    // cópia de até sete dias, e o `saveEvents` seguinte grava essa cópia por
+    // cima do estado atual — uma indisponibilidade temporária de leitura vira
+    // perda de dados permanente. Era a única escrita de eventos do painel que
+    // lia do cache.
+    const restore = indexSource.slice(indexSource.indexOf('async function handleRestoreBackup'));
+    const corpo = restore.slice(0, restore.indexOf('\n}\n'));
+    expect(corpo).toContain('getEvents(env, true)');
+    expect(corpo).not.toMatch(/getEvents\(env\)\s*;/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Credencial não mora no código.
+  // -------------------------------------------------------------------------
+  it('nenhum token de push do Uptime Kuma no código-fonte', () => {
+    // O repositório é público — está linkado como "Código-fonte" no rodapé de
+    // toda página. A URL de push do Kuma embute o token do monitor, que é a
+    // credencial inteira: quem a tem mantém um monitor verde sobre um serviço
+    // caído. Ela vem de `env.KUMA_PUSH_URL`.
+    expect(indexSource).not.toMatch(/api\/push\/[A-Za-z0-9]{6,}/);
+    expect(indexSource).toContain('env.KUMA_PUSH_URL');
+  });
+
+  it('o heartbeat do Kuma não dispara uma subrequisição por requisição', () => {
+    // Era `ctx.waitUntil(pushToKuma(env))` sem trava, ou seja, um fetch de
+    // saída por visita — o plano gratuito dá 50 subrequisições por invocação, e
+    // o resto do projeto conta cada uma. A trava de tempo é o que separa
+    // "batimento regular" de "um push por página vista".
+    expect(indexSource).toContain('KUMA_MIN_INTERVAL_MS');
+    expect(indexSource).toMatch(/_kumaLastPush\s*<\s*KUMA_MIN_INTERVAL_MS/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('auditoria: credencial guardada ilegível não pode virar exceção', () => {
+  // `verifyPassword` lê a contagem de iterações do PRÓPRIO registro guardado.
+  // Um valor corrompido (restore torto, escrita truncada, edição à mão no KV)
+  // fazia `deriveBits` lançar de dentro do login — 500 na tela em vez do
+  // "senha incorreta" que o fluxo sabe tratar. O 500 esconde a causa do dono e
+  // desvia do redirect que contabiliza a tentativa.
+  it('recusa (sem lançar) um hash com contagem de iterações ilegível', async () => {
+    await expect(verifyPassword('qualquer', 'pbkdf2:abc:00ff:deadbeef')).resolves.toBe(false);
+  });
+
+  it('recusa um hash com contagem de iterações absurda em vez de queimar CPU', async () => {
+    // O outro lado do portão: a contagem vem do registro, e um número enorme é
+    // uma forma barata de estourar o orçamento de CPU do Worker a cada
+    // tentativa — negação de serviço sobre o único caminho de entrada do
+    // painel. Tem de ser recusado DEPRESSA, não computado.
+    const t0 = Date.now();
+    await expect(verifyPassword('qualquer', `pbkdf2:99999999999:00ff:deadbeef`)).resolves.toBe(false);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it('recusa um hash cujo salt não é hexadecimal', async () => {
+    await expect(verifyPassword('qualquer', 'pbkdf2:100000:zzzz:deadbeef')).resolves.toBe(false);
+  });
+
+  it('continua aceitando a senha certa de um hash íntegro', async () => {
+    // O contrapeso: os portões acima não podem ter fechado o caminho normal.
+    const stored = await hashPassword('uma-senha-longa-o-suficiente-123');
+    await expect(verifyPassword('uma-senha-longa-o-suficiente-123', stored)).resolves.toBe(true);
+    await expect(verifyPassword('outra-senha-qualquer-longa-456', stored)).resolves.toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('auditoria: sitemap é XML, e XML quebra com & solto', () => {
+  function kv(events) {
+    const store = new Map(Object.entries({ events: JSON.stringify(events) }));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const ctx = { waitUntil: () => {} };
+
+  it('escapa o lastmod, não só o slug', async () => {
+    // `lastmod` sai de updatedAt/date/createdAt, que um restore de backup
+    // mescla verbatim. Um `&` solto basta para tornar o documento malformado —
+    // e um sitemap malformado é descartado INTEIRO pelo Google, não na linha.
+    // O slug já era escapado; ter escapado só um dos dois era o acidente.
+    //
+    // Isolate FRIO: `handleSitemap` lê por `getEvents(env)` sem `fresh`, então
+    // o cache de módulo de um teste anterior responderia no lugar deste KV.
+    // É o mesmo motivo de `coldIsolate()` em kv.test.js.
+    vi.resetModules();
+    const { default: coldWorker } = await import('../src/index.js');
+    const env = withDurableObjects({
+      FOTOS: kv([{ id: 'a', slug: 'evento', title: 'E', visible: true, updatedAt: '2026&<x>01' }]),
+    });
+    const res = await coldWorker.fetch(new Request('https://fotos.lucafchala.com/sitemap.xml'), env, ctx);
+    const xml = await res.text();
+    expect(xml).toContain('<lastmod>2026&amp;&lt;x&gt;01</lastmod>');
+    // Nenhum `&` cru sobrou fora de uma entidade — que é a condição de o
+    // documento ser XML válido.
+    expect(xml).not.toMatch(/&(?!amp;|lt;|gt;|quot;|#x27;)/);
   });
 });

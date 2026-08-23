@@ -56,8 +56,12 @@ const TEMA_PREFILLS = {
   remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
 };
 
-// KV counters are plain strings, so a corrupted/absent value must never become
-// A implementação mora em utils.js (o flush de contadores precisa dela e não
+// Contador de KV é string, então um valor corrompido ou ausente nunca pode
+// virar `NaN`: gravado de volta como "NaN", ele envenena a chave para sempre,
+// porque todo incremento seguinte relê "NaN". `toCount()` é o portão que
+// transforma qualquer lixo em 0.
+//
+// A implementação mora em utils.js (os contadores precisam dela e utils não
 // pode importar daqui em círculo). Reexportada para não quebrar quem já
 // importava daqui — inclusive os testes que prendem o contrato dos
 // valores-veneno.
@@ -84,10 +88,12 @@ export { toCount };
 // A troca do segredo invalida os tokens em voo (visitante recarrega a página, o
 // cliente já trata `nonce_expired` recarregando sozinho). É o comportamento
 // desejado numa rotação.
-// Piso de tamanho para a chave HMAC. Um segredo de 8 caracteres não é um
-// segredo: dá para varrer o espaço inteiro offline a partir de um único token
-// assinado, e aí o atacante forja nonce de Drive e token de formulário à
-// Ver SIGNING_SECRET_MIN_LENGTH em src/config.js.
+//
+// Há também um piso de TAMANHO para a chave HMAC. Um segredo de 8 caracteres
+// não é um segredo: dá para varrer o espaço inteiro offline a partir de um
+// único token assinado, e aí o atacante forja nonce de Drive e token de
+// formulário à vontade — com o painel jurando que o controle está ligado. Ver
+// SIGNING_SECRET_MIN_LENGTH em src/config.js.
 
 // Fonte ÚNICA da verdade sobre o estado do segredo.
 //
@@ -157,10 +163,10 @@ function signingSecret(env) {
   return signingSecretProblem(env) ? null : (env.SIGNING_SECRET ?? '').trim();
 }
 
-// Janela do nonce de página do Drive. Generosa de propósito: o gate é o último
-// passo de uma leitura de Termos, e ninguém deve perder o acesso porque leu com
-
-
+// Janela do nonce de página do Drive. Generosa de propósito: o portão é o
+// último passo de uma leitura de Termos, e ninguém deve perder o acesso porque
+// leu com calma. O valor está em DRIVE_NONCE_TTL_SECS (src/config.js), com o
+// raciocínio das duas horas.
 /**
  * @param {Env} env
  * @param {string} slug
@@ -244,7 +250,10 @@ const worker = {
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = request.method.toUpperCase();
 
-    // Heartbeat ao Kuma em background — toda requisição, não só 404s
+    // Heartbeat ao Kuma, em segundo plano e com trava de um minuto por
+    // isolate — ver pushToKuma(). Chamado de todas as rotas de propósito: o
+    // sinal é "este Worker está atendendo", e restringi-lo a uma rota faria o
+    // monitor depender de alguém visitar justamente aquela página.
     ctx.waitUntil(pushToKuma(env));
 
     try {
@@ -384,6 +393,9 @@ const worker = {
     // that stops running emits no error, so without this beat the failure is
     // invisible until data quietly stops being pruned.
     ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
+    // Batimento garantido uma vez por dia, mesmo sem visita nenhuma: `force`
+    // pula a trava de tempo, que serve ao tráfego, não ao cron.
+    ctx.waitUntil(pushToKuma(env, { force: true }));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -437,7 +449,12 @@ async function handleSitemap(env) {
   for (const e of visible) {
     const lastmod = lastmodOf(e);
     urls.push(
-      `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}</url>`
+      // `lastmod` escapado como o slug: ele sai de `updatedAt`/`date`/
+      // `createdAt`, que um restore de backup mescla verbatim, e um `&` solto
+      // já basta para tornar o XML malformado — o que faz o Google descartar o
+      // sitemap INTEIRO, não a linha. Escapar os dois é a regra; ter escapado
+      // só um era o acidente.
+      `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`
     );
   }
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
@@ -918,6 +935,21 @@ async function handleCreateEvent(request, env) {
     createdAt: new Date().toISOString(),
   };
 
+  // Mesma invariante que o update já mantinha: no máximo UM projeto em
+  // destaque. Ela faltava aqui, e a criação era o caminho que a quebrava —
+  // `normalizeEventFields` aceita `pinned: true` no corpo, então um projeto
+  // criado já destacado convivia com o destaque anterior. A galeria e o painel
+  // ordenam por `pinned` primeiro (sortEvents), então dois destaques viram uma
+  // ordem decidida pelo desempate de data, não pelo dono.
+  //
+  // O painel depende desta garantia explicitamente: `duplicar` limpa o
+  // `pinned` do clone "porque o servidor garante um só". Garantia que só vale
+  // em metade dos caminhos de escrita não é garantia.
+  if (event.pinned) {
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].pinned) events[i] = { ...events[i], pinned: false };
+    }
+  }
   events.push(event);
   await saveEvents(env, events);
   return jsonOk(event, 201);
@@ -1134,7 +1166,6 @@ async function handleBulkAccessType(request, env) {
 
 // ---------------------------------------------------------------------------
 // API: Metrics
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 /**
  * @param {Request} request
@@ -1501,12 +1532,23 @@ export async function handleChangePassword(request, env, ctx) {
   try {
     const cookies = request.headers.get('Cookie') || '';
     const currentToken = (cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/) || [])[1];
-    const { keys } = await env.FOTOS.list({ prefix: 'admin_session:' });
-    await Promise.all(
-      keys
-        .filter(k => k.name !== `admin_session:${currentToken}`)
-        .map(k => env.FOTOS.delete(k.name))
-    );
+    // `list()` PAGINA: devolve no máximo 1000 chaves e sinaliza o resto em
+    // `list_complete`/`cursor`. Uma varredura de uma página só é uma varredura
+    // que se cala justamente quando há mais sessões do que o normal — que é o
+    // cenário em que alguém troca a senha achando que está expulsando um
+    // intruso. Poucas sessões cabem numa página no uso normal; o laço existe
+    // para o caso anormal, que é o único que importa aqui.
+    let cursor;
+    do {
+      /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
+      const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
+      await Promise.all(
+        page.keys
+          .filter(k => k.name !== `admin_session:${currentToken}`)
+          .map(k => env.FOTOS.delete(k.name))
+      );
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
   } catch (e) {
     // Trocar a senha é o que se faz quando se desconfia que ela vazou, e a
     // varredura é o que expulsa quem já estava dentro. Se ela falha, a senha
@@ -1576,6 +1618,19 @@ async function handleRemovalRequest(request, env) {
 
   const { eventSlug, method, value, email, phone, message, fileName, fileBase64 } = body;
   if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
+  // `eventSlug` era o único campo do corpo que entrava sem forma nem teto.
+  // Todos os outros levam `.slice()`, e este ia cru para dentro do registro
+  // gravado em `removal_requests` — e para `eventTitle`, quando o slug não
+  // casa com projeto nenhum. Um corpo com um slug de megabytes era, então,
+  // uma forma de inflar um valor de KV (teto de 25 MB) até a escrita passar a
+  // falhar e derrubar a LISTA INTEIRA de pedidos, não só o excedente — o mesmo
+  // modo de falha que `trimRequests` existe para evitar do outro lado.
+  //
+  // `validateSlug` em vez de um `.slice()`: o campo é um slug, tem gramática
+  // conhecida, e o resto do código já a exige em toda rota que aceita slug
+  // (/api/drive-link, /api/track-drive). Aceitar aqui o que aquelas recusam
+  // seria a inconsistência de sempre.
+  if (!validateSlug(eventSlug)) return jsonErr('Projeto inválido.', 400);
   if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
   if (method !== 'upload' && (!value || !String(value).trim())) return jsonErr('Identificação obrigatória.', 400);
   if (method === 'upload' && !fileBase64) return jsonErr('Arquivo obrigatório.', 400);
@@ -1853,29 +1908,70 @@ async function handleResolveRequest(request, env, id) {
 // full day plus slack, the schedule is treated as silently dead.
 const CRON_STALE_MS = 26 * 60 * 60 * 1000; // 26h — one daily run + 2h propagation slack
 
-// Pure + unit-tested: is the cron heartbeat stale? A never-written beat
-// (null/undefined) is NOT stale — a fresh deploy hasn't reached 03:00 yet, so we
-// don't want the status dashboard to cry wolf for the first day. Only an
-// existing-but-old beat counts as a real "the cron stopped" signal.
-// Uptime Kuma push: heartbeat para avisar que fotos está up.
-// Executado em background a cada requisição — não bloqueia a resposta.
+// ---------------------------------------------------------------------------
+// Heartbeat de push para o Uptime Kuma
+// ---------------------------------------------------------------------------
+// A URL vem de SEGREDO, não do código. Ela embute o token do monitor
+// (`/api/push/<token>`), que é a credencial inteira: quem o tem publica
+// batimento em nome deste site e pode manter um monitor verde sobre um serviço
+// caído. Este repositório é público — está linkado como "Código-fonte" no
+// rodapé de toda página —, então um token literal aqui é um segredo publicado.
+//
+//     npx wrangler secret put KUMA_PUSH_URL
+//
+// Ausente, o heartbeat simplesmente não acontece: é telemetria de terceiro, não
+// pode ser motivo para o site deixar de servir foto. Quem já usava o valor
+// antigo precisa ROTACIONAR o token no Kuma, não só movê-lo para cá — ele
+// esteve legível no histórico do git.
+//
+// ---------------------------------------------------------------------------
+// Por que há uma trava de tempo, e não um push por requisição
+// ---------------------------------------------------------------------------
+// Isto era chamado sem trava a cada requisição, o que custava UMA SUBREQUISIÇÃO
+// DE SAÍDA por visita — o plano gratuito dá 50 por invocação, e o resto do
+// projeto conta cada uma (ver o comentário no topo de src/counters.js, que
+// existe por causa de um incidente com esse mesmo teto). Um monitor de
+// disponibilidade não fica mais correto sendo avisado mil vezes por minuto: o
+// que ele precisa é de um batimento dentro do intervalo configurado.
+//
+// A trava é estado de MÓDULO, então vale por isolate e não custa
+// armazenamento. Vários isolates podem bater dentro da mesma janela — o que é
+// inofensivo (o Kuma só quer saber que chegou algo) e continua sendo ordens de
+// grandeza menos do que um push por requisição.
+const KUMA_MIN_INTERVAL_MS = 60_000;
+let _kumaLastPush = 0;
+
 /**
  * @param {Env} env
+ * @param {{ force?: boolean }} [opts] o cron ignora a trava: ele roda uma vez por dia
  */
-async function pushToKuma(env) {
-  const KUMA_PUSH_URL = 'https://homelab.lucafchala.com/api/push/CUgccpJ7eJ';
-  if (!KUMA_PUSH_URL) return;
+async function pushToKuma(env, { force = false } = {}) {
+  const url = (env.KUMA_PUSH_URL || '').trim();
+  if (!url) return;
+
+  const now = Date.now();
+  if (!force && now - _kumaLastPush < KUMA_MIN_INTERVAL_MS) return;
+  // Marcado ANTES do await: duas requisições concorrentes no mesmo isolate
+  // entrariam as duas se a marca esperasse o fim do fetch.
+  _kumaLastPush = now;
+
   try {
-    const start = Date.now();
-    const res = await fetch(KUMA_PUSH_URL + '?status=up&msg=OK&ping=' + (Date.now() - start), {
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await fetch(`${url}?status=up&msg=OK`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) console.error(`Kuma push failed: ${res.status}`);
   } catch (e) {
+    // Sem `noteDegraded`: o Kuma é um observador externo, e a
+    // indisponibilidade DELE não é uma degradação DESTE site. Colocá-la no
+    // registro faria o /api/healthz e o painel de status acusarem problema em
+    // fotos por causa do homelab — exatamente o falso positivo que o painel
+    // existe para não dar.
     console.error('Kuma push error:', errMessage(e));
   }
 }
 
+// Pure + unit-tested: is the cron heartbeat stale? A never-written beat
+// (null/undefined) is NOT stale — a fresh deploy hasn't reached 03:00 yet, so we
+// don't want the status dashboard to cry wolf for the first day. Only an
+// existing-but-old beat counts as a real "the cron stopped" signal.
 /**
  * @param {string|null|undefined} lastIso
  * @param {number} [now]
@@ -2461,7 +2557,12 @@ function handleManifest() {
     name: 'fotos · Luca F. Chala',
     short_name: 'fotos',
     description: 'Galeria de fotos de Luca F. Chala',
-    start_url: '/dashboard',
+    // A galeria, não o painel. O manifesto é servido em TODA página pública e
+    // é o que o browser usa ao "instalar" o site: com `/dashboard` aqui, quem
+    // instalasse a partir da galeria abria o app na TELA DE LOGIN do admin —
+    // um beco sem saída para o visitante, e o painel anunciado como se fosse a
+    // porta da frente do site. `scope` já era '/', então nada mais muda.
+    start_url: '/',
     scope: '/',
     display: 'standalone',
     background_color: '#0a0a0a',
@@ -2624,7 +2725,24 @@ async function handleRestoreBackup(request, env) {
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
   if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
 
-  const current = await getEvents(env);
+  // `fresh: true` — read-modify-write, como criar/editar/apagar projeto.
+  //
+  // Isto lia do cache do isolate, e era a única escrita de eventos do painel
+  // que lia. As consequências são as duas que `getEvents()` documenta, e o
+  // restore é o pior lugar possível para as duas acontecerem:
+  //
+  //  1. Cache velho por até 30 s. O `saveEvents` abaixo grava a lista mesclada
+  //     POR CIMA da atual, então um projeto criado noutro isolate nos últimos
+  //     30 s era apagado pelo restore — sem erro, sem aviso.
+  //  2. Pior: sem `fresh`, uma falha de LEITURA do KV cai para a cópia de
+  //     sobrevivência em vez de propagar. O restore então mesclava sobre uma
+  //     cópia de até sete dias e gravava o resultado como se fosse o estado
+  //     atual — transformando uma indisponibilidade temporária de leitura numa
+  //     perda de dados permanente.
+  //
+  // `fresh` fecha os dois: lê o KV de verdade, e se ele estiver fora a
+  // exceção sobe e o restore falha em vez de gravar um estado inventado.
+  const current = await getEvents(env, true);
   const { events: merged, added, updated } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
   // `categories` e `removalRequestsAdded` entram depois, só quando o backup

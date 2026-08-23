@@ -14,6 +14,15 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 #   SIGNING_SECRET        assina o nonce de página do /api/drive-link e o token
 #                         dos formulários públicos (HMAC-SHA256, sem estado)
 #   CF_ANALYTICS_TOKEN    token da Web Analytics (opcional)
+#   KUMA_PUSH_URL         URL de push do Uptime Kuma, com o token do monitor
+#                         embutido (https://<host>/api/push/<token>). OPCIONAL:
+#                         sem ela o heartbeat simplesmente não acontece — é
+#                         telemetria de terceiro, e não pode ser motivo para o
+#                         site deixar de entregar foto. Ela É uma credencial:
+#                         quem a tem publica batimento em nome deste site e
+#                         consegue manter um monitor verde sobre um serviço
+#                         caído. Por isso não mora no código — este repositório
+#                         é público.
 #
 # ATENÇÃO ao SIGNING_SECRET: diferente dos outros, a ausência dele NÃO quebra
 # nada — os dois controles simplesmente não são exigidos, e o site segue

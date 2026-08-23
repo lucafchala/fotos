@@ -15,9 +15,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
+  // safeUrl aqui, na ORIGEM, e não na hora de interpolar. As duas listas
+  // abaixo têm de andar em par: `photos.length` decide o layout (herói, uma
+  // foto, carrossel) e desenha as bolinhas e o contador "1 / N", enquanto
+  // `displayPhotos` fornece as URLs. Filtrar só a segunda faria as duas
+  // divergirem em tamanho — carrossel com três bolinhas e duas fotos, e um
+  // `displayPhotos[0]` `undefined` virando `src="undefined"`.
+  //
+  // O porquê do safeUrl: escape() fecha o atributo mas NÃO mata o esquema, e
+  // estes valores podem ter entrado no KV por um caminho que não passou por
+  // toHttps() (registro antigo, restore de backup mesclado verbatim). É o
+  // contrato documentado em utils.js — escape(safeUrl(x)) no sink —, e vale
+  // também para o `photosJSON`, que o lightbox atribui no cliente sem passar
+  // por parsing de HTML.
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
-    ? event.photos.filter(Boolean)
-    : (event.thumbnailUrl ? [event.thumbnailUrl] : []);
+    ? event.photos.map(safeUrl).filter(Boolean)
+    : (safeUrl(event.thumbnailUrl) ? [safeUrl(event.thumbnailUrl)] : []);
 
   // Teasers, not downloads — request right-sized Drive thumbnails so the page loads fast.
   const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, 1600));
