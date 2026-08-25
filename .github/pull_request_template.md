@@ -28,7 +28,7 @@ Fixes #
      páginas públicas, lembre que esse código não é lintado nem
      typechecado (vive dentro de strings) — descreva como validou manualmente. -->
 
-## Test plan
+## Test plan (automatizado)
 
 <!-- `npm test` prova que as funções fazem o que as funções fazem, não que
      o site funciona — ver docs/VERIFICACAO.md. Marque o que rodou de fato. -->
@@ -37,8 +37,49 @@ Fixes #
 - [ ] `npm run typecheck`
 - [ ] `npm run test:unit`
 - [ ] `npm run test:workers` (necessário se a mudança envolve Durable Objects, KV ou D1 — atomicidade e persistência só se provam na plataforma)
-- [ ] Verificação manual no navegador (`npx wrangler dev` ou o harness local — ver [docs/VERIFICACAO.md](../docs/VERIFICACAO.md)), cobrindo o caminho feliz e pelo menos um caso de borda
-- [ ] Testado com JavaScript desabilitado, se a mudança afeta páginas públicas
+
+## Ações e verificações manuais
+
+<!-- Testes verdes já esconderam regressão real nesta base: um nonce na CSP
+     matou ~63 handlers inline com a suíte inteira passando, e a galeria
+     quebrou sem JS sem nenhum teste acusar (ver docs/VERIFICACAO.md). Rode
+     via `npx wrangler dev` ou o harness local, e marque só o que se aplica
+     à área tocada por este PR — apague o resto. -->
+
+**Geral**
+- [ ] Console do navegador sem erros/warnings novos
+- [ ] Sem violação de CSP no Console/Network (nonce, scripts inline)
+- [ ] Testado com JavaScript desabilitado — páginas públicas devem degradar, não quebrar
+- [ ] Testado em viewport mobile e desktop
+
+**Galeria e página pública** (`/`, `/<slug>`)
+- [ ] Galeria lista os eventos visíveis e respeita `pinned` / `comingSoon` / `visible`
+- [ ] Carrossel de fotos de capa funciona
+- [ ] Gate de acesso: Turnstile carrega, aceite dos Termos é exigido, link do Drive só libera depois de passar pelo gate
+- [ ] "Acessar fotos" registra a métrica de visita; abrir o Drive registra o clique
+- [ ] Banner de "novas fotos" aparece e expira conforme configurado
+- [ ] Formulário de solicitação de remoção envia
+
+**Painel administrativo** (`/dashboard`)
+- [ ] Login e logout
+- [ ] CRUD de evento (criar, editar, excluir), reordenar, marcar featured / em breve / oculto
+- [ ] Aba de Métricas abre sem erro, inclusive com projeto que tem `views > 0`
+- [ ] Backup (download) e restauração (upload) preservam os dados
+- [ ] Troca de senha
+- [ ] Solicitações de remoção: listar e resolver, e-mail de confirmação disparado
+
+**Suporte / e-mails transacionais**
+- [ ] Formulário de contato envia e-mail via Resend e mostra confirmação
+- [ ] Links de WhatsApp e e-mail direto funcionam
+
+**Autenticação e sessão** (se a mudança tocou em auth/cookies)
+- [ ] Rota protegida sem sessão retorna 401/redirect, nunca 200
+- [ ] Sessão expira/renova como esperado; logout revoga de fato
+- [ ] Cookie legado não sobrepõe uma sessão `__Host-session` válida (ver TODO.md)
+
+**PWA**
+- [ ] Manifest/ícones carregam sem erro 404
+- [ ] Instala e abre offline (se a mudança tocou em service worker/cache)
 
 ## Impacto em dados / migração
 
