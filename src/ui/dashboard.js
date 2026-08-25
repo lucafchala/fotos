@@ -1334,7 +1334,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const body = document.getElementById('metrics-body');
       const key = metricsSort.key;
       const dir = metricsSort.dir === 'asc' ? 1 : -1;
-      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : (m.views || 0);
+      const taxa = m => (m.driveClicks || 0) / (m.views || 1);
+      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : (m.views || 0);
       const rowsData = [...metricsData].sort((a, b) => (num(a, key) - num(b, key)) * dir);
       const maxViews = metricsData.reduce((mx, m) => Math.max(mx, m.views || 0), 0) || 1;
       const ind = k => k === metricsSort.key ? \`<span class="sort-ind">\${metricsSort.dir === 'asc' ? '▲' : '▼'}</span>\` : '';
