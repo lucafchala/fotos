@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v7
       # Barra a ENTRADA de uma dependência vulnerável, em vez de descobri-la
       # depois de mergeada.
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
