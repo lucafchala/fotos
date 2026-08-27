@@ -455,13 +455,13 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
   slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug
   title: "string ≤ 200",
   longDescription: "string ≤ 5000",
-  photos: ["url1", "url2", ...],  // até 6, https-only depois do toHttps()
+  photos: ["url1", "url2", ...],  // até 6, cada uma string ≤ 2000, https-only depois do toHttps()
   thumbnailUrl: "url1",           // sempre = photos[0] || legado
-  driveUrl: "https://drive.google.com/drive/folders/...",
-  driveUrlInstagram: "https://drive.google.com/drive/folders/...", // opcional — pasta já redimensionada p/ Instagram
+  driveUrl: "https://drive.google.com/drive/folders/...", // string ≤ 2000
+  driveUrlInstagram: "https://drive.google.com/drive/folders/...", // opcional — pasta já redimensionada p/ Instagram — string ≤ 2000
   date: "YYYY-MM-DD",             // ou "" — validado contra regex
   eventCredits: "string ≤ 200",   // exibido como "Em colaboração com: <valor>" (instituição, fotógrafo colaborador ou projeto)
-  projectUrl: "string ≤ 500",
+  projectUrl: "string ≤ 2000",
   visible: true,                  // se false, some da galeria pública
   comingSoon: false,              // se true, esconde fotos e troca botão por "As fotos virão em breve"
   status: "em-edicao" | "em-revisao" | "entregue" | "arquivado",

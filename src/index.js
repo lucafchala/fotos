@@ -45,6 +45,16 @@ export { Counter, RateLimiter } from './counters.js';
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
 const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
+// Teto para os campos de URL (photos, driveUrl, driveUrlInstagram, projectUrl).
+// Era 500 — curto demais: links reais do Google Drive/Fotos com resourcekey,
+// ou qualquer URL assinada (S3/GCS) com querystring de token, passam fácil de
+// 500 caracteres. Truncar no meio da URL não produzia erro nenhum: o
+// toHttps() via só que sobrou um "https://..." bem formado por fora e deixava
+// passar, então o link salvo apontava para lugar nenhum — a foto simplesmente
+// não carregava. 2000 cobre esses casos com folga (é o limite prático que
+// browsers/servidores já assumem para URLs) sem abrir a porta para blobs
+// arbitrários no KV.
+const MAX_URL_LENGTH = 2000;
 // Prefill text for the support form, keyed by the ?tema= query param — cosmetic
 // only, never trusted server-side beyond seeding the textarea's initial text.
 const TEMA_PREFILLS = {
@@ -875,11 +885,11 @@ export function normalizeEventFields(body, base, cats) {
   return {
     title: pick('title', v => String(v).slice(0, 200)),
     longDescription: pick('longDescription', v => String(v).slice(0, 5000)),
-    driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, 500))),
-    driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, MAX_URL_LENGTH))),
+    driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
-    projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, 500)) : '')),
+    projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
     visible: pick('visible', v => v !== false),
     comingSoon: pick('comingSoon', v => v === true),
     status: pick('status', v => (EVENT_STATUSES.includes(v) ? v : b.status)),
@@ -896,7 +906,7 @@ export function normalizeEventFields(body, base, cats) {
  * @param {any[]} arr
  */
 function normalizePhotos(arr) {
-  return arr.slice(0, 6).map(u => toHttps(String(u).slice(0, 500))).filter(Boolean);
+  return arr.slice(0, 6).map(u => toHttps(String(u).slice(0, MAX_URL_LENGTH))).filter(Boolean);
 }
 
 // ---------------------------------------------------------------------------
@@ -924,7 +934,7 @@ async function handleCreateEvent(request, env) {
 
   const photos = Array.isArray(body.photos)
     ? normalizePhotos(body.photos)
-    : (body.thumbnailUrl ? [toHttps(String(body.thumbnailUrl).slice(0, 500))] : []);
+    : (body.thumbnailUrl ? [toHttps(String(body.thumbnailUrl).slice(0, MAX_URL_LENGTH))] : []);
 
   const event = {
     id: generateId(),
@@ -2630,10 +2640,10 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thum
 function sanitizeRestoredEvent(ev) {
   const out = { ...ev };
   for (const f of RESTORE_URL_FIELDS) {
-    if (out[f] !== undefined) out[f] = toHttps(String(out[f] ?? '').slice(0, 500));
+    if (out[f] !== undefined) out[f] = toHttps(String(out[f] ?? '').slice(0, MAX_URL_LENGTH));
   }
   if (Array.isArray(out.photos)) {
-    out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, 500))).filter(Boolean);
+    out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, MAX_URL_LENGTH))).filter(Boolean);
   }
   // Os dois campos de ENUM. Todo caminho normal os valida
   // (`normalizeEventFields` recusa o que não estiver na lista); o restore não
