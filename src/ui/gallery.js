@@ -204,33 +204,18 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .result-count{flex:1}
     .clear-filters{background:none;border:none;color:var(--accent);font-size:.75rem;font-family:inherit;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
     .clear-filters:hover{color:var(--accent-hover)}
-    /* Masonry via CSS Grid (não column-count): grid-auto-rows numa unidade
-       fina + JS calculando quantas "linhas" cada item ocupa (layoutMasonry()
-       no script abaixo), com align-items:start pra cada item sempre reportar
-       sua altura de conteúdo real — nunca a altura "esticada" de um cálculo
-       anterior. Ao contrário de column-count (que preenche coluna por coluna,
-       ordem "column-major"), grid com auto-flow padrão preenche linha por
-       linha na ordem do DOM — o item N sempre aparece na posição esperada,
-       não em qualquer coluna que a aritmética de coluna decidir. */
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:4px;gap:.875rem;margin-top:.875rem;align-items:start}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.875rem;margin-top:.875rem}
     @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
-    /* Rede de proteção do masonry.
-       O layout depende de layoutMasonry() atribuir grid-row-end a cada card;
-       enquanto isso não acontece, o grid-auto-rows de 4px faz cada item ocupar
-       4 px de altura e os cards se sobrepõem num amontoado ilegível. Isso vale
-       para os primeiros ~60 ms de TODO carregamento (o script está no fim do
-       body e ainda tem debounce) e para sempre se o JS falhar ou estiver
-       desligado.
-       Um grid-auto-rows:auto como padrão dá um grid comum, que já fica correto —
-       só sem o encaixe irregular. A classe .masonry-ready é posta pelo próprio
-       layoutMasonry(), então a unidade fina só entra quando há quem a use. */
-    .grid:not(.masonry-ready){grid-auto-rows:auto}
     .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
-    .thumb{overflow:hidden;background:var(--bg-card);position:relative;min-height:120px}
+    /* Toda thumb é a mesma caixa (proporção fixa), pra deixar a grade uniforme
+       em vez do masonry antigo. object-fit:contain nunca corta a foto — o
+       espaço que sobra vira barra na cor de fundo do card (--bg-card), que já
+       segue o tema claro/escuro sozinha. */
+    .thumb{overflow:hidden;background:var(--bg-card);position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
     .thumb.loading{background:linear-gradient(90deg,var(--shimmer-a) 0%,var(--shimmer-b) 50%,var(--shimmer-a) 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     .thumb.loading img{opacity:0}
@@ -238,15 +223,10 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     /* Uma única regra de transition: declarar opacity e transform separadamente
        fazia a segunda sobrescrever a primeira (mesma especificidade), e a foto
        aparecia de estalo no lugar de surgir — o shimmer parecia travar. */
-    .thumb img{width:100%;height:auto;display:block;transition:opacity .3s ease,transform .4s ease}
+    .thumb img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .3s ease,transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
-    /* Os dois estados de placeholder (sem foto real / capa borrada de "em breve")
-       mantêm proporção fixa própria — não há foto de verdade ali para respeitar,
-       e cada um precisa da própria altura já que o .thumb não força mais
-       aspect-ratio (isso é o que deixa a miniatura real seguir a proporção
-       verdadeira da foto, sem cortar retrato numa caixa de paisagem). */
-    .thumb-ph{width:100%;aspect-ratio:4/3;min-height:140px;display:flex;align-items:center;justify-content:center;color:#252525}
-    .thumb-blur{aspect-ratio:4/3;filter:blur(8px);transform:scale(1.1);width:100%;object-fit:cover;display:block}
+    .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
+    .thumb-blur{width:100%;height:100%;object-fit:cover;filter:blur(8px);transform:scale(1.1);display:block}
     .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
     .info{padding:1rem 1rem 1.125rem}
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
@@ -255,7 +235,12 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    @media(min-width:900px){.card-featured{display:flex;flex-direction:row}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;min-height:340px}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center}.card-featured .info h2{font-size:1.35rem}}
+    /* .card-featured precisa de uma altura própria definida (não só min-height):
+       sem isso, height:100% da <img> não tem contra quem resolver a
+       porcentagem, cai pra auto e o object-fit:contain não tem o que fazer —
+       a caixa cresce até a proporção intrínseca da foto, esticando o card
+       inteiro numa foto de retrato. */
+    @media(min-width:900px){.card-featured{display:flex;flex-direction:row;height:420px}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;height:100%}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.card-featured .info h2{font-size:1.35rem}}
     .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
     .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--border-dim);border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
     .load-more:hover{border-color:var(--text-dim);color:var(--text)}
@@ -381,51 +366,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
           if (_p && (_p.marks.filterMs === null || _d > _p.marks.filterMs)) window.perfMark('filterMs', _d);
         }
         syncURL();
-        layoutMasonryDebounced();
       }
-
-      // ---- Masonry row-span (CSS Grid, not column-count — ver comentário no
-      // CSS de .grid): cada item da grade ganha um grid-row-end calculado a
-      // partir da própria altura de conteúdo, numa unidade fina de
-      // grid-auto-rows. align-items:start na .grid garante que a leitura de
-      // altura seja sempre a altura real do conteúdo, nunca a altura
-      // "esticada" que uma passada anterior deixou — sem isso, um resize
-      // faria os spans só crescerem, nunca encolherem. ----
-      function layoutMasonry() {
-        // Liga a unidade fina de linha só a partir do primeiro cálculo: antes
-        // disso o grid roda em modo comum (ver .grid:not(.masonry-ready)).
-        var gridEl = document.querySelector('.grid');
-        if (gridEl) gridEl.classList.add('masonry-ready');
-        var grid = document.querySelector('.grid');
-        if (!grid) return;
-        var cs = getComputedStyle(grid);
-        var rowUnit = parseFloat(cs.gridAutoRows) || 4;
-        var rowGap = parseFloat(cs.rowGap) || 0;
-        var items = [].slice.call(grid.children);
-        for (var i = 0; i < items.length; i++) {
-          var el = items[i];
-          if (el.classList.contains('hidden')) continue;
-          var h = el.getBoundingClientRect().height;
-          if (!h) continue; // ainda não renderizou de verdade (ex: imagem lazy fora da tela) — recalcula no load dela
-          var span = Math.max(1, Math.ceil((h + rowGap) / (rowUnit + rowGap)));
-          el.style.gridRowEnd = 'span ' + span;
-        }
-      }
-      var layoutMasonryDebounced = (function(){
-        var t;
-        return function(){ clearTimeout(t); t = setTimeout(layoutMasonry, 60); };
-      })();
-      addEventListener('resize', layoutMasonryDebounced);
-      // Imagens já em cache medem na hora; as que ainda estão carregando (ou
-      // fora da tela, com loading="lazy") disparam o recálculo assim que
-      // chegam — inclui as thumb-blur do "em breve", que também têm <img>.
-      [].slice.call(document.querySelectorAll('.thumb img')).forEach(function(img) {
-        if (img.complete) layoutMasonryDebounced();
-        else {
-          img.addEventListener('load', layoutMasonryDebounced);
-          img.addEventListener('error', layoutMasonryDebounced);
-        }
-      });
 
       // Reflects q/cat into the URL (no reload) so a normal Back navigation
       // lands on a URL that already encodes the filter state — read back by
