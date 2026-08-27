@@ -23,9 +23,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
 
   /**
    * @param {import('../utils.js').Evento} e
-   * @param {{ hidden?: boolean, featured?: boolean }} [opts]
+   * @param {{ hidden?: boolean, featured?: boolean, pinned?: boolean }} [opts]
    */
-  const cardHTML = (e, { hidden = false, featured = false } = {}) => {
+  const cardHTML = (e, { hidden = false, featured = false, pinned: isPinned = false } = {}) => {
     const width = featured ? 1600 : 600;
     // safeUrl no SINK, como manda o contrato documentado em utils.js: escape()
     // sozinho fecha o atributo mas não mata o esquema, e `thumbnailUrl` pode
@@ -42,16 +42,16 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       hidden ? 'hidden' : '',
     ].filter(Boolean).join(' ');
     return `
-      <a href="/${escape(e.slug)}" class="${cls}"${featured ? '' : ' data-card'} data-title="${title}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
+      <a href="/${escape(e.slug)}" class="${cls}"${(featured || isPinned) ? '' : ' data-card'} data-title="${title}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
-              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy" decoding="async"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span>`
-              : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span>`
+              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy" decoding="async"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
+              : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
             : thumb
               ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" loading="lazy" decoding="async" onload="imgSettled(this,true)" onerror="imgSettled(this,false)">`
               : `<div class="thumb-ph">${iconCamera()}</div>`}
-          ${featured ? `<span class="featured-badge">Em destaque</span>` : ''}
+          ${(featured || isPinned) ? `<span class="featured-badge">Em destaque</span>` : ''}
         </div>
         <div class="info">
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
@@ -61,8 +61,12 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       </a>`;
   };
 
-  // Pinned cards first (full width, never counted toward the batch).
-  const pinnedHTML = pinned.map(e => cardHTML(e, { featured: true })).join('');
+  // Um único evento fixado mantém o card "super destaque" (largura cheia,
+  // foto grande). Com mais de um, nenhum leva o tratamento de herói — todos
+  // entram no grid uniforme normal, só que primeiro e com a etiqueta "Em
+  // destaque" — senão vários heroes empilhados dominariam a página inteira.
+  const singlePinned = pinned.length === 1;
+  const pinnedHTML = pinned.map(e => cardHTML(e, { featured: singlePinned, pinned: true })).join('');
 
   // Remaining cards, grouped by year. Cards beyond INITIAL start hidden, and a
   // year heading starts hidden when its first card is already beyond INITIAL.
@@ -185,7 +189,13 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
-    .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0}
+    /* Colapsa ao rolar pra baixo (reabre ao rolar pra cima ou perto do topo —
+       ver toggle no script) pra não comer a tela toda em telas pequenas.
+       max-height (não transform) porque precisa liberar o espaço de verdade,
+       não só sair da vista; overflow:hidden esconde o miolo durante a
+       transição sem precisar medir a altura real em JS. */
+    .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0;max-height:400px;overflow:hidden;transition:max-height .25s ease,padding .25s ease}
+    .controls-wrap.controls-collapsed{max-height:0;padding-top:0;padding-bottom:0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
     .search-input{flex:1;min-width:0;max-width:340px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .search-input::placeholder{color:var(--text-ph)}
@@ -228,6 +238,13 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
     .thumb-blur{width:100%;height:100%;object-fit:cover;filter:blur(8px);transform:scale(1.1);display:block}
     .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
+    /* O relógio sozinho não dizia "isso é clicável" — hover/foco pinta o
+       ícone na cor de destaque do site e revela uma dica embaixo, então o
+       card "em breve" para de parecer morto. */
+    .card-soon .thumb-ph,.card-soon .thumb-soon-ov{transition:color .2s ease}
+    .card-soon:hover .thumb-ph,.card-soon:hover .thumb-soon-ov,.card-soon:focus-visible .thumb-ph,.card-soon:focus-visible .thumb-soon-ov{color:var(--accent)}
+    .soon-hint{position:absolute;bottom:.5rem;left:50%;transform:translate(-50%,4px);font-size:.62rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#f0ebe5;background:rgba(0,0,0,.6);padding:.3rem .6rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;pointer-events:none;z-index:2}
+    .card-soon:hover .soon-hint,.card-soon:focus-visible .soon-hint{opacity:1;transform:translate(-50%,0)}
     .info{padding:1rem 1rem 1.125rem}
     .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
     .info h2{font-size:1.05rem;font-weight:600;margin:.4rem 0 .5rem;line-height:1.3}
@@ -472,6 +489,31 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         var ub = document.getElementById('update-banner');
         if (ub) ub.style.display = 'none';
       });
+
+      // Colapsa a busca/filtros ao rolar pra baixo — devolve espaço de tela
+      // pros cards em telas pequenas — e reabre ao rolar pra cima ou perto do
+      // topo. Não colapsa com um filtro ativo (senão "N resultados"/"Limpar
+      // filtros" some no meio do uso) nem com o campo de busca focado.
+      var controlsWrap = document.querySelector('.controls-wrap');
+      if (controlsWrap) {
+        var lastScrollY = window.scrollY || document.documentElement.scrollTop;
+        var controlsTicking = false;
+        var onControlsScroll = function() {
+          var y = window.scrollY || document.documentElement.scrollTop;
+          var delta = y - lastScrollY;
+          if (y < 48) {
+            controlsWrap.classList.remove('controls-collapsed');
+          } else if (!isFiltering() && document.activeElement !== searchEl) {
+            if (delta > 4) controlsWrap.classList.add('controls-collapsed');
+            else if (delta < -4) controlsWrap.classList.remove('controls-collapsed');
+          }
+          lastScrollY = y;
+          controlsTicking = false;
+        };
+        addEventListener('scroll', function(){
+          if (!controlsTicking) { controlsTicking = true; requestAnimationFrame(onControlsScroll); }
+        }, { passive: true });
+      }
     })();
   </script>
   ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
