@@ -33,15 +33,20 @@ const HSTS = 'max-age=63072000; includeSubDomains';
 // microphone=(), geolocation=()") só nega três coisas; qualquer API nova do
 // browser nasce liberada. A lista longa é chata de manter, mas é a única forma
 // de a política valer alguma coisa contra o que ainda não existe hoje.
+// Seis diretivas que já estiveram nesta lista saíram: 'ambient-light-sensor',
+// 'battery', 'document-domain', 'execution-while-not-rendered',
+// 'execution-while-out-of-viewport' e 'speaker-selection' não são recursos que
+// o Chrome reconhece neste cabeçalho — ele loga "Unrecognized feature" pra
+// cada uma, em toda carga de página, sem negar nada de fato (não são APIs que
+// o header consiga controlar). Mantê-las era só ruído no console.
 const PERMISSIONS_POLICY = [
-  'accelerometer=()', 'ambient-light-sensor=()', 'autoplay=()', 'battery=()',
-  'camera=()', 'display-capture=()', 'document-domain=()', 'encrypted-media=()',
-  'execution-while-not-rendered=()', 'execution-while-out-of-viewport=()',
+  'accelerometer=()', 'autoplay=()',
+  'camera=()', 'display-capture=()', 'encrypted-media=()',
   'fullscreen=(self)', 'gamepad=()', 'geolocation=()', 'gyroscope=()',
   'hid=()', 'idle-detection=()', 'local-fonts=()', 'magnetometer=()',
   'microphone=()', 'midi=()', 'payment=()', 'picture-in-picture=()',
   'publickey-credentials-get=()', 'screen-wake-lock=()', 'serial=()',
-  'speaker-selection=()', 'storage-access=()', 'usb=()', 'web-share=(self)',
+  'storage-access=()', 'usb=()', 'web-share=(self)',
   'xr-spatial-tracking=()',
 ].join(', ');
 
