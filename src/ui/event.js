@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -107,9 +107,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <meta property="og:type" content="website">
   <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link rel="preconnect" href="https://drive.google.com">
-  <link rel="preconnect" href="https://lh3.googleusercontent.com">
+  ${photoPreconnectHTML()}
   ${perfBootScript('event', !!analyticsToken, nonce)}
   <script type="application/ld+json" nonce="${nonce}">${JSON.stringify({
     '@context': 'https://schema.org',

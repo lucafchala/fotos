@@ -1,4 +1,4 @@
-import { TERMS_VERSION, formatDatePT, footerLegalLinksHTML } from '../utils.js';
+import { TERMS_VERSION, formatDatePT, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
 
 export function termsHTML() {
   return `<!DOCTYPE html>
@@ -20,7 +20,7 @@ export function termsHTML() {
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

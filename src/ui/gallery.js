@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -160,7 +160,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonLd}</script>` : ''}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
+  ${photoPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
 
 // Static "Equipamento" (gear list) page — mirrors about.js's structure (same
 // head, back link, footer, CSS var schema for prefers-color-scheme light
@@ -19,7 +19,7 @@ export function gearHTML() {
   <meta property="og:title" content="Equipamento · Luca F. Chala">
   <meta property="og:description" content="Câmeras, lentes e o resto do equipamento usado nas fotos">
   <meta property="og:url" content="https://fotos.lucafchala.com/equipamentos">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

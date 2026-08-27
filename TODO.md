@@ -157,6 +157,10 @@ Nesta ordem, e **nenhuma delas é pagar**:
       da CSP. O `font-src` já aceita `'self'` desde `c78e6e4`: falta baixar os
       WOFF2 do Inter, declarar `@font-face` e remover o `<link>` das oito
       páginas.
+      > Enquanto isso não acontece, o preconnect ao par de hosts do Google
+      > Fonts sai de `fontPreconnectHTML()` (`utils.js`). Ao fechar este item,
+      > apague a função — e o teste que a trava — junto com os `<link>`; deixar
+      > preconnect para host que a página não usa mais é conexão aberta à toa.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
 - [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor

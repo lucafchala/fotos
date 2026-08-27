@@ -913,6 +913,54 @@ export function updateBannerHTML() {
     </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Dicas de conexão para o Google Fonts — as DUAS, sempre juntas
+// ---------------------------------------------------------------------------
+// O Inter chega por dois hosts, não um: `fonts.googleapis.com` serve o CSS e
+// `fonts.gstatic.com` serve os WOFF2 que o `@font-face` daquele CSS aponta.
+// Todas as páginas daqui preconectavam só ao primeiro.
+//
+// O que isso custa é uma cadeia SERIAL no caminho crítico: o browser só
+// descobre que existe um segundo host depois de baixar E parsear o CSS, e só
+// então começa DNS + TCP + TLS para ele. Ou seja, o handshake que o preconnect
+// existe para adiantar acontecia inteiro, tarde, com a renderização já em
+// andamento. Com `display=swap` no link do CSS, o sintoma visível é o texto
+// aparecer na fonte de fallback e trocar depois (FOUT) — em toda primeira
+// visita, e mais em rede móvel, onde o handshake é justamente o que dói.
+//
+// ⚠️ O `crossorigin` do segundo link NÃO é enfeite. Requisição de fonte é
+// feita em modo CORS (anônimo), e o browser mantém pools de conexão separados
+// para CORS e não-CORS: um preconnect sem o atributo abre a conexão errada, a
+// busca da fonte não a reaproveita e o handshake acontece de novo. O resultado
+// é pior do que não ter preconnect nenhum — uma conexão ociosa a mais e zero
+// ganho. O primeiro link fica sem o atributo pelo mesmo motivo, invertido: a
+// folha de estilo é buscada em modo não-CORS.
+//
+// Os dois saem de uma função só porque o modo de falha aqui é o esquecimento
+// pela metade — foi exatamente ele que produziu o estado anterior, repetido em
+// doze cabeçalhos. Uma página nova não consegue mais herdar meio par.
+//
+// Isto é remendo com prazo de validade: hospedar o Inter localmente (TODO.md)
+// apaga os dois hosts, a transferência internacional do IP do visitante e duas
+// origens da CSP de uma vez. Enquanto isso não acontece, o par é o certo.
+export function fontPreconnectHTML() {
+  return `<link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`;
+}
+
+// Host de onde sai TODA foto do site — miniatura de card e foto de capa. A
+// página de projeto já preconectava aqui; a galeria não, e a galeria é quem
+// abre com dezenas de <img> deste host de uma vez, contra UMA na outra. Era a
+// inversão exata da prioridade: a dica estava na página que menos precisava
+// dela.
+//
+// Sem `crossorigin`, ao contrário da fonte: <img> sem o atributo é buscada em
+// modo não-CORS, e um preconnect anônimo abriria conexão no pool errado — a
+// busca da imagem não a reaproveitaria.
+export function photoPreconnectHTML() {
+  return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
+}
+
 /**
  * @param {unknown} slug
  */
