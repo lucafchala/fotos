@@ -1175,8 +1175,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     // ---- Duplicate ----
     // Opens the "add event" form pre-filled from an existing event — same shoot
     // config (drive links, category, access type, credits, photos), fresh slug
-    // required, never pinned (server enforces a single pinned event, so cloning
-    // a pinned one as pinned would silently unpin the original on save).
+    // required, never pinned — pinning a clone is a deliberate choice, not
+    // something a "duplicate" click should decide silently on your behalf.
     function duplicateEvent(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
@@ -1487,11 +1487,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       setRowBusy(id, true);
       try {
         await api('PUT', \`/api/events/\${id}\`, { pinned: newPinned });
-        if (newPinned) {
-          events.forEach(e => { e.pinned = e.id === id; });
-        } else {
-          ev.pinned = false;
-        }
+        ev.pinned = newPinned;
         renderEventList();
         toast(newPinned ? 'Evento destacado na galeria.' : 'Destaque removido.', 'ok');
       } catch(err) {

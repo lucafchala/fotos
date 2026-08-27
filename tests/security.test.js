@@ -1497,16 +1497,10 @@ describe('auditoria: invariantes e entradas não confiáveis', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Um só destaque — a invariante que o painel já assumia e o servidor só
-  // mantinha em metade dos caminhos de escrita.
+  // Vários destaques são permitidos — a galeria só reserva o layout "super
+  // destaque" de largura cheia para quando existe exatamente um.
   // -------------------------------------------------------------------------
-  it('criar um projeto destacado desfaz o destaque anterior', async () => {
-    // O update já fazia isso; a criação não. `normalizeEventFields` aceita
-    // `pinned: true` no corpo, então dava para ficar com DOIS destaques — e a
-    // galeria ordena por `pinned` primeiro, de modo que a ordem passava a ser
-    // decidida pelo desempate de data em vez de pelo dono. O painel depende
-    // desta garantia explicitamente (o "duplicar" limpa o pinned do clone
-    // "porque o servidor garante um só").
+  it('criar um projeto destacado não desfaz o destaque anterior', async () => {
     const env = withDurableObjects({
       FOTOS: kvComSessao({
         events: JSON.stringify([{ id: 'velho', slug: 'velho', title: 'Velho', pinned: true, driveUrl: 'https://drive.google.com/a' }]),
@@ -1518,13 +1512,12 @@ describe('auditoria: invariantes e entradas não confiáveis', () => {
     expect(res.status, await res.clone().text()).toBe(201);
 
     const events = JSON.parse(env.FOTOS._store.get('events'));
-    expect(events.filter(e => e.pinned)).toHaveLength(1);
-    expect(events.find(e => e.pinned).slug).toBe('novo');
+    expect(events.filter(e => e.pinned)).toHaveLength(2);
+    expect(events.find(e => e.slug === 'novo').pinned).toBe(true);
+    expect(events.find(e => e.slug === 'velho').pinned).toBe(true);
   });
 
   it('criar um projeto SEM destaque não mexe no destaque existente', async () => {
-    // O contrapeso do teste acima: a limpeza só pode acontecer quando o
-    // projeto novo realmente pede destaque.
     const env = withDurableObjects({
       FOTOS: kvComSessao({
         events: JSON.stringify([{ id: 'velho', slug: 'velho', title: 'Velho', pinned: true, driveUrl: 'https://drive.google.com/a' }]),
