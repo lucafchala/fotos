@@ -945,21 +945,6 @@ async function handleCreateEvent(request, env) {
     createdAt: new Date().toISOString(),
   };
 
-  // Mesma invariante que o update já mantinha: no máximo UM projeto em
-  // destaque. Ela faltava aqui, e a criação era o caminho que a quebrava —
-  // `normalizeEventFields` aceita `pinned: true` no corpo, então um projeto
-  // criado já destacado convivia com o destaque anterior. A galeria e o painel
-  // ordenam por `pinned` primeiro (sortEvents), então dois destaques viram uma
-  // ordem decidida pelo desempate de data, não pelo dono.
-  //
-  // O painel depende desta garantia explicitamente: `duplicar` limpa o
-  // `pinned` do clone "porque o servidor garante um só". Garantia que só vale
-  // em metade dos caminhos de escrita não é garantia.
-  if (event.pinned) {
-    for (let i = 0; i < events.length; i++) {
-      if (events[i].pinned) events[i] = { ...events[i], pinned: false };
-    }
-  }
   events.push(event);
   await saveEvents(env, events);
   return jsonOk(event, 201);
@@ -1008,11 +993,6 @@ async function handleUpdateEvent(request, env, path) {
     updated.slug = body.slug;
   }
 
-  if (updated.pinned) {
-    for (let i = 0; i < events.length; i++) {
-      if (i !== idx) events[i] = { ...events[i], pinned: false };
-    }
-  }
   events[idx] = updated;
   await saveEvents(env, events);
   return jsonOk(updated);
