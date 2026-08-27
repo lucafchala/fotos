@@ -15,6 +15,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
+
+  // "Em breve": distingue "o evento já rolou e as fotos não ficaram prontas"
+  // de "o evento ainda nem aconteceu" pra dar a mensagem certa no popup do
+  // botão desabilitado. Sem data (evento futuro ainda sem data marcada), cai
+  // no primeiro caso — não dá pra dizer "você está adiantando" sem uma data.
+  const eventDateMs = event.date ? new Date(event.date).getTime() : NaN;
+  const eventIsFuture = !Number.isNaN(eventDateMs) && eventDateMs > Date.now();
   // safeUrl aqui, na ORIGEM, e não na hora de interpolar. As duas listas
   // abaixo têm de andar em par: `photos.length` decide o layout (herói, uma
   // foto, carrossel) e desenha as bolinhas e o contador "1 / N", enquanto
@@ -150,19 +157,29 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .back-pill:hover{background:rgba(0,0,0,.65)}
     .back-pill svg{width:14px;height:14px;flex-shrink:0}
     /* hero */
-    .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative}
-    .hero img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;transition:opacity .25s ease;cursor:zoom-in}
+    .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative;display:flex;align-items:center;justify-content:center}
+    /* max-width/max-height com width/height auto: a foto encolhe pra caber
+       (nos dois eixos, mantendo a proporção real) em vez de ser cortada —
+       corte de aspect-ratio+cover às vezes levava cabeça de gente em foto de
+       grupo junto. Sobra só aparece se a proporção da foto obrigar (retrato
+       muito alto batendo no teto de 72vh), e o .hero flex-centralizado
+       preenche com o próprio fundo escuro do visor de foto. */
+    .hero img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
     .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#333}
     .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
-    .btn-soon{background:var(--bg-card);color:var(--text-muted);border:1px dashed var(--bg-card-border);cursor:default}
-    .btn-soon:hover{background:var(--bg-card);transform:none}
+    .btn-soon{background:var(--bg-card);color:var(--text-muted);border:1px dashed var(--bg-card-border);cursor:pointer}
+    /* Reseta o opacity do hover genérico de .btn-drive: sem isso, o toque no
+       mobile deixava o botão "escurecido" (opacity:.9 do hover que nunca
+       recebe um mouseleave pra sair) mesmo sem nada visivelmente clicável —
+       agora que ele abre o popup, o estado precisa continuar estável. */
+    .btn-soon:hover,.btn-soon:active{background:var(--bg-card);opacity:1;transform:none}
     /* carousel */
-    .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none}
-    .carousel img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;transition:opacity .25s ease;cursor:zoom-in}
+    .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
+    .carousel img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
     .c-prev{left:.75rem}.c-next{right:.75rem}
@@ -408,10 +425,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
     <div class="drive-wrap">
       ${event.comingSoon
-        ? `<div class="btn-drive btn-soon">
+        ? `<button type="button" class="btn-drive btn-soon" onclick="openSoonModal()">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             As fotos virão em breve
-          </div>`
+          </button>`
         : `<button class="btn-drive" onclick="openModal()">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Acessar fotos
@@ -621,6 +638,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       </div>
     </div>
   </div>
+
+  ${event.comingSoon ? `<!-- COMING SOON MODAL -->
+  <div class="modal-ov" id="soon-modal" onclick="soonOvClick(event)">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Fotos em breve">
+      <div class="modal-head">
+        <h2>Fotos em breve</h2>
+        <button class="m-close" onclick="closeSoonModal()" aria-label="Fechar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      ${eventIsFuture
+        ? `<p class="rem-intro">Opa, parece que você está adiantando! 😂 Esse evento ainda nem aconteceu — as fotos aparecem por aqui depois dele.</p>`
+        : `<p class="rem-intro">Poxa, as fotos deste evento ainda não estão prontas. Peço desculpas pela demora — elas devem ficar disponíveis em breve.</p>
+        <a href="/suporte" class="btn-drive-go" style="text-decoration:none">Falar comigo</a>`}
+    </div>
+  </div>` : ''}
 
   <!-- LIGHTBOX -->
   <div class="modal-ov lightbox-ov" id="lightbox" onclick="lbOvClick(event)">
@@ -1099,6 +1132,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       fetch('/api/track-drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: EVENT_SLUG }) }).catch(() => {});
     }
 
+    // ---- Coming soon modal ----
+    function openSoonModal() {
+      if (document.getElementById('tour').classList.contains('open')) skipTour();
+      lastFocused = document.activeElement;
+      document.getElementById('soon-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      updateStickyCta();
+    }
+    function closeSoonModal() {
+      document.getElementById('soon-modal').classList.remove('open');
+      document.body.style.overflow = '';
+      updateStickyCta();
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+    }
+    function soonOvClick(e) { if (e.target === document.getElementById('soon-modal')) closeSoonModal(); }
+
     // ---- Carousel ----
     const _preloaded = {};
     // No desktop vale aquecer uma vizinhança maior: clicar rápido no ›› passava
@@ -1362,6 +1411,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     function closeAnyModal(open) {
       if (open.id === 'modal') closeModal();
       else if (open.id === 'rem-modal') closeRemModal();
+      else if (open.id === 'soon-modal') closeSoonModal();
       else if (open.id === 'lightbox') closeLightbox();
       else if (open.id === 'tour') skipTour();
     }
