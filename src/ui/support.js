@@ -1,4 +1,4 @@
-import { escape, footerLegalLinksHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 /**
@@ -27,7 +27,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
   <style>

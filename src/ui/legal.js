@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT } from '../utils.js';
+import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT, fontPreconnectHTML } from '../utils.js';
 import { LEGAL_DOCS } from '../content/legal-docs.js';
 
 // Central de Transparência — o hub que reúne privacidade, termos, segurança e a
@@ -80,7 +80,7 @@ export function legalHTML() {
   <meta property="og:title" content="Central de Transparência · fotos">
   <meta property="og:description" content="Privacidade, termos, segurança e conformidade com a LGPD — num só lugar.">
   <meta property="og:url" content="${SITE_URL}/legal">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

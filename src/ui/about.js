@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
 
 // Static "Sobre" (About) page — mirrors privacy.js structure (same head, dark
 // theme, back link, footer). No dynamic content, so no escaping is needed.
@@ -27,7 +27,7 @@ export function aboutHTML() {
   <meta property="og:title" content="Sobre · Luca F. Chala">
   <meta property="og:description" content="Fotografia de formaturas, casamentos, ensaios e eventos">
   <meta property="og:url" content="https://fotos.lucafchala.com/sobre">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

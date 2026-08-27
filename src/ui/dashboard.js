@@ -1,4 +1,4 @@
-import { sortEvents, escape, safeUrl } from '../utils.js';
+import { sortEvents, escape, safeUrl, fontPreconnectHTML } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 
 const BASE = `
@@ -35,7 +35,7 @@ export function loginHTML(opts = {}, nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     ${BASE}
@@ -133,7 +133,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     ${BASE}

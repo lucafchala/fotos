@@ -29,6 +29,8 @@ import { termsHTML } from '../src/ui/terms.js';
 import { aboutHTML } from '../src/ui/about.js';
 import { gearHTML } from '../src/ui/gear.js';
 import { legalHTML } from '../src/ui/legal.js';
+import { docHTML } from '../src/ui/doc.js';
+import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 
 const EVENTO = {
   id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
@@ -53,6 +55,9 @@ function paginas() {
     about: aboutHTML(),
     gear: gearHTML(),
     legal: legalHTML(),
+    // Doze páginas de documento saem desta mesma função; uma basta para
+    // cobrir o cabeçalho, que não depende de qual documento é.
+    doc: docHTML(LEGAL_DOCS[0]),
   };
 }
 
@@ -132,6 +137,74 @@ describe('scripts embutidos nas páginas', () => {
     for (const [nome, html] of Object.entries(paginas())) {
       const { abre, fecha } = contaScriptTags(html);
       expect(fecha, `${nome}: <script> e </script> desbalanceados`).toBe(abre);
+    }
+  });
+});
+
+describe('dicas de conexão no cabeçalho', () => {
+  // O defeito que estes testes travam existiu em DOZE cabeçalhos ao mesmo
+  // tempo: todos preconectavam a `fonts.googleapis.com` (o CSS) e nenhum a
+  // `fonts.gstatic.com` (os WOFF2 que aquele CSS aponta). Meio par não é meio
+  // ganho — é ganho nenhum, porque o handshake que importa é justamente o do
+  // host que ficou de fora, e ele só começa depois do CSS chegar e ser
+  // parseado.
+  //
+  // É um defeito invisível para todo o resto da suíte: a página renderiza,
+  // o JavaScript compila, a CSP continua válida. Só um waterfall de rede
+  // mostra. Daí a asserção ser estrutural — sobre o par, não sobre a página.
+  const paginasComFonte = Object.entries(paginas());
+
+  it.each(paginasComFonte.map(([nome]) => nome))(
+    '%s preconecta aos DOIS hosts do Google Fonts',
+    nome => {
+      const html = paginas()[nome];
+      expect(html, `${nome}: preconnect do CSS ausente`)
+        .toContain('<link rel="preconnect" href="https://fonts.googleapis.com">');
+      expect(html, `${nome}: preconnect dos arquivos de fonte ausente`)
+        .toContain('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
+    },
+  );
+
+  it('o preconnect de fonte leva crossorigin e o de CSS não leva', () => {
+    // Requisição de fonte é CORS; folha de estilo não é. O browser guarda
+    // pools de conexão separados para os dois modos, então trocar o atributo
+    // de lugar (ou pô-lo nos dois) abre a conexão que a busca real NÃO
+    // reaproveita — pior que não preconectar, porque parece resolvido.
+    const html = galleryHTML([EVENTO], null, 'NONCE');
+    expect(html).not.toMatch(/<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com" crossorigin>/);
+    expect(html).not.toMatch(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com">/);
+  });
+
+  it('a galeria preconecta ao host das miniaturas', () => {
+    // Todo card desta página busca a miniatura em lh3.googleusercontent.com.
+    // A página de projeto já fazia isso com UMA imagem; a galeria abre com
+    // dezenas e não fazia.
+    const html = galleryHTML([EVENTO], null, 'NONCE');
+    expect(html).toContain('<link rel="preconnect" href="https://lh3.googleusercontent.com">');
+  });
+
+  it('a página de projeto continua preconectando ao host das fotos', () => {
+    const html = eventHTML(EVENTO, '2026', null, 'NONCE', 'nonce-drive', 'form-token');
+    expect(html).toContain('<link rel="preconnect" href="https://lh3.googleusercontent.com">');
+  });
+
+  it('nenhuma página preconecta a um host que a CSP não deixa carregar', () => {
+    // Preconnect não passa pela CSP (não busca nada), então um host aqui que
+    // a política recusa é trabalho de rede jogado fora — e a divergência não
+    // apareceria em lugar nenhum. Amarrar os dois lados aqui evita que uma
+    // origem removida da CSP fique para trás no cabeçalho.
+    const permitidos = new Set([
+      'https://fonts.googleapis.com',   // style-src
+      'https://fonts.gstatic.com',      // font-src
+      'https://lh3.googleusercontent.com', // img-src (*.googleusercontent.com)
+      'https://drive.google.com',       // img-src
+      'https://challenges.cloudflare.com', // script-src/frame-src/connect-src
+      'https://static.cloudflareinsights.com',
+    ]);
+    for (const [nome, html] of paginasComFonte) {
+      for (const m of html.matchAll(/<link rel="preconnect" href="([^"]+)"/g)) {
+        expect(permitidos.has(m[1]), `${nome}: preconnect a ${m[1]}, que a CSP não permite`).toBe(true);
+      }
     }
   });
 });
