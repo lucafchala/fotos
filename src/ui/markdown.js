@@ -6,39 +6,24 @@ import { DOC_PATH_TO_SLUG } from '../content/legal-docs.js';
  * @typedef {{ id: string, level: number, title: string }} ItemIndice
  */
 
-// Renderizador de um subconjunto de Markdown, feito sob medida para os
-// documentos de conformidade.
+// Subconjunto de Markdown sob medida para os documentos de conformidade — não
+// uma lib genérica, pra não trazer superfície de XSS por um parser completo.
 //
-// Não é uma biblioteca genérica de propósito: uma dependência de markdown
-// completa traz um parser grande, superfície de ataque de XSS conhecida e
-// atualizações a acompanhar, tudo para renderizar doze arquivos que nós mesmos
-// escrevemos. O subconjunto abaixo cobre o que esses arquivos usam de fato.
-//
-// REGRA CENTRAL: escapar PRIMEIRO, formatar DEPOIS.
-//
-// Todo texto passa por escape() antes de qualquer regex de formatação rodar.
-// Assim, um `<script>` que apareça no markdown já virou `&lt;script&gt;` quando
-// as regras inline agem, e nenhuma delas consegue reconstituir uma tag. A ordem
-// inversa — formatar e depois tentar limpar — é exatamente como sanitizadores
-// de markdown costumam falhar. O conteúdo é nosso, mas tratar como não confiável
-// custa nada e sobrevive ao dia em que alguém colar algo de fora num documento.
+// Regra central: escapar PRIMEIRO, formatar DEPOIS. Todo texto passa por
+// escape() antes das regras inline rodarem, então um `<script>` no markdown
+// já virou `&lt;script&gt;` antes delas agirem — nenhuma consegue reconstituir
+// uma tag.
 
 // ---------------------------------------------------------------------------
 // Links
 // ---------------------------------------------------------------------------
-// Três destinos possíveis, e um deles é deliberadamente descartado:
-//
-//  1. Caminho relativo para outro documento (./ROPA.md) → vira a rota interna.
-//  2. URL absoluta do próprio site → vira caminho relativo.
-//  3. Externa https → mantida, com rel="noopener".
-//
-// Qualquer outra coisa — caminho de arquivo do repositório (./TODO.md,
-// ../../src/ui/privacy.js), link quebrado, e **qualquer coisa apontando para o
-// GitHub** — é rebaixada a texto puro. O rótulo continua legível; só o link some.
-// Isso cumpre a regra do site (nada leva ao GitHub, exceto o link de
-// código-fonte no rodapé) sem depender de alguém lembrar de revisar cada
-// markdown antes de publicar.
+// Três destinos sobrevivem: caminho relativo pra outro documento (vira rota
+// interna), URL absoluta do próprio site (vira relativa) e https externa
+// (mantida, com rel="noopener"). Qualquer outra coisa — caminho de repo, link
+// quebrado, qualquer coisa apontando pro GitHub — vira texto puro, sem
+// depender de revisão manual de cada markdown.
 const SITE_HOST = 'fotos.lucafchala.com';
+const GITHUB_RE = /github\.com/i;
 
 /**
  * @param {unknown} raw
@@ -51,45 +36,33 @@ export function resolveDocHref(raw) {
   // Âncora dentro da própria página.
   if (href.startsWith('#')) return href;
 
-  // Nunca deixamos um link para o GitHub sair daqui. A comparação por
-  // substring é deliberada e não é a mesma coisa que a de baixo: esta é uma
-  // regra de NEGAÇÃO, então alcance a mais erra para o lado seguro — o link
-  // vira texto puro e ninguém se machuca. Alcance a menos, não.
-  if (/github\.com/i.test(href)) return null;
+  // Substring match deliberado: é regra de negação, então pegar demais é
+  // seguro (vira texto puro); pegar de menos, não.
+  if (GITHUB_RE.test(href)) return null;
 
   // Documento irmão, em qualquer das formas relativas que os markdowns usam.
   const withoutAnchor = href.split('#')[0];
   const slug = /** @type {Record<string, string>} */ (DOC_PATH_TO_SLUG)[withoutAnchor];
   if (slug) return '/legal/' + slug;
 
-  // Caminho interno já absoluto — mas `//exemplo.com/x` também começa com `/`
-  // e NÃO é interno: é URL protocol-relative, que o browser resolve como
-  // `https://exemplo.com/x`. Sem a segunda condição ela era devolvida crua,
-  // pulando a validação de esquema e de host logo abaixo, e ainda saía sem
-  // `rel="noopener noreferrer"` — porque `isExternal()` testa `^https://` e um
-  // `//` não casa. Link externo disfarçado de caminho interno.
-  //
-  // Com a exclusão, `//exemplo.com/x` cai no `new URL(href)` mais abaixo, que
-  // lança sem base e rebaixa o link a texto puro.
+  // `//exemplo.com/x` também começa com `/`, mas é protocol-relative — o
+  // browser resolve como https://exemplo.com/x. Excluir aqui manda pro
+  // new URL() abaixo em vez de pular a validação de esquema/host e sair
+  // sem rel="noopener" (isExternal() só casa ^https://).
   if (href.startsWith('/') && !href.startsWith('//')) return href;
 
   // Antes de tratar o resto como URL: mailto: não sobrevive à checagem de
   // esquema abaixo e precisa passar aqui.
   if (/^mailto:/i.test(href)) return href;
 
-  // Sobrou URL absoluta. Daqui para frente quem decide é o parser, não uma
-  // comparação de prefixo. `startsWith('https://fotos.lucafchala.com')`
-  // aceitaria `https://fotos.lucafchala.com.exemplo.com/x` e
-  // `https://fotos.lucafchala.com@exemplo.com/x` — dois hosts completamente
-  // diferentes que só *começam* com o nosso nome. É o erro clássico de
-  // validar URL por substring, e o parser não o comete.
+  // Daqui pra frente quem decide é o parser (new URL), não um prefix match:
+  // startsWith('https://fotos.lucafchala.com') aceitaria hosts como
+  // fotos.lucafchala.com.exemplo.com ou fotos.lucafchala.com@exemplo.com.
   let url;
   try {
     url = new URL(href);
   } catch {
-    // Caminho de repositório (../../src/ui/privacy.js), link quebrado, o que
-    // for: não é URL, não vira link. Texto.
-    return null;
+    return null; // caminho de repo, link quebrado etc. — não é URL, vira texto
   }
 
   // Só https. `javascript:`, `data:` e `http:` param aqui.
@@ -108,43 +81,43 @@ function isExternal(href) {
   return /^https:\/\//i.test(href);
 }
 
-// Desfaz o escape de escape() em UMA passada.
-//
-// Encadear `.replace(/&amp;/g,'&').replace(/&quot;/g,'"')` desescapa duas
-// vezes: a primeira troca transforma `&amp;quot;` em `&quot;`, e a segunda o
-// transforma em `"`. Um destino escrito no markdown como `&amp;quot;` — que
-// deveria virar o texto literal `&quot;` — sairia como aspas de verdade,
-// justamente o caractere que fecha o atributo href. O escape() na emissão já
-// impediria a fuga, mas depender do último passo é frágil; a passada única
-// nunca reexamina o que acabou de produzir e o problema deixa de existir.
+// Desfaz escape() numa única passada: encadear replaces (&amp; primeiro,
+// depois &quot;) desescapa duas vezes — `&amp;quot;` viraria aspas de verdade
+// em vez do literal `&quot;`, abrindo o atributo href.
 const ENTITIES = { '&amp;': '&', '&quot;': '"', '&#x27;': "'", '&lt;': '<', '&gt;': '>' };
+const UNESCAPE_RE = /&(?:amp|quot|#x27|lt|gt);/g;
 
 /** @param {string} s */
 function unescapeEntities(s) {
-  return s.replace(/&(?:amp|quot|#x27|lt|gt);/g, /** @param {string} m */ m => /** @type {Record<string, string>} */ (ENTITIES)[m]);
+  return s.replace(UNESCAPE_RE, /** @param {string} m */ m => /** @type {Record<string, string>} */ (ENTITIES)[m]);
 }
 
 // ---------------------------------------------------------------------------
 // Formatação inline — roda SOBRE texto já escapado
 // ---------------------------------------------------------------------------
+const INLINE_CODE_RE = /`([^`]+)`/g;
+const INLINE_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+const INLINE_BOLD_RE = /\*\*([^*]+)\*\*/g;
+const INLINE_ITALIC_RE = /(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g;
+const INLINE_CODE_RESTORE_RE = /\uE000(\d+)\uE001/g;
+
 /** @param {string} escaped */
 function inline(escaped) {
   let s = escaped;
 
-  // Código inline primeiro: o que estiver dentro de crases não deve receber
-  // negrito nem virar link. O marcador usa caracteres de uso privado, e não
-  // algo como " CODE0 ": esse injetaria espaços quando a crase vem colada na
-  // palavra vizinha, e ainda poderia casar com as regras seguintes.
+  // Código inline primeiro, pra não receber negrito/link. Marcador usa
+  // caracteres de uso privado (não " CODE0 ") pra não injetar espaços nem
+  // colidir com as regras seguintes.
   /** @type {string[]} */
   const codes = [];
-  s = s.replace(/`([^`]+)`/g, /** @param {string} _ @param {string} code */ (_, code) => {
+  s = s.replace(INLINE_CODE_RE, /** @param {string} _ @param {string} code */ (_, code) => {
     codes.push(code);
     return '\uE000' + (codes.length - 1) + '\uE001';
   });
 
   // Links: [rótulo](destino). O destino já vem escapado, então desfazemos o
   // escape só para analisá-lo, e reescapamos ao emitir o atributo.
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, /** @param {string} whole @param {string} label @param {string} target */ (whole, label, target) => {
+  s = s.replace(INLINE_LINK_RE, /** @param {string} whole @param {string} label @param {string} target */ (whole, label, target) => {
     const raw = unescapeEntities(target);
     const href = resolveDocHref(raw);
     if (!href) return label; // rebaixado a texto puro
@@ -152,10 +125,10 @@ function inline(escaped) {
     return `<a href="${escape(href)}"${attrs}>${label}</a>`;
   });
 
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
+  s = s.replace(INLINE_BOLD_RE, '<strong>$1</strong>');
+  s = s.replace(INLINE_ITALIC_RE, '$1<em>$2</em>');
 
-  s = s.replace(/\uE000(\d+)\uE001/g, /** @param {string} _ @param {string} i */ (_, i) => `<code>${escape(codes[Number(i)])}</code>`);
+  s = s.replace(INLINE_CODE_RESTORE_RE, /** @param {string} _ @param {string} i */ (_, i) => `<code>${escape(codes[Number(i)])}</code>`);
   return s;
 }
 
@@ -167,12 +140,13 @@ function text(raw) {
 // ---------------------------------------------------------------------------
 // Blocos
 // ---------------------------------------------------------------------------
+const TABLE_ROW_TRIM_RE = /^\||\|$/g;
+
 /** @param {string} line */
 function tableRowCells(line) {
-  // Descarta o pipe inicial/final e divide. Não trata pipe escapado — os
-  // documentos não usam, e inventar suporte para o que ninguém escreve só cria
-  // superfície para errar.
-  return line.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  // Descarta pipe inicial/final e divide. Não trata pipe escapado — os
+  // documentos não usam.
+  return line.replace(TABLE_ROW_TRIM_RE, '').split('|').map(c => c.trim());
 }
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
@@ -181,6 +155,8 @@ const UL_RE = /^\s*[-*]\s+(.*)$/;
 const OL_RE = /^\s*\d+\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const TABLE_SEP_RE = /^\|?[\s:|-]+\|[\s:|-]*$/;
+const FENCE_RE = /^```/;
+const LIST_CONT_RE = /^\s{2,}\S/;
 
 /**
  * @param {unknown} md
@@ -209,10 +185,10 @@ export function renderMarkdown(md) {
     const line = lines[i];
 
     // --- bloco de código cercado ---
-    if (/^```/.test(line)) {
+    if (FENCE_RE.test(line)) {
       const body = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) { body.push(lines[i]); i++; }
+      while (i < lines.length && !FENCE_RE.test(lines[i])) { body.push(lines[i]); i++; }
       i++; // fecha
       out.push(`<pre><code>${escape(body.join('\n'))}</code></pre>`);
       continue;
@@ -256,12 +232,8 @@ export function renderMarkdown(md) {
     // --- citação ---
     if (QUOTE_RE.test(line)) {
       const body = [];
-      // Casa UMA vez e usa o resultado como condição, em vez de `test()` seguido
-      // de `match()`. Dois ganhos: metade do trabalho de regex, e o grupo de
-      // captura deixa de depender de `test` e `match` concordarem — o dia em que
-      // alguém acrescentar a flag `g` a um destes padrões, `test` vira stateful
-      // (`lastIndex`) e `match` passa a devolver a lista de ocorrências em vez
-      // dos grupos. As duas coisas quebram calado.
+      // match() uma vez em vez de test()+match(): evita o trabalho duplo e não
+      // depende dos dois concordarem se alguém adicionar a flag /g depois.
       for (;;) {
         const m = i < lines.length ? lines[i].match(QUOTE_RE) : null;
         if (!m) break;
@@ -288,7 +260,7 @@ export function renderMarkdown(md) {
         let item = m[1];
         i++;
         // Continuação indentada da mesma entrada.
-        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !re.test(lines[i]) && !UL_RE.test(lines[i]) && !OL_RE.test(lines[i])) {
+        while (i < lines.length && LIST_CONT_RE.test(lines[i]) && !re.test(lines[i]) && !UL_RE.test(lines[i]) && !OL_RE.test(lines[i])) {
           item += ' ' + lines[i].trim();
           i++;
         }
@@ -307,7 +279,7 @@ export function renderMarkdown(md) {
       i < lines.length && lines[i].trim() &&
       !HEADING_RE.test(lines[i]) && !HR_RE.test(lines[i]) &&
       !UL_RE.test(lines[i]) && !OL_RE.test(lines[i]) &&
-      !QUOTE_RE.test(lines[i]) && !/^```/.test(lines[i])
+      !QUOTE_RE.test(lines[i]) && !FENCE_RE.test(lines[i])
     ) {
       para.push(lines[i]);
       i++;

@@ -1,15 +1,9 @@
 // ---------------------------------------------------------------------------
-// Primitivas de segurança compartilhadas.
-//
-// Tudo que é política de segurança — cabeçalhos, CSP, checagem de origem,
-// tokens assinados, higienização de nomes de arquivo, política de senha — mora
-// aqui, num só lugar. O motivo é o modo de falha típico desses controles: eles
-// não quebram quando estão errados, só param de proteger em silêncio. Um
-// cabeçalho esquecido numa rota nova, uma CSP que diverge entre duas respostas,
-// um `no-store` que ficou de fora justamente do endpoint que devolve o export
-// de consentimentos — nada disso aparece num teste funcional. Concentrar aqui
-// deixa cada controle com um dono, um teste e um comentário explicando por que
-// ele é assim.
+// Primitivas de segurança compartilhadas: cabeçalhos, CSP, checagem de
+// origem, tokens assinados, higienização de nomes de arquivo, política de
+// senha. Centralizado porque esses controles falham em silêncio (cabeçalho
+// esquecido numa rota nova, CSP divergente) sem que nenhum teste funcional
+// perceba.
 // ---------------------------------------------------------------------------
 
 // Origens externas que o site realmente precisa carregar. Escritas uma vez e
@@ -22,23 +16,15 @@ const CSP_GOOGLE_FONTS_CSS = 'https://fonts.googleapis.com';
 const CSP_GOOGLE_FONTS_FILES = 'https://fonts.gstatic.com';
 const CSP_IMAGES = "https://*.googleusercontent.com https://drive.google.com";
 
-// Um ano era o mínimo recomendado; dois anos é o que a lista de preload do
-// Chrome exige. Ainda NÃO declaramos `preload` — isso é um compromisso que vale
-// para o domínio inteiro e é praticamente irreversível (a remoção da lista leva
-// meses), então é decisão do dono, não efeito colateral de um commit. O
-// `includeSubDomains` aqui só alcança *.fotos.lucafchala.com.
+// 2 anos (não 1) porque é o que a lista de preload do Chrome exige — mas
+// `preload` em si não está declarado de propósito: é praticamente irreversível
+// (remoção leva meses) e cabe ao dono decidir, não a um commit.
 const HSTS = 'max-age=63072000; includeSubDomains';
 
-// Negar tudo que o site não usa. Um Permissions-Policy curto ("camera=(),
-// microphone=(), geolocation=()") só nega três coisas; qualquer API nova do
-// browser nasce liberada. A lista longa é chata de manter, mas é a única forma
-// de a política valer alguma coisa contra o que ainda não existe hoje.
-// Seis diretivas que já estiveram nesta lista saíram: 'ambient-light-sensor',
-// 'battery', 'document-domain', 'execution-while-not-rendered',
-// 'execution-while-out-of-viewport' e 'speaker-selection' não são recursos que
-// o Chrome reconhece neste cabeçalho — ele loga "Unrecognized feature" pra
-// cada uma, em toda carga de página, sem negar nada de fato (não são APIs que
-// o header consiga controlar). Mantê-las era só ruído no console.
+// Nega tudo que o site não usa — lista longa de propósito, porque qualquer API
+// nova do browser nasce liberada por padrão. Diretivas que o Chrome não
+// reconhece (ambient-light-sensor, battery, etc.) foram removidas: ele só loga
+// "Unrecognized feature" sem negar nada de fato.
 const PERMISSIONS_POLICY = [
   'accelerometer=()', 'autoplay=()',
   'camera=()', 'display-capture=()', 'encrypted-media=()',
@@ -76,46 +62,27 @@ export function generateNonce() {
 
 // CSP das páginas HTML.
 //
-// ⚠️ REGRA DA ESPECIFICAÇÃO QUE DERRUBA O SITE INTEIRO SE FOR IGNORADA ⚠️
+// CUIDADO: por CSP Level 3, a presença de um nonce faz o browser DESCARTAR
+// 'unsafe-inline' — `'unsafe-inline' 'nonce-abc'` vira só `'nonce-abc'`, e todo
+// handler inline (onclick="…") para de funcionar. Pego só em teste com browser
+// real: testes de unidade que checam a STRING da política não veem isso, já
+// que 'unsafe-inline' continua lá no texto.
 //
-// Na presença de um nonce (ou hash), o browser **descarta o 'unsafe-inline'**.
-// Está no CSP Level 3, e existe justamente para que uma política moderna não
-// seja enfraquecida por um fallback antigo. A consequência prática aqui é
-// brutal: `script-src 'self' 'unsafe-inline' 'nonce-abc'` NÃO é "as duas
-// coisas" — é `script-src 'self' 'nonce-abc'`, e todo handler em atributo
-// (onclick="…") para de executar. Galeria, carrossel, lightbox, gate do Drive,
-// modal de remoção e o painel inteiro morrem de uma vez.
-//
-// Isso foi cometido e pego em verificação com browser real: os testes de
-// unidade afirmavam que a string continha 'unsafe-inline' — verdade, e
-// completamente irrelevante, porque o browser o ignorava. Nenhum teste sobre o
-// TEXTO da política pega um erro sobre a SEMÂNTICA dela.
-//
-// Daí a regra desta função: **o nonce só entra na política estrita.**
-//
-//  - strict=false (enforced hoje): 'unsafe-inline', SEM nonce. É o que mantém
-//    os handlers inline vivos. Todo o resto do endurecimento (object-src,
-//    base-uri, frame-ancestors, upgrade-insecure-requests…) vale normalmente.
-//
-//  - strict=true (report-only): 'nonce-…' SEM 'unsafe-inline' — a política que
-//    queremos passar a impor. Rodando em Report-Only, cada handler inline que
-//    sobrou vira um relatório em /api/csp-report em vez de um elemento
-//    quebrado. É a lista de tarefas da migração, medida em produção.
-//
-// Os dois cabeçalhos saem juntos em toda página. Os `nonce="…"` na marcação
-// servem à política estrita (é o que faz os <script> legítimos passarem nela,
-// deixando só os handlers como violação) e ficam prontos para o dia da virada:
-// quando os relatórios zerarem, `strict` passa a valer para o enforced também.
+// Por isso o nonce só entra na política estrita (strict=true):
+//  - strict=false (enforced hoje): 'unsafe-inline' sem nonce — mantém os
+//    handlers inline vivos.
+//  - strict=true (report-only): 'nonce-…' sem 'unsafe-inline' — a política
+//    que queremos impor. Cada handler inline que sobrar vira relatório em
+//    /api/csp-report em vez de quebrar a página; quando os relatórios
+//    zerarem, strict passa a valer no enforced também.
 /**
  * @param {string} nonce
  * @param {{ strict?: boolean }} [opts]
  */
 export function contentSecurityPolicy(nonce, { strict = false } = {}) {
-  // Sem nonce (páginas de erro, que não têm script nenhum) a fonte é omitida em
-  // vez de virar um `'nonce-'` vazio. Um token assim é sintaticamente inválido:
-  // o browser o descarta, e o que sobraria numa política estrita seria um
-  // `script-src 'self'` — que funciona, mas por acidente. Melhor a política
-  // dizer exatamente o que quer dizer.
+  // Sem nonce (páginas de erro, sem script) a fonte é omitida em vez de virar
+  // um 'nonce-' vazio, que o browser trataria como token sintaticamente
+  // inválido.
   const nonceSrc = nonce ? ` 'nonce-${nonce}'` : '';
   const scriptSrc = strict
     ? `'self'${nonceSrc} ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`
@@ -126,10 +93,8 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
   return [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
-    // style-src continua com 'unsafe-inline': todo o CSS é <style> inline por
-    // página, e CSS inline não é um vetor de execução de script sob esta CSP
-    // (sem 'unsafe-eval', sem script-src aberto). Trocar por nonce aqui daria
-    // ganho marginal e exigiria tocar em todas as folhas ao mesmo tempo.
+    // 'unsafe-inline' aqui é seguro: CSS não executa script sob esta CSP
+    // (sem 'unsafe-eval', sem script-src aberto).
     `style-src 'self' 'unsafe-inline' ${CSP_GOOGLE_FONTS_CSS}`,
     `font-src 'self' ${CSP_GOOGLE_FONTS_FILES}`,
     `img-src 'self' data: blob: ${CSP_IMAGES}`,
@@ -144,11 +109,8 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
     "frame-ancestors 'none'",
     "base-uri 'none'", // era 'self'; nenhuma página usa <base>, então 'none' é mais apertado
     "form-action 'self'",
-    // `upgrade-insecure-requests` só existe na política aplicada. Numa
-    // report-only ela é ignorada pelo browser — e o Chrome ainda registra um
-    // aviso no console a cada carregamento de página. Um aviso permanente no
-    // console de todo visitante é ruído que faz as pessoas pararem de olhar
-    // para o console, que é o oposto do que a report-only quer conseguir.
+    // Só na política aplicada: numa report-only o Chrome a ignora mas ainda
+    // loga um aviso no console a cada carga de página, o que é ruído puro.
     ...(strict ? [] : ['upgrade-insecure-requests']),
     'report-uri /api/csp-report',
     'report-to csp',
@@ -164,10 +126,8 @@ export function htmlSecurityHeaders(nonce) {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Resource-Policy': 'same-site',
-    // COEP fica deliberadamente de fora: as fotos vêm do
-    // lh3.googleusercontent.com, que não manda CORP, então `require-corp`
-    // apagaria a galeria inteira. Documentado em SECURITY.md para que a
-    // ausência seja uma decisão registrada e não um esquecimento.
+    // Sem COEP de propósito: as fotos vêm de lh3.googleusercontent.com, que
+    // não manda CORP, e `require-corp` apagaria a galeria inteira.
     'Content-Security-Policy': contentSecurityPolicy(nonce),
     'Content-Security-Policy-Report-Only': contentSecurityPolicy(nonce, { strict: true }),
     'Reporting-Endpoints': 'csp="/api/csp-report"',
@@ -191,13 +151,9 @@ export function adminHtmlSecurityHeaders(nonce) {
 
 // Cabeçalhos de respostas que NÃO são HTML (JSON, CSV, texto, imagem).
 //
-// `default-src 'none'` aqui não é teatro: se um endpoint devolver JSON e o
-// browser for induzido a renderizar o corpo como documento (content sniffing
-// numa navegação direta, um Content-Type errado num refactor futuro), essa CSP
-// impede que qualquer coisa dentro dele carregue ou execute. `no-store` é o
-// controle que realmente importa: /api/metrics, /api/backup e
-// /api/consent/export devolvem dados pessoais e não podem encostar em cache
-// intermediário nem no cache de disco do browser.
+// `default-src 'none'` protege contra content-sniffing (browser induzido a
+// renderizar o corpo como documento). `no-store` é o que importa de fato:
+// /api/metrics, /api/backup e /api/consent/export devolvem dados pessoais.
 /**
  * @param {string} contentType
  * @param {{ store?: boolean }} [opts]
@@ -224,23 +180,14 @@ export function dataSecurityHeaders(contentType, { store = false } = {}) {
 // ---------------------------------------------------------------------------
 // CSRF
 // ---------------------------------------------------------------------------
-// O cookie de sessão já é SameSite=Strict, o que barra a maior parte do CSRF.
-// Isso não basta por dois motivos concretos:
+// SameSite=Strict no cookie de sessão não basta: (1) SameSite é *site*, não
+// origem — um subdomínio comprometido ainda conta como same-site; (2) não
+// protege endpoints públicos sem cookie (/api/removal-request, /api/suporte,
+// /api/drive-link). Sec-Fetch-Site cobre os dois — é o browser dizendo de onde
+// veio a requisição, inforjável por script.
 //
-//  1. SameSite é *site*, não origem. Qualquer coisa capaz de servir conteúdo em
-//     outro host de lucafchala.com (um subdomínio comprometido, um CNAME órfão
-//     apontando para serviço de terceiro) é "same-site" e passa pelo cookie.
-//  2. SameSite protege o cookie, não os endpoints públicos sem cookie nenhum
-//     (/api/removal-request, /api/suporte, /api/drive-link), que um site
-//     terceiro pode acionar em nome de um visitante.
-//
-// Sec-Fetch-Site resolve os dois: é o browser dizendo de onde a requisição
-// partiu, e o valor é inforjável por script.
-//
-// Ausência de sinal passa de propósito. Um cliente que não manda nem
-// Sec-Fetch-Site nem Origin não é um browser, e um não-browser não sofre CSRF —
-// ele já controla a própria requisição. Bloquear por ausência custaria
-// compatibilidade sem comprar segurança.
+// Sinal ausente passa de propósito: quem não manda Sec-Fetch-Site nem Origin
+// não é um browser, e um não-browser não sofre CSRF.
 /** @param {Request} request */
 export function isCrossSiteRequest(request) {
   const secFetchSite = request.headers.get('Sec-Fetch-Site');
@@ -266,19 +213,14 @@ export function isCrossSiteRequest(request) {
 // ---------------------------------------------------------------------------
 // Tokens assinados (HMAC-SHA256, sem estado)
 // ---------------------------------------------------------------------------
-// Usados para amarrar uma chamada de API a uma página realmente renderizada por
-// nós (nonce do /api/drive-link e token dos formulários públicos).
+// Amarram uma chamada de API a uma página que nós renderizamos (nonce do
+// /api/drive-link, token dos formulários públicos). Sem estado de propósito:
+// um nonce em KV gastaria a cota de escrita (1000/dia, compartilhada com
+// eventos/sessões/consentimento); HMAC dá a mesma garantia com zero I/O.
 //
-// Sem estado de propósito: um nonce em KV gastaria a cota de escrita (1000/dia,
-// compartilhada com eventos, sessões e consentimento) — o mesmo motivo que fez
-// o /api/perf não escrever em KV. Uma assinatura HMAC dá a mesma garantia de
-// "isto foi emitido pelo servidor, para este recurso, dentro deste prazo" com
-// zero I/O.
-//
-// O que estes tokens NÃO fazem: impedir que alguém peça uma página e use o
-// token dela. Isso é intencional — o objetivo é obrigar o atacante a carregar a
-// página de cada slug (visível, contabilizado e sujeito a rate limit) em vez de
-// varrer slugs com um único token na mão.
+// Não impedem reuso do token em si — o objetivo é só obrigar o atacante a
+// carregar a página de cada slug (visível, contado, com rate limit) em vez de
+// varrer slugs com um token só.
 
 const encoder = new TextEncoder();
 const keyCache = new Map();
@@ -409,20 +351,14 @@ export function sanitizeFilename(name, fallback = 'foto.jpg') {
 // ---------------------------------------------------------------------------
 // Política de senha
 // ---------------------------------------------------------------------------
-// O painel é o único login do site e dá acesso a dados pessoais (log de
-// consentimento, pedidos de remoção com e-mail e telefone). O mínimo anterior
-// era 6 caracteres, o que aceita "123456" — abaixo do que o PBKDF2 de 100k
-// iterações consegue compensar contra um ataque offline se o hash vazar.
-//
-// O limite superior existe para o outro lado: o hash roda dentro do orçamento
-// de CPU do Worker, e uma entrada absurda é uma forma barata de causar timeout.
+// Mínimo de 12 (não os 6 antigos, que aceitavam "123456") para aguentar
+// ataque offline se o hash PBKDF2 vazar. Máximo existe porque o hash roda
+// dentro do orçamento de CPU do Worker; entrada absurda é timeout barato.
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 200;
 
-// Não é uma lista de "top 10k senhas" — não cabe num Worker e não é o gargalo.
-// É o conjunto de padrões que aparecem quando alguém escolhe uma senha com
-// pressa, mais os termos deste projeto especificamente, que são o primeiro
-// palpite de qualquer ataque direcionado.
+// Não é lista de "top 10k senhas" (não cabe num Worker); são os padrões óbvios
+// mais os termos deste projeto, primeiro palpite de um ataque direcionado.
 const WEAK_PATTERNS = [
   /^(.)\1+$/,                       // um caractere repetido
   /^(012|123|234|345|456|567|678|789|890)+/,
@@ -466,15 +402,11 @@ export function validatePassword(password) {
 // ---------------------------------------------------------------------------
 // Honeypot
 // ---------------------------------------------------------------------------
-// Campo isca, invisível para gente e irresistível para bot que preenche tudo o
-// que encontra no DOM. É a segunda camada depois do Turnstile, e a mais barata:
-// não faz I/O e não incomoda ninguém.
-//
-// O nome importa. Bots miram em nomes plausíveis, então o campo se chama como
-// algo que um formulário de contato teria de verdade. `aria-hidden` +
-// `tabindex="-1"` + `autocomplete="off"` mantêm leitor de tela e autofill do
-// browser longe dele — um honeypot que o autofill preenche vira um formulário
-// que rejeita usuário legítimo.
+// Campo isca invisível que bots preenchem; segunda camada depois do
+// Turnstile, sem I/O. O nome soa como um campo de formulário de contato de
+// verdade — bots miram em nomes plausíveis. `aria-hidden`/`tabindex="-1"`/
+// `autocomplete="off"` mantêm leitor de tela e autofill longe dele, senão o
+// autofill do próprio usuário legítimo dispararia a isca.
 export const HONEYPOT_FIELD = 'company_website';
 
 export function honeypotFieldHTML() {

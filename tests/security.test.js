@@ -978,6 +978,57 @@ describe('envio completo dos formulários públicos', () => {
     expect(stored[0].email).toBe('pessoa@example.com');
   });
 
+  // Os dois envios (aviso ao dono e confirmação ao titular) saem em paralelo,
+  // e cada um grava o próprio campo de status no pedido. O que o painel mostra
+  // — e a única pista de por que um aviso não chegou — são essas strings, então
+  // elas ficam presas aqui: falha de um envio não pode contaminar o status do
+  // outro, nem derrubar o 200 que o titular recebe.
+  it('grava o status de cada e-mail separadamente quando a Resend recusa', async () => {
+    resetDegraded();
+    const e = env();
+    e.RESEND_API_KEY = 'chave-de-teste';
+    const token = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    // Turnstile passa; a Resend recusa os dois envios.
+    globalThis.fetch = async url => (String(url).includes('api.resend.com')
+      ? new Response('quota exceeded', { status: 500 })
+      : new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'pessoa@example.com', phone: '11999999999',
+      consent: true, turnstileToken: 'ok', form_token: token,
+    });
+    expect(res.status, await res.text()).toBe(200);
+
+    const [saved] = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    expect(saved.emailStatus).toMatch(/^error: /);
+    expect(saved.confirmEmailStatus).toMatch(/^error: /);
+    resetDegraded();
+  });
+
+  it('marca o aviso como skipped e a confirmação como nula sem RESEND_API_KEY', async () => {
+    resetDegraded();
+    const e = env(); // sem RESEND_API_KEY
+    const token = await signToken(e.SIGNING_SECRET, {
+      purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
+
+    const res = await postRemoval(e, {
+      eventSlug: 'evento', method: 'number', value: '42',
+      email: 'pessoa@example.com', phone: '11999999999',
+      consent: true, turnstileToken: 'ok', form_token: token,
+    });
+    expect(res.status, await res.text()).toBe(200);
+
+    const [saved] = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    expect(saved.emailStatus).toBe('skipped: RESEND_API_KEY não configurada');
+    expect(saved.confirmEmailStatus).toBeNull();
+    resetDegraded();
+  });
+
   it('still refuses a removal request with no token', async () => {
     const e = env();
     globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
