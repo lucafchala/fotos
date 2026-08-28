@@ -1,17 +1,9 @@
-// Gera `src/content/legal-docs.js` a partir dos markdowns de `docs/legal/` e do
-// `SECURITY.md`.
+// Empacota os markdowns de `docs/legal/` e o `SECURITY.md` em
+// `src/content/legal-docs.js` — um Worker não tem sistema de arquivos, então o
+// texto precisa estar no bundle.
 //
-// Por que gerar em vez de ler em tempo de execução: um Worker não tem sistema
-// de arquivos — tudo o que ele serve precisa estar no bundle. E por que gerar
-// em vez de manter o texto duplicado à mão: duplicata diverge. O markdown
-// continua sendo a única fonte da verdade; este script só o empacota.
-//
-// A CI roda `npm run build:legal` e falha se o resultado diferir do que está
-// commitado (`.github/workflows/checks.yml`). Assim, editar um documento sem
-// regenerar não passa despercebido — que é exatamente o modo de falha de
-// qualquer arquivo gerado que fica no repositório.
-//
-// Uso: npm run build:legal
+// A CI regenera e compara: editar um documento sem rodar `npm run build:legal`
+// derruba o build.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -85,18 +77,16 @@ const DOCS = [
   },
 ];
 
-// Mapa de arquivo → rota, para o renderizador reescrever os links relativos
-// entre documentos. Qualquer caminho fora deste mapa vira texto puro: melhor
-// perder um link do que publicar um que aponta para lugar nenhum (ou para fora
-// do site).
+// Mapa de arquivo → rota, para o renderizador reescrever os links entre
+// documentos. Caminho fora do mapa vira texto puro — melhor perder um link do
+// que publicar um quebrado.
+//
+// Os markdowns se referenciam por caminho relativo a partir de lugares
+// diferentes, então registramos todas as formas em vez de normalizar em runtime.
 const FILE_TO_SLUG = {};
 for (const d of DOCS) {
-  FILE_TO_SLUG[d.file] = d.slug;
-  // Os markdowns se referenciam entre si por caminho relativo — `./ROPA.md`
-  // dentro de docs/legal/, `../../SECURITY.md` a partir de lá, e
-  // `./docs/legal/X.md` a partir da raiz. Registrar as formas todas evita ter
-  // que normalizar caminho em tempo de execução.
   const base = d.file.split('/').pop();
+  FILE_TO_SLUG[d.file] = d.slug;
   FILE_TO_SLUG['./' + base] = d.slug;
   FILE_TO_SLUG['../../' + base] = d.slug;
   FILE_TO_SLUG['./docs/legal/' + base] = d.slug;
@@ -116,11 +106,6 @@ const out = `// ARQUIVO GERADO — não edite à mão.
 //
 // Fonte: docs/legal/*.md e SECURITY.md
 // Gerar:  npm run build:legal
-//
-// Um Worker não tem sistema de arquivos, então o texto dos documentos precisa
-// estar no bundle. Manter o markdown como fonte única e empacotá-lo aqui evita
-// a duplicata que inevitavelmente divergiria. A CI regenera e compara: editar
-// um documento sem rodar o script derruba o build.
 
 export const LEGAL_DOCS = ${JSON.stringify(docs, null, 2)};
 

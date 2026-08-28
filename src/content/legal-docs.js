@@ -2,11 +2,6 @@
 //
 // Fonte: docs/legal/*.md e SECURITY.md
 // Gerar:  npm run build:legal
-//
-// Um Worker não tem sistema de arquivos, então o texto dos documentos precisa
-// estar no bundle. Manter o markdown como fonte única e empacotá-lo aqui evita
-// a duplicata que inevitavelmente divergiria. A CI regenera e compara: editar
-// um documento sem rodar o script derruba o build.
 
 export const LEGAL_DOCS = [
   {
