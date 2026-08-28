@@ -990,8 +990,12 @@ describe('envio completo dos formulários públicos', () => {
     const token = await signToken(e.SIGNING_SECRET, {
       purpose: 'form', scope: 'remocao', ttlSecs: FORM_TOKEN_TTL_SECS - FORM_TOKEN_MIN_AGE_SECS,
     });
-    // Turnstile passa; a Resend recusa os dois envios.
-    globalThis.fetch = async url => (String(url).includes('api.resend.com')
+    // Turnstile passa; a Resend recusa os dois envios. O destino é decidido
+    // por `host`, não por substring: `includes('api.resend.com')` casaria
+    // também com `api.resend.com.exemplo.com` — o mesmo erro que a revisão de
+    // markdown já pegou uma vez, e que o CodeQL acusa como
+    // js/incomplete-url-substring-sanitization.
+    globalThis.fetch = async url => (new URL(String(url)).host === 'api.resend.com'
       ? new Response('quota exceeded', { status: 500 })
       : new Response(JSON.stringify({ success: true }), { status: 200 }));
 
