@@ -171,10 +171,20 @@ function stripBody(res) {
 
 // Regexes de rota, hoisted para não recompilar um RegExp por requisição —
 // `fetch()` roda para todo request que chega no Worker.
-const TRAILING_SLASHES_RE = /\/+$/;
 const LEGAL_DOC_PATH_RE = /^\/legal\/([a-z0-9-]+)$/;
 const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/;
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
+
+// Tira as barras finais com varredura linear, não com /\/+$/. A regex é
+// quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
+// teto do plano gratuito é 10 ms por requisição — daria para derrubar uma
+// invocação com uma URL comprida. CodeQL acusa como js/polynomial-redos.
+/** @param {string} pathname */
+function stripTrailingSlashes(pathname) {
+  let end = pathname.length;
+  while (end > 0 && pathname.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return pathname.slice(0, end);
+}
 
 // Referência nomeada, não `this.fetch`: `this` some se o handler for
 // desestruturado (`const { fetch } = worker`), e o HEAD voltaria a 404.
@@ -195,7 +205,7 @@ const worker = {
       return stripBody(await worker.fetch(asGet, env, ctx, { headOnly: true }));
     }
     const url = new URL(request.url);
-    const path = url.pathname.replace(TRAILING_SLASHES_RE, '') || '/';
+    const path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
 
     // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker

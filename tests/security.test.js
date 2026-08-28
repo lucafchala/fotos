@@ -1641,6 +1641,30 @@ describe('auditoria: invariantes e entradas não confiáveis', () => {
     expect(indexSource).toContain('env.KUMA_PUSH_URL');
   });
 
+  it('normalizar o caminho não é quadrático no número de barras', async () => {
+    // `pathname.replace(/\/+$/, '')` parece inocente e é O(n²): a cada posição
+    // inicial o motor consome todas as barras e volta testando `$`. Num caminho
+    // só de barras isso vira CPU de verdade — 16 mil barras medem ~110 ms,
+    // contra o teto de 10 ms por requisição do plano gratuito. Como o caminho
+    // vem da URL, derrubar uma invocação custaria uma requisição comprida.
+    // CodeQL classifica como js/polynomial-redos (alta).
+    expect(indexSource).not.toMatch(/\.replace\(\s*\/\\\/\+\$\//);
+    expect(indexSource).toContain('stripTrailingSlashes');
+
+    // E a normalização continua valendo: barra final não muda a rota.
+    const e = { FOTOS: { async get() { return null; }, async put() {}, async delete() {}, async list() { return { keys: [], list_complete: true }; } } };
+    const get = p => worker.fetch(new Request('https://fotos.lucafchala.com' + p), e, { waitUntil: () => {} });
+    expect((await get('/sobre')).status).toBe(200);
+    expect((await get('/sobre/')).status).toBe(200);
+    expect((await get('/sobre///')).status).toBe(200);
+
+    // Caminho patológico responde sem queimar CPU (a versão com regex levava
+    // centenas de ms só para normalizar).
+    const t0 = Date.now();
+    expect((await get('/' + '/'.repeat(20000))).status).toBe(200); // vira '/'
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it('o heartbeat do Kuma não dispara uma subrequisição por requisição', () => {
     // Era `ctx.waitUntil(pushToKuma(env))` sem trava, ou seja, um fetch de
     // saída por visita — o plano gratuito dá 50 subrequisições por invocação, e
