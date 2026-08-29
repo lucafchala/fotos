@@ -27,6 +27,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Modelo de dados (KV)](#modelo-de-dados-kv)
 - [Rotas HTTP](#rotas-http)
 - [Páginas públicas](#páginas-públicas)
+- [Cartão de pré-visualização do link (Open Graph)](#cartão-de-pré-visualização-do-link-open-graph)
 - [Painel administrativo `/dashboard`](#painel-administrativo-dashboard)
 - [Sistema de solicitação de remoção (LGPD)](#sistema-de-solicitação-de-remoção-lgpd)
 - [Termos de Uso e autorização de uso de imagem (LGPD)](#termos-de-uso-e-autorização-de-uso-de-imagem-lgpd)
@@ -738,6 +739,72 @@ Páginas estáticas simples, sem dados dinâmicos — mesmo esqueleto (header co
 
 ---
 
+## Cartão de pré-visualização do link (Open Graph)
+
+É por WhatsApp que um link de projeto se espalha, e o que o destinatário vê
+antes de tocar é o **cartão** — não a página. O cartão é montado só a partir do
+`<head>`: nenhum script roda no scraper.
+
+Um bloco só, `socialMetaHTML()` em `src/utils.js`, monta o conjunto para todas
+as páginas públicas. Antes cada `<head>` tinha o seu, e eles divergiram: a
+página de projeto não tinha nem `<meta name="description">`, `/privacidade`,
+`/termos` e `/suporte` não tinham tag de Open Graph nenhuma, e nenhuma delas
+declarava `og:site_name` ou o tamanho da imagem.
+
+### O que cada tag resolve
+
+| Tag | Para quê |
+| --- | --- |
+| `og:image:width` / `height` | Decide entre o **cartão grande** (foto no topo, ocupando a largura da bolha) e a miniatura quadrada ao lado do texto. Sem as dimensões declaradas o WhatsApp precisa baixar a imagem para medir, e quando o download é lento ou falha ele cai na miniatura |
+| `og:site_name` / `og:locale` | Linha de origem do cartão e idioma |
+| `twitter:*` | Twitter/X e Discord ignoram parte das `og:` e leem estas |
+| `name="description"` | O mesmo texto serve ao resultado de busca — separados, um envelhece sem que o outro acuse |
+
+`ogImageFor()` recorta a capa em **1200×630** pedindo `=w1200-h630-c` ao
+`lh3.googleusercontent.com`. O recorte é o ponto: o scraper recortaria de
+qualquer jeito, mas assim as dimensões são **conhecidas na hora de renderizar o
+HTML** e podem ir declaradas. URL de outro host volta intacta e **sem**
+dimensões — prometer 1200×630 de uma imagem de tamanho desconhecido é pior que
+não prometer nada, e o cartão cai para `summary` de propósito. O PNG servido em
+`/og-coming-soon.png` já tem exatamente essa medida, então o projeto "em breve"
+segue o mesmo caminho.
+
+### A descrição
+
+Os **fatos primeiro**, o texto livre depois (`previewDescription()`). O WhatsApp
+mostra cerca de duas linhas antes de cortar, então o que o destinatário procura
+tem de vir antes da descrição do projeto — invertido, o que sobra na tela é o
+começo de um parágrafo genérico.
+
+Na página de projeto, na ordem: `Em breve` (se for o caso), a data, **`Em
+colaboração com <eventCredits>`**, a categoria e `Acesso restrito` (para
+`accessType` `private` ou `family`), e só então a descrição longa, cortada no
+espaço para caber em 200 caracteres:
+
+```
+15 de janeiro de 2026 · Em colaboração com Colégio Santa Cruz · Formatura — Colação de grau, do café da manhã ao baile.
+```
+
+O crédito vem logo depois da data porque é a primeira informação que se procura
+quando o projeto é de uma instituição — e porque o WhatsApp corta o resto. A
+home resume o acervo em vez de repetir o título (`28 projetos · Formatura,
+Casamento, Ensaio · 2019–2026`).
+
+### JSON-LD
+
+A página de projeto emite um array com dois nós: o `BreadcrumbList` que já
+existia e um **`PhotoGallery`** com os mesmos fatos do cartão — `datePublished`,
+`genre`, `author` e `creditText` com o colaborador. `creditText`, e não
+`contributor`, porque o campo do painel aceita tanto instituição quanto
+fotógrafo colaborador ou projeto: declarar `Organization` onde pode haver
+`Person` seria afirmar o que não se sabe.
+
+A suíte `tests/rendered-pages.test.js` renderiza cada página pública e parseia o
+`<head>` que saiu — uma página que esqueça de chamar `socialMetaHTML()` volta a
+ser um link sem cartão, e nada mais no projeto acusaria.
+
+---
+
 ## Painel administrativo `/dashboard`
 
 Renderizado por `src/ui/dashboard.js`. Mesma página tem login e dashboard:
@@ -1341,7 +1408,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 - **Contadores não atômicos**: `views`, `drive_clicks` e `ratelimit` são read-modify-write. Em alta concorrência, alguns incrementos podem ser perdidos. Aceitável aqui.
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar para R2 está no roadmap.
-- **Sem preview no WhatsApp**: Open Graph image aponta para `lh3.googleusercontent.com`, que o WhatsApp às vezes não consegue scrapear. R2 resolveria.
+- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 resolveria o que sobra.
 - **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
 - **CPU budget do Worker**: o hashing PBKDF2 (100k iterações) roda no `/api/healthz` como canário — se não couber no orçamento de CPU, a requisição morre e o CI reprova (healthz sem `ok:true`, login sem 302). Não dá para medir o tempo de dentro do isolate (RETOMADA §5.9); ao mexer no `iterations`, o número real está nas métricas do Worker no painel da Cloudflare.

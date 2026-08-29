@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 
 // Static "Sobre" (About) page — mirrors privacy.js structure (same head, dark
 // theme, back link, footer). No dynamic content, so no escaping is needed.
@@ -13,7 +13,6 @@ export function aboutHTML() {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Sobre · fotos</title>
-  <meta name="description" content="Sobre Luca F. Chala, fotografia de formaturas, casamentos, ensaios e eventos">
   <link rel="canonical" href="https://fotos.lucafchala.com/sobre">
   <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
   <!-- <script type="text/javascript">
@@ -23,10 +22,15 @@ export function aboutHTML() {
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <meta property="og:type" content="profile">
-  <meta property="og:title" content="Sobre · Luca F. Chala">
-  <meta property="og:description" content="Fotografia de formaturas, casamentos, ensaios e eventos">
-  <meta property="og:url" content="https://fotos.lucafchala.com/sobre">
+  ${socialMetaHTML({
+    type: 'profile',
+    title: 'Sobre · Luca F. Chala',
+    description: 'Quem faz as fotos: formaturas, casamentos, ensaios e eventos, com o equipamento e o método por trás de cada projeto.',
+    url: 'https://fotos.lucafchala.com/sobre',
+  })}
+  <meta property="profile:first_name" content="Luca">
+  <meta property="profile:last_name" content="F. Chala">
+  <meta property="profile:username" content="lucafchala">
   ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>

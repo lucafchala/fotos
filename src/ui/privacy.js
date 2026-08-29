@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 
 export function privacyHTML() {
   return `<!DOCTYPE html>
@@ -10,8 +10,13 @@ export function privacyHTML() {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Política de Privacidade · fotos</title>
-  <meta name="description" content="Como os dados pessoais são tratados em fotos.lucafchala.com">
   <link rel="canonical" href="https://fotos.lucafchala.com/privacidade">
+  ${socialMetaHTML({
+    type: 'article',
+    title: 'Política de Privacidade · fotos',
+    description: 'Quais dados pessoais são tratados em fotos.lucafchala.com, por quanto tempo, com quem são compartilhados e como pedir a remoção de uma foto.',
+    url: 'https://fotos.lucafchala.com/privacidade',
+  })}
   <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
   <!-- <script type="text/javascript">
     (function(c,l,a,r,i,t,y){

@@ -814,6 +814,130 @@ export function photoPreconnectHTML() {
   return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
 }
 
+// ---------------------------------------------------------------------------
+// Cartão de pré-visualização do link (WhatsApp, Telegram, Instagram, Discord…)
+// ---------------------------------------------------------------------------
+// É por WhatsApp que um link de evento se espalha, e o que o destinatário vê
+// antes de tocar é este cartão — não a página. Um bloco só, compartilhado por
+// todas as páginas públicas, porque o conjunto de tags só funciona junto: em
+// seis <head> separados eles divergiam (a página de projeto não tinha nem
+// `<meta name="description">`; nenhuma tinha `og:site_name` ou dimensão de
+// imagem).
+//
+// O que cada tag resolve, do ponto de vista do scraper:
+//
+//   og:image:width/height — decide entre o cartão GRANDE (foto no topo,
+//     ocupando a largura da bolha) e a miniatura quadradinha ao lado do texto.
+//     Sem as dimensões declaradas o WhatsApp precisa baixar a imagem para
+//     medir, e quando o download é lento ou falha ele cai na miniatura. Por
+//     isso `ogImageFor()` recorta em 1200×630 fixo: assim as dimensões são
+//     CONHECIDAS na hora de renderizar o HTML, não um chute.
+//   og:site_name/og:locale — a linha de origem do cartão e o idioma.
+//   twitter:* — Twitter/X e o Discord ignoram parte das og: e leem estas.
+//   name="description" — o mesmo texto serve ao resultado de busca; separar os
+//     dois só criava a chance de um envelhecer sem o outro.
+export const SITE_NAME = 'fotos · Luca F. Chala';
+
+// 1200×630 (proporção 1.91:1) é o formato que Facebook, WhatsApp, LinkedIn e
+// Telegram esperam do cartão grande. Também é o tamanho exato do PNG servido
+// em /og-coming-soon.png, então a mesma constante serve aos dois casos.
+export const OG_IMAGE_W = 1200;
+export const OG_IMAGE_H = 630;
+
+// Capa do evento no tamanho e no recorte do cartão. O `-c` do lh3 recorta em
+// vez de encaixar (o scraper recortaria de qualquer jeito, mas aí sem saber
+// as dimensões de antemão). URL que não é do lh3 volta intacta e sem
+// dimensões — servir uma medida chutada é pior que omitir.
+/**
+ * @param {string|null|undefined} url
+ * @returns {{ url: string, width: number, height: number }}
+ */
+export function ogImageFor(url) {
+  const safe = safeUrl(url);
+  if (!safe) return { url: '', width: 0, height: 0 };
+  const m = safe.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
+  return m
+    ? { url: `${m[1]}=w${OG_IMAGE_W}-h${OG_IMAGE_H}-c`, width: OG_IMAGE_W, height: OG_IMAGE_H }
+    : { url: safe, width: 0, height: 0 };
+}
+
+// Corta no espaço, não no meio da palavra — o cartão é lido de relance, e
+// "Formatura da turma de Engenh…" custa mais atenção que a frase inteira uma
+// palavra mais curta. Volta ao corte seco se a última palavra for longa
+// demais (senão uma URL colada na descrição comeria metade do limite).
+/**
+ * @param {unknown} str
+ * @param {number} max
+ */
+export function truncateText(str, max) {
+  const s = String(str ?? '').replace(/\s+/g, ' ').trim();
+  if (max <= 1 || s.length <= max) return s.slice(0, Math.max(max, 0));
+  const cut = s.slice(0, max - 1);
+  const sp = cut.lastIndexOf(' ');
+  const base = sp > max * 0.6 ? cut.slice(0, sp) : cut;
+  return `${base.replace(/[\s.,;:—-]+$/, '')}…`;
+}
+
+// Descrição do cartão: os FATOS primeiro, o texto livre depois. O WhatsApp
+// mostra cerca de duas linhas antes de cortar, então "15 de janeiro de 2026 ·
+// Em colaboração com o Colégio X" precisa vir antes da descrição do projeto —
+// invertido, o que sobra na tela é o começo de um parágrafo genérico.
+/**
+ * @param {(string|false|null|undefined)[]} facts
+ * @param {string} [text]
+ * @param {number} [max]
+ */
+export function previewDescription(facts, text = '', max = 200) {
+  const head = facts.filter(Boolean).map(f => String(f).trim()).filter(Boolean).join(' · ');
+  const rest = String(text || '').trim();
+  if (!head) return truncateText(rest, max);
+  // Menos de 40 caracteres sobrando não cabe frase — melhor a linha de fatos
+  // limpa que um " — Fotografias fei…" pendurado nela.
+  const room = max - head.length - 3;
+  if (!rest || room < 40) return truncateText(head, max);
+  return `${head} — ${truncateText(rest, room)}`;
+}
+
+// Bloco completo de meta tags do cartão. `image` sem `width`/`height` sai sem
+// as dimensões e o cartão vira `summary` (miniatura) — o scraper decide, e
+// prometer 1200×630 de uma imagem de tamanho desconhecido é pior que não
+// prometer nada.
+/**
+ * @param {{
+ *   title: string, description: string, url: string,
+ *   type?: string, image?: string, imageAlt?: string,
+ *   imageWidth?: number, imageHeight?: number,
+ * }} meta
+ */
+export function socialMetaHTML({
+  title, description, url, type = 'website',
+  image = '', imageAlt = '', imageWidth = 0, imageHeight = 0,
+}) {
+  const desc = truncateText(description, 300);
+  const big = !!image && imageWidth > 0 && imageHeight > 0;
+  const alt = imageAlt || title;
+  const imageTags = image
+    ? `
+  <meta property="og:image" content="${escape(image)}">
+  <meta property="og:image:secure_url" content="${escape(image)}">${big ? `
+  <meta property="og:image:width" content="${imageWidth}">
+  <meta property="og:image:height" content="${imageHeight}">` : ''}
+  <meta property="og:image:alt" content="${escape(alt)}">
+  <meta name="twitter:image" content="${escape(image)}">
+  <meta name="twitter:image:alt" content="${escape(alt)}">`
+    : '';
+  return `<meta name="description" content="${escape(desc)}">
+  <meta property="og:site_name" content="${escape(SITE_NAME)}">
+  <meta property="og:locale" content="pt_BR">
+  <meta property="og:type" content="${escape(type)}">
+  <meta property="og:title" content="${escape(title)}">
+  <meta property="og:description" content="${escape(desc)}">
+  <meta property="og:url" content="${escape(url)}">${imageTags}
+  <meta name="twitter:card" content="${big ? 'summary_large_image' : 'summary'}">
+  <meta name="twitter:title" content="${escape(title)}">
+  <meta name="twitter:description" content="${escape(desc)}">`;
+}
+
 /**
  * @param {unknown} slug
  */

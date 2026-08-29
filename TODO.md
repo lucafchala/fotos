@@ -299,9 +299,13 @@ browser.
   > então 28 projetos são um arredondamento contra 10 GB. Ressalva: o R2 em
   > geral pede cartão cadastrado mesmo para usar a franquia gratuita.
   >
-  > **Por que vale a pena agora:** o `og:image` de um projeto normal aponta hoje
+  > **Por que vale a pena agora:** o cartão de pré-visualização do link já vai
+  > completo — título, data, colaborador e `og:image` recortado em 1200×630 com
+  > as dimensões declaradas — mas o `og:image` de um projeto normal ainda aponta
   > para o `lh3.googleusercontent.com`, e o crawler do WhatsApp é irregular com
-  > imagem hospedada no Google. É por WhatsApp que um link de evento se espalha.
+  > imagem hospedada no Google. Quando ele não consegue buscar, o cartão aparece
+  > só com texto. É por WhatsApp que um link de evento se espalha, e essa é a
+  > última peça que falta.
 - [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
 - [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
       destaca em vermelho os atrasados.
