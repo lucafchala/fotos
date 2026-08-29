@@ -31,18 +31,29 @@ const kvDown = () => ({
 // Distingue as duas chamadas externas do fluxo: o siteverify do Turnstile e o
 // envio pela Resend. Um stub que devolvesse a mesma coisa para as duas faria o
 // teste passar por motivo errado.
+//
+// O host sai de `new URL().host`, e não de um `includes()`: é a mesma regra que
+// o gate "Host nunca é reconhecido por prefixo de string" cobra do `src/`, e
+// vale igual aqui — um dublê que roteia por substring casa com qualquer host
+// que apenas CONTENHA o nome (`api.resend.com.exemplo.com`), então deixaria de
+// pegar um envio para o destino errado, que é justamente o que ele existe para
+// afirmar.
+function resolveHost(url) {
+  return new URL(String(url)).host;
+}
+
 function fetchStub({ turnstile = true, resendOk = true } = {}) {
   return vi.fn(async url => {
-    const u = String(url);
-    if (u.includes('challenges.cloudflare.com')) {
+    const host = resolveHost(url);
+    if (host === 'challenges.cloudflare.com') {
       return new Response(JSON.stringify({ success: turnstile }), { status: 200 });
     }
-    if (u.includes('api.resend.com')) {
+    if (host === 'api.resend.com') {
       return resendOk
         ? new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 })
         : new Response('service unavailable', { status: 503 });
     }
-    throw new Error('fetch inesperado: ' + u);
+    throw new Error('fetch inesperado: ' + host);
   });
 }
 
@@ -124,7 +135,7 @@ describe('handleRemovalRequest', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, stored: false });
 
-    const enviados = globalThis.fetch.mock.calls.filter(([u]) => String(u).includes('api.resend.com'));
+    const enviados = globalThis.fetch.mock.calls.filter(([u]) => resolveHost(u) === 'api.resend.com');
     expect(enviados).toHaveLength(2); // aviso ao dono + confirmação ao titular
     expect(enviados[0][1].body).toContain('casamento-ana');
 
