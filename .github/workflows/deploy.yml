@@ -25,7 +25,11 @@ on:
 # devDependency em package.json — se divergir, a produção roda numa versão que
 # nenhum teste exercitou.
 env:
-  WRANGLER_VERSION: '4.114.0'
+  # Mantenha em sintonia com o devDependency `wrangler` do package.json — não só
+  # a major. Já divergiu no patch (4.114.0 aqui contra ^4.125.0 lá), que é
+  # exatamente a situação que este bloco diz evitar: a produção subindo por uma
+  # versão que nenhum teste desta suíte exercitou.
+  WRANGLER_VERSION: '4.125.0'
 
 # Menor privilégio: o deploy fala com a Cloudflare por API token próprio
 # (secret), não pelo token do GitHub — que aqui só precisa ler o código.

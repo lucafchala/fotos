@@ -130,12 +130,19 @@ Nesta ordem, e **nenhuma delas é pagar**:
       não enxergam nada ali** — é código de produção sem rede de proteção, e o
       próprio template de PR admite isso ao pedir verificação manual. O preço já
       foi cobrado mais de uma vez: um `const` usado antes da declaração morreu
-      em TDZ engolido por `try/catch`, e a CSP derrubou os handlers inline com a
-      suíte inteira verde. Some-se o risco de edição: **uma crase solta em
+      em TDZ engolido por `try/catch`, a CSP derrubou os handlers inline com a
+      suíte inteira verde, e o `toCSV()` do painel passou não se sabe quanto
+      tempo **sem a defesa contra injeção de fórmula** que o servidor tem desde
+      sempre — com o comentário ao lado afirmando "matches server", porque nada
+      podia contradizê-lo. Some-se o risco de edição: **uma crase solta em
       qualquer comentário ou string desses blocos encerra o template literal e
-      quebra o módulo**. Caminho provável: extrair para `.js` de verdade e
-      embutir no build, o que também devolve os handlers ao alcance da CSP
-      estrita (item acima).
+      quebra o módulo** (acontece; foi o `tsc` que pegou da última vez, não o
+      lint). Caminho provável: extrair para `.js` de verdade e embutir no build,
+      o que também devolve os handlers ao alcance da CSP estrita (item acima).
+      > Enquanto isso não acontece, o padrão que dá alguma rede é o de
+      > `tests/rendered-pages.test.js` e do teste de `toCSV`: **extrair o bloco
+      > do template e executá-lo**. Custa pouco e é a única coisa que hoje
+      > enxerga esse código.
 - [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
       sai da galeria, do sitemap e da auditoria, e vai com
       `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz
@@ -158,6 +165,24 @@ Nesta ordem, e **nenhuma delas é pagar**:
       > página não usa mais é conexão aberta à toa.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
+- [ ] **Auditar o resto dos pares cliente/servidor que reimplementam a mesma
+      regra.** A revisão que fechou a injeção de fórmula no export do navegador
+      e a precedência do cookie de sessão achou os dois pelo mesmo padrão: uma
+      regra escrita duas vezes, corrigida uma vez só. Os pares que ainda existem
+      e não foram auditados um a um:
+      `esc()`/`safeUrl()` de `dashboard.js` contra `escape()`/`toHttps()` de
+      `utils.js`; a validação de e-mail e telefone do `submitRemoval()` contra a
+      do `handleRemovalRequest()`; `byDate()` do painel contra `eventTime()`;
+      `convertDriveUrl()` do painel, que não tem par no servidor. O teste que
+      vale para esses é o de `toCSV` em `tests/security.test.js`: extrair a
+      função do template literal e afirmar que ela devolve o **mesmo** que a do
+      servidor para as mesmas entradas — não que ela "escapa".
+- [ ] **`perfBootScript()` emite `<script>` sem nonce quando o argumento vem
+      vazio.** Hoje os dois chamadores sempre passam o nonce da requisição, então
+      não acontece — e a invariante da CI (agora varrendo `src/` inteiro, não só
+      `src/ui/`) só olha o TEXTO da marcação, então não veria. O certo é a
+      função recusar renderizar sem nonce, em vez de emitir um bloco que a
+      política estrita vai bloquear no dia da virada.
 - [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
       (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
       ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
@@ -198,6 +223,20 @@ Nesta ordem, e **nenhuma delas é pagar**:
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente, e é
       justamente onde os bugs que a suíte não pega aparecem.
+- [ ] **Validar a forma do que sai do KV em TODA leitura, não só nos eventos.**
+      `getEvents()` passa por `parseEvents()` desde sempre; `getRemovalRequests()`
+      só ganhou o mesmo portão agora, e um valor corrompido derrubava o POST
+      público de remoção com ".filter is not a function". Restam sem validação
+      de forma: `categories` (tem filtro de tipo, mas nenhum teto de tamanho),
+      `admin_session:*` (o JSON.parse tem catch, mas o registro não é validado
+      campo a campo) e `cron:last`. Nenhum é caminho de visitante, por isso está
+      aqui e não em Segurança — mas a regra é a mesma: o que volta do KV pode
+      ter vindo de um restore.
+- [ ] **Fazer o `WRANGLER_VERSION` do deploy.yml derivar do package.json** em
+      vez de ser um segundo número escrito à mão. Já divergiu (4.114.0 contra
+      `^4.125.0`) e a divergência é invisível: o deploy passa, só roda numa
+      versão que nenhum teste exercitou. Um `node -p` lendo o package.json no
+      passo, ou um check na CI comparando os dois, resolve.
 
 ---
 
@@ -235,6 +274,32 @@ admin e deixar público apenas `{ ok, kv, latências, cron }`. O painel de statu
 já degrada sozinho quando os campos faltam. Não faça isso sem necessidade: o
 custo é perder o alarme.
 
+### Uma regra escrita duas vezes é corrigida uma vez só
+
+É a família de bugs mais cara desta base, e ela não aparece como bug: aparece
+como duas cópias que concordavam quando foram escritas. Três achados
+independentes, todos do mesmo formato:
+
+| a regra | corrigida em | esquecida em |
+| --- | --- | --- |
+| precedência do `__Host-session` | `verifySession()` | `handleLogout()`, `handleChangePassword()` |
+| guarda de injeção de fórmula em CSV | `csvCell()` (utils.js) | `toCSV()` do painel, que dizia "matches server" |
+| ordenação por `createdAt` | `trimRequests()` (tolerante) | listagem do painel e da API (lançava) |
+
+O caso do cookie é o mais instrutivo: a correção original foi documentada no
+SECURITY.md como concluída (*"logout already did"*), e **a documentação estava
+errada** — o logout limpava o cookie do browser, não revogava a sessão certa no
+KV. Ninguém mentiu; o autor leu "logout já apaga o cookie" e escreveu "logout já
+está certo".
+
+**Na prática, ao corrigir qualquer controle:** antes de escrever a correção,
+`grep` pelo padrão que está sendo corrigido e conte os chamadores. Se houver
+mais de um, a correção é **extrair o leitor/validador único** e apontar todos
+para ele — não editar o que estava na tela. E o teste que prende isso afirma a
+**concordância** entre as cópias (ver `toCSV` em `tests/security.test.js`, que
+extrai a função do template literal e compara com `csvCell()` valor a valor),
+nunca só o comportamento de uma delas.
+
 ### Comparar URL como texto é a família de bugs desta base
 
 Três achados independentes vieram daí — host aceito por prefixo
@@ -266,6 +331,30 @@ o remova.
 test ficou estruturalmente incapaz de passar por três deploys porque algo antes
 dele sempre falhava primeiro. Rodar o passo inteiro localmente contra o Worker
 de verdade, antes de subir, custa dois minutos.
+
+### Comparação com NaN nunca é a guarda que parece
+
+`parseInt('ab', 10)` é `NaN`, e `NaN` reprova as **duas** pontas de uma faixa:
+`NaN < 1` e `NaN > 12` são ambas falsas, então `if (m < 1 || m > 12) return`
+deixava a data malformada passar e `formatDatePT` publicava "NaN de undefined de
+2026" na página do projeto. Quem valida número vindo de texto usa
+`Number.isInteger()` (ou `Number.isFinite()`) **antes** da faixa — a faixa
+sozinha é um portão que parece fechado.
+
+O mesmo raciocínio já aparece em `toCount()` e em `Counter.#valido()`, que
+recusam `NaN` explicitamente; `formatDatePT` era o que faltava.
+
+### Corpo JSON válido não é corpo utilizável
+
+`request.json()` só **lança** quando o texto não é JSON. `null`, `42`, `"oi"` e
+`[]` atravessam o `catch` inteiros, e aí a primeira leitura de propriedade
+(`body.slug`) lança TypeError já dentro do handler — onde só o catch-all do
+`fetch()` pega, respondendo 500 **e** disparando o e-mail de alerta. Quatro
+bytes anônimos num POST viravam 500 e queimavam a janela de 15 min do alerta,
+escondendo a próxima falha de verdade.
+
+Todo handler passa por `readJsonBody()` (`src/index.js`), que devolve objeto ou
+`null`. **Não volte a chamar `request.json()` direto num handler novo.**
 
 ### Teste verde não é verificação
 
