@@ -265,8 +265,9 @@ open for up to 24 hours. It now records a degradation and emails.
 ### A support message that was never sent no longer shows a success screen
 
 `/suporte` is the site's contact channel, and unlike a removal request — which
-is stored in D1 — a support message exists **only inside the email**. There is
-no copy anywhere. So a refused send is not a delayed message, it is a lost one.
+is stored in KV and read back by the dashboard — a support message exists **only
+inside the email**. There is no copy anywhere. So a refused send is not a
+delayed message, it is a lost one.
 
 The handler used to return the success screen regardless of whether the send
 worked, which sent the visitor away believing their message had arrived. That
@@ -278,6 +279,40 @@ and the direct address to write to instead — and it records a degradation and
 emails the owner, because a contact form that is silently swallowing messages is
 exactly the kind of outage nobody reports, since the only people who can see it
 are the ones whose message vanished. Pinned by `tests/kv.test.js`.
+
+### A removal request is no longer lost when KV is down
+
+A removal request is a data subject exercising a right under the LGPD, with a
+statutory clock running. It used to be written to KV first, and every step after
+that — the admin notification, the confirmation to the requester — happened only
+if that write succeeded. A KV outage therefore propagated to the router's
+`catch` and returned the generic 500 page: the request vanished, nobody was
+notified, and the person was told nothing more than "something went wrong".
+
+The request is now recorded by **two independent channels**, and only the first
+depends on KV:
+
+1. **KV** (`removal_requests`) — what the dashboard lists.
+2. **Email** — the admin notification and the requester's confirmation, which is
+   what actually makes someone act inside the deadline.
+
+Persisting is best-effort, so the emails go out either way. The response tells
+the truth about which channels held:
+
+| KV | email | response |
+| --- | --- | --- |
+| ok | — | `200 {ok:true}` — unchanged |
+| down | sent | `200 {ok:true, stored:false}` — the request reached the owner and the requester has a confirmation; failing here would only make them retype everything |
+| down | not sent | `503` with the direct address to write to (`privacidade@lucafchala.com`) and a note that the deadline runs from that email |
+
+The `503` is the one case where the request genuinely exists nowhere, and it is
+the same trade the support form resolves the same way: **claiming to have the
+request is worse than admitting the failure.** Every degraded path calls
+`noteDegraded()`, so `/api/healthz` and the status panel show that a request is
+outstanding and *not* in the dashboard — an outage whose only witness would
+otherwise be the person whose request disappeared. Pinned by
+`tests/removal-request.test.js`, which asserts the failure modes against a KV
+that refuses both reads and writes.
 
 ### The event list survives KV being unavailable
 

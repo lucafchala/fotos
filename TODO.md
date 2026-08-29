@@ -474,11 +474,16 @@ campo, não despejam o objeto do evento. Nada a corrigir.
       de leitura (cópia na Cache API, ver
       [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)).
       Ainda respondem 500 numa queda total: o formulário de suporte (leitura da
-      chave de deduplicação), o de remoção (`removal_requests`) e o login do
-      painel (`admin_password`, `verifySession`). Ordem de prioridade correta —
-      entregar foto vem primeiro —, mas o formulário de remoção é canal de
-      direito do titular e merece pelo menos falhar com mensagem em vez de 500.
-      No login o certo é falhar **fechado**, nunca servir sessão de cópia.
+      chave de deduplicação) e o login do painel (`admin_password`,
+      `verifySession`). No login o certo é falhar **fechado**, nunca servir
+      sessão de cópia.
+      > O formulário de remoção saiu desta lista: o pedido não depende mais do
+      > KV para existir. Com o KV fora, ele segue pelo e-mail (a via que já
+      > avisava o dono e confirmava ao titular) e a resposta é `ok`; só quando
+      > nem o e-mail sai é que vem um 503 com o endereço para escrever direto,
+      > em vez da página 500 que fazia o pedido sumir sem registro. A queda vai
+      > para `noteDegraded`, então o painel de status acusa que há pedido fora
+      > do painel.
 - [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
       um SHA conhecido em vez de arqueologia no log. Procedimento no
       [README](./README.md#rollback); hoje o repo não tem nenhuma tag.
