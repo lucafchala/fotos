@@ -31,10 +31,9 @@ import {
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
 } from './config.js';
 
-// As classes de Durable Object têm de ser exportadas pelo MÓDULO DE ENTRADA: é
-// por aqui que o runtime as encontra a partir dos bindings do wrangler.toml.
-// Reexportar não é estilo, é requisito — sem esta linha o deploy sobe e os
-// bindings ficam apontando para classes que não existem.
+// Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
+// como o runtime as encontra a partir dos bindings do wrangler.toml. Sem esta
+// linha o deploy sobe com bindings apontando para classes inexistentes.
 export { Counter, RateLimiter } from './counters.js';
 
 /**
@@ -44,37 +43,26 @@ export { Counter, RateLimiter } from './counters.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
-const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — cobre o prazo prescricional de reparação civil; ajuste conforme orientação jurídica)
-// Teto para os campos de URL (photos, driveUrl, driveUrlInstagram, projectUrl).
-// Era 500 — curto demais: links reais do Google Drive/Fotos com resourcekey,
-// ou qualquer URL assinada (S3/GCS) com querystring de token, passam fácil de
-// 500 caracteres. Truncar no meio da URL não produzia erro nenhum: o
-// toHttps() via só que sobrou um "https://..." bem formado por fora e deixava
-// passar, então o link salvo apontava para lugar nenhum — a foto simplesmente
-// não carregava. 2000 cobre esses casos com folga (é o limite prático que
-// browsers/servidores já assumem para URLs) sem abrir a porta para blobs
-// arbitrários no KV.
+const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — prazo prescricional de reparação civil)
+// Teto para campos de URL (photos, driveUrl, driveUrlInstagram, projectUrl).
+// Era 500 — curto demais para link do Drive/Fotos com resourcekey ou URL
+// assinada (S3/GCS) com token na querystring; truncar no meio não dava erro,
+// só salvava um link que não carregava. 2000 cobre com folga.
 const MAX_URL_LENGTH = 2000;
 // Prefill text for the support form, keyed by the ?tema= query param — cosmetic
 // only, never trusted server-side beyond seeding the textarea's initial text.
 const TEMA_PREFILLS = {
   bug: 'Encontrei um problema na interface do site: ',
   sugestao: 'Tenho uma sugestão para o site: ',
-  // Caminho de remoção para quem chega pela Central de Transparência sem saber
-  // de qual projeto a foto é. O caminho principal continua sendo o botão no
-  // rodapé de cada evento, que já vem com o projeto identificado.
+  // Caminho alternativo para quem chega pela Central de Transparência sem
+  // saber de qual projeto é a foto (o principal é o botão no rodapé do evento).
   remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
 };
 
-// Contador de KV é string, então um valor corrompido ou ausente nunca pode
-// virar `NaN`: gravado de volta como "NaN", ele envenena a chave para sempre,
-// porque todo incremento seguinte relê "NaN". `toCount()` é o portão que
-// transforma qualquer lixo em 0.
-//
-// A implementação mora em utils.js (os contadores precisam dela e utils não
-// pode importar daqui em círculo). Reexportada para não quebrar quem já
-// importava daqui — inclusive os testes que prendem o contrato dos
-// valores-veneno.
+// KV guarda contador como string; `toCount()` é o portão que transforma lixo/
+// ausência em 0, para que um valor corrompido nunca vire "NaN" gravado de
+// volta (o que envenenaria a chave permanentemente). Implementação em
+// utils.js; reexportado aqui para não quebrar quem já importava daqui.
 export { toCount };
 
 // ---------------------------------------------------------------------------
@@ -83,60 +71,24 @@ export { toCount };
 // Um único segredo cobre o nonce de página do /api/drive-link e o token dos
 // formulários públicos; `purpose` no payload separa os usos.
 //
-// Sem o segredo configurado, os dois controles ficam DESLIGADOS em vez de
-// recusarem tudo. Essa escolha é deliberada e vai contra o "fail closed" que o
-// resto do arquivo segue, então merece justificativa: um segredo ausente é erro
-// de configuração de deploy, e fail-closed aqui significaria "ninguém baixa
-// foto nenhuma e nenhum formulário envia" — uma indisponibilidade total do site
-// causada por um controle *adicional*, colocado em cima de defesas que
-// continuam de pé (Turnstile fail-closed, rate limit, consentimento). O
-// contrapeso é não deixar isso silencioso: `auditSite()` acusa a falta, ela
-// aparece em /api/healthz e no painel de status até alguém rodar
+// Sem o segredo, os dois controles ficam DESLIGADOS em vez de recusar tudo —
+// foge do "fail closed" do resto do arquivo de propósito: um segredo ausente é
+// erro de deploy, e fail-closed aqui derrubaria o site inteiro por causa de um
+// controle extra, por cima de defesas que continuam de pé (Turnstile, rate
+// limit, consentimento). `auditSite()` acusa a falta em /api/healthz até
+// alguém rodar `npx wrangler secret put SIGNING_SECRET`.
 //
-//     npx wrangler secret put SIGNING_SECRET
-//
-// A troca do segredo invalida os tokens em voo (visitante recarrega a página, o
-// cliente já trata `nonce_expired` recarregando sozinho). É o comportamento
-// desejado numa rotação.
-//
-// Há também um piso de TAMANHO para a chave HMAC. Um segredo de 8 caracteres
-// não é um segredo: dá para varrer o espaço inteiro offline a partir de um
-// único token assinado, e aí o atacante forja nonce de Drive e token de
-// formulário à vontade — com o painel jurando que o controle está ligado. Ver
-// SIGNING_SECRET_MIN_LENGTH em src/config.js.
+// Piso de TAMANHO na chave: um segredo curto permite varrer o espaço offline a
+// partir de um único token assinado e forjar nonce/token à vontade com o
+// painel jurando que está protegido. Ver SIGNING_SECRET_MIN_LENGTH em config.js.
 
-// Fonte ÚNICA da verdade sobre o estado do segredo.
-//
-// Antes existiam duas decisões separadas: `signingSecret()` para usar a chave e
-// `!!env.SIGNING_SECRET` para relatar o estado no /api/healthz e no painel. Duas
-// checagens do mesmo fato divergem no dia em que uma muda — e a que diverge aqui
-// é a do relatório, ou seja, o painel passaria a dizer "protegido" sobre um
-// segredo que o código de assinatura recusa. Agora as duas leem daqui.
-//
-// O que é recusado, e por quê:
-//
-//  - **Vazio.** `wrangler secret put` aceita valor vazio sem reclamar, então
-//    "criei o secret" e "o secret existe" não são a mesma coisa. Um segredo
-//    criado vazio é indistinguível de nenhum segredo — e tem que ser tratado
-//    como nenhum, não como configurado.
-//  - **Só espaço em branco / quebra de linha.** É o resultado de colar valor no
-//    terminal. Seria truthy em JS e viraria uma chave HMAC de verdade, com o
-//    painel jurando que está tudo certo. É o pior dos três estados possíveis:
-//    o falso verde.
-//  - **Curto demais.** Ver acima.
-//
-// O valor é normalizado com trim() antes de virar chave, para que um newline
-// colado por acidente não produza uma chave diferente da que a pessoa acha que
-// configurou.
-// Cada estado tem uma mensagem PRÓPRIA, e isso não é preciosismo de texto.
-//
-// A primeira versão dizia "ausente ou vazio" para os dois casos, e isso custou
-// caro na prática: com o secret aparecendo na lista do painel e o site lendo
-// vazio, a mensagem não dizia se o binding não existia ou se existia com valor
-// em branco — que pedem ações opostas (criar vs. recriar com o valor certo).
-// Pior: o painel da Cloudflare **não mostra o valor de um secret**, então esta
-// mensagem é a única coisa no mundo capaz de distinguir os dois. Uma mensagem
-// de diagnóstico que junta dois estados é meio diagnóstico.
+// Fonte única da verdade sobre o estado do segredo — `signingSecret()` e o
+// relatório do /api/healthz/painel leem daqui, para não divergir.
+// `wrangler secret put` aceita valor vazio ou só espaço em branco sem
+// reclamar, então cada estado (ausente / vazio / só espaço / curto demais)
+// tem mensagem própria: "ausente" e "vazio" pedem ações opostas (criar vs.
+// recriar), e o painel da Cloudflare não mostra o valor de um secret — esta
+// mensagem é a única forma de distinguir os dois de fora.
 /**
  * @param {Partial<Env>} env
  */
@@ -167,16 +119,13 @@ export function signingSecretProblem(env) {
  * @param {Env} env
  */
 function signingSecret(env) {
-  // O `?? ''` é inalcançável: signingSecretProblem() já devolveu não-nulo se o
-  // segredo faltasse. Existe porque o tsc não carrega a prova de uma função
-  // para a outra, e uma asserção `!` esconderia a mesma coisa sem explicar.
+  // `?? ''` é inalcançável (signingSecretProblem já garantiu que o segredo
+  // existe); só está aqui porque tsc não enxerga essa prova entre as funções.
   return signingSecretProblem(env) ? null : (env.SIGNING_SECRET ?? '').trim();
 }
 
-// Janela do nonce de página do Drive. Generosa de propósito: o portão é o
-// último passo de uma leitura de Termos, e ninguém deve perder o acesso porque
-// leu com calma. O valor está em DRIVE_NONCE_TTL_SECS (src/config.js), com o
-// raciocínio das duas horas.
+// Janela generosa de propósito: é o último passo de uma leitura de Termos, e
+// ninguém deve perder acesso por ter lido com calma. Ver DRIVE_NONCE_TTL_SECS.
 /**
  * @param {Env} env
  * @param {string} slug
@@ -187,17 +136,11 @@ export async function mintDriveNonce(env, slug) {
   return signToken(secret, { purpose: 'drive', scope: slug, ttlSecs: DRIVE_NONCE_TTL_SECS });
 }
 
-// `preAged` emite um token que já nasce com a idade mínima cumprida.
-//
-// Serve para as re-renderizações de erro do formulário de suporte. Sem isso,
-// cada erro devolve um token novinho, e quem esqueceu de marcar a caixa de
-// consentimento — corrige e clica em dois segundos — leva "envio rápido demais"
-// por cima do erro anterior. O piso de idade existe para pegar automação no
-// primeiro envio, não para punir quem já está na segunda tentativa.
-//
-// Funciona porque verifyToken deriva o instante de emissão de `exp - ttlSecs`:
-// assinar com um TTL menor faz o token parecer mais velho do que é. O prazo
-// final encurta pelos mesmos 3 s, o que é irrelevante numa janela de 2 h.
+// `preAged` emite um token que já nasce com a idade mínima cumprida, para as
+// re-renderizações de erro do formulário: sem isso, corrigir e reenviar em
+// poucos segundos levava "envio rápido demais" em cima do erro anterior.
+// Funciona porque verifyToken deriva o instante de emissão de `exp - ttlSecs`
+// — assinar com TTL menor faz o token parecer mais velho do que é.
 /**
  * @param {Env} env
  * @param {string} form
@@ -213,22 +156,12 @@ export async function mintFormToken(env, form, { preAged = false } = {}) {
   });
 }
 
-// HEAD tem de responder exatamente como GET — mesmo status, mesmos cabeçalhos,
-// sem corpo (RFC 9110 §9.3.2). Todas as rotas abaixo casam com `method ===
-// 'GET'`, então um HEAD caía no 404: `GET /` devolvia 200 e `HEAD /` devolvia
-// 404 na mesma URL.
-//
-// Não é preciosismo de especificação. Monitor de uptime, verificador de link e
-// parte dos crawlers pedem HEAD justamente para não baixar o corpo; para todos
-// eles o site inteiro parecia fora do ar. Foi assim que o smoke test do deploy
-// falhou: ele lê os cabeçalhos com `curl -sI`, recebeu a resposta 404 — que não
-// leva nonce, porque não tem script inline — e reprovou a checagem de nonce.
-// O sintoma apontava para a CSP; a causa era o método.
-//
-// A implementação delega ao roteamento normal com um GET equivalente e descarta
-// o corpo. Custa a mesma leitura de KV que um GET, o que é correto: a promessa
-// do HEAD é que os cabeçalhos sejam os mesmos, e cabeçalho inventado sem passar
-// pelo handler mente sobre status e tipo.
+// HEAD deve responder exatamente como GET — mesmo status, mesmos cabeçalhos,
+// sem corpo (RFC 9110 §9.3.2). As rotas abaixo só casam `method === 'GET'`,
+// então sem isto todo HEAD caía em 404 (monitor de uptime, verificadores de
+// link e crawlers usam HEAD para não baixar o corpo). Delega ao roteamento
+// normal com um GET equivalente e descarta o corpo — mesmo custo de KV que um
+// GET, o que é correto: cabeçalho inventado sem passar pelo handler mentiria.
 /**
  * @param {Response} res
  */
@@ -236,14 +169,29 @@ function stripBody(res) {
   return new Response(null, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
-// Referência nomeada, e não `this.fetch`: `this` some se alguém desestruturar
-// o handler (`const { fetch } = worker`), e o HEAD voltaria a 404 de um jeito
-// que nenhum teste de rota pegaria.
+// Regexes de rota, hoisted para não recompilar um RegExp por requisição —
+// `fetch()` roda para todo request que chega no Worker.
+const LEGAL_DOC_PATH_RE = /^\/legal\/([a-z0-9-]+)$/;
+const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/;
+const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
+
+// Tira as barras finais com varredura linear, não com /\/+$/. A regex é
+// quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
+// teto do plano gratuito é 10 ms por requisição — daria para derrubar uma
+// invocação com uma URL comprida. CodeQL acusa como js/polynomial-redos.
+/** @param {string} pathname */
+function stripTrailingSlashes(pathname) {
+  let end = pathname.length;
+  while (end > 0 && pathname.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return pathname.slice(0, end);
+}
+
+// Referência nomeada, não `this.fetch`: `this` some se o handler for
+// desestruturado (`const { fetch } = worker`), e o HEAD voltaria a 404.
 const worker = {
-  // `interno` NÃO vem da rede: o Workers chama `fetch(request, env, ctx)` com
-  // três argumentos, então o quarto só existe quando somos nós mesmos chamando
-  // logo abaixo. É o que torna a flag inforjável — um cliente não consegue
-  // pedir para não ser contado, porque não existe cabeçalho para isso.
+  // `interno` não vem da rede — o Workers chama fetch(request, env, ctx) com
+  // três argumentos, então o quarto só existe nesta autochamada abaixo.
+  // Inforjável: não há cabeçalho pelo qual um cliente peça para não ser contado.
   /**
    * @param {Request} request
    * @param {Env} env
@@ -257,31 +205,24 @@ const worker = {
       return stripBody(await worker.fetch(asGet, env, ctx, { headOnly: true }));
     }
     const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, '') || '/';
+    const path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
 
-    // Heartbeat ao Kuma, em segundo plano e com trava de um minuto por
-    // isolate — ver pushToKuma(). Chamado de todas as rotas de propósito: o
-    // sinal é "este Worker está atendendo", e restringi-lo a uma rota faria o
-    // monitor depender de alguém visitar justamente aquela página.
+    // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker
+    // está atendendo", e restringir a uma rota faria o monitor depender de
+    // alguém visitar justamente aquela página. Trava de 1 min em pushToKuma().
     ctx.waitUntil(pushToKuma(env));
 
     try {
-      // --- CSRF: um único portão antes do roteamento ---------------------
-      // Colocado aqui, e não em cada handler, porque o modo de falha desse
-      // controle é o esquecimento: uma rota nova escrita daqui a um ano não
-      // pode depender de alguém lembrar de chamar o guard. Todo método que
-      // muda estado passa por este ponto, sem exceção declarada em lugar
-      // nenhum. Ver isCrossSiteRequest() para por que SameSite=Strict no
-      // cookie não bastava.
+      // CSRF: um único portão antes do roteamento, não um guard por handler —
+      // uma rota nova escrita daqui a um ano não pode depender de alguém
+      // lembrar de chamá-lo. Ver isCrossSiteRequest() para o raciocínio.
       if (method !== 'GET' && method !== 'HEAD' && isCrossSiteRequest(request)) {
         return jsonErr('Origem não permitida.', 403);
       }
 
-      // Nonce por requisição para os <script> inline. Gerado uma vez e usado
-      // tanto no cabeçalho CSP quanto na marcação, para que os dois não possam
-      // divergir (um nonce no HTML que não bate com o do cabeçalho é
-      // exatamente igual a não ter nonce nenhum).
+      // Um nonce por requisição, usado tanto no cabeçalho CSP quanto na
+      // marcação — se divergissem, seria o mesmo que não ter nonce nenhum.
       const nonce = generateNonce();
       // PWA assets
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
@@ -350,7 +291,7 @@ const worker = {
       // Cada documento de conformidade tem página própria. Nada aqui manda o
       // visitante para fora do site: ler a política que rege os próprios dados
       // não pode depender de abrir outro serviço.
-      const docMatch = path.match(/^\/legal\/([a-z0-9-]+)$/);
+      const docMatch = path.match(LEGAL_DOC_PATH_RE);
       if (docMatch && method === 'GET') {
         const doc = findDoc(docMatch[1]);
         return doc ? html(docHTML(doc), 200, nonce) : notFound();
@@ -371,11 +312,11 @@ const worker = {
 
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
-      const resolveMatch = path.match(/^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/);
+      const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
       if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
 
       // Event detail pages — must be last
-      const slugMatch = path.match(/^\/([a-z0-9][a-z0-9-]*)$/);
+      const slugMatch = path.match(SLUG_PATH_RE);
       if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
       return notFound();
@@ -459,11 +400,8 @@ async function handleSitemap(env) {
   for (const e of visible) {
     const lastmod = lastmodOf(e);
     urls.push(
-      // `lastmod` escapado como o slug: ele sai de `updatedAt`/`date`/
-      // `createdAt`, que um restore de backup mescla verbatim, e um `&` solto
-      // já basta para tornar o XML malformado — o que faz o Google descartar o
-      // sitemap INTEIRO, não a linha. Escapar os dois é a regra; ter escapado
-      // só um era o acidente.
+      // lastmod escapado como o slug: um `&` solto (via restore de backup)
+      // torna o XML malformado e o Google descarta o sitemap inteiro.
       `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`
     );
   }
@@ -558,46 +496,29 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
 
-  // Projeto marcado como "não visível" é NÃO LISTADO, não privado: sai da
-  // galeria, do sitemap e da auditoria, mas continua abrindo por link direto.
-  // Isso é intencional — é o que faz o link de prévia enviado a um cliente
-  // continuar funcionando —, só que a expectativa de quem clica em "Ocultar"
-  // pode ser outra. Enquanto a semântica não for decidida (registrado no
-  // TODO), no mínimo o projeto não pode ser indexado: sem isto, "oculto" some
-  // da galeria e reaparece no Google.
+  // "Não visível" é NÃO LISTADO, não privado: some da galeria/sitemap/
+  // auditoria mas segue abrindo por link direto (mantém prévias enviadas a
+  // clientes funcionando). Por isso ainda precisa de noindex abaixo.
   const unlisted = event.visible === false;
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
-  // Only count view once per hour per visitor (avoids KV read+write on repeat visits).
-  // KV read-modify-write is not atomic, so concurrent visits can undercount —
-  // these are soft analytics, not hard metrics.
+  // Cookie de 1h evita contar a mesma pessoa duas vezes (KV read-modify-write
+  // não é atômico, então isto é analytics aproximado, não métrica exata).
   const cookieName = `fv_${slug}`;
-  //
-  // HEAD não conta. O HEAD é resolvido reexecutando a rota como GET, então sem
-  // esta exceção todo HEAD sem cookie gastava uma ESCRITA em KV — e HEAD é o
-  // método que monitor de uptime e verificador de link usam. Um monitor de
-  // minuto em minuto são 1440 escritas/dia contra uma cota de 1000/dia no
-  // plano free: o contador de visitas sozinho derrubaria eventos, sessões e
-  // consentimento. E ainda inflaria a contagem pública com robô.
-  //
-  // O Set-Cookie também fica de fora: emitido numa resposta de HEAD, ele
-  // marcaria o visitante como "já contado" e o GET seguinte — o de verdade —
-  // não contaria. É uma divergência mínima entre os cabeçalhos de HEAD e GET,
-  // aceita de propósito, e é o único ponto em que os dois não são idênticos.
+  // HEAD não conta nem seta o cookie: HEAD reexecuta como GET, e monitores de
+  // uptime batem por minuto — sem esta exceção, cada um gastaria uma escrita
+  // de KV contra a cota diária de 1000, e o GET real seguinte não contaria
+  // (o visitante já apareceria como "já contado" pelo cookie de um HEAD).
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   if (!alreadyCounted && !headOnly) {
-    // Agregado, não gravado na hora: era UMA escrita por visitante, o que fazia
-    // o custo do site crescer junto com o público contra uma cota fixa. Agora
-    // os incrementos se somam na memória do isolate e viram uma escrita por
-    // janela — ver bumpCounter() em utils.js. O cookie de 1 h continua sendo o
-    // que evita contar a mesma pessoa duas vezes.
+    // Agregado em memória do isolate, não gravado na hora — vira uma escrita
+    // por janela em vez de uma por visitante. Ver bumpCounter() em utils.js.
     bumpCounter(env, ctx, `views:${slug}`);
   }
 
-  // Nonce de página: assinado agora, para este slug, e gasto no
-  // /api/drive-link. É o que amarra "pedi o link do Drive" a "carreguei esta
-  // página" — sem ele, um token Turnstile válido servia para varrer slugs.
+  // Nonce assinado para este slug, gasto no /api/drive-link — amarra "pedi o
+  // link" a "carreguei esta página", senão um token Turnstile varreria slugs.
   const [driveNonce, removalFormToken] = await Promise.all([
     mintDriveNonce(env, slug),
     mintFormToken(env, 'remocao'),
@@ -649,23 +570,16 @@ async function handleDashboardPage(request, env, url, nonce) {
 export async function handleLogin(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
-  // Dois limites em vez de um. O antigo (10 por 10 min) segura a rajada, mas
-  // deixa passar ~1400 tentativas por dia vindas do mesmo IP — folgado demais
-  // para uma senha só. O limite diário fecha essa conta sem atrapalhar quem
-  // erra a senha algumas vezes de manhã e volta à tarde.
-  // Em série, e com saída antecipada: `checkRateLimit` INCREMENTA quando
-  // deixa passar. Chamar os dois de uma vez fazia uma tentativa já barrada
-  // pelo limite de rajada consumir também o orçamento diário — 60 tentativas
-  // "gastas" dez vezes mais rápido do que o pretendido, e um IP compartilhado
-  // (NAT de escola, operadora móvel) trancava o dono do painel por 24 h com um
-  // minuto de tráfego.
+  // Dois limites: o de rajada (10/10min) sozinho deixa ~1400 tentativas/dia
+  // passarem, folgado demais para uma senha só; o diário fecha essa conta.
+  // Em série com saída antecipada, de propósito: checkRateLimit INCREMENTA
+  // quando deixa passar, então rodar os dois sempre gastaria o orçamento
+  // diário dez vezes mais rápido a cada rajada — um IP compartilhado (NAT
+  // de escola/operadora) trancaria o painel por 24h com um minuto de tráfego.
   const burstOk = await checkRateLimit(env, ip, 'login', 10, 600);
   if (!burstOk) {
-    // Sem noteFailedLogin aqui: ele faz leitura + escrita em KV, e a cota é de
-    // 1000 escritas/dia para a conta inteira. Contabilizar tentativa já barrada
-    // deixava mil POSTs não autenticados esgotarem a cota e derrubarem o que
-    // importa — salvar evento, abrir sessão, gravar consentimento. Quem foi
-    // barrado já está contido; não precisa custar escrita.
+    // Sem noteFailedLogin aqui (faz leitura+escrita em KV): tentativa já
+    // barrada não pode custar da cota de 1000 escritas/dia da conta inteira.
     return redirect('/dashboard?error=1');
   }
   if (!await checkRateLimit(env, ip, 'login-day', 60, 86400)) {
@@ -686,10 +600,8 @@ export async function handleLogin(request, env, ctx) {
   // No trust-on-first-use: with no stored credential and no ADMIN_PASSWORD
   // secret, login is impossible rather than claimable by the first visitor.
   //
-  // O hash roda mesmo sem credencial armazenada. Sem isso, um deploy sem
-  // ADMIN_PASSWORD responde na hora, enquanto um configurado leva ~50 ms de
-  // PBKDF2 — diferença medível de fora, que entrega se o painel tem dono. Não
-  // é o achado mais grave do mundo, mas o conserto custa uma linha.
+  // Hash roda mesmo sem credencial armazenada, para não vazar por timing se
+  // o painel tem dono (sem ADMIN_PASSWORD responderia na hora vs. ~50ms).
   const ok = stored
     ? await verifyPassword(password, stored)
     : (await hashPassword(password), false);
@@ -697,23 +609,17 @@ export async function handleLogin(request, env, ctx) {
     ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
     return redirect('/dashboard?error=1');
   }
-  // Migrate legacy SHA-256 hash to PBKDF2 on first successful login. Isolada:
-  // a migração é oportunista, e falhar nela não pode impedir um login com senha
-  // já conferida — na próxima vez ela tenta de novo.
+  // Migração oportunista do hash legado SHA-256 para PBKDF2: falhar aqui não
+  // pode impedir um login com senha já conferida — tenta de novo na próxima.
   if (stored && !stored.startsWith('pbkdf2:')) {
     await env.FOTOS.put('admin_password', await hashPassword(password))
       .catch(e => noteKvFailure('escrita', e, 'migração do hash da senha'));
   }
 
   const token = generateToken();
-  // Esta escrita é a única do fluxo que NÃO dá para contornar: sem sessão
-  // gravada não há login, e servir uma sessão "de mentira" seria pior do que
-  // recusar. Mas o 500 cru que ela produzia era o pior dos dois mundos — o dono
-  // via uma tela de erro genérica no meio de um incidente de KV, e o healthz
-  // continuava verde porque ninguém registrava a falha.
-  //
-  // Agora: registra (o healthz passa a acusar) e devolve o mesmo redirect de
-  // erro do resto do login, que a tela de login sabe exibir.
+  // Única escrita do fluxo que não dá para contornar: sem sessão gravada não
+  // há login. Reporta a falha (noteKvFailure alimenta o healthz) em vez de
+  // deixar um 500 cru sem ninguém saber por quê.
   try {
     await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
   } catch (e) {
@@ -726,12 +632,8 @@ export async function handleLogin(request, env, ctx) {
     Location: '/dashboard',
   });
   headers.append('Set-Cookie', sessionCookie(token));
-  // Mata o cookie legado no MESMO passo em que emite o novo. O logout já fazia
-  // isso; o login não, e essa assimetria era o bug: quem tinha `session=` de
-  // antes da migração recebia o `__Host-session` novo com o antigo ainda vivo
-  // ao lado, e ficava em loop de login enquanto o legado não expirasse.
-  // Reemitir com Max-Age=0 é a única forma de apagá-lo — não dá para "não
-  // enviar" um cookie que já está no browser.
+  // Mata o cookie legado `session=` junto com a emissão do novo — quem ainda
+  // o tivesse ficaria com os dois vivos lado a lado, em loop de login.
   headers.append('Set-Cookie', 'session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
 
   return new Response(null, { status: 302, headers });
@@ -757,12 +659,8 @@ async function noteFailedLogin(env, request, ip) {
   // justamente o alerta de força bruta. A contagem já está em `attempts`.
   await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
     .catch(e => noteKvFailure('escrita', e, 'login-fail counter'));
-  // `>=`, não `==`: o contador é KV, não atômico e de consistência eventual.
-  // Numa força bruta paralela — exatamente o caso que o alerta existe para
-  // pegar — duas requisições concorrentes leem o mesmo valor, e o contador
-  // pula de 4 para 6 sem nunca ser igual a 5. O alerta silenciava justamente
-  // no ataque mais sério. O flood continua contido pelo cooldown dentro de
-  // sendLoginAlert.
+  // `>=`, não `==`: o contador é KV, consistência eventual, então uma força
+  // bruta paralela pode pular de 4 direto para 6 sem nunca passar por 5.
   if (attempts >= LOGIN_ALERT_THRESHOLD) {
     await sendLoginAlert(env, {
       ip,
@@ -800,13 +698,9 @@ async function getAdminHash(env) {
 export async function handleLogout(request, env, ctx) {
   const cookies = request.headers.get('Cookie') || '';
   const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
-  // Este delete não é limpeza, é a revogação. O cookie sai do browser logo
-  // abaixo de qualquer forma, então quem clicou em "sair" vê a tela de login e
-  // acredita ter saído — enquanto o token continua aceito pelo servidor até o
-  // TTL de 24 h. Delete gasta cota de escrita do KV, então o dia de tráfego
-  // grande é justamente o dia em que sair do painel pode parar de revogar.
-  // Falhar aqui não pode interromper o logout (deixar o admin logado no browser
-  // é pior), mas também não pode ser um `console.error` que ninguém lê.
+  // Este delete é a revogação, não limpeza: o cookie some do browser de
+  // qualquer forma, mas sem isto o token continuaria aceito até o TTL de 24h.
+  // Falha não pode interromper o logout, mas precisa ficar visível (noteDegraded).
   if (match) {
     await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => {
       noteDegraded(
@@ -1167,10 +1061,9 @@ async function handleMetrics(request, env) {
 
   const events = await getEvents(env, true);
 
-  // UMA leitura em lote, e não duas por projeto. Chamada de Durable Object é
-  // subrequisição, e o plano gratuito permite 50 por invocação: com 28
-  // projetos, o laço antigo pedia 57 e a aba inteira morria com "Erro ao
-  // carregar métricas". Ver o comentário no topo de src/counters.js.
+  // Uma leitura em lote, não duas por projeto: chamada de Durable Object é
+  // subrequisição (limite de 50/invocação no plano free), e 28 projetos já
+  // estourava esse teto no laço antigo. Ver src/counters.js.
   const chaves = events.flatMap(e => [`views:${e.slug}`, `drive_clicks:${e.slug}`]);
   const contagens = await readCounters(env, chaves);
 
@@ -1193,71 +1086,42 @@ async function handleMetrics(request, env) {
  * @param {ExecutionContext} ctx
  */
 export async function handleTrackDrive(request, env, ctx) {
-  // Ordem importa por causa da cota: `checkRateLimit` GRAVA em KV, e a cota é
-  // de 1000 escritas/dia para a conta inteira. Com o rate limit na frente, todo
-  // POST de lixo neste endpoint — que é público, aceita corpo qualquer e passa
-  // pelo portão de CSRF quando o cliente não manda cabeçalho de browser
-  // (decisão deliberada, ver isCrossSiteRequest) — custava uma escrita sem
-  // nunca contar nada: 60 por IP por hora, de graça, contra a mesma cota de que
-  // dependem evento, sessão e consentimento. É a mesma conta que já tinha sido
-  // feita no handleLogin, e a mesma resposta: o que é grátis vem primeiro.
-  //
-  // Agora nada aqui grava antes de saber que existe um clique real para contar:
-  // corpo, formato do slug e existência do evento são de graça (o getEvents tem
-  // cache de isolate e leitura tem cota 100× maior). O rate limit continua
-  // valendo para quem passa por tudo isso, que é o único caso capaz de gastar.
+  // Ordem importa por causa da cota: checkRateLimit GRAVA em KV (1000/dia,
+  // conta inteira), e este endpoint é público e aceita corpo qualquer. Corpo,
+  // slug e existência do evento são checados de graça primeiro (leitura tem
+  // cota 100x maior) — só quem passa por tudo isso chega ao rate limit.
   let body;
   try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
 
-  // `comingSoon` entra aqui pelo mesmo motivo que entra no portão do Drive: um
-  // projeto anunciado antes das fotos é o mais divulgado do site e o mais fácil
-  // de achar, e a página dele nem desenha o botão do Drive — então clique
-  // nenhum pode vir dela. O que chegasse aqui seria POST direto, gastando duas
-  // escritas e inflando a métrica de um projeto que não entregou foto nenhuma.
+  // `comingSoon` não desenha o botão do Drive, então clique nenhum vem de lá
+  // legitimamente — um POST direto só inflaria a métrica.
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event || event.comingSoon) return jsonOk({ ok: true });
 
-  // O rate limit continua aqui, e a tentativa de tirá-lo foi um erro que vale
-  // registrar: o raciocínio era "a agregação virou o limite, um flood não gera
-  // escrita a mais". Não fecha. A agregação grava uma vez por JANELA, e a
-  // janela é de 10 s — um flood sustentado são 6 escritas/min, 360/hora,
-  // ~8600/dia numa cota de 1000/dia. Ela reduz o custo por requisição, não o
-  // custo por hora, e é justamente o custo por hora que um atacante controla.
-  // Sem limite por IP, o endpoint público vira a maneira mais barata de
-  // esvaziar a cota que este PR inteiro existe para proteger — e ainda deixa
-  // `drive_clicks` forjável por curl, já que o portão de CSRF passa quem não
-  // manda cabeçalho de browser.
-  //
-  // O que MUDOU e continua valendo: ele agora roda depois das checagens de
-  // graça, então POST de lixo custa zero escrita. O ganho era esse; o limite
-  // nunca foi o problema.
+  // Rate limit continua necessário mesmo com a agregação: ela grava uma vez
+  // por janela de 10s, não uma vez por hora — um flood sustentado ainda são
+  // ~8600 escritas/dia sem este limite, contra a cota de 1000/dia.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
 
-  // O ctx vem do roteador: sem ele, o flush que acabou de ESVAZIAR o mapa podia
-  // ser descartado junto com a requisição, e o lote sumia sem nunca ser tentado
-  // de novo.
+  // ctx vem do roteador — sem ele, o flush do mapa recém-esvaziado podia ser
+  // descartado junto com a requisição.
   const work = bumpCounter(env, ctx, `drive_clicks:${slug}`);
   if (work && !(ctx && typeof ctx.waitUntil === 'function')) await work;
   return jsonOk({ ok: true });
 }
 
-// Recebe o beacon de performance real dos visitantes (um por visita, amostrado
-// a 10% no cliente — ver perfBootScript em utils.js).
+// Beacon de performance real dos visitantes (um por visita, amostrado a 10%
+// no cliente — ver perfBootScript em utils.js).
 //
-// Deliberadamente NÃO escreve em KV. A cota gratuita é de 1000 escritas/dia e é
-// compartilhada com a status page; gastá-la para guardar telemetria deixaria o
-// site sem escritas para o que importa (eventos, sessões, consentimento). O
-// destino é log estruturado, que o Cloudflare já coleta de graça — visível em
-// `wrangler tail` e em Workers Logs — e, opcionalmente, um dataset do Analytics
-// Engine quando o binding PERF existir. Sem o binding, nada quebra.
-//
-// Sem rate limit por KV de propósito: checkRateLimit faz leitura+escrita em KV,
-// o que custaria mais do que o próprio beacon economiza. O que limita o volume
-// aqui é a amostragem no cliente, e o corpo é validado e truncado abaixo.
+// Não escreve em KV de propósito: a cota (1000/dia) é compartilhada com
+// eventos/sessões/consentimento. Vai para log estruturado (grátis, visível em
+// `wrangler tail`) e opcionalmente Analytics Engine se o binding PERF existir.
+// Sem rate limit por KV também de propósito — custaria mais do que o beacon
+// economiza; quem limita o volume é a amostragem no cliente.
 /**
  * @param {Request} request
  * @param {Env} env
@@ -1266,19 +1130,11 @@ export async function handlePerfBeacon(request, env) {
   // sendBeacon não espera resposta; 204 encerra sem corpo.
   const done = () => new Response(null, { status: 204 });
 
-  // Barato e sem estado, ao contrário de um rate limit por KV: se o browser
-  // mandou um Origin (sendBeacon manda, em POST), ele tem que bater com o host
-  // que serviu a página. Corta outro site despejando beacons forjados no
-  // dataset a partir de visitantes reais.
-  //
-  // Comparado contra o host do próprio request, não contra SITE_URL: o mesmo
-  // Worker atende o domínio de produção, a rota workers.dev (usada pelos smoke
-  // tests do deploy) e o localhost do `wrangler dev` — fixar o domínio
-  // descartaria silenciosamente os beacons dos outros dois.
-  //
-  // Origin ausente passa de propósito: nem todo cliente manda o header, e
-  // barrar por ausência quebraria beacons legítimos sem barrar um atacante
-  // (curl simplesmente omite o header).
+  // Checagem de Origin barata e sem estado (em vez de rate limit por KV):
+  // corta outro site despejando beacons forjados no dataset. Comparado contra
+  // o host do próprio request, não SITE_URL fixo, para não quebrar
+  // workers.dev nem `wrangler dev`. Origin ausente passa — nem todo cliente
+  // manda o header, e barrar por ausência não pararia um atacante (curl omite).
   const origin = request.headers.get('Origin');
   if (origin) {
     let sameOrigin;
@@ -1337,11 +1193,9 @@ export async function handlePerfBeacon(request, env) {
 export async function handleSupportRequest(request, env, nonce, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
-  // Toda resposta de erro precisa de um token novo, senão o visitante corrige o
-  // que errou e esbarra num token já gasto/expirado na segunda tentativa.
-  // `ok` distingue a tela de sucesso da re-renderização com erro. No caso de
-  // erro o token sai pré-envelhecido, para que corrigir e reenviar depressa não
-  // esbarre no piso de idade — ver mintFormToken().
+  // Toda resposta de erro precisa de um token novo (senão a correção esbarra
+  // num token já gasto), pré-envelhecido para não bater no piso de idade
+  // quando o visitante corrige e reenvia rápido — ver mintFormToken().
   /**
    * @param {boolean} ok
    * @param {string} [error]
@@ -1425,22 +1279,17 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
     return page(false, 'E-mail inválido.', values, 400);
   }
 
-  // Supressão de repetição. O Turnstile barra robô, não a pessoa que aperta
-  // enviar cinco vezes com a mesma mensagem — e o resultado disso é a mesma
-  // mensagem cinco vezes na caixa de entrada. A chave é o hash da mensagem por
-  // IP; a resposta é a tela de sucesso, porque para quem enviou o pedido de
-  // fato chegou (da primeira vez).
+  // Supressão de repetição: o Turnstile barra robô, não a pessoa que aperta
+  // enviar 5x com a mesma mensagem. Chave é hash da mensagem por IP; resposta
+  // é a tela de sucesso, pois o pedido já chegou da primeira vez.
   const dupKey = `support-dup:${ip}:${await shortHash(message)}`;
   if (await env.FOTOS.get(dupKey)) return page(true);
 
-  // A marca de "já recebi esta mensagem" só é gravada DEPOIS de o envio dar
-  // certo. Gravá-la antes cria um jeito silencioso de perder mensagem: se o
-  // Resend falhar, o visitante vê a tela de sucesso, reenvia o mesmo texto, o
-  // dedupe engole o reenvio, e a mensagem nunca chega a lugar nenhum. Assim,
-  // uma falha de envio deixa o reenvio funcionar.
+  // Marca de dedupe só é gravada DEPOIS do envio dar certo — senão uma falha
+  // do Resend faria o dedupe engolir o reenvio de uma mensagem nunca entregue.
   let sent = false;
-  // O que foi LANÇADO, não uma mensagem: segue para `noteDegraded` e para
-  // `sendErrorAlert`, que querem o erro inteiro. `catch` entrega `unknown`.
+  // O que foi LANÇADO, não uma mensagem: `catch` entrega `unknown`, e
+  // noteDegraded/sendErrorAlert abaixo querem o erro inteiro.
   /** @type {unknown} */
   let falha = null;
   try {
@@ -1451,14 +1300,9 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
 
   if (!sent) {
-    // A mensagem só existe no e-mail: diferente do pedido de remoção, que fica
-    // gravado, aqui não há cópia nenhuma. Um envio que falhou é uma mensagem
-    // perdida — e a tela de sucesso fazia o visitante ir embora achando que
-    // tinha chegado. É a mesma escolha que `getEvents()` já faz ao propagar em
-    // vez de devolver lista vazia: mentir sobre ter o dado é pior que admitir
-    // a falha. Os valores voltam preenchidos, então reenviar não custa
-    // redigitar, e a mensagem dá o endereço direto para quem não quiser tentar
-    // de novo.
+    // Diferente do pedido de remoção, a mensagem de suporte não fica gravada
+    // em lugar nenhum — um envio que falha é uma mensagem perdida de vez, daí
+    // não mentir com a tela de sucesso.
     noteDegraded(
       'mensagem de suporte não enviada',
       'o Resend recusou o envio; o formulário de /suporte não está entregando mensagem nenhuma',
@@ -1502,32 +1346,24 @@ export async function handleChangePassword(request, env, ctx) {
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
 
   const { password } = body;
-  // A regra antiga era "6 caracteres", o que aceita "123456". O painel dá
-  // acesso ao log de consentimento e aos pedidos de remoção — e-mail e telefone
-  // de titulares —, então a credencial precisa aguentar um ataque offline se o
-  // hash algum dia vazar. Ver validatePassword() para o raciocínio de cada
-  // regra (e por que uma frase longa dispensa a exigência de símbolos).
+  // O painel dá acesso a dados pessoais (consentimento, pedidos de remoção
+  // com e-mail/telefone), então a credencial precisa aguentar ataque offline
+  // se o hash vazar. Ver validatePassword() para o raciocínio de cada regra.
   const check = validatePassword(password);
   if (!check.ok) return jsonErr(check.error, 400);
 
   const hash = await hashPassword(password);
   await env.FOTOS.put('admin_password', hash);
 
-  // Changing the password is the standard reaction to "I think someone got in".
-  // Without this sweep the stolen cookie stayed valid for up to 24 h, so the
-  // change gave a false sense of having locked the intruder out. Every other
-  // session is revoked; the caller's own session is kept so the admin isn't
-  // bounced to the login screen mid-action. Best-effort: a KV hiccup here must
-  // not fail the password change that already succeeded above.
+  // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
+  // cookie roubado continuaria válido por até 24h. A sessão de quem está
+  // trocando é preservada; o resto é revogado. Best-effort: falha aqui não
+  // desfaz a troca de senha, que já valeu.
   try {
     const cookies = request.headers.get('Cookie') || '';
     const currentToken = (cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/) || [])[1];
-    // `list()` PAGINA: devolve no máximo 1000 chaves e sinaliza o resto em
-    // `list_complete`/`cursor`. Uma varredura de uma página só é uma varredura
-    // que se cala justamente quando há mais sessões do que o normal — que é o
-    // cenário em que alguém troca a senha achando que está expulsando um
-    // intruso. Poucas sessões cabem numa página no uso normal; o laço existe
-    // para o caso anormal, que é o único que importa aqui.
+    // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
+    // sessões que o normal, que é justamente quando isto importa de verdade.
     let cursor;
     do {
       /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
@@ -1540,13 +1376,10 @@ export async function handleChangePassword(request, env, ctx) {
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
   } catch (e) {
-    // Trocar a senha é o que se faz quando se desconfia que ela vazou, e a
-    // varredura é o que expulsa quem já estava dentro. Se ela falha, a senha
-    // nova passa a valer e as sessões antigas continuam abrindo o painel por
-    // até 24 h — com o admin vendo "ok" e acreditando ter fechado a porta.
-    // O Promise.all acima também rejeita no primeiro delete que falhar, então
-    // a varredura pode ter sido parcial. Não desfaz a troca de senha (ela deu
-    // certo), mas não pode ficar só num console.error.
+    // Se a varredura falha, sessões antigas continuam abrindo o painel por
+    // até 24h enquanto o admin acha que fechou a porta — precisa aparecer,
+    // não só um console.error. (Promise.all acima rejeita no 1º delete que
+    // falhar, então a varredura pode ter sido parcial.)
     noteDegraded(
       'troca de senha não encerrou as outras sessões',
       'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
@@ -1583,11 +1416,7 @@ async function handleRemovalRequest(request, env) {
   // idade (3 s) derruba automação que preenche e envia instantaneamente.
   const formSecret = signingSecret(env);
   if (formSecret) {
-    // `form_token`, com underline: é o nome que o cliente envia (ver
-    // src/ui/event.js). Escrito como `formToken` aqui, a verificação lia
-    // sempre string vazia e TODO pedido de remoção levava 403 — o canal que a
-    // LGPD exige, morto em silêncio, e só depois de o SIGNING_SECRET ser
-    // configurado. Há teste cobrindo o envio completo agora.
+    // `form_token` (com underline) é o nome que o cliente envia (src/ui/event.js).
     const t = await verifyToken(formSecret, String(body.form_token || ''), {
       purpose: 'form',
       scope: 'remocao',
@@ -1608,18 +1437,9 @@ async function handleRemovalRequest(request, env) {
 
   const { eventSlug, method, value, email, phone, message, fileName, fileBase64 } = body;
   if (!eventSlug || !method) return jsonErr('Dados incompletos.', 400);
-  // `eventSlug` era o único campo do corpo que entrava sem forma nem teto.
-  // Todos os outros levam `.slice()`, e este ia cru para dentro do registro
-  // gravado em `removal_requests` — e para `eventTitle`, quando o slug não
-  // casa com projeto nenhum. Um corpo com um slug de megabytes era, então,
-  // uma forma de inflar um valor de KV (teto de 25 MB) até a escrita passar a
-  // falhar e derrubar a LISTA INTEIRA de pedidos, não só o excedente — o mesmo
-  // modo de falha que `trimRequests` existe para evitar do outro lado.
-  //
-  // `validateSlug` em vez de um `.slice()`: o campo é um slug, tem gramática
-  // conhecida, e o resto do código já a exige em toda rota que aceita slug
-  // (/api/drive-link, /api/track-drive). Aceitar aqui o que aquelas recusam
-  // seria a inconsistência de sempre.
+  // `validateSlug`, não `.slice()`: sem teto, um eventSlug de megabytes ia cru
+  // para o registro gravado em `removal_requests` e podia inflar o valor de
+  // KV (teto 25MB) até a escrita falhar e derrubar a lista inteira.
   if (!validateSlug(eventSlug)) return jsonErr('Projeto inválido.', 400);
   if (!['number', 'url', 'upload'].includes(method)) return jsonErr('Método inválido.', 400);
   if (method !== 'upload' && (!value || !String(value).trim())) return jsonErr('Identificação obrigatória.', 400);
@@ -1635,36 +1455,21 @@ async function handleRemovalRequest(request, env) {
     }
   }
 
-  // Metadados fora antes de a foto virar anexo de e-mail. Quem manda uma foto
-  // pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi
-  // tirada — e nós não precisamos delas para atender ao pedido.
-  //
-  // O PORTÃO É A PRÓPRIA CAPACIDADE DE LIMPAR, e não uma segunda lista de
-  // formatos. `isLikelyImage()` aceita HEIC, AVIF e GIF; `stripImageMetadata()`
-  // só sabe limpar JPEG, PNG e WebP. As duas listas divergiam em silêncio, e o
-  // resultado era o pior possível: a foto de quem pede remoção saía por e-mail
-  // com o GPS intacto, enquanto a política de privacidade publicada afirmava,
-  // sem ressalva, que os metadados são apagados. HEIC é o padrão do iPhone,
-  // então esse era o caminho comum, não o exótico.
-  //
-  // Manter duas listas em sintonia é uma promessa que se quebra sozinha. Aqui
-  // não há lista: se `stripped` voltar falso, por qualquer motivo, a foto não
-  // vai. Suportar HEIC no futuro passa a ser só ensinar stripImageMetadata —
-  // este portão abre junto, sem ninguém lembrar de nada.
+  // Metadados fora antes de virar anexo de e-mail (GPS de onde a foto foi
+  // tirada, que não precisamos para atender ao pedido). O portão é a própria
+  // capacidade de limpar, não uma segunda lista de formatos aceitos:
+  // `isLikelyImage()` aceita HEIC/AVIF/GIF mas `stripImageMetadata()` só sabe
+  // limpar JPEG/PNG/WebP — se `stripped` voltar falso por qualquer motivo, a
+  // foto simplesmente não vai, em vez de manter duas listas sincronizadas.
   /** @type {Record<string, any>|null} */
   let photoMeta = null;
   let cleanFileBase64 = fileBase64;
   if (method === 'upload' && fileBase64) {
     const stripped = stripImageMetadata(fileBase64);
     if (!stripped.stripped) {
-      // Duas causas com conselhos OPOSTOS, e mandar o conselho errado é pior
-      // que não dar conselho:
-      //
-      //  - Formato que não sabemos limpar (HEIC, AVIF, GIF) → converter resolve.
-      //  - Formato que sabemos limpar mas cujo arquivo saiu fora do padrão →
-      //    "converta para JPEG" é absurdo para quem acabou de mandar um JPEG.
-      //    Os parsers aqui abortam ao primeiro byte fora de lugar, de
-      //    propósito: preferimos recusar a devolver uma imagem corrompida.
+      // Duas causas, conselhos opostos: formato que não sabemos limpar
+      // (converter resolve) vs. formato suportado mas arquivo fora do padrão
+      // (o parser aborta ao primeiro byte errado em vez de arriscar corromper).
       const sabemosLimpar = ['jpeg', 'png', 'webp'].includes(stripped.format);
       return jsonErr(
         sabemosLimpar
@@ -1721,18 +1526,10 @@ async function handleRemovalRequest(request, env) {
   const requests = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
     ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
     : true);
-  // Hold a reference to the new record: the MAX_REQUESTS trim below reorders the
-  // array, so we can't rely on it staying last. The trim always keeps it (it's
-  // unresolved), and writing email statuses onto this reference persists because
-  // the same object is still inside `requests` when re-serialized.
-  // O binário nunca é gravado em KV — só viaja no e-mail. `photoMeta` guarda o
-  // resultado da limpeza para que, ao revisar o pedido, dê para saber se a foto
-  // chegou sem metadado ou se o formato não permitiu tratar.
-  // `emailStatus`/`confirmEmailStatus` são preenchidos DEPOIS, pelos dois
-  // envios abaixo, e ficam gravados no registro para o painel mostrar por que
-  // um pedido não gerou aviso. Declarados aqui porque a forma inferida do
-  // literal não os inclui — e sem isso a checagem de tipos não enxerga campos
-  // que o painel lê.
+  // Keep a reference to the new record: trimRequests() below reorders the
+  // array, so writing emailStatus onto this reference (not an index) is what
+  // makes it persist regardless of where it ends up. Binário nunca vai para
+  // KV — só viaja no e-mail; `photoMeta` guarda se a limpeza funcionou.
   /** @type {Record<string, any> & { emailStatus?: string, confirmEmailStatus?: string|null }} */
   const newReq = { ...req, fileBase64: null, photoMeta };
   requests.push(newReq);
@@ -1742,16 +1539,16 @@ async function handleRemovalRequest(request, env) {
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
-  // Send notification to admin.
-  //
-  // O pedido já está gravado acima, então nada se perde — mas o AVISO é o que
-  // faz alguém agir dentro do prazo, e um pedido de remoção é exercício de
-  // direito do titular, com relógio correndo. Falhar aqui deixava o pedido
-  // parado no painel esperando que o dono resolvesse abrir a tela por conta
-  // própria. Vai para o registro de degradações, que o healthz publica e o
-  // painel de status transforma em alerta.
-  try {
-    const sent = await sendRemovalEmail(env, req);
+  // O pedido já está gravado acima; o AVISO é o que faz alguém agir dentro do
+  // prazo legal. Falha vai para noteDegraded (healthz/painel de status).
+  // Os dois envios não dependem um do outro — em paralelo em vez de em série.
+  const [adminMail, confirmMail] = await Promise.allSettled([
+    sendRemovalEmail(env, req),
+    sendConfirmationEmail(env, req),
+  ]);
+
+  if (adminMail.status === 'fulfilled') {
+    const sent = adminMail.value;
     newReq.emailStatus = sent ? 'sent' : 'skipped: RESEND_API_KEY não configurada';
     if (!sent) {
       noteDegraded(
@@ -1759,27 +1556,20 @@ async function handleRemovalRequest(request, env) {
         'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
       );
     }
-  } catch (err) {
-    // O detalhe do erro fica AQUI — no próprio pedido, que só o painel lê — e
-    // não no aviso. A mensagem vem do corpo cru da resposta da Resend, e o
-    // e-mail carregava nome, e-mail, telefone e mensagem de um titular
-    // exercendo direito sobre os próprios dados. Repetir isso no log
-    // compartilhado não acrescenta nada que o painel já não mostre, e espalha
-    // dado pessoal por um lugar a mais.
-    newReq.emailStatus = 'error: ' + errMessage(err).slice(0, 200);
+  } else {
+    // Detalhe do erro fica só no registro (que o painel lê), não no log
+    // compartilhado — a mensagem da Resend pode carregar dado pessoal do
+    // titular (nome, e-mail, telefone).
+    newReq.emailStatus = 'error: ' + errMessage(adminMail.reason).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
       'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
     );
   }
 
-  // Send confirmation to requester
-  try {
-    const sent = await sendConfirmationEmail(env, req);
-    newReq.confirmEmailStatus = sent ? 'sent' : null;
-  } catch (err) {
-    newReq.confirmEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
-  }
+  newReq.confirmEmailStatus = confirmMail.status === 'fulfilled'
+    ? (confirmMail.value ? 'sent' : null)
+    : 'error: ' + errMessage(confirmMail.reason).slice(0, 200);
 
   await env.FOTOS.put('removal_requests', JSON.stringify(requests));
 
@@ -1797,20 +1587,11 @@ async function handleRemovalRequest(request, env) {
 export function trimRequests(requests, max) {
   if (requests.length <= max) return requests;
 
-  // `max` é TETO, não sugestão.
-  //
-  // A versão anterior preservava TODOS os não-resolvidos e só aparava os
-  // resolvidos, então o teto não valia quando os não-resolvidos sozinhos já o
-  // ultrapassavam. No fluxo normal isso quase nunca acontece — os pedidos
-  // chegam devagar e o admin resolve. Mas `handleRestoreBackup` mescla um
-  // arquivo arbitrário, e `sanitizeRestoredRequest` marca todo registro
-  // restaurado como `resolved: false`: um backup grande passava inteiro,
-  // estourava o limite de 25 MB por valor do KV, e a escrita falhava DEPOIS
-  // de eventos e categorias já terem sido gravados — restore pela metade.
-  //
-  // Prioridade continua sendo dos não-resolvidos (são pedidos de titular em
-  // aberto, prazo legal correndo). O que muda é que, se nem eles couberem, os
-  // mais antigos também caem, em vez de o teto ser ignorado.
+  // `max` é teto de verdade, não só para os resolvidos: um restore de backup
+  // grande (sanitizeRestoredRequest marca tudo como `resolved: false`) podia
+  // estourar o limite de 25MB do valor de KV mesmo com só não-resolvidos.
+  // Prioridade continua sendo dos não-resolvidos; se nem eles couberem, os
+  // mais antigos caem também.
   /** @param {Record<string, any>} a @param {Record<string, any>} b */
   const maisNovoPrimeiro = (a, b) => String(b.createdAt).localeCompare(String(a.createdAt));
   const unresolved = requests.filter(r => !r.resolved).sort(maisNovoPrimeiro);
@@ -1901,33 +1682,17 @@ const CRON_STALE_MS = 26 * 60 * 60 * 1000; // 26h — one daily run + 2h propaga
 // ---------------------------------------------------------------------------
 // Heartbeat de push para o Uptime Kuma
 // ---------------------------------------------------------------------------
-// A URL vem de SEGREDO, não do código. Ela embute o token do monitor
-// (`/api/push/<token>`), que é a credencial inteira: quem o tem publica
-// batimento em nome deste site e pode manter um monitor verde sobre um serviço
-// caído. Este repositório é público — está linkado como "Código-fonte" no
-// rodapé de toda página —, então um token literal aqui é um segredo publicado.
+// URL vem de SEGREDO (`npx wrangler secret put KUMA_PUSH_URL`): ela embute o
+// token do monitor, e este repo é público. Ausente, o heartbeat simplesmente
+// não acontece — telemetria de terceiro não pode derrubar o site. Quem usava
+// o valor antigo precisa ROTACIONAR o token, não só mover para cá (ele esteve
+// legível no histórico do git).
 //
-//     npx wrangler secret put KUMA_PUSH_URL
-//
-// Ausente, o heartbeat simplesmente não acontece: é telemetria de terceiro, não
-// pode ser motivo para o site deixar de servir foto. Quem já usava o valor
-// antigo precisa ROTACIONAR o token no Kuma, não só movê-lo para cá — ele
-// esteve legível no histórico do git.
-//
-// ---------------------------------------------------------------------------
-// Por que há uma trava de tempo, e não um push por requisição
-// ---------------------------------------------------------------------------
-// Isto era chamado sem trava a cada requisição, o que custava UMA SUBREQUISIÇÃO
-// DE SAÍDA por visita — o plano gratuito dá 50 por invocação, e o resto do
-// projeto conta cada uma (ver o comentário no topo de src/counters.js, que
-// existe por causa de um incidente com esse mesmo teto). Um monitor de
-// disponibilidade não fica mais correto sendo avisado mil vezes por minuto: o
-// que ele precisa é de um batimento dentro do intervalo configurado.
-//
-// A trava é estado de MÓDULO, então vale por isolate e não custa
-// armazenamento. Vários isolates podem bater dentro da mesma janela — o que é
-// inofensivo (o Kuma só quer saber que chegou algo) e continua sendo ordens de
-// grandeza menos do que um push por requisição.
+// Trava de tempo em vez de push por requisição: cada push é uma subrequisição
+// de saída (teto de 50/invocação no plano free — ver src/counters.js), e um
+// monitor de disponibilidade não fica mais correto avisado mil vezes por
+// minuto. Trava é estado de módulo (por isolate); múltiplos isolates batendo
+// na mesma janela é inofensivo.
 const KUMA_MIN_INTERVAL_MS = 60_000;
 let _kumaLastPush = 0;
 
@@ -1949,11 +1714,8 @@ async function pushToKuma(env, { force = false } = {}) {
     const res = await fetch(`${url}?status=up&msg=OK`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) console.error(`Kuma push failed: ${res.status}`);
   } catch (e) {
-    // Sem `noteDegraded`: o Kuma é um observador externo, e a
-    // indisponibilidade DELE não é uma degradação DESTE site. Colocá-la no
-    // registro faria o /api/healthz e o painel de status acusarem problema em
-    // fotos por causa do homelab — exatamente o falso positivo que o painel
-    // existe para não dar.
+    // Sem noteDegraded: indisponibilidade do Kuma (observador externo) não é
+    // degradação deste site, e reportá-la geraria falso positivo no painel.
     console.error('Kuma push error:', errMessage(e));
   }
 }
@@ -1973,13 +1735,10 @@ export function cronStale(lastIso, now = Date.now()) {
   return now - t > CRON_STALE_MS;
 }
 
-// Pure + unit-tested functional self-test, run over the already-loaded events
-// array (ZERO extra KV reads) plus env booleans. This is what lets the status
-// dashboard flag things that "went wrong" — a bad edit, a broken/missing Google
-// Drive link on a live event, or a form whose backend dependency is unset — as
-// opposed to only catching a hard 500. It reports *what* is wrong, names the
-// offending slug, and nominates one healthy event as a `sample` the dashboard
-// can deep-probe (its Drive gate + removal form).
+// Functional self-test over the already-loaded events array (zero extra KV
+// reads) plus env booleans — catches things a hard 500 wouldn't (broken Drive
+// link, unset form backend). Nominates one healthy event as `sample` for the
+// dashboard to deep-probe.
 const MAX_SELFTEST_PROBLEMS = 12;
 /**
  * @param {Evento[]} events
@@ -2031,25 +1790,15 @@ export function auditSite(events, env = {}, degradacoes = []) {
   if (!forms.turnstile)  problems.push('Turnstile ausente — suporte/remoção/Drive recusam todos os envios');
   if (!forms.resend)     problems.push('Resend ausente — suporte/remoção não disparam e-mail');
   if (!forms.adminEmail) problems.push('ADMIN_EMAIL ausente — suporte/remoção sem destinatário');
-  // Este não quebra nada — por isso precisa aparecer. Sem SIGNING_SECRET o
-  // nonce de página do Drive e o token dos formulários ficam desligados em
-  // silêncio, e o site segue funcionando como se estivesse protegido. A
-  // mensagem diz QUAL é o defeito, porque "ausente" e "criado vazio" levam a
-  // ações diferentes — no segundo caso a pessoa jura que já resolveu.
+  // Sem SIGNING_SECRET o site segue no ar como se estivesse protegido, então
+  // precisa aparecer aqui. Mensagem cita o defeito exato (signingSecretProblem)
+  // porque "ausente" e "criado vazio" pedem ações diferentes.
   if (!forms.signing) {
     problems.push(`SIGNING_SECRET ${signingSecretProblem(env)} — nonce do Drive e token dos formulários DESLIGADOS`);
   }
 
-  // Mesma lógica do SIGNING_SECRET acima: nada disto derruba o site, e é
-  // exatamente por isso que precisa aparecer. Um site no ar não é prova de que
-  // está tudo bem quando ele foi desenhado para continuar servindo enquanto as
-  // peças cedem. Cada entrada some sozinha 30 min depois da última ocorrência.
-  //
-  // Toda degradação registrada entra aqui, sem lista fixa. É o ponto do desenho:
-  // quem acrescentar uma degradação nova em qualquer lugar do código chama
-  // `noteDegraded()` e ela aparece no painel sozinha — ninguém precisa lembrar
-  // de vir editar esta função. Antes eram dois `if` escritos à mão, e o terceiro
-  // caso (consentimento) teria sido esquecido exatamente por isso.
+  // Degradações entram sem lista fixa: qualquer chamada a noteDegraded() em
+  // qualquer parte do código aparece aqui sozinha, sem editar esta função.
   for (const d of (Array.isArray(degradacoes) ? degradacoes : [])) {
     problems.push(`${d.label} (há ${d.agoSecs}s)${d.detail ? ` — ${d.detail}` : ''}`);
   }
@@ -2071,33 +1820,20 @@ export function auditSite(events, env = {}, degradacoes = []) {
  * @param {Env} env
  */
 export async function handleHealthz(request, env) {
-  // No KV rate-limit here on purpose. This endpoint is polled by the status
-  // monitor on a schedule, and checkRateLimit() does a KV *write* per call — a
-  // scarce, account-wide resource (free tier: 1k writes/day, shared with the
-  // rest of the app). The work healthz does is bounded (two KV reads + one
-  // PBKDF2 hash) and sits behind Cloudflare's edge/DDoS protection, so the
-  // per-call write cost wasn't worth the 10/min cap it bought.
-  // --- Core: KV is the binding the whole app depends on, and a read failure
-  // here (or a corrupt `events` value) is the ONLY condition that flips ok:false
-  // — mirroring the pre-existing 500-on-throw the deploy smoke test relies on
-  // (`"ok":true`), while reporting *which* subsystem broke.
+  // Sem rate-limit por KV de propósito: este endpoint é sondado pelo monitor
+  // de status em intervalo fixo, e checkRateLimit() gasta escrita (cota
+  // compartilhada de 1000/dia) que o trabalho limitado desta rota não justifica.
   //
-  // KV-frugal by design: one read of `events` proves both that the binding
-  // responds AND that the main store is a valid array — so we dropped the old
-  // throwaway `__healthz__` probe and spend that second read on the cron
-  // heartbeat below. Net: still two KV reads per healthz, same as before this
-  // diagnostics expansion.
+  // KV é o binding do qual tudo depende; falha de leitura aqui é a única
+  // condição que vira ok:false.
   let kv = false;
   /** @type {number|null} */
   let events = null;
   /** @type {any[]} */
   let eventsList = [];
   const kvT0 = Date.now();
-  // `fresh: true` aqui não é só para furar o cache: é o que faz esta leitura
-  // NUNCA cair para a cópia de sobrevivência. Ou seja, `kv` reflete o KV de
-  // verdade — se ele estiver fora, isto lança e `kv` fica false, como deve ser.
-  // A saúde do binding é medida pela própria leitura, não inferida de estado
-  // compartilhado com outras requisições.
+  // `fresh: true`: nunca cai para a cópia de sobrevivência, então `kv` reflete
+  // o estado real do binding, não estado compartilhado com outras requisições.
   try {
     eventsList = await getEvents(env, true);
     kv = true;
@@ -2107,8 +1843,8 @@ export async function handleHealthz(request, env) {
   }
   const kvLatencyMs = Date.now() - kvT0;
 
-  // --- D1 consent log (optional/best-effort): a missing or unscoped binding
-  // must never fail the deploy (see deploy.yml), so it's reported but never ok. ---
+  // D1 é opcional/best-effort: ausente ou fora do ar nunca falha o deploy,
+  // só é reportado.
   let d1 = 'absent';
   /** @type {number|null} */
   let d1LatencyMs = null;
@@ -2123,60 +1859,35 @@ export async function handleHealthz(request, env) {
     d1LatencyMs = Date.now() - t0;
   }
 
-  // --- PBKDF2 — canário do orçamento de CPU do login. ---
-  //
-  // O hash roda; o tempo dele NÃO é publicado, porque não dá para medi-lo aqui.
-  // O Workers congela `Date.now()` durante execução síncrona (mitigação de
-  // ataque de temporização): o relógio só anda depois de I/O. Um PBKDF2 de 100k
-  // iterações é CPU pura, sem I/O no meio, então `Date.now()` antes e depois
-  // devolve o MESMO valor e a conta dava `hashMs: 0` — sempre, em produção,
-  // desde que foi escrita. Confirmado no log do último deploy: `hashMs: 0` ao
-  // lado de `kvLatencyMs: 6` e `d1LatencyMs: 84`, que passam por I/O e por isso
-  // são reais.
-  //
-  // Zero não é um hash rápido, é um número que não existe — e ele alimentava
-  // três portões incapazes de reprovar: o `HASH_MS -gt 200` do deploy.yml, o
-  // `hashMs > HASH_BUDGET_MS` do painel de status, e a linha "hash 0ms" que o
-  // painel exibia como se fosse desempenho excelente. É a armadilha do
-  // RETOMADA §5.7 de novo, no portão que deveria vigiar justamente a CPU.
-  //
-  // O que de fato protege continua de pé, e é o sinal real: se o hash não
-  // couber no orçamento de CPU, o Workers mata a requisição e esta rota
-  // responde 5xx. O smoke test cobre isso (healthz `ok:true` + login 302, não
-  // 5xx) e o painel de status também (`h.status >= 500` → down). Medir CPU de
-  // dentro do isolate não é possível; de fora, quem conta é o 5xx.
+  // PBKDF2 roda como canário do orçamento de CPU do login, mas o tempo NÃO é
+  // publicado: Workers congela Date.now() durante execução síncrona (mitigação
+  // de ataque de temporização), e um hash de 100k iterações é CPU pura sem
+  // I/O no meio — então antes/depois sempre mediria 0ms, um número inventado.
+  // O sinal real é indireto: se o hash estourasse o orçamento de CPU, o
+  // Workers mataria a requisição e esta rota responderia 5xx (coberto pelo
+  // smoke test e pelo painel de status).
   await hashPassword('healthcheck');
 
-  // --- Cron heartbeat (best-effort, one KV read): detects a silently dead daily
-  // schedule. This is the second of the two KV reads; the throwaway `__healthz__`
-  // probe used to be the second read, so the diagnostics gained a real signal at
-  // no extra KV cost. ---
+  // Heartbeat do cron: segunda leitura de KV, detecta agenda diária morta em
+  // silêncio.
   const cron = await env.FOTOS.get('cron:last').then(last => ({
     lastRunAt: last || null,
     ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
     stale: cronStale(last),
   })).catch(() => null);
 
-  // --- Functional self-test over the already-loaded events array (ZERO extra KV
-  // reads): broken/missing Drive links on live events, bad data, and form
-  // backends that are unset. This is what surfaces "something went wrong" on the
-  // status dashboard, not just hard 500s. ---
+  // Self-test funcional sobre o array de eventos já carregado (zero leitura
+  // extra de KV): links de Drive quebrados, dados inválidos, backend de
+  // formulário não configurado.
   const selftest = auditSite(eventsList, env, degradedHealth());
 
-  // --- The rest of the extended surface is derived from already-loaded data and
-  // env bindings — ZERO additional KV reads. `config` exposes only booleans
-  // (which hardening secrets are present), never their values. Backlog/category
-  // counts were intentionally dropped here: they cost a KV read each and signal
-  // no *failure*, and the status dashboard already covers an unconfigured admin
-  // via the /dashboard 503 probe. ---
+  // Resto do payload vem de dados já carregados + bindings de env — zero
+  // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
   const ok = kv && events !== null;
   return jsonOk({
-    // Stable contract (smoke test + existing dashboard parsing): keep these names.
-    // `hashMs` saiu daqui de propósito — ver o comentário do PBKDF2 acima. Os
-    // dois consumidores testam `typeof === 'number'` antes de usar, então a
-    // ausência some sozinha em vez de virar "NaN" na tela.
+    // Contrato estável (smoke test + painel já fazem parsing destes nomes).
+    // `hashMs` fica de fora de propósito — ver o comentário do PBKDF2 acima.
     ok, kv, events, d1,
-    // Extended surface (no extra KV reads).
     kvLatencyMs,
     d1LatencyMs,
     cron,
@@ -2186,7 +1897,6 @@ export async function handleHealthz(request, env) {
       turnstile: !!env.TURNSTILE_SECRET_KEY,
       consentDb: !!env.CONSENT_DB,
       adminEmail: !!env.ADMIN_EMAIL,
-      // Idem: a mesma pergunta tem uma resposta só no arquivo inteiro.
       signing: signingSecretProblem(env) === null,
     },
     termsVersion: TERMS_VERSION,
@@ -2199,23 +1909,13 @@ export async function handleHealthz(request, env) {
 // ---------------------------------------------------------------------------
 // Coletor de violações de CSP
 // ---------------------------------------------------------------------------
-// Recebe os relatórios da política Report-Only (a estrita, sem 'unsafe-inline').
-// Serve a dois propósitos, nesta ordem:
-//
-//  1. Medir a migração. Cada handler inline que sobrou vira um relatório com
-//     arquivo e linha. Quando parar de chegar relatório de `script-src-attr`, a
-//     política estrita pode virar a enforced sem adivinhação.
-//  2. Detectar tentativa de XSS. Um relatório apontando para um script externo
-//     que ninguém colocou ali é sinal de injeção — e chega antes de alguém
-//     reclamar.
-//
-// Vai para log estruturado, não para KV. Mesma razão do /api/perf: a cota de
-// escrita do KV é de 1000/dia e é compartilhada com eventos, sessões e
-// consentimento; um endpoint que qualquer browser pode acionar não pode
-// encostar nela. O log o Cloudflare já coleta de graça.
-//
-// Amostragem no servidor porque este endpoint não é chamado por nós: um browser
-// hostil pode despejar relatórios à vontade, e o corpo vem de fora.
+// Recebe relatórios da política Report-Only (a estrita, sem 'unsafe-inline').
+// Serve para medir a migração (handler inline que sobrou vira relatório com
+// arquivo/linha) e para detectar tentativa de XSS (script externo que
+// ninguém colocou ali). Vai para log estruturado, não KV (mesma razão do
+// /api/perf: cota de escrita compartilhada, e este endpoint é acionável por
+// qualquer browser). Amostragem no servidor porque o corpo vem de fora —
+// um browser hostil pode despejar relatórios à vontade.
 const CSP_REPORT_SAMPLE_RATE = 0.2;
 const CSP_REPORT_MAX_BYTES = 8192;
 
@@ -2304,18 +2004,13 @@ const CONSENT_COLS = [
   'user_agent', 'accept_language', 'referrer', 'page_url',
 ];
 
-// Public: the only place the real Drive URLs reach the client. Absorbs what
-// /api/consent used to do — Turnstile tokens are single-use, so a second
-// endpoint re-verifying the same token would fail; this is the one place
-// that spends it, and where the image-use consent audit row is written.
+// Public: the only place the real Drive URLs reach the client, and where the
+// image-use consent audit row is written. Turnstile tokens are single-use,
+// so this is the one place that spends it.
 //
-// turnstileToken === 'noscript' is the path for when Turnstile itself is
-// blocked client-side (ad-blocker) — weaker (no captcha), but still a real
-// POST per event, rate-limited on its own (tighter) key and audited with
-// turnstile_ok=0, instead of today's unconditional leak in the page HTML.
-// Exported for the unit suite: this is the one endpoint that hands out the
-// Drive URLs, so its refusals (bad Turnstile, missing consent, coming-soon
-// event) are the security contract worth pinning against regression.
+// turnstileToken === 'noscript' handles Turnstile blocked client-side
+// (ad-blocker): weaker (no captcha) but still rate-limited on its own
+// tighter key and audited with turnstile_ok=0.
 /**
  * @param {Request} request
  * @param {Env} env
@@ -2341,16 +2036,11 @@ export async function handleDriveLink(request, env, ctx) {
   if (!event) return jsonErr('Projeto não encontrado.', 404);
   if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
-  // Nonce de página. O buraco que ele fecha: o Turnstile prova que existe um
-  // browser do outro lado, mas o token dele não diz PARA QUAL página foi
-  // emitido — então um script com um token válido na mão podia pedir o link de
-  // vários slugs seguidos, dentro do rate limit, sem nunca abrir uma página.
-  // O nonce é assinado no render de /<slug> e só vale para aquele slug.
-  //
-  // 'expired' ganha código próprio (410) porque tem conserto do lado do
-  // cliente: uma aba aberta desde ontem só precisa recarregar, e o JS da página
-  // faz isso sozinho. Um 403 genérico mandaria o visitante para a tela de erro
-  // sem motivo.
+  // Turnstile prova que existe um browser, mas não PARA QUAL slug o token foi
+  // emitido — sem o nonce (assinado no render de /<slug>) um script podia
+  // varrer vários slugs dentro do mesmo rate limit. 'expired' tem código
+  // próprio (410): o JS da página recarrega sozinho, em vez de mandar o
+  // visitante para uma tela de erro genérica.
   const secret = signingSecret(env);
   if (secret) {
     const nonceCheck = await verifyToken(secret, String(body.driveNonce || ''), {
@@ -2379,8 +2069,8 @@ export async function handleDriveLink(request, env, ctx) {
     return jsonErr('É necessário confirmar a declaração de acesso.', 400);
   }
 
-  // Audit — non-blocking, always using the server's canonical texts (never
-  // whatever the client sends — stricter than the old /api/consent).
+  // Audit — non-blocking, always using the server's canonical texts, never
+  // whatever the client sends.
   if (env.CONSENT_DB) {
     const cf = request.cf || {};
     const accessType = ACCESS_TYPES.includes(event.accessType) ? event.accessType : 'public';
@@ -2417,16 +2107,9 @@ export async function handleDriveLink(request, env, ctx) {
           asn, as_org, colo, user_agent, accept_language, referrer, page_url)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(...vals);
-    // Esta é a gravação mais importante do site, e era a mais silenciosa. Ela é
-    // best-effort de propósito — recusar as fotos porque o log falhou puniria o
-    // visitante por um problema nosso —, mas "best-effort" nunca deveria ter
-    // significado "e ninguém fica sabendo": o registro de consentimento é a peça
-    // de não-repúdio da conformidade LGPD. Perdê-lo em silêncio é o pior modo de
-    // falha do sistema inteiro, porque o site continua parecendo perfeito.
-    //
-    // Agora falha com barulho nos dois canais: e-mail para o dono (throttle
-    // global de 15 min dentro do sendErrorAlert, que nunca lança) e linha no
-    // /api/healthz, que o painel de status transforma em alerta.
+    // Best-effort de propósito (log falhando não pode barrar a foto), mas com
+    // barulho: o registro de consentimento é a peça de não-repúdio da LGPD,
+    // e perdê-lo em silêncio seria o pior modo de falha do sistema.
     ctx.waitUntil(stmt.run().catch(e => {
       noteDegraded(
         'registro de consentimento não gravou',
@@ -2483,13 +2166,9 @@ async function checkAuth(request, env) {
   return null;
 }
 
-// A política de cabeçalhos toda mora em security.js; estes helpers só escolhem
-// qual perfil se aplica. A separação existe para que uma rota nova só precise
-// decidir "isto é HTML público, HTML de painel ou dado?" — e não reescrever
-// uma lista de cabeçalhos que vai divergir da das outras.
-//
-// O `nonce` é opcional para que as páginas de erro (404/500), que não têm
-// script nenhum, continuem chamando html(conteúdo, status) sem cerimônia.
+// Política de cabeçalhos mora em security.js; estes helpers só escolhem o
+// perfil (HTML público, painel, ou dado). `nonce` é opcional para páginas de
+// erro (404/500), que não têm script.
 /**
  * @param {string} content
  * @param {number} [status]
@@ -2547,11 +2226,8 @@ function handleManifest() {
     name: 'fotos · Luca F. Chala',
     short_name: 'fotos',
     description: 'Galeria de fotos de Luca F. Chala',
-    // A galeria, não o painel. O manifesto é servido em TODA página pública e
-    // é o que o browser usa ao "instalar" o site: com `/dashboard` aqui, quem
-    // instalasse a partir da galeria abria o app na TELA DE LOGIN do admin —
-    // um beco sem saída para o visitante, e o painel anunciado como se fosse a
-    // porta da frente do site. `scope` já era '/', então nada mais muda.
+    // A galeria, não o painel: com `/dashboard` aqui, instalar o PWA a partir
+    // da galeria abriria o app direto na tela de login do admin.
     start_url: '/',
     scope: '/',
     display: 'standalone',
@@ -2605,13 +2281,10 @@ export function buildBackup({ events, categories, removalRequests }) {
   });
 }
 
-// A restored backup is the one path that writes events into KV without going
-// through normalizeEventFields(), so its contents used to land verbatim — a
-// hand-edited/corrupted file could inject `javascript:` into an href rendered
-// on the public page, or a non-object entry that throws on `e.visible` and
-// 500s the gallery. Sanitize the two things that actually bite (shape + URL
-// sinks) and pass everything else through untouched, so legitimate backups —
-// including fields this normalizer doesn't know about — restore unchanged.
+// Restore is the one path that writes events without going through
+// normalizeEventFields(), so a hand-edited backup could inject `javascript:`
+// into a public href or a non-object entry could 500 the gallery. Sanitize
+// only shape + URL sinks; pass everything else through untouched.
 const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
 
 /**
@@ -2625,23 +2298,17 @@ function sanitizeRestoredEvent(ev) {
   if (Array.isArray(out.photos)) {
     out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, MAX_URL_LENGTH))).filter(Boolean);
   }
-  // Os dois campos de ENUM. Todo caminho normal os valida
-  // (`normalizeEventFields` recusa o que não estiver na lista); o restore não
-  // passa por lá, então eram a porta por onde um valor arbitrário entrava — e
-  // os dois desembocam em atributo de HTML no painel (`class="st-…"`, e o
-  // rótulo do badge). O escape no sink já cobre a marcação; isto impede que o
-  // valor absurdo chegue a ser GRAVADO, que é o que faz a lista de status do
-  // painel continuar significando alguma coisa.
+  // Os dois campos de enum: normalizeEventFields() os valida no caminho
+  // normal, mas restore não passa por lá. Desembocam em atributo de HTML no
+  // painel (escapado no sink); isto impede o valor absurdo de ser GRAVADO.
   if (out.status !== undefined && !EVENT_STATUSES.includes(out.status)) out.status = DEFAULT_EVENT.status;
   if (out.accessType !== undefined && !ACCESS_TYPES.includes(out.accessType)) out.accessType = DEFAULT_EVENT.accessType;
   return out;
 }
 
-// Os pedidos de remoção do backup passavam verbatim para o KV. Eles são
-// renderizados no painel e exportados em CSV, então um arquivo adulterado podia
-// plantar campos de tipo inesperado (um objeto onde o template espera string) e
-// registros sem `id`, que colidem no Map de deduplicação. Só as chaves
-// conhecidas sobrevivem, cada uma com o tipo e o tamanho certos.
+// Pedidos de remoção restaurados são renderizados no painel e exportados em
+// CSV, então um backup adulterado podia plantar tipo inesperado ou registro
+// sem `id` (colide no Map de dedupe). Só chaves conhecidas sobrevivem.
 const RESTORE_REQUEST_STRINGS = {
   id: 64, eventSlug: 60, eventTitle: 200, method: 20, value: 500,
   email: 200, phone: 50, message: 1000, fileName: 200,
@@ -2724,23 +2391,10 @@ async function handleRestoreBackup(request, env) {
   try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
   if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
 
-  // `fresh: true` — read-modify-write, como criar/editar/apagar projeto.
-  //
-  // Isto lia do cache do isolate, e era a única escrita de eventos do painel
-  // que lia. As consequências são as duas que `getEvents()` documenta, e o
-  // restore é o pior lugar possível para as duas acontecerem:
-  //
-  //  1. Cache velho por até 30 s. O `saveEvents` abaixo grava a lista mesclada
-  //     POR CIMA da atual, então um projeto criado noutro isolate nos últimos
-  //     30 s era apagado pelo restore — sem erro, sem aviso.
-  //  2. Pior: sem `fresh`, uma falha de LEITURA do KV cai para a cópia de
-  //     sobrevivência em vez de propagar. O restore então mesclava sobre uma
-  //     cópia de até sete dias e gravava o resultado como se fosse o estado
-  //     atual — transformando uma indisponibilidade temporária de leitura numa
-  //     perda de dados permanente.
-  //
-  // `fresh` fecha os dois: lê o KV de verdade, e se ele estiver fora a
-  // exceção sobe e o restore falha em vez de gravar um estado inventado.
+  // `fresh: true` (read-modify-write, como criar/editar/apagar projeto): sem
+  // ele, restore podia mesclar sobre cache de até 30s (apagando um projeto
+  // criado noutro isolate) ou, pior, sobre a cópia de sobrevivência de até 7
+  // dias se o KV estivesse fora — e gravar isso como se fosse o estado atual.
   const current = await getEvents(env, true);
   const { events: merged, added, updated } = mergeRestore(current, body.events);
   await saveEvents(env, merged);

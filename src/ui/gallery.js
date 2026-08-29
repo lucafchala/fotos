@@ -9,29 +9,28 @@ const INITIAL = 12; // cards shown before "Carregar mais"
  * @param {string} [nonce]
  */
 export function galleryHTML(events, analyticsToken, nonce = '') {
-  // getEvents() already filters junk entries, but this is the public homepage:
-  // a single null/non-object here throws on `e.visible` and turns the whole
-  // gallery into a 500. Second guard so the page degrades (skips the bad row)
-  // no matter how the array was obtained.
+  // Second guard beyond getEvents(): a null/non-object entry here would throw
+  // on e.visible and 500 the whole homepage instead of just skipping it.
   const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
   const visible = sortEvents(safe.filter(e => e.visible !== false));
-  const pinned = visible.filter(e => e.pinned === true);
-  const rest = visible.filter(e => e.pinned !== true);
+  /** @type {import('../utils.js').Evento[]} */
+  const pinned = [];
+  /** @type {import('../utils.js').Evento[]} */
+  const rest = [];
+  for (const e of visible) (e.pinned === true ? pinned : rest).push(e);
 
   /** @param {import('../utils.js').Evento} e */
   const yearOf = e => e.date ? e.date.slice(0, 4) : String(new Date(eventTime(e)).getFullYear());
 
   /**
    * @param {import('../utils.js').Evento} e
-   * @param {{ hidden?: boolean, featured?: boolean, pinned?: boolean }} [opts]
+   * @param {{ hidden?: boolean, featured?: boolean, pinned?: boolean, year?: string }} [opts]
    */
-  const cardHTML = (e, { hidden = false, featured = false, pinned: isPinned = false } = {}) => {
+  const cardHTML = (e, { hidden = false, featured = false, pinned: isPinned = false, year = yearOf(e) } = {}) => {
     const width = featured ? 1600 : 600;
-    // safeUrl no SINK, como manda o contrato documentado em utils.js: escape()
-    // sozinho fecha o atributo mas não mata o esquema, e `thumbnailUrl` pode
-    // ter entrado no KV por um caminho que não passou por toHttps() (registro
-    // antigo, restore de backup mesclado verbatim). Composto com o escape() da
-    // interpolação abaixo, o par cobre os dois riscos.
+    // safeUrl além do escape(): escape() sozinho fecha o atributo mas não mata
+    // o esquema, e thumbnailUrl pode vir de um registro antigo que nunca
+    // passou por toHttps().
     const thumb = e.thumbnailUrl ? safeUrl(sizedDriveThumb(e.thumbnailUrl, width)) : '';
     const title = escape((e.title || '').toLowerCase());
     const catLower = escape((e.category || '').toLowerCase());
@@ -42,7 +41,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       hidden ? 'hidden' : '',
     ].filter(Boolean).join(' ');
     return `
-      <a href="/${escape(e.slug)}" class="${cls}"${(featured || isPinned) ? '' : ' data-card'} data-title="${title}" data-cat="${catLower}" data-year="${escape(yearOf(e))}">
+      <a href="/${escape(e.slug)}" class="${cls}"${(featured || isPinned) ? '' : ' data-card'} data-title="${title}" data-cat="${catLower}" data-year="${escape(year)}">
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
@@ -61,10 +60,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       </a>`;
   };
 
-  // Um único evento fixado mantém o card "super destaque" (largura cheia,
-  // foto grande). Com mais de um, nenhum leva o tratamento de herói — todos
-  // entram no grid uniforme normal, só que primeiro e com a etiqueta "Em
-  // destaque" — senão vários heroes empilhados dominariam a página inteira.
+  // Um único fixado leva o card "super destaque" (largura cheia). Com mais de
+  // um, nenhum vira hero — todos entram no grid normal, só que primeiro e com
+  // a etiqueta "Em destaque" (senão vários heroes empilhados dominam a página).
   const singlePinned = pinned.length === 1;
   const pinnedHTML = pinned.map(e => cardHTML(e, { featured: singlePinned, pinned: true })).join('');
 
@@ -80,7 +78,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       const headHidden = idx >= INITIAL;
       restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${escape(y)}</h2>`);
     }
-    restNodes.push(cardHTML(e, { hidden: idx >= INITIAL }));
+    restNodes.push(cardHTML(e, { hidden: idx >= INITIAL, year: y }));
     idx++;
   }
 
@@ -190,11 +188,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
-    /* Colapsa ao rolar pra baixo (reabre ao rolar pra cima ou perto do topo —
-       ver toggle no script) pra não comer a tela toda em telas pequenas.
-       max-height (não transform) porque precisa liberar o espaço de verdade,
-       não só sair da vista; overflow:hidden esconde o miolo durante a
-       transição sem precisar medir a altura real em JS. */
+    /* Colapsa ao rolar pra baixo (toggle no script) pra liberar espaço em
+       telas pequenas. max-height, não transform, porque precisa liberar o
+       espaço de verdade — overflow:hidden esconde o miolo na transição. */
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0;max-height:400px;overflow:hidden;transition:max-height .25s ease,padding .25s ease}
     .controls-wrap.controls-collapsed{max-height:0;padding-top:0;padding-bottom:0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
@@ -222,26 +218,22 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .card.hidden,.year-head.hidden{display:none}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
-    /* Toda thumb é a mesma caixa (proporção fixa), pra deixar a grade uniforme
-       em vez do masonry antigo. object-fit:contain nunca corta a foto — o
-       espaço que sobra vira barra na cor de fundo do card (--bg-card), que já
-       segue o tema claro/escuro sozinha. */
+    /* Caixa de proporção fixa (grade uniforme, não masonry). object-fit:contain
+       nunca corta a foto — o espaço sobrando vira barra na cor do card. */
     .thumb{overflow:hidden;background:var(--bg-card);position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
     .thumb.loading{background:linear-gradient(90deg,var(--shimmer-a) 0%,var(--shimmer-b) 50%,var(--shimmer-a) 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     .thumb.loading img{opacity:0}
     .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px);z-index:2}
-    /* Uma única regra de transition: declarar opacity e transform separadamente
-       fazia a segunda sobrescrever a primeira (mesma especificidade), e a foto
-       aparecia de estalo no lugar de surgir — o shimmer parecia travar. */
+    /* Uma única regra de transition: opacity e transform em regras separadas
+       faziam a segunda sobrescrever a primeira, e a foto aparecia de estalo. */
     .thumb img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .3s ease,transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
     .thumb-blur{width:100%;height:100%;object-fit:cover;filter:blur(8px);transform:scale(1.1);display:block}
     .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
-    /* O relógio sozinho não dizia "isso é clicável" — hover/foco pinta o
-       ícone na cor de destaque do site e revela uma dica embaixo, então o
-       card "em breve" para de parecer morto. */
+    /* O relógio sozinho não sinalizava "clicável" — hover/foco pinta o ícone
+       na cor de destaque e revela uma dica, pro card não parecer morto. */
     .card-soon .thumb-ph,.card-soon .thumb-soon-ov{transition:color .2s ease}
     .card-soon:hover .thumb-ph,.card-soon:hover .thumb-soon-ov,.card-soon:focus-visible .thumb-ph,.card-soon:focus-visible .thumb-soon-ov{color:var(--accent)}
     .soon-hint{position:absolute;bottom:.5rem;left:50%;transform:translate(-50%,4px);font-size:.62rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#f0ebe5;background:rgba(0,0,0,.6);padding:.3rem .6rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;pointer-events:none;z-index:2}
@@ -253,11 +245,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    /* .card-featured precisa de uma altura própria definida (não só min-height):
-       sem isso, height:100% da <img> não tem contra quem resolver a
-       porcentagem, cai pra auto e o object-fit:contain não tem o que fazer —
-       a caixa cresce até a proporção intrínseca da foto, esticando o card
-       inteiro numa foto de retrato. */
+    /* Precisa de height definida (não só min-height): sem isso, height:100%
+       da <img> não resolve, cai pra auto, e o card estica pra caber uma
+       foto de retrato. */
     @media(min-width:900px){.card-featured{display:flex;flex-direction:row;height:420px}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;height:100%}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.card-featured .info h2{font-size:1.35rem}}
     .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
     .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--border-dim);border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
@@ -307,6 +297,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   </div>
 
   <script nonce="${nonce}">
+    // Daqui até o fecha-script tudo vive dentro de um template literal: uma
+    // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     (function(){
       var BATCH = ${INITIAL};
       var shown = BATCH;
@@ -386,9 +378,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         syncURL();
       }
 
-      // Reflects q/cat into the URL (no reload) so a normal Back navigation
-      // lands on a URL that already encodes the filter state — read back by
-      // the restore block below on load.
+      // Reflects q/cat into the URL (no reload) so Back navigation lands on
+      // a URL that already encodes filter state — read back by restore below.
       function syncURL() {
         try {
           var p = new URLSearchParams();
@@ -421,9 +412,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         shown = BATCH; apply(); updateFiltersBtn();
       });
 
-      // Restore search/category from the URL (set by syncURL() before a
-      // navigation away) and shown/scroll from sessionStorage — together these
-      // put a visitor back where they left off after Back from an event page.
+      // Restore q/cat from the URL (syncURL wrote it before navigating away)
+      // and shown/scroll from sessionStorage, so Back lands where you left off.
       var GSTATE_KEY = 'fotos:gallery_state';
       var savedY = null;
       try {
@@ -491,10 +481,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         if (ub) ub.style.display = 'none';
       });
 
-      // Colapsa a busca/filtros ao rolar pra baixo — devolve espaço de tela
-      // pros cards em telas pequenas — e reabre ao rolar pra cima ou perto do
-      // topo. Não colapsa com um filtro ativo (senão "N resultados"/"Limpar
-      // filtros" some no meio do uso) nem com o campo de busca focado.
+      // Colapsa a busca ao rolar pra baixo (reabre ao rolar pra cima ou perto
+      // do topo). Não colapsa com filtro ativo ou busca focada, pra não sumir
+      // "N resultados"/"Limpar filtros" no meio do uso.
       var controlsWrap = document.querySelector('.controls-wrap');
       if (controlsWrap) {
         var lastScrollY = window.scrollY || document.documentElement.scrollTop;
