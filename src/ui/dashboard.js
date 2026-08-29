@@ -10,19 +10,24 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
+// Sem modo "criar senha": o painel NÃO tem trust-on-first-use. Sem credencial
+// em KV e sem o secret ADMIN_PASSWORD o login é impossível, em vez de ficar
+// disponível para quem chegar primeiro (ver handleLogin em src/index.js) — e
+// `handleDashboardPage` responde 503 nesse estado, nunca um formulário.
+//
+// O ramo `isSetup` daqui era o resto dessa versão anterior: desenhava um
+// "Criar senha de acesso" com campo de confirmação e um hidden `setup=1` que
+// nenhum handler lia. Ninguém nunca passou a opção, então a tela era
+// inalcançável — mas ficava no arquivo parecendo um caminho vivo, e um campo
+// de senha que o servidor ignora é a pior coisa para se encontrar numa leitura
+// de código de autenticação. Se o cadastro inicial voltar, ele volta com
+// handler, não só com formulário.
 /**
- * @param {{ error?: boolean, isSetup?: boolean }} [opts]
+ * @param {{ error?: boolean }} [opts]
  * @param {string} [nonce]
  */
 export function loginHTML(opts = {}, nonce = '') {
-  const { error = false, isSetup = false } = opts;
-  const title = isSetup ? 'Criar senha de acesso' : 'Painel administrativo';
-  const btnLabel = isSetup ? 'Criar senha e entrar' : 'Entrar';
-  const confirmField = isSetup ? `
-    <div class="field">
-      <label for="confirm">Confirmar senha</label>
-      <input type="password" id="confirm" name="confirm" required autocomplete="new-password" placeholder="••••••••">
-    </div>` : '';
+  const { error = false } = opts;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -59,17 +64,15 @@ export function loginHTML(opts = {}, nonce = '') {
 <body>
   <div class="box">
     <div class="logo"><span>fotos · <strong>Luca F. Chala</strong></span></div>
-    <h1>${title}</h1>
-    <p class="subtitle">${isSetup ? 'Defina uma senha para proteger o painel.' : 'Entre para gerenciar os projetos.'}</p>
+    <h1>Painel administrativo</h1>
+    <p class="subtitle">Entre para gerenciar os projetos.</p>
     ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
     <form method="POST" action="/dashboard/login">
-      <input type="hidden" name="setup" value="${isSetup ? '1' : '0'}">
       <div class="field">
-        <label for="password">${isSetup ? 'Nova senha' : 'Senha'}</label>
-        <input type="password" id="password" name="password" required autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="••••••••" autofocus>
+        <label for="password">Senha</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" autofocus>
       </div>
-      ${confirmField}
-      <button type="submit" class="btn-primary">${btnLabel}</button>
+      <button type="submit" class="btn-primary">Entrar</button>
     </form>
   </div>
 </body>
@@ -1222,11 +1225,16 @@ export function dashboardHTML(events, categories = [], nonce = '') {
 
         const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' };
 
+        // esc() no id como em todo o resto do arquivo. Hoje ele é hexadecimal
+        // (generateId, e sanitizeRestoredRequest recusa o que não casar com
+        // /^[a-f0-9]{1,64}$/), mas era a última interpolação de DADO sem escape
+        // aqui — e a de baixo cai dentro de uma string JS dentro de um atributo
+        // HTML, o pior contexto para depender de validação feita noutro arquivo.
         const renderReq = r => \`
-          <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${r.id}">
+          <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${esc(r.id)}">
             <div class="req-header">
               <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
-              <span class="req-date">\${new Date(r.createdAt).toLocaleDateString('pt-BR')}</span>
+              <span class="req-date">\${r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '—'}</span>
             </div>
             <div class="req-body">
               <span><strong>Tipo:</strong> \${esc(methodLabel[r.method] || r.method)}</span>
@@ -1240,13 +1248,17 @@ export function dashboardHTML(events, categories = [], nonce = '') {
               \${r.confirmEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
               \${r.resolvedEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
             </div>
-            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${r.id}')">✓ Marcar como resolvido</button>\` : ''}
+            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${esc(r.id)}')">✓ Marcar como resolvido</button>\` : ''}
           </div>\`;
 
-        // Group by project, sorted by most recent first within each group
+        // Group by project, sorted by most recent first within each group.
+        // String(... || '') espelha porCriacaoDesc() no servidor: um registro
+        // restaurado de backup pode não ter createdAt, e o .localeCompare direto
+        // que estava aqui derrubava a aba inteira ("Erro ao carregar") por causa
+        // de um registro só.
         const byProject = {};
         const projectOrder = [];
-        [...data].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).forEach(r => {
+        [...data].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).forEach(r => {
           if (!byProject[r.eventSlug]) {
             byProject[r.eventSlug] = { title: r.eventTitle, slug: r.eventSlug, pending: [], resolved: [] };
             projectOrder.push(r.eventSlug);
@@ -1407,10 +1419,30 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       }
     }
 
-    // ---- CSV helpers (BOM + escaping, matches server) ----
+    // ---- CSV helpers (BOM + escaping) ----
+    // Espelha csvCell() de utils.js PASSO A PASSO, e as três etapas importam na
+    // ordem em que estão. Este bloco já dizia "matches server" enquanto fazia só
+    // a citação: os exports do navegador (solicitações de remoção, métricas)
+    // saíam sem a defesa contra INJEÇÃO DE FÓRMULA que o export do servidor tem
+    // desde sempre — e é justamente o do navegador que carrega "message" e
+    // "value", texto cru digitado por visitante.
+    //
+    // O ataque: Excel/Sheets executam uma célula que começa com =, +, -, @, TAB
+    // ou CR ao abrir o arquivo — uma fórmula HYPERLINK exfiltra a linha ao lado
+    // com um clique. As aspas do CSV não bloqueiam isso (são citação, não escape
+    // de fórmula), e quem abre o arquivo é o admin, com os dados pessoais dos
+    // titulares na tela. O apóstrofo à frente é o que a planilha lê como "isto
+    // é texto". Sem crase em nenhum comentário daqui: este bloco vive dentro de
+    // um template literal, e uma crase solta encerra a string e quebra o módulo.
     function toCSV(cols, rows){
-      function cell(v){ v = (v==null?'':String(v)); return /[",\\r\\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
-      return '\\uFEFF' + [cols.join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
+      function cell(v){
+        if (v == null) return '';
+        var s = String(v);
+        s = s.replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, '');
+        if (/^[-=+@\\t\\r]/.test(s)) s = "'" + s;
+        return /[",\\r\\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+      }
+      return '\\uFEFF' + [cols.map(cell).join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
     }
     function downloadCSV(name, cols, rows){ var b=new Blob([toCSV(cols,rows)],{type:'text/csv;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
     function csvDate(){ return new Date().toISOString().slice(0,10); }

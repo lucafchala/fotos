@@ -239,7 +239,20 @@ export async function getCategories(env) {
   if (!data) return [...DEFAULT_CATEGORIES];
   try {
     const arr = JSON.parse(data);
-    return Array.isArray(arr) ? arr.filter(c => typeof c === 'string') : [...DEFAULT_CATEGORIES];
+    if (!Array.isArray(arr)) return [...DEFAULT_CATEGORIES];
+    // Os MESMOS tetos da escrita, aplicados de novo na leitura. Não é
+    // redundância: `handleCreateCategory` valida o que ele grava, mas o valor
+    // pode ter vindo de um restore de backup ou de uma edição manual no painel
+    // da Cloudflare — os dois caminhos que não passam por handler nenhum. Sem
+    // isto, uma lista de dez mil nomes de dez mil caracteres é renderizada
+    // inteira em cada `<option>` do painel, três vezes por página.
+    //
+    // Recorta em vez de recusar: categoria demais ainda é dado do dono, e
+    // devolver os defaults apagaria as boas junto com as ruins.
+    return arr
+      .filter(c => typeof c === 'string' && c.trim())
+      .map(c => c.slice(0, MAX_CATEGORY_LEN))
+      .slice(0, MAX_CATEGORIES);
   } catch {
     return [...DEFAULT_CATEGORIES];
   }
@@ -359,6 +372,42 @@ export function sessionCookie(token, { clear = false } = {}) {
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${SESSION_TTL_SECS}`;
 }
 
+// ÚNICO lugar que decide QUAL token o pedido está apresentando. Existe como
+// função — e não como um regex repetido em cada chamador — porque a precedência
+// entre os dois nomes de cookie É o controle, e ela já foi perdida uma vez:
+// `verifySession` foi corrigida para preferir `__Host-session`, mas o logout e
+// a troca de senha continuaram com o padrão único `(?:__Host-)?session=`, que o
+// `match()` resolve para a PRIMEIRA ocorrência. Em
+// `session=antigo; __Host-session=novo` os três liam tokens diferentes:
+//
+//   • o logout apagava do KV o registro ERRADO — o cookie saía do browser mas a
+//     sessão de verdade seguia aceita até o TTL de 24 h, justamente a revogação
+//     que o logout existe para fazer (ver SECURITY.md);
+//   • a troca de senha preservava o token apontado pelo cookie legado e apagava
+//     o do próprio admin.
+//
+// E o cookie legado é FORJÁVEL: um vizinho de lucafchala.com grava `session=`,
+// mas não `__Host-session` — essa assimetria é a razão de o prefixo existir.
+// Com um leitor só, uma correção vale para todos os chamadores de uma vez.
+/**
+ * @param {string} cookies conteúdo cru do cabeçalho `Cookie`
+ * @returns {string|null} o token de 64 hexadecimais, ou null se não houver
+ */
+export function sessionTokenFromCookie(cookies) {
+  if (typeof cookies !== 'string' || !cookies) return null;
+  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
+             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  return match ? match[1] : null;
+}
+
+/**
+ * @param {Request} request
+ * @returns {string|null}
+ */
+export function sessionTokenFromRequest(request) {
+  return sessionTokenFromCookie(request.headers.get('Cookie') || '');
+}
+
 // Impressão grosseira do cliente. Só User-Agent: IP fica de fora porque
 // celular troca de IP o tempo todo (4G/Wi-Fi) e amarrar a sessão a ele
 // deslogaria o admin no meio de uma edição.
@@ -391,21 +440,11 @@ export function sessionRecord(request) {
  * @param {Request} request
  */
 export async function verifySession(env, request) {
-  const cookies = request.headers.get('Cookie') || '';
+  // Precedência do `__Host-` em `sessionTokenFromCookie()`, que é o leitor
+  // único — ver o comentário lá para o que a divergência custava.
+  const token = sessionTokenFromRequest(request);
+  if (!token) return false;
 
-  // `__Host-session` PRIMEIRO, cookie legado só como fallback. Um padrão único
-  // com `(?:__Host-)?` pega a PRIMEIRA ocorrência de `match()` — em
-  // `session=antigo; __Host-session=novo` isso resolvia para o ANTIGO. Além de
-  // travar em loop quem migrou, era forçável: um host vizinho de
-  // lucafchala.com pode gravar `session=` mas não `__Host-session` (é a
-  // garantia do prefixo) — bastava escrever 64 hexadecimais para derrubar o
-  // painel, o ataque que `__Host-` existe para impedir. Ordem explícita
-  // resolve os dois: o cookie que só nossa origem grava tem precedência.
-  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
-             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
-  if (!match) return false;
-
-  const token = match[1];
   const key = `admin_session:${token}`;
   const raw = await env.FOTOS.get(key);
   if (!raw) return false;
@@ -814,6 +853,26 @@ export function photoPreconnectHTML() {
   return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
 }
 
+// Beacon da Web Analytics da Cloudflare. Era a MESMA linha copiada na galeria e
+// na página de projeto; virou função porque a correção abaixo precisava valer
+// nas duas, e uma delas ficaria para trás — foi assim que o leitor de cookie de
+// sessão divergiu.
+//
+// `escape()` além do `<`: o atributo é delimitado por ASPA SIMPLES e
+// `JSON.stringify` não escapa `'`. Um token com apóstrofo fechava o atributo e
+// o resto virava marcação. O token é secret do dono (CF_ANALYTICS_TOKEN), não
+// entrada de visitante — mas um sink de HTML não deve depender de quem escreve
+// o valor, e a função escapa uma vez para os dois chamadores.
+/**
+ * @param {string|null} token
+ * @param {string} [nonce]
+ */
+export function analyticsBeaconHTML(token, nonce = '') {
+  if (!token) return '';
+  const cfg = JSON.stringify({ token: String(token) }).replace(/</g, '\\u003c');
+  return `<script nonce="${escape(nonce)}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${escape(cfg)}'></script>`;
+}
+
 // ---------------------------------------------------------------------------
 // Cartão de pré-visualização do link (WhatsApp, Telegram, Instagram, Discord…)
 // ---------------------------------------------------------------------------
@@ -964,9 +1023,14 @@ export function formatDatePT(dateStr) {
     'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   ];
+  // Number.isInteger, e não só a faixa: `parseInt('ab', 10)` é NaN, e NaN
+  // reprova as DUAS comparações (`NaN < 1` e `NaN > 12` são ambas falsas), então
+  // a data malformada atravessava o portão e saía como "NaN de undefined de
+  // 2026" na página do projeto. Comparação com NaN nunca é a guarda que parece.
   const m = parseInt(month, 10);
-  if (m < 1 || m > 12) return dateStr;
-  return `${parseInt(day, 10)} de ${months[m - 1]} de ${year}`;
+  const d = parseInt(day, 10);
+  if (!Number.isInteger(m) || m < 1 || m > 12 || !Number.isInteger(d)) return dateStr;
+  return `${d} de ${months[m - 1]} de ${year}`;
 }
 
 // Canonical event ordering: pinned first, then most recent by date
@@ -1576,13 +1640,35 @@ const PERF_SAMPLE_RATE = 0.1;
 //
 // Um beacon por visita (visibilitychange), não por imagem — evitaria repetir
 // o mesmo problema de cota que descartou o cache via Worker.
+//
+// NONCE OBRIGATÓRIO. A versão anterior omitia o atributo quando o argumento
+// vinha vazio (`<script${nonce ? …}>`), o que produzia um bloco inline que a
+// política estrita bloquearia no dia em que ela virar a enforced — e a
+// invariante da CI não pegaria, porque ela lê o TEXTO da marcação e ali o
+// `nonce=` aparece dentro do ternário. Ou seja: um <script> sem nonce que
+// passa por um gate cujo nome é "todo <script> carrega nonce".
+//
+// Hoje os dois chamadores sempre passam o nonce da requisição, então isto
+// nunca acontece — e é exatamente por isso que a hora de fechar é agora, antes
+// de existir um terceiro chamador que esqueça. Devolver string vazia (em vez
+// de lançar) mantém a decisão do arquivo: telemetria não derruba página.
 /**
  * @param {string} page
  * @param {boolean} enabled
- * @param {string} [nonce]
+ * @param {string} nonce nonce da requisição — sem ele o script não é emitido
  */
 export function perfBootScript(page, enabled, nonce = '') {
-  return `<script${nonce ? ` nonce="${nonce}"` : ''}>(function(){
+  if (!nonce) {
+    // Mensagem sem a palavra literal com sinal de menor: a invariante da CI
+    // varre o texto do arquivo e não distingue string de marcação emitida —
+    // escrever a tag aqui reprovaria o gate com a própria explicação dele.
+    noteDegraded(
+      'script de performance não emitido',
+      'perfBootScript() foi chamado sem nonce; a página perde o shimmer e o beacon, mas não ganha um bloco inline que a CSP estrita bloquearia'
+    );
+    return '';
+  }
+  return `<script nonce="${escape(nonce)}">(function(){
   var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};
   window.imgSettled=function(img,ok){var p=img&&img.parentElement;if(!p)return;p.classList.remove('loading');busy(p,false);if(!ok&&img.style)img.style.opacity='0';};
   window.perfMark=function(k,v){var m=window.__perf;if(m&&k in m.marks)m.marks[k]=v;};

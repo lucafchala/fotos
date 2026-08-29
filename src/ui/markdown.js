@@ -41,9 +41,14 @@ export function resolveDocHref(raw) {
   if (GITHUB_RE.test(href)) return null;
 
   // Documento irmão, em qualquer das formas relativas que os markdowns usam.
+  // Object.hasOwn antes de indexar, pelo mesmo motivo do `?tema=` em index.js:
+  // sem ele, um link para `constructor` (ou `toString`) acha o membro do
+  // Object.prototype, o valor é truthy e o href publicado vira
+  // "/legal/function Object() { [native code] }".
   const withoutAnchor = href.split('#')[0];
-  const slug = /** @type {Record<string, string>} */ (DOC_PATH_TO_SLUG)[withoutAnchor];
-  if (slug) return '/legal/' + slug;
+  if (Object.hasOwn(DOC_PATH_TO_SLUG, withoutAnchor)) {
+    return '/legal/' + /** @type {Record<string, string>} */ (DOC_PATH_TO_SLUG)[withoutAnchor];
+  }
 
   // `//exemplo.com/x` também começa com `/`, mas é protocol-relative — o
   // browser resolve como https://exemplo.com/x. Excluir aqui manda pro
@@ -69,7 +74,16 @@ export function resolveDocHref(raw) {
   if (url.protocol !== 'https:') return null;
 
   // Próprio site → relativa, para não sair e voltar.
-  if (url.host === SITE_HOST) return (url.pathname + url.search + url.hash) || '/';
+  //
+  // `startsWith('//')` de novo aqui, e não é redundância com a checagem lá em
+  // cima: `new URL('https://fotos.lucafchala.com//evil.example/x').pathname` é
+  // "//evil.example/x", então o caminho de "mesmo host" reintroduzia justamente
+  // o href protocol-relative que a linha 52 existe para barrar — e o browser
+  // resolve isso como https://evil.example/x, fora do site, sem rel="noopener".
+  if (url.host === SITE_HOST) {
+    const relativa = (url.pathname + url.search + url.hash) || '/';
+    return relativa.startsWith('//') ? '/' + relativa.replace(/^\/+/, '') : relativa;
+  }
 
   // Externa legítima. Devolve o texto original, sem a normalização do parser,
   // para o href publicado ser exatamente o que o documento escreveu.

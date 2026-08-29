@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -518,7 +518,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       }
     })();
   </script>
-  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  ${analyticsBeaconHTML(analyticsToken, nonce)}
 </body>
 </html>`;
 }

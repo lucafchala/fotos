@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS image_use_consent (
   created_at      TEXT NOT NULL,            -- ISO-8601 UTC, server time
   event_slug      TEXT NOT NULL,
   event_title     TEXT,
-  drive_target    TEXT,                     -- 'full' | 'instagram'
+  drive_target    TEXT,                     -- 'full' | 'both' (ver handleDriveLink)
   terms_version   TEXT NOT NULL,            -- Terms "Atualizada em" date accepted
   terms_hash      TEXT,                     -- SHA-256 of the exact Terms text shown
   consent_text    TEXT,                     -- verbatim checkbox label accepted
