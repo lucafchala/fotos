@@ -1904,11 +1904,19 @@ export async function handleHealthz(request, env) {
 
   // Heartbeat do cron: segunda leitura de KV, detecta agenda diária morta em
   // silêncio.
-  const cron = await env.FOTOS.get('cron:last').then(last => ({
-    lastRunAt: last || null,
-    ageHours: last ? Math.round((Date.now() - new Date(last).getTime()) / 3600000) : null,
-    stale: cronStale(last),
-  })).catch(() => null);
+  // `ageHours` só sai como número quando a marca é uma data legível: com um
+  // valor ilegível em KV, `new Date(lixo).getTime()` é NaN, `Math.round(NaN)` é
+  // NaN e o JSON.stringify da resposta o serializa como `null` — o mesmo que
+  // "nunca rodou", que é a leitura oposta da verdadeira. `cronStale()` já trata
+  // esse caso como stale; aqui o campo passa a dizer "não sei" de propósito.
+  const cron = await env.FOTOS.get('cron:last').then(last => {
+    const t = last ? new Date(last).getTime() : NaN;
+    return {
+      lastRunAt: last || null,
+      ageHours: Number.isFinite(t) ? Math.round((Date.now() - t) / 3600000) : null,
+      stale: cronStale(last),
+    };
+  }).catch(() => null);
 
   // Self-test funcional sobre o array de eventos já carregado (zero leitura
   // extra de KV): links de Drive quebrados, dados inválidos, backend de

@@ -20,16 +20,12 @@ on:
   # test depois. Um disparo manual não pula nenhum portão.
   workflow_dispatch:
 
-# Uma única fonte da verdade para a versão do wrangler usada nos dois steps que
-# falam com a Cloudflare (migrations D1 e deploy). Tem que acompanhar a major do
-# devDependency em package.json — se divergir, a produção roda numa versão que
-# nenhum teste exercitou.
-env:
-  # Mantenha em sintonia com o devDependency `wrangler` do package.json — não só
-  # a major. Já divergiu no patch (4.114.0 aqui contra ^4.125.0 lá), que é
-  # exatamente a situação que este bloco diz evitar: a produção subindo por uma
-  # versão que nenhum teste desta suíte exercitou.
-  WRANGLER_VERSION: '4.125.0'
+# A versão do wrangler usada nos dois steps que falam com a Cloudflare (migrations
+# D1 e deploy) é DERIVADA do que o `npm install` resolveu — ver o step "Derivar a
+# versão do wrangler" abaixo. Era um número escrito à mão aqui, e o segundo lugar
+# saiu de sintonia com o primeiro exatamente como este bloco dizia temer:
+# `4.114.0` no workflow contra `^4.125.0` no package.json, silenciosamente, por
+# quanto tempo ninguém sabe. Um valor derivado não tem como divergir.
 
 # Menor privilégio: o deploy fala com a Cloudflare por API token próprio
 # (secret), não pelo token do GitHub — que aqui só precisa ler o código.
@@ -55,6 +51,23 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      # A versão que vai para a Cloudflare é a que a suíte ACABOU de instalar,
+      # lida de node_modules — não um número mantido à mão num segundo lugar.
+      # É a leitura literal do que o bloco no topo do arquivo sempre pediu:
+      # "se divergir, a produção roda numa versão que nenhum teste exercitou".
+      # Lido de node_modules e não do `^x.y.z` do package.json de propósito: o
+      # que interessa é a versão RESOLVIDA, que é a que os testes usaram.
+      - name: Derivar a versão do wrangler
+        run: |
+          set -e
+          V=$(node -p "require('./node_modules/wrangler/package.json').version")
+          case "$V" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "FALHA: versão do wrangler inesperada: '$V'"; exit 1 ;;
+          esac
+          echo "Wrangler resolvido pelo npm install: $V"
+          echo "WRANGLER_VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Unit tests
         run: npm test

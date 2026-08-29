@@ -165,24 +165,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
       > página não usa mais é conexão aberta à toa.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
-- [ ] **Auditar o resto dos pares cliente/servidor que reimplementam a mesma
-      regra.** A revisão que fechou a injeção de fórmula no export do navegador
-      e a precedência do cookie de sessão achou os dois pelo mesmo padrão: uma
-      regra escrita duas vezes, corrigida uma vez só. Os pares que ainda existem
-      e não foram auditados um a um:
-      `esc()`/`safeUrl()` de `dashboard.js` contra `escape()`/`toHttps()` de
-      `utils.js`; a validação de e-mail e telefone do `submitRemoval()` contra a
-      do `handleRemovalRequest()`; `byDate()` do painel contra `eventTime()`;
-      `convertDriveUrl()` do painel, que não tem par no servidor. O teste que
-      vale para esses é o de `toCSV` em `tests/security.test.js`: extrair a
-      função do template literal e afirmar que ela devolve o **mesmo** que a do
-      servidor para as mesmas entradas — não que ela "escapa".
-- [ ] **`perfBootScript()` emite `<script>` sem nonce quando o argumento vem
-      vazio.** Hoje os dois chamadores sempre passam o nonce da requisição, então
-      não acontece — e a invariante da CI (agora varrendo `src/` inteiro, não só
-      `src/ui/`) só olha o TEXTO da marcação, então não veria. O certo é a
-      função recusar renderizar sem nonce, em vez de emitir um bloco que a
-      política estrita vai bloquear no dia da virada.
 - [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
       (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
       ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
@@ -223,20 +205,13 @@ Nesta ordem, e **nenhuma delas é pagar**:
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente, e é
       justamente onde os bugs que a suíte não pega aparecem.
-- [ ] **Validar a forma do que sai do KV em TODA leitura, não só nos eventos.**
-      `getEvents()` passa por `parseEvents()` desde sempre; `getRemovalRequests()`
-      só ganhou o mesmo portão agora, e um valor corrompido derrubava o POST
-      público de remoção com ".filter is not a function". Restam sem validação
-      de forma: `categories` (tem filtro de tipo, mas nenhum teto de tamanho),
-      `admin_session:*` (o JSON.parse tem catch, mas o registro não é validado
-      campo a campo) e `cron:last`. Nenhum é caminho de visitante, por isso está
-      aqui e não em Segurança — mas a regra é a mesma: o que volta do KV pode
-      ter vindo de um restore.
-- [ ] **Fazer o `WRANGLER_VERSION` do deploy.yml derivar do package.json** em
-      vez de ser um segundo número escrito à mão. Já divergiu (4.114.0 contra
-      `^4.125.0`) e a divergência é invisível: o deploy passa, só roda numa
-      versão que nenhum teste exercitou. Um `node -p` lendo o package.json no
-      passo, ou um check na CI comparando os dois, resolve.
+- [ ] **Terminar a validação de forma nas leituras de KV.** `getEvents()`,
+      `getRemovalRequests()`, `getCategories()` e `cron:last` já passam por um
+      portão. Falta `admin_session:*`: o `JSON.parse` tem catch e os campos que
+      decidem expiração são validados um a um, mas o registro inteiro não —
+      um valor com forma inesperada degrada em vez de recusar. É o menos urgente
+      dos quatro (o caminho exige um token de 64 hexadecimais que já existe em
+      KV), e por isso ficou por último.
 
 ---
 
@@ -296,9 +271,19 @@ está certo".
 `grep` pelo padrão que está sendo corrigido e conte os chamadores. Se houver
 mais de um, a correção é **extrair o leitor/validador único** e apontar todos
 para ele — não editar o que estava na tela. E o teste que prende isso afirma a
-**concordância** entre as cópias (ver `toCSV` em `tests/security.test.js`, que
-extrai a função do template literal e compara com `csvCell()` valor a valor),
-nunca só o comportamento de uma delas.
+**concordância** entre as cópias, nunca só o comportamento de uma delas.
+
+O resto dos pares foi auditado e **hoje concorda**: `esc()`/`escape()`,
+`safeUrl()`/`toHttps()`, `byDate()`/`eventTime()`, `convertDriveUrl()` (que não
+tem par, mas cujo produto tem de sobreviver ao `toHttps()` do servidor) e as
+regex de e-mail/telefone dos dois lados do formulário de remoção. O que garante
+que continuem concordando é `describe('pares cliente/servidor')` em
+`tests/security.test.js`: ele extrai cada função de dentro do template literal
+e a executa lado a lado com a do servidor.
+
+**Par novo entra lá.** Reimplementar no painel algo que já existe em `utils.js`
+é aceito — o browser não tem `import` para dentro de um template literal. O que
+não é aceito é a cópia nova ficar sem a linha correspondente nesse teste.
 
 ### Comparar URL como texto é a família de bugs desta base
 

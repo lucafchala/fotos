@@ -239,7 +239,20 @@ export async function getCategories(env) {
   if (!data) return [...DEFAULT_CATEGORIES];
   try {
     const arr = JSON.parse(data);
-    return Array.isArray(arr) ? arr.filter(c => typeof c === 'string') : [...DEFAULT_CATEGORIES];
+    if (!Array.isArray(arr)) return [...DEFAULT_CATEGORIES];
+    // Os MESMOS tetos da escrita, aplicados de novo na leitura. Não é
+    // redundância: `handleCreateCategory` valida o que ele grava, mas o valor
+    // pode ter vindo de um restore de backup ou de uma edição manual no painel
+    // da Cloudflare — os dois caminhos que não passam por handler nenhum. Sem
+    // isto, uma lista de dez mil nomes de dez mil caracteres é renderizada
+    // inteira em cada `<option>` do painel, três vezes por página.
+    //
+    // Recorta em vez de recusar: categoria demais ainda é dado do dono, e
+    // devolver os defaults apagaria as boas junto com as ruins.
+    return arr
+      .filter(c => typeof c === 'string' && c.trim())
+      .map(c => c.slice(0, MAX_CATEGORY_LEN))
+      .slice(0, MAX_CATEGORIES);
   } catch {
     return [...DEFAULT_CATEGORIES];
   }
@@ -1627,13 +1640,35 @@ const PERF_SAMPLE_RATE = 0.1;
 //
 // Um beacon por visita (visibilitychange), não por imagem — evitaria repetir
 // o mesmo problema de cota que descartou o cache via Worker.
+//
+// NONCE OBRIGATÓRIO. A versão anterior omitia o atributo quando o argumento
+// vinha vazio (`<script${nonce ? …}>`), o que produzia um bloco inline que a
+// política estrita bloquearia no dia em que ela virar a enforced — e a
+// invariante da CI não pegaria, porque ela lê o TEXTO da marcação e ali o
+// `nonce=` aparece dentro do ternário. Ou seja: um <script> sem nonce que
+// passa por um gate cujo nome é "todo <script> carrega nonce".
+//
+// Hoje os dois chamadores sempre passam o nonce da requisição, então isto
+// nunca acontece — e é exatamente por isso que a hora de fechar é agora, antes
+// de existir um terceiro chamador que esqueça. Devolver string vazia (em vez
+// de lançar) mantém a decisão do arquivo: telemetria não derruba página.
 /**
  * @param {string} page
  * @param {boolean} enabled
- * @param {string} [nonce]
+ * @param {string} nonce nonce da requisição — sem ele o script não é emitido
  */
 export function perfBootScript(page, enabled, nonce = '') {
-  return `<script${nonce ? ` nonce="${nonce}"` : ''}>(function(){
+  if (!nonce) {
+    // Mensagem sem a palavra literal com sinal de menor: a invariante da CI
+    // varre o texto do arquivo e não distingue string de marcação emitida —
+    // escrever a tag aqui reprovaria o gate com a própria explicação dele.
+    noteDegraded(
+      'script de performance não emitido',
+      'perfBootScript() foi chamado sem nonce; a página perde o shimmer e o beacon, mas não ganha um bloco inline que a CSP estrita bloquearia'
+    );
+    return '';
+  }
+  return `<script nonce="${escape(nonce)}">(function(){
   var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};
   window.imgSettled=function(img,ok){var p=img&&img.parentElement;if(!p)return;p.classList.remove('loading');busy(p,false);if(!ok&&img.style)img.style.opacity='0';};
   window.perfMark=function(k,v){var m=window.__perf;if(m&&k in m.marks)m.marks[k]=v;};

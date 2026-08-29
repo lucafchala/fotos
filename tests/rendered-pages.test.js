@@ -18,7 +18,7 @@
 // O que esta suíte faz é barato e pega justamente isso: renderiza cada página,
 // extrai os blocos e PARSEIA o que saiu.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import vm from 'node:vm';
 import { dashboardHTML, loginHTML } from '../src/ui/dashboard.js';
 import { galleryHTML } from '../src/ui/gallery.js';
@@ -31,6 +31,7 @@ import { gearHTML } from '../src/ui/gear.js';
 import { legalHTML } from '../src/ui/legal.js';
 import { docHTML } from '../src/ui/doc.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
+import { perfBootScript, degradedHealth, resetDegraded } from '../src/utils.js';
 
 const EVENTO = {
   id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
@@ -532,5 +533,54 @@ describe('beacon da Web Analytics', () => {
   it('sai da página quando não há token configurado', () => {
     expect(galleryHTML([EVENTO], null, 'NONCE')).not.toContain('cloudflareinsights');
     expect(eventHTML(EVENTO, '2026', null, 'NONCE', 'dn', 'ft')).not.toContain('cloudflareinsights');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('perfBootScript: nonce é condição para existir', () => {
+  // A invariante da CI ("todo <script> carrega nonce") lê o TEXTO da marcação,
+  // e a versão anterior escondia o buraco dela mesma: `<script${nonce ? ...}>`
+  // contém a string "nonce=" mesmo quando o valor está vazio. Um gate que o
+  // próprio código engana não é gate.
+  beforeEach(() => { resetDegraded(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); resetDegraded(); });
+
+  it('emite o script com nonce quando ele existe', () => {
+    const html = perfBootScript('gallery', false, 'ABC123');
+    expect(html).toContain('<script nonce="ABC123">');
+    expect(html).toContain('window.imgSettled');
+  });
+
+  it('não emite <script> nenhum sem nonce', () => {
+    expect(perfBootScript('gallery', false, '')).toBe('');
+    expect(perfBootScript('gallery', true)).toBe('');
+    // A checagem que importa: não sobra marcação que a CSP estrita bloquearia.
+    expect(perfBootScript('event', true, '')).not.toContain('<script');
+  });
+
+  it('a omissão entra no registro de degradações, não some calada', () => {
+    expect(degradedHealth()).toEqual([]);
+    perfBootScript('gallery', true, '');
+    const [d] = degradedHealth();
+    expect(d.label).toMatch(/script de performance não emitido/);
+  });
+
+  it('escapa o nonce ao interpolá-lo no atributo', () => {
+    // generateNonce() produz base64url, então isto nunca acontece na prática —
+    // mas o valor vai para dentro de um atributo com aspas, e um sink de HTML
+    // não deve depender de quem escreve o valor.
+    expect(perfBootScript('gallery', false, 'a"b')).toContain('nonce="a&quot;b"');
+  });
+
+  it('as duas páginas continuam emitindo o script', () => {
+    // Se a mudança tivesse quebrado os chamadores, o sintoma seria o shimmer
+    // girando para sempre — invisível para todo o resto da suíte.
+    for (const [nome, html] of Object.entries({
+      gallery: galleryHTML([EVENTO], null, 'NONCE'),
+      event: eventHTML(EVENTO, '2026', null, 'NONCE', 'dn', 'ft'),
+    })) {
+      expect(html, nome).toContain('window.imgSettled');
+      expect(html, nome).toContain('<script nonce="NONCE">');
+    }
   });
 });

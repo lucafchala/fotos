@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
@@ -1989,5 +1989,119 @@ describe('corpo JSON que é JSON válido mas não é objeto', () => {
   it('/api/perf continua respondendo 204', async () => {
     const res = await post('/api/perf', 'null');
     expect(res.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('pares cliente/servidor: as duas cópias têm de concordar', () => {
+  // A auditoria que o TODO.md pedia, virada em teste permanente.
+  //
+  // O painel reimplementa à mão funções que já existem em `utils.js`, porque o
+  // browser não tem `import` para dentro de um template literal. Isso é aceito;
+  // o que não é aceito é as duas versões DIVERGIREM sem ninguém notar — foi
+  // assim que a defesa contra injeção de fórmula do CSV ficou faltando só no
+  // navegador, e assim que o leitor do cookie de sessão passou a ler tokens
+  // diferentes em três lugares.
+  //
+  // Hoje elas concordam. Este bloco é o que faz continuarem concordando: extrai
+  // cada função de dentro do template e a executa lado a lado com a do
+  // servidor. Afirma a CONCORDÂNCIA, não o comportamento de uma delas — a
+  // versão que só testa o servidor é a que já deixou passar os dois defeitos
+  // acima.
+  const dashboardSource = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
+
+  /** Extrai uma função do template literal e a devolve executável. */
+  function doPainel(nome, re) {
+    const m = dashboardSource.match(re);
+    if (!m) throw new Error(`${nome} não encontrada em dashboard.js — o teste precisa ser reapontado`);
+    // Dentro do template literal toda barra invertida está dobrada.
+    return new Function(`${m[0].replace(/\\\\/g, '\\')}; return ${nome};`)();
+  }
+
+  it('esc() do painel devolve o mesmo que escape() de utils.js', () => {
+    const esc = doPainel('esc', /function esc\(s\) \{[\s\S]*?\n {4}\}/);
+    const entradas = [
+      'Maria', '<script>alert(1)</script>', 'a & b', 'aspa " dupla', "aspa ' simples",
+      '<>&"\'', '', 'já escapado &amp;', 'emoji 🎉', 'acentuação çãé',
+      // Os não-strings importam: `esc(0)` tem de virar "0" e não "" — uma
+      // checagem de truthiness aqui apagaria a coluna "0 visitas".
+      0, 42, null, undefined, true, false, -1,
+    ];
+    for (const v of entradas) expect(esc(v), `entrada ${JSON.stringify(v)}`).toBe(escape(v));
+  });
+
+  it('safeUrl() do painel devolve o mesmo que toHttps() de utils.js', () => {
+    const safeUrlPainel = doPainel('safeUrl', /function safeUrl\(u\) \{[\s\S]*?\n {4}\}/);
+    const entradas = [
+      'https://ok.example/x', 'http://ok.example/x', 'javascript:alert(1)',
+      'JavaScript:alert(1)', 'data:text/html,x', '//exemplo.com/x', '',
+      'HTTPS://MAIUSCULO.example/x', 'https://', 'ftp://x',
+      ' https://com-espaco.example', 'HtTp://misto.example/x',
+      'https://x/" onload="alert(1)', 'httpss://quase.example', 'http://',
+      'https:/uma-barra.example', null, undefined, 42,
+    ];
+    for (const v of entradas) expect(safeUrlPainel(v), `entrada ${JSON.stringify(v)}`).toBe(toHttps(v));
+  });
+
+  it('byDate() do painel ordena igual a eventTime() de utils.js', () => {
+    const byDate = new Function(
+      `${dashboardSource.match(/const byDate = [^;]+;/)[0].replace(/\\\\/g, '\\')} return byDate;`)();
+    const eventos = [
+      { date: '2026-01-15' }, { createdAt: '2025-06-01T00:00:00Z' },
+      { date: '', createdAt: '2025-06-01T00:00:00Z' }, {},
+      { date: '2026-01-15', createdAt: '2020-01-01T00:00:00Z' },
+      { date: 'lixo' }, { createdAt: 'lixo' }, { date: null, createdAt: null },
+    ];
+    for (const e of eventos) {
+      const doPainelValor = byDate(e);
+      const doServidor = eventTime(e);
+      // NaN !== NaN, e os dois lados produzem NaN para data ilegível — o que
+      // interessa é que produzam a MESMA coisa, inclusive o NaN.
+      const concordam = Object.is(doPainelValor, doServidor);
+      expect(concordam, `evento ${JSON.stringify(e)}: painel=${doPainelValor} servidor=${doServidor}`).toBe(true);
+    }
+  });
+
+  it('convertDriveUrl() só produz URL que o servidor aceita', () => {
+    // Esta não tem par no servidor: o painel converte o link do Drive para a
+    // forma do lh3 antes de enviar. O contrato que importa é que tudo que ela
+    // produz sobreviva ao `toHttps()` do servidor — senão o painel salvaria um
+    // link que a página pública descarta, e o dono só descobriria pela galeria
+    // sem capa.
+    const convertDriveUrl = doPainel('convertDriveUrl', /function convertDriveUrl\(url\) \{[\s\S]*?\n {4}\}/);
+    const reconhecidas = [
+      'https://drive.google.com/file/d/ABC123/view',
+      'https://drive.google.com/open?id=ABC123',
+      'https://drive.google.com/uc?export=view&id=ABC123',
+      'https://lh3.googleusercontent.com/d/ABC123',
+      'http://drive.google.com/file/d/ABC123/view',
+    ];
+    for (const v of reconhecidas) {
+      const convertido = convertDriveUrl(v);
+      expect(toHttps(convertido), `${v} vira um link que o servidor descarta`).toBe(convertido);
+    }
+    // E o que ela NÃO reconhece passa intacto, para o servidor cortar — que é o
+    // lugar certo para a decisão, não o cliente.
+    for (const hostil of ['javascript:alert(1)', 'nao-e-url', 'data:text/html,x']) {
+      expect(toHttps(convertDriveUrl(hostil)), hostil).toBe('');
+    }
+  });
+
+  it('a validação de e-mail e telefone é a mesma nos dois lados', () => {
+    // Aqui as duas cópias são regex escritas à mão em arquivos diferentes
+    // (event.js dentro do template, index.js no handler). Divergir não abre
+    // buraco de segurança — o servidor é quem decide —, mas abre o pior tipo de
+    // atrito: o formulário aceita e o servidor recusa, ou o contrário, sem
+    // mensagem que explique.
+    const emailCliente = eventSource.match(/\/(\^\[\^\\\\s@\]\+@\[\^\\\\s@\]\+\\\\\.\[\^\\\\s@\]\{2,\}\$)\//);
+    const emailServidor = indexSource.match(/\/(\^\[\^\\s@\]\+@\[\^\\s@\]\+\\\.\[\^\\s@\]\{2,\}\$)\//);
+    expect(emailCliente, 'regex de e-mail do cliente não encontrada').not.toBeNull();
+    expect(emailServidor, 'regex de e-mail do servidor não encontrada').not.toBeNull();
+    // Desdobra o escape do template literal e compara os padrões.
+    expect(emailCliente[1].replace(/\\\\/g, '\\')).toBe(emailServidor[1]);
+
+    // Telefone: mesma faixa de dígitos dos dois lados.
+    expect(eventSource).toContain('phoneDigits.length < 10 || phoneDigits.length > 13');
+    expect(indexSource).toContain('phoneDigits.length < 10 || phoneDigits.length > 13');
   });
 });
