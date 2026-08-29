@@ -46,6 +46,17 @@ describe('formatDatePT', () => {
     expect(formatDatePT('2026-13-01')).toBe('2026-13-01'); // month out of range
     expect(formatDatePT('2026-06')).toBe('2026-06');       // wrong number of parts
   });
+  // A faixa (`m < 1 || m > 12`) parecia cobrir isto e não cobria: parseInt de
+  // um mês não numérico é NaN, e NaN reprova as DUAS comparações — a data
+  // atravessava o portão e saía como "NaN de undefined de 2026" na página do
+  // projeto e no cartão de link. Comparação com NaN nunca é a guarda que
+  // parece, e o valor chega de `date` no KV, que um restore mescla verbatim.
+  it('não inventa data a partir de mês ou dia não numérico', () => {
+    for (const ruim of ['2026-ab-cd', '2026-xx-01', '2026-06-xx', '----', 'a-b-c']) {
+      expect(formatDatePT(ruim), ruim).toBe(ruim);
+    }
+    expect(formatDatePT('2026-ab-cd')).not.toMatch(/NaN|undefined/);
+  });
 });
 
 describe('eventTime / sortEvents', () => {

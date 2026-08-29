@@ -19,7 +19,7 @@ import {
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
   sendErrorAlert, sendLoginAlert,
-  SESSION_TTL_SECS, sessionCookie, sessionRecord,
+  SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -39,6 +39,7 @@ export { Counter, RateLimiter } from './counters.js';
 /**
  * @typedef {import('./utils.js').Env} Env
  * @typedef {import('./utils.js').Evento} Evento
+ * @typedef {import('./utils.js').Pedido} Pedido
  */
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -696,13 +697,17 @@ async function getAdminHash(env) {
  * @param {ExecutionContext} ctx
  */
 export async function handleLogout(request, env, ctx) {
-  const cookies = request.headers.get('Cookie') || '';
-  const match = cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/);
+  // Mesmo leitor do `verifySession`: o token revogado aqui TEM de ser o token
+  // que autentica o pedido. Com o padrão `(?:__Host-)?session=` que estava
+  // aqui, um cookie legado plantado por um vizinho de domínio fazia este delete
+  // apagar o registro errado — o logout dizia ter saído e a sessão de verdade
+  // seguia aceita. Ver sessionTokenFromCookie() em utils.js.
+  const token = sessionTokenFromRequest(request);
   // Este delete é a revogação, não limpeza: o cookie some do browser de
   // qualquer forma, mas sem isto o token continuaria aceito até o TTL de 24h.
   // Falha não pode interromper o logout, mas precisa ficar visível (noteDegraded).
-  if (match) {
-    await env.FOTOS.delete(`admin_session:${match[1]}`).catch(e => {
+  if (token) {
+    await env.FOTOS.delete(`admin_session:${token}`).catch(e => {
       noteDegraded(
         'logout não revogou a sessão',
         'o KV recusou apagar o registro; o cookie saiu do browser, mas o token segue válido até expirar sozinho',
@@ -814,8 +819,8 @@ async function handleCreateEvent(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const { slug, title, driveUrl } = body;
   if (!slug || !validateSlug(slug)) return jsonErr('URL inválida.', 400);
@@ -857,8 +862,8 @@ async function handleUpdateEvent(request, env, path) {
   if (authErr) return authErr;
 
   const id = path.replace('/api/events/', '');
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const events = await getEvents(env, true);
   const idx = events.findIndex(e => e.id === id);
@@ -939,8 +944,8 @@ async function handleCreateCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, MAX_CATEGORY_LEN);
   if (!name) return jsonErr('Nome da categoria obrigatório.', 400);
@@ -964,8 +969,8 @@ async function handleDeleteCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const name = String(body.name || '');
   const cats = await getCategories(env);
@@ -993,8 +998,8 @@ async function handleBulkCategory(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
   if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
@@ -1025,8 +1030,8 @@ async function handleBulkAccessType(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
   if (ids.length === 0) return jsonErr('Nenhum evento selecionado.', 400);
@@ -1090,8 +1095,8 @@ export async function handleTrackDrive(request, env, ctx) {
   // conta inteira), e este endpoint é público e aceita corpo qualquer. Corpo,
   // slug e existência do evento são checados de graça primeiro (leitura tem
   // cota 100x maior) — só quem passa por tudo isso chega ao rate limit.
-  let body;
-  try { body = await request.json(); } catch { return jsonOk({ ok: true }); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonOk({ ok: true });
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonOk({ ok: true });
 
@@ -1142,9 +1147,8 @@ export async function handlePerfBeacon(request, env) {
     if (!sameOrigin) return done();
   }
 
-  let body;
-  try { body = await request.json(); } catch { return done(); }
-  if (!body || typeof body !== 'object') return done();
+  const body = await readJsonBody(request);
+  if (!body) return done();
 
   // Só números plausíveis passam: o corpo vem do cliente e pode ser forjado.
   // Um valor absurdo aqui envenenaria a média sem que nada pareça quebrado.
@@ -1227,8 +1231,8 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
     honeypot = String(fd.get(HONEYPOT_FIELD) || '');
     formToken = String(fd.get('form_token') || '');
   } else {
-    let body;
-    try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+    const body = await readJsonBody(request);
+    if (!body) return jsonErr('JSON inválido.', 400);
     name = String(body.name || '').trim().slice(0, 120);
     email = String(body.email || '').trim().slice(0, 200);
     message = String(body.message || '').trim().slice(0, 2000);
@@ -1342,8 +1346,8 @@ export async function handleChangePassword(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const { password } = body;
   // O painel dá acesso a dados pessoais (consentimento, pedidos de remoção
@@ -1360,8 +1364,11 @@ export async function handleChangePassword(request, env, ctx) {
   // trocando é preservada; o resto é revogado. Best-effort: falha aqui não
   // desfaz a troca de senha, que já valeu.
   try {
-    const cookies = request.headers.get('Cookie') || '';
-    const currentToken = (cookies.match(/(?:^|;\s*)(?:__Host-)?session=([a-f0-9]{64})/) || [])[1];
+    // Mesmo leitor do `verifySession`: a sessão preservada tem de ser a que
+    // está fazendo a troca. Com o padrão antigo, um cookie legado plantado
+    // fazia a varredura poupar o token do vizinho e apagar o do próprio admin,
+    // deslogando quem acabou de trocar a senha. Ver utils.js.
+    const currentToken = sessionTokenFromRequest(request);
     // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
     // sessões que o normal, que é justamente quando isto importa de verdade.
     let cursor;
@@ -1403,8 +1410,8 @@ async function handleRemovalRequest(request, env) {
   const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
   if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   // Honeypot antes de qualquer trabalho caro: se o campo isca veio preenchido,
   // é bot, e a resposta é um 200 comum de propósito — um 4xx aqui só ensinaria
@@ -1592,22 +1599,49 @@ export function trimRequests(requests, max) {
   // estourar o limite de 25MB do valor de KV mesmo com só não-resolvidos.
   // Prioridade continua sendo dos não-resolvidos; se nem eles couberem, os
   // mais antigos caem também.
-  /** @param {Record<string, any>} a @param {Record<string, any>} b */
-  const maisNovoPrimeiro = (a, b) => String(b.createdAt).localeCompare(String(a.createdAt));
-  const unresolved = requests.filter(r => !r.resolved).sort(maisNovoPrimeiro);
-  const resolved = requests.filter(/** @param {Record<string, any>} r */ r => r.resolved).sort(maisNovoPrimeiro);
+  //
+  // Comparador compartilhado com a listagem do painel: duas ordenações do
+  // mesmo dado divergiam no registro sem `createdAt` — aqui virava a string
+  // "undefined" (que ordena entre 'u' e 'v'), lá lançava.
+  const unresolved = requests.filter(r => !r.resolved).sort(porCriacaoDesc);
+  const resolved = requests.filter(/** @param {Record<string, any>} r */ r => r.resolved).sort(porCriacaoDesc);
 
   requests.splice(0, requests.length, ...[...unresolved, ...resolved].slice(0, max));
   return requests;
 }
 
+// Mesmo portão de forma que `parseEvents()` (utils.js) faz para a lista de
+// eventos, e pelo mesmo motivo: o valor pode vir de um restore de backup ou de
+// uma escrita truncada, e um `JSON.parse` cru devolvia o que estivesse lá.
+// Um objeto no lugar do array quebrava com `.filter is not a function` DENTRO
+// do POST público /api/removal-request — o canal de direito do titular virando
+// 500 por causa de um valor corrompido em KV.
 /**
  * @param {Env} env
+ * @returns {Promise<Pedido[]>}
  */
 async function getRemovalRequests(env) {
   const data = await env.FOTOS.get('removal_requests');
   if (!data) return [];
-  try { return JSON.parse(data); } catch { return []; }
+  try {
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(r => r && typeof r === 'object' && !Array.isArray(r));
+  } catch { return []; }
+}
+
+// Ordenação por data de criação, mais novo primeiro, à prova de registro sem
+// `createdAt`. `sanitizeRestoredRequest()` só copia o campo quando ele vem como
+// string, então um backup sem ele produz um registro válido e sem data — e o
+// `b.createdAt.localeCompare(...)` que estava aqui lançava TypeError, derrubando
+// a listagem inteira do painel por causa de UM registro. Sem data ordena por
+// último, que é onde um registro de origem duvidosa deve mesmo ficar.
+/**
+ * @param {Pedido} a
+ * @param {Pedido} b
+ */
+function porCriacaoDesc(a, b) {
+  return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 }
 
 // Drop resolved requests whose resolvedAt is older than the retention window.
@@ -1636,7 +1670,7 @@ async function handleGetRemovalRequests(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const requests = await getRemovalRequests(env);
-  return jsonOk([...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  return jsonOk([...requests].sort(porCriacaoDesc));
 }
 
 /**
@@ -2019,8 +2053,8 @@ const CONSENT_COLS = [
 export async function handleDriveLink(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
 
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
@@ -2164,6 +2198,32 @@ async function checkAuth(request, env) {
   const authed = await verifySession(env, request);
   if (!authed) return jsonErr('Não autorizado.', 401);
   return null;
+}
+
+// Corpo JSON que os handlers podem indexar sem medo, ou `null`.
+//
+// `request.json()` só LANÇA quando o texto não é JSON. `null`, `42` e `"oi"`
+// são JSON perfeitamente válidos e passavam pelo `catch`, e aí a primeira
+// leitura de propriedade (`body.slug`, `body[HONEYPOT_FIELD]`) lançava
+// TypeError no corpo do handler — capturado só pelo catch-all do `fetch()`,
+// que responde 500 e dispara e-mail de alerta ao dono.
+//
+// Ou seja: quatro bytes (`null`) num POST anônimo para /api/drive-link viravam
+// um 500 e queimavam a janela de 15 min do alerta de erro, escondendo uma falha
+// de verdade que acontecesse em seguida. Array também fica de fora: nenhum
+// handler espera um, e `[].slug` é `undefined` silencioso.
+/**
+ * @param {Request} request
+ * @returns {Promise<Record<string, any>|null>}
+ */
+async function readJsonBody(request) {
+  try {
+    const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    return /** @type {Record<string, any>} */ (body);
+  } catch {
+    return null;
+  }
 }
 
 // Política de cabeçalhos mora em security.js; estes helpers só escolhem o
@@ -2387,8 +2447,8 @@ async function handleGetBackup(request, env) {
 async function handleRestoreBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  let body;
-  try { body = await request.json(); } catch { return jsonErr('JSON inválido.', 400); }
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
   if (!Array.isArray(body.events)) return jsonErr('Backup inválido: campo "events" ausente.', 400);
 
   // `fresh: true` (read-modify-write, como criar/editar/apagar projeto): sem
@@ -2409,8 +2469,13 @@ async function handleRestoreBackup(request, env) {
     for (const c of body.categories) {
       if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
     }
-    await saveCategories(env, union.slice(0, MAX_CATEGORIES));
-    result.categories = union.length;
+    // Relatar o que foi GRAVADO, não o que foi juntado: com o backup trazendo
+    // mais que MAX_CATEGORIES, o painel confirmava um número que o KV não tinha
+    // — e o dono só descobriria a diferença ao procurar uma categoria sumida.
+    const saved = union.slice(0, MAX_CATEGORIES);
+    await saveCategories(env, saved);
+    result.categories = saved.length;
+    if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
   if (Array.isArray(body.removalRequests)) {

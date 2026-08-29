@@ -397,7 +397,24 @@ under `lucafchala.com` can write a domain cookie but **cannot** write a
 arbitrary hex characters was enough to lock the owner out. Confirmed against
 the running panel: `/api/metrics` returned **401** under the hostile cookie
 before the fix, **200** after. The `__Host-` cookie now takes precedence, and
-login clears the legacy one (logout already did — the asymmetry was the bug).
+login clears the legacy one.
+
+**The same fix reached only one of the three readers.** A later review found
+that `verifySession()` had been corrected while `handleLogout()` and
+`handleChangePassword()` still carried the original `(?:__Host-)?session=`
+pattern — so under `session=<planted>; __Host-session=<real>` the three
+disagreed about which token the request was presenting. Logout then deleted the
+*wrong* KV record: the browser cookie was cleared, the admin saw the login
+screen, and the real token stayed accepted for the rest of its 24-hour TTL —
+the exact failure the section above describes, reintroduced through the back
+door. The password sweep had the mirror bug: it preserved the token named by
+the planted cookie and deleted the admin's own.
+
+The repair is structural, not another regex: `sessionTokenFromCookie()` in
+`src/utils.js` is now the single reader, and all three call sites go through
+it. **Never re-derive the session token from the `Cookie` header at a call
+site** — precedence between the two names *is* the control, and a duplicated
+pattern is how it was lost twice.
 
 **A removal request could email the requester's GPS coordinates.**
 `isLikelyImage()` accepted HEIC, AVIF and GIF; `stripImageMetadata()` only

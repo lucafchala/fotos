@@ -425,3 +425,112 @@ describe('cartão de pré-visualização do link', () => {
     expect(m['og:description']).toContain('&lt;b&gt;X&lt;/b&gt;');
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('link de compartilhamento do WhatsApp', () => {
+  // O valor vai para dentro de uma QUERY STRING que também é atributo HTML, e
+  // as duas camadas pedem codificações diferentes. Só `escape()` transformava
+  // um "&" do título em "&amp;", que o wa.me lê como fim do parâmetro: "Turma A
+  // & B" chegava como "Veja as fotos de Turma A " — sem o resto da frase e, o
+  // que importa, SEM O LINK. O botão parecia funcionar; a mensagem é que ia
+  // truncada, e ninguém revisa a própria mensagem antes de mandar.
+  const comTitulo = titulo => {
+    const html = eventHTML({ ...EVENTO, title: titulo }, '2026', null, 'NONCE', 'dn', 'ft');
+    const m = html.match(/href="(https:\/\/wa\.me\/[^"]*)"/);
+    if (!m) throw new Error('botão do WhatsApp não encontrado na página');
+    // O href sai escapado para HTML; desfazer isso é o que o browser faz antes
+    // de navegar, e é o texto pós-navegação que estamos afirmando.
+    return new URL(m[1].replace(/&amp;/g, '&')).searchParams.get('text');
+  };
+
+  it('entrega o título inteiro, com & e tudo, e o link junto', () => {
+    const texto = comTitulo('Turma A & B');
+    expect(texto).toContain('Turma A & B');
+    expect(texto).toContain('/evento');
+  });
+
+  it('sobrevive aos caracteres que quebram uma query string', () => {
+    for (const titulo of ['A & B', 'A ? B', 'A # B', 'A + B', 'A = B', '100% Ana']) {
+      expect(comTitulo(titulo), titulo).toContain(titulo);
+    }
+  });
+
+  it('o atributo href continua sendo HTML válido', () => {
+    // encodeURIComponent resolve a query string mas não fecha o atributo:
+    // ele não escapa aspas. escape() por cima é o que fecha. Os dois juntos,
+    // nessa ordem — nenhum sozinho basta, e é por isso que o teste olha o
+    // conteúdo do href, não a página (o título hostil aparece escapado em
+    // vários outros lugares legítimos da marcação).
+    const html = eventHTML({ ...EVENTO, title: 'A" onmouseover="alert(1)' }, '2026', null, 'NONCE', 'dn', 'ft');
+    const m = html.match(/href="(https:\/\/wa\.me\/[^"]*)"/);
+    expect(m, 'o botão tem de continuar sendo renderizado').not.toBeNull();
+    // O que torna o valor inerte não é a palavra "onmouseover" sumir — ela
+    // continua lá, percent-encoded, e não faz mal nenhum. É a ASPA e o IGUAL
+    // não existirem crus: sem eles o atributo não fecha, e sem fechar o
+    // atributo não há handler nenhum para o browser reconhecer.
+    expect(m[1]).not.toContain('"');
+    expect(m[1]).not.toContain('="');
+    expect(m[1]).toContain('%22');
+    // E o texto chega inteiro do outro lado, literal como foi escrito.
+    expect(new URL(m[1]).searchParams.get('text')).toContain('A" onmouseover="alert(1)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('JSON-LD da página de projeto', () => {
+  // O bloco é serializado por JSON.stringify e depois tem < e > neutralizados.
+  // Passar `escape()` num campo ANTES disso injetava entidade HTML dentro do
+  // JSON: um slug com "&" saía como "&amp;" no item da trilha — uma URL que não
+  // existe, entregue a um buscador como se fosse canônica. O PhotoGallery já
+  // fazia certo; eram os dois blocos discordando sobre o mesmo campo.
+  const ld = ev => {
+    const html = eventHTML(ev, '2026', null, 'NONCE', 'dn', 'ft');
+    const m = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/);
+    return JSON.parse(m[1]);
+  };
+
+  it('não deixa entidade HTML entrar na URL da trilha', () => {
+    // Slug com `&` não passa por `validateSlug`, então ele só chega aqui por
+    // onde a validação não passa: `mergeRestore` grava o slug do backup
+    // verbatim. É por isso que o defeito era invisível — com slug legítimo os
+    // dois blocos coincidem, e só um dado restaurado revela a discordância.
+    const [breadcrumb, gallery] = ld({ ...EVENTO, slug: 'a&b' });
+    const item = breadcrumb.itemListElement[2].item;
+    expect(item).toBe('https://fotos.lucafchala.com/a&b');
+    expect(item, 'entidade HTML não é URL').not.toContain('&amp;');
+    // Trilha e galeria descrevem o MESMO recurso: divergir é o defeito.
+    expect(item).toBe(gallery.url);
+  });
+
+  it('continua sendo JSON parseável com título hostil', () => {
+    const dados = ld({ ...EVENTO, title: '</script><img src=x onerror=alert(1)>' });
+    expect(Array.isArray(dados)).toBe(true);
+    expect(dados[0].itemListElement[2].name).toContain('</script>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('beacon da Web Analytics', () => {
+  // O atributo data-cf-beacon é delimitado por ASPA SIMPLES e JSON.stringify
+  // não escapa `'`. Era a mesma linha copiada na galeria e na página de
+  // projeto — virou função em utils.js justamente porque a correção precisava
+  // valer nas duas, e uma delas ficaria para trás (foi como o leitor de cookie
+  // de sessão divergiu).
+  it('sobrevive a um token com apóstrofo, nas duas páginas', () => {
+    for (const [nome, html] of Object.entries({
+      gallery: galleryHTML([EVENTO], "tok'en", 'NONCE'),
+      event: eventHTML(EVENTO, '2026', "tok'en", 'NONCE', 'dn', 'ft'),
+    })) {
+      const m = html.match(/data-cf-beacon='([^']*)'/);
+      expect(m, `${nome}: o atributo não pode ser quebrado pelo apóstrofo`).not.toBeNull();
+      expect(m[1]).toContain('&#x27;');
+      // Nada escapou do atributo para virar marcação.
+      expect(html).not.toContain("data-cf-beacon='{\"token\":\"tok'");
+    }
+  });
+
+  it('sai da página quando não há token configurado', () => {
+    expect(galleryHTML([EVENTO], null, 'NONCE')).not.toContain('cloudflareinsights');
+    expect(eventHTML(EVENTO, '2026', null, 'NONCE', 'dn', 'ft')).not.toContain('cloudflareinsights');
+  });
+});

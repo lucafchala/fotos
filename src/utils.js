@@ -359,6 +359,42 @@ export function sessionCookie(token, { clear = false } = {}) {
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${SESSION_TTL_SECS}`;
 }
 
+// ÚNICO lugar que decide QUAL token o pedido está apresentando. Existe como
+// função — e não como um regex repetido em cada chamador — porque a precedência
+// entre os dois nomes de cookie É o controle, e ela já foi perdida uma vez:
+// `verifySession` foi corrigida para preferir `__Host-session`, mas o logout e
+// a troca de senha continuaram com o padrão único `(?:__Host-)?session=`, que o
+// `match()` resolve para a PRIMEIRA ocorrência. Em
+// `session=antigo; __Host-session=novo` os três liam tokens diferentes:
+//
+//   • o logout apagava do KV o registro ERRADO — o cookie saía do browser mas a
+//     sessão de verdade seguia aceita até o TTL de 24 h, justamente a revogação
+//     que o logout existe para fazer (ver SECURITY.md);
+//   • a troca de senha preservava o token apontado pelo cookie legado e apagava
+//     o do próprio admin.
+//
+// E o cookie legado é FORJÁVEL: um vizinho de lucafchala.com grava `session=`,
+// mas não `__Host-session` — essa assimetria é a razão de o prefixo existir.
+// Com um leitor só, uma correção vale para todos os chamadores de uma vez.
+/**
+ * @param {string} cookies conteúdo cru do cabeçalho `Cookie`
+ * @returns {string|null} o token de 64 hexadecimais, ou null se não houver
+ */
+export function sessionTokenFromCookie(cookies) {
+  if (typeof cookies !== 'string' || !cookies) return null;
+  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
+             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  return match ? match[1] : null;
+}
+
+/**
+ * @param {Request} request
+ * @returns {string|null}
+ */
+export function sessionTokenFromRequest(request) {
+  return sessionTokenFromCookie(request.headers.get('Cookie') || '');
+}
+
 // Impressão grosseira do cliente. Só User-Agent: IP fica de fora porque
 // celular troca de IP o tempo todo (4G/Wi-Fi) e amarrar a sessão a ele
 // deslogaria o admin no meio de uma edição.
@@ -391,21 +427,11 @@ export function sessionRecord(request) {
  * @param {Request} request
  */
 export async function verifySession(env, request) {
-  const cookies = request.headers.get('Cookie') || '';
+  // Precedência do `__Host-` em `sessionTokenFromCookie()`, que é o leitor
+  // único — ver o comentário lá para o que a divergência custava.
+  const token = sessionTokenFromRequest(request);
+  if (!token) return false;
 
-  // `__Host-session` PRIMEIRO, cookie legado só como fallback. Um padrão único
-  // com `(?:__Host-)?` pega a PRIMEIRA ocorrência de `match()` — em
-  // `session=antigo; __Host-session=novo` isso resolvia para o ANTIGO. Além de
-  // travar em loop quem migrou, era forçável: um host vizinho de
-  // lucafchala.com pode gravar `session=` mas não `__Host-session` (é a
-  // garantia do prefixo) — bastava escrever 64 hexadecimais para derrubar o
-  // painel, o ataque que `__Host-` existe para impedir. Ordem explícita
-  // resolve os dois: o cookie que só nossa origem grava tem precedência.
-  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
-             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
-  if (!match) return false;
-
-  const token = match[1];
   const key = `admin_session:${token}`;
   const raw = await env.FOTOS.get(key);
   if (!raw) return false;
@@ -814,6 +840,26 @@ export function photoPreconnectHTML() {
   return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
 }
 
+// Beacon da Web Analytics da Cloudflare. Era a MESMA linha copiada na galeria e
+// na página de projeto; virou função porque a correção abaixo precisava valer
+// nas duas, e uma delas ficaria para trás — foi assim que o leitor de cookie de
+// sessão divergiu.
+//
+// `escape()` além do `<`: o atributo é delimitado por ASPA SIMPLES e
+// `JSON.stringify` não escapa `'`. Um token com apóstrofo fechava o atributo e
+// o resto virava marcação. O token é secret do dono (CF_ANALYTICS_TOKEN), não
+// entrada de visitante — mas um sink de HTML não deve depender de quem escreve
+// o valor, e a função escapa uma vez para os dois chamadores.
+/**
+ * @param {string|null} token
+ * @param {string} [nonce]
+ */
+export function analyticsBeaconHTML(token, nonce = '') {
+  if (!token) return '';
+  const cfg = JSON.stringify({ token: String(token) }).replace(/</g, '\\u003c');
+  return `<script nonce="${escape(nonce)}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${escape(cfg)}'></script>`;
+}
+
 // ---------------------------------------------------------------------------
 // Cartão de pré-visualização do link (WhatsApp, Telegram, Instagram, Discord…)
 // ---------------------------------------------------------------------------
@@ -964,9 +1010,14 @@ export function formatDatePT(dateStr) {
     'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   ];
+  // Number.isInteger, e não só a faixa: `parseInt('ab', 10)` é NaN, e NaN
+  // reprova as DUAS comparações (`NaN < 1` e `NaN > 12` são ambas falsas), então
+  // a data malformada atravessava o portão e saía como "NaN de undefined de
+  // 2026" na página do projeto. Comparação com NaN nunca é a guarda que parece.
   const m = parseInt(month, 10);
-  if (m < 1 || m > 12) return dateStr;
-  return `${parseInt(day, 10)} de ${months[m - 1]} de ${year}`;
+  const d = parseInt(day, 10);
+  if (!Number.isInteger(m) || m < 1 || m > 12 || !Number.isInteger(d)) return dateStr;
+  return `${d} de ${months[m - 1]} de ${year}`;
 }
 
 // Canonical event ordering: pinned first, then most recent by date
