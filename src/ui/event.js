@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -34,12 +34,26 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
   const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const slugJSON    = JSON.stringify(event.slug || '');
-  const ogImage     = event.comingSoon
-    ? `${SITE_URL}/og-coming-soon.png`
-    : (photos[0] ? sizedDriveThumb(photos[0], 1200) : '');
-  const ogDescription = event.longDescription
-    ? event.longDescription.slice(0, 200).trim()
-    : 'Fotografias de Luca F. Chala.';
+  // Imagem do cartão de link. O PNG de "em breve" tem exatamente OG_IMAGE_W ×
+  // OG_IMAGE_H (ver handleComingSoonOgImage), então nos dois caminhos as
+  // dimensões são conhecidas e o WhatsApp monta o cartão grande.
+  const ogImage = event.comingSoon
+    ? { url: `${SITE_URL}/og-coming-soon.png`, width: OG_IMAGE_W, height: OG_IMAGE_H }
+    : ogImageFor(photos[0]);
+
+  // Fatos que abrem a descrição do cartão, na ordem em que importam a quem
+  // recebe o link: quando foi, com quem foi feito, que tipo de projeto é e se
+  // o acesso é restrito. O crédito vem logo depois da data porque é a primeira
+  // informação que o destinatário procura quando o evento é de uma instituição
+  // — e porque o WhatsApp corta o resto.
+  const restrictedAccess = event.accessType === 'private' || event.accessType === 'family';
+  const ogDescription = previewDescription([
+    event.comingSoon ? 'Em breve' : '',
+    event.date ? formatDatePT(event.date) : '',
+    event.eventCredits ? `Em colaboração com ${event.eventCredits}` : '',
+    event.category || '',
+    restrictedAccess ? 'Acesso restrito' : '',
+  ], event.longDescription || '') || 'Fotografias de Luca F. Chala.';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
@@ -91,25 +105,52 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <meta property="og:title" content="${escape(event.title)}">
-  <meta property="og:description" content="${escape(ogDescription)}">
-  ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
-  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
+  ${socialMetaHTML({
+    title: event.title,
+    description: ogDescription,
+    url: `${SITE_URL}/${event.slug}`,
+    type: 'article',
+    image: ogImage.url,
+    imageAlt: `Foto de ${event.title}`,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
+  ${event.date ? `<meta property="article:published_time" content="${escape(event.date)}">` : ''}
+  <!-- article:author quer o PERFIL, não o nome: /sobre é a página que declara
+       og:type=profile, então o par fecha em vez de repetir a string. -->
+  <meta property="article:author" content="${SITE_URL}/sobre">
   ${fontPreconnectHTML()}
   <link rel="preconnect" href="https://drive.google.com">
   ${photoPreconnectHTML()}
   ${perfBootScript('event', !!analyticsToken, nonce)}
-  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify({
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
-      { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
-      { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${escape(event.slug)}` },
-    ],
-  }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
+  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
+        { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
+        { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${escape(event.slug)}` },
+      ],
+    },
+    // Mesmo conjunto de fatos do cartão de link, na forma que o buscador lê.
+    // creditText (e não contributor) porque o campo do painel aceita tanto
+    // instituição quanto fotógrafo colaborador ou projeto — declarar
+    // Organization onde pode haver Person seria afirmar o que não se sabe.
+    {
+      '@context': 'https://schema.org',
+      '@type': 'PhotoGallery',
+      name: event.title,
+      url: `${SITE_URL}/${event.slug}`,
+      inLanguage: 'pt-BR',
+      description: ogDescription,
+      author: { '@type': 'Person', name: 'Luca F. Chala', url: `${SITE_URL}/sobre` },
+      ...(ogImage.url ? { image: ogImage.url } : {}),
+      ...(event.date ? { datePublished: event.date } : {}),
+      ...(event.eventCredits ? { creditText: event.eventCredits } : {}),
+      ...(event.category ? { genre: event.category } : {}),
+    },
+  ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}

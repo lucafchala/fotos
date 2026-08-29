@@ -3,7 +3,8 @@ import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
   sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
-  errMessage,
+  errMessage, truncateText, previewDescription, ogImageFor, socialMetaHTML,
+  OG_IMAGE_W, OG_IMAGE_H,
 } from '../src/utils.js';
 
 // Build a base64 string from raw bytes (mirrors how the browser sends uploads).
@@ -299,5 +300,124 @@ describe('errMessage', () => {
     expect(errMessage(null)).toBe('null');
     expect(errMessage(undefined)).toBe('undefined');
     expect(errMessage(new Error(''))).toBe('Error');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Cartão de pré-visualização do link
+// ---------------------------------------------------------------------------
+describe('truncateText', () => {
+  it('devolve o texto inteiro quando cabe', () => {
+    expect(truncateText('Formatura', 20)).toBe('Formatura');
+  });
+
+  it('corta no espaço, não no meio da palavra', () => {
+    expect(truncateText('Colação de grau da turma', 18)).toBe('Colação de grau…');
+  });
+
+  it('corta seco quando a última palavra é longa demais para valer o espaço', () => {
+    // Sem a regra dos 60%, uma URL colada na descrição comeria o limite inteiro.
+    expect(truncateText('a https://exemplo.com/uma-url-enorme-mesmo', 20)).toBe('a https://exemplo.c…');
+  });
+
+  it('normaliza espaço em branco', () => {
+    expect(truncateText('  linha um\n\n  linha dois  ', 100)).toBe('linha um linha dois');
+  });
+
+  it('não quebra com valor ausente', () => {
+    expect(truncateText(null, 50)).toBe('');
+    expect(truncateText(undefined, 50)).toBe('');
+  });
+});
+
+describe('previewDescription', () => {
+  it('põe os fatos antes do texto livre', () => {
+    expect(previewDescription(['15 de janeiro de 2026', 'Em colaboração com o Colégio X'], 'Colação de grau.'))
+      .toBe('15 de janeiro de 2026 · Em colaboração com o Colégio X — Colação de grau.');
+  });
+
+  it('descarta fato vazio em vez de emitir separador solto', () => {
+    expect(previewDescription(['', 'Formatura', null, false], '')).toBe('Formatura');
+  });
+
+  it('devolve só o texto quando não há fato nenhum', () => {
+    expect(previewDescription([], 'Fotografias de Luca F. Chala.')).toBe('Fotografias de Luca F. Chala.');
+  });
+
+  it('corta o texto no espaço que sobra depois dos fatos', () => {
+    const out = previewDescription(['2026'], 'palavra '.repeat(60), 60);
+    expect(out.length).toBeLessThanOrEqual(60);
+    expect(out.startsWith('2026 — palavra')).toBe(true);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('deixa a linha de fatos limpa quando não sobra espaço para frase', () => {
+    const facts = ['Em breve', '15 de janeiro de 2026', 'Em colaboração com o Colégio Santa Cruz'];
+    expect(previewDescription(facts, 'Uma descrição que não caberia.', 80))
+      .toBe('Em breve · 15 de janeiro de 2026 · Em colaboração com o Colégio Santa Cruz');
+  });
+});
+
+describe('ogImageFor', () => {
+  it('recorta a capa do Drive no formato do cartão e devolve as dimensões', () => {
+    expect(ogImageFor('https://lh3.googleusercontent.com/d/ABC')).toEqual({
+      url: `https://lh3.googleusercontent.com/d/ABC=w${OG_IMAGE_W}-h${OG_IMAGE_H}-c`,
+      width: OG_IMAGE_W,
+      height: OG_IMAGE_H,
+    });
+  });
+
+  it('troca um dimensionamento anterior pelo do cartão', () => {
+    expect(ogImageFor('https://lh3.googleusercontent.com/d/ABC=w600').url)
+      .toBe(`https://lh3.googleusercontent.com/d/ABC=w${OG_IMAGE_W}-h${OG_IMAGE_H}-c`);
+  });
+
+  it('não inventa dimensão para imagem de outro host', () => {
+    expect(ogImageFor('https://exemplo.com/foto.jpg')).toEqual({
+      url: 'https://exemplo.com/foto.jpg', width: 0, height: 0,
+    });
+  });
+
+  it('rejeita URL sem esquema seguro', () => {
+    expect(ogImageFor('javascript:alert(1)')).toEqual({ url: '', width: 0, height: 0 });
+    expect(ogImageFor('')).toEqual({ url: '', width: 0, height: 0 });
+    expect(ogImageFor(null)).toEqual({ url: '', width: 0, height: 0 });
+  });
+});
+
+describe('socialMetaHTML', () => {
+  const base = { title: 'Evento', description: 'Descrição', url: 'https://fotos.lucafchala.com/evento' };
+
+  it('emite o cartão grande quando as dimensões da imagem são conhecidas', () => {
+    const html = socialMetaHTML({ ...base, image: 'https://img/x=w1200-h630-c', imageWidth: 1200, imageHeight: 630 });
+    expect(html).toContain('<meta property="og:image:width" content="1200">');
+    expect(html).toContain('<meta property="og:image:height" content="630">');
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
+  });
+
+  it('cai para miniatura quando a imagem existe mas o tamanho não é conhecido', () => {
+    const html = socialMetaHTML({ ...base, image: 'https://exemplo.com/foto.jpg' });
+    expect(html).toContain('<meta property="og:image" content="https://exemplo.com/foto.jpg">');
+    expect(html).not.toContain('og:image:width');
+    expect(html).toContain('<meta name="twitter:card" content="summary">');
+  });
+
+  it('omite as tags de imagem inteiras quando não há imagem', () => {
+    const html = socialMetaHTML(base);
+    expect(html).not.toContain('og:image');
+    expect(html).not.toContain('twitter:image');
+  });
+
+  it('usa o título como alt quando nenhum é dado', () => {
+    const html = socialMetaHTML({ ...base, image: 'https://img/x', imageWidth: 1200, imageHeight: 630 });
+    expect(html).toContain('<meta property="og:image:alt" content="Evento">');
+  });
+
+  it('escapa aspas do título e da descrição', () => {
+    const html = socialMetaHTML({ ...base, title: 'Ensaio "Luz"', description: 'a & b' });
+    expect(html).toContain('content="Ensaio &quot;Luz&quot;"');
+    expect(html).toContain('content="a &amp; b"');
+    expect(html).not.toContain('"Luz"');
   });
 });

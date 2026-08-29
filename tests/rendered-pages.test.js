@@ -309,3 +309,119 @@ describe('a própria varredura desta suíte', () => {
     expect(js).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cartão de pré-visualização do link
+// ---------------------------------------------------------------------------
+// O que o destinatário de um link no WhatsApp vê ANTES de tocar. É o cartão,
+// não a página, e ele é montado só a partir do <head> — nenhum script roda no
+// scraper. Como o bloco agora sai de uma função só (socialMetaHTML), o que
+// esta suíte cobre é o que cada página passa para ela: uma página que esqueça
+// de chamá-la volta a ser um link sem cartão, e nada mais no projeto acusaria.
+
+/** @param {string} html */
+function metas(html) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const m of html.matchAll(/<meta\s+(?:property|name)="([^"]+)"\s+content="([^"]*)">/g)) {
+    if (!(m[1] in out)) out[m[1]] = m[2];
+  }
+  return out;
+}
+
+/** Páginas públicas — o painel é noindex e não se compartilha. */
+const PUBLICAS = ['gallery', 'event', 'support', 'privacy', 'terms', 'about', 'gear', 'legal', 'doc'];
+
+describe('cartão de pré-visualização do link', () => {
+  it.each(PUBLICAS)('%s traz título, descrição, url e origem', nome => {
+    const m = metas(paginas()[nome]);
+    expect(m['og:title']).toBeTruthy();
+    expect(m['og:description']).toBeTruthy();
+    expect(m['og:url']).toMatch(/^https:\/\/fotos\.lucafchala\.com\//);
+    expect(m['og:site_name']).toBe('fotos · Luca F. Chala');
+    expect(m['og:locale']).toBe('pt_BR');
+    expect(m['twitter:card']).toBeTruthy();
+  });
+
+  it.each(PUBLICAS)('%s repete a descrição do cartão na meta description', nome => {
+    // Um texto só para busca e compartilhamento: separados, um envelhece
+    // sozinho sem que nada acuse.
+    const m = metas(paginas()[nome]);
+    expect(m.description).toBe(m['og:description']);
+  });
+
+  it.each(PUBLICAS)('a descrição de %s cabe no que um scraper mostra', nome => {
+    expect(metas(paginas()[nome])['og:description'].length).toBeLessThanOrEqual(300);
+  });
+
+  it('a página do projeto abre o cartão pelos fatos, com o colaborador logo após a data', () => {
+    const m = metas(eventHTML(
+      { ...EVENTO, eventCredits: 'Colégio Santa Cruz', longDescription: 'Colação de grau.' },
+      '2026', null, 'NONCE', 'nonce-drive', 'form-token',
+    ));
+    expect(m['og:description']).toBe(
+      '15 de janeiro de 2026 · Em colaboração com Colégio Santa Cruz · Casamento — Colação de grau.',
+    );
+  });
+
+  it('a página do projeto anuncia acesso restrito', () => {
+    const m = metas(eventHTML({ ...EVENTO, accessType: 'family' }, '2026', null, 'N', 'nd', 'ft'));
+    expect(m['og:description']).toContain('Acesso restrito');
+  });
+
+  it('a página do projeto não promete acesso restrito quando é público', () => {
+    const m = metas(eventHTML(EVENTO, '2026', null, 'N', 'nd', 'ft'));
+    expect(m['og:description']).not.toContain('Acesso restrito');
+  });
+
+  it('a capa do projeto vai recortada no formato do cartão, com as dimensões declaradas', () => {
+    // Sem width/height o WhatsApp precisa baixar a imagem para medir e, quando
+    // o download demora, cai na miniatura quadrada em vez do cartão grande.
+    const m = metas(eventHTML(EVENTO, '2026', null, 'N', 'nd', 'ft'));
+    expect(m['og:image']).toBe('https://lh3.googleusercontent.com/d/AAA=w1200-h630-c');
+    expect(m['og:image:width']).toBe('1200');
+    expect(m['og:image:height']).toBe('630');
+    expect(m['og:image:alt']).toBe('Foto de Evento');
+    expect(m['twitter:card']).toBe('summary_large_image');
+  });
+
+  it('um projeto "em breve" usa o PNG próprio, do mesmo tamanho', () => {
+    const m = metas(eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'N', 'nd', 'ft'));
+    expect(m['og:image']).toBe('https://fotos.lucafchala.com/og-coming-soon.png');
+    expect(m['og:image:width']).toBe('1200');
+    expect(m['og:description']).toMatch(/^Em breve/);
+  });
+
+  it('um projeto sem foto nenhuma sai sem tag de imagem, não com tag vazia', () => {
+    const m = metas(eventHTML(
+      { ...EVENTO, photos: [], thumbnailUrl: '' }, '2026', null, 'N', 'nd', 'ft',
+    ));
+    expect(m['og:image']).toBeUndefined();
+    expect(m['twitter:card']).toBe('summary');
+  });
+
+  it('a home resume o acervo em vez de repetir o título', () => {
+    const m = metas(galleryHTML([EVENTO], null, 'NONCE'));
+    expect(m['og:description']).toContain('1 projeto');
+    expect(m['og:description']).toContain('Casamento');
+  });
+
+  it('o JSON-LD do projeto carrega os mesmos fatos do cartão', () => {
+    const { jsonld } = blocos(eventHTML(
+      { ...EVENTO, eventCredits: 'Colégio Santa Cruz' }, '2026', null, 'NONCE', 'nd', 'ft',
+    ));
+    const galeria = JSON.parse(jsonld[0]).find(n => n['@type'] === 'PhotoGallery');
+    expect(galeria.creditText).toBe('Colégio Santa Cruz');
+    expect(galeria.datePublished).toBe('2026-01-15');
+    expect(galeria.genre).toBe('Casamento');
+    expect(galeria.author.name).toBe('Luca F. Chala');
+  });
+
+  it('título e descrição do cartão saem escapados', () => {
+    const m = metas(eventHTML(
+      { ...EVENTO, title: 'Ensaio "Luz"', eventCredits: '<b>X</b>' }, '2026', null, 'N', 'nd', 'ft',
+    ));
+    expect(m['og:title']).toBe('Ensaio &quot;Luz&quot;');
+    expect(m['og:description']).toContain('&lt;b&gt;X&lt;/b&gt;');
+  });
+});

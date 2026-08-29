@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -109,10 +109,20 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       </div>`
     : '';
 
-  const ogImage = (() => {
-    const e = visible.find(ev => ev.thumbnailUrl && !ev.comingSoon);
-    return e ? sizedDriveThumb(e.thumbnailUrl, 1200) : '';
-  })();
+  // Capa do cartão de link: a primeira foto de projeto já entregue — a de um
+  // "em breve" é a versão borrada, que como miniatura de compartilhamento não
+  // diz nada.
+  const ogImage = ogImageFor((visible.find(ev => ev.thumbnailUrl && !ev.comingSoon) || {}).thumbnailUrl);
+
+  // O cartão da home mostra o tamanho e o alcance do acervo em vez de repetir
+  // o título: quantos projetos, de que tipo e de que período.
+  const ogYears = [...new Set(visible.map(yearOf))].sort();
+  const ogPeriod = ogYears.length > 1 ? `${ogYears[0]}–${ogYears[ogYears.length - 1]}` : (ogYears[0] || '');
+  const ogDescription = previewDescription([
+    visible.length > 0 ? `${visible.length} ${visible.length === 1 ? 'projeto' : 'projetos'}` : '',
+    presentCats.slice(0, 4).join(', '),
+    ogPeriod,
+  ], 'Formaturas, casamentos, ensaios e eventos por Luca F. Chala.');
 
   const ldItems = visible.slice(0, 12).map((e, i) => ({
     '@type': 'ListItem',
@@ -139,7 +149,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>fotos · Luca F. Chala</title>
-  <meta name="description" content="Galeria de fotos de Luca F. Chala">
   <link rel="canonical" href="${SITE_URL}/">
   <!-- Google Search Console verification: replace VERIFICATION_CODE with your GSC meta tag -->
   <!-- <meta name="google-site-verification" content="VERIFICATION_CODE"> -->
@@ -151,12 +160,15 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="fotos · Luca F. Chala">
-  <meta property="og:description" content="Galeria de fotos de Luca F. Chala">
-  <meta property="og:url" content="${SITE_URL}/">
-  ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
-  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
+  ${socialMetaHTML({
+    title: 'fotos · Luca F. Chala',
+    description: ogDescription,
+    url: `${SITE_URL}/`,
+    image: ogImage.url,
+    imageAlt: 'Galeria de fotos de Luca F. Chala',
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonLd}</script>` : ''}
   ${fontPreconnectHTML()}
   ${photoPreconnectHTML()}

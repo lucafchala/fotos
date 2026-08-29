@@ -1,4 +1,4 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 import { renderMarkdown } from './markdown.js';
 import { LEGAL_DOCS } from '../content/legal-docs.js';
 
@@ -36,12 +36,13 @@ export function docHTML(doc) {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(doc.title)} · fotos</title>
-  <meta name="description" content="${escape(doc.summary)}">
   <link rel="canonical" href="${SITE_URL}/legal/${escape(doc.slug)}">
-  <meta property="og:type" content="article">
-  <meta property="og:title" content="${escape(doc.title)} · fotos">
-  <meta property="og:description" content="${escape(doc.summary)}">
-  <meta property="og:url" content="${SITE_URL}/legal/${escape(doc.slug)}">
+  ${socialMetaHTML({
+    type: 'article',
+    title: `${doc.title} · fotos`,
+    description: doc.summary,
+    url: `${SITE_URL}/legal/${doc.slug}`,
+  })}
   ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
