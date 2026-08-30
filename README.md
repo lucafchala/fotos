@@ -23,6 +23,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Verificação (rodar o site de verdade)](./docs/VERIFICACAO.md)
 - [Configuração (KV, secrets, env vars)](#configuração-kv-secrets-env-vars)
 - [Deploy](#deploy)
+  - [Migrações do D1](#migrações-do-d1)
 - [Estrutura de arquivos](#estrutura-de-arquivos)
 - [Modelo de dados (KV)](#modelo-de-dados-kv)
 - [Rotas HTTP](#rotas-http)
@@ -292,17 +293,74 @@ uma versão nova.
 | --- | --- | --- |
 | 1 | `npm ci` + versão do wrangler derivada de `node_modules` | A produção sobe pela versão que os testes usaram |
 | 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
-| 3 | `d1 migrations apply` | Schema existe antes de o código novo servir qualquer requisição |
-| 4 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; ela ganha URL de preview própria |
-| 5 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão.** 39 checagens contra a versão real, antes de qualquer cliente |
-| 6 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
-| 7 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
-| 8 | `scripts/smoke.sh <produção>` | Confirma a promoção |
-| 9 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
+| 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
+| 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
+| 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; ela ganha URL de preview própria |
+| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão.** 39 checagens contra a versão real, antes de qualquer cliente |
+| 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
+| 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
+| 9 | `scripts/smoke.sh <produção>` | Confirma a promoção |
+| 10 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
 
 O resumo do job (aba **Actions** → run → topo) responde "o que foi para
 produção e passou?" sem abrir log de step nenhum: commit, ID da versão, URL de
 preview, tabela de todas as checagens, tag criada.
+
+#### O que a primeira execução real ensinou
+
+O pipeline acima estreou no merge do PR #108 e **falhou de propósito**, no
+lugar certo: o `versions upload` funcionou, mas a Cloudflare não devolveu URL
+de preview, e o portão recusou promover uma versão que não pôde verificar.
+Produção seguiu servindo a versão anterior. Três defeitos vieram junto, e todos
+estão corrigidos:
+
+| Defeito | Por que passou despercebido | Correção |
+| --- | --- | --- |
+| Preview URLs desligadas no Worker | `preview_urls` é configuração **não-versionada**: `versions upload` só a lê, e com a chave ausente do `wrangler.toml` o valor do servidor prevalecia para sempre | `preview_urls = true` no `wrangler.toml` + passo que garante e **confere** o estado pela API antes de subir a versão |
+| As mensagens de erro do portão nunca chegaram ao log | `grep` sem correspondência sai com 1; com `pipefail` e o `bash -e` do runner, o step morria **na atribuição**, antes dos `echo ::error` escritos para exatamente este caso | `\|\| true` na atribuição, e o shell dos workflows passou a ser conferido no `checks.yml` |
+| A regex casava com qualquer `*.workers.dev` | Incluindo a rota de **produção** — se as Preview URLs estivessem ligadas, o "portão" teria testado produção e aprovado a si mesmo | Ancorado no rótulo `Version Preview URL:`, com o formato `<8-hex>-<worker>` como reserva |
+
+E um quarto, que o portão só tornou visível: `d1 migrations apply` falhava com
+`duplicate column name: access_type` **em todo deploy desde 09/08**, engolido
+por um `continue-on-error`. Detalhe em [Migrações do D1](#migrações-do-d1).
+
+### Migrações do D1
+
+`scripts/d1-migrate.mjs` substituiu a chamada direta ao
+`wrangler d1 migrations apply`, por um motivo concreto.
+
+Cada migração é enviada como *o conteúdo do arquivo* seguido do
+`INSERT INTO d1_migrations`, tudo numa requisição — e o `/query` do D1 não é
+transacional entre comandos. Uma execução que aplique o primeiro `ALTER TABLE`
+e morra no segundo deixa a coluna no banco e **nada** no livro-razão. A partir
+daí toda tentativa recomeça do primeiro `ALTER` e morre nele.
+
+O custo não é o vermelho no log. É que `migrations apply` processa os arquivos
+em ordem e para no primeiro erro: com a `0002` travada, uma `0003` nunca seria
+aplicada — a próxima mudança de esquema entraria em produção sem o esquema, e o
+sintoma apareceria num `INSERT`, em runtime.
+
+O script **retoma** a migração em vez de repeti-la. Para cada comando
+pendente ele pergunta ao banco se aquele efeito já existe
+(`SELECT "coluna" FROM "tabela" LIMIT 0` dá erro se, e somente se, a coluna
+faltar), executa só o que falta — o comando original do arquivo, não um SQL
+inventado — e só então registra o arquivo. Comando cujo efeito ele não saiba
+verificar (`DROP`, `RENAME`, `UPDATE`, gatilho, view) faz o script **parar** e
+dizer qual é: marcar como aplicada uma migração que não foi seria pior que o
+problema original. A classificação é testada em `tests/d1-migrate.test.js`,
+inclusive contra as migrações reais do repositório.
+
+E o desfecho deixou de ser binário:
+
+| Saída | Situação | Efeito no deploy |
+| --- | --- | --- |
+| `0` | Esquema no lugar | Segue |
+| `75` | Indeterminado (rede, API, credencial) | Segue **com aviso** — entregar foto não pode depender do log de consentimento |
+| `1` | Esquema quebrado ou irrecuperável | **Para**, antes de qualquer promoção |
+
+O caso `1` é o que o `continue-on-error` escondia: promover código que grava
+consentimento numa tabela sem as colunas perde, em silêncio, a prova de
+autorização de uso de imagem.
 
 ### 2. Rodar o smoke você mesmo, antes de empurrar
 
@@ -413,19 +471,25 @@ fotos/
 │       ├── termo-autorizacao-uso-imagem.md
 │       └── checklist-conformidade.md
 ├── scripts/
-│   └── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
+│   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
+│   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests (+ cabeçalhos, CSRF, nonce)
-│       ├── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
+│       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
+│       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
-├── tests/                  ← Vitest (211 testes)
+├── tests/                  ← Vitest (509 testes)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
 │   ├── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha, os 5 sendXEmail()
 │   ├── healthz.test.js     ← handleHealthz, scheduled(), login (rate-limit/cookie), render de /sobre e /equipamentos
-│   └── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   ├── d1-migrate.test.js  ← o que o retomador de migração aceita e, sobretudo, o que ele RECUSA
+│   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
+│   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION

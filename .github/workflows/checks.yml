@@ -75,10 +75,18 @@ jobs:
       # O smoke virou script de verdade (scripts/smoke.sh), então passa a ter as
       # mesmas exigências de qualquer código do repositório: precisa ao menos
       # ser sintaticamente válido antes de alguém depender dele num deploy.
-      - name: Sintaxe dos scripts de shell
+      #
+      # E o shell dos WORKFLOWS entra junto. Ele era o único código executável
+      # do repositório sem verificação nenhuma — e foi exatamente ali que um
+      # defeito passou: no deploy.yml, um `grep` sem correspondência combinado
+      # com `pipefail` e o `bash -e` do runner matava o step antes das próprias
+      # mensagens de erro. Um bloco `run:` é código; recebe o mesmo tratamento.
+      - name: Sintaxe do shell (scripts e workflows)
         run: |
           set -e
           for f in scripts/*.sh; do bash -n "$f" && echo "OK $f"; done
+          python3 -c 'import yaml' 2>/dev/null || pip install --quiet pyyaml
+          python3 scripts/verifica-shell-dos-workflows.py
 
       - name: Validate JSON files
         run: |
