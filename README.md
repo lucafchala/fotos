@@ -295,7 +295,7 @@ uma versão nova.
 | 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
 | 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
-| 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; ela ganha URL de preview própria |
+| 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
 | 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão.** 39 checagens contra a versão real, antes de qualquer cliente |
 | 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
 | 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
@@ -323,6 +323,40 @@ estão corrigidos:
 E um quarto, que o portão só tornou visível: `d1 migrations apply` falhava com
 `duplicate column name: access_type` **em todo deploy desde 09/08**, engolido
 por um `continue-on-error`. Detalhe em [Migrações do D1](#migrações-do-d1).
+
+#### E o que a segunda ensinou
+
+O run #136 passou pelas migrações e pelas Preview URLs, e parou de novo no
+upload — pelo mesmo sintoma, por uma causa diferente e mais fundamental.
+
+O passo novo leu o estado do servidor e confirmou `previews_enabled: true`,
+antes **e** depois. Mesmo assim o wrangler não imprimiu a URL. A explicação está
+nas duas condições que ele exige:
+
+```js
+if (versionId && hasPreview) {                       // hasPreview = metadata.has_preview
+  const { previews_enabled } = await fetch(`${worker}/subdomain`);
+  if (previews_enabled) { … }                        // este estava true
+}
+```
+
+Quem barra é `hasPreview`, que vem de `metadata.has_preview` na resposta do
+upload e é decidido **inteiramente do lado do servidor**: não há flag do
+wrangler nem chave de configuração que o mude. Esperar por ele é esperar por
+algo que não controlamos.
+
+Só que a URL é **derivável**. O próprio wrangler a monta como
+`https://<8 primeiros do id>-<worker>.<subdominio>.workers.dev`, e o subdomínio
+sai de `GET /accounts/<id>/workers/subdomain`. Então o workflow passou a
+construí-la — e, o que importa, a **provar** que ela responde antes de aceitá-la.
+Uma URL construída que não responde é descartada como se não existisse.
+
+Derivar-e-provar é evidência melhor que a flag que estávamos esperando:
+`has_preview` diz o que a API acha; um 200 diz o que existe.
+
+E o desfecho do (4) foi o melhor possível: as duas colunas responderam
+**`já estava:`**. Não havia perda de registro de consentimento — só o
+livro-razão desatualizado. Depois do conserto, `✅ No migrations to apply!`.
 
 ### Migrações do D1
 

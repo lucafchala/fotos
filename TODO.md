@@ -198,14 +198,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
       confirmar se o Analytics Engine está disponível no plano gratuito — as
       fontes divergem e historicamente ele exigia o Workers Paid, o que sob a
       política de ficar no gratuito encerra o assunto.
-- [ ] **Confirmar em produção o retomador de migração do D1.** O
-      `scripts/d1-migrate.mjs` foi exercitado contra as migrações reais em
-      teste, mas o caminho que importa — retomar a `0002` pela metade no banco
-      de verdade — só roda no primeiro deploy depois deste. Conferir no resumo
-      do job se ele diz `aplicado:` (faltava a coluna `declaration_text`, e o
-      registro de consentimento vinha falhando calado) ou `já estava:` (só o
-      livro-razão estava desatualizado). As duas respostas são informação; a
-      primeira é um incidente que ninguém tinha visto.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente, e é
@@ -389,6 +381,26 @@ Duas consequências práticas:
 Vale junto com *Etapa de CI que nunca chegou a rodar não é etapa que passa*:
 lá, a primeira falha escondia as seguintes; aqui, escondia a explicação da
 própria falha.
+
+### Não espere por um sinal que você não controla — derive e prove
+
+O portão de preview travou duas vezes esperando o wrangler IMPRIMIR a URL. Na
+segunda, `previews_enabled` já estava `true` (lido e confirmado no servidor,
+antes e depois) e mesmo assim nada foi impresso: quem barrava era
+`metadata.has_preview`, campo da resposta do upload decidido só do lado do
+servidor, sem flag nem configuração que o altere.
+
+Enquanto a condição de avanço foi "a ferramenta me contou", o pipeline ficou
+refém de uma decisão que não era nossa. A saída não foi insistir nem afrouxar o
+portão: foi **derivar** a URL da mesma fórmula que o wrangler usa e **provar**
+que ela responde antes de aceitá-la — descartando-a se não responder.
+
+A regra geral: quando um passo depende de um sinal que outro sistema pode
+simplesmente não emitir, procure o que dá para **construir e verificar por
+conta própria**. Verificação de primeira mão vale mais que a flag de metadados
+que você estava esperando — uma diz o que a API acha, a outra diz o que existe.
+Só não vale trocar "esperar o sinal" por "supor o sinal": construir sem provar
+seria pior que o problema original, porque o portão continuaria verde.
 
 ### Regex de URL num log casa com a URL errada
 

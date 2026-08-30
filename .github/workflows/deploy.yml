@@ -280,54 +280,89 @@ jobs:
             exit 1
           fi
 
-          # A URL de preview é o portão inteiro. Se ela não vier, NÃO seguimos
-          # em frente "sem testar" — isso reintroduziria exatamente o fluxo que
-          # este workflow existe para eliminar.
+          # O ID da versão sai do próprio upload — a linha `Worker Version ID:`
+          # que o wrangler imprime depois de `Uploaded fotos`. É o MESMO
+          # identificador que `versions deploy <id>@100` aceita, e é também a
+          # raiz da URL de preview, então ele vem primeiro.
           #
-          # Ancorado no rótulo exato que o wrangler imprime
-          # (`Version Preview URL: …`), com o formato da URL como reserva. A
-          # regex solta de antes casava com QUALQUER endereço workers.dev na
-          # saída — inclusive o da rota de produção, que teria feito o smoke
-          # aprovar a versão errada e o portão passar a existir só no nome.
-          #
-          # E o `|| true` não é adorno: `grep` sem correspondência sai com 1, e
-          # o runner roda este bloco com `bash -e` MAIS o `pipefail` acima.
-          # Sem ele, a ausência da URL matava o step NA ATRIBUIÇÃO — foi por
-          # isso que, na primeira execução real, o log trouxe só
-          # "Process completed with exit code 1" e nenhuma das duas mensagens
-          # abaixo, escritas justamente para este caso.
-          PREVIEW=$(sed -n 's/^[[:space:]]*Version Preview URL:[[:space:]]*//p' "$SAIDA" | head -1 || true)
-          if [ -z "$PREVIEW" ]; then
-            PREVIEW=$(grep -oE 'https://[0-9a-f]{8}-[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev' "$SAIDA" | head -1 || true)
-          fi
-          if [ -z "$PREVIEW" ]; then
-            echo "::error::O upload funcionou, mas não veio URL de preview — então não há o que verificar, e não promovemos."
-            echo "::error::O passo 'Garantir Preview URLs ligadas' deveria ter resolvido isto. Se ele passou e a URL ainda não vem, o Worker pode não suportar preview (metadata.has_preview) — confira em Settings → Domains & Routes."
-            exit 1
-          fi
-          echo "Preview: $PREVIEW"
-          echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
-          echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-
-          # O ID da versão sai do próprio upload — é a linha `Worker Version ID:`
-          # que o wrangler imprime logo depois de `Uploaded fotos`, confirmada na
-          # saída real do run #135. É o MESMO identificador que
-          # `versions deploy <id>@100` aceita.
-          #
-          # Vale mais que procurá-lo depois por etiqueta: aqui não há dúvida de
-          # QUAL versão é — é a que este step acabou de subir, não uma que casou
-          # com um filtro. A busca por etiqueta continua existindo no passo
-          # seguinte, como reserva.
+          # UUID conferido por inteiro, não por "parece um UUID": este valor vai
+          # direto para uma promoção.
           ID=$(sed -n 's/^[[:space:]]*Worker Version ID:[[:space:]]*//p' "$SAIDA" | head -1 | tr -d '[:space:]' || true)
-          # UUID conferido por inteiro, e não por "parece um UUID": este valor
-          # vai direto para `versions deploy <id>@100`. Se não casar, o passo
-          # seguinte tenta pela etiqueta em vez de promover um lixo qualquer.
           if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
             echo "version_id=$ID" >> "$GITHUB_OUTPUT"
             echo "Versão: $ID"
           else
             echo "A linha 'Worker Version ID' não trouxe um UUID (veio: '$ID'). O passo seguinte resolve pela etiqueta."
+            ID=""
           fi
+
+          # ---------------------------------------------------------------
+          # A URL de preview — construída e depois PROVADA
+          # ---------------------------------------------------------------
+          # O run #136 mostrou que esperar o wrangler IMPRIMIR a URL não basta.
+          # Ele só imprime sob duas condições:
+          #
+          #     if (versionId && hasPreview) {
+          #       const { previews_enabled } = await fetch(`${worker}/subdomain`);
+          #       if (previews_enabled) { … }
+          #     }
+          #
+          # `previews_enabled` estava `true` (o passo anterior leu e confirmou,
+          # antes e depois). Logo quem barra é `hasPreview`, que vem de
+          # `metadata.has_preview` na RESPOSTA DO UPLOAD e é decidido inteiramente
+          # do lado do servidor — não há flag do wrangler nem chave de
+          # configuração que o mude. Esperar por ele é esperar por algo que não
+          # controlamos.
+          #
+          # Mas a URL é derivável: o próprio wrangler a monta como
+          # `https://<8 primeiros do id>-<worker>.<subdominio>.workers.dev`, e o
+          # subdomínio da conta sai de `GET /accounts/<id>/workers/subdomain`.
+          #
+          # Derivar não é adivinhar, porque não paramos na construção: a URL só
+          # é aceita depois de RESPONDER. Uma URL construída que não responde não
+          # é portão nenhum, e aqui ela é descartada como se não existisse. Isso
+          # é prova melhor que a flag de metadados que estávamos esperando —
+          # `has_preview` diz o que a API acha; um 200 diz o que existe.
+          PREVIEW=$(sed -n 's/^[[:space:]]*Version Preview URL:[[:space:]]*//p' "$SAIDA" | head -1 || true)
+
+          if [ -z "$PREVIEW" ] && [ -n "$ID" ]; then
+            echo "O wrangler não imprimiu a URL de preview. Construindo a partir do ID e testando."
+            SUB=$(curl -s --max-time 20 \
+                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+                  | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{const r=JSON.parse(b);console.log((r&&r.result&&r.result.subdomain)||"")}catch{console.log("")}})' || true)
+            if [ -z "$SUB" ]; then
+              echo "::error::Não consegui descobrir o subdomínio workers.dev da conta (GET /accounts/../workers/subdomain)."
+            else
+              CANDIDATA="https://${ID:0:8}-${WORKER_NAME}.${SUB}.workers.dev"
+              echo "Candidata: $CANDIDATA"
+              # `/api/healthz` responde 200 mesmo com `ok:false` (jsonOk), então
+              # 200 aqui significa ALCANÇÁVEL, não SAUDÁVEL — que é exatamente a
+              # pergunta deste laço. Quem julga a saúde é o smoke, logo adiante.
+              for i in $(seq 1 20); do
+                CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$CANDIDATA/api/healthz" || true)
+                if [ "$CODE" = "200" ]; then
+                  PREVIEW="$CANDIDATA"
+                  echo "respondeu 200 na tentativa $i"
+                  break
+                fi
+                sleep 3
+              done
+              if [ -z "$PREVIEW" ]; then
+                echo "::error::A URL construída não respondeu 200 em ~60s: $CANDIDATA"
+                echo "::error::Último status visto: ${CODE:-nenhum}. Abra essa URL no navegador para ver o que a Cloudflare devolve."
+              fi
+            fi
+          fi
+
+          if [ -z "$PREVIEW" ]; then
+            echo "::error::Sem URL de preview não há o que verificar — e produção NÃO é tocada, que é o desenho deste workflow."
+            echo "::error::Caminho deliberado para publicar mesmo assim: Actions → Deploy → Run workflow com 'unversioned: true'. Ele usa 'wrangler deploy' e ABRE MÃO do portão de preview NESTE deploy, dizendo isso no resumo."
+            exit 1
+          fi
+          echo "Preview: $PREVIEW"
+          echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
+          echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       # Resolve a etiqueta para o ID pela API, e não por regex no stdout: o ID
       # é o que `versions deploy` aceita, e `versions list --json` é contrato
