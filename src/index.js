@@ -1405,7 +1405,7 @@ export async function handleChangePassword(request, env, ctx) {
  * @param {Request} request
  * @param {Env} env
  */
-async function handleRemovalRequest(request, env) {
+export async function handleRemovalRequest(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
   if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
@@ -1507,8 +1507,20 @@ async function handleRemovalRequest(request, env) {
     return jsonErr('Número de telefone inválido (inclua o DDD).', 400);
   }
 
-  const events = await getEvents(env);
-  const event  = events.find(e => e.slug === eventSlug);
+  // O título do projeto é enfeite no registro: quem identifica o evento é o
+  // `eventSlug`, já validado acima, e `eventTitle` cai nele quando não há
+  // título. `getEvents` propaga a falha de leitura quando o KV cai sem cópia
+  // no isolate nem na Cache API — e propagar AQUI derrubaria o pedido inteiro
+  // por causa de um campo cosmético.
+  let event = null;
+  try {
+    event = (await getEvents(env)).find(e => e.slug === eventSlug) || null;
+  } catch {
+    noteDegraded(
+      'pedido de remoção sem título do projeto',
+      'a lista de projetos não pôde ser lida; o registro ficou com o slug'
+    );
+  }
 
   const req = {
     id:         generateId(),
@@ -1525,30 +1537,72 @@ async function handleRemovalRequest(request, env) {
     createdAt:  new Date().toISOString(),
   };
 
-  // Store request (without binary file)
-  const stored = await getRemovalRequests(env);
-  // Defensive retention: drop resolved requests past the window even if the
-  // daily cron has not run yet.
-  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const requests = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
-    ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
-    : true);
-  // Keep a reference to the new record: trimRequests() below reorders the
-  // array, so writing emailStatus onto this reference (not an index) is what
-  // makes it persist regardless of where it ends up. Binário nunca vai para
-  // KV — só viaja no e-mail; `photoMeta` guarda se a limpeza funcionou.
+  // Hold a reference to the new record: the MAX_REQUESTS trim below reorders the
+  // array, so we can't rely on it staying last. The trim always keeps it (it's
+  // unresolved), and writing email statuses onto this reference persists because
+  // the same object is still inside `requests` when re-serialized.
+  // O binário nunca é gravado em KV — só viaja no e-mail. `photoMeta` guarda o
+  // resultado da limpeza para que, ao revisar o pedido, dê para saber se a foto
+  // chegou sem metadado ou se o formato não permitiu tratar.
+  // `emailStatus`/`confirmEmailStatus` são preenchidos DEPOIS, pelos dois
+  // envios abaixo, e ficam gravados no registro para o painel mostrar por que
+  // um pedido não gerou aviso. Declarados aqui porque a forma inferida do
+  // literal não os inclui — e sem isso a checagem de tipos não enxerga campos
+  // que o painel lê.
   /** @type {Record<string, any> & { emailStatus?: string, confirmEmailStatus?: string|null }} */
   const newReq = { ...req, fileBase64: null, photoMeta };
-  requests.push(newReq);
 
-  const MAX_REQUESTS = 500;
-  trimRequests(requests, MAX_REQUESTS);
+  // Store request (without binary file).
+  //
+  // A PARTIR DAQUI O PEDIDO É VÁLIDO E O TITULAR JÁ FEZ A PARTE DELE. Ele é
+  // registrado por duas vias independentes: o KV, que alimenta o painel, e o
+  // e-mail, que é o que faz alguém agir dentro do prazo. Só a primeira depende
+  // do KV — e uma queda de KV mandava para o `catch` do roteador, que devolve a
+  // página 500 genérica: o pedido sumia, sem aviso a ninguém, e quem exercia um
+  // direito da LGPD via "algo deu errado" e nada mais. Perder pedido de titular
+  // por indisponibilidade de banco é negar o direito por motivo nosso.
+  //
+  // `requests === null` daqui para baixo quer dizer "não está gravado": o
+  // e-mail passa a ser o único registro, e a resposta ao titular diz a verdade
+  // sobre isso em vez de fingir 500 ou fingir sucesso.
+  /** @type {Record<string, any>[]|null} */
+  let requests = null;
+  try {
+    const stored = await getRemovalRequests(env);
+    // Defensive retention: drop resolved requests past the window even if the
+    // daily cron has not run yet.
+    const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
+    /** @type {Record<string, any>[]} */
+    const lista = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
+      ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
+      : true);
+    lista.push(newReq);
 
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+    const MAX_REQUESTS = 500;
+    trimRequests(lista, MAX_REQUESTS);
 
-  // O pedido já está gravado acima; o AVISO é o que faz alguém agir dentro do
-  // prazo legal. Falha vai para noteDegraded (healthz/painel de status).
-  // Os dois envios não dependem um do outro — em paralelo em vez de em série.
+    await env.FOTOS.put('removal_requests', JSON.stringify(lista));
+    // Só depois da escrita: `requests` deixar de ser null é exatamente o que
+    // significa "este pedido está gravado", e é o que o resto da função lê.
+    requests = lista;
+  } catch (err) {
+    noteDegraded(
+      'pedido de remoção não gravado no painel',
+      'o KV recusou a leitura ou a escrita. O pedido segue só por e-mail e NÃO aparece no painel',
+      err
+    );
+  }
+
+  // Send notification to admin.
+  //
+  // O AVISO é o que faz alguém agir dentro do prazo, e um pedido de remoção é
+  // exercício de direito do titular, com relógio correndo. Falhar aqui deixava
+  // o pedido parado no painel esperando que o dono resolvesse abrir a tela por
+  // conta própria. Vai para o registro de degradações, que o healthz publica e
+  // o painel de status transforma em alerta.
+  //
+  // Os dois envios não dependem um do outro — vão em paralelo, e o aviso ao
+  // dono não espera a confirmação ao titular para sair.
   const [adminMail, confirmMail] = await Promise.allSettled([
     sendRemovalEmail(env, req),
     sendConfirmationEmail(env, req),
@@ -1560,7 +1614,9 @@ async function handleRemovalRequest(request, env) {
     if (!sent) {
       noteDegraded(
         'pedido de remoção sem aviso por e-mail',
-        'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
+        requests
+          ? 'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
+          : 'RESEND_API_KEY não configurada E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
       );
     }
   } else {
@@ -1570,7 +1626,9 @@ async function handleRemovalRequest(request, env) {
     newReq.emailStatus = 'error: ' + errMessage(adminMail.reason).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
-      'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
+      requests
+        ? 'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
+        : 'o envio falhou E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
     );
   }
 
@@ -1578,9 +1636,41 @@ async function handleRemovalRequest(request, env) {
     ? (confirmMail.value ? 'sent' : null)
     : 'error: ' + errMessage(confirmMail.reason).slice(0, 200);
 
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  // Segunda gravação: só para carimbar o status dos dois envios no registro.
+  // Se ela falhar, o pedido em si continua gravado pela primeira — o que se
+  // perde é a explicação de por que um pedido não gerou aviso, e isso não vale
+  // um erro na cara de quem pediu a remoção.
+  if (requests) {
+    try {
+      await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+    } catch (err) {
+      noteDegraded(
+        'status de e-mail do pedido de remoção não gravado',
+        'o pedido está salvo, mas sem o campo que diz se o aviso saiu',
+        err
+      );
+    }
+  }
 
-  return jsonOk({ ok: true });
+  if (requests) return jsonOk({ ok: true });
+
+  // KV fora: o e-mail é o único registro que existe deste pedido. Se ele saiu,
+  // o pedido chegou a quem tem de agir e o titular recebeu confirmação — o
+  // resultado que interessa aconteceu, e um erro aqui só levaria a pessoa a
+  // reenviar tudo de novo. `stored: false` não muda nada no cliente; existe
+  // para o diagnóstico saber que este pedido não passou pelo painel.
+  if (newReq.emailStatus === 'sent') return jsonOk({ ok: true, stored: false });
+
+  // Nem KV nem e-mail: aqui o pedido realmente não existe em lugar nenhum, e
+  // fingir sucesso seria o pior desfecho possível — a pessoa iria embora
+  // achando que exerceu um direito que ninguém registrou. 503, e o caminho que
+  // não depende de nada nosso.
+  return jsonErr(
+    'Não consegui registrar seu pedido agora — é uma falha temporária do sistema, não do que você preencheu. ' +
+    'Tente de novo em alguns minutos ou escreva direto para privacidade@lucafchala.com; ' +
+    'o prazo de resposta conta a partir do seu e-mail.',
+    503
+  );
 }
 
 // Cap stored removal requests: keep every unresolved request, plus the most
