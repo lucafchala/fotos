@@ -355,13 +355,42 @@ jobs:
             fi
           fi
 
+          # ------------------------------------------------------------------
+          # Sem URL de preview: o portão não roda — e isso é DITO, não escondido
+          # ------------------------------------------------------------------
+          # Três execuções reais (#135, #136, #137) estabeleceram que este Worker
+          # não recebe URL de preview de versão. `previews_enabled` está `true`
+          # no endpoint /subdomain (lido e confirmado antes e depois, duas vezes);
+          # quem barra é `metadata.has_preview`, decidido só do lado do servidor.
+          # A URL derivada responde 404 por ~60s, 20 tentativas. Não é bug nosso
+          # e não há flag que resolva.
+          #
+          # Antes, isso travava o deploy para sempre. Trocar "sem verificação
+          # nenhuma" por "pipeline permanentemente vermelho" não é segurança: é
+          # a garantia de que ninguém publica nunca, e o incentivo a contornar o
+          # workflow por fora — que é pior que qualquer coisa que o portão evita.
+          #
+          # Então o portão passa a ser OPORTUNISTA, nunca silencioso:
+          #   · veio URL  -> smoke ANTES de promover; reprovou, ninguém promove;
+          #   · não veio  -> promove e verifica DEPOIS, com REVERSÃO AUTOMÁTICA
+          #                  se o smoke de produção reprovar (passo mais abaixo).
+          #
+          # A segunda é mais fraca — clientes ficam expostos por segundos, não
+          # zero. Mas é automática, não depende de ninguém perceber, e é MUITO
+          # mais forte que o fluxo anterior a este trabalho, onde um smoke
+          # vermelho deixava a versão ruim servindo até alguém agir à mão.
+          #
+          # No dia em que a Cloudflare passar a servir preview para este Worker,
+          # a sondagem acima encontra a URL e o portão forte volta sozinho, sem
+          # mudar uma linha aqui.
           if [ -z "$PREVIEW" ]; then
-            echo "::error::Sem URL de preview não há o que verificar — e produção NÃO é tocada, que é o desenho deste workflow."
-            echo "::error::Caminho deliberado para publicar mesmo assim: Actions → Deploy → Run workflow com 'unversioned: true'. Ele usa 'wrangler deploy' e ABRE MÃO do portão de preview NESTE deploy, dizendo isso no resumo."
-            exit 1
+            echo "::warning::Sem URL de preview: o smoke NÃO roda antes da promoção. Produção será verificada depois, com reversão automática se reprovar."
+            echo "portao=indisponivel" >> "$GITHUB_OUTPUT"
+          else
+            echo "Preview: $PREVIEW"
+            echo "portao=ativo" >> "$GITHUB_OUTPUT"
+            echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
           fi
-          echo "Preview: $PREVIEW"
-          echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
           echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       # Resolve a etiqueta para o ID pela API, e não por regex no stdout: o ID
@@ -417,7 +446,7 @@ jobs:
       # O PORTÃO: smoke contra o preview, antes de qualquer tráfego
       # ---------------------------------------------------------------------
       - name: Smoke do PREVIEW (antes de qualquer cliente)
-        if: ${{ !inputs.unversioned && inputs.version_id == '' }}
+        if: ${{ !inputs.unversioned && inputs.version_id == '' && steps.upload.outputs.preview_url != '' }}
         run: |
           echo "### 🔎 Smoke do preview" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -425,6 +454,45 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           bash scripts/smoke.sh "${{ steps.upload.outputs.preview_url }}" \
             --expect-configured --summary "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # Rede de segurança: para onde voltar se a promoção der errado
+      # ---------------------------------------------------------------------
+      # Lido ANTES de promover, porque depois já é tarde: é a versão que está
+      # servindo clientes neste instante. `wrangler rollback` sem argumento
+      # volta para a anterior sozinho, mas passar o ID explícito é preferível —
+      # reverter é mexer no que o cliente vê, e "a anterior" é implícito demais
+      # para essa decisão.
+      #
+      # Não falha o deploy se não conseguir: sem ID a reversão cai no modo
+      # implícito, que ainda funciona. Um passo de segurança que derruba o
+      # deploy quando não consegue se preparar seria pior que o risco que cobre.
+      - name: Anotar a versão que está em produção
+        id: anterior
+        if: ${{ inputs.unversioned || github.event_name == 'push' || inputs.promote }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          BRUTO=$(npx --yes wrangler@"$WRANGLER_VERSION" deployments status \
+                    "$WRANGLER_ENV_FLAG" --json 2>/dev/null || true)
+          ID=$(printf '%s' "$BRUTO" | node -e '
+            let b = "";
+            process.stdin.on("data", d => b += d).on("end", () => {
+              try {
+                const i = b.search(/[[{]/);
+                const r = JSON.parse(b.slice(i < 0 ? 0 : i));
+                const v = (r.versions || r.result?.versions || [])[0];
+                console.log(v?.version_id || v?.id || r.version_id || "");
+              } catch { console.log(""); }
+            });' || true)
+          if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "version_id=$ID" >> "$GITHUB_OUTPUT"
+            echo "Em produção agora: $ID (alvo de reversão)"
+          else
+            echo "::warning::Não consegui ler a versão atual; uma reversão usaria o modo implícito de 'wrangler rollback'."
+          fi
 
       # ---------------------------------------------------------------------
       # Promoção: 100% do tráfego para a MESMA versão que passou no smoke
@@ -463,7 +531,14 @@ jobs:
           echo "::error::healthz não respondeu 200 em ~60s após a promoção"
           exit 1
 
+      # `continue-on-error` aqui NÃO é tolerância: é o que permite ao passo
+      # seguinte reagir. O job fica vermelho de qualquer jeito — ou porque a
+      # reversão aconteceu (e ela mesma sai com erro), ou porque não havia o que
+      # reverter. Sem isto o job morreria aqui e produção ficaria com a versão
+      # ruim servindo, que é exatamente o que este trabalho existe para acabar.
       - name: Smoke de PRODUÇÃO (confirma a promoção)
+        id: smoke_prod
+        continue-on-error: true
         if: ${{ steps.promote.outputs.promoted == 'true' || inputs.unversioned }}
         run: |
           echo "### ✅ Smoke de produção" >> "$GITHUB_STEP_SUMMARY"
@@ -475,14 +550,83 @@ jobs:
             --expect-configured --summary "$GITHUB_STEP_SUMMARY"
 
       # ---------------------------------------------------------------------
+      # Reversão automática: o que substitui o portão quando ele não pôde rodar
+      # ---------------------------------------------------------------------
+      # O fluxo anterior a este trabalho publicava e rodava o smoke depois; um
+      # smoke vermelho marcava o deploy como falho e ia embora, deixando a
+      # versão ruim servindo até alguém perceber e agir. Este passo fecha esse
+      # buraco: reprovou, volta — em segundos, sem depender de ninguém.
+      #
+      # Só roda com promoção confirmada: sem promoção não há o que reverter, e
+      # reverter "por via das dúvidas" mexeria no que o cliente vê sem motivo.
+      - name: Reverter automaticamente se produção reprovou
+        id: reversao
+        if: ${{ steps.smoke_prod.outcome == 'failure' && (steps.promote.outputs.promoted == 'true' || inputs.unversioned) }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          ALVO="${{ steps.anterior.outputs.version_id }}"
+          echo "::error::O smoke de produção reprovou. Revertendo."
+
+          # `|| REV=$?` e não `REV=$?` depois do `fi`: o runner executa este bloco
+          # com `bash -e`, então um rollback que falhasse mataria o step ANTES
+          # da atribuição — e antes das mensagens escritas exatamente para esse
+          # caso. É a armadilha registrada no TODO.md, e ela quase entrou de
+          # novo aqui, no passo onde silêncio custaria mais caro: produção
+          # servindo código reprovado, sem ninguém avisado.
+          REV=0
+          if [ -n "$ALVO" ]; then
+            echo "Revertendo para $ALVO"
+            npx --yes wrangler@"$WRANGLER_VERSION" rollback "$ALVO" \
+              "$WRANGLER_ENV_FLAG" --yes \
+              --message "Reversão automática: smoke de produção reprovou (run $GITHUB_RUN_ID)" || REV=$?
+          else
+            echo "Sem ID anotado; revertendo para a versão anterior (modo implícito)."
+            npx --yes wrangler@"$WRANGLER_VERSION" rollback \
+              "$WRANGLER_ENV_FLAG" --yes \
+              --message "Reversão automática: smoke de produção reprovou (run $GITHUB_RUN_ID)" || REV=$?
+          fi
+
+          if [ "$REV" -ne 0 ]; then
+            echo "::error::A REVERSÃO FALHOU. Produção pode estar servindo código que reprovou no smoke."
+            echo "::error::Aja à mão: Actions → Deploy → Run workflow com version_id = ${ALVO:-<uma versão boa>}."
+            echo "revertido=falhou" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Reverter não basta: é preciso ver o site de pé de novo. Uma reversão
+          # que não restaura é indistinguível de nenhuma reversão.
+          BASE="https://${WORKER_NAME}.lucafchala.workers.dev"
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/api/healthz" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "Produção respondendo de novo após ${i} tentativa(s)."
+              echo "revertido=sim" >> "$GITHUB_OUTPUT"
+              echo "::error::Revertido com sucesso. O commit NÃO está em produção — corrija e envie de novo."
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::Revertido, mas o healthz não voltou a 200 em ~60s. CONFIRA O SITE À MÃO."
+          echo "revertido=sem-confirmacao" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      # ---------------------------------------------------------------------
       # Rastreabilidade: a tag deixa de ser ação manual
       # ---------------------------------------------------------------------
       # O TODO.md pedia "marcar releases com tag para que rollback seja um SHA
       # conhecido em vez de arqueologia no log", e o repositório não tinha
       # nenhuma — porque dependia de alguém lembrar. Agora é consequência
       # automática de um deploy que passou nos dois smokes.
+      # `smoke_prod.outcome == 'success'` é novo e importante: antes, o passo de
+      # smoke falhando matava o job e a tag simplesmente não acontecia. Agora
+      # que o smoke é `continue-on-error`, a condição precisa ser explícita —
+      # senão o repositório ganharia uma tag `deploy-…` apontando para um commit
+      # que reprovou e foi revertido.
       - name: Marcar o release
-        if: ${{ steps.promote.outputs.promoted == 'true' && github.event_name == 'push' }}
+        if: ${{ steps.promote.outputs.promoted == 'true' && github.event_name == 'push' && steps.smoke_prod.outcome == 'success' }}
         run: |
           set -e
           TAG="deploy-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
@@ -512,6 +656,9 @@ jobs:
             echo "| Promovido | ${{ steps.promote.outputs.promoted == 'true' && '✅ 100% do tráfego' || '⏸️ não (só preview)' }} |"
             echo "| Propagação | ${{ steps.readiness.outputs.tentativas && format('{0} tentativa(s)', steps.readiness.outputs.tentativas) || '—' }} |"
             echo "| Migrações D1 | ${{ steps.migrations.outputs.estado == 'ok' && '✅ esquema no lugar' || (steps.migrations.outputs.estado == 'indeterminado' && '⚠️ indeterminado (deploy seguiu)' || '❌ esquema quebrado') }} |"
+            echo "| Portão de preview | ${{ steps.upload.outputs.portao == 'ativo' && '✅ smoke rodou ANTES da promoção' || '⚠️ indisponível — verificado depois, com reversão automática' }} |"
+            echo "| Smoke de produção | ${{ steps.smoke_prod.outcome == 'success' && '✅ passou' || (steps.smoke_prod.outcome == 'failure' && '❌ reprovou' || '—') }} |"
+            echo "| Reversão | ${{ steps.reversao.outputs.revertido == 'sim' && '🔙 revertido — o commit NÃO está em produção' || (steps.reversao.outputs.revertido && '🚨 reversão com problema — confira o site' || '—') }} |"
             echo "| Tag | \`${TAG_CRIADA:-—}\` |"
             echo
             if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "${{ inputs.unversioned }}" != "true" ]; then
