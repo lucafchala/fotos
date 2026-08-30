@@ -309,6 +309,26 @@ jobs:
           echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
           echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
+          # O ID da versão sai do próprio upload — é a linha `Worker Version ID:`
+          # que o wrangler imprime logo depois de `Uploaded fotos`, confirmada na
+          # saída real do run #135. É o MESMO identificador que
+          # `versions deploy <id>@100` aceita.
+          #
+          # Vale mais que procurá-lo depois por etiqueta: aqui não há dúvida de
+          # QUAL versão é — é a que este step acabou de subir, não uma que casou
+          # com um filtro. A busca por etiqueta continua existindo no passo
+          # seguinte, como reserva.
+          ID=$(sed -n 's/^[[:space:]]*Worker Version ID:[[:space:]]*//p' "$SAIDA" | head -1 | tr -d '[:space:]' || true)
+          # UUID conferido por inteiro, e não por "parece um UUID": este valor
+          # vai direto para `versions deploy <id>@100`. Se não casar, o passo
+          # seguinte tenta pela etiqueta em vez de promover um lixo qualquer.
+          if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "version_id=$ID" >> "$GITHUB_OUTPUT"
+            echo "Versão: $ID"
+          else
+            echo "A linha 'Worker Version ID' não trouxe um UUID (veio: '$ID'). O passo seguinte resolve pela etiqueta."
+          fi
+
       # Resolve a etiqueta para o ID pela API, e não por regex no stdout: o ID
       # é o que `versions deploy` aceita, e `versions list --json` é contrato
       # estável (`--json` é flag documentada), diferente do texto do upload.
@@ -325,6 +345,13 @@ jobs:
             echo "Promovendo versão informada à mão (rollback): ${{ inputs.version_id }}"
             exit 0
           fi
+          # Caminho normal: o upload já disse qual é o ID. Nada a resolver.
+          if [ -n "${{ steps.upload.outputs.version_id }}" ]; then
+            echo "version_id=${{ steps.upload.outputs.version_id }}" >> "$GITHUB_OUTPUT"
+            echo "ID veio do próprio upload: ${{ steps.upload.outputs.version_id }}"
+            exit 0
+          fi
+          # Reserva: o wrangler mudou o texto do upload. Procura pela etiqueta.
           TAG="${{ steps.upload.outputs.version_tag }}"
           npx --yes wrangler@"$WRANGLER_VERSION" versions list "$WRANGLER_ENV_FLAG" --json > versoes.json
           # A etiqueta aparece em `annotations["workers/tag"]` na API atual, mas
