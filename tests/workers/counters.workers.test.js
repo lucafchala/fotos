@@ -158,6 +158,22 @@ describe('RateLimiter — no runtime de verdade', () => {
 
   it('janela nova zera a contagem sem depender de TTL', async () => {
     // windowSecs=1 faz a janela virar em menos de um segundo de relógio.
+    //
+    // As duas primeiras chamadas PRECISAM cair na mesma janela, e a janela é
+    // `Math.floor(Date.now() / 1000)` — vira a cada segundo de relógio, não a
+    // cada segundo contado a partir daqui. Começar a 2 ms do fim de um segundo
+    // joga a segunda chamada para a janela seguinte, onde ela conta do zero e
+    // devolve `true` corretamente: o teste reprova sem que nada esteja errado.
+    //
+    // Não é hipótese. Aconteceu no run #459, no MESMO commit que tinha passado
+    // 40 s antes, e a linha que falhou foi exatamente a segunda chamada.
+    //
+    // Esperar a virada antes de começar dá quase um segundo inteiro de folga
+    // para as duas — sem afrouxar asserção nenhuma, que é o ponto: o teste
+    // continua exigindo o mesmo, só deixa de depender de onde o relógio estava
+    // quando ele começou.
+    await new Promise(r => setTimeout(r, 1000 - (Date.now() % 1000) + 20));
+
     const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('curta')));
     expect(await stub.check(1, 1)).toBe(true);
     expect(await stub.check(1, 1)).toBe(false);
