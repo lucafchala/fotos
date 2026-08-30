@@ -71,7 +71,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
 | Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
-| CI/CD | GitHub Actions (`deploy.yml`: testes → migrations D1 → deploy → smoke tests; `checks.yml`: lint + testes + sintaxe) |
+| CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
 | Fontes externas | Google Fonts (Inter) |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
@@ -275,94 +275,113 @@ O heartbeat:
 
 ## Deploy
 
-Há dois caminhos:
+**A versão é verificada antes de qualquer cliente vê-la.** Esse é o ponto do
+pipeline, e é o que ele *não* fazia antes: `wrangler deploy` publicava direto e
+o smoke test rodava depois, então um smoke vermelho já era um incidente — este
+README dizia isso com todas as letras.
 
-### 1. Automático (GitHub Actions, padrão)
+Hoje o fluxo é **subir a versão sem tráfego → testar a URL de preview →
+promover a mesma versão**. Se o smoke reprovar, produção nunca soube que existiu
+uma versão nova.
 
-Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
+### 1. Automático (push na `main`)
 
-1. Checkout do repositório.
-2. `npm test` — gate pré-deploy: teste vermelho aborta o job antes de tocar em produção.
-3. `wrangler d1 migrations apply fotos-consent --remote` (`continue-on-error`: uma falha de migração não bloqueia o deploy, porque o INSERT de consentimento é best-effort).
-4. Deploy com `cloudflare/wrangler-action@v4` usando `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` (secrets do GitHub). A versão do wrangler vem de `env.WRANGLER_VERSION`, no topo do workflow — **mantenha-a em sintonia com o devDependency do `package.json`**: sem o pin explícito a action cai no default v3.90, e a produção rodaria numa major que nenhum teste exercitou.
-5. `sleep 20` aguardando propagação global.
-6. Smoke tests via `curl` contra a URL **workers.dev** do deploy (`steps.deploy.outputs.deployment-url`), não contra o domínio de produção — a zona `fotos.lucafchala.com` fica atrás do bot mitigation da Cloudflare, que responde 403 a clientes não-browser como o `curl`:
-   - `GET /` retorna 200
-   - `GET /dashboard` retorna 200
-   - `GET /manifest.json` retorna 200
-   - `GET /icon.svg` retorna 200
-   - `GET /__no_such_route__` retorna 404
-   - `GET /api/healthz` retorna `{"ok":true,…}`
-   - `POST /dashboard/login` com senha errada retorna 302 (e não 5xx — 5xx indicaria CPU timeout)
+`.github/workflows/deploy.yml`:
 
-   > O smoke test **não** mede o tempo do hash, e não dá para medir: o Workers
-   > congela `Date.now()` durante execução síncrona, então o `hashMs` que existia
-   > aqui era zero por construção e o portão que o comparava com 200 nunca podia
-   > reprovar (RETOMADA §5.9). O orçamento de CPU é vigiado pelo sinal real —
-   > estourá-lo mata a requisição, e aí o `healthz` não volta `ok:true` e o login
-   > não volta 302. Esses dois checks *são* o portão de CPU.
+| # | Etapa | O que garante |
+| --- | --- | --- |
+| 1 | `npm ci` + versão do wrangler derivada de `node_modules` | A produção sobe pela versão que os testes usaram |
+| 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
+| 3 | `d1 migrations apply` | Schema existe antes de o código novo servir qualquer requisição |
+| 4 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; ela ganha URL de preview própria |
+| 5 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão.** 39 checagens contra a versão real, antes de qualquer cliente |
+| 6 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
+| 7 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
+| 8 | `scripts/smoke.sh <produção>` | Confirma a promoção |
+| 9 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
 
-Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Veja **Rollback** abaixo.
+O resumo do job (aba **Actions** → run → topo) responde "o que foi para
+produção e passou?" sem abrir log de step nenhum: commit, ID da versão, URL de
+preview, tabela de todas as checagens, tag criada.
 
-### 2. Manual, pelo GitHub (funciona do celular)
+### 2. Rodar o smoke você mesmo, antes de empurrar
 
-**Actions** → workflow **Deploy** → **Run workflow** → branch `main`.
+É a parte que mais muda o dia a dia: o smoke deixou de viver dentro do YAML.
 
-O `deploy.yml` aceita `workflow_dispatch`, e o job é **exatamente o mesmo** do
-push: a suíte roda antes de tocar em produção e o smoke test roda depois. Um
-disparo manual não pula nenhum portão.
+```bash
+npx wrangler dev          # num terminal
+npm run smoke:local       # no outro — 39 checagens contra o Worker de verdade
+```
 
-Serve para as situações que pedem republicação e **não têm commit nenhum** por
-natureza — antes delas, a única saída era inventar um commit vazio:
+Mesma suíte, mesmos números, mesma saída que o CI usa. Também dá para apontar
+para qualquer alvo:
 
-- **Rotação de secret.** Um secret novo vale na hora, mas nada reexecuta o smoke
-  test para confirmar que entrou. Foi o caso do `SIGNING_SECRET`: só dava para
-  saber esperando o próximo merge.
-- **Rollback**, republicando um commit anterior sem reescrever a história.
-- **Reverificar a produção** depois de mexer em algo fora do repositório
-  (binding de KV, domínio, painel da Cloudflare).
+```bash
+npm run smoke -- https://<alguma-versao>.workers.dev --expect-configured
+```
 
-### 3. Manual, pela linha de comando
+`--expect-configured` liga as checagens que dependem de secret (Turnstile,
+Resend, `ADMIN_EMAIL`, `SIGNING_SECRET`, `/dashboard` respondendo 200). Sem ele,
+o `wrangler dev` local passa limpo — lá não há secret nenhum, e isso é correto,
+não falha.
+
+E o empacotamento, sem credencial nenhuma:
+
+```bash
+npm run predeploy:check   # compila o bundle e resolve os bindings
+```
+
+Esse mesmo comando roda em **todo PR** (`checks.yml`), então `wrangler.toml`
+quebrado ou binding removido reprovam antes do merge — antes, o `deploy.yml`
+era o primeiro lugar onde um erro de empacotamento aparecia, e ele só roda
+depois.
+
+### 3. Manual, pelo GitHub (funciona do celular)
+
+**Actions** → **Deploy** → **Run workflow**. Três entradas:
+
+- **`promote`** (padrão ligado). Desligue para **só publicar e verificar**: a
+  versão sobe, o smoke roda contra o preview e ela **não** recebe tráfego. O
+  resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
+  publicado antes de mandar para cliente" sem prazo para decidir.
+- **`version_id`**. Promove uma versão **já existente**, pulando build e upload
+  — é o rollback: segundos, sem recompilar e sem mexer no Git.
+- **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
+  Existe por um motivo só: `versions upload` não aplica migração de Durable
+  Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
+  só a `v1` já aplicada, nunca é necessário. Quando entrar uma `v2`, o workflow
+  falha no upload com a mensagem explicando — falhar alto é melhor que pular a
+  verificação em silêncio.
+
+### 4. Manual, pela linha de comando
 
 ```bash
 npx wrangler deploy
 ```
 
-Atalho de emergência. Pula a suíte, as migrações e o smoke test — publica o que
-estiver na sua árvore de trabalho, inclusive o que você esqueceu de commitar.
-Prefira o disparo pelo Actions.
+Atalho de emergência. Pula suíte, migrações, portão de preview e smoke —
+publica o que estiver na sua árvore, inclusive o que você esqueceu de commitar.
+Prefira o Actions.
 
 ### Rollback
 
-O smoke test roda *depois* da publicação, então todo deploy é potencialmente um incidente. O caminho de volta:
+O caminho rápido não é mais Git:
+
+**Actions** → **Deploy** → **Run workflow** → `version_id` = a versão boa
+anterior (o resumo de cada deploy imprime o ID, e `npx wrangler versions list`
+lista todas). Promove em segundos, sem recompilar.
+
+Depois, para `main` e produção não ficarem divergentes, faça o revert no Git:
 
 ```bash
-# 1. Qual commit está em produção agora?
-git log --oneline -5 main
-
-# 2. Reverter o commit ruim e republicar pelo pipeline (preferido — mantém
-#    main e produção em sincronia, e o histórico registra o quê e o porquê).
-git revert <sha-ruim>
-git push origin main
+git revert <sha-ruim> && git push origin main
 ```
 
-Para cortar o caminho quando o site está fora do ar, o dashboard da Cloudflare
-(Workers → `fotos` → Deployments) permite promover um deployment anterior sem
-passar pelo Git — **mas isso deixa `main` à frente da produção**, então logo em
-seguida faça o revert no Git para não perder a rastreabilidade.
+Duas coisas que o revert de código **não** desfaz:
 
-Duas coisas que o revert de código **não** desfaz, e que precisam de atenção
-antes de reverter:
-
-- **Migrações D1 aplicadas.** São aditivas e idempotentes hoje (`migrations/`),
-  então voltar o código não quebra o schema — mas uma migração destrutiva
-  futura exigiria um plano próprio.
-- **Dados já gravados em KV/D1** pelo código novo (contadores, linhas de
-  consentimento). Continuam lá.
-
-Marque um release a cada deploy relevante (`git tag -a v1.4 -m "..." && git push
-origin v1.4`) para que "voltar para a última versão boa" seja um SHA conhecido
-em vez de arqueologia no log.
+- **Migrações D1 aplicadas.** Aditivas e idempotentes hoje; uma migração
+  destrutiva futura exigiria plano próprio.
+- **Dados já gravados** em KV/D1 pelo código novo. Continuam lá.
 
 ---
 
