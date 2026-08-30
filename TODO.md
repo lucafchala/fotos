@@ -402,6 +402,32 @@ que você estava esperando — uma diz o que a API acha, a outra diz o que exist
 Só não vale trocar "esperar o sinal" por "supor o sinal": construir sem provar
 seria pior que o problema original, porque o portão continuaria verde.
 
+### Portão que não pode passar não é portão — é pipeline parado
+
+O portão de preview travou três deploys seguidos. As duas primeiras causas eram
+nossas e foram corrigidas. A terceira não: a Cloudflare simplesmente não serve
+URL de preview de versão para este Worker (404 vinte vezes, com
+`previews_enabled` verdadeiro no servidor e `has_preview` falso — campo decidido
+só do lado dela).
+
+A tentação era manter o vermelho "porque o portão é sagrado". Mas um portão que
+nunca pode passar não protege ninguém: garante que nada é publicado e empurra a
+próxima pessoa a publicar POR FORA do workflow, sem verificação alguma. O
+remédio virava a doença.
+
+O critério que sobrou, e que vale para qualquer portão daqui em diante:
+
+1. **Nunca afrouxe em silêncio.** O resumo do job diz, toda vez, se a
+   verificação rodou antes ou depois da promoção.
+2. **Se não dá para verificar antes, verifique depois e DESFAÇA sozinho.**
+   Exposição de segundos com reversão automática é muito melhor que exposição
+   indefinida — que era o comportamento anterior a todo este trabalho.
+3. **Deixe o caminho forte voltar sozinho.** A sondagem continua lá; no dia em
+   que a URL existir, o portão forte reassume sem mudar código.
+
+O que NÃO se faz é o que teria sido mais fácil: apagar a verificação e chamar o
+deploy de verde.
+
 ### Regex de URL num log casa com a URL errada
 
 A extração da URL de preview usava `https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev`

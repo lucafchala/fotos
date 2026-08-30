@@ -296,10 +296,10 @@ uma versão nova.
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
 | 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
 | 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
-| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão.** 39 checagens contra a versão real, antes de qualquer cliente |
+| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: 39 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
 | 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
 | 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
-| 9 | `scripts/smoke.sh <produção>` | Confirma a promoção |
+| 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
 | 10 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
 
 O resumo do job (aba **Actions** → run → topo) responde "o que foi para
@@ -357,6 +357,55 @@ Derivar-e-provar é evidência melhor que a flag que estávamos esperando:
 E o desfecho do (4) foi o melhor possível: as duas colunas responderam
 **`já estava:`**. Não havia perda de registro de consentimento — só o
 livro-razão desatualizado. Depois do conserto, `✅ No migrations to apply!`.
+
+#### E o que a terceira encerrou
+
+O run #137 rodou a URL derivada e ela respondeu **404, vinte vezes, por ~60 s**.
+Não é timeout nem falha de conexão: a Cloudflare atende no curinga
+`*.workers.dev` e diz que ali não há nada. Somado a `previews_enabled: true`
+(lido no servidor em duas execuções) e a `has_preview` falso, o veredito é um
+só: **este Worker não recebe URL de preview de versão**, e não há chave de
+configuração que mude isso.
+
+Três execuções, três causas distintas, e a terceira não é defeito nosso.
+
+**O que se decidiu, e por quê.** Um portão que nunca pode passar não é
+segurança: é a garantia de que ninguém publica, e o convite a contornar o
+workflow por fora — pior que qualquer coisa que o portão evitaria. Então ele
+passou a ser **oportunista, nunca silencioso**:
+
+| Situação | O que acontece |
+| --- | --- |
+| Veio URL de preview | Smoke **antes** de promover. Reprovou, ninguém promove. Cliente nenhum vê. |
+| Não veio (hoje) | Promove, verifica em seguida e **reverte sozinho** se o smoke reprovar. |
+
+A segunda é mais fraca — a exposição é de segundos, não zero. Mas é automática,
+não depende de alguém perceber, e é muito mais forte que o fluxo anterior a
+este trabalho, em que um smoke vermelho marcava o deploy como falho **e ia
+embora, deixando a versão ruim servindo**. O resumo do job diz qual dos dois
+caminhos rodou, sempre.
+
+E é reversível sozinho: no dia em que a Cloudflare servir preview para este
+Worker, a sondagem acha a URL e o portão forte volta, sem mudar uma linha.
+
+#### Reversão automática
+
+Quando o smoke de produção reprova, o workflow chama `wrangler rollback` para a
+versão que estava servindo (anotada **antes** da promoção) e só então falha o
+job. E não considera o trabalho feito ao reverter: espera o `healthz` voltar a
+200, porque uma reversão que não restaura é indistinguível de nenhuma reversão.
+
+Os quatro desfechos, todos exercitados sob `bash -e` com a rede dublada:
+
+| Caso | Resultado |
+| --- | --- |
+| Reversão limpa | `🔙 revertido` no resumo; job vermelho; o commit **não** está em produção |
+| Sem ID anotado | Reverte no modo implícito do wrangler; idem |
+| O `rollback` falha | `🚨` no resumo + instrução explícita de ação manual |
+| Reverteu mas o site não voltou | `🚨` + "confira o site à mão" |
+
+A tag de release só nasce quando o smoke de produção **passa** — senão o
+repositório ganharia uma `deploy-…` apontando para um commit revertido.
 
 ### Migrações do D1
 
