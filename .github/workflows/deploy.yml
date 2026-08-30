@@ -123,18 +123,43 @@ jobs:
       # Schema ANTES do código novo servir qualquer requisição, inclusive na URL
       # de preview: o smoke roda contra o preview, e um INSERT de consentimento
       # numa coluna que ainda não existe falharia ali.
-      # continue-on-error porque o registro de consentimento é best-effort e uma
-      # falha de migração não pode travar a entrega das fotos — mas o resultado
-      # entra no resumo, em vez de sumir.
+      #
+      # Era `continue-on-error: true` com `wrangler d1 migrations apply` direto.
+      # O primeiro deploy real mostrou o custo disso: o passo vinha falhando com
+      # `duplicate column name: access_type` em TODO deploy desde 09/08, e o
+      # `continue-on-error` engolia a diferença entre "a coluna já estava lá" e
+      # "o esquema não tem a coluna que o código escreve" — que é a diferença
+      # entre irrelevante e grave. Ver scripts/d1-migrate.mjs.
+      #
+      # Agora são três desfechos, não dois:
+      #   0   esquema no lugar          -> segue
+      #   75  indeterminado (rede/API)  -> segue com aviso; entregar foto não
+      #                                    pode depender do log de consentimento
+      #   1   esquema QUEBRADO          -> PARA. Promover código que escreve numa
+      #                                    tabela incompleta perde o registro de
+      #                                    consentimento em silêncio, e ele é
+      #                                    prova de autorização de uso de imagem.
       - name: Migrações D1
         id: migrations
-        continue-on-error: true
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: ${{ env.WRANGLER_VERSION }}
-          command: d1 migrations apply fotos-consent --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          node scripts/d1-migrate.mjs fotos-consent migrations
+          CODIGO=$?
+          set -e
+          case "$CODIGO" in
+            0)
+              echo "estado=ok" >> "$GITHUB_OUTPUT" ;;
+            75)
+              echo "estado=indeterminado" >> "$GITHUB_OUTPUT"
+              echo "::warning::Não deu para confirmar o esquema do D1. O deploy segue — confira o log deste passo." ;;
+            *)
+              echo "estado=quebrado" >> "$GITHUB_OUTPUT"
+              echo "::error::O esquema do D1 não está no estado que o código espera. Deploy interrompido antes de qualquer promoção."
+              exit 1 ;;
+          esac
 
       # ---------------------------------------------------------------------
       # Caminho de escape: deploy não-versionado (só migração de DO)
@@ -159,6 +184,73 @@ jobs:
             echo "justifica para aplicar migração de Durable Object (erro 10211)."
             echo "**O smoke rodou depois da publicação**, como no fluxo antigo."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # Pré-requisito do portão: Preview URLs precisam estar LIGADAS
+      # ---------------------------------------------------------------------
+      # Isto foi o que derrubou a primeira execução real deste workflow. O
+      # `versions upload` funcionou (versão 45e9e38c publicada), mas não
+      # imprimiu URL de preview nenhuma, e o portão — corretamente — recusou
+      # promover algo que não pôde verificar.
+      #
+      # O motivo está no código do wrangler. Ele só imprime a URL depois de
+      # perguntar ao servidor (`GET .../subdomain`) se `previews_enabled` é
+      # verdadeiro. E quem ESCREVE esse campo é `wrangler deploy` /
+      # `triggers deploy`, nunca `versions upload` — é configuração
+      # não-versionada. Com `preview_urls` ausente do wrangler.toml, o wrangler
+      # manda `undefined` e o valor do servidor prevalece para sempre. Ou seja:
+      # o Worker estava com Preview URLs desligadas e nada no repositório era
+      # capaz de ligá-las.
+      #
+      # A chamada abaixo é a MESMA que o wrangler faz, feita direto para mexer
+      # só nisto. `triggers deploy` também resolveria, mas reescreveria rotas e
+      # crons a partir da configuração — e as rotas deste Worker moram no
+      # painel, não no wrangler.toml (a mesma armadilha que o bloco
+      # [observability] documenta). Trocar um deploy quebrado por um domínio
+      # apagado não é conserto.
+      - name: Garantir Preview URLs ligadas
+        if: ${{ !inputs.unversioned && inputs.version_id == '' }}
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_CONTA: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/$CF_CONTA/workers/scripts/$WORKER_NAME/subdomain"
+          CAB=(-H "Authorization: Bearer $CF_TOKEN"
+               -H "Content-Type: application/json"
+               -H "Cloudflare-Workers-Script-Api-Date: 2025-08-01")
+
+          # `campo <chave> <json>` -> true | false | (vazio, se ausente/ilegível)
+          campo() {
+            node -e '
+              let r; try { r = JSON.parse(process.argv[2]); } catch { console.log(""); process.exit(0); }
+              const v = r && r.result ? r.result[process.argv[1]] : undefined;
+              console.log(v === true ? "true" : v === false ? "false" : "");
+            ' "$1" "$2"
+          }
+
+          ANTES=$(curl -s --max-time 20 "${CAB[@]}" "$API" || true)
+          echo "antes:  $ANTES"
+
+          # `enabled` (a rota workers.dev) é preservado como está. Este passo
+          # tem uma responsabilidade só, e desligar workers.dev por descuido
+          # derrubaria o alvo dos dois smokes.
+          QUERO_ENABLED=true
+          if [ "$(campo enabled "$ANTES")" = "false" ]; then QUERO_ENABLED=false; fi
+
+          curl -s --max-time 20 -X POST "${CAB[@]}" \
+            --data "{\"enabled\":$QUERO_ENABLED,\"previews_enabled\":true}" "$API" >/dev/null || true
+
+          # Confere lendo o servidor de novo, e não a resposta do POST: o que
+          # importa é o estado que o `versions upload` vai ler daqui a pouco.
+          DEPOIS=$(curl -s --max-time 20 "${CAB[@]}" "$API" || true)
+          echo "depois: $DEPOIS"
+          if [ "$(campo previews_enabled "$DEPOIS")" != "true" ]; then
+            echo "::error::Preview URLs continuam desligadas no Worker '$WORKER_NAME' — sem elas não há como verificar antes de promover."
+            echo "::error::Ligue em Workers & Pages -> $WORKER_NAME -> Settings -> Domains & Routes -> Preview URLs, ou dê ao token do CI a permissão 'Workers Scripts: Edit'."
+            exit 1
+          fi
+          echo "Preview URLs ligadas e confirmadas."
 
       # ---------------------------------------------------------------------
       # Caminho normal: sobe a versão SEM rotear tráfego
@@ -191,14 +283,51 @@ jobs:
           # A URL de preview é o portão inteiro. Se ela não vier, NÃO seguimos
           # em frente "sem testar" — isso reintroduziria exatamente o fluxo que
           # este workflow existe para eliminar.
-          PREVIEW=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev' "$SAIDA" | head -1)
+          #
+          # Ancorado no rótulo exato que o wrangler imprime
+          # (`Version Preview URL: …`), com o formato da URL como reserva. A
+          # regex solta de antes casava com QUALQUER endereço workers.dev na
+          # saída — inclusive o da rota de produção, que teria feito o smoke
+          # aprovar a versão errada e o portão passar a existir só no nome.
+          #
+          # E o `|| true` não é adorno: `grep` sem correspondência sai com 1, e
+          # o runner roda este bloco com `bash -e` MAIS o `pipefail` acima.
+          # Sem ele, a ausência da URL matava o step NA ATRIBUIÇÃO — foi por
+          # isso que, na primeira execução real, o log trouxe só
+          # "Process completed with exit code 1" e nenhuma das duas mensagens
+          # abaixo, escritas justamente para este caso.
+          PREVIEW=$(sed -n 's/^[[:space:]]*Version Preview URL:[[:space:]]*//p' "$SAIDA" | head -1 || true)
           if [ -z "$PREVIEW" ]; then
-            echo "::error::Não achei a URL de preview na saída do upload."
-            echo "::error::Ative 'Preview URLs' no Worker (Settings → Domains & Routes) — sem ela não há como verificar antes de promover."
+            PREVIEW=$(grep -oE 'https://[0-9a-f]{8}-[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev' "$SAIDA" | head -1 || true)
+          fi
+          if [ -z "$PREVIEW" ]; then
+            echo "::error::O upload funcionou, mas não veio URL de preview — então não há o que verificar, e não promovemos."
+            echo "::error::O passo 'Garantir Preview URLs ligadas' deveria ter resolvido isto. Se ele passou e a URL ainda não vem, o Worker pode não suportar preview (metadata.has_preview) — confira em Settings → Domains & Routes."
             exit 1
           fi
+          echo "Preview: $PREVIEW"
           echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
           echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          # O ID da versão sai do próprio upload — é a linha `Worker Version ID:`
+          # que o wrangler imprime logo depois de `Uploaded fotos`, confirmada na
+          # saída real do run #135. É o MESMO identificador que
+          # `versions deploy <id>@100` aceita.
+          #
+          # Vale mais que procurá-lo depois por etiqueta: aqui não há dúvida de
+          # QUAL versão é — é a que este step acabou de subir, não uma que casou
+          # com um filtro. A busca por etiqueta continua existindo no passo
+          # seguinte, como reserva.
+          ID=$(sed -n 's/^[[:space:]]*Worker Version ID:[[:space:]]*//p' "$SAIDA" | head -1 | tr -d '[:space:]' || true)
+          # UUID conferido por inteiro, e não por "parece um UUID": este valor
+          # vai direto para `versions deploy <id>@100`. Se não casar, o passo
+          # seguinte tenta pela etiqueta em vez de promover um lixo qualquer.
+          if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "version_id=$ID" >> "$GITHUB_OUTPUT"
+            echo "Versão: $ID"
+          else
+            echo "A linha 'Worker Version ID' não trouxe um UUID (veio: '$ID'). O passo seguinte resolve pela etiqueta."
+          fi
 
       # Resolve a etiqueta para o ID pela API, e não por regex no stdout: o ID
       # é o que `versions deploy` aceita, e `versions list --json` é contrato
@@ -216,6 +345,13 @@ jobs:
             echo "Promovendo versão informada à mão (rollback): ${{ inputs.version_id }}"
             exit 0
           fi
+          # Caminho normal: o upload já disse qual é o ID. Nada a resolver.
+          if [ -n "${{ steps.upload.outputs.version_id }}" ]; then
+            echo "version_id=${{ steps.upload.outputs.version_id }}" >> "$GITHUB_OUTPUT"
+            echo "ID veio do próprio upload: ${{ steps.upload.outputs.version_id }}"
+            exit 0
+          fi
+          # Reserva: o wrangler mudou o texto do upload. Procura pela etiqueta.
           TAG="${{ steps.upload.outputs.version_tag }}"
           npx --yes wrangler@"$WRANGLER_VERSION" versions list "$WRANGLER_ENV_FLAG" --json > versoes.json
           # A etiqueta aparece em `annotations["workers/tag"]` na API atual, mas
@@ -340,7 +476,7 @@ jobs:
             echo "| Preview | ${{ steps.upload.outputs.preview_url || '—' }} |"
             echo "| Promovido | ${{ steps.promote.outputs.promoted == 'true' && '✅ 100% do tráfego' || '⏸️ não (só preview)' }} |"
             echo "| Propagação | ${{ steps.readiness.outputs.tentativas && format('{0} tentativa(s)', steps.readiness.outputs.tentativas) || '—' }} |"
-            echo "| Migrações D1 | ${{ steps.migrations.outcome == 'success' && '✅' || '⚠️ falhou (best-effort)' }} |"
+            echo "| Migrações D1 | ${{ steps.migrations.outputs.estado == 'ok' && '✅ esquema no lugar' || (steps.migrations.outputs.estado == 'indeterminado' && '⚠️ indeterminado (deploy seguiu)' || '❌ esquema quebrado') }} |"
             echo "| Tag | \`${TAG_CRIADA:-—}\` |"
             echo
             if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "${{ inputs.unversioned }}" != "true" ]; then

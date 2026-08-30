@@ -198,6 +198,14 @@ Nesta ordem, e **nenhuma delas é pagar**:
       confirmar se o Analytics Engine está disponível no plano gratuito — as
       fontes divergem e historicamente ele exigia o Workers Paid, o que sob a
       política de ficar no gratuito encerra o assunto.
+- [ ] **Confirmar em produção o retomador de migração do D1.** O
+      `scripts/d1-migrate.mjs` foi exercitado contra as migrações reais em
+      teste, mas o caminho que importa — retomar a `0002` pela metade no banco
+      de verdade — só roda no primeiro deploy depois deste. Conferir no resumo
+      do job se ele diz `aplicado:` (faltava a coluna `declaration_text`, e o
+      registro de consentimento vinha falhando calado) ou `já estava:` (só o
+      livro-razão estava desatualizado). As duas respostas são informação; a
+      primeira é um incidente que ninguém tinha visto.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente, e é
@@ -338,6 +346,81 @@ o remova.
 test ficou estruturalmente incapaz de passar por três deploys porque algo antes
 dele sempre falhava primeiro. Rodar o passo inteiro localmente contra o Worker
 de verdade, antes de subir, custa dois minutos.
+
+### O passo que garante o portão precisa garantir também o pré-requisito dele
+
+O deploy com portão de preview estreou e morreu no primeiro uso: o
+`versions upload` funcionou, mas a Cloudflare não devolveu URL de preview
+nenhuma, porque **Preview URLs estavam desligadas no Worker** — e nada no
+repositório era capaz de ligá-las. `preview_urls` é configuração
+*não-versionada*: `versions upload` só a **lê**; quem a escreve é
+`wrangler deploy` / `triggers deploy`. Com a chave ausente do `wrangler.toml`,
+o wrangler manda `undefined` e o valor do servidor prevalece para sempre.
+
+É o mesmo formato do que já estava escrito aqui sobre `[observability]`, e
+mesmo assim passou: a lição não é "declare observabilidade", é **toda
+configuração não-versionada que o pipeline depende precisa estar no
+`wrangler.toml` e ser conferida em runtime**. Declarar não basta quando o
+comando que aplica não é o comando que roda.
+
+O portão em si funcionou como projetado — recusou promover o que não pôde
+verificar, e produção seguiu na versão anterior. Um portão que falha fechado
+falhando é um portão funcionando.
+
+### `bash -e` mata o step antes da mensagem que explicaria o step
+
+O passo do upload tinha dois `echo "::error::…"` escritos exatamente para o
+caso "não veio URL de preview". Quando esse caso aconteceu, o log trouxe só
+`Process completed with exit code 1` — nenhuma das duas.
+
+A causa: `grep` sem correspondência sai com **1**; com `set -o pipefail` a
+atribuição herda esse 1; e o runner executa todo bloco `run:` com `bash -e`.
+O script morria **na atribuição**, três linhas antes do diagnóstico.
+
+Duas consequências práticas:
+
+1. Toda captura cuja ausência é um caso previsto termina em `|| true`, e quem
+   decide é o `if` seguinte — não o `set -e`.
+2. Bloco `run:` é código e passou a ser conferido como código
+   (`scripts/verifica-shell-dos-workflows.py`, chamado pelo `checks.yml`). Era
+   o único executável do repositório sem verificação nenhuma, e foi
+   precisamente onde o defeito morou.
+
+Vale junto com *Etapa de CI que nunca chegou a rodar não é etapa que passa*:
+lá, a primeira falha escondia as seguintes; aqui, escondia a explicação da
+própria falha.
+
+### Regex de URL num log casa com a URL errada
+
+A extração da URL de preview usava `https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev`
+— que casa também com `https://fotos.lucafchala.workers.dev`, a rota de
+**produção**. Se as Preview URLs estivessem ligadas, o portão poderia ter
+rodado o smoke contra produção e aprovado a versão nova sem nunca tê-la
+tocado: um portão que existe só no nome, e que ninguém teria motivo para
+desconfiar, porque estaria verde.
+
+Extração de log ancora no rótulo que a ferramenta imprime
+(`Version Preview URL:`), não no formato do que se espera achar. Quando o
+formato for a única pista, ele precisa ser específico o bastante para não
+casar com o vizinho perigoso.
+
+### Passo best-effort é passo que ninguém lê
+
+`d1 migrations apply` falhava com `duplicate column name: access_type` em
+**todo deploy desde 09/08** — vinte execuções — sem nunca aparecer para
+ninguém, porque o passo era `continue-on-error: true`. O `continue-on-error`
+não distinguia "a coluna já estava lá" de "o esquema não tem a coluna que o
+código escreve", que é a diferença entre irrelevante e perder a prova de
+autorização de uso de imagem.
+
+O problema real era pior que o ruído: `migrations apply` processa os arquivos
+em ordem e para no primeiro erro. Com a `0002` travada, uma `0003` **nunca**
+seria aplicada — a próxima mudança de esquema entraria em produção sem o
+esquema, e o sintoma apareceria num `INSERT`, em runtime.
+
+Best-effort precisa ter três desfechos, não dois: **funcionou**,
+**não deu para saber** (segue, com aviso) e **está quebrado** (para). Um passo
+que só sabe dizer "ok" e "ignore" não está reportando nada.
 
 ### Comparação com NaN nunca é a guarda que parece
 
