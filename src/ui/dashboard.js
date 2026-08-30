@@ -10,19 +10,24 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
 `;
 
+// Sem modo "criar senha": o painel NÃO tem trust-on-first-use. Sem credencial
+// em KV e sem o secret ADMIN_PASSWORD o login é impossível, em vez de ficar
+// disponível para quem chegar primeiro (ver handleLogin em src/index.js) — e
+// `handleDashboardPage` responde 503 nesse estado, nunca um formulário.
+//
+// O ramo `isSetup` daqui era o resto dessa versão anterior: desenhava um
+// "Criar senha de acesso" com campo de confirmação e um hidden `setup=1` que
+// nenhum handler lia. Ninguém nunca passou a opção, então a tela era
+// inalcançável — mas ficava no arquivo parecendo um caminho vivo, e um campo
+// de senha que o servidor ignora é a pior coisa para se encontrar numa leitura
+// de código de autenticação. Se o cadastro inicial voltar, ele volta com
+// handler, não só com formulário.
 /**
- * @param {{ error?: boolean, isSetup?: boolean }} [opts]
+ * @param {{ error?: boolean }} [opts]
  * @param {string} [nonce]
  */
 export function loginHTML(opts = {}, nonce = '') {
-  const { error = false, isSetup = false } = opts;
-  const title = isSetup ? 'Criar senha de acesso' : 'Painel administrativo';
-  const btnLabel = isSetup ? 'Criar senha e entrar' : 'Entrar';
-  const confirmField = isSetup ? `
-    <div class="field">
-      <label for="confirm">Confirmar senha</label>
-      <input type="password" id="confirm" name="confirm" required autocomplete="new-password" placeholder="••••••••">
-    </div>` : '';
+  const { error = false } = opts;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -59,17 +64,15 @@ export function loginHTML(opts = {}, nonce = '') {
 <body>
   <div class="box">
     <div class="logo"><span>fotos · <strong>Luca F. Chala</strong></span></div>
-    <h1>${title}</h1>
-    <p class="subtitle">${isSetup ? 'Defina uma senha para proteger o painel.' : 'Entre para gerenciar os projetos.'}</p>
+    <h1>Painel administrativo</h1>
+    <p class="subtitle">Entre para gerenciar os projetos.</p>
     ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
     <form method="POST" action="/dashboard/login">
-      <input type="hidden" name="setup" value="${isSetup ? '1' : '0'}">
       <div class="field">
-        <label for="password">${isSetup ? 'Nova senha' : 'Senha'}</label>
-        <input type="password" id="password" name="password" required autocomplete="${isSetup ? 'new-password' : 'current-password'}" placeholder="••••••••" autofocus>
+        <label for="password">Senha</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" autofocus>
       </div>
-      ${confirmField}
-      <button type="submit" class="btn-primary">${btnLabel}</button>
+      <button type="submit" class="btn-primary">Entrar</button>
     </form>
   </div>
 </body>
@@ -89,10 +92,9 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 
   const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
-  const catOptionsSSR = ['<option value="">Sem categoria</option>']
-    .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
-  const catFilterOptionsSSR = ['<option value="">Todas as categorias</option>']
-    .concat(categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`)).join('');
+  const catOptionsBody = categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  const catOptionsSSR = '<option value="">Sem categoria</option>' + catOptionsBody;
+  const catFilterOptionsSSR = '<option value="">Todas as categorias</option>' + catOptionsBody;
   const sorted = sortEvents(events);
   const active = sorted.filter(e => (e.status || 'entregue') !== 'arquivado');
   /** @param {number} n */
@@ -176,18 +178,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .resumo-lab{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:.15rem}
     .evt-item.hidden-evt .evt-name{color:var(--text3)}
     .icon-btn.pinned{border-color:#c0a060;color:#c0a060}
-    /* Celular: as cinco ações ganham uma linha só para elas.
-       A conta que obrigava a isto: 5 botões de 34px + 4 vãos = 194px, e
-       .evt-actions era flex-shrink:0, então não cedia nunca. Com a miniatura
-       (48px), os vãos e o respiro da caixa, sobravam ~66px para o título num
-       aparelho de 360px — era o nome do projeto sumindo, não um detalhe de
-       espaçamento.
-       Consertado só no CSS, de propósito: a marcação da linha é gerada em DOIS
-       lugares (servidor e redesenho no cliente) e qualquer correção feita na
-       marcação teria de ser escrita duas vezes, com as duas cópias livres para
-       divergir depois. Aqui não há o que sincronizar.
-       Os 44px são o alvo de toque mínimo recomendado (WCAG 2.5.5); cabem porque
-       agora a linha é inteira deles. */
+    /* Mobile: actions get their own row. 5×34px buttons left only ~66px for
+       the title on a 360px phone, so the event name was truncating.
+       Fixed in CSS only — the row markup is generated twice (server + client
+       redraw) and a markup fix would need to land in both places.
+       44px meets the WCAG 2.5.5 minimum touch target. */
     @media(max-width:599px){
       .evt-item{flex-wrap:wrap;gap:.625rem .75rem}
       .evt-actions{flex-basis:100%;justify-content:space-between;gap:.25rem}
@@ -630,6 +625,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <div class="toast" id="toast"></div>
 
   <script nonce="${nonce}">
+    // Daqui até o fecha-script tudo vive dentro de um template literal: uma
+    // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     let events = ${eventsJSON};
     let categories = ${categoriesJSON};
     let massMode = false;
@@ -639,13 +636,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     let metricsData = [];
     let metricsSort = { key: 'views', dir: 'desc' };
     let photoList = [];
-    // Declaradas aqui, junto do resto do estado, e nao la embaixo perto de
-    // stashDraft(): restoreDraft() roda no init, que e ANTES do ponto onde
-    // ficavam. Uma const nao e icada como uma function — a chamada morria numa
-    // ReferenceError de zona morta temporal, engolida pelo try/catch do init,
-    // e o rascunho simplesmente nunca voltava.
-    // (Sem crase neste comentario: todo este script vive dentro de um template
-    // literal, e uma crase solta encerra a string e quebra o modulo inteiro.)
+    // Declared here (not down by stashDraft()) because restoreDraft() runs
+    // during init, before that point — a const isn't hoisted like a function,
+    // so the call would hit a TDZ ReferenceError, silently swallowed by
+    // init's try/catch, and the draft would never come back.
     const DRAFT_KEY = 'fotos:draft';
     const DRAFT_MAX_AGE_MS = 3600000; // 1 h — rascunho velho demais confunde mais do que ajuda
     let requestsLoaded = false;
@@ -763,16 +757,17 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     }
 
     // ---- Form open/close ----
-    // prefill (used by duplicateEvent) lets a "new event" form open pre-filled
-    // from an existing event's data without treating it as an edit — id stays
-    // null so submitForm() POSTs a new event instead of PUTing the source one.
+    // prefill (used by duplicateEvent) opens the "new event" form pre-filled
+    // from an existing event, but id stays null so submitForm() POSTs a new
+    // event instead of PUTing the source one.
     function openForm(id, prefill) {
       editingId = id || null;
       const e = id ? events.find(ev => ev.id === id) : (prefill || null);
       document.getElementById('form-title').textContent = id ? 'Editar evento' : 'Adicionar evento';
-      document.getElementById('f-slug').value = e ? e.slug : '';
-      document.getElementById('f-slug').readOnly = !!id;
-      document.getElementById('f-slug').style.opacity = id ? '.5' : '1';
+      const slugEl = document.getElementById('f-slug');
+      slugEl.value = e ? e.slug : '';
+      slugEl.readOnly = !!id;
+      slugEl.style.opacity = id ? '.5' : '1';
       document.getElementById('f-title').value = e ? (e.title || '') : '';
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
@@ -787,8 +782,9 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       document.getElementById('f-category').value = e?.category || '';
       document.getElementById('f-notes').value = e?.internalNotes || '';
       const alertActive = e?.photosAlert?.active === true;
-      document.getElementById('f-alert-active').checked = alertActive;
-      document.getElementById('f-alert-active').dataset.wasActive = alertActive ? '1' : '0';
+      const alertActiveEl = document.getElementById('f-alert-active');
+      alertActiveEl.checked = alertActive;
+      alertActiveEl.dataset.wasActive = alertActive ? '1' : '0';
       document.getElementById('f-alert-expires').value = String(e?.photosAlert?.expiresAfterHours ?? 24);
       toggleAlertOpts(alertActive);
       const initPhotos = e
@@ -800,13 +796,12 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       lastFocused = document.activeElement;
       document.getElementById('overlay').classList.add('open');
       document.body.style.overflow = 'hidden';
-      if (!id) setTimeout(() => document.getElementById('f-slug').focus(), 100);
+      if (!id) setTimeout(() => slugEl.focus(), 100);
       formSnapshot = snapshotForm();
     }
 
-    // Reads the exact same fields submitForm() reads into its save payload
-    // (plus photoList) — keep the two in sync: any field added to one belongs
-    // in the other.
+    // Mirrors the fields submitForm() reads into its save payload (plus
+    // photoList) — keep the two in sync when adding a field.
     function snapshotForm() {
       const val = id => document.getElementById(id)?.value ?? '';
       const chk = id => document.getElementById(id)?.checked ?? false;
@@ -824,16 +819,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     }
 
     // ---- Rascunho de emergência (sessão expirada) ----
-    // A sessão agora morre por inatividade (2 h), e não só pelo teto de 24 h.
-    // Isso é melhor para a segurança e pior para quem estava no meio de uma
-    // edição: o api() manda para o login no 401, e sem isto tudo que estava
-    // digitado ia embora junto. Perder o trabalho de alguém para expirar uma
-    // sessão é um péssimo negócio — então o rascunho vai para o
-    // sessionStorage antes do redirect e volta depois do login.
-    //
-    // sessionStorage e não localStorage: o rascunho pode conter notas internas,
-    // e ele deve morrer junto com a aba, não ficar no disco. Reaproveita
-    // snapshotForm(), que já é a fonte da verdade do que compõe o formulário.
+    // A sessão expira por inatividade (2h); api() manda para o login no 401 e,
+    // sem isto, o que estava sendo editado se perdia. sessionStorage (não
+    // localStorage) porque o rascunho pode conter notas internas e deve
+    // morrer com a aba.
     function stashDraft() {
       if (!document.getElementById('overlay').classList.contains('open')) return false;
       if (!isFormDirty()) return false; // nada alterado, nada a recuperar
@@ -1173,10 +1162,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     }
 
     // ---- Duplicate ----
-    // Opens the "add event" form pre-filled from an existing event — same shoot
-    // config (drive links, category, access type, credits, photos), fresh slug
-    // required, never pinned — pinning a clone is a deliberate choice, not
-    // something a "duplicate" click should decide silently on your behalf.
+    // Pre-fills the "add event" form from an existing event; slug is cleared
+    // (must be unique) and pinned resets — a clone shouldn't inherit that silently.
     function duplicateEvent(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
@@ -1238,11 +1225,16 @@ export function dashboardHTML(events, categories = [], nonce = '') {
 
         const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' };
 
+        // esc() no id como em todo o resto do arquivo. Hoje ele é hexadecimal
+        // (generateId, e sanitizeRestoredRequest recusa o que não casar com
+        // /^[a-f0-9]{1,64}$/), mas era a última interpolação de DADO sem escape
+        // aqui — e a de baixo cai dentro de uma string JS dentro de um atributo
+        // HTML, o pior contexto para depender de validação feita noutro arquivo.
         const renderReq = r => \`
-          <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${r.id}">
+          <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${esc(r.id)}">
             <div class="req-header">
               <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
-              <span class="req-date">\${new Date(r.createdAt).toLocaleDateString('pt-BR')}</span>
+              <span class="req-date">\${r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '—'}</span>
             </div>
             <div class="req-body">
               <span><strong>Tipo:</strong> \${esc(methodLabel[r.method] || r.method)}</span>
@@ -1256,13 +1248,17 @@ export function dashboardHTML(events, categories = [], nonce = '') {
               \${r.confirmEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
               \${r.resolvedEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
             </div>
-            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${r.id}')">✓ Marcar como resolvido</button>\` : ''}
+            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${esc(r.id)}')">✓ Marcar como resolvido</button>\` : ''}
           </div>\`;
 
-        // Group by project, sorted by most recent first within each group
+        // Group by project, sorted by most recent first within each group.
+        // String(... || '') espelha porCriacaoDesc() no servidor: um registro
+        // restaurado de backup pode não ter createdAt, e o .localeCompare direto
+        // que estava aqui derrubava a aba inteira ("Erro ao carregar") por causa
+        // de um registro só.
         const byProject = {};
         const projectOrder = [];
-        [...data].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).forEach(r => {
+        [...data].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).forEach(r => {
           if (!byProject[r.eventSlug]) {
             byProject[r.eventSlug] = { title: r.eventTitle, slug: r.eventSlug, pending: [], resolved: [] };
             projectOrder.push(r.eventSlug);
@@ -1368,13 +1364,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const p2 = document.getElementById('new-pass2').value;
       if (!p1) return toast('Digite a nova senha.', 'err');
       if (p1 !== p2) return toast('As senhas não coincidem.', 'err');
-      // O mínimo vem da MESMA constante que o servidor usa (PASSWORD_MIN_LENGTH
-      // em security.js), interpolada aqui. Antes o cliente dizia 6 e o servidor
-      // exigia 12: a pessoa digitava uma senha, passava na checagem local e
-      // levava um erro diferente do outro lado. Regra duplicada é regra que
-      // diverge; interpolar a constante mantém as duas em sincronia.
-      // As regras finas (classes, padrões previsíveis) ficam só no servidor, que
-      // é a autoridade — a mensagem específica dele chega via toast.
+      // Interpola PASSWORD_MIN_LENGTH (security.js) para não divergir do mínimo
+      // real do servidor. Regras finas (classes, padrões) ficam só no servidor.
       if (p1.length < ${PASSWORD_MIN_LENGTH}) return toast('Senha muito curta (mínimo ${PASSWORD_MIN_LENGTH} caracteres).', 'err');
       const ok = await confirmDialog({
         title: 'Trocar senha',
@@ -1428,10 +1419,30 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       }
     }
 
-    // ---- CSV helpers (BOM + escaping, matches server) ----
+    // ---- CSV helpers (BOM + escaping) ----
+    // Espelha csvCell() de utils.js PASSO A PASSO, e as três etapas importam na
+    // ordem em que estão. Este bloco já dizia "matches server" enquanto fazia só
+    // a citação: os exports do navegador (solicitações de remoção, métricas)
+    // saíam sem a defesa contra INJEÇÃO DE FÓRMULA que o export do servidor tem
+    // desde sempre — e é justamente o do navegador que carrega "message" e
+    // "value", texto cru digitado por visitante.
+    //
+    // O ataque: Excel/Sheets executam uma célula que começa com =, +, -, @, TAB
+    // ou CR ao abrir o arquivo — uma fórmula HYPERLINK exfiltra a linha ao lado
+    // com um clique. As aspas do CSV não bloqueiam isso (são citação, não escape
+    // de fórmula), e quem abre o arquivo é o admin, com os dados pessoais dos
+    // titulares na tela. O apóstrofo à frente é o que a planilha lê como "isto
+    // é texto". Sem crase em nenhum comentário daqui: este bloco vive dentro de
+    // um template literal, e uma crase solta encerra a string e quebra o módulo.
     function toCSV(cols, rows){
-      function cell(v){ v = (v==null?'':String(v)); return /[",\\r\\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
-      return '\\uFEFF' + [cols.join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
+      function cell(v){
+        if (v == null) return '';
+        var s = String(v);
+        s = s.replace(/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g, '');
+        if (/^[-=+@\\t\\r]/.test(s)) s = "'" + s;
+        return /[",\\r\\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+      }
+      return '\\uFEFF' + [cols.map(cell).join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
     }
     function downloadCSV(name, cols, rows){ var b=new Blob([toCSV(cols,rows)],{type:'text/csv;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
     function csvDate(){ return new Date().toISOString().slice(0,10); }
@@ -1643,10 +1654,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
-        // Session expired — send them back to login instead of firing a confusing
-        // "Não autorizado" toast on every subsequent action. Antes de sair,
-        // guarda o que estava sendo editado: com o corte por inatividade, este
-        // caminho passou a ser alcançável no meio de uma edição.
+        // Session expired — send back to login instead of a confusing toast on
+        // every action. stashDraft() first so an in-progress edit isn't lost.
         stashDraft();
         window.location.href = '/dashboard';
         throw new Error(data.error || 'Sessão expirada.');
@@ -1656,31 +1665,24 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     }
 
     // ---- Escape ----
-    // Mirror of the canonical 5-char escaper (utils.js). Defined locally because
-    // this runs in the browser, where the module import is not available. Must
-    // also escape ' since client-rendered values land in single-quoted attributes.
+    // Mirrors utils.js's escaper — defined locally since the browser has no
+    // module import. Also escapes ' since values land in single-quoted attrs.
     function esc(s) {
-      // Mirror utils.js exactly: only null/undefined become ''. The old
-      // truthiness check also swallowed the number 0, rendering it as an empty
-      // cell in the metrics table (0 views showed blank instead of "0").
+      // Only null/undefined become '' — a truthiness check would also swallow
+      // 0, rendering "0 views" as a blank cell.
       if (s === null || s === undefined) return '';
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
     }
 
-    // Espelho do safeUrl/toHttps de utils.js, pelo mesmo motivo do esc() acima:
-    // isto roda no browser, onde não há import de módulo.
-    //
-    // Vem em par com o esc(), nunca sozinho — é o contrato documentado em
-    // utils.js: esc() fecha o atributo mas NÃO mata o esquema, e safeUrl() mata
-    // o esquema mas devolve URL crua, que pode conter aspas. Um esquema
-    // javascript: guardado no KV por um restore de backup (que mescla
-    // verbatim) precisa dos dois para não ficar a um clique da execução.
+    // Mirrors utils.js's safeUrl/toHttps, same reason as esc() above. Always
+    // pairs with esc(): esc() closes the attribute but doesn't kill the scheme,
+    // safeUrl() kills the scheme but returns a raw URL — a backup restore can
+    // put a javascript: URL in the KV verbatim, so both are needed together.
     function safeUrl(u) {
       if (typeof u !== 'string') return '';
       const v = u.startsWith('http://') ? 'https://' + u.slice(7) : u;
-      // Comparação de prefixo em vez de regex: uma barra escapada dentro de
-      // um literal de template vira ruído de escape que o linter reprova, e o
-      // teste é o mesmo.
+      // Prefix check instead of regex: an escaped slash in a template literal
+      // reads as lint noise for the same test.
       return v.slice(0, 8).toLowerCase() === 'https://' ? v : '';
     }
 

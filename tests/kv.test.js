@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
+  MAX_CATEGORIES, MAX_CATEGORY_LEN,
   degradedHealth, resetDegraded, noteDegraded,
   bumpCounter, readCounter, readCounters, deleteCounters,
 } from '../src/utils.js';
@@ -401,6 +402,32 @@ describe('getCategories', () => {
   it('falls back to defaults on non-array or invalid JSON', async () => {
     expect(await getCategories({ FOTOS: fakeKV({ categories: '{}' }) })).toEqual(DEFAULT_CATEGORIES);
     expect(await getCategories({ FOTOS: fakeKV({ categories: 'broken' }) })).toEqual(DEFAULT_CATEGORIES);
+  });
+
+  // Os tetos da ESCRITA aplicados de novo na LEITURA. `handleCreateCategory`
+  // valida o que grava, mas o valor pode ter chegado por restore de backup ou
+  // por edição manual no painel da Cloudflare — os dois caminhos que não passam
+  // por handler nenhum. Sem isto, a lista inteira vai para cada `<option>` do
+  // painel, três vezes por página.
+  it('aplica o teto de quantidade que a escrita já aplicava', async () => {
+    const muitas = Array.from({ length: 500 }, (_, i) => `Categoria ${i}`);
+    const env = { FOTOS: fakeKV({ categories: JSON.stringify(muitas) }) };
+    const lidas = await getCategories(env);
+    expect(lidas).toHaveLength(MAX_CATEGORIES);
+    expect(lidas[0]).toBe('Categoria 0');
+  });
+
+  it('aplica o teto de tamanho de cada nome', async () => {
+    const env = { FOTOS: fakeKV({ categories: JSON.stringify(['x'.repeat(5000)]) }) };
+    const [nome] = await getCategories(env);
+    expect(nome).toHaveLength(MAX_CATEGORY_LEN);
+  });
+
+  // Recorta, não recusa: categoria demais ainda é dado do dono, e cair para os
+  // defaults apagaria as boas junto com as ruins.
+  it('preserva as categorias válidas em vez de cair para os defaults', async () => {
+    const env = { FOTOS: fakeKV({ categories: JSON.stringify(['Casamento', '', '   ', null, 'Ensaio']) }) };
+    expect(await getCategories(env)).toEqual(['Casamento', 'Ensaio']);
   });
 });
 

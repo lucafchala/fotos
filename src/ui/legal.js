@@ -1,36 +1,21 @@
-import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT, fontPreconnectHTML } from '../utils.js';
+import { footerLegalLinksHTML, TERMS_VERSION, formatDatePT, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 import { LEGAL_DOCS } from '../content/legal-docs.js';
 
-// Central de Transparência — o hub que reúne privacidade, termos, segurança e a
-// documentação de conformidade num só lugar.
-//
-// Existe por dois motivos. O prático: o rodapé estava virando uma fileira de
-// links jurídicos que ninguém lê, competindo por atenção com "Sobre" e
-// "Suporte". Um único link "Legal" resolve isso sem esconder nada — pelo
-// contrário, o que antes eram dois links soltos agora é uma página que também
-// mostra o que o site faz com os dados e como ele é protegido.
-//
-// O outro motivo é de postura. Empresa séria não trata conformidade como letra
-// miúda no rodapé; ela publica um trust center e deixa claro o que faz, por
-// quê, e por quanto tempo. É barato de manter (o conteúdo já existia, estava só
-// espalhado) e muda completamente a impressão de quem chega desconfiado.
+// Central de Transparência — hub que reúne privacidade, termos, segurança e
+// documentação de conformidade, em vez de espalhar links jurídicos no rodapé.
 //
 // Página estática: nenhum valor vem de KV ou do visitante, então não há nada
-// para escapar aqui. As duas interpolações (TERMS_VERSION e o ano) vêm de
-// constantes do próprio código.
+// para escapar aqui. As interpolações vêm de constantes do próprio código.
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const UPDATED = '2026-08-16';
 
-// Documentos de governança, cada um com página própria em /legal/<slug>.
-// Vem da mesma lista que gera as rotas e o sitemap: uma segunda cópia aqui
-// divergiria no primeiro documento novo. `slice(1)` tira a Política de
-// Segurança, que aparece em destaque no bloco de documentos principais.
+// Mesma lista que gera as rotas e o sitemap, pra não divergir. slice(1) tira
+// a Política de Segurança, que já aparece em destaque nos documentos principais.
 const GOVERNANCE_DOCS = LEGAL_DOCS.slice(1);
 
-// Endpoints legíveis por máquina. Listá-los não é enfeite: é o que permite a um
-// pesquisador de segurança, a um crawler ou a um agente automatizado descobrir
-// as políticas do site sem precisar adivinhar onde elas estão.
+// Pra pesquisadores de segurança, crawlers e agentes automatizados acharem as
+// políticas sem adivinhar onde estão.
 const MACHINE_ENDPOINTS = [
   ['/.well-known/security.txt', 'Contato de segurança e chave PGP', 'RFC 9116'],
   ['/.well-known/gpc.json', 'Global Privacy Control — opt-out honrado por padrão', 'GPC'],
@@ -74,12 +59,12 @@ export function legalHTML() {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Central de Transparência · fotos</title>
-  <meta name="description" content="Privacidade, termos de uso, segurança e conformidade com a LGPD — tudo o que fazemos com os dados, num só lugar.">
   <link rel="canonical" href="${SITE_URL}/legal">
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="Central de Transparência · fotos">
-  <meta property="og:description" content="Privacidade, termos, segurança e conformidade com a LGPD — num só lugar.">
-  <meta property="og:url" content="${SITE_URL}/legal">
+  ${socialMetaHTML({
+    title: 'Central de Transparência · fotos',
+    description: 'Privacidade, termos de uso, segurança e conformidade com a LGPD — tudo o que fazemos com os dados, num só lugar.',
+    url: `${SITE_URL}/legal`,
+  })}
   ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
@@ -184,9 +169,8 @@ export function legalHTML() {
     @media (max-width:600px){
       main{padding:1rem 1.15rem 4rem}
       .card{padding:1rem}
-      /* Em três colunas numa tela estreita, a linha do endpoint quebra em
-         degraus e o rótulo do padrão fica órfão no meio. Empilhado, cada linha
-         vira um bloco legível: caminho, descrição, padrão. */
+      /* Empilha em vez de quebrar em degraus (o rótulo do padrão ficava
+         órfão no meio da linha em telas estreitas). */
       .endpoint{flex-direction:column;align-items:flex-start;gap:.35rem;padding:.85rem 1rem}
       .endpoint .ep-desc{min-width:0}
     }

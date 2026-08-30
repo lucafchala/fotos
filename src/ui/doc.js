@@ -1,17 +1,10 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 import { renderMarkdown } from './markdown.js';
 import { LEGAL_DOCS } from '../content/legal-docs.js';
 
-// Página de um documento de conformidade.
-//
-// Antes esses documentos só existiam como markdown no repositório, e a Central
-// de Transparência mandava o visitante para o GitHub para lê-los. Mandar alguém
-// para fora do site para ler a política que rege os dados dele é o oposto de
-// transparência: exige conta em outro serviço para se orientar, quebra o tema,
-// perde o rodapé e a navegação, e não funciona bem em celular.
-//
-// Agora cada documento é uma página daqui, renderizada do mesmo markdown que
-// continua sendo a fonte da verdade (ver scripts/build-legal-docs.mjs).
+// Página de um documento de conformidade, renderizada do mesmo markdown que é
+// a fonte da verdade (ver scripts/build-legal-docs.mjs) — antes esses docs só
+// existiam no GitHub, fora do tema e da navegação do site.
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -21,9 +14,8 @@ const SITE_URL = 'https://fotos.lucafchala.com';
 export function docHTML(doc) {
   const { html, toc } = renderMarkdown(doc.markdown);
 
-  // Documento anterior/próximo, na ordem da Central. Ler conformidade é
-  // navegação sequencial mais vezes do que se imagina, e a alternativa é voltar
-  // ao índice a cada documento.
+  // Documento anterior/próximo, na ordem da Central — evita voltar ao índice
+  // a cada documento.
   const idx = LEGAL_DOCS.findIndex(d => d.slug === doc.slug);
   const prev = idx > 0 ? LEGAL_DOCS[idx - 1] : null;
   const next = idx >= 0 && idx < LEGAL_DOCS.length - 1 ? LEGAL_DOCS[idx + 1] : null;
@@ -44,12 +36,13 @@ export function docHTML(doc) {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(doc.title)} · fotos</title>
-  <meta name="description" content="${escape(doc.summary)}">
   <link rel="canonical" href="${SITE_URL}/legal/${escape(doc.slug)}">
-  <meta property="og:type" content="article">
-  <meta property="og:title" content="${escape(doc.title)} · fotos">
-  <meta property="og:description" content="${escape(doc.summary)}">
-  <meta property="og:url" content="${SITE_URL}/legal/${escape(doc.slug)}">
+  ${socialMetaHTML({
+    type: 'article',
+    title: `${doc.title} · fotos`,
+    description: doc.summary,
+    url: `${SITE_URL}/legal/${doc.slug}`,
+  })}
   ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>

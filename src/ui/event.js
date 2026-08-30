@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -16,25 +16,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
 
-  // "Em breve": distingue "o evento já rolou e as fotos não ficaram prontas"
-  // de "o evento ainda nem aconteceu" pra dar a mensagem certa no popup do
-  // botão desabilitado. Sem data (evento futuro ainda sem data marcada), cai
-  // no primeiro caso — não dá pra dizer "você está adiantando" sem uma data.
+  // "Em breve" sem data = evento futuro ainda sem data marcada, então cai no
+  // caso "fotos não ficaram prontas" — não dá pra dizer "adiantando" sem data.
   const eventDateMs = event.date ? new Date(event.date).getTime() : NaN;
   const eventIsFuture = !Number.isNaN(eventDateMs) && eventDateMs > Date.now();
-  // safeUrl aqui, na ORIGEM, e não na hora de interpolar. As duas listas
-  // abaixo têm de andar em par: `photos.length` decide o layout (herói, uma
-  // foto, carrossel) e desenha as bolinhas e o contador "1 / N", enquanto
-  // `displayPhotos` fornece as URLs. Filtrar só a segunda faria as duas
-  // divergirem em tamanho — carrossel com três bolinhas e duas fotos, e um
-  // `displayPhotos[0]` `undefined` virando `src="undefined"`.
-  //
-  // O porquê do safeUrl: escape() fecha o atributo mas NÃO mata o esquema, e
-  // estes valores podem ter entrado no KV por um caminho que não passou por
-  // toHttps() (registro antigo, restore de backup mesclado verbatim). É o
-  // contrato documentado em utils.js — escape(safeUrl(x)) no sink —, e vale
-  // também para o `photosJSON`, que o lightbox atribui no cliente sem passar
-  // por parsing de HTML.
+  // safeUrl aplicado aqui na origem, não na interpolação: photos.length decide
+  // o layout (bolinhas, contador "1/N") e displayPhotos fornece as URLs —
+  // filtrar só a segunda faria as duas divergirem em tamanho. escape() fecha o
+  // atributo mas não mata o esquema (javascript:), daí o par escape(safeUrl(x))
+  // — vale também para photosJSON, que o lightbox usa sem parsing de HTML.
   const photos = (Array.isArray(event.photos) && event.photos.length > 0)
     ? event.photos.map(safeUrl).filter(Boolean)
     : (safeUrl(event.thumbnailUrl) ? [safeUrl(event.thumbnailUrl)] : []);
@@ -44,12 +34,26 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
   const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   const slugJSON    = JSON.stringify(event.slug || '');
-  const ogImage     = event.comingSoon
-    ? `${SITE_URL}/og-coming-soon.png`
-    : (photos[0] ? sizedDriveThumb(photos[0], 1200) : '');
-  const ogDescription = event.longDescription
-    ? event.longDescription.slice(0, 200).trim()
-    : 'Fotografias de Luca F. Chala.';
+  // Imagem do cartão de link. O PNG de "em breve" tem exatamente OG_IMAGE_W ×
+  // OG_IMAGE_H (ver handleComingSoonOgImage), então nos dois caminhos as
+  // dimensões são conhecidas e o WhatsApp monta o cartão grande.
+  const ogImage = event.comingSoon
+    ? { url: `${SITE_URL}/og-coming-soon.png`, width: OG_IMAGE_W, height: OG_IMAGE_H }
+    : ogImageFor(photos[0]);
+
+  // Fatos que abrem a descrição do cartão, na ordem em que importam a quem
+  // recebe o link: quando foi, com quem foi feito, que tipo de projeto é e se
+  // o acesso é restrito. O crédito vem logo depois da data porque é a primeira
+  // informação que o destinatário procura quando o evento é de uma instituição
+  // — e porque o WhatsApp corta o resto.
+  const restrictedAccess = event.accessType === 'private' || event.accessType === 'family';
+  const ogDescription = previewDescription([
+    event.comingSoon ? 'Em breve' : '',
+    event.date ? formatDatePT(event.date) : '',
+    event.eventCredits ? `Em colaboração com ${event.eventCredits}` : '',
+    event.category || '',
+    restrictedAccess ? 'Acesso restrito' : '',
+  ], event.longDescription || '') || 'Fotografias de Luca F. Chala.';
 
   // Banner de novas fotos
   const alert = event.photosAlert;
@@ -101,25 +105,57 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  <meta property="og:title" content="${escape(event.title)}">
-  <meta property="og:description" content="${escape(ogDescription)}">
-  ${ogImage ? `<meta property="og:image" content="${escape(ogImage)}">` : ''}
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="${SITE_URL}/${escape(event.slug)}">
-  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
+  ${socialMetaHTML({
+    title: event.title,
+    description: ogDescription,
+    url: `${SITE_URL}/${event.slug}`,
+    type: 'article',
+    image: ogImage.url,
+    imageAlt: `Foto de ${event.title}`,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
+  ${event.date ? `<meta property="article:published_time" content="${escape(event.date)}">` : ''}
+  <!-- article:author quer o PERFIL, não o nome: /sobre é a página que declara
+       og:type=profile, então o par fecha em vez de repetir a string. -->
+  <meta property="article:author" content="${SITE_URL}/sobre">
   ${fontPreconnectHTML()}
   <link rel="preconnect" href="https://drive.google.com">
   ${photoPreconnectHTML()}
   ${perfBootScript('event', !!analyticsToken, nonce)}
-  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify({
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
-      { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
-      { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${escape(event.slug)}` },
-    ],
-  }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
+  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
+        { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
+        // Sem escape() aqui: o valor é serializado por JSON.stringify e o bloco
+        // inteiro sai com < e > neutralizados na linha de baixo. escape() antes
+        // disso injetava ENTIDADE HTML dentro do JSON — um slug com "&" virava
+        // "&amp;" no item da trilha, uma URL que não existe. O PhotoGallery
+        // abaixo já fazia certo; eram os dois discordando sobre o mesmo campo.
+        { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${event.slug}` },
+      ],
+    },
+    // Mesmo conjunto de fatos do cartão de link, na forma que o buscador lê.
+    // creditText (e não contributor) porque o campo do painel aceita tanto
+    // instituição quanto fotógrafo colaborador ou projeto — declarar
+    // Organization onde pode haver Person seria afirmar o que não se sabe.
+    {
+      '@context': 'https://schema.org',
+      '@type': 'PhotoGallery',
+      name: event.title,
+      url: `${SITE_URL}/${event.slug}`,
+      inLanguage: 'pt-BR',
+      description: ogDescription,
+      author: { '@type': 'Person', name: 'Luca F. Chala', url: `${SITE_URL}/sobre` },
+      ...(ogImage.url ? { image: ogImage.url } : {}),
+      ...(event.date ? { datePublished: event.date } : {}),
+      ...(event.eventCredits ? { creditText: event.eventCredits } : {}),
+      ...(event.category ? { genre: event.category } : {}),
+    },
+  ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -149,21 +185,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     ${HONEYPOT_CSS}
     .hero-stage{position:relative}
-    /* Chrome sobreposto à foto (back-pill, setas/dots/contador do carrossel, hero
-       em si) fica sempre escuro/translúcido nos dois temas — a função dele é
-       contraste contra a FOTO, não contra a página, então nunca usa as vars
-       acima. Ver também .c-btn/.c-dots/.c-count/.swipe-hint mais abaixo. */
+    /* Chrome sobre a foto (back-pill, controles do carrossel) fica sempre
+       escuro/translúcido nos dois temas — contraste contra a FOTO, não contra
+       a página, então nunca usa as vars de tema. Idem .c-btn/.c-dots/.c-count. */
     .back-pill{position:absolute;top:.875rem;left:.875rem;z-index:3;display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;color:#f0ebe5;font-size:.8rem;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:.5rem .8rem .5rem .65rem;border-radius:20px;transition:background .2s}
     .back-pill:hover{background:rgba(0,0,0,.65)}
     .back-pill svg{width:14px;height:14px;flex-shrink:0}
     /* hero */
     .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative;display:flex;align-items:center;justify-content:center}
-    /* max-width/max-height com width/height auto: a foto encolhe pra caber
-       (nos dois eixos, mantendo a proporção real) em vez de ser cortada —
-       corte de aspect-ratio+cover às vezes levava cabeça de gente em foto de
-       grupo junto. Sobra só aparece se a proporção da foto obrigar (retrato
-       muito alto batendo no teto de 72vh), e o .hero flex-centralizado
-       preenche com o próprio fundo escuro do visor de foto. */
+    /* max-width/max-height + width/height auto: a foto encolhe pra caber
+       mantendo a proporção real, em vez de ser cortada — aspect-ratio+cover
+       às vezes cortava cabeças em foto de grupo. */
     .hero img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
@@ -172,10 +204,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
     .btn-soon{background:var(--bg-card);color:var(--text-muted);border:1px dashed var(--bg-card-border);cursor:pointer}
-    /* Reseta o opacity do hover genérico de .btn-drive: sem isso, o toque no
-       mobile deixava o botão "escurecido" (opacity:.9 do hover que nunca
-       recebe um mouseleave pra sair) mesmo sem nada visivelmente clicável —
-       agora que ele abre o popup, o estado precisa continuar estável. */
+    /* Reseta o hover genérico de .btn-drive: no touch, o opacity:.9 do hover
+       ficava "preso" sem mouseleave, escurecendo o botão à toa. */
     .btn-soon:hover,.btn-soon:active{background:var(--bg-card);opacity:1;transform:none}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
@@ -231,11 +261,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .ig-credit-btn:hover{background:var(--bg-card-hover);border-color:#dc2743;transform:translateY(-1px)}
     .ig-credit-icon{display:inline-flex;flex-shrink:0}
     .ig-credit-text strong{font-weight:700;color:var(--text)}
-    /* Na lista de créditos, o botão do Instagram entra como mais uma linha do
-       grupo (mesmo espaçamento/alinhamento de .credits-list a/span) em vez de
-       um pill de marca solto — mantém o ícone pra reconhecimento, perde o
-       cartão isolado. A versão na guide-box do modal (fora de .credits-list)
-       continua com o visual de botão original. */
+    /* Na lista de créditos o botão do Instagram vira mais uma linha do grupo,
+       não um pill solto — a versão na guide-box do modal mantém o visual original. */
     .credits-list .ig-credit-btn{display:inline-flex;align-items:center;background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
     .credits-list .ig-credit-btn:hover{background:none;border-color:transparent;color:var(--text-2);transform:none}
     .credits-list .ig-credit-text strong{color:var(--text)}
@@ -452,7 +479,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         Compartilhar
       </button>
-      <a href="https://wa.me/?text=${escape(`Veja as fotos de ${event.title} em fotos.lucafchala.com/${event.slug}`)}" target="_blank" rel="noopener" class="action-btn" id="btn-share-wa">
+      <!-- encodeURIComponent ANTES do escape(), e os dois são necessários: o
+           valor vai para dentro de uma query string que também é atributo HTML.
+           Só com escape() um "&" no título virava "&amp;", que o WhatsApp lê
+           como fim do parâmetro — "Turma A & B" chegava como "Veja as fotos de
+           Turma A " e o resto da frase, com o link, sumia. -->
+      <a href="https://wa.me/?text=${escape(encodeURIComponent(`Veja as fotos de ${event.title} em ${SITE_URL.replace(/^https:\/\//, '')}/${event.slug}`))}" target="_blank" rel="noopener" class="action-btn" id="btn-share-wa">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
         WhatsApp
       </a>
@@ -494,15 +526,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       </div>
       <div id="drive-gate">
         <!--
-          O nome vem ANTES das caixas de aceite, e a ordem e o proprio conserto.
-          Marcar o aceite dispara o pedido na hora (ver maybeFetchDriveLink,
-          "no click needed"), e fetchDriveLink le o campo NAQUELE instante.
-          Com o campo embaixo, quem lia a tela de cima para baixo marcava o
-          aceite primeiro, recebia o link, e so entao via "+ incluir meu nome":
-          o que digitasse ali era descartado em silencio, porque o estado ja era
-          ready e nao existe um segundo pedido. Um campo opcional que ignora o
-          que a pessoa escreveu e pior do que nao ter campo, ainda mais este,
-          que existe para dar nome ao consentimento.
+          Nome vem ANTES do aceite de propósito: marcar o aceite dispara o
+          pedido na hora (maybeFetchDriveLink lê o campo naquele instante), e
+          com o campo embaixo o texto digitado depois do aceite era descartado
+          em silêncio — o estado já ficava "ready" e não há um segundo pedido.
         -->
         <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" onclick="toggleDriveName()">+ incluir meu nome (opcional)</button>
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
@@ -691,14 +718,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   <script nonce="${nonce}">
+    // Daqui até o fecha-script tudo vive dentro de um template literal: uma
+    // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     const EVENT_SLUG     = ${slugJSON};
     const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
-    // Nonce de página assinado no servidor para ESTE slug, com validade curta.
-    // O /api/drive-link exige que ele venha junto: é o que impede que um token
-    // Turnstile válido seja reaproveitado para varrer os slugs do site sem
-    // nunca carregar uma página. Vazio quando SIGNING_SECRET não está
-    // configurado — nesse caso o servidor não exige o nonce (ver signingSecret
-    // em src/index.js) e o site segue funcionando sem esta camada.
+    // Nonce assinado para ESTE slug — impede que um token Turnstile válido
+    // seja reaproveitado pra varrer os slugs do site sem carregar a página.
+    // Vazio quando SIGNING_SECRET não está configurado (ver src/index.js).
     const DRIVE_NONCE    = ${JSON.stringify(driveNonce || '')};
     // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
     // que chega menos de 3 s depois de a página ser servida é automação.
@@ -710,11 +736,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     let lastFocused = null;
 
     // ---- Ad-block / privacy-extension detection ----
-    // The Turnstile script is the asset these extensions block. Without it we
-    // can't run the security check the Drive gate and the LGPD forms (image-use
-    // consent + photo removal) depend on, so we surface a clear, actionable
-    // warning instead of letting the flow break silently. (window.__tsBlocked is
-    // also set by the script tag's onerror at the bottom of the page.)
+    // Turnstile is what these extensions block; without it the Drive gate and
+    // LGPD forms can't run their security check, so we surface a warning
+    // instead of letting the flow fail silently. (window.__tsBlocked is also
+    // set by the script tag's onerror at the bottom of the page.)
     window.__tsBlocked = window.__tsBlocked || false;
     function tsUnavailable() { return window.__tsBlocked || typeof turnstile === 'undefined'; }
     function showAdblockWarn(id) { var el = document.getElementById(id); if (el) el.style.display = ''; }
@@ -856,11 +881,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       driveLinkState = 'idle';
       setDriveLinkUI('idle');
 
-      // Terms + the (visibly-present, disabled-styled) button show together
-      // immediately — Turnstile keeps resolving invisibly in the background,
-      // exactly as it pre-warmed on page load. Only a genuinely stuck check
-      // (no token after 9s) surfaces a small inline note; it never hides
-      // the terms or the button.
+      // Terms + button show immediately; Turnstile resolves invisibly in the
+      // background. Only a stuck check (no token after 9s) surfaces a note —
+      // it never hides the terms or button.
       clearTimeout(driveTimeout);
       driveTimeout = setTimeout(function() { if (!driveTsToken) driveVerifyError(); }, 9000);
       // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
@@ -896,11 +919,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (consentOk && driveTsToken !== '') {
         fetchDriveLink();
       } else if (consentOk) {
-        // Terms/declaration already accepted, just waiting on Turnstile to hand
-        // over a token — light the spinner now instead of leaving the button
-        // looking inert. driveLinkState stays untouched (still the real fetch
-        // gate); once the token lands, initDriveTurnstile()'s callback calls us
-        // again and this branch falls through to fetchDriveLink() above.
+        // Just waiting on a Turnstile token — show the spinner instead of an
+        // inert button; the callback re-calls this once the token lands.
         setDriveLinkUI('loading');
       }
     }
@@ -922,24 +942,19 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         }),
       })
         .then(function(r) {
-          // 410 = o nonce desta página venceu (aba aberta há horas). Não é erro
-          // do visitante e não há o que ele possa fazer na tela: recarregar
-          // busca um nonce novo e o fluxo recomeça sozinho. Qualquer outro
-          // status cai no .catch() de sempre.
+          // 410 = nonce da página venceu (aba aberta há horas), não erro do
+          // visitante — reloadForFreshNonce() recarrega e o fluxo recomeça.
           if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
           return r.ok ? r.json() : Promise.reject();
         })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
-          // Deu certo: solta a trava anti-laço, para que uma expiração futura
-          // nesta mesma aba ainda possa se recuperar com uma recarga.
+          // Solta a trava anti-laço: uma expiração futura na mesma aba ainda
+          // pode se recuperar com uma recarga.
           try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
-          // A partir daqui o nome já foi (ou não foi) registrado, e não há
-          // segundo pedido: deixar o campo editável seria oferecer uma ação sem
-          // efeito. Trancado só no sucesso, de propósito — no erro o Turnstile
-          // renova o token e tenta de novo, e essa tentativa ainda deve poder
-          // levar um nome digitado no meio do caminho.
+          // Tranca só no sucesso — no erro o Turnstile renova o token e tenta
+          // de novo, e essa tentativa ainda precisa poder levar um nome digitado.
           lockDriveName();
           setDriveLinkUI('ready', data);
         })
@@ -954,22 +969,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           }
         });
     }
-    // O nonce desta pagina vale 2 h. Quem deixou a aba aberta a tarde inteira e
-    // volta para clicar cai num 410 — situacao normal, nao erro dele. Recarregar
-    // resolve, mas recarregar seco devolve a pessoa ao topo da pagina sem
-    // explicacao nenhuma, e ela precisa refazer o caminho todo sem saber por que.
-    //
-    // Entao a recarga deixa um bilhete: ao voltar, o modal reabre sozinho com um
-    // aviso curto. O aceite NAO e remarcado de proposito — consentimento tem que
-    // ser um ato afirmativo da pessoa, e remarcar por ela registraria um aceite
-    // que ninguem deu naquele momento. Fica em um clique, e um clique honesto.
-    // Duas chaves, dois propósitos:
-    //  - drive_reopen  = "ao voltar, reabra o modal" (consumida no load)
-    //  - drive_reloaded = "já tentei recarregar uma vez" (trava anti-laço)
-    // Sem a segunda, isto vira um laço infinito de recarga — e não é hipótese:
-    // o Chrome restaura o estado dos checkboxes ao recarregar, então o aceite
-    // voltava marcado, o gate disparava sozinho, tomava 410 de novo e
-    // recarregava outra vez, para sempre. Foi pego com browser de verdade.
+    // Nonce da página vale 2h; recarregar busca um novo e deixa um bilhete
+    // (drive_reopen) para reabrir o modal com aviso ao voltar. O aceite NÃO é
+    // remarcado — consentimento tem que ser um ato afirmativo da pessoa.
+    // drive_reloaded é a trava anti-laço: sem ela, o Chrome restaura o
+    // checkbox marcado ao recarregar, o gate dispara sozinho, toma 410 de
+    // novo e recarrega para sempre (visto acontecer com browser de verdade).
     function reloadForFreshNonce() {
       var alreadyTried = null;
       try { alreadyTried = sessionStorage.getItem('fotos:drive_reloaded'); } catch(_) {}
@@ -1000,11 +1005,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       } catch(_) { return; }
       if (flag !== EVENT_SLUG) return;
 
-      // O browser restaura o estado dos campos ao recarregar, então o aceite
-      // volta marcado sozinho. Desmarcar é necessário por dois motivos: sem
-      // isso o gate dispara sem ninguém ter clicado em nada (e era metade do
-      // laço acima), e um consentimento tem que ser um ato afirmativo da
-      // pessoa — não um resquício de estado de formulário.
+      // O browser restaura o checkbox marcado ao recarregar — desmarcar evita
+      // o gate disparar sozinho (metade do laço em reloadForFreshNonce) e
+      // mantém o consentimento como um ato afirmativo da pessoa.
       var consent = document.getElementById('drive-consent');
       if (consent) consent.checked = false;
       var decl = document.getElementById('drive-declaration');
@@ -1021,13 +1024,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
-    // Drives the visible state of the link button(s): visibly-present but
-    // muted (.drive-locked) until the real href lands, with a spinner swapped
-    // in for the icon (.drive-loading, see .btn-icon/.btn-spin) as soon as
-    // terms/declaration are accepted — covers both the wait for a Turnstile
-    // token and the request itself, since maybeFetchDriveLink() lights it
-    // early. Once ready, an idle timer draws attention if the visitor doesn't
-    // click within a few seconds.
+    // Visible state of the link button(s): muted (.drive-locked) until the
+    // real href lands, spinner (.drive-loading) while waiting on Turnstile or
+    // the fetch. Once ready, an idle timer draws attention after a few seconds.
     function clearDriveAttn() {
       clearTimeout(driveAttnTimer);
       const wrap = document.getElementById('drive-links-wrap');
@@ -1076,11 +1075,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       clearTimeout(window.__driveHintTimer);
       window.__driveHintTimer = setTimeout(function() { hint.style.display = 'none'; }, 3500);
     }
-    // Clicked while not ready: if terms/declaration aren't accepted yet, say so
-    // and flash the checkboxes. If they're already accepted and it's just
-    // Turnstile or the network still resolving (spinner already showing), tell
-    // the visitor to wait instead of staying silent — the click still landed
-    // here since .drive-loading no longer blocks pointer events.
+    // Clicked while not ready: flash the checkboxes if terms aren't accepted,
+    // otherwise it's just Turnstile/network still resolving — say so.
     function handleBlockedDriveClick() {
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
@@ -1394,10 +1390,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       } catch(err) {
         remError(err.message || 'Erro ao enviar. Tente novamente.');
         btn.textContent = 'Enviar solicitação';
-        // Turnstile tokens are single-use — this attempt already spent it. Fetch a
-        // fresh one before allowing a retry; otherwise the server rejects the stale
-        // token and every retry fails until the page is reloaded. The widget's
-        // callback re-enables the button once the new token arrives.
+        // Tokens are single-use — fetch a fresh one or every retry fails with
+        // a stale token. The widget's callback re-enables the button.
         remTsToken = '';
         if (remWidgetId !== null && typeof turnstile !== 'undefined') {
           turnstile.reset(remWidgetId);
@@ -1491,10 +1485,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     })();
 
     // ---- Guided tour (coach-mark) — first-visit walkthrough of the page's
-    // main actions. Steps re-target whichever share button initShare() ended
-    // up showing, and any step whose target isn't on the page (e.g. no
-    // Sobre/Equipamento links if the footer markup ever changes) is skipped
-    // rather than getting stuck.
+    // main actions. Steps re-target whichever share button initShare() showed,
+    // and a step whose target isn't on the page is skipped rather than stuck.
     var TOUR_STEPS = [
       { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Toque aqui para acessar as fotos no Google Drive.' },
       { sel: '.action-btn[onclick^="openRemModal"]', text: 'Encontrou uma foto que quer remover? Use este botão.' },
@@ -1571,7 +1563,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     } catch(_) {}
   </script>
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
-  ${analyticsToken ? `<script nonce="${nonce}" defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: String(analyticsToken) }).replace(/</g, '\\u003c')}'></script>` : ''}
+  ${analyticsBeaconHTML(analyticsToken, nonce)}
 </body>
 </html>`;
 }

@@ -33,6 +33,27 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 # painel de status até alguém rodar `npx wrangler secret put SIGNING_SECRET`.
 # Ver a justificativa completa em signingSecret(), src/index.js.
 
+# ---------------------------------------------------------------------------
+# Preview URLs — o pré-requisito do portão de deploy
+# ---------------------------------------------------------------------------
+# Cada `wrangler versions upload` ganha um endereço próprio
+# (https://<8-primeiros-do-id>-fotos.<subdominio>.workers.dev) que serve AQUELA
+# versão sem receber tráfego nenhum de produção. É contra ele que o
+# .github/workflows/deploy.yml roda o smoke antes de promover. Sem Preview
+# URLs não existe "verificar antes de entregar" — existe publicar e torcer.
+#
+# Está declarado aqui pelo mesmo motivo do bloco [observability] abaixo: com a
+# chave AUSENTE, o wrangler manda `previews_enabled: undefined` e o valor que
+# estiver no servidor prevalece indefinidamente. Foi assim que este Worker
+# ficou com Preview URLs desligadas sem ninguém ter decidido isso — e a
+# descoberta veio do jeito caro, com o primeiro deploy do portão morrendo por
+# não achar a URL.
+#
+# ⚠️ É configuração NÃO-VERSIONADA: `versions upload` só a LÊ. Quem a escreve é
+# `wrangler deploy` / `triggers deploy` — por isso o deploy.yml garante o
+# estado por API antes de subir a versão, em vez de confiar nesta linha.
+preview_urls = true
+
 [[kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"

@@ -23,10 +23,12 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Verificação (rodar o site de verdade)](./docs/VERIFICACAO.md)
 - [Configuração (KV, secrets, env vars)](#configuração-kv-secrets-env-vars)
 - [Deploy](#deploy)
+  - [Migrações do D1](#migrações-do-d1)
 - [Estrutura de arquivos](#estrutura-de-arquivos)
 - [Modelo de dados (KV)](#modelo-de-dados-kv)
 - [Rotas HTTP](#rotas-http)
 - [Páginas públicas](#páginas-públicas)
+- [Cartão de pré-visualização do link (Open Graph)](#cartão-de-pré-visualização-do-link-open-graph)
 - [Painel administrativo `/dashboard`](#painel-administrativo-dashboard)
 - [Sistema de solicitação de remoção (LGPD)](#sistema-de-solicitação-de-remoção-lgpd)
 - [Termos de Uso e autorização de uso de imagem (LGPD)](#termos-de-uso-e-autorização-de-uso-de-imagem-lgpd)
@@ -70,7 +72,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
 | Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
-| CI/CD | GitHub Actions (`deploy.yml`: testes → migrations D1 → deploy → smoke tests; `checks.yml`: lint + testes + sintaxe) |
+| CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
 | Fontes externas | Google Fonts (Inter) |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
@@ -274,94 +276,253 @@ O heartbeat:
 
 ## Deploy
 
-Há dois caminhos:
+**A versão é verificada antes de qualquer cliente vê-la.** Esse é o ponto do
+pipeline, e é o que ele *não* fazia antes: `wrangler deploy` publicava direto e
+o smoke test rodava depois, então um smoke vermelho já era um incidente — este
+README dizia isso com todas as letras.
 
-### 1. Automático (GitHub Actions, padrão)
+Hoje o fluxo é **subir a versão sem tráfego → testar a URL de preview →
+promover a mesma versão**. Se o smoke reprovar, produção nunca soube que existiu
+uma versão nova.
 
-Qualquer push em `main` dispara `.github/workflows/deploy.yml`:
+### 1. Automático (push na `main`)
 
-1. Checkout do repositório.
-2. `npm test` — gate pré-deploy: teste vermelho aborta o job antes de tocar em produção.
-3. `wrangler d1 migrations apply fotos-consent --remote` (`continue-on-error`: uma falha de migração não bloqueia o deploy, porque o INSERT de consentimento é best-effort).
-4. Deploy com `cloudflare/wrangler-action@v4` usando `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` (secrets do GitHub). A versão do wrangler vem de `env.WRANGLER_VERSION`, no topo do workflow — **mantenha-a em sintonia com o devDependency do `package.json`**: sem o pin explícito a action cai no default v3.90, e a produção rodaria numa major que nenhum teste exercitou.
-5. `sleep 20` aguardando propagação global.
-6. Smoke tests via `curl` contra a URL **workers.dev** do deploy (`steps.deploy.outputs.deployment-url`), não contra o domínio de produção — a zona `fotos.lucafchala.com` fica atrás do bot mitigation da Cloudflare, que responde 403 a clientes não-browser como o `curl`:
-   - `GET /` retorna 200
-   - `GET /dashboard` retorna 200
-   - `GET /manifest.json` retorna 200
-   - `GET /icon.svg` retorna 200
-   - `GET /__no_such_route__` retorna 404
-   - `GET /api/healthz` retorna `{"ok":true,…}`
-   - `POST /dashboard/login` com senha errada retorna 302 (e não 5xx — 5xx indicaria CPU timeout)
+`.github/workflows/deploy.yml`:
 
-   > O smoke test **não** mede o tempo do hash, e não dá para medir: o Workers
-   > congela `Date.now()` durante execução síncrona, então o `hashMs` que existia
-   > aqui era zero por construção e o portão que o comparava com 200 nunca podia
-   > reprovar (RETOMADA §5.9). O orçamento de CPU é vigiado pelo sinal real —
-   > estourá-lo mata a requisição, e aí o `healthz` não volta `ok:true` e o login
-   > não volta 302. Esses dois checks *são* o portão de CPU.
+| # | Etapa | O que garante |
+| --- | --- | --- |
+| 1 | `npm ci` + versão do wrangler derivada de `node_modules` | A produção sobe pela versão que os testes usaram |
+| 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
+| 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
+| 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
+| 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
+| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: 39 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
+| 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
+| 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
+| 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
+| 10 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
 
-Qualquer falha no smoke test marca o deploy como vermelho mas o Worker já foi publicado — então um deploy "vermelho" ainda alterou produção. Veja **Rollback** abaixo.
+O resumo do job (aba **Actions** → run → topo) responde "o que foi para
+produção e passou?" sem abrir log de step nenhum: commit, ID da versão, URL de
+preview, tabela de todas as checagens, tag criada.
 
-### 2. Manual, pelo GitHub (funciona do celular)
+#### O que a primeira execução real ensinou
 
-**Actions** → workflow **Deploy** → **Run workflow** → branch `main`.
+O pipeline acima estreou no merge do PR #108 e **falhou de propósito**, no
+lugar certo: o `versions upload` funcionou, mas a Cloudflare não devolveu URL
+de preview, e o portão recusou promover uma versão que não pôde verificar.
+Produção seguiu servindo a versão anterior. Três defeitos vieram junto, e todos
+estão corrigidos:
 
-O `deploy.yml` aceita `workflow_dispatch`, e o job é **exatamente o mesmo** do
-push: a suíte roda antes de tocar em produção e o smoke test roda depois. Um
-disparo manual não pula nenhum portão.
+| Defeito | Por que passou despercebido | Correção |
+| --- | --- | --- |
+| Preview URLs desligadas no Worker | `preview_urls` é configuração **não-versionada**: `versions upload` só a lê, e com a chave ausente do `wrangler.toml` o valor do servidor prevalecia para sempre | `preview_urls = true` no `wrangler.toml` + passo que garante e **confere** o estado pela API antes de subir a versão |
+| As mensagens de erro do portão nunca chegaram ao log | `grep` sem correspondência sai com 1; com `pipefail` e o `bash -e` do runner, o step morria **na atribuição**, antes dos `echo ::error` escritos para exatamente este caso | `\|\| true` na atribuição, e o shell dos workflows passou a ser conferido no `checks.yml` |
+| A regex casava com qualquer `*.workers.dev` | Incluindo a rota de **produção** — se as Preview URLs estivessem ligadas, o "portão" teria testado produção e aprovado a si mesmo | Ancorado no rótulo `Version Preview URL:`, com o formato `<8-hex>-<worker>` como reserva |
 
-Serve para as situações que pedem republicação e **não têm commit nenhum** por
-natureza — antes delas, a única saída era inventar um commit vazio:
+E um quarto, que o portão só tornou visível: `d1 migrations apply` falhava com
+`duplicate column name: access_type` **em todo deploy desde 09/08**, engolido
+por um `continue-on-error`. Detalhe em [Migrações do D1](#migrações-do-d1).
 
-- **Rotação de secret.** Um secret novo vale na hora, mas nada reexecuta o smoke
-  test para confirmar que entrou. Foi o caso do `SIGNING_SECRET`: só dava para
-  saber esperando o próximo merge.
-- **Rollback**, republicando um commit anterior sem reescrever a história.
-- **Reverificar a produção** depois de mexer em algo fora do repositório
-  (binding de KV, domínio, painel da Cloudflare).
+#### E o que a segunda ensinou
 
-### 3. Manual, pela linha de comando
+O run #136 passou pelas migrações e pelas Preview URLs, e parou de novo no
+upload — pelo mesmo sintoma, por uma causa diferente e mais fundamental.
+
+O passo novo leu o estado do servidor e confirmou `previews_enabled: true`,
+antes **e** depois. Mesmo assim o wrangler não imprimiu a URL. A explicação está
+nas duas condições que ele exige:
+
+```js
+if (versionId && hasPreview) {                       // hasPreview = metadata.has_preview
+  const { previews_enabled } = await fetch(`${worker}/subdomain`);
+  if (previews_enabled) { … }                        // este estava true
+}
+```
+
+Quem barra é `hasPreview`, que vem de `metadata.has_preview` na resposta do
+upload e é decidido **inteiramente do lado do servidor**: não há flag do
+wrangler nem chave de configuração que o mude. Esperar por ele é esperar por
+algo que não controlamos.
+
+Só que a URL é **derivável**. O próprio wrangler a monta como
+`https://<8 primeiros do id>-<worker>.<subdominio>.workers.dev`, e o subdomínio
+sai de `GET /accounts/<id>/workers/subdomain`. Então o workflow passou a
+construí-la — e, o que importa, a **provar** que ela responde antes de aceitá-la.
+Uma URL construída que não responde é descartada como se não existisse.
+
+Derivar-e-provar é evidência melhor que a flag que estávamos esperando:
+`has_preview` diz o que a API acha; um 200 diz o que existe.
+
+E o desfecho do (4) foi o melhor possível: as duas colunas responderam
+**`já estava:`**. Não havia perda de registro de consentimento — só o
+livro-razão desatualizado. Depois do conserto, `✅ No migrations to apply!`.
+
+#### E o que a terceira encerrou
+
+O run #137 rodou a URL derivada e ela respondeu **404, vinte vezes, por ~60 s**.
+Não é timeout nem falha de conexão: a Cloudflare atende no curinga
+`*.workers.dev` e diz que ali não há nada. Somado a `previews_enabled: true`
+(lido no servidor em duas execuções) e a `has_preview` falso, o veredito é um
+só: **este Worker não recebe URL de preview de versão**, e não há chave de
+configuração que mude isso.
+
+Três execuções, três causas distintas, e a terceira não é defeito nosso.
+
+**O que se decidiu, e por quê.** Um portão que nunca pode passar não é
+segurança: é a garantia de que ninguém publica, e o convite a contornar o
+workflow por fora — pior que qualquer coisa que o portão evitaria. Então ele
+passou a ser **oportunista, nunca silencioso**:
+
+| Situação | O que acontece |
+| --- | --- |
+| Veio URL de preview | Smoke **antes** de promover. Reprovou, ninguém promove. Cliente nenhum vê. |
+| Não veio (hoje) | Promove, verifica em seguida e **reverte sozinho** se o smoke reprovar. |
+
+A segunda é mais fraca — a exposição é de segundos, não zero. Mas é automática,
+não depende de alguém perceber, e é muito mais forte que o fluxo anterior a
+este trabalho, em que um smoke vermelho marcava o deploy como falho **e ia
+embora, deixando a versão ruim servindo**. O resumo do job diz qual dos dois
+caminhos rodou, sempre.
+
+E é reversível sozinho: no dia em que a Cloudflare servir preview para este
+Worker, a sondagem acha a URL e o portão forte volta, sem mudar uma linha.
+
+#### Reversão automática
+
+Quando o smoke de produção reprova, o workflow chama `wrangler rollback` para a
+versão que estava servindo (anotada **antes** da promoção) e só então falha o
+job. E não considera o trabalho feito ao reverter: espera o `healthz` voltar a
+200, porque uma reversão que não restaura é indistinguível de nenhuma reversão.
+
+Os quatro desfechos, todos exercitados sob `bash -e` com a rede dublada:
+
+| Caso | Resultado |
+| --- | --- |
+| Reversão limpa | `🔙 revertido` no resumo; job vermelho; o commit **não** está em produção |
+| Sem ID anotado | Reverte no modo implícito do wrangler; idem |
+| O `rollback` falha | `🚨` no resumo + instrução explícita de ação manual |
+| Reverteu mas o site não voltou | `🚨` + "confira o site à mão" |
+
+A tag de release só nasce quando o smoke de produção **passa** — senão o
+repositório ganharia uma `deploy-…` apontando para um commit revertido.
+
+### Migrações do D1
+
+`scripts/d1-migrate.mjs` substituiu a chamada direta ao
+`wrangler d1 migrations apply`, por um motivo concreto.
+
+Cada migração é enviada como *o conteúdo do arquivo* seguido do
+`INSERT INTO d1_migrations`, tudo numa requisição — e o `/query` do D1 não é
+transacional entre comandos. Uma execução que aplique o primeiro `ALTER TABLE`
+e morra no segundo deixa a coluna no banco e **nada** no livro-razão. A partir
+daí toda tentativa recomeça do primeiro `ALTER` e morre nele.
+
+O custo não é o vermelho no log. É que `migrations apply` processa os arquivos
+em ordem e para no primeiro erro: com a `0002` travada, uma `0003` nunca seria
+aplicada — a próxima mudança de esquema entraria em produção sem o esquema, e o
+sintoma apareceria num `INSERT`, em runtime.
+
+O script **retoma** a migração em vez de repeti-la. Para cada comando
+pendente ele pergunta ao banco se aquele efeito já existe
+(`SELECT "coluna" FROM "tabela" LIMIT 0` dá erro se, e somente se, a coluna
+faltar), executa só o que falta — o comando original do arquivo, não um SQL
+inventado — e só então registra o arquivo. Comando cujo efeito ele não saiba
+verificar (`DROP`, `RENAME`, `UPDATE`, gatilho, view) faz o script **parar** e
+dizer qual é: marcar como aplicada uma migração que não foi seria pior que o
+problema original. A classificação é testada em `tests/d1-migrate.test.js`,
+inclusive contra as migrações reais do repositório.
+
+E o desfecho deixou de ser binário:
+
+| Saída | Situação | Efeito no deploy |
+| --- | --- | --- |
+| `0` | Esquema no lugar | Segue |
+| `75` | Indeterminado (rede, API, credencial) | Segue **com aviso** — entregar foto não pode depender do log de consentimento |
+| `1` | Esquema quebrado ou irrecuperável | **Para**, antes de qualquer promoção |
+
+O caso `1` é o que o `continue-on-error` escondia: promover código que grava
+consentimento numa tabela sem as colunas perde, em silêncio, a prova de
+autorização de uso de imagem.
+
+### 2. Rodar o smoke você mesmo, antes de empurrar
+
+É a parte que mais muda o dia a dia: o smoke deixou de viver dentro do YAML.
+
+```bash
+npx wrangler dev          # num terminal
+npm run smoke:local       # no outro — 39 checagens contra o Worker de verdade
+```
+
+Mesma suíte, mesmos números, mesma saída que o CI usa. Também dá para apontar
+para qualquer alvo:
+
+```bash
+npm run smoke -- https://<alguma-versao>.workers.dev --expect-configured
+```
+
+`--expect-configured` liga as checagens que dependem de secret (Turnstile,
+Resend, `ADMIN_EMAIL`, `SIGNING_SECRET`, `/dashboard` respondendo 200). Sem ele,
+o `wrangler dev` local passa limpo — lá não há secret nenhum, e isso é correto,
+não falha.
+
+E o empacotamento, sem credencial nenhuma:
+
+```bash
+npm run predeploy:check   # compila o bundle e resolve os bindings
+```
+
+Esse mesmo comando roda em **todo PR** (`checks.yml`), então `wrangler.toml`
+quebrado ou binding removido reprovam antes do merge — antes, o `deploy.yml`
+era o primeiro lugar onde um erro de empacotamento aparecia, e ele só roda
+depois.
+
+### 3. Manual, pelo GitHub (funciona do celular)
+
+**Actions** → **Deploy** → **Run workflow**. Três entradas:
+
+- **`promote`** (padrão ligado). Desligue para **só publicar e verificar**: a
+  versão sobe, o smoke roda contra o preview e ela **não** recebe tráfego. O
+  resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
+  publicado antes de mandar para cliente" sem prazo para decidir.
+- **`version_id`**. Promove uma versão **já existente**, pulando build e upload
+  — é o rollback: segundos, sem recompilar e sem mexer no Git.
+- **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
+  Existe por um motivo só: `versions upload` não aplica migração de Durable
+  Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
+  só a `v1` já aplicada, nunca é necessário. Quando entrar uma `v2`, o workflow
+  falha no upload com a mensagem explicando — falhar alto é melhor que pular a
+  verificação em silêncio.
+
+### 4. Manual, pela linha de comando
 
 ```bash
 npx wrangler deploy
 ```
 
-Atalho de emergência. Pula a suíte, as migrações e o smoke test — publica o que
-estiver na sua árvore de trabalho, inclusive o que você esqueceu de commitar.
-Prefira o disparo pelo Actions.
+Atalho de emergência. Pula suíte, migrações, portão de preview e smoke —
+publica o que estiver na sua árvore, inclusive o que você esqueceu de commitar.
+Prefira o Actions.
 
 ### Rollback
 
-O smoke test roda *depois* da publicação, então todo deploy é potencialmente um incidente. O caminho de volta:
+O caminho rápido não é mais Git:
+
+**Actions** → **Deploy** → **Run workflow** → `version_id` = a versão boa
+anterior (o resumo de cada deploy imprime o ID, e `npx wrangler versions list`
+lista todas). Promove em segundos, sem recompilar.
+
+Depois, para `main` e produção não ficarem divergentes, faça o revert no Git:
 
 ```bash
-# 1. Qual commit está em produção agora?
-git log --oneline -5 main
-
-# 2. Reverter o commit ruim e republicar pelo pipeline (preferido — mantém
-#    main e produção em sincronia, e o histórico registra o quê e o porquê).
-git revert <sha-ruim>
-git push origin main
+git revert <sha-ruim> && git push origin main
 ```
 
-Para cortar o caminho quando o site está fora do ar, o dashboard da Cloudflare
-(Workers → `fotos` → Deployments) permite promover um deployment anterior sem
-passar pelo Git — **mas isso deixa `main` à frente da produção**, então logo em
-seguida faça o revert no Git para não perder a rastreabilidade.
+Duas coisas que o revert de código **não** desfaz:
 
-Duas coisas que o revert de código **não** desfaz, e que precisam de atenção
-antes de reverter:
-
-- **Migrações D1 aplicadas.** São aditivas e idempotentes hoje (`migrations/`),
-  então voltar o código não quebra o schema — mas uma migração destrutiva
-  futura exigiria um plano próprio.
-- **Dados já gravados em KV/D1** pelo código novo (contadores, linhas de
-  consentimento). Continuam lá.
-
-Marque um release a cada deploy relevante (`git tag -a v1.4 -m "..." && git push
-origin v1.4`) para que "voltar para a última versão boa" seja um SHA conhecido
-em vez de arqueologia no log.
+- **Migrações D1 aplicadas.** Aditivas e idempotentes hoje; uma migração
+  destrutiva futura exigiria plano próprio.
+- **Dados já gravados** em KV/D1 pelo código novo. Continuam lá.
 
 ---
 
@@ -393,19 +554,25 @@ fotos/
 │       ├── termo-autorizacao-uso-imagem.md
 │       └── checklist-conformidade.md
 ├── scripts/
-│   └── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
+│   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
+│   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml      ← CI: testes → migrations D1 → deploy → smoke tests (+ cabeçalhos, CSRF, nonce)
-│       ├── checks.yml      ← CI: lint + testes unitários + validação JSON/sintaxe
+│       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
+│       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
-├── tests/                  ← Vitest (211 testes)
+├── tests/                  ← Vitest (509 testes)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
 │   ├── utils.test.js       ← escape, toHttps/safeUrl, slug, datas, hash de senha, os 5 sendXEmail()
 │   ├── healthz.test.js     ← handleHealthz, scheduled(), login (rate-limit/cookie), render de /sobre e /equipamentos
-│   └── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   ├── d1-migrate.test.js  ← o que o retomador de migração aceita e, sobretudo, o que ele RECUSA
+│   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
+│   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
@@ -735,6 +902,72 @@ Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 ### `/sobre` e `/equipamentos` (`src/ui/about.js`, `src/ui/gear.js`)
 
 Páginas estáticas simples, sem dados dinâmicos — mesmo esqueleto (header com link "Voltar", `<main>`, rodapé compartilhado). `/sobre` (bio curta + como funciona o trabalho + contato) já existia escrita mas ficava fora do ar de propósito enquanto o texto era revisado; está publicada agora. `/equipamentos` é nova: lista o equipamento fotográfico (câmeras, lentes, acessórios etc.) em seções `<h2>`/`<h3>` + listas. Ambas entram no `sitemap.xml` e no rodapé compartilhado.
+
+---
+
+## Cartão de pré-visualização do link (Open Graph)
+
+É por WhatsApp que um link de projeto se espalha, e o que o destinatário vê
+antes de tocar é o **cartão** — não a página. O cartão é montado só a partir do
+`<head>`: nenhum script roda no scraper.
+
+Um bloco só, `socialMetaHTML()` em `src/utils.js`, monta o conjunto para todas
+as páginas públicas. Antes cada `<head>` tinha o seu, e eles divergiram: a
+página de projeto não tinha nem `<meta name="description">`, `/privacidade`,
+`/termos` e `/suporte` não tinham tag de Open Graph nenhuma, e nenhuma delas
+declarava `og:site_name` ou o tamanho da imagem.
+
+### O que cada tag resolve
+
+| Tag | Para quê |
+| --- | --- |
+| `og:image:width` / `height` | Decide entre o **cartão grande** (foto no topo, ocupando a largura da bolha) e a miniatura quadrada ao lado do texto. Sem as dimensões declaradas o WhatsApp precisa baixar a imagem para medir, e quando o download é lento ou falha ele cai na miniatura |
+| `og:site_name` / `og:locale` | Linha de origem do cartão e idioma |
+| `twitter:*` | Twitter/X e Discord ignoram parte das `og:` e leem estas |
+| `name="description"` | O mesmo texto serve ao resultado de busca — separados, um envelhece sem que o outro acuse |
+
+`ogImageFor()` recorta a capa em **1200×630** pedindo `=w1200-h630-c` ao
+`lh3.googleusercontent.com`. O recorte é o ponto: o scraper recortaria de
+qualquer jeito, mas assim as dimensões são **conhecidas na hora de renderizar o
+HTML** e podem ir declaradas. URL de outro host volta intacta e **sem**
+dimensões — prometer 1200×630 de uma imagem de tamanho desconhecido é pior que
+não prometer nada, e o cartão cai para `summary` de propósito. O PNG servido em
+`/og-coming-soon.png` já tem exatamente essa medida, então o projeto "em breve"
+segue o mesmo caminho.
+
+### A descrição
+
+Os **fatos primeiro**, o texto livre depois (`previewDescription()`). O WhatsApp
+mostra cerca de duas linhas antes de cortar, então o que o destinatário procura
+tem de vir antes da descrição do projeto — invertido, o que sobra na tela é o
+começo de um parágrafo genérico.
+
+Na página de projeto, na ordem: `Em breve` (se for o caso), a data, **`Em
+colaboração com <eventCredits>`**, a categoria e `Acesso restrito` (para
+`accessType` `private` ou `family`), e só então a descrição longa, cortada no
+espaço para caber em 200 caracteres:
+
+```
+15 de janeiro de 2026 · Em colaboração com Colégio Santa Cruz · Formatura — Colação de grau, do café da manhã ao baile.
+```
+
+O crédito vem logo depois da data porque é a primeira informação que se procura
+quando o projeto é de uma instituição — e porque o WhatsApp corta o resto. A
+home resume o acervo em vez de repetir o título (`28 projetos · Formatura,
+Casamento, Ensaio · 2019–2026`).
+
+### JSON-LD
+
+A página de projeto emite um array com dois nós: o `BreadcrumbList` que já
+existia e um **`PhotoGallery`** com os mesmos fatos do cartão — `datePublished`,
+`genre`, `author` e `creditText` com o colaborador. `creditText`, e não
+`contributor`, porque o campo do painel aceita tanto instituição quanto
+fotógrafo colaborador ou projeto: declarar `Organization` onde pode haver
+`Person` seria afirmar o que não se sabe.
+
+A suíte `tests/rendered-pages.test.js` renderiza cada página pública e parseia o
+`<head>` que saiu — uma página que esqueça de chamar `socialMetaHTML()` volta a
+ser um link sem cartão, e nada mais no projeto acusaria.
 
 ---
 
@@ -1341,7 +1574,7 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 - **Contadores não atômicos**: `views`, `drive_clicks` e `ratelimit` são read-modify-write. Em alta concorrência, alguns incrementos podem ser perdidos. Aceitável aqui.
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar para R2 está no roadmap.
-- **Sem preview no WhatsApp**: Open Graph image aponta para `lh3.googleusercontent.com`, que o WhatsApp às vezes não consegue scrapear. R2 resolveria.
+- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 resolveria o que sobra.
 - **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
 - **CPU budget do Worker**: o hashing PBKDF2 (100k iterações) roda no `/api/healthz` como canário — se não couber no orçamento de CPU, a requisição morre e o CI reprova (healthz sem `ok:true`, login sem 302). Não dá para medir o tempo de dentro do isolate (RETOMADA §5.9); ao mexer no `iterations`, o número real está nas métricas do Worker no painel da Cloudflare.

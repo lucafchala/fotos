@@ -1,37 +1,39 @@
 # Pendências — fotos.lucafchala.com
 
-Só o que está **em aberto**. Item entregue sai deste arquivo — o histórico de
-quem fez o quê fica no git (`git log`), não aqui. As seções estão em ordem de
-prioridade; dentro de cada uma, o primeiro item é o próximo a atacar.
+Só o que está **em aberto**, mais as regras que continuam valendo. Item
+entregue sai deste arquivo — o histórico de quem fez o quê fica no git
+(`git log`) e nos PRs, não aqui. As seções estão em ordem de prioridade; dentro
+de cada uma, o primeiro item é o próximo a atacar.
+
+> Quando fechar um item, **apague-o**. Não o transforme em relato do que foi
+> feito: foi assim que este arquivo chegou a 640 linhas, das quais ~290 eram
+> trabalho já entregue. O que sobrevive ao fechamento é só a regra que alguém
+> precisa seguir amanhã — e essa mora em [Regras vivas](#regras-vivas).
 
 ---
 
-## Plano gratuito — a restrição que decide o resto (até a assinatura)
+## Plano gratuito — a restrição que decide o resto
 
 > 🔜 **A decisão mudou: o dono vai assinar o Workers Paid.** Enquanto o
 > pagamento não acontecer, tudo nesta seção continua valendo e o código no
 > `main` está correto como está. Depois de assinar, o passo a passo da compra e
 > a lista do que mexer (e do que **não** mexer) estão em
-> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). Nota: a seção §4.1 daquele
-> arquivo dizia que a agregação dos contadores tinha de ficar mesmo no plano
-> pago. Ela saiu — junto com o KV embaixo dela, substituído por Durable Objects
-> no próprio plano gratuito. O arquivo está atualizado.
+> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md).
 
-**Enquanto isso, o projeto está no plano gratuito.** Isso não é uma nota de
-rodapé sobre custo — é a restrição de projeto mais forte que existe aqui, e
-qualquer item deste arquivo que a contrarie está errado, não a decisão.
+**Enquanto isso, o projeto está no plano gratuito.** Isso não é nota de rodapé
+sobre custo — é a restrição de projeto mais forte que existe aqui, e qualquer
+item deste arquivo que a contrarie está errado, não a decisão.
 
-**O que ela quer dizer na prática:** toda proposta passa por "quanto isso custa
-de cota?" antes de "quanto isso melhora o site?". Um recurso que gasta escrita em
-KV por visitante não é caro — é *inviável*, porque o custo cresce junto com o
-público contra um teto que não se mexe.
+**Na prática:** toda proposta passa por "quanto isso custa de cota?" antes de
+"quanto isso melhora o site?". Um recurso que gasta escrita em KV por visitante
+não é caro — é *inviável*, porque o custo cresce junto com o público contra um
+teto que não se mexe.
 
 ### O orçamento, medido
 
 O limite mais apertado é **escrita em KV: 1000/dia para a conta inteira**,
 compartilhada com o `status.lucafchala.com`. Medido no harness do
-[`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md), com 40 visitantes simulados nos
-dois formatos de tráfego:
+[`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md), com 40 visitantes simulados:
 
 | item | custo |
 | --- | --- |
@@ -46,11 +48,6 @@ quatro saíram de lá: os dois rate limits (`drive-link` e `drive`) e os dois
 contadores (`views`, `drive_clicks`) são Durable Objects, e **um visitante não
 gasta mais nenhuma escrita de KV**. O que ainda grava em KV é o painel — lista
 de eventos, sessões, consentimento — e o `cron:last`.
-
-> Uma versão anterior desta tabela dizia **1,01 escrita/visitante** e teto de
-> ~985/dia. O número era artefato de um defeito: os contadores estavam sendo
-> descartados em vez de gravados, então o "barato" era o custo de não contar.
-> Corrigido e medido de novo, agora com as 40 de 40 contagens batendo.
 
 Os outros limites não chegam perto — 28 eventos contra 1 GB de KV, uma linha de
 consentimento por liberação contra 100 mil linhas/dia no D1, um punhado de
@@ -68,10 +65,7 @@ Nada de catastrófico, e isso é resultado de trabalho, não sorte:
 2. **Param até a virada UTC:** contador de visitas, contador de cliques, rate
    limit e abertura de sessão nova no painel.
 3. **O dono é avisado.** O `/api/healthz` acusa em `problems`, o painel de
-   status vira `degraded` e dispara e-mail. O alerta foi consertado para
-   sobreviver à própria cota estourada — antes, a escrita recusada derrubava a
-   varredura antes do envio, e o aviso de "estourei os limites" ficava desligado
-   por ter estourado os limites.
+   status vira `degraded` e dispara e-mail.
 
 ### Se um dia o teto ficar pequeno
 
@@ -81,12 +75,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
       / Analytics Engine, como `/api/perf` e `/api/csp-report` já fazem. Elimina
       o que sobrou de contabilidade, mas perde o número no painel — só vale se o
       número deixar de valer a escrita.
-- [x] **Rate limit em Durable Object.** ✅ Feito — e junto foi o contador de
-      visitas/cliques, pelo mesmo motivo. `src/counters.js`, no plano gratuito
-      mesmo (DO com backend SQLite). Zerou a escrita em KV por visitante, tornou
-      a contagem exata em vez de eventual, e apagou a agregação em memória
-      inteira (mapa de pendentes, piso de 1 s por chave, trava de flush,
-      drenagem agendada), que só existia porque o KV não tem incremento atômico.
 - [ ] **Amostrar o contador de visitas** (contar 1 em N e multiplicar). Barato
       de implementar; o honesto seria admitir, antes, que o número vira
       estimativa.
@@ -108,9 +96,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
 
 ## Segurança e anti-abuso
 
-> Boa parte desta seção foi entregue na revisão de segurança de 2026-08.
-> O que sobrou está abaixo, com o motivo de ainda estar aberto.
-
 ### Ações do dono (fora do código) — prioridade
 
 - [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
@@ -130,22 +115,40 @@ Nesta ordem, e **nenhuma delas é pagar**:
 
 - [ ] **Concluir a migração da CSP.** Os nonces já estão em todos os `<script>`
       e a política estrita (sem `'unsafe-inline'`) já roda em **Report-Only**,
-      com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os ~63
+      com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os **68**
       handlers inline (`onclick="…"`) por listeners delegados — inclusive os que
       o painel gera dinamicamente via `innerHTML`.
       > ⚠️ **Não acrescente o nonce à política enforced antes disso.** Pela CSP
       > Level 3 o nonce descarta o `'unsafe-inline'`, e a interface inteira para
-      > de responder. Já aconteceu nesta branch e só foi pego com browser de
-      > verdade — teste de unidade sobre o texto da política não enxerga isso.
-      > Há teste e smoke test do deploy travando esse caminho agora.
+      > de responder. Já aconteceu, e só foi pego com browser de verdade — teste
+      > de unidade sobre o texto da política não enxerga isso.
       Quando os relatórios zerarem, tirar os handlers e então deixar a enforced
       usar `strict` (`contentSecurityPolicy()` em `src/security.js`).
+- [ ] **Levar o JS embutido para dentro do alcance do lint e do typecheck.**
+      Os `<script>` das páginas vivem dentro de template literals
+      (`src/ui/dashboard.js`, `event.js`, `gallery.js`), então **eslint e tsc
+      não enxergam nada ali** — é código de produção sem rede de proteção, e o
+      próprio template de PR admite isso ao pedir verificação manual. O preço já
+      foi cobrado mais de uma vez: um `const` usado antes da declaração morreu
+      em TDZ engolido por `try/catch`, a CSP derrubou os handlers inline com a
+      suíte inteira verde, e o `toCSV()` do painel passou não se sabe quanto
+      tempo **sem a defesa contra injeção de fórmula** que o servidor tem desde
+      sempre — com o comentário ao lado afirmando "matches server", porque nada
+      podia contradizê-lo. Some-se o risco de edição: **uma crase solta em
+      qualquer comentário ou string desses blocos encerra o template literal e
+      quebra o módulo** (acontece; foi o `tsc` que pegou da última vez, não o
+      lint). Caminho provável: extrair para `.js` de verdade e embutir no build,
+      o que também devolve os handlers ao alcance da CSP estrita (item acima).
+      > Enquanto isso não acontece, o padrão que dá alguma rede é o de
+      > `tests/rendered-pages.test.js` e do teste de `toCSV`: **extrair o bloco
+      > do template e executá-lo**. Custa pouco e é a única coisa que hoje
+      > enxerga esse código.
 - [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
-      sai da galeria, do sitemap e da auditoria, e agora vai com
+      sai da galeria, do sitemap e da auditoria, e vai com
       `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz
       um link de prévia enviado a cliente continuar funcionando). Se a
       expectativa for "privado", o handler precisa devolver 404 para quem não
-      está logado. Não mudei por conta própria porque quebraria links já
+      está logado. Não mudado por conta própria porque quebraria links já
       compartilhados.
 - [ ] **Login sem senha / recuperação de acesso** — magic link por e-mail via
       Resend (já configurado), substituindo ou complementando a senha do painel.
@@ -157,308 +160,18 @@ Nesta ordem, e **nenhuma delas é pagar**:
       da CSP. O `font-src` já aceita `'self'` desde `c78e6e4`: falta baixar os
       WOFF2 do Inter, declarar `@font-face` e remover o `<link>` das oito
       páginas.
-      > Enquanto isso não acontece, o preconnect ao par de hosts do Google
-      > Fonts sai de `fontPreconnectHTML()` (`utils.js`). Ao fechar este item,
-      > apague a função — e o teste que a trava — junto com os `<link>`; deixar
-      > preconnect para host que a página não usa mais é conexão aberta à toa.
+      > Ao fechar este item, apague `fontPreconnectHTML()` (`utils.js`) — e o
+      > teste que a trava — junto com os `<link>`. Preconnect para host que a
+      > página não usa mais é conexão aberta à toa.
 - [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
       bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
 - [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
       (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
       ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
-      corromper a prova que o titular enviou — hoje passam intactos, com o
-      resultado registrado no pedido.
-
-### Entregue em 2026-08 (não reabrir sem necessidade nova)
-
-**Central de Transparência (`/legal`, também `/compliance`) + página por
-documento (`/legal/<slug>`).** Hub público que reúne privacidade, termos,
-política de segurança, o resumo do que é feito com cada dado, os canais de
-contato e os doze documentos de conformidade — **cada um com página própria no
-site**, renderizada do markdown de `docs/legal/`. O rodapé passou a ter um
-único link "Legal" no lugar de "Privacidade" + "Termos", sem perder acesso a
-nada.
-
-> ### ⚠️ Ao editar qualquer documento em `docs/legal/` ou o `SECURITY.md`
->
-> 1. Rode **`npm run build:legal`** e commite o `src/content/legal-docs.js`
->    gerado. A CI regenera e compara — esquecer derruba o build, de propósito:
->    sem isso a página publicada mostraria um texto diferente do documento
->    oficial.
-> 2. **Nunca edite `src/content/legal-docs.js` à mão.** Ele é gerado.
-> 3. **Não acrescente link para o GitHub** em página nenhuma. Só o
->    "Código-fonte" do rodapé pode. A CI verifica, e o renderizador rebaixa
->    qualquer link de GitHub a texto puro de qualquer forma.
-> 4. Documento novo entra em `DOCS`, em `scripts/build-legal-docs.mjs` — é de
->    lá que saem o slug, o card da Central, a rota e o sitemap, todos de uma
->    lista só.
-> 5. Slug é **contrato público** (está no sitemap, pode estar salvo por
->    alguém). Renomear quebra link de fora.
-
-Nonce assinado no `/api/drive-link` · honeypot + token de formulário com idade
-mínima · alerta de login suspeito · strip de EXIF (JPEG/PNG/WebP) · CSP
-report-only com coletor · dedupe de mensagens repetidas no suporte · checagem
-de origem contra CSRF · cookie `__Host-` com timeout de inatividade · política
-de senha · correção de injeção de fórmula em CSV · `no-store` nas respostas de
-dados · higienização do restore de backup · `npm audit` + dependency-review +
-invariantes de CI.
-
-**Correções encontradas na verificação com browser (não apareciam em teste
-unitário):**
-
-- **CSP quebrava a interface inteira.** Nonce e `'unsafe-inline'` juntos na
-  política aplicada: pela CSP Level 3 o nonce descarta o `'unsafe-inline'`, e os
-  ~63 handlers `onclick` paravam de executar. Os testes passavam porque
-  afirmavam que a *string* continha `'unsafe-inline'`.
-- **Laço infinito de recarga no gate do Drive** — o Chrome restaura checkbox ao
-  recarregar, o aceite voltava marcado, o gate disparava sozinho e tomava 410 de
-  novo.
-- **Mensagem de suporte podia sumir sem sinal** — a chave de dedupe era gravada
-  antes de o envio dar certo.
-- **Sessão com `createdAt` corrompido virava sessão sem teto** — TTL NaN, escrita
-  recusada em silêncio.
-
-**Atrito removido:** rascunho do painel sobrevive à expiração de sessão ·
-política de senha em sincronia entre cliente e servidor · corrigir e reenviar o
-formulário de suporte não trava mais no piso de idade · nonce vencido reabre o
-modal com aviso em vez de recarregar seco.
-
-**Achados da revisão formal de código (`/code-review`), todos corrigidos:**
-
-- 🔴 **O formulário de remoção estava quebrado.** O cliente enviava
-  `form_token`, o servidor lia `body.formToken`. Com o `SIGNING_SECRET`
-  configurado, todo pedido de remoção levava 403 — o canal que a LGPD exige,
-  morto em silêncio. Abrir o modal no browser não pegava; só um envio completo
-  pega, e agora há teste de ponta a ponta mais uma guarda estrutural sobre o
-  nome do campo nos dois lados.
-- **Login barrado ainda gastava cota de KV.** `noteFailedLogin` gravava mesmo
-  para tentativa já recusada pelo rate limit: mil POSTs não autenticados
-  esgotariam as 1000 escritas/dia da conta e derrubariam eventos, sessões e
-  consentimento.
-- **Tentativa barrada consumia o orçamento diário do login.** Os dois limites
-  eram chamados juntos, então as 60/dia acabavam dez vezes mais rápido — um IP
-  de NAT compartilhado trancava o dono por 24 h em um minuto.
-- **Alerta de força bruta podia nunca disparar.** `attempts === 5` num contador
-  de KV não atômico: duas requisições concorrentes pulam de 4 para 6. Agora `>=`.
-- **Galeria sem JavaScript ficava ilegível.** O masonry depende de JS para
-  definir a altura de cada card; sem ele (e nos primeiros ~60 ms de todo
-  carregamento) os cards colapsavam para 4 px e se sobrepunham. Agora o grid
-  cai num layout comum até o cálculo acontecer. Verificado com JS desligado.
-- **`?tema=toString`** pré-preenchia o campo de mensagem do suporte com
-  `function toString() { [native code] }` (lookup em protótipo).
-
-**CodeQL:** já roda pelo *default setup* do GitHub (Settings → Code security),
-que cobre `javascript-typescript` e `actions`. Um job de CodeQL no
-`security.yml` seria uma "advanced configuration" e o GitHub recusa as duas ao
-mesmo tempo — foi o que derrubou a primeira versão do workflow. Para elevar o
-rigor, mude a *query suite* para `security-extended` nas Settings, não no YAML.
-
-Ele encontrou três achados neste PR que nem a revisão manual nem a suíte
-pegaram — todos corrigidos, cada um com teste de regressão que foi verificado
-falhando contra o código antigo:
-
-- **Host reconhecido por prefixo de string** (`src/ui/markdown.js`). O link
-  absoluto do próprio site virava caminho relativo via
-  `href.startsWith('https://fotos.lucafchala.com')`. Isso aceita
-  `https://fotos.lucafchala.com.exemplo.com/x` e
-  `https://fotos.lucafchala.com@exemplo.com/x` — hosts de terceiros que só
-  *começam* com o nosso nome — e devolvia o resto fatiado, que o navegador lê
-  como caminho relativo. Agora quem decide é `new URL()` comparando `host`. A
-  regra que rebaixa GitHub a texto continua por substring de propósito: é
-  negação, e alcance a mais ali erra para o lado seguro.
-- **Desescape duplo do destino do link** (`src/ui/markdown.js`). O destino chega
-  escapado e era desescapado em `replace` encadeados; `&amp;quot;` perdia duas
-  camadas em vez de uma e virava aspas de verdade — o caractere que fecha o
-  atributo `href`. O `escape()` da emissão ainda segurava a fuga, mas depender
-  do último passo é frágil. Agora é uma passada só, que nunca reexamina o que
-  acabou de produzir.
-- **O próprio teste checava GitHub por substring** (`tests/security.test.js`).
-  `href.includes('github.com')` erra nos dois sentidos: aprova
-  `https://github.com.exemplo.com/` e reprova `https://exemplo.com/?ref=github.com`.
-  O invariante é para onde o clique leva, então agora cada `href` é resolvido
-  contra a origem do site e comparado por `host`.
-
-A lição operacional: a análise estática achou o que três passagens de revisão
-manual não acharam, e os três achados eram da mesma família (comparar URL como
-texto). Vale reler qualquer checagem de origem/host com esse olhar antes de
-confiar nela.
-
-**Lint cobria só `src` e `tests`.** `scripts/build-legal-docs.mjs` — que gera o
-conteúdo publicado em doze páginas — ficava de fora. Agora `npm run lint`
-inclui `scripts/`, com os globais de Node declarados no `eslint.config.js`.
-
-**A mensagem de diagnóstico do secret juntava dois estados.** `"ausente ou
-vazio"` cobria tanto "o binding não chegou neste Worker" quanto "chegou com
-valor em branco" — situações que pedem ações opostas (criar vs. recriar colando
-o valor). Isso custou um ciclo inteiro de investigação em produção: o secret
-aparecia na lista do painel e o site lia vazio, e a mensagem não dizia qual dos
-dois era.
-
-O agravante é que **o painel da Cloudflare não mostra o valor de um secret**,
-então esta mensagem é a única coisa capaz de distinguir os dois estados — não
-há segunda fonte para consultar. Uma mensagem de diagnóstico que junta dois
-casos é meio diagnóstico, e o meio que falta é justamente o que decide a ação.
-
-Agora cada estado tem texto próprio, e o texto diz o que fazer, não só o que
-está errado. O teste exige que os quatro estados produzam quatro mensagens
-distintas — comparar por `Set(...).size` impede que alguém volte a fundi-las
-sem o teste reclamar.
-
-### Revisão de código sobre a entrega inteira — seis achados
-
-Rodada depois de tudo mergeado, sobre os 18 commits. Cinco corrigidos, um
-decidido conscientemente. Todos verificados **rodando o site**, não só na suíte.
-
-**1. Cookie legado sombreava a sessão nova — e um vizinho podia forçar isso.**
-O mais grave. `verifySession` casava `(?:__Host-)?session=` num padrão único, e
-`match()` devolve a PRIMEIRA ocorrência: com `session=antigo; __Host-session=novo`
-o ANTIGO vencia. Duas consequências:
-
-- quem tinha sessão aberta antes da migração ficava em **loop de login** — o
-  login gravava o cookie novo e o legado continuava sombreando;
-- pior, era **forçável de fora**. Um host vizinho de `lucafchala.com` grava
-  `session=` de domínio, mas não `__Host-session` — é justamente essa a garantia
-  do prefixo. Bastavam 64 hexadecimais quaisquer para derrubar o painel: o
-  ataque exato que o `__Host-` foi adotado para impedir.
-
-Confirmado dirigindo o painel: com o código antigo, `/api/metrics` devolvia
-**401** sob o cookie hostil; com a correção, **200**. Além da precedência
-explícita, o login passou a apagar o legado — o logout já fazia, e a assimetria
-era o bug.
-
-**2. Anexo de remoção saía com GPS quando o formato não era limpável.**
-`isLikelyImage()` aceitava HEIC, AVIF e GIF; `stripImageMetadata()` só sabe
-limpar JPEG, PNG e WebP. As duas listas divergiam em silêncio, e HEIC é o padrão
-do iPhone — ou seja, o caminho comum. A foto de quem **pede remoção** saía por
-e-mail com as coordenadas, enquanto a política publicada afirmava sem ressalva
-que os metadados são apagados. Falha de conformidade, não só de código.
-
-Corrigido tornando o portão a **própria capacidade de limpar**: se o strip não
-confirmou, a foto não vai. Não há segunda lista para divergir, e ensinar
-HEIC ao strip no futuro abre o portão sozinho.
-
-**3. `HEAD` gastava escrita em KV.** Introduzido pela correção de HEAD desta
-mesma entrega: o re-dispatch como GET passava pelo contador de visitas. Um
-monitor de uptime de minuto em minuto = **1440 escritas/dia contra a cota de
-1000/dia** — o contador sozinho derrubaria eventos, sessões e consentimento — e
-ainda inflava a contagem pública com robô. Medido no harness: 10 HEADs = 0
-escritas; 1 GET = 1 escrita.
-
-**4. O teto de pedidos de remoção não era teto.** `trimRequests` preservava
-todos os não-resolvidos e só aparava os resolvidos. `sanitizeRestoredRequest`
-marca todo registro restaurado como `resolved: false`, então um backup grande
-passava inteiro, estourava o limite de 25 MB por valor do KV, e a escrita falhava
-**depois** de eventos e categorias já gravados — restore pela metade.
-
-**5. `//host/x` passava como caminho interno no markdown.** Outro bug desta
-entrega. `href.startsWith('/')` casa URL protocol-relative, que o browser
-resolve como `https://host/x`. Saía como link externo sem `rel="noopener"`,
-pulando a validação de esquema e host logo abaixo.
-
-**6. `/api/healthz` público diz qual controle está desligado — MANTIDO.**
-Este não foi corrigido, e a decisão é consciente:
-
-- O que vaza é que o `SIGNING_SECRET` falta, logo o nonce de página e os tokens
-  de formulário estão off. O valor disso para um atacante é reusar um token
-  Turnstile entre páginas — **os slugs já são públicos**, estão no
-  `sitemap.xml`. É controle de abuso, não de confidencialidade.
-- Esconder custa a sinalização que se provou útil: foi exatamente essa mensagem
-  que fez o secret vazio ser descoberto e corrigido.
-- No estado normal (`problems: []`) não há vazamento nenhum. Ele só aparece
-  quando há algo errado — que é quando você mais precisa ver.
-
-**Se o modelo de ameaça mudar**, o caminho é servir o detalhe só com sessão de
-admin e deixar público apenas `{ ok, kv, latências, cron }`. O painel de status
-já degrada sozinho quando os campos faltam (`autoteste indisponível`), então a
-mudança é de um lado só. Não faça isso sem necessidade: o custo é perder o
-alarme.
-
-**Uma observação de método:** todos os cinco defeitos corrigidos foram
-verificados **dirigindo o site**, e a diferença apareceu. A recusa de HEIC dizia
-`(unknown)` em vez de `(heic)` — só visível rodando —, e um JPEG malformado
-recebia o conselho "converta para JPEG", que é absurdo para quem acabou de
-mandar um. As duas coisas foram corrigidas depois de ver a saída real.
-
-**Observabilidade ligada no painel seria apagada pelo próximo deploy.** Os
-logs e traces foram ligados no painel da Cloudflare, mas o `wrangler.toml` não
-tinha bloco `[observability]` — e o `wrangler deploy` trata a configuração como
-fonte da verdade, desligando o que não está declarado ali. Do próprio código do
-wrangler: *"will remove observability if it has been removed from their Wrangler
-configuration file"*, enviando `{ enabled: false }`. Como o deploy roda a cada
-push na `main`, o log pararia de ser gravado sem ninguém ter mexido em nada — e
-a descoberta viria no meio de um incidente, quando o histórico já se perdeu.
-Bloco fixado no `wrangler.toml` com exatamente os valores do painel.
-
-**Um check do smoke test era estruturalmente incapaz de passar.** A checagem
-"o nonce do cabeçalho aparece no HTML" lia o nonce dos cabeçalhos capturados
-numa requisição e procurava esse valor no corpo de **outra** requisição. Como o
-nonce é gerado por requisição — que é exatamente a propriedade que ele deveria
-proteger — os dois nunca poderiam bater.
-
-O defeito ficou escondido porque uma etapa anterior sempre falhava antes de
-chegar nele: primeiro o `HEAD` caindo no 404, e antes disso a CSP. Ou seja, um
-check que eu escrevi só foi de fato exercido no terceiro deploy. A lição é
-específica: **etapa de CI que nunca chegou a rodar não é etapa que passa** — e
-`set -e` faz a primeira falha esconder todas as seguintes. Rodar o passo inteiro
-localmente contra o Worker de verdade, antes de subir, custa dois minutos e
-teria evitado os três ciclos.
-
-Corrigido para uma requisição só (`curl -s -D - -o corpo`), e aproveitei para
-somar a checagem que faltava: **o nonce tem de MUDAR entre requisições**. Um
-nonce constante passaria no teste de "bate com o HTML" e não protegeria nada —
-bastaria ler o valor uma vez e reusar para sempre.
-
-**`SIGNING_SECRET` criado vazio não era distinguido de bem configurado.**
-`wrangler secret put` aceita valor vazio sem reclamar, então "criei o secret" e
-"o secret existe" não são a mesma coisa — e foi exatamente o que aconteceu aqui.
-O caso vazio já falhava seguro por acidente (string vazia é falsy em JS), mas
-dois vizinhos dele não:
-
-- **Só espaço/quebra de linha** (o resultado de colar valor no terminal) é
-  *truthy*: viraria uma chave HMAC de verdade, com o painel jurando que a
-  proteção está ativa. É o falso verde, o pior dos estados possíveis.
-- **Segredo curto** era aceito sem piso. Uma chave de 8 caracteres cai numa
-  varredura offline a partir de um único token assinado; daí em diante dá para
-  forjar nonce de Drive e token de formulário — pior do que ter o controle
-  desligado, porque o painel diria que está ligado.
-
-Agora há uma fonte única (`signingSecretProblem`): recusa vazio, espaço em
-branco e menos de 32 caracteres, e normaliza com `trim()` para que um newline
-colado não produza uma chave diferente da que a pessoa configurou. O relatório
-do `/api/healthz` e do painel lê **da mesma função** que decide se a chave é
-usada — antes eram duas opiniões (`!!env.SIGNING_SECRET`) sobre o mesmo fato, e
-a divergência apareceria como painel verde sobre segredo recusado. A mensagem
-diz qual é o defeito ("ausente ou vazio" vs. "curto demais (N de 32)"), porque
-as duas situações levam a ações diferentes.
-
-Efeito colateral que valeu registro: os fixtures dos testes usavam segredos de
-16 caracteres e passaram a cair abaixo do piso — os testes de token de
-formulário voltaram a passar validando o caminho **sem** assinatura. Corrigidos
-para comprimento realista, senão a suíte estaria verde testando outra coisa.
-
-**`HEAD` devolvia 404 no site inteiro.** Todas as rotas casavam com
-`method === 'GET'`, então um `HEAD` atravessava o roteamento sem casar com nada
-e caía no 404: `GET /` respondia 200 e `HEAD /` respondia 404 na mesma URL.
-Não é preciosismo de RFC — monitor de uptime, verificador de link e parte dos
-crawlers pedem `HEAD` justamente para não baixar o corpo, e para todos eles o
-site parecia fora do ar. Agora o `HEAD` delega ao roteamento normal com um GET
-equivalente e descarta só o corpo (mesmo status, mesmos cabeçalhos).
-
-Duas coisas valem registro sobre COMO isso apareceu:
-
-- **O sintoma apontava para o lugar errado.** O smoke test do deploy lê os
-  cabeçalhos com `curl -sI` (que é um HEAD), caiu na página de erro — que não
-  tem script inline e portanto legitimamente não leva nonce — e reprovou com
-  "CSP nonce ausente". Passei a checar o status do próprio HEAD *antes* de
-  olhar qualquer cabeçalho, para o relatório apontar a causa e não o efeito.
-- **Nenhum teste pegava isso**, porque todos os testes de rota mandam GET. O
-  bug era anterior a esta entrega e só ficou visível quando o deploy passou a
-  inspecionar cabeçalhos com HEAD. Agora há teste de paridade GET/HEAD para as
-  rotas públicas, verificado falhando contra o código antigo.
-
-**Auditoria de vazamento de campos só-admin:** verificada — `internalNotes`,
-`driveUrl` e `status` **não** chegam ao HTML público. Os templates leem campo a
-campo, não despejam o objeto do evento. Nada a corrigir.
+      corromper a prova que o titular enviou. Hoje o portão é a **própria
+      capacidade de limpar**: se o strip não confirmou, o anexo não vai — então
+      ensinar HEIC ao strip abre o portão sozinho, sem segunda lista para
+      divergir.
 
 ---
 
@@ -484,21 +197,305 @@ campo, não despejam o objeto do evento. Nada a corrigir.
       > em vez da página 500 que fazia o pedido sumir sem registro. A queda vai
       > para `noteDegraded`, então o painel de status acusa que há pedido fora
       > do painel.
-- [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
-      um SHA conhecido em vez de arqueologia no log. Procedimento no
-      [README](./README.md#rollback); hoje o repo não tem nenhuma tag.
 - [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
       hoje só cai em log estruturado, e **provavelmente fica assim**. O handler
       já trata os dois casos: sem o binding `PERF`, nada quebra. Antes de mexer,
       confirmar se o Analytics Engine está disponível no plano gratuito — as
       fontes divergem e historicamente ele exigia o Workers Paid, o que sob a
-      política de ficar no gratuito encerra o assunto. O log estruturado que o
-      Cloudflare já coleta cobre o uso real (`wrangler tail`, Workers Logs); o
-      que se perde é série histórica, não o dado.
+      política de ficar no gratuito encerra o assunto.
 - [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
       páginas principais (galeria, um evento com Drive, dashboard) a cada
-      deploy — hoje a validação visual depende de abrir o site manualmente,
-      não tem cobertura automática de regressão de layout.
+      deploy — hoje a validação visual depende de abrir o site manualmente, e é
+      justamente onde os bugs que a suíte não pega aparecem.
+- [ ] **Terminar a validação de forma nas leituras de KV.** `getEvents()`,
+      `getRemovalRequests()`, `getCategories()` e `cron:last` já passam por um
+      portão. Falta `admin_session:*`: o `JSON.parse` tem catch e os campos que
+      decidem expiração são validados um a um, mas o registro inteiro não —
+      um valor com forma inesperada degrada em vez de recusar. É o menos urgente
+      dos quatro (o caminho exige um token de 64 hexadecimais que já existe em
+      KV), e por isso ficou por último.
+
+---
+
+## Regras vivas
+
+O que sobrou de entregas passadas porque **continua sendo regra**, não relato.
+O contexto de cada uma está no `git log` e nos PRs.
+
+### Ao editar qualquer documento em `docs/legal/` ou o `SECURITY.md`
+
+1. Rode **`npm run build:legal`** e commite o `src/content/legal-docs.js`
+   gerado. A CI regenera e compara — esquecer derruba o build, de propósito:
+   sem isso a página publicada mostraria um texto diferente do documento
+   oficial.
+2. **Nunca edite `src/content/legal-docs.js` à mão.** Ele é gerado.
+3. **Não acrescente link para o GitHub** em página nenhuma. Só o "Código-fonte"
+   do rodapé pode. A CI verifica, e o renderizador rebaixa qualquer link de
+   GitHub a texto puro de qualquer forma.
+4. Documento novo entra em `DOCS`, em `scripts/build-legal-docs.mjs` — é de lá
+   que saem o slug, o card da Central, a rota e o sitemap, todos de uma lista só.
+5. Slug é **contrato público** (está no sitemap, pode estar salvo por alguém).
+   Renomear quebra link de fora.
+
+### `/api/healthz` público diz qual controle está desligado — decisão mantida
+
+O que vaza é que o `SIGNING_SECRET` falta, logo o nonce de página e os tokens de
+formulário estão off. Para um atacante isso vale reusar um token Turnstile entre
+páginas — e **os slugs já são públicos**, estão no `sitemap.xml`. É controle de
+abuso, não de confidencialidade. Esconder custaria a sinalização que se provou
+útil: foi essa mensagem que fez um secret vazio ser descoberto. No estado normal
+(`problems: []`) não há vazamento nenhum.
+
+**Se o modelo de ameaça mudar**, o caminho é servir o detalhe só com sessão de
+admin e deixar público apenas `{ ok, kv, latências, cron }`. O painel de status
+já degrada sozinho quando os campos faltam. Não faça isso sem necessidade: o
+custo é perder o alarme.
+
+### Uma regra escrita duas vezes é corrigida uma vez só
+
+É a família de bugs mais cara desta base, e ela não aparece como bug: aparece
+como duas cópias que concordavam quando foram escritas. Três achados
+independentes, todos do mesmo formato:
+
+| a regra | corrigida em | esquecida em |
+| --- | --- | --- |
+| precedência do `__Host-session` | `verifySession()` | `handleLogout()`, `handleChangePassword()` |
+| guarda de injeção de fórmula em CSV | `csvCell()` (utils.js) | `toCSV()` do painel, que dizia "matches server" |
+| ordenação por `createdAt` | `trimRequests()` (tolerante) | listagem do painel e da API (lançava) |
+
+O caso do cookie é o mais instrutivo: a correção original foi documentada no
+SECURITY.md como concluída (*"logout already did"*), e **a documentação estava
+errada** — o logout limpava o cookie do browser, não revogava a sessão certa no
+KV. Ninguém mentiu; o autor leu "logout já apaga o cookie" e escreveu "logout já
+está certo".
+
+**Na prática, ao corrigir qualquer controle:** antes de escrever a correção,
+`grep` pelo padrão que está sendo corrigido e conte os chamadores. Se houver
+mais de um, a correção é **extrair o leitor/validador único** e apontar todos
+para ele — não editar o que estava na tela. E o teste que prende isso afirma a
+**concordância** entre as cópias, nunca só o comportamento de uma delas.
+
+O resto dos pares foi auditado e **hoje concorda**: `esc()`/`escape()`,
+`safeUrl()`/`toHttps()`, `byDate()`/`eventTime()`, `convertDriveUrl()` (que não
+tem par, mas cujo produto tem de sobreviver ao `toHttps()` do servidor) e as
+regex de e-mail/telefone dos dois lados do formulário de remoção. O que garante
+que continuem concordando é `describe('pares cliente/servidor')` em
+`tests/security.test.js`: ele extrai cada função de dentro do template literal
+e a executa lado a lado com a do servidor.
+
+**Par novo entra lá.** Reimplementar no painel algo que já existe em `utils.js`
+é aceito — o browser não tem `import` para dentro de um template literal. O que
+não é aceito é a cópia nova ficar sem a linha correspondente nesse teste.
+
+### Produção só recebe versão que já passou pelo smoke
+
+O pipeline sobe a versão **sem tráfego** (`versions upload`), roda
+`scripts/smoke.sh` contra a URL de preview e só então promove **a mesma
+versão** (`versions deploy`). Antes era o contrário — publicava e testava
+depois —, e este README admitia a consequência: todo deploy era um incidente em
+potencial.
+
+Três coisas que sustentam isso e não podem ser afrouxadas:
+
+1. **O smoke roda contra os três alvos** — `wrangler dev` local, preview e
+   produção. É o que faz "passou no preview" significar o mesmo que "passou em
+   produção". Checagem que só funciona num alvo não entra no script.
+2. **Sem URL de preview, o deploy FALHA.** Se o upload não devolver a URL, o
+   workflow morre em vez de seguir "sem testar" — seguir seria reintroduzir
+   exatamente o fluxo antigo, e em silêncio.
+3. **Pular o portão é explícito e barulhento.** Só o input `unversioned: true`
+   faz isso, ele existe por causa de um limite real (`versions upload` não
+   aplica migração de Durable Object — erro **10211**), e quando é usado o
+   resumo do job diz em letras garrafais que o portão não rodou.
+
+O smoke **não** usa `set -e`: cada checagem roda e o relatório sai inteiro. A
+primeira falha escondendo as seguintes foi o que deixou um check estruturalmente
+incapaz de passar por três deploys sem ninguém ver.
+
+### Comparar URL como texto é a família de bugs desta base
+
+Três achados independentes vieram daí — host aceito por prefixo
+(`https://fotos.lucafchala.com.exemplo.com`), desescape duplo abrindo o atributo
+`href`, e um teste que checava GitHub por `includes()`. Antes de confiar em
+qualquer checagem de origem/host, releia com esse olhar: quem decide host é
+`new URL()` comparando `host`, nunca `startsWith`. A exceção é regra de
+**negação** (rebaixar GitHub a texto), onde alcance a mais erra para o lado
+seguro.
+
+### CodeQL mora nas Settings, não no YAML
+
+Já roda pelo *default setup* do GitHub (Settings → Code security), cobrindo
+`javascript-typescript` e `actions`. Um job no `security.yml` seria "advanced
+configuration" e o GitHub recusa as duas ao mesmo tempo. Para elevar o rigor,
+mude a *query suite* para `security-extended` nas Settings.
+
+### `wrangler.toml` é a fonte da verdade da observabilidade
+
+O `wrangler deploy` **desliga o que não está declarado ali**, mesmo que tenha
+sido ligado no painel. Como o deploy roda a cada push na `main`, um bloco
+`[observability]` ausente faz o log parar de ser gravado sem ninguém ter mexido
+em nada — e a descoberta viria no meio de um incidente. O bloco está fixado; não
+o remova.
+
+### Etapa de CI que nunca chegou a rodar não é etapa que passa
+
+`set -e` faz a primeira falha esconder todas as seguintes: um check do smoke
+test ficou estruturalmente incapaz de passar por três deploys porque algo antes
+dele sempre falhava primeiro. Rodar o passo inteiro localmente contra o Worker
+de verdade, antes de subir, custa dois minutos.
+
+### O passo que garante o portão precisa garantir também o pré-requisito dele
+
+O deploy com portão de preview estreou e morreu no primeiro uso: o
+`versions upload` funcionou, mas a Cloudflare não devolveu URL de preview
+nenhuma, porque **Preview URLs estavam desligadas no Worker** — e nada no
+repositório era capaz de ligá-las. `preview_urls` é configuração
+*não-versionada*: `versions upload` só a **lê**; quem a escreve é
+`wrangler deploy` / `triggers deploy`. Com a chave ausente do `wrangler.toml`,
+o wrangler manda `undefined` e o valor do servidor prevalece para sempre.
+
+É o mesmo formato do que já estava escrito aqui sobre `[observability]`, e
+mesmo assim passou: a lição não é "declare observabilidade", é **toda
+configuração não-versionada que o pipeline depende precisa estar no
+`wrangler.toml` e ser conferida em runtime**. Declarar não basta quando o
+comando que aplica não é o comando que roda.
+
+O portão em si funcionou como projetado — recusou promover o que não pôde
+verificar, e produção seguiu na versão anterior. Um portão que falha fechado
+falhando é um portão funcionando.
+
+### `bash -e` mata o step antes da mensagem que explicaria o step
+
+O passo do upload tinha dois `echo "::error::…"` escritos exatamente para o
+caso "não veio URL de preview". Quando esse caso aconteceu, o log trouxe só
+`Process completed with exit code 1` — nenhuma das duas.
+
+A causa: `grep` sem correspondência sai com **1**; com `set -o pipefail` a
+atribuição herda esse 1; e o runner executa todo bloco `run:` com `bash -e`.
+O script morria **na atribuição**, três linhas antes do diagnóstico.
+
+Duas consequências práticas:
+
+1. Toda captura cuja ausência é um caso previsto termina em `|| true`, e quem
+   decide é o `if` seguinte — não o `set -e`.
+2. Bloco `run:` é código e passou a ser conferido como código
+   (`scripts/verifica-shell-dos-workflows.py`, chamado pelo `checks.yml`). Era
+   o único executável do repositório sem verificação nenhuma, e foi
+   precisamente onde o defeito morou.
+
+Vale junto com *Etapa de CI que nunca chegou a rodar não é etapa que passa*:
+lá, a primeira falha escondia as seguintes; aqui, escondia a explicação da
+própria falha.
+
+### Não espere por um sinal que você não controla — derive e prove
+
+O portão de preview travou duas vezes esperando o wrangler IMPRIMIR a URL. Na
+segunda, `previews_enabled` já estava `true` (lido e confirmado no servidor,
+antes e depois) e mesmo assim nada foi impresso: quem barrava era
+`metadata.has_preview`, campo da resposta do upload decidido só do lado do
+servidor, sem flag nem configuração que o altere.
+
+Enquanto a condição de avanço foi "a ferramenta me contou", o pipeline ficou
+refém de uma decisão que não era nossa. A saída não foi insistir nem afrouxar o
+portão: foi **derivar** a URL da mesma fórmula que o wrangler usa e **provar**
+que ela responde antes de aceitá-la — descartando-a se não responder.
+
+A regra geral: quando um passo depende de um sinal que outro sistema pode
+simplesmente não emitir, procure o que dá para **construir e verificar por
+conta própria**. Verificação de primeira mão vale mais que a flag de metadados
+que você estava esperando — uma diz o que a API acha, a outra diz o que existe.
+Só não vale trocar "esperar o sinal" por "supor o sinal": construir sem provar
+seria pior que o problema original, porque o portão continuaria verde.
+
+### Portão que não pode passar não é portão — é pipeline parado
+
+O portão de preview travou três deploys seguidos. As duas primeiras causas eram
+nossas e foram corrigidas. A terceira não: a Cloudflare simplesmente não serve
+URL de preview de versão para este Worker (404 vinte vezes, com
+`previews_enabled` verdadeiro no servidor e `has_preview` falso — campo decidido
+só do lado dela).
+
+A tentação era manter o vermelho "porque o portão é sagrado". Mas um portão que
+nunca pode passar não protege ninguém: garante que nada é publicado e empurra a
+próxima pessoa a publicar POR FORA do workflow, sem verificação alguma. O
+remédio virava a doença.
+
+O critério que sobrou, e que vale para qualquer portão daqui em diante:
+
+1. **Nunca afrouxe em silêncio.** O resumo do job diz, toda vez, se a
+   verificação rodou antes ou depois da promoção.
+2. **Se não dá para verificar antes, verifique depois e DESFAÇA sozinho.**
+   Exposição de segundos com reversão automática é muito melhor que exposição
+   indefinida — que era o comportamento anterior a todo este trabalho.
+3. **Deixe o caminho forte voltar sozinho.** A sondagem continua lá; no dia em
+   que a URL existir, o portão forte reassume sem mudar código.
+
+O que NÃO se faz é o que teria sido mais fácil: apagar a verificação e chamar o
+deploy de verde.
+
+### Regex de URL num log casa com a URL errada
+
+A extração da URL de preview usava `https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev`
+— que casa também com `https://fotos.lucafchala.workers.dev`, a rota de
+**produção**. Se as Preview URLs estivessem ligadas, o portão poderia ter
+rodado o smoke contra produção e aprovado a versão nova sem nunca tê-la
+tocado: um portão que existe só no nome, e que ninguém teria motivo para
+desconfiar, porque estaria verde.
+
+Extração de log ancora no rótulo que a ferramenta imprime
+(`Version Preview URL:`), não no formato do que se espera achar. Quando o
+formato for a única pista, ele precisa ser específico o bastante para não
+casar com o vizinho perigoso.
+
+### Passo best-effort é passo que ninguém lê
+
+`d1 migrations apply` falhava com `duplicate column name: access_type` em
+**todo deploy desde 09/08** — vinte execuções — sem nunca aparecer para
+ninguém, porque o passo era `continue-on-error: true`. O `continue-on-error`
+não distinguia "a coluna já estava lá" de "o esquema não tem a coluna que o
+código escreve", que é a diferença entre irrelevante e perder a prova de
+autorização de uso de imagem.
+
+O problema real era pior que o ruído: `migrations apply` processa os arquivos
+em ordem e para no primeiro erro. Com a `0002` travada, uma `0003` **nunca**
+seria aplicada — a próxima mudança de esquema entraria em produção sem o
+esquema, e o sintoma apareceria num `INSERT`, em runtime.
+
+Best-effort precisa ter três desfechos, não dois: **funcionou**,
+**não deu para saber** (segue, com aviso) e **está quebrado** (para). Um passo
+que só sabe dizer "ok" e "ignore" não está reportando nada.
+
+### Comparação com NaN nunca é a guarda que parece
+
+`parseInt('ab', 10)` é `NaN`, e `NaN` reprova as **duas** pontas de uma faixa:
+`NaN < 1` e `NaN > 12` são ambas falsas, então `if (m < 1 || m > 12) return`
+deixava a data malformada passar e `formatDatePT` publicava "NaN de undefined de
+2026" na página do projeto. Quem valida número vindo de texto usa
+`Number.isInteger()` (ou `Number.isFinite()`) **antes** da faixa — a faixa
+sozinha é um portão que parece fechado.
+
+O mesmo raciocínio já aparece em `toCount()` e em `Counter.#valido()`, que
+recusam `NaN` explicitamente; `formatDatePT` era o que faltava.
+
+### Corpo JSON válido não é corpo utilizável
+
+`request.json()` só **lança** quando o texto não é JSON. `null`, `42`, `"oi"` e
+`[]` atravessam o `catch` inteiros, e aí a primeira leitura de propriedade
+(`body.slug`) lança TypeError já dentro do handler — onde só o catch-all do
+`fetch()` pega, respondendo 500 **e** disparando o e-mail de alerta. Quatro
+bytes anônimos num POST viravam 500 e queimavam a janela de 15 min do alerta,
+escondendo a próxima falha de verdade.
+
+Todo handler passa por `readJsonBody()` (`src/index.js`), que devolve objeto ou
+`null`. **Não volte a chamar `request.json()` direto num handler novo.**
+
+### Teste verde não é verificação
+
+`npm test` prova que as funções fazem o que as funções fazem, não que o site
+funciona — ver [`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md). Nesta base a
+suíte inteira já passou verde sobre a CSP matando ~68 handlers inline e sobre a
+galeria ilegível sem JS. Mudança em página pública ou no painel se verifica com
+browser.
 
 ---
 
@@ -512,15 +509,11 @@ campo, não despejam o objeto do evento. Nada a corrigir.
   > direto no `src` da `<img>`. Quem busca essa imagem é o browser, falando com
   > o Google — o Worker não está no caminho e não tem resposta para carimbar.
   >
-  > **Correção da conta que estava aqui:** a versão anterior desta nota dizia
-  > que servir as imagens custaria uma requisição de Worker por thumbnail (1 →
-  > 13 numa galeria de 12 cards, contra a cota de 100 mil/dia) e por isso o item
-  > ficou parado. Isso vale para uma **rota nossa no Worker**, não para o R2: um
-  > bucket com **domínio personalizado** é servido direto pela borda da
-  > Cloudflare, **sem Worker no caminho**. A galeria continua custando 1
-  > requisição de Worker. As leituras viram operações Class B do R2, cuja
-  > franquia é de **10 milhões/mês** — outra ordem de grandeza, e não a cota
-  > apertada.
+  > **A conta:** servir as imagens por uma **rota nossa no Worker** custaria uma
+  > requisição por thumbnail (1 → 13 numa galeria de 12 cards). Com o R2 não:
+  > um bucket com **domínio personalizado** é servido direto pela borda, **sem
+  > Worker no caminho**. A galeria continua custando 1 requisição de Worker, e
+  > as leituras viram Class B do R2, cuja franquia é de **10 milhões/mês**.
   >
   > **Custo real:** franquia de 10 GB de armazenamento, 1 milhão de Class A
   > (uploads), 10 milhões de Class B (leituras), egresso zero. Só as **capas e
@@ -528,27 +521,26 @@ campo, não despejam o objeto do evento. Nada a corrigir.
   > então 28 projetos são um arredondamento contra 10 GB. Ressalva: o R2 em
   > geral pede cartão cadastrado mesmo para usar a franquia gratuita.
   >
-  > **Por que vale a pena agora:** o `og:image` de um projeto normal aponta hoje
+  > **Por que vale a pena agora:** o cartão de pré-visualização do link já vai
+  > completo — título, data, colaborador e `og:image` recortado em 1200×630 com
+  > as dimensões declaradas — mas o `og:image` de um projeto normal ainda aponta
   > para o `lh3.googleusercontent.com`, e o crawler do WhatsApp é irregular com
-  > imagem hospedada no Google. Um link de projeto que abre com a capa no
-  > WhatsApp é outra coisa, e é por WhatsApp que um link de evento se espalha.
+  > imagem hospedada no Google. Quando ele não consegue buscar, o cartão aparece
+  > só com texto. É por WhatsApp que um link de evento se espalha, e essa é a
+  > última peça que falta.
 - [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
 - [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
       destaca em vermelho os atrasados.
 - [ ] **Modelo/"template" de evento** — ao lado do "Duplicar evento" já
       existente (que copia um evento específico), salvar uma configuração
       padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
-      acesso/notas já preenchidos, pra criar vários eventos parecidos mais
-      rápido sem precisar duplicar um evento real toda vez.
+      acesso/notas já preenchidos.
 - [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
-      masonry da galeria (CSS Grid + `layoutMasonry()` calculando
-      `grid-row-end` a partir da altura real renderizada) segue a proporção
-      real de cada thumbnail, mas como o modelo de dados só guarda a URL da
-      foto (não dimensões), o `.thumb` não sabe a altura final até a imagem
-      carregar e o JS recalcular — algum reflow residual é inerente a isso.
-      Guardar `width`/`height` (ou só a razão) no momento em que a foto é
-      adicionada ao evento eliminaria isso de vez (CLS zero), sem custo de
-      requisição extra por foto.
+      masonry da galeria segue a proporção real de cada thumbnail, mas como o
+      modelo de dados só guarda a URL (não dimensões), o `.thumb` não sabe a
+      altura final até a imagem carregar e o JS recalcular. Guardar
+      `width`/`height` (ou só a razão) no momento em que a foto é adicionada
+      eliminaria o reflow de vez (CLS zero), sem requisição extra por foto.
 
 ---
 
@@ -562,11 +554,10 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
   "compartilhar minha seleção" que gera link com as escolhidas. Bom para
   casamentos, onde cada convidado quer mostrar só "as fotos dele".
 - **Livro de visitas** — recado dos convidados no fim da página do evento, com
-  moderação no dashboard. Vira lembrança digital.
+  moderação no dashboard.
 - **Slideshow / modo apresentação** — carrossel em tela cheia com transição
   automática. Bom para projetar num evento.
-- **Stories estilo Instagram** — 5–10 fotos como highlights no topo da página,
-  em círculos que abrem em tela cheia.
+- **Stories estilo Instagram** — 5–10 fotos como highlights no topo da página.
 
 ### Profissional / portfólio
 
@@ -576,8 +567,8 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **Status "aceitando novos projetos"** — badge na home ("Agendando para
   janeiro/2027" / "Agenda fechada até março"). Define expectativa.
 - **Mini-gráfico de visualizações no dashboard** — hoje as métricas são só
-  números/CSV; um sparkline simples de views ao longo do tempo por evento
-  ajudaria a ver o que está performando sem precisar exportar nada.
+  números/CSV; um sparkline de views ao longo do tempo por evento ajudaria a ver
+  o que está performando sem exportar nada.
 
 ### UX
 
@@ -602,17 +593,9 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
   Images, Stream, plano Pro. Registrado aqui para não ser redescutido a cada
   aperto.
   > 🔜 **O Workers Paid saiu desta lista**: o dono decidiu assinar. Ver
-  > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md). O que ele compra — teto de
-  > CPU, requisições e escrita em KV sem limite diário — está lá, junto com o
-  > que **não** muda com dinheiro (o limite de 1 escrita/s por chave).
-  O que cada um dos outros resolveria e por que continua não sendo necessário:
-  - **Workers Paid** compraria teto de CPU, requisições sem limite diário e 1
-    milhão de escritas de KV/mês. Nada disso falta hoje: o PBKDF2 do login roda
-    em produção no gratuito (verificado no smoke test do deploy — healthz
-    `ok:true` e login 302), as requisições não chegam perto de 100 mil/dia
-    porque as fotos não passam pelo Worker, e a escrita em KV foi para ~1 por
-    visitante. Se um dia apertar, os três caminhos da seção
-    [Plano gratuito](#plano-gratuito--a-restrição-que-decide-o-resto) vêm antes.
+  > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md), que traz o que ele compra —
+  > teto de CPU, requisições e escrita em KV sem limite diário — e o que **não**
+  > muda com dinheiro (o limite de 1 escrita/s por chave).
   - **Cloudflare Images** vende transformação de imagem, que este site não faz —
     o Drive já devolve thumbnail no tamanho pedido (`sizedDriveThumb()`), e a
     hospedagem das capas cabe na franquia do R2.
@@ -628,17 +611,13 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
 - **QR Code** — removido junto com a lib quebrada (e a entrada de CSP do
   jsDelivr). Sem uso real.
 - **Contagem de fotos** (manual + auto-contagem opcional via Google Drive API)
-  — foi implementada e removida por completo a pedido: as fotos já vêm
-  numeradas, o dado era redundante. Não reintroduzir sem necessidade nova.
+  — implementada e removida por completo a pedido: as fotos já vêm numeradas, o
+  dado era redundante. Não reintroduzir sem necessidade nova.
 - **Monitoramento de uptime terceirizado** (UptimeRobot/HetrixTools/Better
   Stack) — cogitado e descartado a pedido do dono. O monitoramento continua
   100% interno (`status.lucafchala.com`), que em troca ganhou cobertura
-  deliberadamente desproporcional em fotos.lucafchala.com (ver seu README,
-  tabela de serviços). Isso significa aceitar conscientemente o ponto único
-  de falha que motivou cogitar um terceiro: `status.lucafchala.com` roda na
-  mesma conta Cloudflare que monitora, então uma queda de conta inteira (ou
-  do Resend, ou do cron do GitHub Actions) não seria detectada por nada
-  aqui. Não reintroduzir sem necessidade nova — se reconsiderado, a análise
-  de provedores (HetrixTools grátis, 15 monitores, canais Discord/Pushover/
-  ntfy.sh; UptimeRobot como redundância) ainda vale, só ficou de fora deste
-  arquivo.
+  deliberadamente desproporcional em fotos.lucafchala.com. Isso significa
+  aceitar conscientemente o ponto único de falha que motivou cogitar um
+  terceiro: `status.lucafchala.com` roda na mesma conta Cloudflare que monitora,
+  então uma queda de conta inteira (ou do Resend, ou do cron do GitHub Actions)
+  não seria detectada por nada aqui. Não reintroduzir sem necessidade nova.

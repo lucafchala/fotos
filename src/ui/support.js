@@ -1,4 +1,4 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 /**
@@ -18,7 +18,11 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Suporte · fotos</title>
-  <meta name="description" content="Entre em contato com Luca F. Chala">
+  ${socialMetaHTML({
+    title: 'Suporte · fotos',
+    description: 'Dúvida, sugestão, problema no site ou pedido de remoção de foto — fale direto com Luca F. Chala.',
+    url: 'https://fotos.lucafchala.com/suporte',
+  })}
   <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
   <!-- <script type="text/javascript">
     (function(c,l,a,r,i,t,y){

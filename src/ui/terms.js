@@ -1,4 +1,4 @@
-import { TERMS_VERSION, formatDatePT, footerLegalLinksHTML, fontPreconnectHTML } from '../utils.js';
+import { TERMS_VERSION, formatDatePT, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 
 export function termsHTML() {
   return `<!DOCTYPE html>
@@ -10,8 +10,13 @@ export function termsHTML() {
   <link rel="apple-touch-icon" href="/icon.svg">
   <meta name="theme-color" content="#0a0a0a">
   <title>Termos de Uso · fotos</title>
-  <meta name="description" content="Termos de uso e autorização de uso de imagem de fotos.lucafchala.com">
   <link rel="canonical" href="https://fotos.lucafchala.com/termos">
+  ${socialMetaHTML({
+    type: 'article',
+    title: 'Termos de Uso · fotos',
+    description: `Termos de uso e autorização de uso de imagem de fotos.lucafchala.com, na versão de ${formatDatePT(TERMS_VERSION)}.`,
+    url: 'https://fotos.lucafchala.com/termos',
+  })}
   <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
   <!-- <script type="text/javascript">
     (function(c,l,a,r,i,t,y){
