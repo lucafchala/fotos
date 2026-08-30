@@ -192,9 +192,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
       entregar foto vem primeiro —, mas o formulário de remoção é canal de
       direito do titular e merece pelo menos falhar com mensagem em vez de 500.
       No login o certo é falhar **fechado**, nunca servir sessão de cópia.
-- [ ] **Marcar releases com tag** a cada deploy relevante, para que rollback seja
-      um SHA conhecido em vez de arqueologia no log. Procedimento no
-      [README](./README.md#rollback); hoje o repo não tem **nenhuma** tag.
 - [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
       hoje só cai em log estruturado, e **provavelmente fica assim**. O handler
       já trata os dois casos: sem o binding `PERF`, nada quebra. Antes de mexer,
@@ -284,6 +281,31 @@ e a executa lado a lado com a do servidor.
 **Par novo entra lá.** Reimplementar no painel algo que já existe em `utils.js`
 é aceito — o browser não tem `import` para dentro de um template literal. O que
 não é aceito é a cópia nova ficar sem a linha correspondente nesse teste.
+
+### Produção só recebe versão que já passou pelo smoke
+
+O pipeline sobe a versão **sem tráfego** (`versions upload`), roda
+`scripts/smoke.sh` contra a URL de preview e só então promove **a mesma
+versão** (`versions deploy`). Antes era o contrário — publicava e testava
+depois —, e este README admitia a consequência: todo deploy era um incidente em
+potencial.
+
+Três coisas que sustentam isso e não podem ser afrouxadas:
+
+1. **O smoke roda contra os três alvos** — `wrangler dev` local, preview e
+   produção. É o que faz "passou no preview" significar o mesmo que "passou em
+   produção". Checagem que só funciona num alvo não entra no script.
+2. **Sem URL de preview, o deploy FALHA.** Se o upload não devolver a URL, o
+   workflow morre em vez de seguir "sem testar" — seguir seria reintroduzir
+   exatamente o fluxo antigo, e em silêncio.
+3. **Pular o portão é explícito e barulhento.** Só o input `unversioned: true`
+   faz isso, ele existe por causa de um limite real (`versions upload` não
+   aplica migração de Durable Object — erro **10211**), e quando é usado o
+   resumo do job diz em letras garrafais que o portão não rodou.
+
+O smoke **não** usa `set -e`: cada checagem roda e o relatório sai inteiro. A
+primeira falha escondendo as seguintes foi o que deixou um check estruturalmente
+incapaz de passar por três deploys sem ninguém ver.
 
 ### Comparar URL como texto é a família de bugs desta base
 

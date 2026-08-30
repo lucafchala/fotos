@@ -54,6 +54,32 @@ jobs:
       - name: Coverage ratchet
         run: npm run test:coverage
 
+      # O bundle e os bindings do wrangler.toml, verificados SEM credencial
+      # nenhuma. `--dry-run` compila, resolve os bindings e sai — então um
+      # wrangler.toml quebrado, um binding removido ou um import que não existe
+      # reprovam aqui, no PR, em vez de na primeira tentativa de publicar.
+      # Antes disso, o deploy.yml era o primeiro lugar onde qualquer erro de
+      # empacotamento aparecia, e ele só roda depois do merge.
+      - name: Bundle compila e os bindings resolvem (dry-run)
+        run: |
+          set -e
+          npx wrangler versions upload --env= --dry-run --outdir /tmp/bundle-check | tee /tmp/dry.log
+          # Um binding que suma do wrangler.toml não quebra o build — só some,
+          # e o Worker passa a receber `undefined` em produção. A lista é curta
+          # e a ausência é silenciosa, então cada um é conferido pelo nome.
+          for b in COUNTER RATELIMIT FOTOS CONSENT_DB; do
+            grep -q "env\.$b" /tmp/dry.log || { echo "FALHA: binding $b sumiu do wrangler.toml"; exit 1; }
+          done
+          echo "OK: bundle compila e os 4 bindings resolvem."
+
+      # O smoke virou script de verdade (scripts/smoke.sh), então passa a ter as
+      # mesmas exigências de qualquer código do repositório: precisa ao menos
+      # ser sintaticamente válido antes de alguém depender dele num deploy.
+      - name: Sintaxe dos scripts de shell
+        run: |
+          set -e
+          for f in scripts/*.sh; do bash -n "$f" && echo "OK $f"; done
+
       - name: Validate JSON files
         run: |
           set -e

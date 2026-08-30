@@ -1,63 +1,103 @@
 name: Deploy
 
+# ---------------------------------------------------------------------------
+# O portão que faltava: a versão é VERIFICADA antes de qualquer cliente vê-la
+# ---------------------------------------------------------------------------
+# Como era: `wrangler deploy` publicava direto em produção e o smoke test rodava
+# DEPOIS. O próprio README admitia a consequência — "qualquer falha no smoke
+# test marca o deploy como vermelho mas o Worker já foi publicado, então um
+# deploy vermelho ainda alterou produção". Todo deploy era um incidente em
+# potencial, e o teste que existia para dizer "está bom" só rodava quando já
+# não dava para mudar de ideia.
+#
+# Como é: `versions upload` publica a versão SEM ROTEAR TRÁFEGO. Ela ganha uma
+# URL de preview própria, o smoke test roda contra ELA, e só então
+# `versions deploy` manda 100% do tráfego para essa mesma versão — o artefato
+# idêntico, não uma recompilação. Se o smoke reprovar, produção nunca soube que
+# existiu uma versão nova.
+#
+# O que isso compra, na ordem em que importa:
+#   1. Cliente nenhum vê código que não passou pelo smoke.
+#   2. Rollback vira promover uma versão anterior (input `version_id`), sem
+#      recompilar e sem mexer no Git.
+#   3. O mesmo `scripts/smoke.sh` roda local (`wrangler dev`), no preview e em
+#      produção — "passou no preview" quer dizer exatamente o mesmo que
+#      "passou em produção".
+#
+# ⚠️ LIMITE CONHECIDO — migração de Durable Object.
+# `versions upload` NÃO aplica migração de DO: a API recusa com o código 10211
+# ("migrations must be fully applied via a non-versioned deployment"). Enquanto
+# `[[migrations]]` do wrangler.toml tiver só a tag `v1` (já aplicada), nada
+# acontece. No dia em que entrar uma `v2`, este workflow FALHA no upload — de
+# propósito, com a mensagem explicando — e o caminho é disparar manualmente com
+# `unversioned: true`, que usa `wrangler deploy` e ABRE MÃO do portão de preview
+# naquele deploy. Falhar alto é melhor que pular a verificação em silêncio.
+
 on:
   push:
     branches: [main]
 
-  # Disparo manual, pela aba Actions (funciona do celular).
-  #
-  # Sem isto, a única forma de republicar era inventar um commit vazio — e as
-  # situações que pedem republicação não têm commit nenhum por natureza:
-  #
-  #  - **Rotação de secret.** Um secret novo vale na hora, mas nada reexecuta o
-  #    smoke test para confirmar. Foi exatamente o caso do SIGNING_SECRET: a
-  #    única forma de saber se tinha entrado era esperar o próximo merge.
-  #  - **Rollback.** Republicar um commit anterior sem reescrever a história.
-  #  - **Reverificar a produção** depois de mexer em algo fora do repositório
-  #    (binding de KV, configuração de domínio, painel da Cloudflare).
-  #
-  # O job é o mesmo do push: roda a suíte antes de tocar em produção e o smoke
-  # test depois. Um disparo manual não pula nenhum portão.
+  # Disparo manual (funciona do celular). Serve para o que não tem commit:
+  # rotação de secret, rollback, e reverificar produção depois de mexer em algo
+  # fora do repositório (binding de KV, domínio, painel da Cloudflare).
   workflow_dispatch:
+    inputs:
+      promote:
+        description: 'Promover para produção depois do smoke do preview'
+        type: boolean
+        default: true
+      version_id:
+        description: 'Promover uma versão JÁ EXISTENTE (rollback). Vazio = compila a partir deste commit.'
+        type: string
+        default: ''
+      unversioned:
+        description: 'Usar wrangler deploy (sem portão de preview). Só para migração de Durable Object — ver 10211.'
+        type: boolean
+        default: false
 
-# A versão do wrangler usada nos dois steps que falam com a Cloudflare (migrations
-# D1 e deploy) é DERIVADA do que o `npm install` resolveu — ver o step "Derivar a
-# versão do wrangler" abaixo. Era um número escrito à mão aqui, e o segundo lugar
-# saiu de sintonia com o primeiro exatamente como este bloco dizia temer:
-# `4.114.0` no workflow contra `^4.125.0` no package.json, silenciosamente, por
-# quanto tempo ninguém sabe. Um valor derivado não tem como divergir.
-
-# Menor privilégio: o deploy fala com a Cloudflare por API token próprio
-# (secret), não pelo token do GitHub — que aqui só precisa ler o código.
+# `contents: write` só por causa da tag de release criada no fim. O deploy em si
+# fala com a Cloudflare por API token próprio, não pelo token do GitHub.
 permissions:
-  contents: read
+  contents: write
+
+# Dois pushes em sequência não podem promover versões fora de ordem. Sem
+# cancel-in-progress: cancelar um deploy no meio da promoção deixaria tráfego
+# dividido entre duas versões.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WORKER_NAME: fotos
+      # --env="": o wrangler.toml declara `[env.preview]`, e sem o flag o CLI
+      # avisa que o ambiente-alvo é ambíguo. Explícito não depende de qual é o
+      # default da versão do wrangler instalada.
+      WRANGLER_ENV_FLAG: '--env='
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Histórico completo: a tag de release no fim precisa enxergar as
+          # tags que já existem para não recriar uma.
+          fetch-depth: 0
 
-      # Pre-deploy gate: run the unit suite before touching production. A red
-      # test aborts the job before the migration / deploy steps run.
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           # 22+ é exigido pelo wrangler 4 (engines: node >=22). No Node 20 o
-          # binário recusa a rodar antes de qualquer comando — foi o que
-          # derrubou o deploy de 6fb8d1c, quando o pin explícito da versão
-          # passou a instalar o wrangler 4 no lugar do v3.90 default da action.
+          # binário recusa a rodar antes de qualquer comando.
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
-      # A versão que vai para a Cloudflare é a que a suíte ACABOU de instalar,
-      # lida de node_modules — não um número mantido à mão num segundo lugar.
-      # É a leitura literal do que o bloco no topo do arquivo sempre pediu:
-      # "se divergir, a produção roda numa versão que nenhum teste exercitou".
-      # Lido de node_modules e não do `^x.y.z` do package.json de propósito: o
-      # que interessa é a versão RESOLVIDA, que é a que os testes usaram.
+      # A versão que vai para a Cloudflare é a que o `npm ci` ACABOU de
+      # instalar, lida de node_modules — não um número mantido à mão num
+      # segundo lugar, que foi como `4.114.0` aqui divergiu de `^4.125.0` no
+      # package.json sem ninguém ver.
       - name: Derivar a versão do wrangler
         run: |
           set -e
@@ -66,19 +106,28 @@ jobs:
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "FALHA: versão do wrangler inesperada: '$V'"; exit 1 ;;
           esac
-          echo "Wrangler resolvido pelo npm install: $V"
+          echo "Wrangler resolvido pelo npm ci: $V"
           echo "WRANGLER_VERSION=$V" >> "$GITHUB_ENV"
 
-      - name: Unit tests
+      # Portão pré-deploy COMPLETO, não só `npm test`: o lint e o typecheck já
+      # pegaram defeito que a suíte não pega (crase solta fechando um template
+      # literal, propriedade digitada errada). Rodavam só no checks.yml, que não
+      # roda em push na main — ou seja, um merge direto passava sem eles.
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Testes (unit + workers)
         run: npm test
 
-      # Apply pending D1 migrations before deploying, so the new columns exist when
-      # the new code starts writing. Pinned because the action's default (v3.90) is
-      # rejected by the D1 API as out-of-date. continue-on-error so a migration
-      # hiccup (e.g. token missing D1 Edit scope) never blocks the deploy itself —
-      # the consent INSERT is best-effort and degrades safely.
-      # Idempotent: wrangler skips migrations already recorded in d1_migrations.
-      - name: Apply D1 migrations
+      # Schema ANTES do código novo servir qualquer requisição, inclusive na URL
+      # de preview: o smoke roda contra o preview, e um INSERT de consentimento
+      # numa coluna que ainda não existe falharia ali.
+      # continue-on-error porque o registro de consentimento é best-effort e uma
+      # falha de migração não pode travar a entrega das fotos — mas o resultado
+      # entra no resumo, em vez de sumir.
+      - name: Migrações D1
+        id: migrations
         continue-on-error: true
         uses: cloudflare/wrangler-action@v4
         with:
@@ -87,206 +136,215 @@ jobs:
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
           command: d1 migrations apply fotos-consent --remote
 
-      # wranglerVersion explícito: sem ele a action cai no default v3.90, ou seja,
-      # o deploy rodaria numa major diferente da que o dev e os testes usam
-      # (package.json exige ^4). Mantenha este valor em sintonia com o
-      # devDependency do wrangler ao atualizá-lo.
-      - name: Deploy to Cloudflare Workers
-        id: deploy
+      # ---------------------------------------------------------------------
+      # Caminho de escape: deploy não-versionado (só migração de DO)
+      # ---------------------------------------------------------------------
+      - name: Deploy não-versionado (SEM portão de preview)
+        id: unversioned
+        if: inputs.unversioned
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          command: deploy --env=
 
-      - name: Wait for global propagation
-        run: sleep 20
+      - name: Avisar que o portão foi pulado
+        if: inputs.unversioned
+        run: |
+          {
+            echo "### ⚠️ Deploy sem portão de preview"
+            echo
+            echo "Publicado direto em produção com \`wrangler deploy\`, o que só se"
+            echo "justifica para aplicar migração de Durable Object (erro 10211)."
+            echo "**O smoke rodou depois da publicação**, como no fluxo antigo."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Smoke tests
+      # ---------------------------------------------------------------------
+      # Caminho normal: sobe a versão SEM rotear tráfego
+      # ---------------------------------------------------------------------
+      # A versão é etiquetada com o SHA do commit. É o que permite achá-la
+      # depois por `versions list --json` sem depender de parsear o stdout do
+      # upload, e é o que faz "qual commit está em produção?" ter resposta na
+      # própria Cloudflare, não só no Git.
+      - name: Subir versão (sem tráfego)
+        id: upload
+        if: ${{ !inputs.unversioned && inputs.version_id == '' }}
         env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          SAIDA=$(mktemp)
+          if ! npx --yes wrangler@"$WRANGLER_VERSION" versions upload \
+                 "$WRANGLER_ENV_FLAG" \
+                 --tag "$SHORT_SHA" \
+                 --message "$(git log -1 --pretty=%s | head -c 100)" 2>&1 | tee "$SAIDA"; then
+            if grep -q '10211' "$SAIDA"; then
+              echo "::error::Migração de Durable Object pendente: 'versions upload' não a aplica (10211)."
+              echo "::error::Redispare este workflow manualmente com 'unversioned: true' — ele publica com 'wrangler deploy' e ABRE MÃO do portão de preview neste deploy."
+            fi
+            exit 1
+          fi
+
+          # A URL de preview é o portão inteiro. Se ela não vier, NÃO seguimos
+          # em frente "sem testar" — isso reintroduziria exatamente o fluxo que
+          # este workflow existe para eliminar.
+          PREVIEW=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev' "$SAIDA" | head -1)
+          if [ -z "$PREVIEW" ]; then
+            echo "::error::Não achei a URL de preview na saída do upload."
+            echo "::error::Ative 'Preview URLs' no Worker (Settings → Domains & Routes) — sem ela não há como verificar antes de promover."
+            exit 1
+          fi
+          echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
+          echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      # Resolve a etiqueta para o ID pela API, e não por regex no stdout: o ID
+      # é o que `versions deploy` aceita, e `versions list --json` é contrato
+      # estável (`--json` é flag documentada), diferente do texto do upload.
+      - name: Resolver o ID da versão
+        id: resolve
+        if: ${{ !inputs.unversioned }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -eo pipefail
+          if [ -n "${{ inputs.version_id }}" ]; then
+            echo "version_id=${{ inputs.version_id }}" >> "$GITHUB_OUTPUT"
+            echo "Promovendo versão informada à mão (rollback): ${{ inputs.version_id }}"
+            exit 0
+          fi
+          TAG="${{ steps.upload.outputs.version_tag }}"
+          npx --yes wrangler@"$WRANGLER_VERSION" versions list "$WRANGLER_ENV_FLAG" --json > versoes.json
+          # A etiqueta aparece em `annotations["workers/tag"]` na API atual, mas
+          # este é o único ponto do workflow que depende de um FORMATO de
+          # resposta, e não de um flag documentado. Então: tenta as formas
+          # conhecidas e, se nenhuma casar, MORRE mostrando o que veio — nunca
+          # cai para "a mais recente", que promoveria uma versão que ninguém
+          # verificou e desfaria o portão inteiro em silêncio.
+          ID=$(node -e '
+            const v = require("./versoes.json");
+            const alvo = process.argv[1];
+            const lista = Array.isArray(v) ? v : (v && Array.isArray(v.versions) ? v.versions : []);
+            const etiqueta = x => (x && x.annotations && x.annotations["workers/tag"]) || (x && x.tag) || null;
+            const achada = lista.find(x => etiqueta(x) === alvo);
+            if (achada && achada.id) { console.log(achada.id); process.exit(0); }
+            console.error("Nenhuma versão com a etiqueta " + JSON.stringify(alvo) + ".");
+            console.error("Etiquetas vistas: " + JSON.stringify(lista.slice(0, 5).map(etiqueta)));
+            console.error("Chaves do primeiro item: " + JSON.stringify(Object.keys(lista[0] || {})));
+            process.exit(1);' "$TAG")
+          if [ -z "$ID" ]; then
+            echo "::error::Não consegui resolver o ID da versão recém-enviada — veja as chaves impressas acima e ajuste o resolvedor."
+            exit 1
+          fi
+          echo "version_id=$ID" >> "$GITHUB_OUTPUT"
+          echo "Versão $ID etiquetada como $TAG"
+
+      # ---------------------------------------------------------------------
+      # O PORTÃO: smoke contra o preview, antes de qualquer tráfego
+      # ---------------------------------------------------------------------
+      - name: Smoke do PREVIEW (antes de qualquer cliente)
+        if: ${{ !inputs.unversioned && inputs.version_id == '' }}
+        run: |
+          echo "### 🔎 Smoke do preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.upload.outputs.preview_url }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/smoke.sh "${{ steps.upload.outputs.preview_url }}" \
+            --expect-configured --summary "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # Promoção: 100% do tráfego para a MESMA versão que passou no smoke
+      # ---------------------------------------------------------------------
+      - name: Promover para produção
+        id: promote
+        if: ${{ !inputs.unversioned && (github.event_name == 'push' || inputs.promote) }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -eo pipefail
+          ID="${{ steps.resolve.outputs.version_id }}"
+          npx --yes wrangler@"$WRANGLER_VERSION" versions deploy "$ID@100" \
+            "$WRANGLER_ENV_FLAG" --yes \
+            --message "CI $GITHUB_RUN_ID — $(git log -1 --pretty=%s | head -c 80)"
+          echo "promoted=true" >> "$GITHUB_OUTPUT"
+
+      # `sleep 20` era um chute: curto demais numa propagação lenta (falso
+      # vermelho) e desperdício quando já estava pronto. Isto espera pelo SINAL,
+      # e o número de tentativas fica registrado.
+      - name: Esperar a propagação (por sinal, não por relógio)
+        id: readiness
+        if: ${{ steps.promote.outputs.promoted == 'true' || inputs.unversioned }}
+        run: |
+          BASE="https://${WORKER_NAME}.lucafchala.workers.dev"
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/api/healthz" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "pronto após ${i} tentativa(s)"
+              echo "tentativas=$i" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::healthz não respondeu 200 em ~60s após a promoção"
+          exit 1
+
+      - name: Smoke de PRODUÇÃO (confirma a promoção)
+        if: ${{ steps.promote.outputs.promoted == 'true' || inputs.unversioned }}
+        run: |
+          echo "### ✅ Smoke de produção" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          # workers.dev e não o domínio de produção: a zona fotos.lucafchala.com
+          # fica atrás do bot mitigation da Cloudflare, que responde 403 a
+          # cliente não-browser como o curl. É o MESMO Worker.
+          bash scripts/smoke.sh "https://${WORKER_NAME}.lucafchala.workers.dev" \
+            --expect-configured --summary "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------------
+      # Rastreabilidade: a tag deixa de ser ação manual
+      # ---------------------------------------------------------------------
+      # O TODO.md pedia "marcar releases com tag para que rollback seja um SHA
+      # conhecido em vez de arqueologia no log", e o repositório não tinha
+      # nenhuma — porque dependia de alguém lembrar. Agora é consequência
+      # automática de um deploy que passou nos dois smokes.
+      - name: Marcar o release
+        if: ${{ steps.promote.outputs.promoted == 'true' && github.event_name == 'push' }}
         run: |
           set -e
-          # Smoke-test the workers.dev deployment URL, NOT the custom domain.
-          # The production zone (fotos.lucafchala.com) sits behind Cloudflare bot
-          # mitigation, which answers non-browser clients like curl with HTTP 403
-          # — that is why every prior deploy's smoke tests failed on the first
-          # check. The workers.dev route runs the same Worker without that edge
-          # challenge. Fall back to the known URL if the action output is empty.
-          BASE="${DEPLOYMENT_URL:-https://fotos.lucafchala.workers.dev}"
-          echo "Smoke-testing $BASE"
+          TAG="deploy-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Deploy verificado — versão ${{ steps.resolve.outputs.version_id }}"
+          git push origin "$TAG"
+          echo "TAG_CRIADA=$TAG" >> "$GITHUB_ENV"
 
-          check_status() {
-            local label=$1 url=$2 expected=$3
-            local shift=3; shift $shift
-            local actual
-            actual=$(curl -s -o /dev/null -w "%{http_code}" "$@" "$url")
-            if [ "$actual" != "$expected" ]; then
-              echo "FAIL [$label]: expected HTTP $expected, got $actual"
-              exit 1
+      # ---------------------------------------------------------------------
+      # Observabilidade: o resumo responde "o que foi para produção, e passou?"
+      # sem abrir log de step nenhum.
+      # ---------------------------------------------------------------------
+      - name: Resumo do deploy
+        if: always()
+        run: |
+          {
+            echo "## Deploy"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${GITHUB_SHA::7}\` — $(git log -1 --pretty=%s | head -c 70) |"
+            echo "| Disparo | \`${{ github.event_name }}\` |"
+            echo "| Wrangler | \`${WRANGLER_VERSION:-?}\` |"
+            echo "| Versão | \`${{ steps.resolve.outputs.version_id || '—' }}\` |"
+            echo "| Preview | ${{ steps.upload.outputs.preview_url || '—' }} |"
+            echo "| Promovido | ${{ steps.promote.outputs.promoted == 'true' && '✅ 100% do tráfego' || '⏸️ não (só preview)' }} |"
+            echo "| Propagação | ${{ steps.readiness.outputs.tentativas && format('{0} tentativa(s)', steps.readiness.outputs.tentativas) || '—' }} |"
+            echo "| Migrações D1 | ${{ steps.migrations.outcome == 'success' && '✅' || '⚠️ falhou (best-effort)' }} |"
+            echo "| Tag | \`${TAG_CRIADA:-—}\` |"
+            echo
+            if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "${{ inputs.unversioned }}" != "true" ]; then
+              echo "> A versão foi publicada e verificada, mas **não** recebeu tráfego."
+              echo "> Para promovê-la: rode este workflow com \`version_id\` = \`${{ steps.resolve.outputs.version_id }}\`."
             fi
-            echo "OK   [$label]: $actual"
-          }
-
-          # Core pages
-          check_status "gallery"   "$BASE/"             200
-          check_status "dashboard" "$BASE/dashboard"    200
-          check_status "manifest"  "$BASE/manifest.json" 200
-          check_status "icon"      "$BASE/icon.svg"     200
-          check_status "404"       "$BASE/__no_such_route__" 404
-
-          # Static public pages — each is its own template literal (src/ui/*.js)
-          # with no shared render path, so a broken one doesn't 500 the others.
-          check_status "about"     "$BASE/sobre"        200
-          check_status "gear"      "$BASE/equipamentos"  200
-          check_status "terms"     "$BASE/termos"        200
-          check_status "privacy"   "$BASE/privacidade"   200
-          check_status "support"   "$BASE/suporte"       200
-          check_status "legal"     "$BASE/legal"         200
-          check_status "compliance" "$BASE/compliance"   200
-
-          # SEO/security discovery endpoints — machine-readable, but a 500 here
-          # means a crawler or the security.txt RFC 9116 contact silently breaks.
-          check_status "sitemap"        "$BASE/sitemap.xml"                200
-          check_status "robots"         "$BASE/robots.txt"                 200
-          check_status "llms"           "$BASE/llms.txt"                   200
-          check_status "security.txt"   "$BASE/.well-known/security.txt"   200
-          check_status "gpc.json"       "$BASE/.well-known/gpc.json"       200
-
-          # Health check: verifies KV is reachable and PBKDF2 completes
-          # within the Workers CPU budget. A CPU timeout returns 5xx, failing this step.
-          HEALTH=$(curl -sf "$BASE/api/healthz")
-          echo "Health response: $HEALTH"
-          echo "$HEALTH" | grep -q '"ok":true' || { echo "FAIL [healthz]: unexpected response"; exit 1; }
-
-          # Sem checagem de tempo de hash aqui, e o motivo importa: o Workers
-          # congela Date.now() durante execução síncrona, então o healthz não
-          # tinha como medir o próprio PBKDF2 — publicava "hashMs":0 sempre, e
-          # este portão comparava 0 com 200 a cada deploy desde que foi escrito.
-          # Mais um caso do §5.7: etapa que nunca poderia reprovar.
-          #
-          # O orçamento de CPU continua coberto pelo sinal real, logo abaixo e
-          # logo acima: estourá-lo mata a requisição, e aí o healthz não volta
-          # "ok":true e o login não volta 302. É isso que reprova o deploy.
-
-          # Functional self-test (broken Drive links, missing form secrets, etc.)
-          # is data/config, not a code regression from this deploy — log it, but
-          # never fail the build over an unrelated event being misconfigured.
-          if ! echo "$HEALTH" | grep -q '"problems":\[\]'; then
-            echo "NOTE [healthz selftest]: non-empty problem list — check /dashboard or /api/healthz"
-          fi
-
-          # Login endpoint: wrong password must redirect (302), never crash (5xx).
-          # A CPU timeout during hashing returns 5xx and fails this check.
-          check_status "login" "$BASE/dashboard/login" 302 \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "password=smoke-check-wrong"
-
-          # --- Cabeçalhos de segurança -------------------------------------
-          # Um cabeçalho que some não quebra tela nenhuma: o site continua
-          # respondendo 200 e ninguém percebe até um incidente. Por isso os
-          # controles críticos são verificados na resposta REAL de produção, e
-          # não só nos testes unitários que exercitam o construtor deles.
-          echo ""
-          echo "Verificando cabeçalhos de segurança…"
-
-          # `curl -sI` é um HEAD, e HEAD nem sempre percorre o mesmo caminho que
-          # GET. Quando não percorre, esta etapa inteira passa a inspecionar os
-          # cabeçalhos de uma página de ERRO e acusa a checagem errada: foi o que
-          # aconteceu aqui — todas as rotas casavam com `method === 'GET'`, o
-          # HEAD caía no 404, e o relatório culpou a ausência do nonce na CSP
-          # quando a causa era o método. Conferir o status ANTES de olhar
-          # qualquer cabeçalho faz o erro apontar para o próprio nariz.
-          HEAD_STATUS=$(curl -sI -o /dev/null -w '%{http_code}' "$BASE/")
-          if [ "$HEAD_STATUS" != "200" ]; then
-            echo "FAIL [HEAD /]: $HEAD_STATUS (GET responde 200 na mesma URL?)"
-            echo "HEAD tem de devolver o mesmo status e os mesmos cabeçalhos do GET (RFC 9110 §9.3.2)."
-            echo "Monitor de uptime e verificador de link usam HEAD — para eles o site está fora do ar."
-            exit 1
-          fi
-          echo "OK   [HEAD /]: 200, mesmo caminho do GET"
-
-          HEADERS=$(curl -sI "$BASE/")
-
-          require_header() {
-            local label=$1 pattern=$2
-            if ! echo "$HEADERS" | grep -iqE "$pattern"; then
-              echo "FAIL [header $label]: ausente ou inesperado"
-              echo "$HEADERS"
-              exit 1
-            fi
-            echo "OK   [header $label]"
-          }
-
-          require_header "X-Content-Type-Options"    '^x-content-type-options: *nosniff'
-          require_header "X-Frame-Options"           '^x-frame-options: *DENY'
-          require_header "Strict-Transport-Security" '^strict-transport-security: *max-age=[0-9]+'
-          require_header "Content-Security-Policy"   "^content-security-policy:.*frame-ancestors 'none'"
-          require_header "CSP report-only (estrita)" '^content-security-policy-report-only:'
-          require_header "CSP nonce (na estrita)"    "^content-security-policy-report-only:.*'nonce-"
-
-          # O enforced NÃO pode carregar nonce enquanto houver handler inline:
-          # pela CSP Level 3 o nonce descarta o 'unsafe-inline', e a interface
-          # inteira para de responder. Já aconteceu — este check existe por isso.
-          if curl -sI "$BASE/" | grep -i '^content-security-policy:' | grep -q "nonce-"; then
-            echo "FAIL [CSP]: nonce na política ENFORCED — isso desativa o 'unsafe-inline' e quebra os handlers inline"
-            exit 1
-          fi
-          echo "OK   [CSP]: enforced sem nonce, handlers inline preservados"
-          require_header "Permissions-Policy"        '^permissions-policy:.*camera=\(\)'
-          require_header "COOP"                      '^cross-origin-opener-policy: *same-origin'
-          require_header "Origin-Agent-Cluster"      '^origin-agent-cluster:'
-
-          # O nonce do cabeçalho tem que aparecer na marcação: um nonce que não
-          # bate é o mesmo que não ter nonce.
-          #
-          # Cabeçalho e corpo têm de vir da MESMA resposta. A primeira versão
-          # desta checagem lia o nonce de `$HEADERS` (capturado lá em cima com
-          # `curl -sI`) e procurava esse valor no HTML de um `curl -s` separado
-          # — duas requisições. Como o nonce é gerado por requisição, os dois
-          # nunca poderiam bater: o teste era estruturalmente incapaz de passar.
-          # Ficou escondido porque uma etapa anterior sempre falhava antes de
-          # chegar aqui. `-D -` com `-o` resolve: uma requisição só, cabeçalho
-          # no stdout e corpo no arquivo.
-          BODY=$(mktemp)
-          H1=$(curl -s -D - -o "$BODY" "$BASE/")
-          extrai_nonce() { grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_-]*'" | head -1 | tr -d "'" | sed 's/nonce-//'; }
-          NONCE=$(echo "$H1" | extrai_nonce)
-          if [ -z "$NONCE" ]; then echo "FAIL [nonce]: não encontrado no cabeçalho"; exit 1; fi
-          if ! grep -q "nonce=\"$NONCE\"" "$BODY"; then
-            echo "FAIL [nonce]: o nonce do cabeçalho não aparece no HTML da MESMA resposta"
-            exit 1
-          fi
-          echo "OK   [nonce]: cabeçalho e marcação batem na mesma resposta"
-
-          # E o nonce precisa MUDAR entre requisições. Um nonce constante casa
-          # com a checagem acima e não protege nada: quem quer injetar script
-          # basta ler o valor uma vez e reusar para sempre. É a falha que
-          # sobrevive a um teste de "bate com o HTML".
-          NONCE2=$(curl -s -D - -o /dev/null "$BASE/" | extrai_nonce)
-          if [ -z "$NONCE2" ] || [ "$NONCE" = "$NONCE2" ]; then
-            echo "FAIL [nonce]: o mesmo nonce em duas requisições — nonce constante não protege nada"
-            exit 1
-          fi
-          echo "OK   [nonce]: muda a cada requisição"
-
-          # Dados pessoais não podem encostar em cache. /api/healthz é o
-          # representante das respostas de dados nesta checagem.
-          if ! curl -sI "$BASE/api/healthz" | grep -iqE '^cache-control:.*no-store'; then
-            echo "FAIL [no-store]: resposta de API sem no-store"
-            exit 1
-          fi
-          echo "OK   [no-store]: respostas de API não são cacheáveis"
-
-          # CSRF: uma escrita cross-site tem que morrer antes de qualquer
-          # handler. Esta é a checagem mais importante da lista — ela falha
-          # aberto se o portão for removido num refactor.
-          check_status "csrf cross-site" "$BASE/api/events" 403 \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -H "Sec-Fetch-Site: cross-site" \
-            -d '{}'
-
-          echo ""
-          echo "All smoke tests passed."
+          } >> "$GITHUB_STEP_SUMMARY"
