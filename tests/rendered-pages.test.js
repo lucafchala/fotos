@@ -93,13 +93,23 @@ const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
 const RE_SCRIPT_ABRE = /<script\b/gi;
 const RE_SCRIPT_FECHA = /<\/script\b[^>]*>/gi;
 const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
+// `speculationrules` é a segunda tag <script> que o browser NÃO executa: o
+// corpo é JSON de configuração, lido pelo mecanismo de pré-busca. Classificar
+// por tipo, e não por "é ld+json ou é JavaScript", é o que impede o teste de
+// sintaxe de reprovar um bloco correto — e, mais importante, é o que faz este
+// bloco ser validado como JSON em vez de não ser validado por ninguém.
+const RE_SPEC_RULES = /type\s*=\s*["']speculationrules["']/i;
+
+/** Tipos cujo corpo é DADO, não programa. */
+const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs);
 
 /** @param {string} html */
 export function blocos(html) {
   const todos = [...html.matchAll(RE_SCRIPT_BLOCO)];
   return {
-    js: todos.filter(m => !RE_JSON_LD.test(m[1])).map(m => m[2]),
+    js: todos.filter(m => !ehDados(m[1])).map(m => m[2]),
     jsonld: todos.filter(m => RE_JSON_LD.test(m[1])).map(m => m[2]),
+    dados: todos.filter(m => ehDados(m[1])).map(m => m[2]),
   };
 }
 
@@ -122,11 +132,13 @@ describe('scripts embutidos nas páginas', () => {
     }
   });
 
-  it.each(Object.keys(paginas()))('o JSON-LD emitido por %s é JSON válido', nome => {
+  it.each(Object.keys(paginas()))('o script de DADOS emitido por %s é JSON válido', nome => {
     // JSON-LD quebrado não derruba a página, e é justamente por isso que passa
-    // despercebido: só o rich-results do Google reclama, meses depois.
-    const { jsonld } = blocos(paginas()[nome]);
-    for (const [i, src] of jsonld.entries()) {
+    // despercebido: só o rich-results do Google reclama, meses depois. Mesma
+    // coisa com as speculation rules: regra inválida é simplesmente ignorada,
+    // e o prefetch some sem nenhum sinal.
+    const { dados } = blocos(paginas()[nome]);
+    for (const [i, src] of dados.entries()) {
       expect(() => JSON.parse(src), `${nome} bloco #${i}`).not.toThrow();
     }
   });
@@ -207,6 +219,138 @@ describe('dicas de conexão no cabeçalho', () => {
         expect(permitidos.has(m[1]), `${nome}: preconnect a ${m[1]}, que a CSP não permite`).toBe(true);
       }
     }
+  });
+});
+
+describe('galeria: prioridade e tamanho das capas', () => {
+  // O que estes testes travam saiu de um PageSpeed real: LCP de 6,2 s numa
+  // página cujo único número ruim era o peso das fotos. A capa em destaque
+  // vinha com 756 KiB (=w1600 para exibir em 661 px), `loading="lazy"` e sem
+  // `fetchpriority` — ou seja, o elemento que DEFINE o LCP era o último a ser
+  // pedido. Nada disso aparece na suíte de outra forma: a página renderiza,
+  // o HTML é válido, e só o waterfall de rede mostra.
+
+  const capa = i => `https://lh3.googleusercontent.com/d/FOTO${i}`;
+  const evento = (i, extra = {}) => ({
+    ...EVENTO, id: `id${i}`, slug: `evt${i}`, title: `Projeto ${i}`,
+    // sortEvents ordena por data decrescente: datas caindo mantêm evento(0) na frente.
+    thumbnailUrl: capa(i), date: `2026-01-${String(20 - i)}`, ...extra,
+  });
+  const galeria = (...eventos) => galleryHTML(eventos, null, 'NONCE');
+
+  // Só as <img> de foto. Duas exclusões, as duas aprendidas na marra:
+  //   - o SVG do placeholder não é <img>, então já fica de fora;
+  //   - o <style> desta página tem comentários de CSS que CITAM marcação
+  //     ("a altura da <img> não resolve"), e isso vai para o HTML tal e qual.
+  //     Varrer a página inteira colhe essa citação como se fosse uma tag.
+  const semEstilo = html => html.replace(/<style[\s\S]*?<\/style>/gi, '');
+  const imgs = html => [...semEstilo(html).matchAll(/<img\b[^>]*>/g)].map(m => m[0]);
+
+  it('exatamente uma capa é eager e prioritária — a primeira', () => {
+    const html = galeria(evento(0), evento(1), evento(2));
+    const altas = imgs(html).filter(t => t.includes('fetchpriority="high"'));
+    expect(altas).toHaveLength(1);
+    // Prioridade alta com loading=lazy se anulam: o browser adia a busca e a
+    // dica de prioridade só vale quando ela finalmente sai.
+    expect(altas[0]).not.toContain('loading="lazy"');
+    expect(altas[0]).toContain('FOTO0');
+    for (const outra of imgs(html).filter(t => !t.includes('fetchpriority'))) {
+      expect(outra, outra).toContain('loading="lazy"');
+    }
+  });
+
+  it('a prioridade pula o card sem capa, que não pinta nada grande', () => {
+    // `fetchpriority` num ícone de câmera seria desperdiçado e o LCP de
+    // verdade — a primeira foto — continuaria atrás de um lazy.
+    const html = galeria(evento(0, { thumbnailUrl: '' }), evento(1));
+    const altas = imgs(html).filter(t => t.includes('fetchpriority="high"'));
+    expect(altas).toHaveLength(1);
+    expect(altas[0]).toContain('FOTO1');
+  });
+
+  it('oferece WebP por <source>, nunca no src cru', () => {
+    // O `-rw` do lh3 só é seguro dentro de um <source type="image/webp">:
+    // assim quem não decodifica WebP jamais pede a URL, e não dependemos de o
+    // Google acertar a negociação por Accept. Num `src` seria uma aposta.
+    const html = galeria(evento(0));
+    expect(html).toContain('<source type="image/webp"');
+    for (const tag of imgs(html)) {
+      expect(tag, `src com -rw fora de um <source>: ${tag}`).not.toMatch(/src="[^"]*-rw"/);
+    }
+  });
+
+  it('cada candidato do srcset declara a largura que realmente pediu', () => {
+    // É a invariante que faz o srcset valer: o browser escolhe comparando o
+    // descritor `w` com o `sizes`. Um descritor que não bate com o `=wN` da
+    // URL faz ele escolher errado com toda a confiança do mundo.
+    const html = galeria(evento(0, { pinned: true }), evento(1), evento(2));
+    const sets = [...html.matchAll(/srcset="([^"]+)"/g)].map(m => m[1]);
+    expect(sets.length).toBeGreaterThan(0);
+    for (const set of sets) {
+      for (const cand of set.split(', ')) {
+        const [url, desc] = cand.split(' ');
+        expect(url, cand).toMatch(/=w(\d+)(-rw)?$/);
+        expect(desc, cand).toBe(`${url.match(/=w(\d+)/)[1]}w`);
+      }
+    }
+  });
+
+  it('toda <img> com srcset também manda sizes', () => {
+    // Sem `sizes`, um srcset em descritores `w` vale 100vw — o browser pega o
+    // maior candidato e o trabalho todo vira download maior que antes.
+    const html = galeria(evento(0, { pinned: true }), evento(1));
+    for (const tag of [...imgs(html), ...html.match(/<source\b[^>]*>/g) || []]) {
+      if (tag.includes('srcset=')) expect(tag, tag).toContain('sizes=');
+    }
+  });
+
+  it('o card em destaque pede larguras maiores que o card da grade', () => {
+    // Um fixado sozinho vira hero de largura cheia; pedir a largura da grade
+    // para ele seria servir 300 px numa faixa de 749 px.
+    const html = galeria(evento(0, { pinned: true }), evento(1));
+    expect(html).toContain('FOTO0=w1600');
+    expect(html).not.toContain('FOTO1=w1600');
+  });
+
+  it('a capa borrada de "em breve" não baixa tamanho de foto', () => {
+    // Ela sai com blur(8px) por cima: é textura, não fotografia.
+    const html = galeria(evento(0, { comingSoon: true }));
+    expect(html).toContain('FOTO0=w320');
+    expect(html).not.toContain('FOTO0=w600');
+  });
+
+  it('nenhum handler inline sobrou nas capas', () => {
+    // `load`/`error` são capturados por um par de listeners no bloco do <head>.
+    // Cada onload= a menos é um relatório a menos na CSP report-only estrita,
+    // que é o caminho para ela virar a enforced.
+    const html = galeria(evento(0), evento(1));
+    expect(html).not.toContain('onload="imgSettled');
+    expect(html).not.toContain('onerror="imgSettled');
+  });
+
+  it('a galeria continua legível sem JavaScript', () => {
+    // A capa só aparece quando o script tira a classe "loading". Sem o
+    // <noscript>, quem bloqueia script recebe uma grade de retângulos cinzas
+    // que nunca viram foto.
+    const html = galeria(evento(0));
+    const ns = html.match(/<noscript><style>([\s\S]*?)<\/style><\/noscript>/);
+    expect(ns, 'bloco <noscript> ausente').not.toBeNull();
+    expect(ns[1]).toContain('.thumb.loading img{opacity:1}');
+  });
+
+  it('o prefetch é prefetch, com nonce, e não alcança o painel', () => {
+    // `prerender` executaria o JS da página — beacon de performance e o da
+    // Cloudflare disparariam por uma visita que talvez não aconteça.
+    const html = galeria(evento(0));
+    const bloco = html.match(/<script type="speculationrules"[^>]*>([\s\S]*?)<\/script>/);
+    expect(bloco, 'bloco de speculation rules ausente').not.toBeNull();
+    expect(bloco[0]).toContain('nonce="NONCE"');
+    const regras = JSON.parse(bloco[1]);
+    expect(regras.prerender).toBeUndefined();
+    expect(regras.prefetch[0].eagerness).toBe('moderate');
+    const nots = regras.prefetch[0].where.and.filter(c => c.not).map(c => c.not.href_matches);
+    expect(nots).toContain('/dashboard*');
+    expect(nots).toContain('/api/*');
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
-  timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
+  driveSrcset, timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
   sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
   errMessage, truncateText, previewDescription, ogImageFor, socialMetaHTML,
   OG_IMAGE_W, OG_IMAGE_H,
@@ -90,6 +90,39 @@ describe('sizedDriveThumb', () => {
   it('leaves non-Drive URLs untouched', () => {
     expect(sizedDriveThumb('https://example.com/x.jpg', 600)).toBe('https://example.com/x.jpg');
     expect(sizedDriveThumb('', 600)).toBe('');
+  });
+  it('pede WebP com -rw, e só quando mandam', () => {
+    expect(sizedDriveThumb('https://lh3.googleusercontent.com/d/ABC123', 800, { webp: true }))
+      .toBe('https://lh3.googleusercontent.com/d/ABC123=w800-rw');
+    // O terceiro argumento é opcional: os chamadores de dois argumentos que já
+    // existiam não podem mudar de comportamento por causa dele.
+    expect(sizedDriveThumb('https://lh3.googleusercontent.com/d/ABC123', 800))
+      .toBe('https://lh3.googleusercontent.com/d/ABC123=w800');
+    expect(sizedDriveThumb('https://example.com/x.jpg', 800, { webp: true }))
+      .toBe('https://example.com/x.jpg');
+  });
+});
+
+describe('driveSrcset', () => {
+  it('emite um candidato por largura, com o descritor w batendo com o =wN', () => {
+    expect(driveSrcset('https://lh3.googleusercontent.com/d/ABC', [300, 600])).toBe(
+      'https://lh3.googleusercontent.com/d/ABC=w300 300w, https://lh3.googleusercontent.com/d/ABC=w600 600w'
+    );
+  });
+  it('propaga o pedido de WebP para todos os candidatos', () => {
+    expect(driveSrcset('https://lh3.googleusercontent.com/d/ABC', [300], { webp: true }))
+      .toBe('https://lh3.googleusercontent.com/d/ABC=w300-rw 300w');
+  });
+  it('substitui um sufixo que já veio na URL, em vez de empilhar', () => {
+    expect(driveSrcset('https://lh3.googleusercontent.com/d/ABC=w100', [300]))
+      .toBe('https://lh3.googleusercontent.com/d/ABC=w300 300w');
+  });
+  it('devolve vazio para host cujas larguras não controlamos', () => {
+    // Sem srcset a <img> cai no `src`, que é o certo: candidatos que o host
+    // ignora fariam o browser baixar o mesmo arquivo achando que escolheu.
+    expect(driveSrcset('https://example.com/x.jpg', [300, 600])).toBe('');
+    expect(driveSrcset('', [300])).toBe('');
+    expect(driveSrcset(null, [300])).toBe('');
   });
 });
 
