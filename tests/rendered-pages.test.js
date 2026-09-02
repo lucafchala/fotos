@@ -285,8 +285,22 @@ describe('galeria: prioridade e tamanho das capas', () => {
   //   - o <style> desta página tem comentários de CSS que CITAM marcação
   //     ("a altura da <img> não resolve"), e isso vai para o HTML tal e qual.
   //     Varrer a página inteira colhe essa citação como se fosse uma tag.
-  const semEstilo = html => html.replace(RE_STYLE_BLOCO, '');
-  const imgs = html => [...semEstilo(html).matchAll(/<img\b[^>]*>/g)].map(m => m[0]);
+  //
+  // Por FAIXA, não por remoção. A versão que apagava o <style> da string com
+  // `replace` foi reprovada pelo CodeQL como "Incomplete multi-character
+  // sanitization", e com razão: uma passada só de replace pode deixar o padrão
+  // de pé — em `<sty<style>le>`, remover o miolo REMONTA um `<style>` no que
+  // sobra. Aqui nada é apagado: marcamos onde cada bloco começa e termina e
+  // descartamos as tags que caem dentro. É seleção, não higienização, então a
+  // classe inteira de defeito deixa de existir em vez de ser remendada.
+  const faixasDeEstilo = html => [...html.matchAll(RE_STYLE_BLOCO)]
+    .map(m => [m.index, m.index + m[0].length]);
+  const imgs = (html) => {
+    const faixas = faixasDeEstilo(html);
+    return [...html.matchAll(/<img\b[^>]*>/gi)]
+      .filter(m => !faixas.some(([ini, fim]) => m.index >= ini && m.index < fim))
+      .map(m => m[0]);
+  };
 
   it('exatamente uma capa é eager e prioritária — a primeira', () => {
     const html = galeria(evento(0), evento(1), evento(2));
