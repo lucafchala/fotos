@@ -90,6 +90,11 @@ function paginas() {
 //
 // Daí `[^>]*` no fechamento, e não `\s*`: tudo até o `>`, como o tokenizador.
 const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
+// Mesmo formato, mesmo motivo, para <style> — ver a lição nº 2 acima. Uma
+// varredura que procura marcação na página precisa pular o <style>, porque os
+// comentários de CSS deste projeto CITAM tags ("a altura da <img> não
+// resolve") e elas saem no HTML tal e qual.
+const RE_STYLE_BLOCO = /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi;
 const RE_SCRIPT_ABRE = /<script\b/gi;
 const RE_SCRIPT_FECHA = /<\/script\b[^>]*>/gi;
 const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
@@ -280,7 +285,7 @@ describe('galeria: prioridade e tamanho das capas', () => {
   //   - o <style> desta página tem comentários de CSS que CITAM marcação
   //     ("a altura da <img> não resolve"), e isso vai para o HTML tal e qual.
   //     Varrer a página inteira colhe essa citação como se fosse uma tag.
-  const semEstilo = html => html.replace(/<style[\s\S]*?<\/style>/gi, '');
+  const semEstilo = html => html.replace(RE_STYLE_BLOCO, '');
   const imgs = html => [...semEstilo(html).matchAll(/<img\b[^>]*>/g)].map(m => m[0]);
 
   it('exatamente uma capa é eager e prioritária — a primeira', () => {
@@ -370,7 +375,7 @@ describe('galeria: prioridade e tamanho das capas', () => {
     // <noscript>, quem bloqueia script recebe uma grade de retângulos cinzas
     // que nunca viram foto.
     const html = galeria(evento(0));
-    const ns = html.match(/<noscript><style>([\s\S]*?)<\/style><\/noscript>/);
+    const ns = html.match(/<noscript\b[^>]*>\s*<style\b[^>]*>([\s\S]*?)<\/style\b[^>]*>\s*<\/noscript\b[^>]*>/i);
     expect(ns, 'bloco <noscript> ausente').not.toBeNull();
     expect(ns[1]).toContain('.thumb.loading img{opacity:1}');
   });
@@ -379,7 +384,7 @@ describe('galeria: prioridade e tamanho das capas', () => {
     // `prerender` executaria o JS da página — beacon de performance e o da
     // Cloudflare disparariam por uma visita que talvez não aconteça.
     const html = galeria(evento(0));
-    const bloco = html.match(/<script type="speculationrules"[^>]*>([\s\S]*?)<\/script>/);
+    const bloco = html.match(/<script\b[^>]*type="speculationrules"[^>]*>([\s\S]*?)<\/script\b[^>]*>/i);
     expect(bloco, 'bloco de speculation rules ausente').not.toBeNull();
     expect(bloco[0]).toContain('nonce="NONCE"');
     const regras = JSON.parse(bloco[1]);
