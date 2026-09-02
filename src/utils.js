@@ -764,12 +764,16 @@ export function escape(str) {
 
 // Rodapé compartilhado por toda página pública, para não divergir conforme
 // links são adicionados. Ano calculado em runtime (páginas renderizam por
-// requisição, sem passo de build). `extra` deixa uma página específica somar
-// um link (ex.: "Ver tour novamente" em event.js) sem sobrecarregar a linha
-// padrão. "Privacidade"/"Termos" viraram um único link "Legal" -> /legal, de
-// onde os dois continuam a um clique — o rodapé tinha 6 links competindo por
-// atenção.
-export function footerLegalLinksHTML(extra = '') {
+// requisição, sem passo de build). "Privacidade"/"Termos" viraram um único
+// link "Legal" -> /legal, de onde os dois continuam a um clique — o rodapé
+// tinha 6 links competindo por atenção.
+//
+// Já teve um parâmetro `extra`, para a página de projeto encaixar mais um link
+// nesta mesma linha. Ele existia por um único chamador — o "Ver tour
+// novamente" — e saiu junto com o tour: um ponto de extensão sem ninguém que o
+// use é convite para o rodapé voltar a divergir página a página, que é
+// exatamente o que esta função existe para impedir.
+export function footerLegalLinksHTML() {
   const year = new Date().getFullYear();
   return `
     <div class="footer-actions-legal">
@@ -778,7 +782,6 @@ export function footerLegalLinksHTML(extra = '') {
       <a href="/suporte" class="legal-link">Suporte</a>
       <a href="/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
-      ${extra}
     </div>
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
 }

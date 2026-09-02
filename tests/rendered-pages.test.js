@@ -222,6 +222,43 @@ describe('dicas de conexão no cabeçalho', () => {
   });
 });
 
+describe('página de projeto: sem onboarding na frente das fotos', () => {
+  // O tour de 6 passos saiu: um overlay que aparecia 900 ms depois da carga e
+  // tinha que ser dispensado antes de olhar as fotos. Os seis alvos que ele
+  // apontava já são controles rotulados ("Acessar fotos", "Solicitar remoção
+  // de foto", "WhatsApp", "Copiar link", e os links de rodapé Sobre /
+  // Equipamento / Suporte), então não houve UI para repor.
+  //
+  // O teste existe porque a remoção foi espalhada — CSS, marcação, um bloco de
+  // JS e cinco pontos de acoplamento em funções de OUTROS modais. Um pedaço
+  // esquecido não quebra nada visível: sobra CSS morto, ou um
+  // `getElementById('tour')` que devolve null e só estoura quando alguém abre
+  // o lightbox.
+  const html = () => eventHTML(EVENTO, '2026', null, 'NONCE', 'nonce-drive', 'form-token');
+
+  it.each(['tour', 'startTour', 'skipTour', 'TOUR_STEPS', 'tour_dismissed'])(
+    'não emite nenhum vestígio de %s',
+    termo => { expect(html()).not.toContain(termo); },
+  );
+
+  it('as ações que o tour ensinava seguem rotuladas por extenso', () => {
+    // Se um dia alguém trocar um destes rótulos por só-ícone, o argumento que
+    // justificou remover o tour deixa de valer — e este teste avisa.
+    const h = html();
+    for (const rotulo of ['Acessar fotos', 'Solicitar remoção de foto', 'WhatsApp', 'Copiar link']) {
+      expect(h, `rótulo "${rotulo}" sumiu`).toContain(rotulo);
+    }
+  });
+
+  it('o rodapé perdeu o link do tour e manteve o resto', () => {
+    const h = html();
+    expect(h).not.toContain('Ver tour novamente');
+    for (const rotulo of ['Sobre', 'Equipamento', 'Suporte', 'Legal', 'Código-fonte']) {
+      expect(h, `link legal "${rotulo}" sumiu`).toContain(`class="legal-link">${rotulo}</a>`);
+    }
+  });
+});
+
 describe('galeria: prioridade e tamanho das capas', () => {
   // O que estes testes travam saiu de um PageSpeed real: LCP de 6,2 s numa
   // página cujo único número ruim era o peso das fotos. A capa em destaque

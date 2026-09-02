@@ -396,20 +396,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .lb-close{position:absolute;top:1rem;right:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:1.4rem;line-height:1;cursor:pointer;z-index:2}
     .lb-prev{left:1rem}.lb-next{right:1rem}
     #lb-count{bottom:1rem;left:50%;transform:translateX(-50%)}
-    /* guided tour — spotlight via a 4-div mask leaving the real target element
-       fully clickable underneath (no pointer-events hit-testing needed). */
-    .tour-mask{position:fixed;background:rgba(0,0,0,.4);cursor:pointer}
-    .tour-ring{position:fixed;border:2px solid var(--accent);border-radius:8px;pointer-events:none;box-shadow:0 0 0 4px rgba(192,160,96,.25);transition:top .25s ease,left .25s ease,width .25s ease,height .25s ease}
-    .tour-box{position:fixed;max-width:280px;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:12px;padding:1rem 1.1rem;color:var(--text);font-size:.85rem;line-height:1.5;z-index:2;box-shadow:0 8px 24px rgba(0,0,0,.5)}
-    .tour-step-count{font-size:.65rem;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.4rem}
-    .tour-actions{display:flex;justify-content:space-between;align-items:center;margin-top:.9rem;gap:.75rem}
-    .tour-skip{background:none;border:none;color:var(--text-muted);font-size:.78rem;text-decoration:underline;cursor:pointer;padding:0}
-    .tour-next{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:6px;padding:.5rem 1rem;font-size:.8rem;font-weight:600;cursor:pointer}
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
       .banner-dot{animation:none}
       .btn-drive:hover,.btn-drive-go:hover,.ig-credit-btn:hover{transform:none}
-      .tour-ring{transition:none}
     }
   </style>
 </head>
@@ -497,7 +487,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         Solicitar remoção de foto
       </button>
     </div>
-    ${footerLegalLinksHTML(!event.comingSoon ? '<a href="#" class="legal-link" onclick="startTour();return false;">Ver tour novamente</a>' : '')}
+    ${footerLegalLinksHTML()}
   </footer>
 
   ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" onclick="openModal()" aria-label="Acessar fotos">
@@ -695,20 +685,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <div class="c-count" id="lb-count" style="display:none"></div>
   </div>
 
-  <!-- TOUR GUIADO -->
-  <div class="modal-ov tour-ov" id="tour">
-    <div class="tour-mask" id="tour-mask-t" onclick="skipTour()"></div>
-    <div class="tour-mask" id="tour-mask-b" onclick="skipTour()"></div>
-    <div class="tour-mask" id="tour-mask-l" onclick="skipTour()"></div>
-    <div class="tour-mask" id="tour-mask-r" onclick="skipTour()"></div>
-    <div class="tour-ring" id="tour-ring"></div>
-    <div class="tour-box" id="tour-box" role="dialog" aria-label="Tour guiado">
-      <div class="tour-step-count" id="tour-count"></div>
-      <p id="tour-text"></p>
-      <div class="tour-actions">
-        <button type="button" class="tour-skip" onclick="skipTour()">Pular tour</button>
-        <button type="button" class="tour-next" id="tour-next-btn" onclick="tourNext()">Próximo</button>
-      </div>
     </div>
   </div>
 
@@ -849,7 +825,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
     // ---- Drive modal (Terms-gated, low-friction) ----
     function openModal() {
-      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lastFocused = document.activeElement;
       clearCtaAttn();
       const consent = document.getElementById('drive-consent');
@@ -1130,7 +1105,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
     // ---- Coming soon modal ----
     function openSoonModal() {
-      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lastFocused = document.activeElement;
       document.getElementById('soon-modal').classList.add('open');
       document.body.style.overflow = 'hidden';
@@ -1196,7 +1170,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     let lbLastFocused = null, lbZoomed = false;
     function openLightbox(i) {
       if (!PHOTOS.length) return;
-      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lbLastFocused = document.activeElement;
       document.getElementById('lightbox').classList.add('open');
       document.body.style.overflow = 'hidden';
@@ -1273,7 +1246,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       ['rem-number','rem-url','rem-email','rem-phone'].forEach(function(id){ const f=document.getElementById(id); if(f) f.classList.remove('bad'); });
     }
     function openRemModal() {
-      if (document.getElementById('tour').classList.contains('open')) skipTour();
       lastFocused = document.activeElement;
       clearRemError();
       hideAdblockWarn('rem-adblock');
@@ -1407,7 +1379,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       else if (open.id === 'rem-modal') closeRemModal();
       else if (open.id === 'soon-modal') closeSoonModal();
       else if (open.id === 'lightbox') closeLightbox();
-      else if (open.id === 'tour') skipTour();
     }
     document.addEventListener('keydown', function(e) {
       var open = document.querySelector('.modal-ov.open');
@@ -1484,83 +1455,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       }
     })();
 
-    // ---- Guided tour (coach-mark) — first-visit walkthrough of the page's
-    // main actions. Steps re-target whichever share button initShare() showed,
-    // and a step whose target isn't on the page is skipped rather than stuck.
-    var TOUR_STEPS = [
-      { sel: '.btn-drive:not(.btn-soon), .btn-drive-go', text: 'Toque aqui para acessar as fotos no Google Drive.' },
-      { sel: '.action-btn[onclick^="openRemModal"]', text: 'Encontrou uma foto que quer remover? Use este botão.' },
-      { sel: '#btn-share-native, #btn-share-wa, #btn-copy-link', text: 'Compartilhe a página com quem participou do evento.' },
-      { sel: 'a[href="/sobre"]', text: 'Quer saber mais sobre o trabalho? A página "Sobre" fica aqui.' },
-      { sel: 'a[href="/equipamentos"]', text: 'O equipamento usado nas fotos está listado aqui.' },
-      { sel: 'a[href="/suporte"]', text: 'Qualquer dúvida, é só falar comigo por aqui.' },
-    ];
-    var tourIdx = 0;
-    function tourTargets(sel) {
-      return Array.prototype.filter.call(document.querySelectorAll(sel), function(el) { return el.offsetParent !== null; });
-    }
-    function tourUnionRect(els) {
-      var r = els.map(function(e) { return e.getBoundingClientRect(); });
-      return {
-        top: Math.min.apply(null, r.map(function(x) { return x.top; })),
-        left: Math.min.apply(null, r.map(function(x) { return x.left; })),
-        right: Math.max.apply(null, r.map(function(x) { return x.right; })),
-        bottom: Math.max.apply(null, r.map(function(x) { return x.bottom; })),
-      };
-    }
-    function startTour() {
-      if (document.querySelector('.modal-ov.open')) return;
-      tourIdx = 0;
-      document.getElementById('tour').classList.add('open');
-      renderTourStep();
-    }
-    function skipTour() {
-      document.getElementById('tour').classList.remove('open');
-      try { localStorage.setItem('fotos:tour_dismissed', '1'); } catch(_) {}
-    }
-    function tourNext() {
-      tourIdx++;
-      if (tourIdx >= TOUR_STEPS.length) { skipTour(); return; }
-      renderTourStep();
-    }
-    function renderTourStep() {
-      var step = TOUR_STEPS[tourIdx];
-      var els = tourTargets(step.sel);
-      if (!els.length) { tourNext(); return; }
-      var target = els[0];
-      var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
-      clearTimeout(window.__tourPosTimer);
-      window.__tourPosTimer = setTimeout(function() { positionTourUI(tourUnionRect(els)); }, reduce ? 0 : 260);
-      document.getElementById('tour-count').textContent = 'Passo ' + (tourIdx + 1) + ' de ' + TOUR_STEPS.length;
-      document.getElementById('tour-text').textContent = step.text;
-      document.getElementById('tour-next-btn').textContent = tourIdx === TOUR_STEPS.length - 1 ? 'Concluir' : 'Próximo';
-    }
-    function positionTourUI(rect) {
-      var pad = 8, top = rect.top - pad, left = rect.left - pad, right = rect.right + pad, bottom = rect.bottom + pad;
-      document.getElementById('tour-mask-t').style.cssText = 'top:0;left:0;right:0;height:' + Math.max(0, top) + 'px';
-      document.getElementById('tour-mask-b').style.cssText = 'top:' + bottom + 'px;left:0;right:0;bottom:0';
-      document.getElementById('tour-mask-l').style.cssText = 'top:' + top + 'px;left:0;width:' + Math.max(0, left) + 'px;height:' + (bottom - top) + 'px';
-      document.getElementById('tour-mask-r').style.cssText = 'top:' + top + 'px;left:' + right + 'px;right:0;height:' + (bottom - top) + 'px';
-      var ring = document.getElementById('tour-ring');
-      ring.style.cssText = 'top:' + top + 'px;left:' + left + 'px;width:' + (right - left) + 'px;height:' + (bottom - top) + 'px';
-      var box = document.getElementById('tour-box');
-      var boxH = box.offsetHeight || 140, boxW = box.offsetWidth || 280;
-      var placeBelow = (innerHeight - bottom) > (boxH + 24);
-      box.style.top = (placeBelow ? bottom + 16 : Math.max(12, top - boxH - 16)) + 'px';
-      box.style.left = Math.min(Math.max(rect.left, 12), innerWidth - boxW - 12) + 'px';
-    }
-    function repositionCurrentStep() {
-      var els = tourTargets(TOUR_STEPS[tourIdx].sel);
-      if (els.length) positionTourUI(tourUnionRect(els));
-    }
-    document.addEventListener('scroll', function() { if (document.getElementById('tour').classList.contains('open')) repositionCurrentStep(); }, { passive: true });
-    addEventListener('resize', function() { if (document.getElementById('tour').classList.contains('open')) repositionCurrentStep(); });
-    try {
-      if (!localStorage.getItem('fotos:tour_dismissed') && !${JSON.stringify(!!event.comingSoon)}) {
-        setTimeout(startTour, 900);
-      }
-    } catch(_) {}
   </script>
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
   ${analyticsBeaconHTML(analyticsToken, nonce)}
