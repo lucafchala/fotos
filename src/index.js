@@ -512,7 +512,14 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // de KV contra a cota diária de 1000, e o GET real seguinte não contaria
   // (o visitante já apareceria como "já contado" pelo cookie de um HEAD).
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
-  if (!alreadyCounted && !headOnly) {
+  // A galeria faz prefetch da página do projeto no hover (speculation rules em
+  // gallery.js). Isso é uma aposta do BROWSER, não uma visita: contar aqui
+  // transformaria /api/metrics em contador de mouse passando por cima, e o
+  // Set-Cookie abaixo ainda marcaria "já contado", fazendo a visita de verdade
+  // — a que veio depois do clique — não contar. Mesmo motivo do headOnly acima.
+  const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
+  const counts = !alreadyCounted && !headOnly && !prefetch;
+  if (counts) {
     // Agregado em memória do isolate, não gravado na hora — vira uma escrita
     // por janela em vez de uma por visitante. Ver bumpCounter() em utils.js.
     bumpCounter(env, ctx, `views:${slug}`);
@@ -531,7 +538,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     nonce
   );
   if (unlisted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
-  if (!alreadyCounted && !headOnly) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
+  if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
 

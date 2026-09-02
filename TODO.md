@@ -535,6 +535,21 @@ browser.
       existente (que copia um evento específico), salvar uma configuração
       padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
       acesso/notas já preenchidos.
+- [ ] **Levar as capas responsivas para a página de projeto.** A galeria já pede
+      largura e formato certos ao lh3 (`driveSrcset()` + `<picture>` com
+      `type="image/webp"`); `event.js:33` continua mapeando **todas** as fotos
+      para `=w1600`, servindo 1600px num hero de ~400px. O que segura a
+      migração não é o hero — é que carrossel e lightbox trocam a foto por
+      `img.src = PHOTOS[i]`, onde `<picture>` não alcança: `photosJSON`
+      precisaria carregar srcset por foto, e `preloadAround()` escolher o
+      candidato. Ver também: o hero não tem caixa de proporção, então é fonte
+      de CLS que a galeria já não tem.
+- [ ] **Service Worker** para completar o PWA. O `manifest.json` já existe e é
+      instalável (`handleManifest`, `index.js`); falta só o cache offline das
+      miniaturas. Antes de escrever: um SW é praticamente irreversível para
+      quem já instalou — precisa de estratégia de atualização e de um
+      kill-switch desde o primeiro deploy, senão uma versão ruim fica presa no
+      dispositivo do visitante.
 - [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
       masonry da galeria segue a proporção real de cada thumbnail, mas como o
       modelo de dados só guarda a URL (não dimensões), o `.thumb` não sabe a

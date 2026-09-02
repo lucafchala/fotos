@@ -764,12 +764,16 @@ export function escape(str) {
 
 // Rodapé compartilhado por toda página pública, para não divergir conforme
 // links são adicionados. Ano calculado em runtime (páginas renderizam por
-// requisição, sem passo de build). `extra` deixa uma página específica somar
-// um link (ex.: "Ver tour novamente" em event.js) sem sobrecarregar a linha
-// padrão. "Privacidade"/"Termos" viraram um único link "Legal" -> /legal, de
-// onde os dois continuam a um clique — o rodapé tinha 6 links competindo por
-// atenção.
-export function footerLegalLinksHTML(extra = '') {
+// requisição, sem passo de build). "Privacidade"/"Termos" viraram um único
+// link "Legal" -> /legal, de onde os dois continuam a um clique — o rodapé
+// tinha 6 links competindo por atenção.
+//
+// Já teve um parâmetro `extra`, para a página de projeto encaixar mais um link
+// nesta mesma linha. Ele existia por um único chamador — o "Ver tour
+// novamente" — e saiu junto com o tour: um ponto de extensão sem ninguém que o
+// use é convite para o rodapé voltar a divergir página a página, que é
+// exatamente o que esta função existe para impedir.
+export function footerLegalLinksHTML() {
   const year = new Date().getFullYear();
   return `
     <div class="footer-actions-legal">
@@ -778,7 +782,6 @@ export function footerLegalLinksHTML(extra = '') {
       <a href="/suporte" class="legal-link">Suporte</a>
       <a href="/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
-      ${extra}
     </div>
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
 }
@@ -1058,14 +1061,42 @@ export function sortEvents(events) {
 // grid loads small images instead of full-resolution originals. Non-Drive URLs
 // (or URLs we don't recognise) are returned untouched. The original files in
 // Drive are never altered.
+//
+// `webp` acrescenta `-rw`, a opção do lh3 que devolve WebP. Ela NÃO é usada
+// sozinha em nenhum `src`: só dentro de um `<source type="image/webp">`, onde
+// um navegador sem WebP nunca chega a pedir a URL. Assim o formato não depende
+// de o Google acertar a negociação por `Accept` — a decisão é do browser, antes
+// da requisição existir.
 /**
  * @param {string} url
  * @param {number} width
+ * @param {{ webp?: boolean }} [opts]
  */
-export function sizedDriveThumb(url, width) {
+export function sizedDriveThumb(url, width, { webp = false } = {}) {
   if (!url || typeof url !== 'string') return url || '';
   const m = url.match(/^(https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+)(=.*)?$/);
-  return m ? `${m[1]}=w${width}` : url;
+  return m ? `${m[1]}=w${width}${webp ? '-rw' : ''}` : url;
+}
+
+// Lista de candidatos para `srcset`, uma entrada por largura. O descritor `w`
+// bate exatamente com o `=wN` pedido ao lh3, então o browser escolhe sabendo o
+// tamanho real do arquivo — sem isso o `sizes` não tem o que comparar.
+//
+// Devolve STRING VAZIA para URL que não é do lh3, em vez de inventar
+// candidatos. Um `srcset` com larguras que o host não respeita faria o browser
+// baixar o mesmo arquivo achando que escolheu — pior que não ter `srcset`, que
+// é o caso em que o `src` sozinho já está correto. Mesma regra de
+// sizedDriveThumb(): o que não reconhecemos passa intacto.
+/**
+ * @param {string} url
+ * @param {number[]} widths
+ * @param {{ webp?: boolean }} [opts]
+ * @returns {string} `"<url>=w300 300w, <url>=w600 600w"` ou `''`
+ */
+export function driveSrcset(url, widths, { webp = false } = {}) {
+  if (!url || typeof url !== 'string') return '';
+  if (!/^https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+(=.*)?$/.test(url)) return '';
+  return widths.map(w => `${sizedDriveThumb(url, w, { webp })} ${w}w`).join(', ');
 }
 
 // Coerce a URL to https and reject script-executing schemes. href/src are
@@ -1632,11 +1663,42 @@ export async function sendConfirmationEmail(env, req) {
 // já dá volume de sobra para medir tendência sem competir com o tráfego real.
 const PERF_SAMPLE_RATE = 0.1;
 
+// Depois de quanto tempo o esqueleto passa a DIZER que está esperando.
+//
+// O par com o atraso de 600 ms do CSS (`.thumb.loading::after`): abaixo dele
+// não se mostra nada, porque anunciar uma espera curta é o que a faz ser
+// percebida. Acima de 4 s a espera já é evidente, e aí o silêncio é que
+// incomoda — o rótulo troca "um retângulo cinza pulsando" por "isto está
+// carregando". Só vale para miniatura visível na hora em que o timer dispara:
+// marcar as de baixo da dobra faria o visitante rolar até um "carregando…"
+// que na verdade nem tinha começado a baixar.
+const IMG_SLOW_MS = 4000;
+
 // Script no <head>: precisa existir antes das <img> serem parseadas, senão
-// uma imagem já em cache dispara onload antes de imgSettled existir e o
-// shimmer gira para sempre. Duração vem de Resource Timing do próprio
-// browser — cross-origin (fotos são do Google) zera os tempos detalhados sem
+// uma imagem já em cache assenta antes dos listeners existirem e o shimmer
+// gira para sempre. Duração vem de Resource Timing do próprio browser —
+// cross-origin (fotos são do Google) zera os tempos detalhados sem
 // Timing-Allow-Origin, mas `duration` continua exposto.
+//
+// A galeria NÃO carrega mais `onload=`/`onerror=` por <img>. Dois motivos:
+// `load` e `error` não borbulham, mas CAPTURAM, então um par de listeners no
+// documento cobre toda foto que existir — inclusive as que entram depois — e
+// cada handler inline a menos é um relatório a menos na CSP report-only
+// estrita, que é o caminho para ela virar a enforced. O `<picture>` do
+// `srcset` também obrigava: com ele o pai da <img> passa a ser o <picture>,
+// não o `.thumb`, e por isso imgSettled sobe por `closest('.thumb')`.
+//
+// EM `document`, NÃO EM `window` — e isto não é preferência de estilo. Medido
+// no Chromium: com o listener na window, `load` de <img> chega ZERO vezes
+// (`error` chega, porque erro de recurso também é disparado na window como
+// ErrorEvent). No document, os dois chegam. A versão errada não falha
+// barulhento: a varredura de `img.complete` do DOMContentLoaded ainda assenta
+// as fotos que chegaram cedo, então a galeria parece funcionar e só as fotos
+// mais lentas — exatamente as que precisam do esqueleto — giram para sempre.
+//
+// A varredura de `img.complete` no DOMContentLoaded é cinto de segurança: hoje
+// nada escapa (o bloco está no <head>), e ela existe para o dia em que alguém
+// mover isto para o fim do <body> sem perceber o acoplamento.
 //
 // Um beacon por visita (visibilitychange), não por imagem — evitaria repetir
 // o mesmo problema de cota que descartou o cache via Worker.
@@ -1670,7 +1732,19 @@ export function perfBootScript(page, enabled, nonce = '') {
   }
   return `<script nonce="${escape(nonce)}">(function(){
   var busy=function(el,on){if(!el)return;if(on)el.setAttribute('aria-busy','true');else el.removeAttribute('aria-busy');};
-  window.imgSettled=function(img,ok){var p=img&&img.parentElement;if(!p)return;p.classList.remove('loading');busy(p,false);if(!ok&&img.style)img.style.opacity='0';};
+  window.imgSettled=function(img,ok){var p=img&&img.closest?img.closest('.thumb'):null;if(!p)return;p.classList.remove('loading','slow');busy(p,false);if(!ok){p.classList.add('failed');if(img.style)img.style.opacity='0';}};
+  function settle(e){var t=e.target;if(t&&t.tagName==='IMG'&&t.closest&&t.closest('.thumb'))window.imgSettled(t,e.type==='load');}
+  document.addEventListener('load',settle,true);
+  document.addEventListener('error',settle,true);
+  addEventListener('DOMContentLoaded',function(){
+    var pend=document.querySelectorAll('.thumb.loading img'),i;
+    for(i=0;i<pend.length;i++){if(pend[i].complete)window.imgSettled(pend[i],pend[i].naturalWidth>0);}
+    setTimeout(function(){
+      var still=document.querySelectorAll('.thumb.loading'),vis=[],k,r;
+      for(k=0;k<still.length;k++){r=still[k].getBoundingClientRect();if(r.bottom>0&&r.top<innerHeight)vis.push(still[k]);}
+      for(k=0;k<vis.length;k++)vis[k].classList.add('slow');
+    },${IMG_SLOW_MS});
+  });
   window.perfMark=function(k,v){var m=window.__perf;if(m&&k in m.marks)m.marks[k]=v;};
   window.perfCount=function(k){var m=window.__perf;if(m&&typeof m.marks[k]==='number')m.marks[k]++;};
 ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;

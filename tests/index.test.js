@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite } from '../src/index.js';
+import worker, { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite } from '../src/index.js';
 import { DEFAULT_EVENT } from '../src/config.js';
+import { saveEvents, readCounter } from '../src/utils.js';
+import { withDurableObjects } from './helpers/do.js';
 
 const CATS = ['Casamento', 'Ensaio'];
 
@@ -317,5 +319,66 @@ describe('mergeRestore: campos de enum', () => {
     const { events } = mergeRestore([], [{ id: 'a', title: 'T' }]);
     expect('status' in events[0]).toBe(false);
     expect('accessType' in events[0]).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('contagem de visita da página de projeto', () => {
+  // A galeria faz prefetch no hover (speculation rules em gallery.js). Sem a
+  // exceção aqui, /api/metrics viraria um contador de mouse passando por cima
+  // dos cards — e pior: o Set-Cookie do prefetch marcaria "já contado", então
+  // a visita DE VERDADE, a que vem depois do clique, não contaria. O número
+  // ficaria errado nas duas direções ao mesmo tempo.
+  function fakeKV(initial = {}) {
+    const store = new Map(Object.entries(initial));
+    return {
+      async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); },
+      async delete(k) { store.delete(k); },
+      async list({ prefix = '' } = {}) {
+        return { keys: [...store.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name })), list_complete: true, cursor: null };
+      },
+    };
+  }
+  const fakeCtx = () => { const p = []; return { waitUntil: x => p.push(Promise.resolve(x).catch(() => {})), settle: () => Promise.all(p) }; };
+
+  const EVENTO = {
+    id: '1', slug: 'casamento-ana', title: 'Casamento Ana', accessType: 'public',
+    visible: true, comingSoon: false, photos: [], thumbnailUrl: '',
+    date: '2026-01-15', category: 'Casamento',
+  };
+
+  async function pede(headers = {}) {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    await saveEvents(env, [structuredClone(EVENTO)]);
+    const ctx = fakeCtx();
+    const res = await worker.fetch(
+      new Request('https://fotos.lucafchala.com/casamento-ana', { headers }),
+      env,
+      ctx,
+    );
+    await ctx.settle();
+    return { res, env };
+  }
+
+  it('uma navegação normal conta e marca o cookie', async () => {
+    const { res, env } = await pede();
+    expect(res.status).toBe(200);
+    expect(await readCounter(env, 'views:casamento-ana')).toBe(1);
+    expect(res.headers.get('Set-Cookie') || '').toContain('fv_casamento-ana=1');
+  });
+
+  it('um prefetch serve a página, mas não conta nem marca o cookie', async () => {
+    const { res, env } = await pede({ 'Sec-Purpose': 'prefetch' });
+    expect(res.status).toBe(200);
+    expect(await readCounter(env, 'views:casamento-ana')).toBe(0);
+    expect(res.headers.get('Set-Cookie') || '').not.toContain('fv_casamento-ana');
+  });
+
+  it('reconhece o cabeçalho composto que o Chrome manda no prerender', async () => {
+    // O valor real vem como `prefetch;prerender` — comparar por igualdade
+    // deixaria passar, e a forma composta é a que o browser realmente envia.
+    const { env } = await pede({ 'Sec-Purpose': 'prefetch;prerender' });
+    expect(await readCounter(env, 'views:casamento-ana')).toBe(0);
   });
 });

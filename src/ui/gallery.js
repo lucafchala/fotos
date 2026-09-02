@@ -1,7 +1,34 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
+
+// ---------------------------------------------------------------------------
+// Larguras pedidas ao lh3, e como o browser escolhe entre elas
+// ---------------------------------------------------------------------------
+// `sizes` descreve o espaço que a foto OCUPA, não o arquivo que queremos: o
+// browser multiplica pelo DPR da tela e pega o menor candidato que serve. Por
+// isso os valores abaixo saem do CSS desta página, e mudar a grade sem mudar
+// aqui faz todo mundo baixar o tamanho errado em silêncio.
+//
+// Grade: 2 colunas até 560px, 3 até 900px, 4 acima — `main` tem max-width
+// 1280px com 1rem de padding, então a coluna satura em (1248 - 3*24)/4 ≈ 294px.
+// Destaque: largura cheia no mobile; a partir de 900px vira linha e a foto fica
+// com 60% dos mesmos 1248px ≈ 749px.
+const GRID_WIDTHS = [300, 450, 600, 900];
+const GRID_SIZES = '(min-width:1312px) 294px, (min-width:900px) 23vw, (min-width:560px) 30vw, 46vw';
+const FEATURED_WIDTHS = [480, 640, 800, 1200, 1600];
+const FEATURED_SIZES = '(min-width:1312px) 749px, (min-width:900px) 60vw, 100vw';
+
+// A capa de "em breve" sai com blur(8px) e scale(1.1) por cima. Ela CONTINUA
+// sendo a capa do projeto: é dela que vêm a cor dominante do card e a silhueta
+// do logo do evento, que é o que o cartão promete antes de existir galeria.
+// O que muda é só a resolução pedida — o blur de 8px CSS (≈14px de tela em
+// DPR 1.75) já apaga qualquer detalhe mais fino que isso, então largura acima
+// do necessário vira byte que ninguém enxerga. 320px deixa margem folgada
+// sobre esse limite e ainda pede ~1/4 dos 46 KiB de antes.
+const SOON_WIDTHS = [320];
+const SOON_FEATURED_WIDTHS = [640];
 
 /**
  * @param {import('../utils.js').Evento[]} events
@@ -22,16 +49,48 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   /** @param {import('../utils.js').Evento} e */
   const yearOf = e => e.date ? e.date.slice(0, 4) : String(new Date(eventTime(e)).getFullYear());
 
+  // Uma <picture> em vez de uma <img> solta: o `<source type="image/webp">`
+  // faz o WebP ser escolhido pelo BROWSER, antes de a requisição sair. Quem não
+  // decodifica WebP nunca pede a URL `-rw`, então não dependemos de o lh3
+  // acertar a negociação por `Accept` — e se ele devolvesse JPEG mesmo assim, a
+  // página continuaria correta, porque o browser decodifica pelo conteúdo real.
+  //
+  // `driveSrcset()` devolve vazio para URL que não é do lh3; aí sai uma <img>
+  // simples com o `src` de sempre, que é o comportamento certo para um host
+  // cujas larguras não controlamos.
+  /**
+   * @param {string} base URL já normalizada por safeUrl()
+   * @param {number[]} widths
+   * @param {string} sizes
+   * @param {number} fallbackWidth largura do `src`, usado só sem suporte a srcset
+   * @param {string} attrs atributos extras da <img> (alt, class, loading…)
+   */
+  const pictureHTML = (base, widths, sizes, fallbackWidth, attrs) => {
+    const src = escape(sizedDriveThumb(base, fallbackWidth));
+    const jpeg = driveSrcset(base, widths);
+    const webp = driveSrcset(base, widths, { webp: true });
+    const responsive = jpeg ? ` srcset="${escape(jpeg)}" sizes="${escape(sizes)}"` : '';
+    const source = webp
+      ? `<source type="image/webp" srcset="${escape(webp)}" sizes="${escape(sizes)}">`
+      : '';
+    return `<picture>${source}<img src="${src}"${responsive} ${attrs}></picture>`;
+  };
+
   /**
    * @param {import('../utils.js').Evento} e
-   * @param {{ hidden?: boolean, featured?: boolean, pinned?: boolean, year?: string }} [opts]
+   * @param {{ hidden?: boolean, featured?: boolean, pinned?: boolean, priority?: boolean, year?: string }} [opts]
    */
-  const cardHTML = (e, { hidden = false, featured = false, pinned: isPinned = false, year = yearOf(e) } = {}) => {
-    const width = featured ? 1600 : 600;
+  const cardHTML = (e, { hidden = false, featured = false, pinned: isPinned = false, priority = false, year = yearOf(e) } = {}) => {
     // safeUrl além do escape(): escape() sozinho fecha o atributo mas não mata
     // o esquema, e thumbnailUrl pode vir de um registro antigo que nunca
-    // passou por toHttps().
-    const thumb = e.thumbnailUrl ? safeUrl(sizedDriveThumb(e.thumbnailUrl, width)) : '';
+    // passou por toHttps(). Aplicado ANTES de dimensionar, para que um
+    // `http://lh3…` antigo vire https e ainda assim ganhe srcset.
+    const base = e.thumbnailUrl ? safeUrl(e.thumbnailUrl) : '';
+    const width = featured ? 1600 : 600;
+    const thumb = base ? sizedDriveThumb(base, width) : '';
+    // O primeiro card da página é o LCP: sai eager e com prioridade alta. Todos
+    // os outros continuam `lazy` — adiantá-los só roubaria banda deste.
+    const loadAttrs = priority ? 'fetchpriority="high" decoding="async"' : 'loading="lazy" decoding="async"';
     const title = escape((e.title || '').toLowerCase());
     const catLower = escape((e.category || '').toLowerCase());
     const cls = [
@@ -45,10 +104,10 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
-              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" class="thumb-blur" loading="lazy" decoding="async"><div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
+              ? `${pictureHTML(base, featured ? SOON_FEATURED_WIDTHS : SOON_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, featured ? 640 : 320, `alt="${escape(e.title)}" class="thumb-blur" ${loadAttrs}`)}<div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
               : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
             : thumb
-              ? `<img src="${escape(thumb)}" alt="${escape(e.title)}" loading="lazy" decoding="async" onload="imgSettled(this,true)" onerror="imgSettled(this,false)">`
+              ? pictureHTML(base, featured ? FEATURED_WIDTHS : GRID_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, width, `alt="${escape(e.title)}" ${loadAttrs}`)
               : `<div class="thumb-ph">${iconCamera()}</div>`}
           ${(featured || isPinned) ? `<span class="featured-badge">Em destaque</span>` : ''}
         </div>
@@ -64,7 +123,14 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   // um, nenhum vira hero — todos entram no grid normal, só que primeiro e com
   // a etiqueta "Em destaque" (senão vários heroes empilhados dominam a página).
   const singlePinned = pinned.length === 1;
-  const pinnedHTML = pinned.map(e => cardHTML(e, { featured: singlePinned, pinned: true })).join('');
+
+  // O LCP da home é a primeira CAPA da ordem de renderização — não o primeiro
+  // card. Um evento sem foto abre com o ícone de câmera, que não pinta nada
+  // grande; a prioridade tem que pular para o primeiro que tem foto de verdade,
+  // senão gastamos `fetchpriority` num SVG e o LCP continua atrás de um `lazy`.
+  const lcpCard = [...pinned, ...rest].find(e => e.thumbnailUrl && safeUrl(e.thumbnailUrl)) || null;
+
+  const pinnedHTML = pinned.map(e => cardHTML(e, { featured: singlePinned, pinned: true, priority: e === lcpCard })).join('');
 
   // Remaining cards, grouped by year. Cards beyond INITIAL start hidden, and a
   // year heading starts hidden when its first card is already beyond INITIAL.
@@ -78,7 +144,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       const headHidden = idx >= INITIAL;
       restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${escape(y)}</h2>`);
     }
-    restNodes.push(cardHTML(e, { hidden: idx >= INITIAL, year: y }));
+    restNodes.push(cardHTML(e, { hidden: idx >= INITIAL, year: y, priority: e === lcpCard }));
     idx++;
   }
 
@@ -230,15 +296,41 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .card.hidden,.year-head.hidden{display:none}
     .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
     .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
+    /* Em toque não existe hover: sem isto, tocar num card não devolve nada
+       até a próxima página pintar. Composto, responde no mesmo quadro. */
+    .card:active{transform:scale(.985)}
     /* Caixa de proporção fixa (grade uniforme, não masonry). object-fit:contain
        nunca corta a foto — o espaço sobrando vira barra na cor do card. */
     .thumb{overflow:hidden;background:var(--bg-card);position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
-    .thumb.loading{background:linear-gradient(90deg,var(--shimmer-a) 0%,var(--shimmer-b) 50%,var(--shimmer-a) 100%);background-size:200% 100%;animation:shimmer 1.4s infinite linear}
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    /* Esqueleto em TRÊS tempos, para não anunciar espera que ninguém sentiu:
+       0-600ms   bloco chapado — a estrutura já está lá, sem movimento;
+       600ms+    a varredura aparece (fade), sinalizando "isto está vindo";
+       4s+       .slow acrescenta o rótulo, posto pelo script do <head>.
+       A varredura anda em transform, não em background-position: só assim ela
+       é composta pela GPU. Na versão anterior o Lighthouse acusava as .thumb
+       em "Avoid non-composited animations", e cada quadro passava pelo
+       Style & Layout do main thread. */
+    .thumb.loading{background:var(--shimmer-a)}
+    .thumb.loading::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0,var(--shimmer-b) 50%,transparent 100%);transform:translateX(-100%);opacity:0;animation:shimmer-in .25s .6s forwards,shimmer 1.4s .6s infinite linear}
+    @keyframes shimmer{to{transform:translateX(100%)}}
+    @keyframes shimmer-in{to{opacity:1}}
+    @media(prefers-reduced-motion:reduce){.thumb.loading::after{animation:none}}
+    /* z-index:1 põe o rótulo acima da varredura (::after, z-index auto) e
+       abaixo das etiquetas de canto, que já usam 2. */
+    .thumb.loading.slow::before{content:"carregando…";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;font-size:.6rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
+    /* Foto que não veio mostra o MESMO ícone do card sem capa. Antes daqui ela
+       virava um retângulo vazio: quem não tem foto se explicava, quem perdeu a
+       foto não. Em CSS, e não em marcação, para não pagar o SVG em todo card. */
+    .thumb.failed::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' fill='none' stroke='%23252525' stroke-width='1.25'%3E%3Crect x='3' y='5' width='18' height='15' rx='2'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M9 5l1.5-2h3L15 5'/%3E%3C/svg%3E") center no-repeat}
     .thumb.loading img{opacity:0}
     .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px);z-index:2}
     /* Uma única regra de transition: opacity e transform em regras separadas
        faziam a segunda sobrescrever a primeira, e a foto aparecia de estalo. */
+    /* O elemento picture é só um invólucro: sem carregar a caixa, o
+       height:100% da imagem não teria contra o que resolver e o card
+       esticaria. (Sem escrever a tag aqui: marcação dentro do style confunde
+       tanto quem lê quanto os testes que varrem o HTML emitido.) */
+    .thumb picture{display:block;width:100%;height:100%}
     .thumb img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .3s ease,transform .4s ease}
     .card:hover .thumb img{transform:scale(1.06)}
     .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
@@ -284,7 +376,26 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
   </style>
+  <!-- A capa só aparece quando o script tira a classe "loading" (é ele que sabe
+       que a foto assentou). Sem JS ninguém tira, e a galeria inteira ficava
+       invisível — um esqueleto que nunca vira conteúdo. Estas três regras
+       devolvem a página a quem bloqueia script: sem varredura, sem rótulo, e a
+       foto visível desde o começo. -->
+  <noscript><style>
+    .thumb.loading{background:var(--bg-card)}
+    .thumb.loading::after{display:none}
+    .thumb.loading img{opacity:1}
+  </style></noscript>
   ${perfBootScript('gallery', !!analyticsToken, nonce)}
+  <!-- Prefetch no hover (~200ms) ou no pointerdown, não na carga: só gasta com
+       o link que o visitante já demonstrou querer. "prefetch", nunca
+       "prerender" — prerender EXECUTA o JS da página, e dispararia o beacon de
+       performance e o da Cloudflare por uma visita que talvez não aconteça.
+       Do lado do servidor, handleEventPage() ignora "Sec-Purpose: prefetch"
+       na contagem, senão a métrica passaria a contar hover. -->
+  <script type="speculationrules" nonce="${escape(nonce)}">
+    {"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/dashboard*"}},{"not":{"href_matches":"/api/*"}}]},"eagerness":"moderate"}]}
+  </script>
 </head>
 <body>
   ${updateBannerHTML()}
