@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, consoleGreetingScript } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
@@ -878,6 +878,22 @@ describe('páginas dos documentos legais', () => {
     expect(body).toContain('Código-fonte');
   });
 
+  // A CI (`security.yml`, "Só o link de código-fonte pode apontar para o
+  // GitHub") reprova qualquer "github.com" em `src/**/*.js` fora do próprio
+  // link do rodapé — regra de ARQUIVO-FONTE, não de página renderizada, então
+  // ela pega até uma string de console.log que nunca vira um <a>. Já
+  // aconteceu: consoleGreetingScript() nasceu com a URL crua no texto do
+  // console e só a CI (não este arquivo de teste, focado em hosts de <a>)
+  // acusou. Este teste roda a mesma checagem em `npm test`, sem depender de
+  // uma volta pelo CI para descobrir.
+  it('consoleGreetingScript não repete a URL do GitHub fora do rodapé', () => {
+    const script = consoleGreetingScript('n0nce');
+    expect(script).not.toMatch(/github\.com/i);
+    // E continua emitindo algo — a regressão óbvia oposta seria "corrigir"
+    // isto esvaziando a função.
+    expect(script).toContain('<script');
+  });
+
   it('404s an unknown document instead of rendering an empty page', async () => {
     expect((await get('/legal/nao-existe')).status).toBe(404);
   });
@@ -1370,6 +1386,45 @@ describe('precedência do cookie de sessão', () => {
     expect(res.status).toBe(200);
     expect(store._store.has(`admin_session:${TOKEN_NOVO}`), 'a sessão de quem trocou a senha sobrevive').toBe(true);
     expect(store._store.has(`admin_session:${TOKEN_LIXO}`), 'a sessão do cookie plantado é revogada').toBe(false);
+  });
+});
+
+// `admin_session:*` é o único dos quatro portões de forma (TODO.md) que
+// validava campo a campo em vez do registro inteiro de uma vez: um `lastSeen`
+// de forma inesperada (string, objeto) falhava só o `typeof === 'number'` e a
+// checagem de inatividade era pulada em silêncio — a sessão degradava para
+// "sem checagem de inatividade" em vez de ser recusada. Estes testes afirmam
+// que qualquer campo fora da forma esperada derruba o registro inteiro.
+describe('forma de admin_session: registro inesperado é recusado, não degradado', () => {
+  const TOKEN = 'c'.repeat(64);
+
+  function kv(sessoes = {}) {
+    const store = new Map(Object.entries(sessoes));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const req = () => new Request('https://fotos.lucafchala.com/dashboard', {
+    headers: { Cookie: `__Host-session=${TOKEN}`, 'User-Agent': 'ua-de-teste' },
+  });
+
+  it.each([
+    ['lastSeen como string', JSON.stringify({ createdAt: Date.now(), lastSeen: 'ontem' })],
+    ['lastSeen como objeto', JSON.stringify({ createdAt: Date.now(), lastSeen: {} })],
+    ['fp como número', JSON.stringify({ createdAt: Date.now(), fp: 123 })],
+    ['registro é um array', JSON.stringify([Date.now()])],
+    ['registro é uma string', JSON.stringify('valida')],
+  ])('recusa em vez de degradar: %s', async (_nome, raw) => {
+    const store = kv({ [`admin_session:${TOKEN}`]: raw });
+    expect(await verifySession({ FOTOS: store }, req())).toBe(false);
+    // Recusar apaga o registro corrompido, no mesmo padrão dos outros ramos de
+    // rejeição desta função — não deixa uma credencial ilegível no KV.
+    expect(store._store.has(`admin_session:${TOKEN}`)).toBe(false);
+  });
+
+  it('aceita um registro de forma válida sem lastSeen/fp (sessão recém-criada antes da 1ª renovação)', async () => {
+    const store = kv({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }) });
+    expect(await verifySession({ FOTOS: store }, req())).toBe(true);
   });
 });
 

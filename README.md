@@ -301,6 +301,7 @@ uma versão nova.
 | 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
 | 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
 | 10 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
+| 11 | GitHub Release na mesma tag, com changelog automático | Registro navegável (aba **Releases**), sem curadoria manual — `continue-on-error`, mas nunca silencioso: falha vira `::warning::` no resumo, e não afeta o deploy (que já publicou e passou nos dois smokes) |
 
 O resumo do job (aba **Actions** → run → topo) responde "o que foi para
 produção e passou?" sem abrir log de step nenhum: commit, ID da versão, URL de
@@ -405,7 +406,9 @@ Os quatro desfechos, todos exercitados sob `bash -e` com a rede dublada:
 | Reverteu mas o site não voltou | `🚨` + "confira o site à mão" |
 
 A tag de release só nasce quando o smoke de produção **passa** — senão o
-repositório ganharia uma `deploy-…` apontando para um commit revertido.
+repositório ganharia uma `deploy-…` apontando para um commit revertido. A
+GitHub Release depende da mesma tag (via `steps.tag.outputs.tag`), então herda
+a mesma garantia sem repetir a condição.
 
 ### Migrações do D1
 

@@ -626,15 +626,72 @@ jobs:
       # senão o repositório ganharia uma tag `deploy-…` apontando para um commit
       # que reprovou e foi revertido.
       - name: Marcar o release
+        id: tag
         if: ${{ steps.promote.outputs.promoted == 'true' && github.event_name == 'push' && steps.smoke_prod.outcome == 'success' }}
         run: |
           set -e
+          # Lido ANTES de criar a tag nova: depois disso `git tag -l` já
+          # incluiria ela e "a anterior" apontaria para si mesma.
+          PREV_TAG=$(git tag -l 'deploy-*' | sort | tail -1 || true)
           TAG="deploy-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Deploy verificado — versão ${{ steps.resolve.outputs.version_id }}"
           git push origin "$TAG"
           echo "TAG_CRIADA=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------------
+      # GitHub Release: o mesmo evento verificado vira um registro navegável
+      # (changelog automático — commits desde a tag anterior —, sem curadoria
+      # manual), não só uma tag no histórico do Git.
+      #
+      # `continue-on-error: true` aqui É tolerância de verdade, ao contrário
+      # do uso no smoke de produção acima: esta chamada não tem efeito
+      # colateral em produção nenhum, então uma falha dela não pode marcar
+      # vermelho um deploy que já publicou e passou nos dois smokes — mas
+      # "best-effort" só vale quando o passo AVISA que falhou
+      # (`::warning::` + a resposta da API no log), nunca quando engole a
+      # diferença em silêncio (ver TODO.md, "Regras vivas" → "Passo
+      # best-effort é passo que ninguém lê").
+      #
+      # `if` depende só do output da tag, não repete a condição inteira: se
+      # o passo anterior não chegou a criar/empurrar a tag (por `set -e`),
+      # `steps.tag.outputs.tag` fica vazio e este passo é pulado sozinho.
+      - name: Criar GitHub Release
+        id: release
+        if: ${{ steps.tag.outputs.tag != '' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV_TAG: ${{ steps.tag.outputs.prev_tag }}
+          VERSION_ID: ${{ steps.resolve.outputs.version_id }}
+        run: |
+          set -uo pipefail
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty='- %s (%h)' "${PREV_TAG}..HEAD")
+          else
+            CHANGELOG=$(git log --pretty='- %s (%h)' -20)
+          fi
+          BODY=$(printf 'Versão verificada pelo smoke test e promovida para 100%% do tráfego.\n\nVersão Cloudflare: `%s`\n\n### Commits\n\n%s\n' \
+                   "$VERSION_ID" "$CHANGELOG")
+          PAYLOAD=$(jq -n --arg tag "$TAG" --arg body "$BODY" \
+            '{tag_name: $tag, name: $tag, body: $body, draft: false, prerelease: false}')
+          HTTP_CODE=$(curl -s -o resposta.json -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            -d "$PAYLOAD")
+          if [ "$HTTP_CODE" != "201" ]; then
+            echo "::warning::Não foi possível criar a GitHub Release para $TAG (HTTP $HTTP_CODE). A tag já existe e o deploy NÃO é afetado — só o registro navegável no GitHub."
+            cat resposta.json
+            exit 1
+          fi
+          echo "Release criada: $TAG"
 
       # ---------------------------------------------------------------------
       # Observabilidade: o resumo responde "o que foi para produção, e passou?"
@@ -660,6 +717,7 @@ jobs:
             echo "| Smoke de produção | ${{ steps.smoke_prod.outcome == 'success' && '✅ passou' || (steps.smoke_prod.outcome == 'failure' && '❌ reprovou' || '—') }} |"
             echo "| Reversão | ${{ steps.reversao.outputs.revertido == 'sim' && '🔙 revertido — o commit NÃO está em produção' || (steps.reversao.outputs.revertido && '🚨 reversão com problema — confira o site' || '—') }} |"
             echo "| Tag | \`${TAG_CRIADA:-—}\` |"
+            echo "| Release | ${{ steps.release.outcome == 'success' && format('✅ https://github.com/{0}/releases/tag/{1}', github.repository, steps.tag.outputs.tag) || (steps.release.outcome == 'failure' && '⚠️ tag criada, Release falhou — ver log do passo' || '—') }} |"
             echo
             if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "${{ inputs.unversioned }}" != "true" ]; then
               echo "> A versão foi publicada e verificada, mas **não** recebeu tráfego."

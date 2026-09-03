@@ -303,6 +303,7 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Link do Drive não abre | `healthz` → `drive: { bad: N }` |
 | Deploy vermelho, site no ar | O smoke test roda **depois** de publicar. Ver Rollback no README |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
+| Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** `git revert <sha> && git push` (preferido), ou promover um
 deployment anterior no painel da Cloudflare — mas aí a `main` fica à frente da
@@ -312,14 +313,16 @@ produção, e isso precisa ser resolvido logo em seguida.
 
 ## 8. O que fica pendente
 
-Lista completa e priorizada no [TODO.md](./TODO.md). O que importa saber ao
-voltar:
+Lista completa nas [Issues do GitHub](https://github.com/lucafchala/fotos/issues)
+— desde 2026-09, item de ação vive lá, não em `TODO.md` (que guarda só
+política, orçamento de cota e as regras vivas — ver a nota no topo dele e
+`llms.md` para as ferramentas). O que importa saber ao voltar:
 
 - **Nada bloqueia o uso do site.** As pendências são melhorias e decisões, não
   defeitos abertos.
 - **`/api/healthz` é público e detalhado** — decisão consciente, com o raciocínio
-  registrado no TODO. Se o modelo de ameaça mudar, o caminho é autenticar o
-  detalhe, e está descrito lá.
+  registrado em [Regras vivas](./TODO.md#regras-vivas). Se o modelo de ameaça
+  mudar, o caminho é autenticar o detalhe, e está descrito lá.
 - **Autorização de imagem para menores** continua sendo o item de conformidade
   mais relevante em aberto.
 
@@ -330,9 +333,11 @@ voltar:
 | Arquivo | Quando ler |
 | --- | --- |
 | **RETOMADA.md** (este) | Ao voltar depois de um tempo |
+| [CLAUDE.md](./CLAUDE.md) / [llms.md](./llms.md) | Sessão de agente: quais ferramentas usar (GitHub API, verificação) |
 | [README.md](./README.md) | Referência completa: rotas, dados, deploy, decisões |
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
-| [TODO.md](./TODO.md) | O que falta, o que foi decidido e por quê |
+| [TODO.md](./TODO.md) | Política, orçamento de cota, regras vivas, o que foi decidido e por quê |
+| [Issues](https://github.com/lucafchala/fotos/issues) | O que falta fazer — cada item de ação vive aqui, não em TODO.md |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |

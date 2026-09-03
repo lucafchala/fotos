@@ -1,14 +1,22 @@
 # Pendências — fotos.lucafchala.com
 
-Só o que está **em aberto**, mais as regras que continuam valendo. Item
-entregue sai deste arquivo — o histórico de quem fez o quê fica no git
-(`git log`) e nos PRs, não aqui. As seções estão em ordem de prioridade; dentro
-de cada uma, o primeiro item é o próximo a atacar.
+Ação concreta ("fazer X") vive como **Issue do GitHub**, não como linha aqui —
+veja a aba [Issues](https://github.com/lucafchala/fotos/issues) do
+repositório. Este arquivo guarda o que **não** é uma tarefa: o orçamento de
+cota que decide o resto, as regras vivas que já custaram caro o suficiente
+para merecer registro, ideias não comprometidas e decisões de não fazer.
 
-> Quando fechar um item, **apague-o**. Não o transforme em relato do que foi
-> feito: foi assim que este arquivo chegou a 640 linhas, das quais ~290 eram
-> trabalho já entregue. O que sobrevive ao fechamento é só a regra que alguém
-> precisa seguir amanhã — e essa mora em [Regras vivas](#regras-vivas).
+> Quando uma entrada daqui deixar de valer — uma regra que o código tornou
+> obsoleta, uma ideia que virou Issue e foi entregue — **apague-a**. Não a
+> transforme em relato do que foi feito: o histórico de quem fez o quê fica no
+> `git log` e nos PRs, não aqui.
+
+> 🔀 **Por que Issue, e não uma linha aqui.** Uma tarefa concreta tracked em
+> dois lugares é a família de bug mais cara deste projeto (ver
+> [Regras vivas](#regras-vivas) → "Uma regra escrita duas vezes é corrigida
+> uma vez só"), e isso vale para tracking também. Os itens de ação que viviam
+> neste arquivo até 2026-09 foram migrados para Issues — a Issue é o único
+> lugar de cada um daqui em diante.
 
 ---
 
@@ -66,154 +74,6 @@ Nada de catastrófico, e isso é resultado de trabalho, não sorte:
    limit e abertura de sessão nova no painel.
 3. **O dono é avisado.** O `/api/healthz` acusa em `problems`, o painel de
    status vira `degraded` e dispara e-mail.
-
-### Se um dia o teto ficar pequeno
-
-Nesta ordem, e **nenhuma delas é pagar**:
-
-- [ ] **Contadores fora do KV.** `views:` e `drive_clicks:` para log estruturado
-      / Analytics Engine, como `/api/perf` e `/api/csp-report` já fazem. Elimina
-      o que sobrou de contabilidade, mas perde o número no painel — só vale se o
-      número deixar de valer a escrita.
-- [ ] **Amostrar o contador de visitas** (contar 1 em N e multiplicar). Barato
-      de implementar; o honesto seria admitir, antes, que o número vira
-      estimativa.
-
----
-
-## Lançamento
-
-- [ ] **Ligar o painel de cotas do status.** `CF_API_TOKEN` (Account
-      Analytics:Read) + `CF_ACCOUNT_ID` nas variáveis do Pages. Sem eles o
-      `/api/quota-stats` responde `configured: false` e o painel esconde o
-      bloco — ou seja, o consumo real das cotas fica invisível justamente sob a
-      política de ficar no gratuito. É o instrumento que torna a seção acima
-      verificável em vez de teórica.
-- [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
-- [ ] Link na homepage pessoal (lucafchala.com)
-
----
-
-## Segurança e anti-abuso
-
-### Ações do dono (fora do código) — prioridade
-
-- [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
-      É o único risco residual **alto** do sistema (R3 do
-      [RIPD](./docs/legal/RIPD.md)) e nenhuma medida no código o resolve — a
-      coleta acontece no evento ou no contrato com a escola. Modelos prontos em
-      [`docs/legal/termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
-      o caminho de menor atrito é o Modelo 3, anexado ao contrato.
-- [ ] 🔴 **Confirmar se a conta do Google Drive é Workspace ou pessoal.** Conta
-      pessoal gratuita não tem DPA, o que enfraquece o fundamento do art. 33, III
-      justamente para a transferência de maior impacto (as fotografias). Ver
-      [`transferencia-internacional.md`](./docs/legal/transferencia-internacional.md).
-- [ ] **Parecer jurídico** sobre os pontos marcados ⚖️ em
-      [`checklist-conformidade.md`](./docs/legal/checklist-conformidade.md).
-
-### Código
-
-- [ ] **Concluir a migração da CSP.** Os nonces já estão em todos os `<script>`
-      e a política estrita (sem `'unsafe-inline'`) já roda em **Report-Only**,
-      com coletor em `/api/csp-report`. Falta o trabalho de fato: trocar os **68**
-      handlers inline (`onclick="…"`) por listeners delegados — inclusive os que
-      o painel gera dinamicamente via `innerHTML`.
-      > ⚠️ **Não acrescente o nonce à política enforced antes disso.** Pela CSP
-      > Level 3 o nonce descarta o `'unsafe-inline'`, e a interface inteira para
-      > de responder. Já aconteceu, e só foi pego com browser de verdade — teste
-      > de unidade sobre o texto da política não enxerga isso.
-      Quando os relatórios zerarem, tirar os handlers e então deixar a enforced
-      usar `strict` (`contentSecurityPolicy()` em `src/security.js`).
-- [ ] **Levar o JS embutido para dentro do alcance do lint e do typecheck.**
-      Os `<script>` das páginas vivem dentro de template literals
-      (`src/ui/dashboard.js`, `event.js`, `gallery.js`), então **eslint e tsc
-      não enxergam nada ali** — é código de produção sem rede de proteção, e o
-      próprio template de PR admite isso ao pedir verificação manual. O preço já
-      foi cobrado mais de uma vez: um `const` usado antes da declaração morreu
-      em TDZ engolido por `try/catch`, a CSP derrubou os handlers inline com a
-      suíte inteira verde, e o `toCSV()` do painel passou não se sabe quanto
-      tempo **sem a defesa contra injeção de fórmula** que o servidor tem desde
-      sempre — com o comentário ao lado afirmando "matches server", porque nada
-      podia contradizê-lo. Some-se o risco de edição: **uma crase solta em
-      qualquer comentário ou string desses blocos encerra o template literal e
-      quebra o módulo** (acontece; foi o `tsc` que pegou da última vez, não o
-      lint). Caminho provável: extrair para `.js` de verdade e embutir no build,
-      o que também devolve os handlers ao alcance da CSP estrita (item acima).
-      > Enquanto isso não acontece, o padrão que dá alguma rede é o de
-      > `tests/rendered-pages.test.js` e do teste de `toCSV`: **extrair o bloco
-      > do template e executá-lo**. Custa pouco e é a única coisa que hoje
-      > enxerga esse código.
-- [ ] **Decidir a semântica de "Ocultar" um projeto.** Hoje é **não listado**:
-      sai da galeria, do sitemap e da auditoria, e vai com
-      `X-Robots-Tag: noindex` — mas continua abrindo por link direto (o que faz
-      um link de prévia enviado a cliente continuar funcionando). Se a
-      expectativa for "privado", o handler precisa devolver 404 para quem não
-      está logado. Não mudado por conta própria porque quebraria links já
-      compartilhados.
-- [ ] **Login sem senha / recuperação de acesso** — magic link por e-mail via
-      Resend (já configurado), substituindo ou complementando a senha do painel.
-      Resolve de uma vez a recuperação de senha e boa parte do que 2FA
-      cobriria; menos atrito que TOTP.
-- [ ] **2FA/TOTP no painel** — só se o magic link não for suficiente.
-- [ ] **Hospedar as fontes localmente** — elimina a transferência internacional
-      do Google Fonts (que transmite o IP de cada visitante) e tira uma origem
-      da CSP. O `font-src` já aceita `'self'` desde `c78e6e4`: falta baixar os
-      WOFF2 do Inter, declarar `@font-face` e remover o `<link>` das oito
-      páginas.
-      > Ao fechar este item, apague `fontPreconnectHTML()` (`utils.js`) — e o
-      > teste que a trava — junto com os `<link>`. Preconnect para host que a
-      > página não usa mais é conexão aberta à toa.
-- [ ] **Afinar Bot Fight Mode / regras de WAF** no Cloudflare: barrar abuso sem
-      bloquear crawlers de preview (WhatsApp/Instagram) nem visitantes legítimos.
-- [ ] **EXIF em HEIC/AVIF/GIF.** JPEG, PNG e WebP já são limpos no servidor
-      (`stripImageMetadata()`). Nesses três o metadado vive dentro de caixas
-      ISO-BMFF, e reescrevê-las sem um decodificador de verdade arriscaria
-      corromper a prova que o titular enviou. Hoje o portão é a **própria
-      capacidade de limpar**: se o strip não confirmou, o anexo não vai — então
-      ensinar HEIC ao strip abre o portão sozinho, sem segunda lista para
-      divergir.
-
----
-
-## Operação
-
-> O orçamento de cota e o que fazer quando ele apertar estão em
-> [Plano gratuito](#plano-gratuito--a-restrição-que-decide-o-resto), no topo.
-> Não duplicar a conta aqui: ela muda quando o código muda, e duas cópias
-> divergem.
-
-- [ ] **Estender a resiliência a queda de KV para além do caminho das fotos.**
-      Galeria, página do projeto e portão do Drive sobrevivem hoje a uma queda
-      de leitura (cópia na Cache API, ver
-      [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)).
-      Ainda respondem 500 numa queda total: o formulário de suporte (leitura da
-      chave de deduplicação) e o login do painel (`admin_password`,
-      `verifySession`). No login o certo é falhar **fechado**, nunca servir
-      sessão de cópia.
-      > O formulário de remoção saiu desta lista: o pedido não depende mais do
-      > KV para existir. Com o KV fora, ele segue pelo e-mail (a via que já
-      > avisava o dono e confirmava ao titular) e a resposta é `ok`; só quando
-      > nem o e-mail sai é que vem um 503 com o endereço para escrever direto,
-      > em vez da página 500 que fazia o pedido sumir sem registro. A queda vai
-      > para `noteDegraded`, então o painel de status acusa que há pedido fora
-      > do painel.
-- [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
-      hoje só cai em log estruturado, e **provavelmente fica assim**. O handler
-      já trata os dois casos: sem o binding `PERF`, nada quebra. Antes de mexer,
-      confirmar se o Analytics Engine está disponível no plano gratuito — as
-      fontes divergem e historicamente ele exigia o Workers Paid, o que sob a
-      política de ficar no gratuito encerra o assunto.
-- [ ] **QA visual automatizado** (Playwright, smoke test) tirando screenshot das
-      páginas principais (galeria, um evento com Drive, dashboard) a cada
-      deploy — hoje a validação visual depende de abrir o site manualmente, e é
-      justamente onde os bugs que a suíte não pega aparecem.
-- [ ] **Terminar a validação de forma nas leituras de KV.** `getEvents()`,
-      `getRemovalRequests()`, `getCategories()` e `cron:last` já passam por um
-      portão. Falta `admin_session:*`: o `JSON.parse` tem catch e os campos que
-      decidem expiração são validados um a um, mas o registro inteiro não —
-      um valor com forma inesperada degrada em vez de recusar. É o menos urgente
-      dos quatro (o caminho exige um token de 64 hexadecimais que já existe em
-      KV), e por isso ficou por último.
 
 ---
 
@@ -496,66 +356,6 @@ funciona — ver [`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md). Nesta base a
 suíte inteira já passou verde sobre a CSP matando ~68 handlers inline e sobre a
 galeria ilegível sem JS. Mudança em página pública ou no painel se verifica com
 browser.
-
----
-
-## Recursos planejados
-
-- [ ] **Senha por evento** (acesso privado)
-- [ ] **Migrar as capas para Cloudflare R2** — resolve preview no WhatsApp e
-      cache das capas de uma vez só, e **cabe no plano gratuito**.
-  > **Por que não dá para só adicionar `Cache-Control` nas imagens do Drive:**
-  > `sizedDriveThumb()` devolve uma URL do `lh3.googleusercontent.com` que vai
-  > direto no `src` da `<img>`. Quem busca essa imagem é o browser, falando com
-  > o Google — o Worker não está no caminho e não tem resposta para carimbar.
-  >
-  > **A conta:** servir as imagens por uma **rota nossa no Worker** custaria uma
-  > requisição por thumbnail (1 → 13 numa galeria de 12 cards). Com o R2 não:
-  > um bucket com **domínio personalizado** é servido direto pela borda, **sem
-  > Worker no caminho**. A galeria continua custando 1 requisição de Worker, e
-  > as leituras viram Class B do R2, cuja franquia é de **10 milhões/mês**.
-  >
-  > **Custo real:** franquia de 10 GB de armazenamento, 1 milhão de Class A
-  > (uploads), 10 milhões de Class B (leituras), egresso zero. Só as **capas e
-  > thumbnails** vão para o R2 — a foto em resolução cheia continua no Drive —
-  > então 28 projetos são um arredondamento contra 10 GB. Ressalva: o R2 em
-  > geral pede cartão cadastrado mesmo para usar a franquia gratuita.
-  >
-  > **Por que vale a pena agora:** o cartão de pré-visualização do link já vai
-  > completo — título, data, colaborador e `og:image` recortado em 1200×630 com
-  > as dimensões declaradas — mas o `og:image` de um projeto normal ainda aponta
-  > para o `lh3.googleusercontent.com`, e o crawler do WhatsApp é irregular com
-  > imagem hospedada no Google. Quando ele não consegue buscar, o cartão aparece
-  > só com texto. É por WhatsApp que um link de evento se espalha, e essa é a
-  > última peça que falta.
-- [ ] **Portfólio público `/portfolio`** com curadoria das melhores fotos
-- [ ] **Lembrete de entrega** — campo "data prometida" no evento; dashboard
-      destaca em vermelho os atrasados.
-- [ ] **Modelo/"template" de evento** — ao lado do "Duplicar evento" já
-      existente (que copia um evento específico), salvar uma configuração
-      padrão reutilizável (ex: "formatura", "casamento") com categoria/tipo de
-      acesso/notas já preenchidos.
-- [ ] **Levar as capas responsivas para a página de projeto.** A galeria já pede
-      largura e formato certos ao lh3 (`driveSrcset()` + `<picture>` com
-      `type="image/webp"`); `event.js:33` continua mapeando **todas** as fotos
-      para `=w1600`, servindo 1600px num hero de ~400px. O que segura a
-      migração não é o hero — é que carrossel e lightbox trocam a foto por
-      `img.src = PHOTOS[i]`, onde `<picture>` não alcança: `photosJSON`
-      precisaria carregar srcset por foto, e `preloadAround()` escolher o
-      candidato. Ver também: o hero não tem caixa de proporção, então é fonte
-      de CLS que a galeria já não tem.
-- [ ] **Service Worker** para completar o PWA. O `manifest.json` já existe e é
-      instalável (`handleManifest`, `index.js`); falta só o cache offline das
-      miniaturas. Antes de escrever: um SW é praticamente irreversível para
-      quem já instalou — precisa de estratégia de atualização e de um
-      kill-switch desde o primeiro deploy, senão uma versão ruim fica presa no
-      dispositivo do visitante.
-- [ ] **Guardar a proporção da foto na hora de curar o evento** — o grid
-      masonry da galeria segue a proporção real de cada thumbnail, mas como o
-      modelo de dados só guarda a URL (não dimensões), o `.thumb` não sabe a
-      altura final até a imagem carregar e o JS recalcular. Guardar
-      `width`/`height` (ou só a razão) no momento em que a foto é adicionada
-      eliminaria o reflow de vez (CLS zero), sem requisição extra por foto.
 
 ---
 

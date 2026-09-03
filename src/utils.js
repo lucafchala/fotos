@@ -432,6 +432,27 @@ export function sessionRecord(request) {
   return JSON.stringify({ v: 1, createdAt: now, lastSeen: now, fp: clientFingerprint(request) });
 }
 
+// Portão único de forma para `admin_session:*`, no mesmo padrão de
+// `parseEvents`/`getCategories`: valida o registro INTEIRO de uma vez, não
+// campo a campo dentro do chamador. Antes, um `lastSeen` de forma inesperada
+// (string, objeto) simplesmente falhava o `typeof rec.lastSeen === 'number'`
+// e o checador de inatividade era pulado em silêncio — a sessão degradava
+// para "sem checagem de inatividade" em vez de ser recusada. Aqui qualquer
+// campo fora da forma esperada derruba o registro inteiro.
+/**
+ * @param {string} raw
+ * @returns {{createdAt: number, lastSeen?: number, fp?: string}|null}
+ */
+function parseSessionRecord(raw) {
+  let rec;
+  try { rec = JSON.parse(raw); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  if (typeof rec.createdAt !== 'number' || !Number.isFinite(rec.createdAt)) return null;
+  if (rec.fp !== undefined && typeof rec.fp !== 'string') return null;
+  if (rec.lastSeen !== undefined && (typeof rec.lastSeen !== 'number' || !Number.isFinite(rec.lastSeen))) return null;
+  return rec;
+}
+
 // Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
 // uma comparação com a string 'valid', sem inatividade nem vínculo com o
 // cliente que abriu a sessão.
@@ -453,18 +474,18 @@ export async function verifySession(env, request) {
   // TTL do KV, senão o deploy deslogaria quem estava no meio de um trabalho.
   if (raw === 'valid') return true;
 
-  let rec;
-  try { rec = JSON.parse(raw); } catch { return false; }
-  if (!rec || typeof rec !== 'object') return false;
-
-  const now = Date.now();
-  // createdAt ausente/corrompido não pode virar "sessão eterna": sem início
-  // confiável, a resposta segura para uma credencial ilegível é recusá-la.
-  const createdAt = typeof rec.createdAt === 'number' && Number.isFinite(rec.createdAt) ? rec.createdAt : null;
-  if (createdAt === null) {
+  // createdAt ausente/corrompido, ou qualquer campo de forma inesperada, não
+  // pode virar "sessão eterna" nem "sessão sem checagem de inatividade": sem
+  // registro confiável, a resposta segura para uma credencial ilegível é
+  // recusá-la, não degradar as checagens que dependem dele.
+  const rec = parseSessionRecord(raw);
+  if (!rec) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
+
+  const now = Date.now();
+  const createdAt = rec.createdAt;
   if (rec.fp && rec.fp !== clientFingerprint(request)) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
@@ -1770,5 +1791,28 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
   }
   addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});
   addEventListener('pagehide',flush);` : ''}
+})();</script>`;
+}
+
+// Aviso de self-XSS no console — mesmo padrão que Facebook/Google usam desde
+// os golpes de "cole isto no console para liberar/hackear X": a vítima é
+// convencida a colar código malicioso no próprio console autenticado, dando
+// ao golpista o mesmo acesso que um roubo de sessão daria. Não é proteção
+// técnica (quem já sabe o que está fazendo não lê isto), é o aviso na hora
+// certa, no lugar certo. De brinde, aponta o repositório para quem só abriu o
+// DevTools por curiosidade — sem link de verdade na página, então a regra
+// contra link de GitHub em markup (ver TODO.md) não se aplica: isto é texto
+// de console, não um <a>.
+/**
+ * @param {string} nonce nonce da requisição — sem ele o script não é emitido
+ */
+export function consoleGreetingScript(nonce = '') {
+  if (!nonce) return '';
+  return `<script nonce="${escape(nonce)}">(function(){
+  try{
+    console.log('%cPare!', 'color:#c0392b;font-size:46px;font-weight:800;text-shadow:1px 1px 0 rgba(0,0,0,.4);');
+    console.log('%cEste é um recurso do navegador para quem desenvolve. Se alguém pediu para você colar algo aqui para "liberar" ou "hackear" alguma coisa, é golpe — e dá a essa pessoa o mesmo acesso que roubar sua sessão daria.', 'color:#c0392b;font-size:15px;font-weight:600;');
+    console.log('%cSó curiosidade mesmo? O código deste site é aberto — o link está no rodapé, em "Código-fonte".', 'color:#c0a060;font-size:13px;');
+  }catch(e){}
 })();</script>`;
 }

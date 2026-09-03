@@ -33,7 +33,12 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
   </script> -->
   ${fontPreconnectHTML()}
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
-  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="window.__supTsBlocked=true"></script>
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="supTsBlocked"></script>
+  <!-- Registered here, right after the tag above, so the capture listener is
+       in place before the async fetch for it can resolve (error or not) — a
+       delegate registered only in the form's later script block could lose
+       the race against a fast (e.g. ad-blocker) failure. -->
+  <script nonce="${nonce}">document.addEventListener('error', function(e){ if (e.target && e.target.dataset && e.target.dataset.onerror === 'supTsBlocked') window.__supTsBlocked = true; }, true);</script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -158,7 +163,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
         </label>
       </div>
       <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
-        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-onclick="reload">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
       </div>
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
@@ -176,6 +181,11 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
       setTimeout(function(){if(typeof turnstile==='undefined'||window.__supTsBlocked){showSupportAdblock();var b=supportBtn();if(b&&b.disabled)b.disabled=false;}},5000);
       // Guard against a double submit on the native form post.
       (function(){var f=document.querySelector('form[action="/api/suporte"]');if(f)f.addEventListener('submit',function(){var b=supportBtn();if(b){b.disabled=true;b.textContent='Enviando…';}});})();
+      // Delegated click (CSP: no inline onclick).
+      document.addEventListener('click', function(e){
+        var el = e.target.closest('[data-onclick="reload"]');
+        if (el) location.reload();
+      });
     </script>`}
   </main>
   <footer>
