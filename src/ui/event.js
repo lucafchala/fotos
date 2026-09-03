@@ -68,21 +68,21 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
   const heroHTML = event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onerror="this.style.opacity='0'" tabindex="0" role="button" aria-label="Ampliar foto" onclick="openLightbox(0)" onkeydown="if(event.key==='Enter'){openLightbox(0)}"></div>`
+        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" onload="this.style.opacity='1';window.cImgSettled&&cImgSettled()" onerror="this.style.opacity='0';window.cImgSettled&&cImgSettled()" onclick="openLightbox(cur)">
-          <button class="c-btn c-prev" onclick="cGo(-1)" aria-label="Anterior">
+          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">
+          <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <button class="c-btn c-next" onclick="cGo(1)" aria-label="Próxima">
+          <button class="c-btn c-next" data-action="cGoNext" aria-label="Próxima">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
-          <div class="c-dots">${photos.map((_, i) => `<span class="c-dot${i === 0 ? ' on' : ''}" onclick="cGoto(${i})"></span>`).join('')}</div>
+          <div class="c-dots">${photos.map((_, i) => `<span class="c-dot${i === 0 ? ' on' : ''}" data-action="cGoto" data-i="${i}"></span>`).join('')}</div>
           <div class="c-count" id="c-count">1 / ${photos.length}</div>
           <div class="swipe-hint" id="swipe-hint">deslize ←→</div>
         </div>`;
@@ -442,11 +442,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
     <div class="drive-wrap">
       ${event.comingSoon
-        ? `<button type="button" class="btn-drive btn-soon" onclick="openSoonModal()">
+        ? `<button type="button" class="btn-drive btn-soon" data-action="openSoonModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             As fotos virão em breve
           </button>`
-        : `<button class="btn-drive" onclick="openModal()">
+        : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Acessar fotos
           </button>`}
@@ -465,7 +465,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <footer>
     <a href="/" class="footer-brand">fotos · Luca F. Chala</a>
     <div class="footer-actions-primary">
-      <button class="action-btn" id="btn-share-native" style="display:none" onclick="doNativeShare()">
+      <button class="action-btn" id="btn-share-native" style="display:none" data-action="doNativeShare">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         Compartilhar
       </button>
@@ -478,11 +478,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
         WhatsApp
       </a>
-      <button class="action-btn" id="btn-copy-link" style="display:none" onclick="copyLink()">
+      <button class="action-btn" id="btn-copy-link" style="display:none" data-action="copyLink">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         <span id="copy-label">Copiar link</span>
       </button>
-      <button class="action-btn" onclick="openRemModal()">
+      <button class="action-btn" data-action="openRemModal">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
       </button>
@@ -490,17 +490,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${footerLegalLinksHTML()}
   </footer>
 
-  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" onclick="openModal()" aria-label="Acessar fotos">
+  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="Acessar fotos">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
     Acessar fotos
   </button>` : ''}
 
   <!-- DRIVE MODAL -->
-  <div class="modal-ov" id="modal" onclick="ovClick(event)">
+  <div class="modal-ov" id="modal">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Acessar fotos">
       <div class="modal-head">
         <h2>Acessar fotos</h2>
-        <button class="m-close" onclick="closeModal()" aria-label="Fechar">
+        <button class="m-close" data-action="closeModal" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -512,7 +512,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         ${event.eventCredits ? `<p class="guide-note guide-credit">Em colaboração com: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
-        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" onclick="location.reload()">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
+        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" data-action="reload">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
       </div>
       <div id="drive-gate">
         <!--
@@ -521,16 +521,16 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           com o campo embaixo o texto digitado depois do aceite era descartado
           em silêncio — o estado já ficava "ready" e não há um segundo pedido.
         -->
-        <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" onclick="toggleDriveName()">+ incluir meu nome (opcional)</button>
+        <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" data-action="toggleDriveName">+ incluir meu nome (opcional)</button>
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
         </div>
         ${declaration ? `<label class="drive-consent">
-          <input type="checkbox" id="drive-declaration" onchange="onDriveConsent()">
+          <input type="checkbox" id="drive-declaration" data-onchange="onDriveConsent">
           <span>${escape(declaration)}</span>
         </label>` : ''}
         <label class="drive-consent">
-          <input type="checkbox" id="drive-consent" onchange="onDriveConsent()">
+          <input type="checkbox" id="drive-consent" data-onchange="onDriveConsent">
           <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e autorizo o uso da minha imagem conforme descrito neles.</span>
         </label>
         <p id="drive-gate-hint" style="display:none"></p>
@@ -539,7 +539,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <p class="dv-contact">Se continuar, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-link-error" class="drive-verifying" style="display:none">
-          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" onclick="retryDriveLink()" class="dv-retry">Tentar novamente</button></p>
+          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" data-action="retryDriveLink" class="dv-retry">Tentar novamente</button></p>
           <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-refreshed-note" class="drive-verifying" style="display:none">
@@ -548,18 +548,18 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram
           ? `<div class="drive-opts">
-              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="return onDriveLinkClick(event)">
+              <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
                 <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
                 <span class="btn-spin"><span class="spin"></span></span>
                 <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
               </a>
-              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" onclick="return onDriveLinkClick(event)">
+              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
                 <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg></span>
                 <span class="btn-spin"><span class="spin"></span></span>
                 <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
               </a>
             </div>`
-          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" onclick="return onDriveLinkClick(event)">
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" data-action="driveLink">
               <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
               <span class="btn-spin"><span class="spin"></span></span>
               Ir para o Google Drive
@@ -572,11 +572,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   <!-- REMOVAL MODAL -->
-  <div class="modal-ov" id="rem-modal" onclick="remOvClick(event)">
+  <div class="modal-ov" id="rem-modal">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Solicitar remoção de foto">
       <div class="modal-head">
         <h2>Solicitar remoção de foto</h2>
-        <button class="m-close" onclick="closeRemModal()" aria-label="Fechar">
+        <button class="m-close" data-action="closeRemModal" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -588,15 +588,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <label>Identificar a foto por</label>
           <div class="radio-group">
             <label class="radio-opt">
-              <input type="radio" name="rem-method" value="number" checked onchange="updateRemMethod()">
+              <input type="radio" name="rem-method" value="number" checked data-onchange="updateRemMethod">
               <span>Número da foto na pasta do Drive</span>
             </label>
             <label class="radio-opt">
-              <input type="radio" name="rem-method" value="url" onchange="updateRemMethod()">
+              <input type="radio" name="rem-method" value="url" data-onchange="updateRemMethod">
               <span>Link direto da foto</span>
             </label>
             <label class="radio-opt">
-              <input type="radio" name="rem-method" value="upload" onchange="updateRemMethod()">
+              <input type="radio" name="rem-method" value="upload" data-onchange="updateRemMethod">
               <span>Enviar a foto (até 2 MB)</span>
             </label>
           </div>
@@ -637,14 +637,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <span style="font-size:.72rem;color:var(--text-muted);line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:var(--text-2)">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:var(--text-2)">termos de uso</a>, e autorizo o uso dos meus dados para processar esta solicitação.</span>
         </label>
         <div id="rem-adblock" class="adblock-warn" style="display:none">
-          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" onclick="location.reload()">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
+          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-action="reload">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
         </div>
         ${honeypotFieldHTML()}
         <div id="rem-turnstile" style="margin-top:1rem"></div>
         <div id="rem-error" class="form-error" style="display:none"></div>
         <div class="rem-sheet-foot">
-          <button class="btn-rem-cancel" onclick="closeRemModal()">Cancelar</button>
-          <button class="btn-rem-submit" id="rem-submit" onclick="submitRemoval()" disabled>Enviar solicitação</button>
+          <button class="btn-rem-cancel" data-action="closeRemModal">Cancelar</button>
+          <button class="btn-rem-submit" id="rem-submit" data-action="submitRemoval" disabled>Enviar solicitação</button>
         </div>
       </div>
 
@@ -657,11 +657,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   ${event.comingSoon ? `<!-- COMING SOON MODAL -->
-  <div class="modal-ov" id="soon-modal" onclick="soonOvClick(event)">
+  <div class="modal-ov" id="soon-modal">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Fotos em breve">
       <div class="modal-head">
         <h2>Fotos em breve</h2>
-        <button class="m-close" onclick="closeSoonModal()" aria-label="Fechar">
+        <button class="m-close" data-action="closeSoonModal" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -673,13 +673,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>` : ''}
 
   <!-- LIGHTBOX -->
-  <div class="modal-ov lightbox-ov" id="lightbox" onclick="lbOvClick(event)">
-    <button class="lb-close" onclick="closeLightbox()" aria-label="Fechar">×</button>
-    <button class="c-btn lb-prev" onclick="cGo(-1)" aria-label="Anterior" style="display:none">
+  <div class="modal-ov lightbox-ov" id="lightbox">
+    <button class="lb-close" data-action="closeLightbox" aria-label="Fechar">×</button>
+    <button class="c-btn lb-prev" data-action="cGoPrev" aria-label="Anterior" style="display:none">
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
     <img id="lb-img" src="" alt="">
-    <button class="c-btn lb-next" onclick="cGo(1)" aria-label="Próxima" style="display:none">
+    <button class="c-btn lb-next" data-action="cGoNext" aria-label="Próxima" style="display:none">
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
     <div class="c-count" id="lb-count" style="display:none"></div>
@@ -710,6 +710,73 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     const ALERT_EXPIRES  = ${alertExpiresJSON};
 
     let lastFocused = null;
+
+    // ---- Delegated handlers (CSP: no inline on* attributes) ----
+    // 'load'/'error' don't bubble, but a capture-phase listener on document
+    // still sees them on the way down — and this script runs synchronously
+    // before the event loop gets a chance to fire any queued load/error task
+    // for images already in the markup above, so nothing is missed.
+    function heroImgError(el) { el.style.opacity = '0'; }
+    function cImgLoad(el) { el.style.opacity = '1'; if (window.cImgSettled) cImgSettled(); }
+    function cImgError(el) { el.style.opacity = '0'; if (window.cImgSettled) cImgSettled(); }
+    document.addEventListener('error', function(e) {
+      var t = e.target;
+      if (!t || !t.dataset) return;
+      if (t.dataset.onerror === 'heroImgError') heroImgError(t);
+      else if (t.dataset.onerror === 'cImgError') cImgError(t);
+      else if (t.dataset.onerror === 'tsBlocked') window.__tsBlocked = true;
+    }, true);
+    document.addEventListener('load', function(e) {
+      var t = e.target;
+      if (!t || !t.dataset) return;
+      if (t.dataset.onload === 'cImgLoad') cImgLoad(t);
+      else if (t.dataset.onload === 'initDriveTurnstile') initDriveTurnstile();
+    }, true);
+    document.addEventListener('click', function(e) {
+      var t = e.target;
+      // Modal-scrim clicks: only when the click lands on the scrim itself
+      // (not the sheet) — same check the old ovClick()/remOvClick()/etc did.
+      if (t.id === 'modal') { closeModal(); return; }
+      if (t.id === 'rem-modal') { closeRemModal(); return; }
+      if (t.id === 'soon-modal') { closeSoonModal(); return; }
+      if (t.id === 'lightbox') { closeLightbox(); return; }
+      var el = t.closest('[data-action]');
+      if (!el) return;
+      switch (el.dataset.action) {
+        case 'openSoonModal': openSoonModal(); break;
+        case 'openModal': openModal(); break;
+        case 'closeModal': closeModal(); break;
+        case 'doNativeShare': doNativeShare(); break;
+        case 'copyLink': copyLink(); break;
+        case 'openRemModal': openRemModal(); break;
+        case 'closeRemModal': closeRemModal(); break;
+        case 'submitRemoval': submitRemoval(); break;
+        case 'closeSoonModal': closeSoonModal(); break;
+        case 'closeLightbox': closeLightbox(); break;
+        case 'toggleDriveName': toggleDriveName(); break;
+        case 'retryDriveLink': retryDriveLink(); break;
+        case 'reload': location.reload(); break;
+        case 'cGoPrev': cGo(-1); break;
+        case 'cGoNext': cGo(1); break;
+        case 'cGoto': cGoto(parseInt(el.dataset.i, 10)); break;
+        case 'openLightbox': openLightbox(el.dataset.i !== undefined ? parseInt(el.dataset.i, 10) : cur); break;
+        // onDriveLinkClick() already calls e.preventDefault() itself when the
+        // link isn't ready yet (same as the old onclick="return …" pattern).
+        case 'driveLink': onDriveLinkClick(e); break;
+      }
+    });
+    document.addEventListener('change', function(e) {
+      var el = e.target.closest('[data-onchange]');
+      if (!el) return;
+      switch (el.dataset.onchange) {
+        case 'onDriveConsent': onDriveConsent(); break;
+        case 'updateRemMethod': updateRemMethod(); break;
+      }
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      if (e.target.closest('[data-keydown="openLightbox0"]')) openLightbox(0);
+    });
 
     // ---- Ad-block / privacy-extension detection ----
     // Turnstile is what these extensions block; without it the Drive gate and
@@ -1456,7 +1523,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     })();
 
   </script>
-  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onload="initDriveTurnstile()" onerror="window.__tsBlocked=true"></script>
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onload="initDriveTurnstile" data-onerror="tsBlocked"></script>
   ${analyticsBeaconHTML(analyticsToken, nonce)}
 </body>
 </html>`;

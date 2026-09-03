@@ -105,7 +105,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     : active.map(e => {
         const st = e.status || 'entregue';
         const thumb = e.thumbnailUrl
-          ? `<img class="evt-thumb" src="${esc(safeUrl(e.thumbnailUrl))}" alt="" onerror="this.style.display='none'">`
+          ? `<img class="evt-thumb" src="${esc(safeUrl(e.thumbnailUrl))}" alt="" data-onerror="hide">`
           : `<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>`;
         return `<div class="evt-item${e.visible === false ? ' hidden-evt' : ''}" id="evt-${esc(e.id)}">
           ${thumb}
@@ -361,10 +361,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   </div>
 
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('events',this)">Eventos</button>
-    <button class="tab" onclick="switchTab('metrics',this)">Métricas</button>
-    <button class="tab" onclick="switchTab('settings',this)">Config.</button>
-    <button class="tab" id="tab-btn-requests" onclick="switchTab('requests',this)">Solicitações</button>
+    <button class="tab active" data-onclick="switchTab" data-tab="events">Eventos</button>
+    <button class="tab" data-onclick="switchTab" data-tab="metrics">Métricas</button>
+    <button class="tab" data-onclick="switchTab" data-tab="settings">Config.</button>
+    <button class="tab" id="tab-btn-requests" data-onclick="switchTab" data-tab="requests">Solicitações</button>
   </div>
 
   <!-- EVENTS TAB -->
@@ -372,18 +372,18 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     <div class="panel-head">
       <h2 id="evt-count">${ssrCount}</h2>
       <div style="display:flex;gap:.5rem">
-        <button class="btn-sm" id="mass-toggle" onclick="toggleMassMode()">Selecionar</button>
-        <button class="btn-add" onclick="openForm()">
+        <button class="btn-sm" id="mass-toggle" data-onclick="toggleMassMode">Selecionar</button>
+        <button class="btn-add" data-onclick="openForm">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Adicionar
         </button>
       </div>
     </div>
     <div class="search-row">
-      <input type="search" id="evt-search" placeholder="Buscar por título, URL ou categoria…" oninput="renderEventList()" aria-label="Buscar eventos">
+      <input type="search" id="evt-search" placeholder="Buscar por título, URL ou categoria…" data-oninput="renderEventList" aria-label="Buscar eventos">
     </div>
     <div class="filter-row">
-      <select id="status-filter" onchange="renderEventList()">
+      <select id="status-filter" data-onchange="renderEventList">
         <option value="todos" selected>Todos</option>
         <option value="ativos">Ativos (sem arquivados)</option>
         <option value="em-edicao">Em edição</option>
@@ -391,20 +391,20 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         <option value="entregue">Entregue</option>
         <option value="arquivado">Arquivado</option>
       </select>
-      <select id="category-filter" onchange="renderEventList()" aria-label="Filtrar por categoria">${catFilterOptionsSSR}</select>
+      <select id="category-filter" data-onchange="renderEventList" aria-label="Filtrar por categoria">${catFilterOptionsSSR}</select>
     </div>
     <div class="mass-bar" id="mass-bar" style="display:none">
-      <label class="mass-selall"><input type="checkbox" id="mass-selall" onchange="toggleSelectAll(this.checked)"> Todos</label>
+      <label class="mass-selall"><input type="checkbox" id="mass-selall" data-onchange="toggleSelectAll"> Todos</label>
       <span id="mass-count">0 selecionados</span>
       <div class="mass-apply">
         <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
-        <button class="btn-sm" onclick="applyMassCategory()">Aplicar</button>
+        <button class="btn-sm" data-onclick="applyMassCategory">Aplicar</button>
         <select id="mass-access" aria-label="Tipo de acesso para aplicar">
           <option value="public">Público</option>
           <option value="private">Privado</option>
           <option value="family">Familiar</option>
         </select>
-        <button class="btn-sm" onclick="applyMassAccess()">Aplicar</button>
+        <button class="btn-sm" data-onclick="applyMassAccess">Aplicar</button>
       </div>
     </div>
     <div class="evt-list" id="evt-list">${ssrList}</div>
@@ -414,7 +414,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <div id="tab-metrics" class="panel">
     <div class="panel-head">
       <h2>Visitantes</h2>
-      <button class="btn-sm" id="metrics-export" onclick="exportMetricsCSV()" style="display:none">⬇ Exportar CSV</button>
+      <button class="btn-sm" id="metrics-export" data-onclick="exportMetricsCSV" style="display:none">⬇ Exportar CSV</button>
     </div>
     <p class="metrics-nota">
       Conta <strong>visitante único por hora</strong>, não recarregamento: abrir a
@@ -433,22 +433,22 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       <p>Usadas para filtrar a galeria. Para aplicar uma categoria a vários eventos de uma vez, use o botão "Selecionar" na aba Eventos.</p>
       <div id="cat-list" class="cat-list"></div>
       <div class="cat-add">
-        <input type="text" id="cat-new" placeholder="Nova categoria" maxlength="40" onkeydown="if(event.key==='Enter')createCategory()">
-        <button class="btn-sm" onclick="createCategory()">Adicionar</button>
+        <input type="text" id="cat-new" placeholder="Nova categoria" maxlength="40" data-keydown="createCategory">
+        <button class="btn-sm" data-onclick="createCategory">Adicionar</button>
       </div>
     </div>
     <div class="settings-card">
       <h3>Backup dos dados</h3>
       <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
-      <button class="btn-sm" onclick="downloadBackup()">⬇ Baixar backup JSON</button>
+      <button class="btn-sm" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
     </div>
     <div class="settings-card">
       <h3>Exportar dados</h3>
       <p style="margin-bottom:1rem">Baixe planilhas CSV (compatíveis com Excel e Google Sheets) dos registros do site.</p>
       <div class="export-grid">
-        <button class="btn-sm" onclick="exportConsentCSV()">⬇ Consentimentos (CSV)</button>
-        <button class="btn-sm" onclick="exportRemovalCSV()">⬇ Solicitações de remoção (CSV)</button>
-        <button class="btn-sm" onclick="exportMetricsCSV()">⬇ Métricas (CSV)</button>
+        <button class="btn-sm" data-onclick="exportConsentCSV">⬇ Consentimentos (CSV)</button>
+        <button class="btn-sm" data-onclick="exportRemovalCSV">⬇ Solicitações de remoção (CSV)</button>
+        <button class="btn-sm" data-onclick="exportMetricsCSV">⬇ Métricas (CSV)</button>
       </div>
     </div>
     <div class="danger-zone">
@@ -463,13 +463,13 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         <label>Confirmar senha</label>
         <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password" minlength="${PASSWORD_MIN_LENGTH}">
       </div>
-      <button class="btn-danger" style="margin-top:.25rem;margin-bottom:1.5rem" onclick="changePassword()">Salvar nova senha</button>
+      <button class="btn-danger" style="margin-top:.25rem;margin-bottom:1.5rem" data-onclick="changePassword">Salvar nova senha</button>
       <div class="field">
         <label>Restaurar a partir de backup</label>
         <input type="file" id="restore-file" accept=".json" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:8px;font-size:.82rem;width:100%">
         <p style="font-size:.72rem;color:var(--text3);margin-top:.4rem">Nenhum dado atual será excluído. Eventos do backup são mesclados com os existentes.</p>
       </div>
-      <button class="btn-danger" onclick="restoreBackup()">↩ Restaurar backup</button>
+      <button class="btn-danger" data-onclick="restoreBackup">↩ Restaurar backup</button>
     </div>
   </div>
 
@@ -480,11 +480,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   </div>
 
   <!-- EVENT FORM OVERLAY -->
-  <div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="overlay" id="overlay">
     <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="form-title">
       <div class="sheet-head">
         <h2 id="form-title">Adicionar evento</h2>
-        <button class="icon-btn" onclick="closeForm()" aria-label="Fechar">
+        <button class="icon-btn" data-onclick="closeForm" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -509,17 +509,17 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <div class="field-hint" style="margin-bottom:.625rem">A primeira foto aparece como miniatura na galeria. Cole links do Drive ou URLs diretas de imagem — a conversão é automática.</div>
           <div class="photo-list" id="photo-list"></div>
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
-            <button type="button" class="btn-add-photo" id="btn-add-photo" onclick="addPhotoInput('')">
+            <button type="button" class="btn-add-photo" id="btn-add-photo" data-onclick="addPhotoInput">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Adicionar foto
             </button>
-            <button type="button" class="btn-sm" id="btn-paste-photos" onclick="openPastePhotos()">📋 Colar vários links</button>
+            <button type="button" class="btn-sm" id="btn-paste-photos" data-onclick="openPastePhotos">📋 Colar vários links</button>
           </div>
           <div id="paste-photos-box" style="display:none;margin-top:.625rem">
             <textarea id="paste-photos-input" placeholder="Um link por linha" rows="4" style="width:100%"></textarea>
             <div style="display:flex;gap:.5rem;margin-top:.5rem">
-              <button type="button" class="btn-sm" onclick="commitPastePhotos()">Adicionar</button>
-              <button type="button" class="btn-sm" onclick="closePastePhotos()">Cancelar</button>
+              <button type="button" class="btn-sm" data-onclick="commitPastePhotos">Adicionar</button>
+              <button type="button" class="btn-sm" data-onclick="closePastePhotos">Cancelar</button>
             </div>
           </div>
         </div>
@@ -598,7 +598,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <div class="toggle-row" style="margin-bottom:.75rem">
             <span style="font-size:.85rem;color:var(--text2)">Mostrar banner na página do projeto</span>
             <label class="toggle">
-              <input type="checkbox" id="f-alert-active" onchange="toggleAlertOpts(this.checked)">
+              <input type="checkbox" id="f-alert-active" data-onchange="toggleAlertOpts">
               <span class="toggle-track"></span>
             </label>
           </div>
@@ -616,8 +616,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         </div>
       </div>
       <div class="sheet-foot">
-        <button class="btn-secondary" onclick="closeForm()">Cancelar</button>
-        <button class="btn-primary" id="submit-btn" onclick="submitForm()">Salvar</button>
+        <button class="btn-secondary" data-onclick="closeForm">Cancelar</button>
+        <button class="btn-primary" id="submit-btn" data-onclick="submitForm">Salvar</button>
       </div>
     </div>
   </div>
@@ -668,6 +668,86 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       if (cb.checked) selectedIds.add(cb.dataset.id); else selectedIds.delete(cb.dataset.id);
       updateMassCount();
     });
+
+    // ---- Delegated handlers (CSP: no inline on* attributes) ----
+    // Photo-list row buttons/inputs (container survives renderPhotoList()'s innerHTML swaps).
+    document.getElementById('photo-list').addEventListener('click', function(ev) {
+      const btn = ev.target.closest('[data-action="removePhoto"]');
+      if (btn) removePhotoInput(parseInt(btn.dataset.i, 10));
+    });
+    document.getElementById('photo-list').addEventListener('input', function(ev) {
+      const el = ev.target.closest('[data-photo-input]');
+      if (el) onPhotoInput(parseInt(el.dataset.i, 10), el);
+    });
+    // 'blur' doesn't bubble — 'focusout' is its bubbling equivalent, same trigger point.
+    document.getElementById('photo-list').addEventListener('focusout', function(ev) {
+      const el = ev.target.closest('[data-photo-input]');
+      if (el) onPhotoBlur(parseInt(el.dataset.i, 10), el);
+    });
+    // Requests tab (container survives loadRequests()'s innerHTML swaps).
+    document.getElementById('requests-body').addEventListener('click', function(ev) {
+      const resolveBtn = ev.target.closest('[data-action="resolveRequest"]');
+      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id); return; }
+      const toggleBtn = ev.target.closest('[data-action="toggleResolved"]');
+      if (toggleBtn) toggleResolved(parseInt(toggleBtn.dataset.gi, 10));
+    });
+    // Metrics table (container survives renderMetrics()'s innerHTML swaps).
+    document.getElementById('metrics-body').addEventListener('click', function(ev) {
+      const th = ev.target.closest('[data-action="sortMetrics"]');
+      if (th) sortMetrics(th.dataset.sort);
+    });
+    // 'load'/'error' don't bubble, but a capture-phase listener on document
+    // still sees them on the way down — this script runs synchronously before
+    // the event loop can fire any queued load/error task for images already
+    // in the markup above, so nothing here is missed.
+    document.addEventListener('error', function(ev) {
+      if (ev.target && ev.target.dataset && ev.target.dataset.onerror === 'hide') ev.target.style.display = 'none';
+    }, true);
+    document.addEventListener('load', function(ev) {
+      if (ev.target && ev.target.dataset && ev.target.dataset.onload === 'show') ev.target.style.display = 'block';
+    }, true);
+    // Everything else: static buttons/selects that are never regenerated.
+    document.addEventListener('click', function(ev) {
+      if (ev.target.id === 'overlay') { closeForm(); return; }
+      const el = ev.target.closest('[data-onclick]');
+      if (!el) return;
+      switch (el.dataset.onclick) {
+        case 'switchTab': switchTab(el.dataset.tab, el); break;
+        case 'toggleMassMode': toggleMassMode(); break;
+        case 'openForm': openForm(); break;
+        case 'applyMassCategory': applyMassCategory(); break;
+        case 'applyMassAccess': applyMassAccess(); break;
+        case 'exportMetricsCSV': exportMetricsCSV(); break;
+        case 'createCategory': createCategory(); break;
+        case 'downloadBackup': downloadBackup(); break;
+        case 'exportConsentCSV': exportConsentCSV(); break;
+        case 'exportRemovalCSV': exportRemovalCSV(); break;
+        case 'changePassword': changePassword(); break;
+        case 'restoreBackup': restoreBackup(); break;
+        case 'closeForm': closeForm(); break;
+        case 'submitForm': submitForm(); break;
+        case 'addPhotoInput': addPhotoInput(''); break;
+        case 'openPastePhotos': openPastePhotos(); break;
+        case 'commitPastePhotos': commitPastePhotos(); break;
+        case 'closePastePhotos': closePastePhotos(); break;
+      }
+    });
+    document.addEventListener('change', function(ev) {
+      const el = ev.target.closest('[data-onchange]');
+      if (!el) return;
+      switch (el.dataset.onchange) {
+        case 'renderEventList': renderEventList(); break;
+        case 'toggleSelectAll': toggleSelectAll(el.checked); break;
+        case 'toggleAlertOpts': toggleAlertOpts(el.checked); break;
+      }
+    });
+    document.addEventListener('input', function(ev) {
+      if (ev.target.closest('[data-oninput="renderEventList"]')) renderEventList();
+    });
+    document.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter' && ev.target.closest('[data-keydown="createCategory"]')) createCategory();
+    });
+
     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
     refreshCategorySelects();
     renderCategoryManager();
@@ -725,7 +805,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       }
       list.innerHTML = sorted.map(e => {
         const thumb = e.thumbnailUrl
-          ? \`<img class="evt-thumb" src="\${esc(safeUrl(e.thumbnailUrl))}" alt="" onerror="this.style.display='none'">\`
+          ? \`<img class="evt-thumb" src="\${esc(safeUrl(e.thumbnailUrl))}" alt="" data-onerror="hide">\`
           : \`<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>\`;
         const eyeIcon = e.visible !== false
           ? \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\`
@@ -929,15 +1009,14 @@ export function dashboardHTML(events, categories = [], nonce = '') {
             <div class="photo-row-inner">
               <span class="photo-num">\${i + 1}</span>
               <input type="url" value="\${esc(url)}" placeholder="URL da foto"
-                oninput="onPhotoInput(\${i}, this)"
-                onblur="onPhotoBlur(\${i}, this)">
-              \${i === 0 ? '' : \`<img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} onerror="this.style.display='none'" onload="this.style.display='block'">\`}
-              <button type="button" class="icon-btn danger" onclick="removePhotoInput(\${i})" title="Remover" aria-label="Remover foto">
+                data-photo-input data-i="\${i}">
+              \${i === 0 ? '' : \`<img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} data-onerror="hide" data-onload="show">\`}
+              <button type="button" class="icon-btn danger" data-action="removePhoto" data-i="\${i}" title="Remover" aria-label="Remover foto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
             \${i === 0 ? '<span class="photo-badge">capa da galeria</span>' : ''}
-            \${i === 0 ? \`<img class="photo-cover-preview" id="pcover" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} alt="" onerror="this.style.display='none'" onload="this.style.display='block'">\` : ''}
+            \${i === 0 ? \`<img class="photo-cover-preview" id="pcover" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} alt="" data-onerror="hide" data-onload="show">\` : ''}
           </div>\`).join('');
       }
       if (addBtn) addBtn.style.display = photoList.length >= 6 ? 'none' : 'inline-flex';
@@ -1248,7 +1327,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
               \${r.confirmEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
               \${r.resolvedEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
             </div>
-            \${!r.resolved ? \`<button class="btn-resolve" onclick="resolveRequest('\${esc(r.id)}')">✓ Marcar como resolvido</button>\` : ''}
+            \${!r.resolved ? \`<button class="btn-resolve" data-action="resolveRequest" data-id="\${esc(r.id)}">✓ Marcar como resolvido</button>\` : ''}
           </div>\`;
 
         // Group by project, sorted by most recent first within each group.
@@ -1269,7 +1348,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         container.innerHTML = projectOrder.map((slug, gi) => {
           const g = byProject[slug];
           const resolvedHTML = g.resolved.length > 0 ? \`
-            <button class="req-resolved-toggle" onclick="toggleResolved(\${gi})" id="rtoggle-\${gi}">▶ \${g.resolved.length} resolvida\${g.resolved.length !== 1 ? 's' : ''}</button>
+            <button class="req-resolved-toggle" data-action="toggleResolved" data-gi="\${gi}" id="rtoggle-\${gi}">▶ \${g.resolved.length} resolvida\${g.resolved.length !== 1 ? 's' : ''}</button>
             <div id="ritems-\${gi}" style="display:none">\${g.resolved.map(renderReq).join('')}</div>\` : '';
           return \`<div class="req-group">
             <div class="req-group-head">
@@ -1346,9 +1425,9 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       }).join('');
       body.innerHTML = \`<table class="metrics-table"><thead><tr>
         <th>Projeto</th>
-        <th class="sortable" onclick="sortMetrics('views')" title="Visitantes únicos por hora">Visitantes\${ind('views')}</th>
-        <th class="sortable" onclick="sortMetrics('driveClicks')" title="Quantos abriram o link do Drive">Abriu Drive\${ind('driveClicks')}</th>
-        <th class="sortable" onclick="sortMetrics('taxa')" title="Abriu Drive ÷ visitantes">Taxa\${ind('taxa')}</th>
+        <th class="sortable" data-action="sortMetrics" data-sort="views" title="Visitantes únicos por hora">Visitantes\${ind('views')}</th>
+        <th class="sortable" data-action="sortMetrics" data-sort="driveClicks" title="Quantos abriram o link do Drive">Abriu Drive\${ind('driveClicks')}</th>
+        <th class="sortable" data-action="sortMetrics" data-sort="taxa" title="Abriu Drive ÷ visitantes">Taxa\${ind('taxa')}</th>
       </tr></thead><tbody>\${rows}</tbody></table>\`;
     }
 
