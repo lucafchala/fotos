@@ -1812,7 +1812,7 @@ export function consoleGreetingScript(nonce = '') {
   try{
     console.log('%cPare!', 'color:#c0392b;font-size:46px;font-weight:800;text-shadow:1px 1px 0 rgba(0,0,0,.4);');
     console.log('%cEste é um recurso do navegador para quem desenvolve. Se alguém pediu para você colar algo aqui para "liberar" ou "hackear" alguma coisa, é golpe — e dá a essa pessoa o mesmo acesso que roubar sua sessão daria.', 'color:#c0392b;font-size:15px;font-weight:600;');
-    console.log('%cSó curiosidade mesmo? O código deste site é aberto: https://github.com/lucafchala/fotos', 'color:#c0a060;font-size:13px;');
+    console.log('%cSó curiosidade mesmo? O código deste site é aberto — o link está no rodapé, em "Código-fonte".', 'color:#c0a060;font-size:13px;');
   }catch(e){}
 })();</script>`;
 }

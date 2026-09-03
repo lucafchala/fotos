@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, consoleGreetingScript } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
@@ -876,6 +876,22 @@ describe('páginas dos documentos legais', () => {
     const body = await (await get('/')).text();
     expect(body).toContain('https://github.com/lucafchala/fotos');
     expect(body).toContain('Código-fonte');
+  });
+
+  // A CI (`security.yml`, "Só o link de código-fonte pode apontar para o
+  // GitHub") reprova qualquer "github.com" em `src/**/*.js` fora do próprio
+  // link do rodapé — regra de ARQUIVO-FONTE, não de página renderizada, então
+  // ela pega até uma string de console.log que nunca vira um <a>. Já
+  // aconteceu: consoleGreetingScript() nasceu com a URL crua no texto do
+  // console e só a CI (não este arquivo de teste, focado em hosts de <a>)
+  // acusou. Este teste roda a mesma checagem em `npm test`, sem depender de
+  // uma volta pelo CI para descobrir.
+  it('consoleGreetingScript não repete a URL do GitHub fora do rodapé', () => {
+    const script = consoleGreetingScript('n0nce');
+    expect(script).not.toMatch(/github\.com/i);
+    // E continua emitindo algo — a regressão óbvia oposta seria "corrigir"
+    // isto esvaziando a função.
+    expect(script).toContain('<script');
   });
 
   it('404s an unknown document instead of rendering an empty page', async () => {
