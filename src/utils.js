@@ -432,6 +432,27 @@ export function sessionRecord(request) {
   return JSON.stringify({ v: 1, createdAt: now, lastSeen: now, fp: clientFingerprint(request) });
 }
 
+// Portão único de forma para `admin_session:*`, no mesmo padrão de
+// `parseEvents`/`getCategories`: valida o registro INTEIRO de uma vez, não
+// campo a campo dentro do chamador. Antes, um `lastSeen` de forma inesperada
+// (string, objeto) simplesmente falhava o `typeof rec.lastSeen === 'number'`
+// e o checador de inatividade era pulado em silêncio — a sessão degradava
+// para "sem checagem de inatividade" em vez de ser recusada. Aqui qualquer
+// campo fora da forma esperada derruba o registro inteiro.
+/**
+ * @param {string} raw
+ * @returns {{createdAt: number, lastSeen?: number, fp?: string}|null}
+ */
+function parseSessionRecord(raw) {
+  let rec;
+  try { rec = JSON.parse(raw); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  if (typeof rec.createdAt !== 'number' || !Number.isFinite(rec.createdAt)) return null;
+  if (rec.fp !== undefined && typeof rec.fp !== 'string') return null;
+  if (rec.lastSeen !== undefined && (typeof rec.lastSeen !== 'number' || !Number.isFinite(rec.lastSeen))) return null;
+  return rec;
+}
+
 // Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
 // uma comparação com a string 'valid', sem inatividade nem vínculo com o
 // cliente que abriu a sessão.
@@ -453,18 +474,18 @@ export async function verifySession(env, request) {
   // TTL do KV, senão o deploy deslogaria quem estava no meio de um trabalho.
   if (raw === 'valid') return true;
 
-  let rec;
-  try { rec = JSON.parse(raw); } catch { return false; }
-  if (!rec || typeof rec !== 'object') return false;
-
-  const now = Date.now();
-  // createdAt ausente/corrompido não pode virar "sessão eterna": sem início
-  // confiável, a resposta segura para uma credencial ilegível é recusá-la.
-  const createdAt = typeof rec.createdAt === 'number' && Number.isFinite(rec.createdAt) ? rec.createdAt : null;
-  if (createdAt === null) {
+  // createdAt ausente/corrompido, ou qualquer campo de forma inesperada, não
+  // pode virar "sessão eterna" nem "sessão sem checagem de inatividade": sem
+  // registro confiável, a resposta segura para uma credencial ilegível é
+  // recusá-la, não degradar as checagens que dependem dele.
+  const rec = parseSessionRecord(raw);
+  if (!rec) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
+
+  const now = Date.now();
+  const createdAt = rec.createdAt;
   if (rec.fp && rec.fp !== clientFingerprint(request)) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;

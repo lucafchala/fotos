@@ -207,13 +207,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
       páginas principais (galeria, um evento com Drive, dashboard) a cada
       deploy — hoje a validação visual depende de abrir o site manualmente, e é
       justamente onde os bugs que a suíte não pega aparecem.
-- [ ] **Terminar a validação de forma nas leituras de KV.** `getEvents()`,
-      `getRemovalRequests()`, `getCategories()` e `cron:last` já passam por um
-      portão. Falta `admin_session:*`: o `JSON.parse` tem catch e os campos que
-      decidem expiração são validados um a um, mas o registro inteiro não —
-      um valor com forma inesperada degrada em vez de recusar. É o menos urgente
-      dos quatro (o caminho exige um token de 64 hexadecimais que já existe em
-      KV), e por isso ficou por último.
 
 ---
 
