@@ -1793,3 +1793,26 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
   addEventListener('pagehide',flush);` : ''}
 })();</script>`;
 }
+
+// Aviso de self-XSS no console — mesmo padrão que Facebook/Google usam desde
+// os golpes de "cole isto no console para liberar/hackear X": a vítima é
+// convencida a colar código malicioso no próprio console autenticado, dando
+// ao golpista o mesmo acesso que um roubo de sessão daria. Não é proteção
+// técnica (quem já sabe o que está fazendo não lê isto), é o aviso na hora
+// certa, no lugar certo. De brinde, aponta o repositório para quem só abriu o
+// DevTools por curiosidade — sem link de verdade na página, então a regra
+// contra link de GitHub em markup (ver TODO.md) não se aplica: isto é texto
+// de console, não um <a>.
+/**
+ * @param {string} nonce nonce da requisição — sem ele o script não é emitido
+ */
+export function consoleGreetingScript(nonce = '') {
+  if (!nonce) return '';
+  return `<script nonce="${escape(nonce)}">(function(){
+  try{
+    console.log('%cPare!', 'color:#c0392b;font-size:46px;font-weight:800;text-shadow:1px 1px 0 rgba(0,0,0,.4);');
+    console.log('%cEste é um recurso do navegador para quem desenvolve. Se alguém pediu para você colar algo aqui para "liberar" ou "hackear" alguma coisa, é golpe — e dá a essa pessoa o mesmo acesso que roubar sua sessão daria.', 'color:#c0392b;font-size:15px;font-weight:600;');
+    console.log('%cSó curiosidade mesmo? O código deste site é aberto: https://github.com/lucafchala/fotos', 'color:#c0a060;font-size:13px;');
+  }catch(e){}
+})();</script>`;
+}
