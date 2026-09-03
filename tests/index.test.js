@@ -90,6 +90,13 @@ describe('normalizeEventFields', () => {
     expect(f.date).toBe('');
   });
 
+  it('accepts a valid promisedDate and rejects a malformed one (issue #139)', () => {
+    const ok = normalizeEventFields({ promisedDate: '2026-12-01' }, DEFAULT_EVENT, CATS);
+    expect(ok.promisedDate).toBe('2026-12-01');
+    const bad = normalizeEventFields({ promisedDate: '01/12/2026' }, DEFAULT_EVENT, CATS);
+    expect(bad.promisedDate).toBe('');
+  });
+
   it('no longer has a photoCount field (removed — photos are already numbered)', () => {
     const f = normalizeEventFields({ photoCount: 128 }, DEFAULT_EVENT, CATS);
     expect(f).not.toHaveProperty('photoCount');

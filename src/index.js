@@ -796,6 +796,9 @@ export function normalizeEventFields(body, base, cats) {
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
     projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
+    // Data prometida de entrega ao cliente — usada só para destacar atraso no
+    // painel (issue #139); nunca aparece nas páginas públicas.
+    promisedDate: pick('promisedDate', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     visible: pick('visible', v => v !== false),
     comingSoon: pick('comingSoon', v => v === true),
     status: pick('status', v => (EVENT_STATUSES.includes(v) ? v : b.status)),

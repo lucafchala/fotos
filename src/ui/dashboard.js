@@ -100,17 +100,24 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   /** @param {number} n */
   const noun = n => n === 1 ? 'evento' : 'eventos';
   const ssrCount = `${active.length} ${noun(active.length)} ativos`;
+  // "Atrasado": data prometida já passou e o evento ainda não foi entregue
+  // (arquivado não conta — já saiu do fluxo de produção).
+  const todayISO = new Date().toISOString().slice(0, 10);
+  /** @param {import('../utils.js').Evento} e */
+  const isOverdue = e => !!e.promisedDate && e.promisedDate < todayISO
+    && (e.status || 'entregue') !== 'entregue' && (e.status || 'entregue') !== 'arquivado';
   const ssrList = active.length === 0
     ? '<p class="empty">Nenhum evento ainda. Clique em Adicionar.</p>'
     : active.map(e => {
         const st = e.status || 'entregue';
+        const overdueBadge = isOverdue(e) ? '<span class="status-badge st-atrasado">Atrasado</span>' : '';
         const thumb = e.thumbnailUrl
           ? `<img class="evt-thumb" src="${esc(safeUrl(e.thumbnailUrl))}" alt="" data-onerror="hide">`
           : `<div class="evt-thumb-ph"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg></div>`;
         return `<div class="evt-item${e.visible === false ? ' hidden-evt' : ''}" id="evt-${esc(e.id)}">
           ${thumb}
           <div class="evt-info">
-            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${esc(st)}">${esc(STATUS_LABELS_SSR[st] || st)}</span></div>
+            <div class="evt-name">${esc(e.title)} <span class="status-badge st-${esc(st)}">${esc(STATUS_LABELS_SSR[st] || st)}</span>${overdueBadge}</div>
             <div class="evt-slug">/${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
@@ -194,6 +201,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .st-em-revisao{color:#4a8ac8;background:rgba(74,138,200,.08)}
     .st-entregue{color:#4a9a4a;background:rgba(74,154,74,.08)}
     .st-arquivado{color:#666;background:rgba(102,102,102,.08)}
+    /* Lembrete de entrega (issue #139): não é um status de produção, é um
+       aviso sobre um status — por isso é um badge à parte, não um 5º valor
+       de EVENT_STATUSES. */
+    .st-atrasado{color:#c83a3a;background:rgba(200,58,58,.1)}
     /* filter row */
     .filter-row{margin-bottom:1rem;display:flex;flex-direction:column;gap:.625rem}
     .filter-row select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;-webkit-appearance:none}
@@ -546,6 +557,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <label>Link extra do projeto <span style="color:#555">(opcional)</span></label>
           <input type="url" id="f-purl" placeholder="https://...">
         </div>
+        <div class="field">
+          <label>Data prometida de entrega <span style="color:#555">(opcional)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">Se passar da data e o evento ainda não estiver "Entregue", ele aparece destacado em vermelho na lista.</div>
+          <input type="date" id="f-promised">
+        </div>
         <div class="field-row">
           <div class="field">
             <label>Status de produção</label>
@@ -646,6 +662,13 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     let lastFocused = null;
     let formSnapshot = '';
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
+    // Espelha isOverdue() da versão SSR acima — mesma regra, dois contextos
+    // (Worker no request inicial, browser depois de cada ação).
+    function isOverdue(e) {
+      const st = e.status || 'entregue';
+      if (!e.promisedDate || st === 'entregue' || st === 'arquivado') return false;
+      return e.promisedDate < new Date().toISOString().slice(0, 10);
+    }
     // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 
@@ -812,11 +835,12 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           : \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>\`;
         const pinIcon = \`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="\${e.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h4l-3.5 5 1.5 7L12 18l-5 3 1.5-7L5 9h4z"/></svg>\`;
         const st = e.status || 'entregue';
+        const overdueBadge = isOverdue(e) ? '<span class="status-badge st-atrasado">Atrasado</span>' : '';
         return \`<div class="evt-item\${e.visible === false ? ' hidden-evt' : ''}" id="evt-\${esc(e.id)}">
           \${massMode ? \`<input type="checkbox" class="evt-check" data-id="\${esc(e.id)}" \${selectedIds.has(e.id) ? 'checked' : ''}>\` : ''}
           \${thumb}
           <div class="evt-info">
-            <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${esc(st)}">\${esc(STATUS_LABELS[st] || st)}</span></div>
+            <div class="evt-name">\${esc(e.title)} <span class="status-badge st-\${esc(st)}">\${esc(STATUS_LABELS[st] || st)}</span>\${overdueBadge}</div>
             <div class="evt-slug">/\${esc(e.slug)}</div>
           </div>
           <div class="evt-actions">
@@ -855,6 +879,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
+      document.getElementById('f-promised').value = e ? (e.promisedDate || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       document.getElementById('f-status').value = e?.status || 'entregue';
@@ -888,6 +913,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       return JSON.stringify({
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
         driveIg: val('f-drive-ig'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
         alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'),
@@ -936,7 +962,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
       set('f-drive-ig', f.driveIg); set('f-date', f.date); set('f-credits', f.credits);
-      set('f-purl', f.purl); set('f-status', f.status); set('f-access', f.accessType);
+      set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon);
       setChk('f-alert-active', f.alertActive);
@@ -1126,6 +1152,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
+        promisedDate: document.getElementById('f-promised').value,
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
         status: document.getElementById('f-status').value,
@@ -1246,7 +1273,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     function duplicateEvent(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
-      openForm(null, { ...e, title: e.title + ' (cópia)', slug: '', pinned: false });
+      openForm(null, { ...e, title: e.title + ' (cópia)', slug: '', pinned: false, promisedDate: '' });
     }
 
     // ---- Delete ----
