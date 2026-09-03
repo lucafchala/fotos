@@ -75,6 +75,26 @@ mergeado — rode os dois, confie no CI.
 - `update_pull_request_branch` — para trazer `main` para dentro de um PR que
   ficou para trás; depois de um merge de Dependabot, por exemplo.
 
+### Issues — onde vive um item de ação novo
+
+Desde 2026-09, item de ação novo vira **Issue do GitHub**
+(`issue_write` com `method: create`), não uma linha nova em `TODO.md`. O
+`TODO.md` continua sendo a fonte da política, do orçamento de cota e das
+"Regras vivas" — o que não é "uma tarefa para fazer". Os itens que ainda
+restam como `- [ ]` em `TODO.md` são o que falta migrar; migre ao tocar
+naquela seção (crie a Issue com o conteúdo completo do item, depois apague a
+linha — não deixe as duas cópias, é a mesma armadilha de "regra escrita duas
+vezes").
+
+- `issue_write` (`method: create`) — título curto, corpo com o contexto
+  completo (o "porquê", não só o "o quê" — mesmo padrão dos commits deste
+  repositório). Sem rótulos customizados; o repositório não tem taxonomia
+  própria ainda.
+- `list_issues` — para não duplicar um item que já virou Issue.
+- `issue_write` (`method: update`, `state: closed`, `state_reason`) — para
+  fechar quando o item for entregue; o PR que entrega deve referenciar a
+  Issue (`Fixes #N` no corpo, como o template de PR já pede).
+
 ### O que **não** existe neste conjunto de ferramentas
 
 Descoberto tentando, não suposto: não há tool para **branch protection /

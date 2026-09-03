@@ -10,6 +10,16 @@ de cada uma, o primeiro item é o próximo a atacar.
 > trabalho já entregue. O que sobrevive ao fechamento é só a regra que alguém
 > precisa seguir amanhã — e essa mora em [Regras vivas](#regras-vivas).
 
+> 🔀 **Item de ação novo vira Issue do GitHub, não uma linha aqui.** Este
+> arquivo continua sendo a fonte da política, do orçamento de cota e das
+> [Regras vivas](#regras-vivas) — decisões e contexto que não são "uma coisa
+> para fazer". Mas uma tarefa concreta ("fazer X") tracked em dois lugares é
+> exatamente a família de bug que este projeto mais paga caro (ver Regras
+> vivas → "Uma regra escrita duas vezes é corrigida uma vez só"), e isso vale
+> para tracking também: a Issue é o único lugar, para não divergir de si
+> mesma. Os itens que ainda estão aqui embaixo são o que restou de migrar;
+> não são menos válidos por ainda estarem em markdown.
+
 ---
 
 ## Plano gratuito — a restrição que decide o resto
@@ -83,12 +93,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
 
 ## Lançamento
 
-- [ ] **Ligar o painel de cotas do status.** `CF_API_TOKEN` (Account
-      Analytics:Read) + `CF_ACCOUNT_ID` nas variáveis do Pages. Sem eles o
-      `/api/quota-stats` responde `configured: false` e o painel esconde o
-      bloco — ou seja, o consumo real das cotas fica invisível justamente sob a
-      política de ficar no gratuito. É o instrumento que torna a seção acima
-      verificável em vez de teórica.
 - [ ] Link para fotos.lucafchala.com na bio do Instagram (@lucafchala)
 - [ ] Link na homepage pessoal (lucafchala.com)
 
@@ -98,12 +102,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
 
 ### Ações do dono (fora do código) — prioridade
 
-- [ ] 🔴 **Autorização de imagem de menores assinada pelo responsável legal.**
-      É o único risco residual **alto** do sistema (R3 do
-      [RIPD](./docs/legal/RIPD.md)) e nenhuma medida no código o resolve — a
-      coleta acontece no evento ou no contrato com a escola. Modelos prontos em
-      [`docs/legal/termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
-      o caminho de menor atrito é o Modelo 3, anexado ao contrato.
 - [ ] 🔴 **Confirmar se a conta do Google Drive é Workspace ou pessoal.** Conta
       pessoal gratuita não tem DPA, o que enfraquece o fundamento do art. 33, III
       justamente para a transferência de maior impacto (as fotografias). Ver
@@ -182,21 +180,6 @@ Nesta ordem, e **nenhuma delas é pagar**:
 > Não duplicar a conta aqui: ela muda quando o código muda, e duas cópias
 > divergem.
 
-- [ ] **Estender a resiliência a queda de KV para além do caminho das fotos.**
-      Galeria, página do projeto e portão do Drive sobrevivem hoje a uma queda
-      de leitura (cópia na Cache API, ver
-      [SECURITY.md](./SECURITY.md#the-event-list-survives-kv-being-unavailable)).
-      Ainda respondem 500 numa queda total: o formulário de suporte (leitura da
-      chave de deduplicação) e o login do painel (`admin_password`,
-      `verifySession`). No login o certo é falhar **fechado**, nunca servir
-      sessão de cópia.
-      > O formulário de remoção saiu desta lista: o pedido não depende mais do
-      > KV para existir. Com o KV fora, ele segue pelo e-mail (a via que já
-      > avisava o dono e confirmava ao titular) e a resposta é `ok`; só quando
-      > nem o e-mail sai é que vem um 503 com o endereço para escrever direto,
-      > em vez da página 500 que fazia o pedido sumir sem registro. A queda vai
-      > para `noteDegraded`, então o painel de status acusa que há pedido fora
-      > do painel.
 - [ ] **Destino persistente para o beacon de performance** (`POST /api/perf`) —
       hoje só cai em log estruturado, e **provavelmente fica assim**. O handler
       já trata os dois casos: sem o binding `PERF`, nada quebra. Antes de mexer,
