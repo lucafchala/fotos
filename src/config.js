@@ -24,7 +24,7 @@ export const FORM_TOKEN_MIN_AGE_SECS = 3;
 export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
-  projectUrl: '', visible: true, comingSoon: false, status: 'entregue',
+  projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
   accessType: 'public', category: '', internalNotes: '', pinned: false,
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
 };
