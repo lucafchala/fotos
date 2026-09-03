@@ -303,6 +303,7 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Link do Drive não abre | `healthz` → `drive: { bad: N }` |
 | Deploy vermelho, site no ar | O smoke test roda **depois** de publicar. Ver Rollback no README |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
+| Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** `git revert <sha> && git push` (preferido), ou promover um
 deployment anterior no painel da Cloudflare — mas aí a `main` fica à frente da
