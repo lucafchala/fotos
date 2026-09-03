@@ -330,6 +330,7 @@ voltar:
 | Arquivo | Quando ler |
 | --- | --- |
 | **RETOMADA.md** (este) | Ao voltar depois de um tempo |
+| [CLAUDE.md](./CLAUDE.md) / [llms.md](./llms.md) | Sessão de agente: quais ferramentas usar (GitHub API, verificação) |
 | [README.md](./README.md) | Referência completa: rotas, dados, deploy, decisões |
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | O que falta, o que foi decidido e por quê |
