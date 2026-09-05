@@ -1739,7 +1739,12 @@ describe('anexo de remoção: o portão é a capacidade de limpar', () => {
     expect(res.status, await res.clone().text()).toBe(200);
     await Promise.all(pendentes);
 
-    const email = enviados.find(e => e.url.includes('api.resend.com'));
+    // Host por `new URL().host`, não por substring: `includes('api.resend.com')`
+    // casaria também com `api.resend.com.exemplo.com`. É a mesma regra dos
+    // outros dublês de e-mail desta suíte e a família de bug desta base
+    // (RETOMADA §5.6) — o CodeQL acusa como
+    // js/incomplete-url-substring-sanitization mesmo dentro de teste.
+    const email = enviados.find(e => new URL(e.url).host === 'api.resend.com');
     expect(email, 'o pedido tem de virar e-mail').toBeTruthy();
     const anexo = JSON.parse(email.body).attachments[0];
     const bytes = bytesFromBase64(anexo.content);
