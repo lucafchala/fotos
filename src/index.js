@@ -1468,15 +1468,15 @@ export async function handleRemovalRequest(request, env) {
     }
     // Confirm it's actually an image (magic bytes), not an arbitrary blob.
     if (!isLikelyImage(fileBase64)) {
-      return jsonErr('Envie uma imagem válida (JPEG, PNG ou WebP).', 415);
+      return jsonErr('Envie uma imagem válida (JPEG, PNG, WebP, HEIC, AVIF ou GIF).', 415);
     }
   }
 
   // Metadados fora antes de virar anexo de e-mail (GPS de onde a foto foi
   // tirada, que não precisamos para atender ao pedido). O portão é a própria
-  // capacidade de limpar, não uma segunda lista de formatos aceitos:
-  // `isLikelyImage()` aceita HEIC/AVIF/GIF mas `stripImageMetadata()` só sabe
-  // limpar JPEG/PNG/WebP — se `stripped` voltar falso por qualquer motivo, a
+  // capacidade de limpar, não uma segunda lista de formatos aceitos: se
+  // `stripped` voltar falso por qualquer motivo — formato desconhecido, arquivo
+  // fora do padrão, ou uma assinatura de metadado que sobreviveu à limpeza — a
   // foto simplesmente não vai, em vez de manter duas listas sincronizadas.
   /** @type {Record<string, any>|null} */
   let photoMeta = null;
@@ -1487,7 +1487,7 @@ export async function handleRemovalRequest(request, env) {
       // Duas causas, conselhos opostos: formato que não sabemos limpar
       // (converter resolve) vs. formato suportado mas arquivo fora do padrão
       // (o parser aborta ao primeiro byte errado em vez de arriscar corromper).
-      const sabemosLimpar = ['jpeg', 'png', 'webp'].includes(stripped.format);
+      const sabemosLimpar = ['jpeg', 'png', 'webp', 'heic', 'avif', 'gif'].includes(stripped.format);
       return jsonErr(
         sabemosLimpar
           ? `Este arquivo ${stripped.format.toUpperCase()} tem uma estrutura fora do padrão e não ` +
@@ -1495,11 +1495,9 @@ export async function handleRemovalRequest(request, env) {
             'porque costumam incluir a localização por GPS. Abra a foto, salve/exporte de novo ' +
             '(ou tire um print dela) e envie o novo arquivo. Ou identifique a foto pelo ' +
             'número/link, sem anexo.'
-          : `Não consigo apagar os metadados de um arquivo ${stripped.format.toUpperCase()}, e não ` +
-            'envio foto sem apagá-los — eles costumam incluir a localização por GPS de onde ela ' +
-            'foi tirada. Converta para JPEG, PNG ou WebP e envie de novo. No iPhone: Ajustes → ' +
-            'Câmera → Formatos → "Mais compatível". Ou identifique a foto pelo número/link, ' +
-            'sem anexo.',
+          : 'Não consigo apagar os metadados deste arquivo, e não envio foto sem apagá-los — eles ' +
+            'costumam incluir a localização por GPS de onde ela foi tirada. Converta para JPEG, ' +
+            'PNG ou WebP e envie de novo. Ou identifique a foto pelo número/link, sem anexo.',
         415
       );
     }
