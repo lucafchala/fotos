@@ -464,6 +464,28 @@ The fix is not a third list. The gate is now **the strip itself**: if
 Teaching the stripper HEIC later opens the gate on its own, with nobody having
 to remember.
 
+**And it did.** The stripper now handles HEIC/AVIF and GIF, so the iPhone path
+goes through cleaned instead of refused — no second list was touched. HEIC and
+AVIF are not pruned like the other formats: EXIF and XMP live in `mdat`,
+addressed by *absolute* offsets in the `meta/iloc` table, so deleting those
+bytes would shift everything after them and invalidate the offsets that point
+at the image itself. The bytes are **zeroed in place** — same file length, every
+offset still valid — with a valid empty TIFF header left where the EXIF was, so
+a reader that asks for metadata gets "none" instead of garbage. Anything the
+parser does not understand end to end still returns "not cleaned", and the gate
+refuses it.
+
+The last line of defence is a sweep of the *result*: if an EXIF or XMP signature
+survives the strip, there was a copy no table declared, and the file is refused
+rather than attached. The sweep skips exactly one box, `iinf`, because item
+*names* live there — an EXIF item is literally named `Exif`, and the `\0` ending
+that name followed by the next box's size byte spells `Exif\0\0` in a file with
+no EXIF left at all. **The synthetic test fixture never showed this; a file
+written by a real encoder did, on the first try.** A fixture you wrote yourself
+agrees with the parser you wrote yourself — the same lesson the Durable Object
+counter taught, in a different costume. The suite now carries real
+encoder output for HEIC and GIF alongside the hand-built ones.
+
 ## Required secrets
 
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and

@@ -613,9 +613,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <div id="rem-upload-field" class="rem-field" style="display:none">
           <label>Foto</label>
           <!-- Lista explícita, e não image/*: o servidor recusa o que não
-               consegue limpar de metadados (HEIC, AVIF, GIF), e image/* fazia
-               o iPhone oferecer justamente o HEIC para depois levar 415. -->
-          <input type="file" id="rem-file" accept="image/jpeg,image/png,image/webp">
+               consegue limpar de metadados, e a lista é exatamente o que o
+               strip sabe limpar hoje. HEIC entra desde que o strip aprendeu
+               ISO-BMFF — era o formato que o iPhone oferecia para depois levar
+               415. -->
+          <input type="file" id="rem-file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,image/gif">
         </div>
 
         <div class="rem-field">

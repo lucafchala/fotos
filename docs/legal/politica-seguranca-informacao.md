@@ -147,8 +147,10 @@ fragilidades conhecidas, com o motivo de cada uma:
    `lh3.googleusercontent.com`, que não enviam CORP.
 6. **HSTS sem `preload`.** É compromisso de domínio inteiro, praticamente
    irreversível — decisão do dono, não efeito colateral de um commit.
-7. **EXIF não removido em HEIC/AVIF/GIF.** Reescrever esses contêineres sem
-   decodificador arriscaria corromper a prova enviada pelo titular.
+7. **Anexo em formato que o servidor não consegue limpar é recusado, não
+   enviado.** A limpeza cobre JPEG, PNG, WebP, HEIC, AVIF e GIF; um arquivo
+   fora do padrão desses contêineres é recusado com orientação de como
+   reenviar, porque anexar sem apagar os metadados seria pior.
 
 ## 10. Governança
 

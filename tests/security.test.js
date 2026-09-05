@@ -7,7 +7,7 @@
 // de um teste próprio afirmando o comportamento negativo ("isto tem que ser
 // recusado"), não só o positivo.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isCrossSiteRequest, signToken, verifyToken, sanitizeFilename, validatePassword,
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
@@ -390,6 +390,99 @@ describe('clientFingerprint', () => {
 });
 
 // ---------------------------------------------------------------------------
+// HEIC/AVIF — o EXIF é um *item* endereçado por deslocamento absoluto, então
+// a limpeza zera no lugar em vez de podar (podar moveria os bytes da imagem e
+// invalidaria todos os deslocamentos da tabela). Fixtures no escopo do módulo:
+// o describe do strip e o do portão de anexo usam as mesmas.
+const ascii = s => [...s].map(c => c.charCodeAt(0));
+const u16 = n => [(n >> 8) & 255, n & 255];
+const u32 = n => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+const box = (type, payload) => [...u32(payload.length + 8), ...ascii(type), ...payload];
+
+/**
+ * HEIC/AVIF mínimo mas fiel: ftyp + meta(hdlr, iinf, iloc) + mdat, com os
+ * bytes do metadado dentro do mdat e a tabela `iloc` apontando para eles por
+ * deslocamento ABSOLUTO — que é justamente o que impede a poda.
+ */
+function heifFixture({
+  brand = 'heic',
+  itemType = 'Exif',
+  payload = 'Exif\0\0GPSLatitude:-23.5505',
+  image = [0x11, 0x22, 0x33, 0x44],
+  construction = 0,
+  dataRef = 0,
+  extraMdat = [],
+  extraTopBoxes = [],
+} = {}) {
+  const meta = exifOffset => {
+    const infe = id => (t, name) => box('infe', [2, 0, 0, 0, ...u16(id), ...u16(0), ...ascii(t), ...ascii(name), 0]);
+    const iinf = box('iinf', [
+      0, 0, 0, 0, ...u16(2),
+      ...infe(1)('hvc1', 'image'),
+      ...infe(2)(itemType, 'meta'),
+    ]);
+    const entry = (id, off, len) => [
+      ...u16(id), ...u16(id === 2 ? construction : 0), ...u16(id === 2 ? dataRef : 0),
+      ...u16(1), ...u32(off), ...u32(len),
+    ];
+    const iloc = box('iloc', [
+      1, 0, 0, 0,          // version 1 (traz construction_method)
+      (4 << 4) | 4,        // offset_size=4, length_size=4
+      (0 << 4) | 0,        // base_offset_size=0, index_size=0
+      ...u16(2),
+      ...entry(2, exifOffset, payload.length),
+      ...entry(1, exifOffset + payload.length, image.length),
+    ]);
+    const hdlr = box('hdlr', [0, 0, 0, 0, ...u32(0), ...ascii('pict'), ...u32(0), ...u32(0), ...u32(0), 0]);
+    return box('meta', [0, 0, 0, 0, ...hdlr, ...iinf, ...iloc]);
+  };
+
+  const ftyp = box('ftyp', [...ascii(brand), ...u32(0), ...ascii(brand)]);
+  // Duas passagens: o deslocamento do EXIF depende do tamanho do `meta`, que
+  // não depende do deslocamento (os campos são de largura fixa).
+  const metaLen = meta(0).length;
+  const mdatStart = ftyp.length + metaLen + extraTopBoxes.length + 8;
+  const mdat = box('mdat', [...ascii(payload), ...image, ...extraMdat]);
+  return new Uint8Array([...ftyp, ...meta(mdatStart), ...extraTopBoxes, ...mdat]);
+}
+
+// ---------------------------------------------------------------------------
+// Arquivos escritos por CODIFICADOR DE VERDADE (libheif e a do Pillow), não
+// por nós. Estão aqui porque a fixture sintética acima passou com o parser
+// errado: a varredura final recusava todo HEIC real, porque o nome do item
+// ("Exif") colado ao tamanho da caixa seguinte forma a assinatura "Exif\0\0".
+// Testar o parser só contra bytes que nós mesmos montamos é o mesmo erro do
+// contador em dublê de Durable Object — a fixture concorda com o autor.
+//
+// real.heic: 64x48, EXIF com Make/Model marcados e GPS, mais um pacote XMP.
+// Os deslocamentos abaixo vêm da tabela `iloc` deste arquivo.
+const HEIC_REAL_B64 =
+  'AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAghtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAA' +
+  'AAAAAEZpbG9jAAAAAERAAAMAAQAAAAACLAABAAAAAAAAAB0AAgAAAAACSQABAAAAAAAAAMgAAwAAAAADEQABAAAAAAAAAO4A' +
+  'AABiaWluZgAAAAAAAwAAABVpbmZlAgAAAAABAABodmMxAAAAABVpbmZlAgAAAQACAABFeGlmAAAAACppbmZlAgAAAQADAABt' +
+  'aW1lAGFwcGxpY2F0aW9uL3JkZit4bWwAAAAAAA5waXRtAAAAAAABAAAA/WlwcnAAAADdaXBjbwAAAHZodmNDAQNwAAAAAAAA' +
+  'AAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq' +
+  '5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAo' +
+  'Y2xhcAAAAEAAAAABAAAAMAAAAAEAAAAAAAAAAv////AAAAACAAAAEHBpeGkAAAAAAwgICAAAABhpcG1hAAAAAAAAAAEAAQWB' +
+  'AgMFhAAAAChpcmVmAAAAAAAAAA5jZHNjAAIAAQABAAAADmNkc2MAAwABAAEAAAHbbWRhdAAAABkoAa8TgPUngT//4KVH/7rW' +
+  'eH4PC3558tTwAAAABkV4aWYAAE1NACoAAAAIAAMBDwACAAAAFQAAADIBEAACAAAADwAAAEiIJQAEAAAAAQAAAFgAAAAATUFS' +
+  'Q0EtU0VDUkVUQS1pUGhvbmUAAE1PREVMTy1TRUNSRVRPAAAABAABAAIAAAACUwAAAAACAAUAAAADAAAAjgADAAIAAAACVwAA' +
+  'AAAEAAUAAAADAAAApgAAAAAAAAAXAAAAAQAAACEAAAABAAAHBwAAAGQAAAAuAAAAAQAAACYAAAABAAAAAgAAAAE8P3hwYWNr' +
+  'ZXQgYmVnaW49IiIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pjx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6' +
+  'bWV0YS8iPjxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+' +
+  'PHJkZjpEZXNjcmlwdGlvbj5TRUdSRURPLVhNUDwvcmRmOkRlc2NyaXB0aW9uPjwvcmRmOlJERj48L3g6eG1wbWV0YT48P3hw' +
+  'YWNrZXQgZW5kPSJ3Ij8+';
+
+// real.gif: 2 quadros, extensão de comentário e o loop NETSCAPE2.0.
+const GIF_REAL_B64 =
+  'R0lGODlhIAAYAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh/h9DT01FTlRBUklPLVNFQ1JFVE8gR1BTIC0y' +
+  'My41NTA1ACH5BAAMAAAALAAAAAAgABgAAAgvAAEIHEiwoMGDCBMqXMiwocOHECNKnEixosWLGDNq3Mixo8ePIEOKHEmypMmN' +
+  'AQEAIfkEAQwAAQAsAAAAACAAGACBAAD/AAAAAAAAAAAACC8AAQgcSLCgwYMIEypcyLChw4cQI0qcSLGixYsYM2rcyLGjx48g' +
+  'Q4ocSbKkyY0BAQA7';
+
+// Atalho para o caminho comum: HEIC com EXIF de verdade dentro do mdat.
+const heicComExif = texto => heifFixture({ payload: `Exif\0\0${texto}` });
+
 describe('stripImageMetadata', () => {
   // JPEG mínimo: SOI + APP1(EXIF com uma carga reconhecível) + SOS + EOI.
   function jpegWithExif() {
@@ -450,15 +543,184 @@ describe('stripImageMetadata', () => {
     expect(decoded).toContain('IEND');
   });
 
-  it('returns the original untouched for formats it cannot safely rewrite', () => {
-    // GIF/HEIC passam intactos de propósito: mexer neles sem um decodificador
-    // de verdade arrisca corromper a prova que o titular enviou. O resultado
-    // fica registrado (stripped=false) em vez de fingir que limpou.
+  it('returns the original untouched for a file it cannot parse end to end', () => {
+    // Um GIF que acaba no meio: o parser aborta em vez de adivinhar onde os
+    // blocos terminam. "Não sei ler" nunca pode virar "está limpo" — o
+    // chamador recusa todo stripped=false, e é esse o portão.
     const gif = new Uint8Array([...'GIF89a'].map(c => c.charCodeAt(0)).concat([0, 0, 0, 0, 0, 0, 0, 0]));
     const b64 = base64FromBytes(gif);
     const r = stripImageMetadata(b64);
     expect(r.stripped).toBe(false);
+    expect(r.format).toBe('gif');
     expect(r.base64).toBe(b64);
+  });
+
+
+  it('zeroes the EXIF item of a HEIC in place, keeping every offset valid', () => {
+    const original = heifFixture();
+    const { base64, stripped, format } = stripImageMetadata(base64FromBytes(original));
+    expect(stripped).toBe(true);
+    expect(format).toBe('heic');
+
+    const out = bytesFromBase64(base64);
+    const text = new TextDecoder('latin1').decode(out);
+    expect(text).not.toContain('GPSLatitude');
+    expect(text).not.toContain('Exif\0\0');
+    // Mesmo tamanho: é o que mantém válidos os deslocamentos do `iloc` — a
+    // razão de zerar em vez de podar.
+    expect(out.length).toBe(original.length);
+    // O contêiner continua de pé e os bytes da imagem saem intactos.
+    expect(text).toContain('ftypheic');
+    expect(text).toContain('iloc');
+    expect(Array.from(out.slice(-4))).toEqual([0x11, 0x22, 0x33, 0x44]);
+  });
+
+  it('zeroes the XMP item of an AVIF', () => {
+    const xmp = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF>GPS aqui</rdf:RDF></x:xmpmeta>';
+    const original = heifFixture({ brand: 'avif', itemType: 'mime', payload: xmp });
+    const { base64, stripped, format } = stripImageMetadata(base64FromBytes(original));
+    expect(stripped).toBe(true);
+    expect(format).toBe('avif');
+    expect(new TextDecoder('latin1').decode(bytesFromBase64(base64))).not.toContain('xmpmeta');
+  });
+
+  it('refuses a HEIC whose metadata bytes it cannot reach', () => {
+    // construction_method 2 = o item é montado a partir de outro item;
+    // data_reference_index != 0 = os bytes estão em outro arquivo. Nos dois
+    // casos não há o que zerar aqui, e afirmar "limpo" seria mentira.
+    for (const variant of [{ construction: 2 }, { dataRef: 1 }]) {
+      const r = stripImageMetadata(base64FromBytes(heifFixture(variant)));
+      expect(r.stripped, JSON.stringify(variant)).toBe(false);
+      expect(r.format).toBe('heic');
+    }
+  });
+
+  it('refuses a HEIC that still carries an EXIF signature after the strip', () => {
+    // Cópia do EXIF que nenhuma tabela declara — a varredura final é o que
+    // separa "limpei o que a tabela dizia" de "este arquivo está limpo".
+    const r = stripImageMetadata(base64FromBytes(heifFixture({
+      extraMdat: [...'Exif\0\0GPSLatitude:-23.5505'].map(c => c.charCodeAt(0)),
+    })));
+    expect(r.stripped).toBe(false);
+  });
+
+  it('cleans a HEIC written by a real encoder, leaving the image bytes alone', () => {
+    const original = bytesFromBase64(HEIC_REAL_B64);
+    const { base64, stripped, format } = stripImageMetadata(HEIC_REAL_B64);
+    expect(stripped, 'HEIC de codificador real tem de passar').toBe(true);
+    expect(format).toBe('heic');
+
+    const out = bytesFromBase64(base64);
+    const text = new TextDecoder('latin1').decode(out);
+    expect(out.length).toBe(original.length);
+    expect(text).not.toContain('MARCA-SECRETA-iPhone'); // EXIF Make
+    expect(text).not.toContain('MODELO-SECRETO');       // EXIF Model
+    expect(text).not.toContain('SEGREDO-XMP');
+    expect(text).not.toContain('<x:xmpmeta');
+
+    // Faixas da tabela `iloc` deste arquivo: item 1 imagem, item 2 EXIF, item 3 XMP.
+    const [IMG, EXIF, XMP] = [[556, 585], [585, 785], [785, 1023]];
+    expect(Array.from(out.subarray(...IMG)), 'os bytes da imagem não podem ser tocados')
+      .toEqual(Array.from(original.subarray(...IMG)));
+    // Onde havia EXIF fica um EXIF VÁLIDO E VAZIO: cabeçalho TIFF, zero
+    // entradas. Zerar tudo faria um leitor que pede o EXIF receber lixo.
+    expect(Array.from(out.subarray(EXIF[0], EXIF[0] + 18)))
+      .toEqual([0, 0, 0, 0, 0x4D, 0x4D, 0, 0x2A, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0]);
+    expect(out.subarray(EXIF[0] + 18, EXIF[1]).every(b => b === 0)).toBe(true);
+    expect(out.subarray(...XMP).every(b => b === 0)).toBe(true);
+  });
+
+  it('cleans a GIF written by a real encoder, keeping every frame', () => {
+    const original = bytesFromBase64(GIF_REAL_B64);
+    const { base64, stripped } = stripImageMetadata(GIF_REAL_B64);
+    expect(stripped).toBe(true);
+
+    const out = bytesFromBase64(base64);
+    const text = new TextDecoder('latin1').decode(out);
+    expect(text).not.toContain('COMENTARIO-SECRETO');
+    expect(text).not.toContain('NETSCAPE2.0'); // o preço declarado: o loop sai junto
+    // Os quadros (que vêm depois das extensões removidas) saem byte a byte
+    // iguais. O cabeçalho é assinatura + descritor de tela + tabela global de
+    // cores, cujo tamanho está declarado no byte de flags.
+    const cabecalho = 13 + (original[10] & 0x80 ? 3 * (1 << ((original[10] & 0x07) + 1)) : 0);
+    const removido = original.length - out.length;
+    expect(removido).toBeGreaterThan(0);
+    expect(Array.from(out.subarray(cabecalho)))
+      .toEqual(Array.from(original.subarray(cabecalho + removido)));
+    expect(out[out.length - 1]).toBe(0x3B);
+  });
+
+  it('refuses a HEIC that carries an image sequence (moov)', () => {
+    // `moov` traz outra árvore de metadado (udta, meta por track) que este
+    // parser não percorre.
+    const r = stripImageMetadata(base64FromBytes(heifFixture({
+      extraTopBoxes: box('moov', [0, 0, 0, 0]),
+    })));
+    expect(r.stripped).toBe(false);
+  });
+
+  it('zeroes a top-level uuid box, where XMP also hides', () => {
+    const uuid = box('uuid', [...new Array(16).fill(7), ...[...'<?xpacket begin="" ?>GPS'].map(c => c.charCodeAt(0))]);
+    const out = stripImageMetadata(base64FromBytes(heifFixture({ extraTopBoxes: uuid })));
+    expect(out.stripped).toBe(true);
+    expect(new TextDecoder('latin1').decode(bytesFromBase64(out.base64))).not.toContain('xpacket');
+  });
+
+  // -------------------------------------------------------------------------
+  // GIF — metadado vive nas extensões de comentário/aplicação/texto.
+  // -------------------------------------------------------------------------
+  function gifFixture(blocks) {
+    return new Uint8Array([
+      ...ascii('GIF89a'),
+      ...u16(1), ...u16(1), 0x00, 0x00, 0x00, // tela lógica, sem tabela global
+      ...blocks,
+      0x3B,
+    ]);
+  }
+  const subBlocks = data => [data.length, ...data, 0];
+  const imageBlock = [0x2C, ...u16(0), ...u16(0), ...u16(1), ...u16(1), 0x00, 0x02, ...subBlocks([0x44, 0x55])];
+
+  it('drops comment and application extensions from a GIF, keeping the frames', () => {
+    const original = gifFixture([
+      0x21, 0xFE, ...subBlocks(ascii('GPS: -23.5505')),                 // comentário
+      // Application Extension: bloco fixo de 11 bytes (identificador +
+      // código de autenticação) e só então os sub-blocos de dados.
+      0x21, 0xFF, 11, ...ascii('XMP DataXMP'), ...subBlocks(ascii('<x:xmpmeta/>')),
+      0x21, 0xF9, ...subBlocks([0x00, 0x00, 0x00, 0x00]),               // controle gráfico: fica
+      ...imageBlock,
+    ]);
+    const { base64, stripped, format } = stripImageMetadata(base64FromBytes(original));
+    expect(stripped).toBe(true);
+    expect(format).toBe('gif');
+
+    const out = bytesFromBase64(base64);
+    const text = new TextDecoder('latin1').decode(out);
+    expect(text).not.toContain('GPS: -23.5505');
+    expect(text).not.toContain('xmpmeta');
+    expect(out.length).toBeLessThan(original.length);
+    // Cabeçalho, extensão de controle gráfico, quadro e terminador continuam lá.
+    expect(text.slice(0, 6)).toBe('GIF89a');
+    expect(Array.from(out).join(',')).toContain([0x21, 0xF9].join(','));
+    expect(Array.from(out).join(',')).toContain([0x44, 0x55].join(','));
+    expect(out[out.length - 1]).toBe(0x3B);
+  });
+
+  it('walks past a local colour table instead of losing sync', () => {
+    // Tabela local de cores tem tamanho declarado no byte de flags do quadro;
+    // ignorá-la faria o parser ler pixel como se fosse bloco.
+    const withLct = [
+      0x2C, ...u16(0), ...u16(0), ...u16(1), ...u16(1), 0x80, // flags: LCT de 2 entradas
+      1, 2, 3, 4, 5, 6,
+      0x02, ...subBlocks([0x66]),
+    ];
+    const r = stripImageMetadata(base64FromBytes(gifFixture([
+      0x21, 0xFE, ...subBlocks(ascii('some o comentário')),
+      ...withLct,
+    ])));
+    expect(r.stripped).toBe(true);
+    const text = new TextDecoder('latin1').decode(bytesFromBase64(r.base64));
+    expect(text).not.toContain('some o');
+    expect(Array.from(bytesFromBase64(r.base64))).toEqual(expect.arrayContaining([1, 2, 3, 4, 5, 6, 0x66]));
   });
 
   it('never throws or truncates on malformed input', () => {
@@ -1438,19 +1700,58 @@ describe('anexo de remoção: o portão é a capacidade de limpar', () => {
     return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
       async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; }, _store: store };
   }
+  // O e-mail sai por `waitUntil`, fora do caminho da resposta: guardar as
+  // promessas é o que permite ao teste olhar o anexo depois (mesmo padrão do
+  // teste de contador — não aguardar mediria o nada).
+  /** @type {Promise<unknown>[]} */
+  let pendentes = [];
+  beforeEach(() => { pendentes = []; });
   const post = body => worker.fetch(new Request('https://fotos.lucafchala.com/api/removal-request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '7.7.7.7' },
     body: JSON.stringify(body),
-  }), { FOTOS: kv(), TURNSTILE_SECRET_KEY: 'ts' }, { waitUntil: () => {} });
+  }), {
+    FOTOS: kv(), TURNSTILE_SECRET_KEY: 'ts',
+    // Sem estes dois o e-mail nem é tentado, e o teste do anexo mediria o nada.
+    RESEND_API_KEY: 're_teste', ADMIN_EMAIL: 'admin@exemplo.com',
+  }, { waitUntil: p => { if (p && typeof p.then === 'function') pendentes.push(p); } });
 
   // HEIC é o padrão do iPhone e passava por isLikelyImage(), mas
-  // stripImageMetadata() não sabe limpá-lo. A foto de quem PEDE REMOÇÃO saía
+  // stripImageMetadata() não sabia limpá-lo. A foto de quem PEDE REMOÇÃO saía
   // por e-mail com o GPS intacto, enquanto a política publicada afirmava sem
-  // ressalva que os metadados são apagados.
-  it('refuses a HEIC upload instead of emailing it with GPS intact', async () => {
+  // ressalva que os metadados são apagados. Hoje o strip entende ISO-BMFF, e
+  // este teste guarda o que importa: o que sai no anexo.
+  it('emails a HEIC only after the GPS is gone from the attachment', async () => {
+    const enviados = [];
+    globalThis.fetch = async (url, init) => {
+      enviados.push({ url: String(url), body: init?.body });
+      return new Response(JSON.stringify({ success: true, id: 'x' }), { status: 200 });
+    };
+    // HEIC de verdade em miniatura: ftyp + meta(iinf/iloc) + mdat, com o EXIF
+    // endereçado por deslocamento absoluto — como o iPhone escreve.
+    const heic = heicComExif('GPSLatitude:-23.5505');
+
+    const res = await post({
+      eventSlug: 'evento', method: 'upload', fileName: 'foto.heic',
+      fileBase64: base64FromBytes(heic),
+      email: 'titular@exemplo.com', phone: '11999999999', consent: true, turnstileToken: 'ok',
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    await Promise.all(pendentes);
+
+    const email = enviados.find(e => e.url.includes('api.resend.com'));
+    expect(email, 'o pedido tem de virar e-mail').toBeTruthy();
+    const anexo = JSON.parse(email.body).attachments[0];
+    const bytes = bytesFromBase64(anexo.content);
+    expect(new TextDecoder('latin1').decode(bytes)).not.toContain('GPSLatitude');
+    // …e o anexo continua sendo o arquivo do titular, não um pedaço dele.
+    expect(bytes.length).toBe(heic.length);
+  });
+
+  it('refuses a HEIC it cannot parse, with advice that leads somewhere', async () => {
     globalThis.fetch = async () => new Response(JSON.stringify({ success: true }), { status: 200 });
-    // ftyp + marca heic: o suficiente para isLikelyImage aceitar.
+    // ftyp + marca heic e mais nada: passa por isLikelyImage, mas não tem
+    // sequer a caixa `meta` — o parser aborta em vez de chutar.
     const heic = new Uint8Array(64);
     heic.set([0x00, 0x00, 0x00, 0x20], 0);
     for (const [i, c] of [...'ftypheic'].entries()) heic[4 + i] = c.charCodeAt(0);
@@ -1463,19 +1764,20 @@ describe('anexo de remoção: o portão é a capacidade de limpar', () => {
     const corpo = await res.json();
     expect(res.status, JSON.stringify(corpo)).toBe(415);
     // A recusa tem de ensinar a saída, não só dizer não.
-    expect(corpo.error).toMatch(/JPEG/);
-    expect(corpo.error).toMatch(/iPhone/);
+    expect(corpo.error).toMatch(/HEIC/);
+    expect(corpo.error).toMatch(/salve\/exporte de novo|número\/link/);
   });
 
   // O invariante que substitui as duas listas: o que não foi limpo não é
-  // enviado, qualquer que seja o formato.
+  // enviado, qualquer que seja o formato. Ensinar um formato novo ao strip é o
+  // que abre o portão — não há segunda lista para lembrar de atualizar.
   it('never attaches a file that stripImageMetadata could not clean', () => {
     for (const bytes of [
-      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 1, 1, 1, 1, 1]), // GIF89a
+      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 1, 1, 1, 1, 1]), // GIF89a truncado
       new Uint8Array(Array(16).fill(0)),                                       // lixo
     ]) {
       expect(stripImageMetadata(base64FromBytes(bytes)).stripped,
-        'formato não-limpável não pode reportar stripped:true').toBe(false);
+        'arquivo que o parser não entende não pode reportar stripped:true').toBe(false);
     }
   });
 });

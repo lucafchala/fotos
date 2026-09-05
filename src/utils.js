@@ -1154,10 +1154,15 @@ export function safeUrl(url) {
 // — o oposto do que alguém pedindo para SUMIR de uma foto quer entregar de
 // brinde no e-mail ao admin (minimização, LGPD art. 6º, III).
 //
-// Limpeza no servidor, antes do anexo existir. Só JPEG/PNG/WebP: são os
-// formatos onde dá para podar contêiner (dropar segmentos/chunks) sem
-// recodificar o pixel. HEIC/AVIF/GIF passam intactos — o EXIF vive em caixas
-// ISO-BMFF, e mexer sem decodificador de verdade arrisca corromper a prova.
+// Limpeza no servidor, antes do anexo existir. Nenhum formato é recodificado:
+// em JPEG/PNG/WebP/GIF a poda é de contêiner (dropar segmentos/chunks/blocos);
+// em HEIC/AVIF, onde podar moveria os bytes da imagem, a limpeza é feita
+// ZERANDO NO LUGAR (ver `stripHeif`). Em todos, o pixel sai byte a byte igual.
+//
+// O portão do chamador é a própria capacidade de limpar: se `stripped` voltar
+// falso, o anexo não vai. Então ensinar um formato novo aqui abre o portão
+// sozinho, sem uma segunda lista de formatos aceitos para divergir em silêncio
+// (foi assim que HEIC — o padrão do iPhone — chegou a passar sem limpeza).
 
 // Segmentos JPEG que carregam metadado, não imagem:
 // APP1 (EXIF/XMP), APP2 (ICC/FlashPix), APP13 (IPTC/Photoshop) e o comentário.
@@ -1246,6 +1251,296 @@ function stripWebp(bytes) {
   return concatBytes([header, bodyBytes]);
 }
 
+// HEIC/AVIF são ISO-BMFF, e aqui o metadado não é um segmento no começo do
+// arquivo: é um *item* declarado em `meta/iinf`, cujos bytes moram lá dentro do
+// `mdat` e são endereçados por deslocamento absoluto na tabela `meta/iloc`.
+//
+// Por isso não dá para podar como nos outros formatos: **remover** os bytes do
+// EXIF empurraria tudo o que vem depois e invalidaria todos os deslocamentos do
+// `iloc` — inclusive os da própria imagem, que abriria corrompida. A limpeza é
+// ZERAR NO LUGAR: o arquivo mantém exatamente o mesmo tamanho, todo
+// deslocamento continua válido, e os bytes do EXIF deixam de existir.
+//
+// O parser aborta (devolve null → o chamador recusa o anexo) a qualquer coisa
+// que ele não entenda por completo. É deliberado: "não sei ler este arquivo" e
+// "este arquivo está limpo" não podem virar a mesma resposta.
+const HEIF_META_ITEM_TYPES = new Set([
+  'Exif', // EXIF: GPS, modelo/serial do aparelho, data e hora
+  'mime', // XMP e afins (o content_type fica no `infe`; item de metadado do mesmo jeito)
+]);
+
+// O item de EXIF continua declarado no `iinf` depois da limpeza (a tabela é que
+// não pode ser reescrita sem mover bytes), então deixar só zeros no lugar dele
+// faz um leitor que pede o EXIF *explicitamente* receber lixo: o Pillow, por
+// exemplo, levanta "not a TIFF file". Em vez de um buraco, deixamos um EXIF
+// VÁLIDO E VAZIO — cabeçalho TIFF com zero entradas — e o resto zerado.
+const EXIF_VAZIO = [
+  0x00, 0x00, 0x00, 0x00, // exif_tiff_header_offset: o TIFF começa logo em seguida
+  0x4D, 0x4D, 0x00, 0x2A, // 'MM\0*' — TIFF big-endian
+  0x00, 0x00, 0x00, 0x08, // IFD0 fica no byte 8
+  0x00, 0x00,             // zero entradas
+  0x00, 0x00, 0x00, 0x00, // sem próximo IFD
+];
+
+// Assinaturas textuais de metadado. A varredura final procura por elas no
+// resultado JÁ limpo: se sobrou alguma, é porque havia uma cópia que a tabela
+// não declarava, e aí o certo é recusar em vez de anexar. Todas têm 6+ bytes,
+// então casar por acaso dentro de dado comprimido é desprezível.
+const METADATA_SIGNATURES = [
+  'Exif\x00\x00',
+  'http://ns.adobe.com/xap/',
+  '<x:xmpmeta',
+  '<?xpacket',
+];
+
+/**
+ * Lista as caixas ISO-BMFF em [start, end). Null a qualquer inconsistência —
+ * parser que "conserta" um tamanho errado é parser que corrompe arquivo.
+ * @param {Uint8Array} bytes
+ * @param {DataView} view
+ * @param {number} start
+ * @param {number} end
+ * @returns {{type: string, dataStart: number, end: number}[]|null}
+ */
+function isoBoxes(bytes, view, start, end) {
+  const out = [];
+  let i = start;
+  while (i + 8 <= end) {
+    let size = view.getUint32(i);
+    let head = 8;
+    const type = String.fromCharCode(bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]);
+    if (size === 1) {
+      // `largesize` de 64 bits. Acima de 4 GB não é anexo de 2 MB — recuse.
+      if (i + 16 > end || view.getUint32(i + 8) !== 0) return null;
+      size = view.getUint32(i + 12);
+      head = 16;
+    } else if (size === 0) {
+      size = end - i; // "até o fim do arquivo", só válido na última caixa
+    }
+    if (size < head || i + size > end) return null;
+    out.push({ type, dataStart: i + head, end: i + size });
+    i += size;
+  }
+  return i === end ? out : null; // sobra de bytes soltos: não entendemos o arquivo
+}
+
+/**
+ * Lê um inteiro de 0, 4 ou 8 bytes, como o `iloc` codifica. Devolve null no
+ * que não couber em número seguro — o chamador aborta.
+ * @param {DataView} view
+ * @param {number} off
+ * @param {number} size
+ */
+function isoUint(view, off, size) {
+  if (size === 0) return 0;
+  if (size === 4) return view.getUint32(off);
+  if (size === 8) return view.getUint32(off) === 0 ? view.getUint32(off + 4) : null;
+  return null;
+}
+
+/**
+ * @param {Uint8Array} bytes
+ */
+function stripHeif(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const top = isoBoxes(bytes, view, 0, bytes.length);
+  if (!top) return null;
+  // `moov` é sequência de imagem/vídeo: outra árvore de metadado (`udta`,
+  // `meta` por track) que este parser não percorre. Não finja tê-la limpado.
+  if (top.some(b => b.type === 'moov')) return null;
+
+  const meta = top.find(b => b.type === 'meta');
+  if (!meta) return null;
+  const metaChildren = isoBoxes(bytes, view, meta.dataStart + 4, meta.end); // FullBox: 4 bytes de version+flags
+  if (!metaChildren) return null;
+
+  const iinf = metaChildren.find(b => b.type === 'iinf');
+  const iloc = metaChildren.find(b => b.type === 'iloc');
+  const idat = metaChildren.find(b => b.type === 'idat');
+  if (!iinf || !iloc) return null;
+
+  /** @type {[number, number, string][]} Faixas [início, fim, tipo do item) a zerar */
+  const redact = [];
+
+  // --- iinf: quais itens são metadado ---------------------------------------
+  /** @type {Map<number, string>} */
+  const metaItems = new Map();
+  {
+    const v = bytes[iinf.dataStart];
+    let p = iinf.dataStart + 4;
+    if (v === 0) { p += 2; } else { p += 4; } // entry_count: 16 bits na v0, 32 nas demais
+    const entries = isoBoxes(bytes, view, p, iinf.end);
+    if (!entries) return null;
+    for (const e of entries) {
+      if (e.type !== 'infe') return null;
+      const ver = bytes[e.dataStart];
+      // v0/v1 sequer têm campo `item_type` — sem ele não dá para saber o que o
+      // item carrega, e um item de EXIF sem nome passaria batido.
+      if (ver < 2) return null;
+      const idSize = ver === 2 ? 2 : 4;
+      const at = e.dataStart + 4;
+      if (at + idSize + 2 + 4 > e.end) return null;
+      const id = idSize === 2 ? view.getUint16(at) : view.getUint32(at);
+      const t = String.fromCharCode(...bytes.subarray(at + idSize + 2, at + idSize + 6));
+      if (HEIF_META_ITEM_TYPES.has(t)) metaItems.set(id, t);
+    }
+  }
+
+  // --- iloc: onde os bytes de cada item moram -------------------------------
+  {
+    const p0 = iloc.dataStart;
+    const ver = bytes[p0];
+    if (ver > 2) return null;
+    let p = p0 + 4;
+    if (p + 2 > iloc.end) return null;
+    const offsetSize = bytes[p] >> 4;
+    const lengthSize = bytes[p] & 0x0F;
+    const baseOffsetSize = bytes[p + 1] >> 4;
+    const indexSize = ver === 1 || ver === 2 ? (bytes[p + 1] & 0x0F) : 0;
+    p += 2;
+    let count;
+    if (ver < 2) { count = view.getUint16(p); p += 2; } else { count = view.getUint32(p); p += 4; }
+    for (let n = 0; n < count; n++) {
+      const idSize = ver < 2 ? 2 : 4;
+      if (p + idSize + 2 > iloc.end) return null;
+      const id = idSize === 2 ? view.getUint16(p) : view.getUint32(p);
+      p += idSize;
+      let construction = 0;
+      if (ver === 1 || ver === 2) { construction = view.getUint16(p) & 0x0F; p += 2; }
+      const dataRef = view.getUint16(p);
+      p += 2;
+      const baseOffset = isoUint(view, p, baseOffsetSize);
+      if (baseOffset === null) return null;
+      p += baseOffsetSize;
+      if (p + 2 > iloc.end) return null;
+      const extents = view.getUint16(p);
+      p += 2;
+      for (let e = 0; e < extents; e++) {
+        p += indexSize;
+        const off = isoUint(view, p, offsetSize);
+        p += offsetSize;
+        const len = isoUint(view, p, lengthSize);
+        p += lengthSize;
+        if (p > iloc.end || off === null || len === null) return null;
+        const itemType = metaItems.get(id);
+        if (!itemType) continue;
+        // Item de metadado cujos bytes não estão neste arquivo (`dataRef`) ou
+        // que é montado a partir de outro item (`construction 2`): não temos o
+        // que zerar e não sabemos afirmar que saiu limpo.
+        if (dataRef !== 0 || construction > 1) return null;
+        const base = construction === 1 ? (idat ? idat.dataStart : null) : 0;
+        if (base === null) return null;
+        const from = base + baseOffset + off;
+        const to = from + len;
+        if (from < 0 || to > bytes.length || to < from) return null;
+        redact.push([from, to, itemType]);
+      }
+    }
+  }
+
+  // Caixa `uuid` no topo é o outro lugar onde XMP/EXIF costuma aparecer, fora
+  // da tabela de itens. Zerar o conteúdo mantém a caixa (e o tamanho) válida.
+  for (const b of top) if (b.type === 'uuid') redact.push([b.dataStart + 16, b.end, 'uuid']);
+
+  const out = new Uint8Array(bytes);
+  for (const [from, to, tipo] of redact) {
+    out.fill(0, from, to);
+    if (tipo === 'Exif' && to - from >= EXIF_VAZIO.length) out.set(EXIF_VAZIO, from);
+  }
+
+  // Varredura final: se uma assinatura de metadado sobreviveu, havia cópia que
+  // as tabelas não declaravam. Recusar é a resposta certa — o portão do
+  // chamador existe justamente para o caso de não termos certeza.
+  //
+  // Fora da varredura fica o `iinf`, e só ele: ali moram os NOMES dos itens, e
+  // um item de EXIF se chama literalmente "Exif". O `\0` que termina o nome
+  // seguido do primeiro byte do tamanho da próxima caixa forma "Exif\0\0" sem
+  // haver EXIF algum — e a limpeza inteira era recusada por causa disso. Só um
+  // arquivo escrito por um codificador de verdade mostrou isso; a fixture
+  // sintética batia com o parser porque fomos nós que escrevemos as duas.
+  const varrer = [[0, iinf.dataStart], [iinf.end, out.length]];
+  for (const sig of METADATA_SIGNATURES) {
+    for (const [from, to] of varrer) if (indexOfAscii(out.subarray(from, to), sig) >= 0) return null;
+  }
+  return out;
+}
+
+/**
+ * Procura uma assinatura ASCII no meio dos bytes. Null-safe e sem alocar o
+ * arquivo inteiro como string.
+ * @param {Uint8Array} bytes
+ * @param {string} needle
+ */
+function indexOfAscii(bytes, needle) {
+  const first = needle.charCodeAt(0);
+  outer: for (let i = 0; i + needle.length <= bytes.length; i++) {
+    if (bytes[i] !== first) continue;
+    for (let j = 1; j < needle.length; j++) if (bytes[i + j] !== needle.charCodeAt(j)) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+// GIF é uma sequência de blocos: extensões (`0x21`) e imagens (`0x2C`) até o
+// terminador `0x3B`. Metadado — inclusive XMP, que viaja como Application
+// Extension — fica nas extensões de comentário (0xFE), aplicação (0xFF) e texto
+// (0x01); a de controle gráfico (0xF9) fica, porque ela é quem carrega o tempo
+// de cada quadro e a cor transparente.
+//
+// Preço explícito: a extensão de aplicação NETSCAPE2.0 é o que faz um GIF
+// animado repetir, e ela sai junto — o anexo toca uma vez em vez de em loop.
+// Uma lista de "aplicações inofensivas" seria a mesma armadilha de duas listas
+// que este arquivo já pagou uma vez.
+const GIF_STRIP_EXTENSIONS = new Set([0x01, 0xFE, 0xFF]);
+
+/**
+ * @param {Uint8Array} bytes
+ */
+function stripGif(bytes) {
+  const sig = String.fromCharCode(...bytes.subarray(0, 6));
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return null;
+  let i = 13; // assinatura (6) + descritor de tela lógica (7)
+  if (bytes[10] & 0x80) i += 3 * (1 << ((bytes[10] & 0x07) + 1)); // tabela global de cores
+  if (i > bytes.length) return null;
+
+  /** Fim da cadeia de sub-blocos que começa em `at`, ou null. @param {number} at */
+  const endOfSubBlocks = at => {
+    let p = at;
+    while (p < bytes.length) {
+      const len = bytes[p];
+      if (len === 0) return p + 1; // bloco terminador
+      p += 1 + len;
+    }
+    return null;
+  };
+
+  const out = [bytes.subarray(0, i)];
+  while (i < bytes.length) {
+    const introducer = bytes[i];
+    if (introducer === 0x3B) { out.push(bytes.subarray(i, i + 1)); return concatBytes(out); }
+    if (introducer === 0x21) {
+      const label = bytes[i + 1];
+      const end = endOfSubBlocks(i + 2);
+      if (end === null) return null;
+      if (!GIF_STRIP_EXTENSIONS.has(label)) out.push(bytes.subarray(i, end));
+      i = end;
+      continue;
+    }
+    if (introducer === 0x2C) {
+      let p = i + 10; // separador + posição/tamanho (8) + byte de flags
+      if (p > bytes.length) return null;
+      if (bytes[i + 9] & 0x80) p += 3 * (1 << ((bytes[i + 9] & 0x07) + 1)); // tabela local de cores
+      const end = endOfSubBlocks(p + 1); // + o byte de "LZW minimum code size"
+      if (end === null) return null;
+      out.push(bytes.subarray(i, end));
+      i = end;
+      continue;
+    }
+    return null; // bloco desconhecido: fora de sincronia, não arrisque
+  }
+  return null; // acabou sem terminador
+}
+
 /**
  * @param {Uint8Array[]} chunks
  */
@@ -1299,13 +1594,12 @@ export function stripImageMetadata(b64) {
     if (bytes[0] === 0xFF && bytes[1] === 0xD8) { format = 'jpeg'; cleaned = stripJpeg(bytes); }
     else if (bytes[0] === 0x89 && bytes[1] === 0x50) { format = 'png'; cleaned = stripPng(bytes); }
     else if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'RIFF') { format = 'webp'; cleaned = stripWebp(bytes); }
-    // Reconhecidos mas não limpos — não os aceita (o chamador recusa todo
-    // stripped:false), só deixa a recusa dizer "(heic)" em vez de "(unknown)".
     else if (String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp') {
       const marca = String.fromCharCode(...bytes.slice(8, 12)).toLowerCase();
       format = marca.startsWith('avif') ? 'avif' : 'heic';
+      cleaned = stripHeif(bytes);
     }
-    else if (String.fromCharCode(bytes[0], bytes[1], bytes[2]) === 'GIF') { format = 'gif'; }
+    else if (String.fromCharCode(bytes[0], bytes[1], bytes[2]) === 'GIF') { format = 'gif'; cleaned = stripGif(bytes); }
   } catch {
     cleaned = null;
   }
