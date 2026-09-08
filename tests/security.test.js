@@ -1890,6 +1890,60 @@ describe('auditoria: sitemap é XML, e XML quebra com & solto', () => {
     // documento ser XML válido.
     expect(xml).not.toMatch(/&(?!amp;|lt;|gt;|quot;|#x27;)/);
   });
+
+  it('exclui eventos accessType private/family — sitemap não anuncia o slug a crawlers (F1, avaliação externa)', async () => {
+    // Achado F1 da avaliação de 2026-09: o sitemap público era o jeito mais
+    // barato de um crawler achar o slug de um álbum "família"/"privado" sem
+    // nem visitar a galeria. O gate de auto-declaração continua existindo
+    // (ver drive-gate.test.js) — sumir do sitemap reduz o alcance de busca,
+    // não substitui o gate nem promete confidencialidade.
+    vi.resetModules();
+    const { default: coldWorker } = await import('../src/index.js');
+    const env = withDurableObjects({
+      FOTOS: kv([
+        { id: 'a', slug: 'publico', title: 'P', visible: true, accessType: 'public' },
+        { id: 'b', slug: 'da-familia', title: 'F', visible: true, accessType: 'family' },
+        { id: 'c', slug: 'so-participantes', title: 'Pr', visible: true, accessType: 'private' },
+      ]),
+    });
+    const res = await coldWorker.fetch(new Request('https://fotos.lucafchala.com/sitemap.xml'), env, ctx);
+    const xml = await res.text();
+    expect(xml).toContain('<loc>https://fotos.lucafchala.com/publico</loc>');
+    expect(xml).not.toContain('da-familia');
+    expect(xml).not.toContain('so-participantes');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('auditoria: página de evento restrito sai da indexação de busca (F1, avaliação externa)', () => {
+  function kv(events) {
+    const store = new Map(Object.entries({ events: JSON.stringify(events) }));
+    return { async get(k) { return store.has(k) ? store.get(k) : null; },
+      async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); },
+      async list() { return { keys: [], list_complete: true }; }, _store: store };
+  }
+  const ctx = { waitUntil: () => {} };
+
+  it('manda X-Robots-Tag: noindex em accessType family/private, mas não em public', async () => {
+    // Complementa a exclusão do sitemap acima: o header sobrevive mesmo se o
+    // slug vazar por outro caminho (link compartilhado, backlink) que não o
+    // sitemap.xml.
+    vi.resetModules();
+    const { default: coldWorker } = await import('../src/index.js');
+    const env = withDurableObjects({
+      FOTOS: kv([
+        { id: 'a', slug: 'publico', title: 'P', visible: true, accessType: 'public', driveUrl: 'https://drive.google.com/x' },
+        { id: 'b', slug: 'da-familia', title: 'F', visible: true, accessType: 'family', driveUrl: 'https://drive.google.com/x' },
+        { id: 'c', slug: 'so-participantes', title: 'Pr', visible: true, accessType: 'private', driveUrl: 'https://drive.google.com/x' },
+      ]),
+    });
+    const pub = await coldWorker.fetch(new Request('https://fotos.lucafchala.com/publico'), env, ctx);
+    expect(pub.headers.get('X-Robots-Tag')).toBeNull();
+    const fam = await coldWorker.fetch(new Request('https://fotos.lucafchala.com/da-familia'), env, ctx);
+    expect(fam.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    const priv = await coldWorker.fetch(new Request('https://fotos.lucafchala.com/so-participantes'), env, ctx);
+    expect(priv.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+  });
 });
 
 // ---------------------------------------------------------------------------
