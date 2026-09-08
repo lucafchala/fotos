@@ -58,14 +58,38 @@ issue before any public disclosure.
   value — still a real POST per event, rate-limited on its own (tighter)
   key, and logged with `turnstile_ok=0` — instead of failing delivery
   outright for that audience. This is a conscious accessibility/delivery
-  trade-off, not a bypass anyone can silently rely on for bulk scraping (it's
-  rate-limited and audited), but it is a known, weaker path.
+  trade-off, not an oversight — but a wording correction from an earlier
+  version of this document: an external assessment (2026-09) showed the
+  `driveNonce` this path also accepts is minted server-side but shipped in the
+  page's plain HTML, not held secret by a real browser, so a scripted client
+  that has loaded the event page once can walk this path at 10 req/hr/IP with
+  **zero** CAPTCHA interaction — enough to enumerate this site's whole public
+  catalog from one IP in a few hours, and IP rotation removes even that
+  ceiling. Calling that "not a bypass anyone can silently rely on for bulk
+  scraping" overstated what the rate limit and the `turnstile_ok=0` audit row
+  actually stop: they slow and log the harvesting, they don't prevent it.
+  `private`/`family` events are additionally excluded from `sitemap.xml` and
+  served `X-Robots-Tag: noindex` (next bullet) so this path can't be reached
+  by discovering the slug through search first — but the same noscript
+  bypass still works against a restricted slug obtained any other way (direct
+  link, backlink). Tightening that further (per-event throttling, requiring a
+  real Turnstile pass for restricted events, or an identity requirement) is
+  an open decision the owner still needs to make, not something this
+  paragraph resolves on its own.
 - **Unlisted ≠ private.** A project toggled off ("Ocultar") leaves the gallery,
   the sitemap and the self-test, and is served with `X-Robots-Tag: noindex`,
   but **still opens on a direct link** — that is what keeps a preview link sent
   to a client working. If you need a project to be genuinely inaccessible,
   delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
   a semantics decision.
+- **`private`/`family` events are excluded from `sitemap.xml` and served
+  `X-Robots-Tag: noindex`**, same as an unlisted one — the accessType
+  declaration gate exists to restrict the album to a member/participant, so
+  the page being search-indexable would work against that even though it's a
+  consent gate, not a confidentiality ACL. The event still opens on a direct
+  link and appears in the gallery/self-test like any other visible event;
+  only search-engine discovery is affected (`isRestrictedAccess()` in
+  `src/utils.js`).
 - Counters (`views`, `drive_clicks`) are **atomic** since they moved from KV to
   Durable Objects: one object per key, calls serialized by the runtime. The
   undercounting-under-load caveat that used to live here no longer applies.

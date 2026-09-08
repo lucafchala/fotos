@@ -17,7 +17,7 @@ import {
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
-  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
@@ -384,7 +384,13 @@ async function handleGallery(env, nonce) {
  */
 async function handleSitemap(env) {
   const events = await getEvents(env);
-  const visible = events.filter(e => e.visible !== false);
+  // accessType 'private'/'family' são gate de auto-declaração (não confidencial
+  // — SECURITY.md), mas o próprio gate existe para restringir a
+  // membro/participante, e um sitemap público é a forma mais barata de um
+  // crawler achar o slug sem nem visitar a galeria. Fora do sitemap +
+  // X-Robots-Tag na própria página (handleEventPage) — a página continua
+  // abrindo por link direto, só some da indexação de busca.
+  const visible = events.filter(e => e.visible !== false && !isRestrictedAccess(e));
   /** @param {Evento} e */
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
@@ -501,6 +507,11 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // auditoria mas segue abrindo por link direto (mantém prévias enviadas a
   // clientes funcionando). Por isso ainda precisa de noindex abaixo.
   const unlisted = event.visible === false;
+  // Mesmo raciocínio para 'private'/'family': o gate de declaração já existe
+  // para restringir a membro/participante, então a página não deveria aparecer
+  // em busca — noindex aqui é o que sobrevive mesmo se o slug vazar por fora
+  // do sitemap (link compartilhado, backlink).
+  const restricted = isRestrictedAccess(event);
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
@@ -537,7 +548,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (unlisted || restricted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }

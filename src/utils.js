@@ -70,6 +70,17 @@ export const ACCESS_DECLARATIONS = {
   private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
 };
 
+// True for 'private'/'family' events — a self-declaration gate on top of the
+// Terms, not a confidentiality ACL (a Drive link, once released, is
+// anyone-with-the-link like any other). Used to keep these events out of
+// search-engine indexing (sitemap.xml, X-Robots-Tag) in src/index.js and to
+// flag the card preview in src/ui/event.js — one predicate, not a copy per
+// caller (ver TODO.md, "Regras vivas" → "regra escrita duas vezes").
+/** @param {Evento} event */
+export function isRestrictedAccess(event) {
+  return event.accessType === 'private' || event.accessType === 'family';
+}
+
 // Cópia de sobrevivência da lista de eventos, via Cache API. KV é a única
 // dependência no caminho crítico (sem lista de eventos não há slug, evento ou
 // link do Drive) — uma queda de LEITURA do KV derrubava galeria, página do

@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -46,7 +46,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // o acesso é restrito. O crédito vem logo depois da data porque é a primeira
   // informação que o destinatário procura quando o evento é de uma instituição
   // — e porque o WhatsApp corta o resto.
-  const restrictedAccess = event.accessType === 'private' || event.accessType === 'family';
+  const restrictedAccess = isRestrictedAccess(event);
   const ogDescription = previewDescription([
     event.comingSoon ? 'Em breve' : '',
     event.date ? formatDatePT(event.date) : '',
