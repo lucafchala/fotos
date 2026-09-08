@@ -1137,9 +1137,12 @@ Já listados em [Rotas HTTP](#rotas-http) — `nosniff`, `frame DENY`, `Referrer
 - Nome de arquivo: `sanitizeFilename()` tira travessia de caminho, CR/LF (que
   forjaria o cabeçalho MIME do anexo) e dupla extensão (`foto.jpg.exe`).
 - Imagem enviada: além do sniff de magic bytes, `stripImageMetadata()` remove
-  EXIF/GPS/XMP de JPEG, PNG e WebP **antes** de a foto virar anexo de e-mail.
-  Quem manda uma foto pedindo remoção não está oferecendo as coordenadas de onde
-  ela foi tirada.
+  EXIF/GPS/XMP de JPEG, PNG, WebP e GIF **antes** de a foto virar anexo de
+  e-mail; em HEIC/AVIF, onde apagar os bytes moveria a imagem e invalidaria os
+  deslocamentos da tabela `iloc`, os metadados são **zerados no lugar**. Quem
+  manda uma foto pedindo remoção não está oferecendo as coordenadas de onde ela
+  foi tirada. O portão é a própria limpeza: o que não sai comprovadamente limpo
+  é recusado com orientação, não anexado.
 - Restore de backup: `sanitizeRestoredRequest()` e `mergeRestore()` filtram por
   chave, tipo e tamanho. Era o único caminho que gravava em KV sem passar pelo
   normalizador de eventos.

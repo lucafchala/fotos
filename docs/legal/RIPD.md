@@ -214,13 +214,19 @@ número de série do aparelho, data e hora exatas. Ou seja, quem pede para *sumi
 de uma foto entregava de brinde onde ela foi tirada.
 
 **Mitigação implementada:** `stripImageMetadata()` remove segmentos APP1–APP15 e
-comentários (JPEG), chunks `eXIf`/`tEXt`/`iTXt`/`zTXt`/`tIME` (PNG) e chunks
-`EXIF`/`XMP ` (WebP) **antes** de a foto virar anexo. HEIC/AVIF/GIF passam
-intactos por decisão consciente — reescrevê-los sem decodificador arriscaria
-corromper a prova enviada pelo titular; o resultado da tentativa fica registrado
-no pedido.
+comentários (JPEG), chunks `eXIf`/`tEXt`/`iTXt`/`zTXt`/`tIME` (PNG), chunks
+`EXIF`/`XMP ` (WebP) e as extensões de comentário/aplicação/texto (GIF)
+**antes** de a foto virar anexo. Em HEIC e AVIF — o formato padrão do iPhone —
+os bytes do EXIF e do XMP são **zerados no lugar**: o arquivo mantém o mesmo
+tamanho, porque removê-los invalidaria os deslocamentos que apontam também para
+a imagem, e no lugar do EXIF fica um bloco válido e vazio.
 
-**Risco residual: BAIXO** (limitado a HEIC/AVIF/GIF).
+O portão é a própria capacidade de limpar: o que não sai comprovadamente limpo
+não vira anexo, e o titular recebe orientação de como reenviar. O resultado da
+tentativa fica registrado no pedido.
+
+**Risco residual: BAIXO** (arquivo fora do padrão do contêiner é recusado, não
+enviado).
 
 ---
 

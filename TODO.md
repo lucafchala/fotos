@@ -349,6 +349,20 @@ escondendo a próxima falha de verdade.
 Todo handler passa por `readJsonBody()` (`src/index.js`), que devolve objeto ou
 `null`. **Não volte a chamar `request.json()` direto num handler novo.**
 
+### Fixture que você escreveu concorda com o parser que você escreveu
+
+Parser de formato de arquivo (EXIF, contêiner de imagem, protocolo) testado só
+contra bytes montados à mão passa com o parser errado: os dois carregam a mesma
+suposição, porque saíram da mesma cabeça. O strip de HEIC passou em seis testes
+sintéticos e recusou **todo** HEIC de verdade na primeira tentativa — o nome do
+item (`Exif`) colado ao tamanho da caixa seguinte formava a assinatura que a
+varredura final procurava. É o mesmo erro do contador em dublê de Durable
+Object (`RETOMADA.md` §5.3), em outra roupa: **não teste contra dublê aquilo
+que o formato é que define.** Gere ao menos uma amostra com um codificador de
+verdade e congele no repositório.
+
+---
+
 ### Teste verde não é verificação
 
 `npm test` prova que as funções fazem o que as funções fazem, não que o site
