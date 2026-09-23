@@ -117,7 +117,8 @@ confirmação: mexer no pipeline de deploy já quebrou produção mais de uma ve
 2. **CI (GitHub Actions):** a fonte da verdade sobre se um PR pode ser
    mergeado. Confira com as tools da seção 2 — não infira do que rodou local.
 3. **Browser de verdade:** mudança em UI, CSP ou rota pública/painel precisa
-   disto. `npm test` verde já conviveu com a interface inteira quebrada (CSP
+   disto — comece por `npm run verifica:navegador` (ver `docs/VERIFICACAO.md`
+   §3) e acrescente o que a sua mudança específica pede. `npm test` verde já conviveu com a interface inteira quebrada (CSP
    matando handlers inline, galeria ilegível sem JS) — ver `RETOMADA.md`
    §5.1 e `docs/VERIFICACAO.md`. Nenhuma das duas primeiras camadas enxerga
    isso.

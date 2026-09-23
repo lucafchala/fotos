@@ -107,6 +107,13 @@ globalThis.fetch = async (input, init) => {
 
 ## 3. Navegador de verdade
 
+**O roteiro versionado vem primeiro:** com o `wrangler dev` de pé e projetos
+semeados (§1–2), `npm run verifica:navegador` abre toda página do sitemap no
+Chromium e confere o que só um navegador enxerga — erro de script, violação da
+CSP aplicada, fonte que não carregou, galeria sem JavaScript, lightbox, login.
+Sai com 1 se algo falhar. O que segue aqui é para a verificação específica da
+sua mudança, que nenhum roteiro genérico cobre.
+
 Chromium está pré-instalado em `/opt/pw-browsers`:
 
 ```js
