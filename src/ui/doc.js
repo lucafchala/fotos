@@ -1,4 +1,4 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
 import { renderMarkdown } from './markdown.js';
 import { LEGAL_DOCS } from '../content/legal-docs.js';
 
@@ -43,9 +43,9 @@ export function docHTML(doc) {
     description: doc.summary,
     url: `${SITE_URL}/legal/${doc.slug}`,
   })}
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;

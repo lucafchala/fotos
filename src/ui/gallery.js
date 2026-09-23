@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -236,10 +236,10 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     imageHeight: ogImage.height,
   })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonLd}</script>` : ''}
-  ${fontPreconnectHTML()}
+  ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;

@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -130,7 +130,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <!-- article:author quer o PERFIL, não o nome: /sobre é a página que declara
        og:type=profile, então o par fecha em vez de repetir a string. -->
   <meta property="article:author" content="${SITE_URL}/sobre">
-  ${fontPreconnectHTML()}
+  ${fontPreloadHTML()}
   <link rel="preconnect" href="https://drive.google.com">
   ${photoPreconnectHTML()}
   ${perfBootScript('event', !!analyticsToken, nonce)}
@@ -167,8 +167,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       ...(event.category ? { genre: event.category } : {}),
     },
   ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#555; --text-dim-2:#666;

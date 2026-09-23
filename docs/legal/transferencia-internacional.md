@@ -65,26 +65,23 @@ alimenta perfil de anúncios — a Cloudflare declara isso no adendo acima.
 | **Referência** | <https://resend.com/legal/dpa> |
 | **Minimização aplicada** | A mensagem de suporte **não é armazenada** no site. A foto de remoção **não vai para banco** e tem os **metadados EXIF removidos no servidor** antes de virar anexo. Alertas de erro nunca carregam IP, cabeçalhos ou corpo de requisição. |
 
-### 4. Google Fonts — tipografia
+### 4. Google Fonts — tipografia (eliminada em 23/09/2026)
 
-| | |
-| --- | --- |
-| **Sede** | Estados Unidos (Google LLC) |
-| **Papel** | Operador (marginal) |
-| **Dados** | **O IP do visitante**, transmitido ao buscar o arquivo da fonte. Nada mais. |
-| **Fundamento (art. 33)** | **III** |
-| **Observação** | Este é o item de menor valor e maior atrito. Tribunais alemães já entenderam (caso LG München, 2022) que embutir Google Fonts sem consentimento viola o GDPR justamente por transmitir o IP. A LGPD não tem decisão equivalente, mas o risco é **eliminável a custo baixo**. |
+**Transferência eliminada.** Até setembro de 2026 toda página buscava a fonte
+Inter em `fonts.googleapis.com` e `fonts.gstatic.com`, o que transmitia **o IP
+do visitante** ao Google LLC (EUA) a cada acesso — o item de menor valor e
+maior atrito desta lista (tribunais alemães, caso LG München 2022, já
+entenderam que isso viola o GDPR sem consentimento; a LGPD não tem decisão
+equivalente).
 
-> ### 💡 Recomendação: hospedar as fontes localmente
->
-> Baixar os arquivos WOFF2 do Inter e servi-los da própria origem elimina esta
-> transferência por completo. O `font-src` da CSP **já aceita `'self'`**
-> (mudança feita no commit `c78e6e4`), então a migração é: baixar os arquivos,
-> declarar `@font-face` apontando para eles e remover o `<link>` do
-> `fonts.googleapis.com` das oito páginas.
->
-> Ganho colateral: uma origem a menos na CSP e uma requisição externa a menos no
-> caminho crítico de renderização.
+Hoje os arquivos WOFF2 do Inter (licença SIL OFL 1.1) são servidos **da
+própria origem**, em `/fonts/`, e as duas origens do Google saíram da CSP
+(`font-src 'self'`, `style-src` sem host externo). Nenhuma página fala mais
+com o Google Fonts, e os testes reprovam se uma voltar a falar
+(`tests/fonts.test.js`, `tests/rendered-pages.test.js`).
+
+Ganho colateral: uma requisição externa a menos no caminho crítico de
+renderização.
 
 ### 5. GitHub — código-fonte
 
@@ -102,7 +99,7 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 | Cloudflare | Tráfego, KV, D1, Turnstile | Alto | Art. 33, III | Não — é a plataforma |
 | Google Drive | **As fotografias** | **Alto** | Art. 33, III ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
 | Resend | E-mail, telefone, foto anexa | Alto | Art. 33, III | Não — é o canal de e-mail |
-| Google Fonts | IP do visitante | Baixo | Art. 33, III | **Sim — recomendado** |
+| Google Fonts | Nada (era o IP do visitante) | — | — | **Eliminado em 23/09/2026** — fontes servidas pela própria origem |
 
 ## Transparência ao titular
 
@@ -116,8 +113,8 @@ que antes estavam implícitos na lista de terceiros.
 
 1. 🔴 **Confirmar o tipo de conta Google** usada para o Drive. Conta pessoal
    gratuita não tem DPA. Se for o caso, migrar para Workspace.
-2. 🟡 **Hospedar as fontes localmente** — elimina uma transferência inteira a
-   custo baixo, e a CSP já está preparada.
+2. ✅ **Hospedar as fontes localmente** — feito em 23/09/2026 (ver §4): a
+   transferência ao Google Fonts deixou de existir.
 3. 🟡 **Arquivar cópia dos DPAs** de Cloudflare, Google e Resend, com a data de
    consulta. Numa fiscalização, "o DPA está no site deles" é resposta mais fraca
    que "eis o documento vigente na data em que contratei".
