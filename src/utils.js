@@ -222,12 +222,16 @@ export async function getEvents(env, fresh = false) {
  * @param {Evento[]} events
  */
 export async function saveEvents(env, events) {
-  _cache = events;
-  _cacheAt = Date.now();
   const raw = JSON.stringify(events);
   await env.FOTOS.put('events', raw);
-  // Depois do KV aceitar, e não antes: espelhar um valor que não chegou a ser
-  // gravado faria a cópia contradizer a fonte.
+  // Cache do isolate e cópia só DEPOIS do KV aceitar, e pelo mesmo motivo: um
+  // valor que não chegou a ser gravado não pode ser servido como se fosse a
+  // lista. O cache era atualizado antes do `put` — com a escrita recusada (cota
+  // estourada), o painel mostrava o erro e os visitantes deste isolate viam por
+  // até 30 s um projeto que nunca existiu no KV. A regra já estava escrita aqui
+  // para a cópia; faltava valer para o cache.
+  _cache = events;
+  _cacheAt = Date.now();
   await mirrorEvents(raw);
 }
 
@@ -624,7 +628,7 @@ export function noteKvFailure(op, err, context = '') {
 }
 
 // ---------------------------------------------------------------------------
-// Contadores: um Durable Object por chave, incremento atômico
+// Contadores: um Durable Object para todos, incremento atômico
 // ---------------------------------------------------------------------------
 // Substituiu a agregação em memória (mapa de pendentes, piso de 1s, trava de
 // flush) que existia porque KV não tem incremento atômico e recusa >1
@@ -1032,11 +1036,28 @@ export function socialMetaHTML({
   <meta name="twitter:description" content="${escape(desc)}">`;
 }
 
+// Caminhos de UM segmento que o roteador (src/index.js) atende ANTES da rota de
+// projeto, que é a última. Um projeto com um destes slugs era aceito pelo
+// painel e ficava inalcançável em silêncio: o card da galeria levava para
+// `/sobre` e abria a página Sobre. `api` e `cdn-cgi` não colidem com rota
+// nenhuma hoje, mas são prefixos de infraestrutura (a Cloudflare intercepta
+// `/cdn-cgi/` na borda) — um projeto ali seria armadilha para a próxima rota.
+//
+// A lista NÃO é mantida à mão contra o roteador: `tests/index.test.js` lê as
+// rotas fixas de src/index.js e reprova se alguma ficar de fora daqui — regra
+// escrita duas vezes só vale se um teste afirmar que as duas concordam.
+export const RESERVED_SLUGS = new Set([
+  'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
+  'sobre', 'equipamentos', 'api', 'cdn-cgi',
+]);
+
 /**
  * @param {unknown} slug
  */
 export function validateSlug(slug) {
-  return typeof slug === 'string' && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug) && slug.length <= 60;
+  return typeof slug === 'string' && slug.length <= 60
+    && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug)
+    && !RESERVED_SLUGS.has(slug);
 }
 
 export function generateId() {

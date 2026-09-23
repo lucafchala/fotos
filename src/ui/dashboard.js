@@ -23,11 +23,14 @@ button{cursor:pointer}
 // de código de autenticação. Se o cadastro inicial voltar, ele volta com
 // handler, não só com formulário.
 /**
- * @param {{ error?: boolean }} [opts]
+ * @param {{ error?: boolean, indisponivel?: boolean }} [opts]
+ *   `error`: senha recusada. `indisponivel`: o KV recusou ler o hash ou gravar
+ *   a sessão — a senha pode estar certa, e dizer "incorreta" aqui mandaria o
+ *   dono desconfiar dela no dia em que o problema era o banco.
  * @param {string} [nonce]
  */
 export function loginHTML(opts = {}, nonce = '') {
-  const { error = false } = opts;
+  const { error = false, indisponivel = false } = opts;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -66,7 +69,9 @@ export function loginHTML(opts = {}, nonce = '') {
     <div class="logo"><span>fotos · <strong>Luca F. Chala</strong></span></div>
     <h1>Painel administrativo</h1>
     <p class="subtitle">Entre para gerenciar os projetos.</p>
-    ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
+    ${indisponivel
+      ? `<div class="error-msg" role="alert">Não foi possível entrar agora: o banco de dados do site não respondeu. Sua senha não foi recusada — tente de novo em alguns minutos.</div>`
+      : error ? `<div class="error-msg" role="alert">Senha incorreta. Tente novamente.</div>` : ''}
     <form method="POST" action="/dashboard/login">
       <div class="field">
         <label for="password">Senha</label>
@@ -450,7 +455,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     </div>
     <div class="settings-card">
       <h3>Backup dos dados</h3>
-      <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
+      <p style="margin-bottom:1rem">Baixe uma cópia completa: projetos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
       <button class="btn-sm" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
     </div>
     <div class="settings-card">
@@ -994,10 +999,6 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       lastFocused = null;
     }
 
-    function overlayClick(e) {
-      if (e.target === document.getElementById('overlay')) closeForm();
-    }
-
     window.addEventListener('beforeunload', function(e) {
       if (isFormDirty()) { e.preventDefault(); e.returnValue = ''; }
     });
@@ -1518,7 +1519,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       if (!ok) return;
       try {
         const res = await api('POST', '/api/backup/restore', backup);
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
+        // Ignorados = sem id ou sem URL válida no backup. Dizer quantos é o que
+        // separa "restaurei tudo" de "restaurei tudo o que dava".
+        const ignorados = res.skipped ? ', ' + res.skipped + ' ignorado' + (res.skipped !== 1 ? 's' : '') + ' (sem id ou URL válida)' : '';
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.', 'ok');
         setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
         toast(err.message || 'Erro ao restaurar.', 'err');

@@ -28,3 +28,11 @@ export const DEFAULT_EVENT = {
   accessType: 'public', category: '', internalNotes: '', pinned: false,
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
 };
+
+// Chave PÚBLICA do widget Turnstile (site key) — vai para o HTML de propósito;
+// a secreta é o TURNSTILE_SECRET_KEY, que só existe como secret do Worker.
+// Uma constante só para as duas páginas que desenham o widget (projeto e
+// /suporte): eram duas cópias da mesma string, e trocar a chave no painel da
+// Cloudflare atualizaria uma e esqueceria a outra — o formulário que ficasse
+// com a velha recusaria todo envio.
+export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';

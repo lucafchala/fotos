@@ -1,5 +1,6 @@
 import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { TURNSTILE_SITE_KEY } from '../config.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -56,14 +57,24 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   ], event.longDescription || '') || 'Fotografias de Luca F. Chala.';
 
   // Banner de novas fotos
+  //
+  // Guarda no SINK, além da normalização na escrita: o registro pode ser
+  // anterior a ela. `toISOString()` LANÇA RangeError para data fora da faixa
+  // do JavaScript, e `addedAt + horas` com um número de horas absurdo sai da
+  // faixa — era um 500 na página pública por causa de um aviso decorativo. Uma
+  // data fora da faixa vira `Invalid Date`, cujo getTime() é NaN; é isso que
+  // cada passo abaixo confere antes de seguir.
   const alert = event.photosAlert;
-  const showBanner = alert && alert.active && (() => {
-    if (!alert.expiresAfterHours) return true;
-    return Date.now() < new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000;
-  })();
-  const alertAddedAtJSON  = JSON.stringify(showBanner ? (alert.addedAt || '') : '');
-  const alertExpiresJSON  = JSON.stringify(showBanner && alert.expiresAfterHours
-    ? new Date(new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000).toISOString()
+  const alertAddedMs = alert ? new Date(alert.addedAt).getTime() : NaN;
+  const alertExpiresMs = alert && alert.expiresAfterHours
+    ? new Date(alertAddedMs + alert.expiresAfterHours * 3600000).getTime()
+    : NaN;
+  const showBanner = !!(alert && alert.active) && (!alert.expiresAfterHours || Date.now() < alertExpiresMs);
+  // Sem data legível o banner sai sem o "há X horas" — que viraria "há NaN dias".
+  // (`addedAt` nulo conta como ilegível: `new Date(null)` é 1970, não "sem data".)
+  const alertAddedAtJSON  = JSON.stringify(showBanner && alert.addedAt && Number.isFinite(alertAddedMs) ? String(alert.addedAt) : '');
+  const alertExpiresJSON  = JSON.stringify(showBanner && Number.isFinite(alertExpiresMs)
+    ? new Date(alertExpiresMs).toISOString()
     : null);
 
   const heroHTML = event.comingSoon
@@ -687,9 +698,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <div class="c-count" id="lb-count" style="display:none"></div>
   </div>
 
-    </div>
-  </div>
-
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
     <button id="cookie-ok" type="button">Entendi</button>
@@ -712,6 +720,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     const ALERT_EXPIRES  = ${alertExpiresJSON};
 
     let lastFocused = null;
+    // Foto corrente do carrossel/lightbox. Declarada aqui em cima, antes de
+    // qualquer função que a leia: o clique delegado logo abaixo já a usa.
+    let cur = 0;
 
     // ---- Delegated handlers (CSP: no inline on* attributes) ----
     // 'load'/'error' don't bubble, but a capture-phase listener on document
@@ -737,7 +748,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     document.addEventListener('click', function(e) {
       var t = e.target;
       // Modal-scrim clicks: only when the click lands on the scrim itself
-      // (not the sheet) — same check the old ovClick()/remOvClick()/etc did.
+      // (not the sheet) — the check the old per-modal ovClick() helpers did.
       if (t.id === 'modal') { closeModal(); return; }
       if (t.id === 'rem-modal') { closeRemModal(); return; }
       if (t.id === 'soon-modal') { closeSoonModal(); return; }
@@ -809,7 +820,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       else                el.textContent = \`— há \${days} dia\${days !== 1 ? 's' : ''}\`;
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
-    let cur = 0;
 
     // ---- Cookie / analytics notice ----
     try {
@@ -859,7 +869,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       } catch(_) {}
     })();
 
-    const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
+    // Chave pública do widget — a mesma de /suporte, de uma constante só (config.js).
+    const TS_SITEKEY = ${JSON.stringify(TURNSTILE_SITE_KEY)};
     let driveWidgetId  = null;
     let driveTsToken   = '';
     let driveTimeout   = null;
@@ -1163,7 +1174,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
     function onDriveOpen() {
       trackDrive(); // simple click counter — navigation follows the real href natively
       closeModal();
@@ -1185,7 +1195,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function soonOvClick(e) { if (e.target === document.getElementById('soon-modal')) closeSoonModal(); }
 
     // ---- Carousel ----
     const _preloaded = {};
@@ -1233,7 +1242,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         const lbCnt = document.getElementById('lb-count'); if (lbCnt) lbCnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       }
     }
-    function cGo(dir) { if (window.perfCount) perfCount('navCount'); cGoto(cur + dir); }
+    function cGo(dir) { if (window.perfCount) window.perfCount('navCount'); cGoto(cur + dir); }
 
     // ---- Lightbox (preview photos only — not the Drive delivery flow) ----
     let lbLastFocused = null, lbZoomed = false;
@@ -1254,7 +1263,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       lbResetZoom();
       if (lbLastFocused && lbLastFocused.focus) lbLastFocused.focus();
     }
-    function lbOvClick(e) { if (e.target.id === 'lightbox') closeLightbox(); }
     function lbResetZoom() {
       lbZoomed = false;
       const img = document.getElementById('lb-img');
@@ -1348,7 +1356,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function remOvClick(e) { if (e.target === document.getElementById('rem-modal')) closeRemModal(); }
 
     function updateRemMethod() {
       const m = document.querySelector('input[name="rem-method"]:checked').value;

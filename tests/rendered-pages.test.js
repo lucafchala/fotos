@@ -24,107 +24,13 @@ import { dashboardHTML, loginHTML } from '../src/ui/dashboard.js';
 import { galleryHTML } from '../src/ui/gallery.js';
 import { eventHTML } from '../src/ui/event.js';
 import { supportHTML } from '../src/ui/support.js';
-import { privacyHTML } from '../src/ui/privacy.js';
-import { termsHTML } from '../src/ui/terms.js';
-import { aboutHTML } from '../src/ui/about.js';
-import { gearHTML } from '../src/ui/gear.js';
-import { legalHTML } from '../src/ui/legal.js';
 import { docHTML } from '../src/ui/doc.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { perfBootScript, degradedHealth, resetDegraded } from '../src/utils.js';
+import { TURNSTILE_SITE_KEY } from '../src/config.js';
+import { readFileSync, readdirSync } from 'node:fs';
 
-const EVENTO = {
-  id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
-  driveUrl: 'https://drive.google.com/x', driveUrlInstagram: '', projectUrl: '',
-  photos: ['https://lh3.googleusercontent.com/d/AAA'],
-  thumbnailUrl: 'https://lh3.googleusercontent.com/d/AAA',
-  visible: true, comingSoon: false, accessType: 'public', category: 'Casamento',
-  date: '2026-01-15', eventCredits: '', longDescription: 'Descrição',
-  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
-};
-
-/** Todas as páginas que emitem script, com um argumento realista cada. */
-function paginas() {
-  return {
-    dashboard: dashboardHTML([EVENTO], ['Casamento'], 'NONCE'),
-    login: loginHTML({ error: false }, 'NONCE'),
-    gallery: galleryHTML([EVENTO], null, 'NONCE'),
-    event: eventHTML(EVENTO, '2026', null, 'NONCE', 'nonce-drive', 'form-token'),
-    support: supportHTML(false, '', {}, 'NONCE', 'form-token'),
-    privacy: privacyHTML(),
-    terms: termsHTML(),
-    about: aboutHTML(),
-    gear: gearHTML(),
-    legal: legalHTML(),
-    // Doze páginas de documento saem desta mesma função; uma basta para
-    // cobrir o cabeçalho, que não depende de qual documento é.
-    doc: docHTML(LEGAL_DOCS[0]),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Como se reconhece uma tag <script> — e por que não é óbvio
-// ---------------------------------------------------------------------------
-// Estas expressões saíram erradas DUAS vezes, e as duas foram apontadas pelo
-// CodeQL sobre este próprio arquivo (`Bad HTML filtering regexp`). Vale
-// registrar as duas, porque o erro é o mesmo nos dois casos: escrever o padrão
-// pensando no HTML que NÓS emitimos, quando o que importa é o que o PARSER
-// aceita.
-//
-//   1. **Caixa.** Nome de tag e de atributo não distinguem maiúscula:
-//      `</SCRIPT>` fecha um bloco igual a `</script>`, e `TYPE=` vale como
-//      `type=`. Faltava o flag `i`.
-//
-//   2. **Atributos na tag de fechamento.** Uma tag de fechamento pode carregar
-//      atributos — o tokenizador os analisa e os DESCARTA, mas a tag fecha do
-//      mesmo jeito. Ou seja, `</script foo="bar">` encerra o bloco, e um
-//      `\s*` antes do `>` não alcança isso.
-//
-// A consequência, nos dois casos, é a mesma e é o que torna isso grave num
-// arquivo de teste: a checagem de fechamento precoce existe justamente para
-// pegar um `</script>` aparecendo onde não devia. Cega para essas formas, ela
-// ficaria VERDE sobre uma página que o browser quebra. Uma verificação que só
-// enxerga a variante bem-comportada do problema é pior do que nenhuma, porque
-// passa a impressão de estar coberta — a mesma armadilha que o resto desta
-// suíte existe para desarmar.
-//
-// Daí `[^>]*` no fechamento, e não `\s*`: tudo até o `>`, como o tokenizador.
-const RE_SCRIPT_BLOCO = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
-// Mesmo formato, mesmo motivo, para <style> — ver a lição nº 2 acima. Uma
-// varredura que procura marcação na página precisa pular o <style>, porque os
-// comentários de CSS deste projeto CITAM tags ("a altura da <img> não
-// resolve") e elas saem no HTML tal e qual.
-const RE_STYLE_BLOCO = /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi;
-const RE_SCRIPT_ABRE = /<script\b/gi;
-const RE_SCRIPT_FECHA = /<\/script\b[^>]*>/gi;
-const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
-// `speculationrules` é a segunda tag <script> que o browser NÃO executa: o
-// corpo é JSON de configuração, lido pelo mecanismo de pré-busca. Classificar
-// por tipo, e não por "é ld+json ou é JavaScript", é o que impede o teste de
-// sintaxe de reprovar um bloco correto — e, mais importante, é o que faz este
-// bloco ser validado como JSON em vez de não ser validado por ninguém.
-const RE_SPEC_RULES = /type\s*=\s*["']speculationrules["']/i;
-
-/** Tipos cujo corpo é DADO, não programa. */
-const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs);
-
-/** @param {string} html */
-export function blocos(html) {
-  const todos = [...html.matchAll(RE_SCRIPT_BLOCO)];
-  return {
-    js: todos.filter(m => !ehDados(m[1])).map(m => m[2]),
-    jsonld: todos.filter(m => RE_JSON_LD.test(m[1])).map(m => m[2]),
-    dados: todos.filter(m => ehDados(m[1])).map(m => m[2]),
-  };
-}
-
-/** Abre/fecha, para o teste de fechamento precoce. */
-export function contaScriptTags(html) {
-  return {
-    abre: (html.match(RE_SCRIPT_ABRE) || []).length,
-    fecha: (html.match(RE_SCRIPT_FECHA) || []).length,
-  };
-}
+import { EVENTO, paginas, blocos, contaScriptTags, RE_SCRIPT_BLOCO, RE_STYLE_BLOCO } from './helpers/paginas.js';
 
 describe('scripts embutidos nas páginas', () => {
   it.each(Object.keys(paginas()))('o JavaScript emitido por %s é sintaticamente válido', nome => {
@@ -781,6 +687,95 @@ describe('perfBootScript: nonce é condição para existir', () => {
     })) {
       expect(html, nome).toContain('window.imgSettled');
       expect(html, nome).toContain('<script nonce="NONCE">');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Estrutura do HTML: nenhuma tag de fechamento órfã, nenhuma aberta sobrando
+// ---------------------------------------------------------------------------
+// A página de projeto saiu com duas `</div>` a mais logo depois do lightbox —
+// sobra de um refactor. O browser as ignora em silêncio, então nada quebrava
+// À VISTA; mas é marcação que ninguém mais sabe a quem pertence, e a próxima
+// edição ao redor dela casaria um fechamento com a caixa errada.
+//
+// Por FAIXAS, não por remoção (mesmo motivo de `imgs()` acima): corpos de
+// <script> e <style> e comentários HTML são pulados marcando onde começam e
+// terminam, nunca apagados da string. O comentário HTML é achado com indexOf,
+// não com regex — a variante de regex é justamente a que o CodeQL reprova.
+const TAGS_VAZIAS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/** @param {string} html */
+function faixasOpacas(html) {
+  const faixas = [...html.matchAll(RE_SCRIPT_BLOCO), ...html.matchAll(RE_STYLE_BLOCO)]
+    .map(m => [m.index, m.index + m[0].length]);
+  let i = html.indexOf('<!--');
+  while (i !== -1) {
+    const fim = html.indexOf('-->', i + 4);
+    const ate = fim === -1 ? html.length : fim + 3;
+    faixas.push([i, ate]);
+    i = html.indexOf('<!--', ate);
+  }
+  return faixas;
+}
+
+/** @param {string} html @returns {string[]} */
+export function desbalanceamentos(html) {
+  const faixas = faixasOpacas(html);
+  const opaca = pos => faixas.some(([a, b]) => pos >= a && pos < b);
+  const pilha = [];
+  const erros = [];
+  for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*?(\/?)>/g)) {
+    if (opaca(m.index)) continue;
+    const [, fecha, cru, auto] = m;
+    const nome = cru.toLowerCase();
+    if (TAGS_VAZIAS.has(nome) || auto === '/') continue;
+    if (!fecha) { pilha.push(nome); continue; }
+    if (pilha[pilha.length - 1] === nome) { pilha.pop(); continue; }
+    erros.push(`</${nome}> sem par em ${m.index} (a aberta era <${pilha[pilha.length - 1] || 'nenhuma'}>)`);
+  }
+  for (const nome of pilha) erros.push(`<${nome}> nunca fechada`);
+  return erros;
+}
+
+describe('estrutura do HTML emitido', () => {
+  const variacoes = () => ({
+    ...paginas(),
+    loginComErro: loginHTML({ error: true }, 'NONCE'),
+    eventEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
+    eventCarrossel: eventHTML({ ...EVENTO, photos: [EVENTO.photos[0], 'https://lh3.googleusercontent.com/d/BBB'], driveUrlInstagram: 'https://drive.google.com/y' }, '2026', 'tok', 'NONCE', 'dn', 'ft'),
+    eventComAviso: eventHTML({ ...EVENTO, photosAlert: { active: true, addedAt: new Date().toISOString(), expiresAfterHours: 24 } }, '2026', null, 'NONCE', 'dn', 'ft'),
+    supportEnviado: supportHTML(true, '', {}, 'NONCE', 'ft'),
+    ...Object.fromEntries(LEGAL_DOCS.map(d => [`doc:${d.slug}`, docHTML(d)])),
+  });
+
+  it.each(Object.keys(variacoes()))('%s não tem tag órfã nem tag sem fechar', nome => {
+    expect(desbalanceamentos(variacoes()[nome])).toEqual([]);
+  });
+
+  it('a própria checagem acusa o defeito que existiu', () => {
+    // Sem isto, um verificador quebrado passaria verde sobre qualquer página.
+    expect(desbalanceamentos('<div><p>x</p></div></div>')).toHaveLength(1);
+    expect(desbalanceamentos('<div><p>x</p>')).toEqual(['<div> nunca fechada']);
+    expect(desbalanceamentos('<div><script>if (a < b) document.body.append("</div>")</script></div>')).toEqual([]);
+    expect(desbalanceamentos('<div><!-- </div> --><img src="x"><br></div>')).toEqual([]);
+  });
+});
+
+describe('chave pública do Turnstile', () => {
+  it('as duas páginas que desenham o widget usam a MESMA chave, a de config.js', () => {
+    // Eram duas cópias da mesma string (event.js e support.js). Trocar a chave
+    // no painel da Cloudflare atualizaria uma e esqueceria a outra, e o
+    // formulário que ficasse com a velha recusaria todo envio.
+    expect(eventHTML(EVENTO, '2026', null, 'NONCE', 'dn', 'ft'))
+      .toContain(`const TS_SITEKEY = ${JSON.stringify(TURNSTILE_SITE_KEY)};`);
+    expect(supportHTML(false, '', {}, 'NONCE', 'ft')).toContain(`data-sitekey="${TURNSTILE_SITE_KEY}"`);
+  });
+
+  it('nenhuma página escreve a chave à mão', () => {
+    const dir = new URL('../src/ui/', import.meta.url);
+    for (const f of readdirSync(dir).filter(n => n.endsWith('.js'))) {
+      expect(readFileSync(new URL(f, dir), 'utf8').includes(TURNSTILE_SITE_KEY), f).toBe(false);
     }
   });
 });
