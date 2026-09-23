@@ -1479,7 +1479,17 @@ export async function handleChangePassword(request, env, ctx) {
   if (!check.ok) return jsonErr(check.error, 400);
 
   const hash = await hashPassword(password);
-  await env.FOTOS.put('admin_password', hash);
+  try {
+    await env.FOTOS.put('admin_password', hash);
+  } catch (e) {
+    // Com o KV recusando a gravação (cota diária esgotada é o caso real), isto
+    // virava o 500 genérico do roteador — logo na troca de senha, a reação
+    // padrão a "acho que invadiram". A resposta diz o que aconteceu e o que
+    // continua valendo, e a varredura de sessões abaixo não roda: sem senha
+    // nova, derrubar as outras sessões só deslogaria o próprio dono.
+    noteKvFailure('escrita', e, 'troca de senha do painel');
+    return jsonErr('A senha não foi trocada: o banco de dados do site não respondeu. A senha antiga continua valendo — tente de novo em alguns minutos.', 503);
+  }
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
@@ -1897,6 +1907,11 @@ async function handleResolveRequest(request, env, id) {
 
   const req = requests[idx];
 
+  // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
+  // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
+  // "Solicitação atendida" para a pessoa a cada vez.
+  if (req.resolved) return jsonOk(req);
+
   // Send "resolved" email to requester
   let resolvedEmailStatus;
   try {
@@ -1912,7 +1927,20 @@ async function handleResolveRequest(request, env, id) {
     resolvedAt: new Date().toISOString(),
     resolvedEmailStatus,
   };
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  // Uma gravação só, depois do e-mail: o status dele mora no mesmo registro, e
+  // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
+  // antes e atualizar depois falharia justamente em produção.
+  try {
+    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  } catch (e) {
+    // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
+    // novo às cegas mandaria um segundo aviso à pessoa.
+    noteKvFailure('escrita', e, 'resolução de pedido de remoção');
+    const email = resolvedEmailStatus === 'sent'
+      ? 'O e-mail de confirmação JÁ foi enviado — resolver de novo manda outro.'
+      : 'Nenhum e-mail de confirmação foi enviado.';
+    return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
+  }
   return jsonOk(requests[idx]);
 }
 

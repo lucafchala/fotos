@@ -90,7 +90,10 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     input:focus,textarea:focus{border-color:var(--text-dim-2)}
     textarea{min-height:120px}
     .submit-btn{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
-    .submit-btn:hover{opacity:.88}
+    .submit-btn:hover:not(:disabled){opacity:.88}
+    /* O botão nasce desabilitado até o Turnstile passar. Com fundo e cor próprios,
+       o navegador não o acinzenta sozinho: parecia ativo e não fazia nada. */
+    .submit-btn:disabled{opacity:.45;cursor:not-allowed}
     .success{background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text);padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
     .error-msg{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
     .adblock-warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
