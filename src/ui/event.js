@@ -720,6 +720,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     const ALERT_EXPIRES  = ${alertExpiresJSON};
 
     let lastFocused = null;
+    // Foto corrente do carrossel/lightbox. Declarada aqui em cima, antes de
+    // qualquer função que a leia: o clique delegado logo abaixo já a usa.
+    let cur = 0;
 
     // ---- Delegated handlers (CSP: no inline on* attributes) ----
     // 'load'/'error' don't bubble, but a capture-phase listener on document
@@ -817,7 +820,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       else                el.textContent = \`— há \${days} dia\${days !== 1 ? 's' : ''}\`;
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
-    let cur = 0;
 
     // ---- Cookie / analytics notice ----
     try {
@@ -1240,7 +1242,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         const lbCnt = document.getElementById('lb-count'); if (lbCnt) lbCnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       }
     }
-    function cGo(dir) { if (window.perfCount) perfCount('navCount'); cGoto(cur + dir); }
+    function cGo(dir) { if (window.perfCount) window.perfCount('navCount'); cGoto(cur + dir); }
 
     // ---- Lightbox (preview photos only — not the Drive delivery flow) ----
     let lbLastFocused = null, lbZoomed = false;
