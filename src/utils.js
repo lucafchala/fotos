@@ -310,7 +310,10 @@ export function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-// 100k measures ~50 ms — within the 200 ms CI healthz budget (deploy.yml).
+// 100k mede ~50 ms de CPU. O portão real é o smoke test (scripts/smoke.sh):
+// estourar o orçamento de CPU do Worker MATA a requisição, e o POST de login
+// deixa de voltar 302. (Não há número a vigiar: o Workers congela Date.now()
+// durante a execução, e o antigo `hashMs` do healthz era zero por construção.)
 // Stored hashes embed their own iteration count, so raising this never
 // breaks existing credentials.
 /**
@@ -528,11 +531,11 @@ export async function verifySession(env, request) {
   return true;
 }
 
-// KV write quota is 1000/day account-wide; past it, writes throw. Unhandled,
-// that would bubble from `checkRateLimit` into fetch()'s catch — 500 on the
-// Drive gate for everyone right at peak traffic. So counter/rate-limit writes
-// are isolated and fail open, logged via noteDegraded/healthz instead
-// (mitigation, not a guarantee — SECURITY.md).
+// Cota de escrita do KV: 1000/dia na conta toda, e passada ela a escrita
+// LANÇA. Contadores e rate limit já saíram do KV (Durable Objects, ver
+// counters.js); o que ainda grava lá — sessões, projetos, pedidos — precisa
+// isolar a recusa onde ela acontece e registrá-la aqui embaixo, em vez de
+// deixá-la subir até o catch do roteador como 500.
 // ---------------------------------------------------------------------------
 // Registro de degradações: um lugar só, para nada falhar calado
 // ---------------------------------------------------------------------------

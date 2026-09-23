@@ -515,13 +515,14 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
-  // Cookie de 1h evita contar a mesma pessoa duas vezes (KV read-modify-write
-  // não é atômico, então isto é analytics aproximado, não métrica exata).
+  // Cookie de 1h evita contar a mesma pessoa duas vezes. O incremento em si é
+  // exato (Durable Object, ver bumpCounter); o que é aproximado é a noção de
+  // "visita" — um navegador por hora, por projeto.
   const cookieName = `fv_${slug}`;
   // HEAD não conta nem seta o cookie: HEAD reexecuta como GET, e monitores de
-  // uptime batem por minuto — sem esta exceção, cada um gastaria uma escrita
-  // de KV contra a cota diária de 1000, e o GET real seguinte não contaria
-  // (o visitante já apareceria como "já contado" pelo cookie de um HEAD).
+  // uptime batem por minuto — sem esta exceção, cada sondagem viraria uma
+  // "visita", e o GET real seguinte não contaria (o visitante já apareceria
+  // como "já contado" pelo cookie de um HEAD).
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   // A galeria faz prefetch da página do projeto no hover (speculation rules em
   // gallery.js). Isso é uma aposta do BROWSER, não uma visita: contar aqui
@@ -531,8 +532,8 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
   const counts = !alreadyCounted && !headOnly && !prefetch;
   if (counts) {
-    // Agregado em memória do isolate, não gravado na hora — vira uma escrita
-    // por janela em vez de uma por visitante. Ver bumpCounter() em utils.js.
+    // Uma chamada ao Durable Object `Counter` por visita contada, fora do
+    // caminho da resposta (waitUntil). Ver bumpCounter() em utils.js.
     bumpCounter(env, ctx, `views:${slug}`);
   }
 
@@ -2068,9 +2069,11 @@ export function auditSite(events, env = {}, degradacoes = []) {
  * @param {Env} env
  */
 export async function handleHealthz(request, env) {
-  // Sem rate-limit por KV de propósito: este endpoint é sondado pelo monitor
-  // de status em intervalo fixo, e checkRateLimit() gasta escrita (cota
-  // compartilhada de 1000/dia) que o trabalho limitado desta rota não justifica.
+  // Sem rate limit de propósito: este endpoint é sondado pelo monitor de
+  // status em intervalo fixo, e o trabalho dele é limitado (leituras de KV e
+  // um hash) e fica atrás da borda da Cloudflare. O motivo original era a cota
+  // de escrita do KV, que o rate limit gastava quando morava lá; hoje ele é um
+  // Durable Object, mas limitar o monitor continua sem proteger nada.
   //
   // KV é o binding do qual tudo depende; falha de leitura aqui é a única
   // condição que vira ok:false.

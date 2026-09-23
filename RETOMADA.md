@@ -92,9 +92,12 @@ protege quem entende o porquê.
 ### 5.1. Nonce na CSP aplicada quebra a interface inteira
 
 Pela CSP nível 3, **um nonce faz o browser descartar `'unsafe-inline'`**. Este
-site tem ~63 handlers inline (`onclick=`, `onchange=`). Adicionar um nonce à
-política aplicada mata todos eles de uma vez — e **os testes continuam passando**,
-porque eles conferem o texto da política, não o efeito dela.
+site tinha ~63 handlers inline (`onclick=`, `onchange=`) quando isto mordeu:
+adicionar um nonce à política aplicada matou todos de uma vez — e **os testes
+continuaram passando**, porque eles conferem o texto da política, não o efeito
+dela. Desde 03/09/2026 (`4552180`) não sobra nenhum: viraram listeners
+delegados (`data-onclick` e afins). A regra abaixo continua valendo até o #126
+fazer a virada com o navegador aberto e os relatórios da report-only zerados.
 
 - A política **aplicada** tem `'unsafe-inline'` e **nunca** nonce.
 - A política **report-only** (estrita) tem nonce e nenhum `'unsafe-inline'`.
