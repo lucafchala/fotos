@@ -563,20 +563,52 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
  * @param {string} nonce
  */
 async function handleDashboardPage(request, env, url, nonce) {
-  const stored = await getAdminHash(env);
+  // Tudo o que decide o acesso ao painel mora no KV (hash da senha, registro
+  // da sessão) — e diferente da galeria, aqui NÃO existe cópia de
+  // sobrevivência, de propósito: servir sessão ou hash de cópia seria
+  // autenticar contra um estado que pode já ter sido revogado. Com o KV fora,
+  // o painel falha FECHADO, mas com um 503 que diz o que houve, e não com a
+  // página 500 genérica e um e-mail de "erro no site" para cada tentativa.
+  //
+  // O `try` cerca só as leituras. Um defeito de RENDERIZAÇÃO lá embaixo tem de
+  // continuar indo para o catch do roteador (500 + alerta): rotulá-lo como
+  // queda de KV mandaria quem investiga procurar o problema no lugar errado.
+  /** @type {string|null} */
+  let stored;
+  let authed = false;
+  /** @type {[Evento[], string[]]|null} */
+  let dados = null;
+  try {
+    stored = await getAdminHash(env);
+    if (stored) authed = await verifySession(env, request);
+    if (authed) dados = await Promise.all([getEvents(env, true), getCategories(env)]);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'abertura do painel');
+    return adminHtml(PAINEL_INDISPONIVEL_HTML, 503, nonce);
+  }
+
   if (!stored) {
     return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
   }
-
-  const authed = await verifySession(env, request);
-  if (!authed) {
-    const hasError = url.searchParams.get('error') === '1';
-    return adminHtml(loginHTML({ error: hasError }, nonce), 200, nonce);
+  if (!authed || !dados) {
+    // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
+    // desconhecido cai no formulário limpo.
+    const erro = url.searchParams.get('error');
+    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv' }, nonce), 200, nonce);
   }
 
-  const [events, categories] = await Promise.all([getEvents(env, true), getCategories(env)]);
+  const [events, categories] = dados;
   return adminHtml(dashboardHTML(events, categories, nonce), 200, nonce);
 }
+
+// Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
+// há o que o dono possa fazer daqui além de esperar, e dizer isso poupa a
+// tentativa de login que falharia de novo pelo mesmo motivo.
+const PAINEL_INDISPONIVEL_MSG =
+  'O painel está temporariamente indisponível: o banco de dados do site (KV) não respondeu. ' +
+  'Nada foi alterado e o site público segue no ar. Tente de novo em alguns minutos.';
+const PAINEL_INDISPONIVEL_HTML =
+  `<p style="font-family:monospace;padding:40px;max-width:640px;line-height:1.6">${PAINEL_INDISPONIVEL_MSG}</p>`;
 
 // ---------------------------------------------------------------------------
 // Login
@@ -614,7 +646,17 @@ export async function handleLogin(request, env, ctx) {
   }
 
   const password = body.password || '';
-  const stored = await getAdminHash(env);
+  // KV fora: falha FECHADO, mas sem 500. Nada de hash de cópia — autenticar
+  // contra um estado velho aceitaria uma senha que o dono já trocou. O aviso
+  // na tela de login é o de indisponibilidade, não "senha incorreta": mandar o
+  // dono redigitar uma senha certa por causa do banco é a pior pista possível.
+  let stored;
+  try {
+    stored = await getAdminHash(env);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'login do painel');
+    return redirect('/dashboard?error=kv');
+  }
 
   // No trust-on-first-use: with no stored credential and no ADMIN_PASSWORD
   // secret, login is impossible rather than claimable by the first visitor.
@@ -638,12 +680,14 @@ export async function handleLogin(request, env, ctx) {
   const token = generateToken();
   // Única escrita do fluxo que não dá para contornar: sem sessão gravada não
   // há login. Reporta a falha (noteKvFailure alimenta o healthz) em vez de
-  // deixar um 500 cru sem ninguém saber por quê.
+  // deixar um 500 cru sem ninguém saber por quê. `error=kv`, e não `error=1`:
+  // a senha estava CERTA, e a tela de "senha incorreta" mandava o dono
+  // desconfiar da própria senha no dia em que o problema era a cota do KV.
   try {
     await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
   } catch (e) {
     noteKvFailure('escrita', e, 'abertura de sessão do painel');
-    return redirect('/dashboard?error=1');
+    return redirect('/dashboard?error=kv');
   }
 
   const headers = new Headers({
@@ -692,6 +736,12 @@ async function noteFailedLogin(env, request, ip) {
 
 // Stored credential, seeded from the ADMIN_PASSWORD secret when KV is empty
 // (fresh deploy / wiped namespace) so there is never an open setup window.
+//
+// A LEITURA propaga (quem chama responde 503: sem saber se há hash gravado, não
+// há como decidir nada). A semeadura não: se o KV recusar gravar o hash, o
+// hash recém-calculado vale para ESTA requisição e a próxima tenta de novo —
+// recusar o login por causa de uma escrita de conveniência trancaria o dono
+// fora do painel justamente no dia de cota estourada.
 /**
  * @param {Env} env
  */
@@ -700,7 +750,8 @@ async function getAdminHash(env) {
   if (stored) return stored;
   if (env.ADMIN_PASSWORD) {
     const hash = await hashPassword(env.ADMIN_PASSWORD);
-    await env.FOTOS.put('admin_password', hash);
+    await env.FOTOS.put('admin_password', hash)
+      .catch(e => noteKvFailure('escrita', e, 'semeadura do hash da senha do painel'));
     return hash;
   }
   return null;
@@ -1112,10 +1163,11 @@ async function handleMetrics(request, env) {
  * @param {ExecutionContext} ctx
  */
 export async function handleTrackDrive(request, env, ctx) {
-  // Ordem importa por causa da cota: checkRateLimit GRAVA em KV (1000/dia,
-  // conta inteira), e este endpoint é público e aceita corpo qualquer. Corpo,
-  // slug e existência do evento são checados de graça primeiro (leitura tem
-  // cota 100x maior) — só quem passa por tudo isso chega ao rate limit.
+  // Ordem importa por causa da cota: checkRateLimit GRAVA no storage do
+  // Durable Object (linhas escritas/dia, franquia compartilhada com os
+  // contadores), e este endpoint é público e aceita corpo qualquer. Corpo,
+  // slug e existência do evento são checados de graça primeiro — só quem
+  // passa por tudo isso chega ao rate limit.
   const body = await readJsonBody(request);
   if (!body) return jsonOk({ ok: true });
   const slug = String(body.slug || '').slice(0, 60);
@@ -1123,18 +1175,27 @@ export async function handleTrackDrive(request, env, ctx) {
 
   // `comingSoon` não desenha o botão do Drive, então clique nenhum vem de lá
   // legitimamente — um POST direto só inflaria a métrica.
-  const events = await getEvents(env);
-  const event = events.find(e => e.slug === slug);
+  //
+  // KV fora e sem cópia: o clique simplesmente não conta. É um beacon que o
+  // cliente nem lê — um 500 aqui só dispararia o alerta de "erro no site" por
+  // causa de uma métrica, no meio de uma queda que o healthz já acusa.
+  let event;
+  try {
+    event = (await getEvents(env)).find(e => e.slug === slug);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'contagem de clique no Drive');
+    return jsonOk({ ok: true });
+  }
   if (!event || event.comingSoon) return jsonOk({ ok: true });
 
-  // Rate limit continua necessário mesmo com a agregação: ela grava uma vez
-  // por janela de 10s, não uma vez por hora — um flood sustentado ainda são
-  // ~8600 escritas/dia sem este limite, contra a cota de 1000/dia.
+  // Sem este limite, um flood sustentado inflaria a métrica à vontade e
+  // gastaria a franquia de escrita do Durable Object com um clique falso por
+  // requisição.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
 
-  // ctx vem do roteador — sem ele, o flush do mapa recém-esvaziado podia ser
-  // descartado junto com a requisição.
+  // ctx vem do roteador — sem ele, o incremento em voo podia ser descartado
+  // junto com a requisição; quem chama sem ctx (teste) aguarda aqui mesmo.
   const work = bumpCounter(env, ctx, `drive_clicks:${slug}`);
   if (work && !(ctx && typeof ctx.waitUntil === 'function')) await work;
   return jsonOk({ ok: true });
@@ -1308,7 +1369,16 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   // enviar 5x com a mesma mensagem. Chave é hash da mensagem por IP; resposta
   // é a tela de sucesso, pois o pedido já chegou da primeira vez.
   const dupKey = `support-dup:${ip}:${await shortHash(message)}`;
-  if (await env.FOTOS.get(dupKey)) return page(true);
+  // A supressão é conforto, não controle: com o KV fora, deixar passar custa
+  // no máximo um e-mail repetido; propagar a falha custava a MENSAGEM — o
+  // e-mail abaixo não depende do KV, e era um 500 que a jogava fora.
+  let repetida = false;
+  try {
+    repetida = !!(await env.FOTOS.get(dupKey));
+  } catch (e) {
+    noteKvFailure('leitura', e, 'supressão de repetição do formulário de suporte');
+  }
+  if (repetida) return page(true);
 
   // Marca de dedupe só é gravada DEPOIS do envio dar certo — senão uma falha
   // do Resend faria o dedupe engolir o reenvio de uma mensagem nunca entregue.
@@ -1322,7 +1392,10 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   } catch (e) {
     falha = e;
   }
-  if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
+  if (sent) {
+    await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 })
+      .catch(e => noteKvFailure('escrita', e, 'supressão de repetição do formulário de suporte'));
+  }
 
   if (!sent) {
     // Diferente do pedido de remoção, a mensagem de suporte não fica gravada
@@ -2312,7 +2385,18 @@ async function pruneOldConsent(env) {
  * @param {Env} env
  */
 async function checkAuth(request, env) {
-  const authed = await verifySession(env, request);
+  // Falha FECHADA também com o KV fora — mas 503, não 401 e não 500. O 401
+  // faria o painel achar que a sessão expirou e mandar o dono para um login
+  // que falharia pelo mesmo motivo; o 500 dispararia um e-mail de "erro no
+  // site" por clique. O 503 vira um aviso na tela, e a sessão segue intacta
+  // para quando o KV voltar.
+  let authed;
+  try {
+    authed = await verifySession(env, request);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'verificação de sessão do painel');
+    return jsonErr(PAINEL_INDISPONIVEL_MSG, 503);
+  }
   if (!authed) return jsonErr('Não autorizado.', 401);
   return null;
 }

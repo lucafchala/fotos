@@ -378,6 +378,36 @@ staged data loss: the `saveEvents` that follows would write the old list back
 over the new one, deleting every project changed since the copy was taken.
 Failing costs the owner an error message; the alternative costs the projects.
 
+### The panel and the support form in a KV outage — opposite answers on purpose
+
+Outside the photo path, two routes still answered a KV outage with the generic
+500 (and an "error on the site" email per attempt). They get opposite
+treatments, because they protect opposite things:
+
+- **Support form: fail open on the dedupe.** The only KV access on its critical
+  path was the read of the "same message from the same IP in the last hour"
+  marker — a convenience, not a control. The message itself travels by email,
+  which does not touch KV. With KV down the read is skipped (and reported to
+  `noteDegraded`), so the worst case is one duplicate email; the old worst case
+  was the message being thrown away.
+- **Panel: fail closed, but say so.** The password hash and the session record
+  both live in KV, and there is deliberately **no** surviving copy of either:
+  authenticating against a cached hash would accept a password the owner has
+  already changed, and a cached session would outlive its revocation. So with
+  KV down there is no way in — but the answer is a `503` that explains the
+  outage (`/dashboard`), a JSON `503` for authenticated API calls (a `401` would
+  make the panel think the session expired and bounce the owner to a login that
+  cannot work), and on the login form a notice that **the password was not
+  refused**. The login used to reuse the "wrong password" screen when KV refused
+  to store a correct login's session; on the day the quota ran out, that told
+  the owner to distrust the one thing that was right.
+
+One write in the panel path is allowed to fail open: seeding the hash from the
+`ADMIN_PASSWORD` secret into an empty namespace. If KV refuses it, the freshly
+computed hash still authenticates *this* request and the next one retries the
+seed — refusing the login over a convenience write would lock the owner out on
+exactly the day the quota is exhausted. Pinned by `tests/queda-kv.test.js`.
+
 Two things that are **not** relaxed while degraded, both pinned by
 `tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses
 normally (missing consent, failed Turnstile, `comingSoon`, unknown slug), and
