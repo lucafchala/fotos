@@ -267,7 +267,8 @@ do Worker no painel da Cloudflare, não no seu código.
 
 ## 6. Como fazer uma mudança
 
-1. Branch a partir de `main`.
+1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a
+   proteção da `main` em [`docs/BRANCHES.md`](./docs/BRANCHES.md).
 2. Código + teste. **Reintroduza o bug e confirme que o teste falha** — teste de
    regressão que nunca falhou não é teste de regressão.
 3. `npm run lint && npm run typecheck && npm test && npm run test:coverage`.
