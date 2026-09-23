@@ -455,7 +455,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     </div>
     <div class="settings-card">
       <h3>Backup dos dados</h3>
-      <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
+      <p style="margin-bottom:1rem">Baixe uma cópia completa: projetos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
       <button class="btn-sm" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
     </div>
     <div class="settings-card">
@@ -997,10 +997,6 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         try { lastFocused.focus(); } catch (e) {}
       }
       lastFocused = null;
-    }
-
-    function overlayClick(e) {
-      if (e.target === document.getElementById('overlay')) closeForm();
     }
 
     window.addEventListener('beforeunload', function(e) {

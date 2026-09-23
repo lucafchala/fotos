@@ -1,5 +1,6 @@
 import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreconnectHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { TURNSTILE_SITE_KEY } from '../config.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -697,9 +698,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <div class="c-count" id="lb-count" style="display:none"></div>
   </div>
 
-    </div>
-  </div>
-
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
     <button id="cookie-ok" type="button">Entendi</button>
@@ -747,7 +745,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     document.addEventListener('click', function(e) {
       var t = e.target;
       // Modal-scrim clicks: only when the click lands on the scrim itself
-      // (not the sheet) — same check the old ovClick()/remOvClick()/etc did.
+      // (not the sheet) — the check the old per-modal ovClick() helpers did.
       if (t.id === 'modal') { closeModal(); return; }
       if (t.id === 'rem-modal') { closeRemModal(); return; }
       if (t.id === 'soon-modal') { closeSoonModal(); return; }
@@ -869,7 +867,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       } catch(_) {}
     })();
 
-    const TS_SITEKEY = '0x4AAAAAADg-tbuoPRO9s2I5';
+    // Chave pública do widget — a mesma de /suporte, de uma constante só (config.js).
+    const TS_SITEKEY = ${JSON.stringify(TURNSTILE_SITE_KEY)};
     let driveWidgetId  = null;
     let driveTsToken   = '';
     let driveTimeout   = null;
@@ -1173,7 +1172,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function ovClick(e) { if (e.target === document.getElementById('modal')) closeModal(); }
     function onDriveOpen() {
       trackDrive(); // simple click counter — navigation follows the real href natively
       closeModal();
@@ -1195,7 +1193,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function soonOvClick(e) { if (e.target === document.getElementById('soon-modal')) closeSoonModal(); }
 
     // ---- Carousel ----
     const _preloaded = {};
@@ -1264,7 +1261,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       lbResetZoom();
       if (lbLastFocused && lbLastFocused.focus) lbLastFocused.focus();
     }
-    function lbOvClick(e) { if (e.target.id === 'lightbox') closeLightbox(); }
     function lbResetZoom() {
       lbZoomed = false;
       const img = document.getElementById('lb-img');
@@ -1358,7 +1354,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       updateStickyCta();
       if (lastFocused && lastFocused.focus) lastFocused.focus();
     }
-    function remOvClick(e) { if (e.target === document.getElementById('rem-modal')) closeRemModal(); }
 
     function updateRemMethod() {
       const m = document.querySelector('input[name="rem-method"]:checked').value;

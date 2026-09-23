@@ -1,5 +1,6 @@
 import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { TURNSTILE_SITE_KEY } from '../config.js';
 
 /**
  * @param {boolean} [sent]
@@ -165,7 +166,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
       <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-onclick="reload">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
       </div>
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
+      <div class="cf-turnstile" data-sitekey="${escape(TURNSTILE_SITE_KEY)}" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
     <script nonce="${nonce}">
