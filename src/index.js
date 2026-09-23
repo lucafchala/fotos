@@ -12,7 +12,7 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, checkRateLimit,
+  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
@@ -822,14 +822,30 @@ function withEventDefaults(ev) {
   return out;
 }
 
+// Teto do "sumir em N horas" do aviso de novas fotos. O painel oferece no
+// máximo 7 dias; o teto existe para o valor que NÃO veio do painel (API direta,
+// restore de backup). Sem ele, um número grande o bastante fazia
+// `addedAt + horas` passar da data máxima do JavaScript, e o `toISOString()` da
+// página do projeto LANÇAVA RangeError — 500 na página pública, com alerta.
+const PHOTOS_ALERT_MAX_HOURS = 24 * 365;
+
 /**
  * @param {any} pa
  * @param {any} fallback
  */
 function normalizePhotosAlert(pa, fallback) {
-  return pa && typeof pa === 'object'
-    ? { active: pa.active === true, addedAt: pa.addedAt || null, expiresAfterHours: parseInt(pa.expiresAfterHours) || 0 }
-    : fallback;
+  if (!pa || typeof pa !== 'object' || Array.isArray(pa)) return fallback;
+  const horas = parseInt(pa.expiresAfterHours, 10);
+  // Data ilegível vira null em vez de ser gravada: é ela que a página soma às
+  // horas para decidir se o aviso ainda aparece.
+  const addedAt = typeof pa.addedAt === 'string' && Number.isFinite(Date.parse(pa.addedAt))
+    ? pa.addedAt.slice(0, 40)
+    : null;
+  return {
+    active: pa.active === true,
+    addedAt,
+    expiresAfterHours: Number.isInteger(horas) ? Math.min(Math.max(horas, 0), PHOTOS_ALERT_MAX_HOURS) : 0,
+  };
 }
 
 // Normalize the scalar/flag fields common to create and update. A field present
@@ -872,6 +888,18 @@ export function normalizeEventFields(body, base, cats) {
   };
 }
 
+// Mensagem do painel para um slug recusado. O reservado ganha a sua: "URL
+// inválida" para `sobre`, que tem formato perfeito, mandaria o dono procurar o
+// erro de digitação que não existe.
+/**
+ * @param {unknown} slug
+ */
+function slugRecusado(slug) {
+  return typeof slug === 'string' && RESERVED_SLUGS.has(slug)
+    ? `A URL /${slug} já é uma página do site. Escolha outra.`
+    : 'URL inválida.';
+}
+
 // Map a photos array to sanitized https URLs (max 6). Shared by create + update.
 /**
  * @param {any[]} arr
@@ -895,7 +923,7 @@ async function handleCreateEvent(request, env) {
   if (!body) return jsonErr('JSON inválido.', 400);
 
   const { slug, title, driveUrl } = body;
-  if (!slug || !validateSlug(slug)) return jsonErr('URL inválida.', 400);
+  if (!slug || !validateSlug(slug)) return jsonErr(slugRecusado(slug), 400);
   if (!title || typeof title !== 'string') return jsonErr('Título obrigatório.', 400);
   if (!driveUrl || typeof driveUrl !== 'string') return jsonErr('Link do Drive obrigatório.', 400);
 
@@ -959,7 +987,7 @@ async function handleUpdateEvent(request, env, path) {
 
   // Allow slug update only if no other event uses it
   if (body.slug && body.slug !== existing.slug) {
-    if (!validateSlug(body.slug)) return jsonErr('URL inválida.', 400);
+    if (!validateSlug(body.slug)) return jsonErr(slugRecusado(body.slug), 400);
     if (events.some((e, i) => i !== idx && e.slug === body.slug)) return jsonErr('URL já está em uso.', 409);
     updated.slug = body.slug;
   }
@@ -1974,6 +2002,10 @@ export function auditSite(events, env = {}, degradacoes = []) {
     const slug = typeof e.slug === 'string' ? e.slug : '';
     const title = typeof e.title === 'string' ? e.title : '';
     if (!slug) { problems.push(`evento público sem slug${title ? ` ("${title}")` : ''}`); continue; }
+    // Slug que o roteador nunca entrega a este projeto: reservado por uma
+    // página do site (`sobre`) ou fora do formato (só chega por restore antigo
+    // ou edição à mão no KV). O card aparece na galeria e leva a outro lugar.
+    if (!validateSlug(slug)) problems.push(`slug inválido ou reservado: ${slug.slice(0, 60)} (a página do projeto não abre)`);
     if (seen.has(slug)) problems.push(`slug duplicado: ${slug} (rotas colidem)`); else seen.add(slug);
     if (!title) problems.push(`evento sem título: ${slug}`);
     if (e.status && !EVENT_STATUSES.includes(e.status)) problems.push(`status inválido em ${slug}: ${e.status}`);
@@ -2545,8 +2577,44 @@ export function buildBackup({ events, categories, removalRequests }) {
 // Restore is the one path that writes events without going through
 // normalizeEventFields(), so a hand-edited backup could inject `javascript:`
 // into a public href or a non-object entry could 500 the gallery. Sanitize
-// only shape + URL sinks; pass everything else through untouched.
+// shape, identity and the fields the pages use as sinks; pass everything else
+// (unknown fields included) through untouched, and never invent a field the
+// backup did not bring.
 const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
+
+// Campos de TEXTO, com os mesmos tetos de normalizeEventFields(). As páginas
+// públicas os tratam como string (`.toLowerCase()` na galeria, `.slice()` e
+// `.split()` na data) — um `"title": 2026` num backup editado à mão LANÇAVA
+// TypeError dentro de galleryHTML e derrubava a home inteira com 500.
+const RESTORE_TEXT_FIELDS = {
+  title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
+};
+const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
+
+/**
+ * @param {unknown} v
+ */
+function textoRestaurado(v) {
+  if (typeof v === 'string') return v;
+  // Número vira o texto dele ("title": 2026 → "2026"); objeto, lista e
+  // booleano não têm leitura honesta como texto e viram vazio.
+  return typeof v === 'number' && Number.isFinite(v) ? String(v) : '';
+}
+
+// Um evento do backup só entra com IDENTIDADE utilizável — sem ela ele não é
+// dado a preservar, é armadilha:
+//   • `id`: é por ele que o painel edita e apaga (`/api/events/<id>`). Sem id,
+//     ou com um que não sobrevive a ser um trecho de URL, o evento ficava
+//     visível e impossível de editar ou apagar — e o restore nunca apaga.
+//   • `slug`: vai cru para o `href` do card (`/<slug>`). Um `/evil.example`
+//     virava `href="//evil.example"`, link de protocolo relativo para FORA do
+//     site; e um slug reservado (`sobre`) simplesmente nunca abre.
+/**
+ * @param {any} ev
+ */
+function identidadeRestauravel(ev) {
+  return typeof ev.id === 'string' && /^[\w-]{1,64}$/.test(ev.id) && validateSlug(ev.slug);
+}
 
 /**
  * @param {any} ev
@@ -2559,11 +2627,20 @@ function sanitizeRestoredEvent(ev) {
   if (Array.isArray(out.photos)) {
     out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, MAX_URL_LENGTH))).filter(Boolean);
   }
+  for (const [f, max] of Object.entries(RESTORE_TEXT_FIELDS)) {
+    if (out[f] !== undefined && out[f] !== null) out[f] = textoRestaurado(out[f]).slice(0, max);
+  }
+  for (const f of RESTORE_DATE_FIELDS) {
+    if (out[f] !== undefined && !(typeof out[f] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(out[f]))) out[f] = '';
+  }
   // Os dois campos de enum: normalizeEventFields() os valida no caminho
   // normal, mas restore não passa por lá. Desembocam em atributo de HTML no
   // painel (escapado no sink); isto impede o valor absurdo de ser GRAVADO.
   if (out.status !== undefined && !EVENT_STATUSES.includes(out.status)) out.status = DEFAULT_EVENT.status;
   if (out.accessType !== undefined && !ACCESS_TYPES.includes(out.accessType)) out.accessType = DEFAULT_EVENT.accessType;
+  // O aviso de novas fotos soma horas a uma data para decidir se aparece — um
+  // número absurdo aqui virava RangeError na página do projeto.
+  if (out.photosAlert !== undefined) out.photosAlert = normalizePhotosAlert(out.photosAlert, { ...DEFAULT_EVENT.photosAlert });
   return out;
 }
 
@@ -2602,10 +2679,13 @@ export function sanitizeRestoredRequest(r) {
  */
 export function mergeRestore(current, backupEvents) {
   const result = [...current];
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, skipped = 0;
   for (const raw of backupEvents) {
     // Skip junk entries instead of letting them reach KV (null/string/array).
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { skipped++; continue; }
+    // Sem id e slug utilizáveis o evento não entra — nem como novo, nem
+    // SUBSTITUINDO um existente de mesmo id (que perderia o slug que tinha).
+    if (!identidadeRestauravel(raw)) { skipped++; continue; }
     const bEv = sanitizeRestoredEvent(raw);
     const idx = result.findIndex(e => e.id === bEv.id);
     if (idx === -1) {
@@ -2617,7 +2697,7 @@ export function mergeRestore(current, backupEvents) {
       if (bt > ct) { result[idx] = bEv; updated++; }
     }
   }
-  return { events: result, added, updated };
+  return { events: result, added, updated, skipped };
 }
 
 /**
@@ -2657,12 +2737,14 @@ async function handleRestoreBackup(request, env) {
   // criado noutro isolate) ou, pior, sobre a cópia de sobrevivência de até 7
   // dias se o KV estivesse fora — e gravar isso como se fosse o estado atual.
   const current = await getEvents(env, true);
-  const { events: merged, added, updated } = mergeRestore(current, body.events);
+  const { events: merged, added, updated, skipped } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
   // `categories` e `removalRequestsAdded` entram depois, só quando o backup
   // traz essas seções (v2). A forma inferida do literal não as inclui.
+  // `skipped` é dito sempre: um evento do backup que não entrou (sem id ou
+  // slug utilizável) precisa aparecer na confirmação, não sumir calado.
   /** @type {Record<string, any>} */
-  const result = { ok: true, added, updated, total: merged.length };
+  const result = { ok: true, added, updated, skipped, total: merged.length };
 
   // v2 sections — optional and backward-compatible (v1 backups simply omit them).
   if (Array.isArray(body.categories)) {

@@ -91,8 +91,9 @@ issue before any public disclosure.
   only search-engine discovery is affected (`isRestrictedAccess()` in
   `src/utils.js`).
 - Counters (`views`, `drive_clicks`) are **atomic** since they moved from KV to
-  Durable Objects: one object per key, calls serialized by the runtime. The
-  undercounting-under-load caveat that used to live here no longer applies.
+  Durable Objects: one object holds every counter, and the runtime serializes
+  calls to it. The undercounting-under-load caveat that used to live here no
+  longer applies.
 - Rate limits are abuse-mitigation, not a hard guarantee. In particular they
   **stop counting when the store refuses a write** — see "Rate limits fail open
   when they cannot be recorded" below. They are not, however, optional: see the
@@ -119,7 +120,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | CSV formula-injection guard | `csvCell()` | `=HYPERLINK(...)` in a visitor-supplied field executing in the admin's spreadsheet |
 | EXIF/GPS stripping on uploads | `stripImageMetadata()` | A removal request handing us the GPS coordinates of the photo |
 | `no-store` on every data response | `dataSecurityHeaders()` | Personal data sitting in a disk or intermediary cache |
-| Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes and `javascript:` URLs |
+| Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes, `javascript:` URLs, a slug that turns the gallery card into `href="//other-host"`, or a non-string title that 500s the public gallery |
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
@@ -207,10 +208,13 @@ question of shape rather than of tuning: a counter written once per visitor
 makes the site's cost grow with its audience, against a ceiling that does not
 move. Three changes take that out:
 
-- **Counters live in Durable Objects, one object per key.** `views:` and
-  `drive_clicks:` go through `bumpCounter()`, which calls `increment()` on the
-  object addressed by that key. The runtime serializes calls to a single object,
-  so the increment is atomic and the count is exact under any traffic shape.
+- **Counters live in a Durable Object — one object for all of them.** `views:`
+  and `drive_clicks:` go through `bumpCounter()`, which calls `increment(key)` on
+  the single `Counter` object. The runtime serializes calls to a single object,
+  so the increment is atomic and the count is exact under any traffic shape. (It
+  was one object per key at first; that broke the metrics panel, because every
+  Durable Object call is a subrequest — 50 per invocation on the Free plan — and
+  the panel read two counters per project. See `src/counters.js`.)
   This replaced an in-memory coalescing scheme (pending map, one-second per-key
   floor, flush lock, scheduled drain) that existed only because KV has no atomic
   increment and refuses more than one write per second per key — a limit the

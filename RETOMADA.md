@@ -130,11 +130,13 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-**Os contadores são atômicos, um Durable Object por chave.** `views:` e
-`drive_clicks:` passam por `bumpCounter()` (utils.js), que chama `increment()`
-no objeto endereçado por aquela chave. O runtime serializa as chamadas de um
-mesmo objeto, então a contagem sai exata em qualquer formato de tráfego —
-espalhado ou em rajada — sem nada acumulado em memória.
+**Os contadores são atômicos, num Durable Object só para todos.** `views:` e
+`drive_clicks:` passam por `bumpCounter()` (utils.js), que chama
+`increment(chave)` no objeto único `Counter`. O runtime serializa as chamadas de
+um mesmo objeto, então a contagem sai exata em qualquer formato de tráfego —
+espalhado ou em rajada — sem nada acumulado em memória. (Já foi um objeto por
+chave: quebrou o painel de métricas, porque chamada de DO é subrequisição — 50
+por invocação no plano gratuito — e o painel lia duas por projeto.)
 
 **Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.** Os
 dois defeitos são da era do KV e não podem mais acontecer do mesmo jeito, mas o

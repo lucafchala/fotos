@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import worker, { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite } from '../src/index.js';
 import { DEFAULT_EVENT } from '../src/config.js';
-import { saveEvents, readCounter } from '../src/utils.js';
+import { saveEvents, readCounter, RESERVED_SLUGS } from '../src/utils.js';
+import { galleryHTML } from '../src/ui/gallery.js';
+import { eventHTML } from '../src/ui/event.js';
 import { withDurableObjects } from './helpers/do.js';
 
 const CATS = ['Casamento', 'Ensaio'];
@@ -9,24 +12,24 @@ const CATS = ['Casamento', 'Ensaio'];
 describe('mergeRestore', () => {
   it('adds events absent from the current set', () => {
     const current = [{ id: 'a', title: 'A' }];
-    const { events, added, updated } = mergeRestore(current, [{ id: 'b', title: 'B' }]);
+    const { events, added, updated } = mergeRestore(current, [{ id: 'b', slug: 'b', title: 'B' }]);
     expect(added).toBe(1);
     expect(updated).toBe(0);
     expect(events.map(e => e.id).sort()).toEqual(['a', 'b']);
   });
   it('replaces an existing event only when the backup is newer', () => {
     const current = [{ id: 'a', title: 'old', updatedAt: '2025-01-01T00:00:00Z' }];
-    const newer = mergeRestore(current, [{ id: 'a', title: 'new', updatedAt: '2026-01-01T00:00:00Z' }]);
+    const newer = mergeRestore(current, [{ id: 'a', slug: 'a', title: 'new', updatedAt: '2026-01-01T00:00:00Z' }]);
     expect(newer.updated).toBe(1);
     expect(newer.events.find(e => e.id === 'a').title).toBe('new');
 
-    const older = mergeRestore(current, [{ id: 'a', title: 'older', updatedAt: '2024-01-01T00:00:00Z' }]);
+    const older = mergeRestore(current, [{ id: 'a', slug: 'a', title: 'older', updatedAt: '2024-01-01T00:00:00Z' }]);
     expect(older.updated).toBe(0);
     expect(older.events.find(e => e.id === 'a').title).toBe('old');
   });
   it('does not mutate the current array', () => {
     const current = [{ id: 'a' }];
-    mergeRestore(current, [{ id: 'b' }]);
+    mergeRestore(current, [{ id: 'b', slug: 'b' }]);
     expect(current).toEqual([{ id: 'a' }]);
   });
 });
@@ -264,6 +267,7 @@ describe('mergeRestore hardening', () => {
   it('strips script-executing URLs from a crafted backup (stored XSS)', () => {
     const { events } = mergeRestore([], [{
       id: 'x',
+      slug: 'x',
       title: 'Evento',
       projectUrl: 'javascript:alert(document.cookie)',
       driveUrl: 'javascript:alert(1)',
@@ -281,12 +285,12 @@ describe('mergeRestore hardening', () => {
   });
 
   it('upgrades http:// URLs to https, like the create/update path does', () => {
-    const { events } = mergeRestore([], [{ id: 'y', driveUrl: 'http://drive.google.com/x' }]);
+    const { events } = mergeRestore([], [{ id: 'y', slug: 'y', driveUrl: 'http://drive.google.com/x' }]);
     expect(events.find(e => e.id === 'y').driveUrl).toBe('https://drive.google.com/x');
   });
 
   it('drops junk entries that would throw on e.visible and 500 the gallery', () => {
-    const { events, added } = mergeRestore([], [null, 'nope', 42, ['a'], { id: 'ok', title: 'OK' }]);
+    const { events, added } = mergeRestore([], [null, 'nope', 42, ['a'], { id: 'ok', slug: 'ok', title: 'OK' }]);
     expect(added).toBe(1);
     expect(events).toHaveLength(1);
     expect(events[0].id).toBe('ok');
@@ -295,7 +299,7 @@ describe('mergeRestore hardening', () => {
   });
 
   it('preserves fields the sanitizer does not know about', () => {
-    const { events } = mergeRestore([], [{ id: 'z', internalNotes: 'nota', someFutureField: { a: 1 } }]);
+    const { events } = mergeRestore([], [{ id: 'z', slug: 'z', internalNotes: 'nota', someFutureField: { a: 1 } }]);
     const ev = events.find(e => e.id === 'z');
     expect(ev.internalNotes).toBe('nota');
     expect(ev.someFutureField).toEqual({ a: 1 });
@@ -308,24 +312,205 @@ describe('mergeRestore: campos de enum', () => {
   // HTML no painel. O escape no sink cobre a marcação; isto impede que o valor
   // absurdo chegue a ser gravado.
   it('normaliza um status fora da lista para o padrão', () => {
-    const { events } = mergeRestore([], [{ id: 'a', status: '" onmouseover="alert(1)' }]);
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', status: '" onmouseover="alert(1)' }]);
     expect(events[0].status).toBe(DEFAULT_EVENT.status);
   });
   it('normaliza um accessType fora da lista para o padrão', () => {
-    const { events } = mergeRestore([], [{ id: 'a', accessType: 'inventado' }]);
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', accessType: 'inventado' }]);
     expect(events[0].accessType).toBe(DEFAULT_EVENT.accessType);
   });
   it('preserva um status e um accessType legítimos', () => {
-    const { events } = mergeRestore([], [{ id: 'a', status: 'arquivado', accessType: 'family' }]);
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', status: 'arquivado', accessType: 'family' }]);
     expect(events[0].status).toBe('arquivado');
     expect(events[0].accessType).toBe('family');
   });
   it('não inventa os campos num evento que não os traz', () => {
     // Backups antigos legítimos podem simplesmente não ter as chaves; criá-las
     // aqui mudaria o registro em vez de sanear o que veio.
-    const { events } = mergeRestore([], [{ id: 'a', title: 'T' }]);
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', title: 'T' }]);
     expect('status' in events[0]).toBe(false);
     expect('accessType' in events[0]).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Restore: identidade, tipos e o aviso de novas fotos
+// ---------------------------------------------------------------------------
+// O restore aceita backup editado à mão (e o cenário de ataque é social:
+// "restaura esse arquivo aí"). Os testes abaixo são sobre o que um valor desses
+// fazia DEPOIS de gravado — na galeria pública, não no painel.
+describe('mergeRestore: identidade do evento', () => {
+  it('recusa slug que viraria link para fora do site', () => {
+    // O card é `<a href="/<slug>">`: com `/evil.example`, o href saía
+    // `//evil.example` — protocolo relativo, direto para outro host.
+    const { events, skipped } = mergeRestore([], [{ id: 'a', slug: '/evil.example', title: 'X' }]);
+    expect(events).toEqual([]);
+    expect(skipped).toBe(1);
+  });
+
+  it('recusa slug reservado por uma página do site e evento sem slug', () => {
+    const { events, skipped } = mergeRestore([], [
+      { id: 'a', slug: 'sobre', title: 'X' },
+      { id: 'b', title: 'sem slug' },
+    ]);
+    expect(events).toEqual([]);
+    expect(skipped).toBe(2);
+  });
+
+  it('recusa evento sem id utilizável — o painel não conseguiria editá-lo nem apagá-lo', () => {
+    const { events, skipped } = mergeRestore([], [
+      { slug: 'sem-id', title: 'X' },
+      { id: 42, slug: 'id-numerico', title: 'X' },
+      { id: 'a/b?c', slug: 'id-com-barra', title: 'X' },
+    ]);
+    expect(events).toEqual([]);
+    expect(skipped).toBe(3);
+  });
+
+  it('não deixa uma versão sem slug SUBSTITUIR o evento existente de mesmo id', () => {
+    const atual = [{ id: 'a', slug: 'casamento', title: 'Casamento', updatedAt: '2025-01-01T00:00:00Z' }];
+    const { events, updated } = mergeRestore(atual, [{ id: 'a', title: 'mais novo', updatedAt: '2026-01-01T00:00:00Z' }]);
+    expect(updated).toBe(0);
+    expect(events).toEqual(atual);
+  });
+});
+
+describe('mergeRestore: campos que as páginas tratam como texto', () => {
+  it('número vira o texto dele; objeto e lista viram vazio', () => {
+    const { events } = mergeRestore([], [{
+      id: 'a', slug: 'a', title: 2026, category: ['x'], eventCredits: { nome: 'y' }, longDescription: true,
+    }]);
+    expect(events[0]).toMatchObject({ title: '2026', category: '', eventCredits: '', longDescription: '' });
+  });
+
+  it('aplica os mesmos tetos de tamanho do painel', () => {
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', title: 'x'.repeat(5000), category: 'c'.repeat(100) }]);
+    expect(events[0].title).toHaveLength(200);
+    expect(events[0].category).toHaveLength(40);
+  });
+
+  it('data fora do formato AAAA-MM-DD vira vazio; a válida passa', () => {
+    const { events } = mergeRestore([], [
+      { id: 'a', slug: 'a', date: 20260115, promisedDate: '15/01/2026' },
+      { id: 'b', slug: 'b', date: '2026-01-15', promisedDate: '2026-02-01' },
+    ]);
+    expect(events[0]).toMatchObject({ date: '', promisedDate: '' });
+    expect(events[1]).toMatchObject({ date: '2026-01-15', promisedDate: '2026-02-01' });
+  });
+
+  it('um null continua null — ausência não é valor a corrigir', () => {
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', title: null }]);
+    expect(events[0].title).toBeNull();
+  });
+
+  it('a galeria e a página do projeto renderizam o que o restore gravou', () => {
+    // O consumidor de verdade: antes, `(e.title || '').toLowerCase()` com um
+    // título numérico e `e.date.slice(0, 4)` com uma data numérica LANÇAVAM
+    // dentro do galleryHTML — 500 na home para todo visitante.
+    const { events } = mergeRestore([], [{
+      id: 'a', slug: 'a', title: 2026, date: 20260115, category: 7, driveUrl: 'https://drive.google.com/x',
+    }]);
+    expect(() => galleryHTML(events, null, 'NONCE')).not.toThrow();
+    expect(() => eventHTML(events[0], '2026', null, 'NONCE')).not.toThrow();
+  });
+});
+
+describe('aviso de novas fotos com número de horas absurdo', () => {
+  const absurdo = { active: true, addedAt: '2026-06-19T00:00:00Z', expiresAfterHours: '99999999999' };
+
+  it('o painel e a API gravam o teto, não o absurdo', () => {
+    const f = normalizeEventFields({ photosAlert: absurdo }, DEFAULT_EVENT, []);
+    expect(f.photosAlert.expiresAfterHours).toBe(24 * 365);
+    expect(normalizeEventFields({ photosAlert: { ...absurdo, expiresAfterHours: -5 } }, DEFAULT_EVENT, [])
+      .photosAlert.expiresAfterHours).toBe(0);
+  });
+
+  it('data ilegível vira null em vez de ser gravada', () => {
+    const f = normalizeEventFields({ photosAlert: { ...absurdo, addedAt: 'ontem' } }, DEFAULT_EVENT, []);
+    expect(f.photosAlert.addedAt).toBeNull();
+  });
+
+  it('o restore passa pela mesma normalização', () => {
+    const { events } = mergeRestore([], [{ id: 'a', slug: 'a', photosAlert: absurdo }]);
+    expect(events[0].photosAlert.expiresAfterHours).toBe(24 * 365);
+  });
+
+  it('a página do projeto não quebra com o registro antigo, anterior à normalização', () => {
+    // O registro já pode estar no KV: a guarda precisa estar também no sink.
+    // Antes, `new Date(addedAt + horas).toISOString()` lançava RangeError.
+    const evento = {
+      id: 'a', slug: 'a', title: 'T', driveUrl: 'https://drive.google.com/x',
+      photosAlert: { active: true, addedAt: '2026-06-19T00:00:00Z', expiresAfterHours: 99999999999 },
+    };
+    expect(() => eventHTML(evento, '2026', null, 'NONCE')).not.toThrow();
+  });
+
+  it('sem data legível, o banner não promete "há NaN dias"', () => {
+    const evento = {
+      id: 'a', slug: 'a', title: 'T', driveUrl: 'https://drive.google.com/x',
+      photosAlert: { active: true, addedAt: null, expiresAfterHours: 0 },
+    };
+    const html = eventHTML(evento, '2026', null, 'NONCE');
+    expect(html).toContain('id="photos-banner"');
+    expect(html).toMatch(/const ALERT_ADDED_AT = "";/);
+  });
+});
+
+describe('slugs reservados pelas rotas fixas', () => {
+  it('toda rota fixa de um segmento em src/index.js está em RESERVED_SLUGS', () => {
+    // A lista mora em utils.js e as rotas em index.js — duas cópias da mesma
+    // regra. Este teste é o que as mantém concordando: uma rota nova de um
+    // segmento que não entre na lista reprova aqui, antes de um projeto com
+    // aquele slug sumir atrás dela.
+    const fonte = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+    const rotas = [...fonte.matchAll(/path === '\/([a-z0-9-]+)'/g)].map(m => m[1]);
+    expect(rotas.length).toBeGreaterThan(5); // o padrão ainda acha as rotas
+    for (const r of rotas) expect(RESERVED_SLUGS.has(r), `rota /${r} fora de RESERVED_SLUGS`).toBe(true);
+  });
+
+  it('criar um projeto com slug reservado é recusado com uma mensagem que diz por quê', async () => {
+    const TOKEN = 'd'.repeat(64);
+    const store = new Map([[`admin_session:${TOKEN}`, 'valid'], ['events', '[]']]);
+    const env = withDurableObjects({
+      FOTOS: {
+        async get(k) { return store.get(k) ?? null; },
+        async put(k, v) { store.set(k, v); },
+        async delete(k) { store.delete(k); },
+      },
+    });
+    const res = await worker.fetch(new Request('https://fotos.lucafchala.com/api/events', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: `__Host-session=${TOKEN}`,
+      },
+      body: JSON.stringify({ slug: 'sobre', title: 'Sobre nós', driveUrl: 'https://drive.google.com/x' }),
+    }), env, { waitUntil() {} });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/\/sobre já é uma página do site/);
+    expect(store.get('events')).toBe('[]');
+  });
+
+  it('o autoteste do healthz acusa um projeto público que nunca vai abrir', () => {
+    const { problems } = auditSite([{ slug: 'sobre', title: 'X', driveUrl: 'https://drive.google.com/x' }]);
+    expect(problems.join(' | ')).toMatch(/slug inválido ou reservado: sobre/);
+  });
+});
+
+describe('saveEvents com a escrita recusada', () => {
+  it('não deixa o isolate servir como lista um valor que o KV não gravou', async () => {
+    // Isolate frio: o cache de módulo é justamente o que está sob teste.
+    vi.resetModules();
+    const utils = await import('../src/utils.js');
+    const store = new Map([['events', JSON.stringify([{ id: 'a', slug: 'velho' }])]]);
+    const kv = {
+      async get(k) { return store.get(k) ?? null; },
+      async put() { throw new Error('KV PUT failed: 429 Too Many Requests'); },
+    };
+    const env = { FOTOS: kv };
+    await utils.getEvents(env); // preenche o cache do isolate
+    await expect(utils.saveEvents(env, [{ id: 'b', slug: 'nunca-gravado' }])).rejects.toThrow(/429/);
+    const servida = await utils.getEvents(env); // leitura de VISITANTE, dentro do TTL
+    expect(servida.map(e => e.slug)).toEqual(['velho']);
   });
 });
 

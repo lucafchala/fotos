@@ -1523,7 +1523,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       if (!ok) return;
       try {
         const res = await api('POST', '/api/backup/restore', backup);
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
+        // Ignorados = sem id ou sem URL válida no backup. Dizer quantos é o que
+        // separa "restaurei tudo" de "restaurei tudo o que dava".
+        const ignorados = res.skipped ? ', ' + res.skipped + ' ignorado' + (res.skipped !== 1 ? 's' : '') + ' (sem id ou URL válida)' : '';
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.', 'ok');
         setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
         toast(err.message || 'Erro ao restaurar.', 'err');

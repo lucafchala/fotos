@@ -56,14 +56,24 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   ], event.longDescription || '') || 'Fotografias de Luca F. Chala.';
 
   // Banner de novas fotos
+  //
+  // Guarda no SINK, além da normalização na escrita: o registro pode ser
+  // anterior a ela. `toISOString()` LANÇA RangeError para data fora da faixa
+  // do JavaScript, e `addedAt + horas` com um número de horas absurdo sai da
+  // faixa — era um 500 na página pública por causa de um aviso decorativo. Uma
+  // data fora da faixa vira `Invalid Date`, cujo getTime() é NaN; é isso que
+  // cada passo abaixo confere antes de seguir.
   const alert = event.photosAlert;
-  const showBanner = alert && alert.active && (() => {
-    if (!alert.expiresAfterHours) return true;
-    return Date.now() < new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000;
-  })();
-  const alertAddedAtJSON  = JSON.stringify(showBanner ? (alert.addedAt || '') : '');
-  const alertExpiresJSON  = JSON.stringify(showBanner && alert.expiresAfterHours
-    ? new Date(new Date(alert.addedAt).getTime() + alert.expiresAfterHours * 3600000).toISOString()
+  const alertAddedMs = alert ? new Date(alert.addedAt).getTime() : NaN;
+  const alertExpiresMs = alert && alert.expiresAfterHours
+    ? new Date(alertAddedMs + alert.expiresAfterHours * 3600000).getTime()
+    : NaN;
+  const showBanner = !!(alert && alert.active) && (!alert.expiresAfterHours || Date.now() < alertExpiresMs);
+  // Sem data legível o banner sai sem o "há X horas" — que viraria "há NaN dias".
+  // (`addedAt` nulo conta como ilegível: `new Date(null)` é 1970, não "sem data".)
+  const alertAddedAtJSON  = JSON.stringify(showBanner && alert.addedAt && Number.isFinite(alertAddedMs) ? String(alert.addedAt) : '');
+  const alertExpiresJSON  = JSON.stringify(showBanner && Number.isFinite(alertExpiresMs)
+    ? new Date(alertExpiresMs).toISOString()
     : null);
 
   const heroHTML = event.comingSoon

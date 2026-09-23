@@ -608,21 +608,23 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | --- | --- | --- |
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
-| `admin_session:<token>` | String `"valid"` com `expirationTtl=86400` (24 h) | `handleLogin` ao sucesso; deletada no logout |
-| `views:<slug>` | String numérica (contador de visualizações da página do projeto) | `handleEventPage` via `ctx.waitUntil` |
-| `drive_clicks:<slug>` | String numérica (contador de cliques no botão "Ir para o Drive") | `handleTrackDrive` |
+| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (sessões antigas `"valid"` ainda são aceitas até expirar) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
-| `ratelimit:<key>:<ip>:<window>` | String numérica, TTL = janela | `checkRateLimit` (todas as rotas com rate limit) |
+| `cron:last` | ISO da última execução do cron diário | `scheduled()` |
+| `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
+| `login-fail:<ip>:<janela>` | Contagem de logins falhos, TTL 15 min — só alimenta o alerta | `noteFailedLogin` |
+| `error-alert:cooldown`, `login-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert` |
+| `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
 
-> O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo).
+> O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo). Contadores e rate limit também não: são Durable Objects (`Counter`, `RateLimiter` — ver [Métricas](#métricas) e `src/counters.js`).
 
 ### Schema de um evento
 
 ```js
 {
   id: "16 bytes hex",            // generateId()
-  slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug
+  slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug (fora de RESERVED_SLUGS)
   title: "string ≤ 200",
   longDescription: "string ≤ 5000",
   photos: ["url1", "url2", ...],  // até 6, cada uma string ≤ 2000, https-only depois do toHttps()
@@ -1144,12 +1146,12 @@ Já listados em [Rotas HTTP](#rotas-http) — `nosniff`, `frame DENY`, `Referrer
   foi tirada. O portão é a própria limpeza: o que não sai comprovadamente limpo
   é recusado com orientação, não anexado.
 - Restore de backup: `sanitizeRestoredRequest()` e `mergeRestore()` filtram por
-  chave, tipo e tamanho. Era o único caminho que gravava em KV sem passar pelo
-  normalizador de eventos.
+  chave, tipo e tamanho, e um evento sem `id` ou `slug` utilizável não entra.
+  Era o único caminho que gravava em KV sem passar pelo normalizador de eventos.
 
 ### `ctx.waitUntil`
 
-Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a resposta. Se a escrita falhar, o usuário não percebe.
+Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a resposta. Se o incremento falhar, o visitante não percebe — e a falha entra no registro de degradações (`noteDegraded`), que o `/api/healthz` publica.
 
 ---
 
@@ -1361,16 +1363,16 @@ Todos enviam via `POST https://api.resend.com/emails` com `Authorization: Bearer
 
 ## Métricas
 
-Dois contadores em KV, ambos por evento:
+Dois contadores por evento, num **Durable Object** (`Counter`, `src/counters.js`) — não no KV:
 
-- `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. Race conditions são possíveis em alta concorrência (read-modify-write não atômico), mas o erro de contagem é aceitável para o caso de uso.
-- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive" antes de abrir a modal externa. Rate-limit: 60/h por IP (60 cliques por hora por IP é mais que suficiente).
+- `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. HEAD, prefetch do navegador (`Sec-Purpose: prefetch`) e quem já tem o cookie `fv_<slug>` da última hora não contam.
+- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive". Rate-limit: 60/h por IP.
 
-Os dois passam por `bumpCounter()` (`src/utils.js`), que **não grava um `put` por requisição**. O primeiro incremento de cada isolate grava na hora; os que chegam nos 10 s seguintes se somam na memória e viram um lote só. É o que impede o custo em KV de crescer junto com o público — e a gravação imediata do primeiro é o que impede tráfego esparso de perder a contagem inteira, já que um isolate ocioso morre antes de qualquer segundo incremento (e o cron não alcança: roda em outro isolate, com o mapa vazio).
+Os dois passam por `bumpCounter()` (`src/utils.js`), que chama `increment()` no objeto. O runtime serializa as chamadas de um mesmo objeto, então a contagem é **exata** em qualquer formato de tráfego — espalhado ou em rajada — sem nada acumulado em memória. Todos os contadores moram no MESMO objeto: chamada de Durable Object é subrequisição (50 por invocação no plano gratuito), e o painel lê tudo de uma vez. O porquê completo, e as três armadilhas que a migração ensinou, estão em `src/counters.js` e no RETOMADA §5.3.
 
-O rate-limit do `/api/track-drive` continua existindo **apesar** da agregação, e roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo custe zero escrita. A agregação limita o custo por *requisição*; sem o limite por IP, um flood sustentado ainda custaria uma escrita por janela — ~8600/dia contra a cota de 1000/dia do plano gratuito.
+O rate-limit do `/api/track-drive` roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo não custe escrita nenhuma; sem ele, um flood sustentado inflaria a métrica e gastaria a franquia de escrita do Durable Object.
 
-Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores em paralelo via `Promise.all`.
+Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores numa chamada só (`readCounters` → `snapshot()`), e assenta do KV, uma única vez, as chaves que o objeto ainda não conhecia (valores da era do KV).
 
 Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYTICS_TOKEN`). Quando definido, o beacon é injetado nas páginas públicas e o painel da Cloudflare mostra agregados (pageviews, dispositivos, países, referrers) sem cookies e sem tracking individual.
 
@@ -1404,13 +1406,15 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 `POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos e **v2** completo). Eventos via `mergeRestore`:
 
 - Para cada evento do backup:
+  - Sem `id` utilizável (`[\w-]{1,64}`) ou sem `slug` válido (formato de `validateSlug`, fora dos slugs reservados pelas rotas fixas) → **ignorado** (`skipped++`). Nem entra como novo, nem substitui um existente de mesmo id — um evento sem id não pode ser editado nem apagado pelo painel, e um slug como `/evil.example` viraria `href="//evil.example"` no card da galeria.
   - Se não existe no KV → adicionar (`added++`).
   - Se existe → comparar `updatedAt || createdAt`. O mais recente vence (`updated++`).
 - Eventos atuais que **não** estão no backup são preservados (nunca deleta).
+- O restore é o único caminho que grava eventos sem passar por `normalizeEventFields()`, então `sanitizeRestoredEvent()` aplica o que as páginas precisam: URLs só `https` (`toHttps`), campos de texto como string e com os mesmos tetos do painel (um `"title": 2026` derrubava a galeria com 500), datas `AAAA-MM-DD` ou vazio, enums válidos e o aviso de novas fotos normalizado (horas com teto — um número absurdo virava `RangeError` na página do projeto). Campo ausente continua ausente; campo desconhecido passa intacto.
 
 Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, total, categories?, removalRequestsAdded?}`.
+Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?}`. O painel diz quantos foram ignorados na confirmação.
 
 ---
 
