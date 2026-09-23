@@ -169,6 +169,14 @@ export class RateLimiter extends DurableObject {
     const atual = Number.isInteger(guardada) && guardada >= 0 ? guardada : 0;
     if (atual >= limit) return false;
 
+    // A contagem nova é gravada ANTES de qualquer outro `await`. Nada de
+    // `await` entre a leitura acima e este `put`: é isso que faz a
+    // leitura-modificação-escrita ser atômica. Já esteve na ordem inversa, com
+    // o `setAlarm()` no meio — e durante ele outra chamada entrava, lia a
+    // mesma contagem 0 e também passava: 50 chamadas simultâneas com limite 10
+    // deixavam passar 11 em ~6% dos objetos (medido no workerd, 13 de 200).
+    await this.ctx.storage.put('w', { janela, contagem: atual + 1 });
+
     // Alarme armado só quando a janela COMEÇA (`atual === 0`): `setAlarm()` é
     // cobrado como escrita, e rearmar a cada chamada dobraria o custo à toa.
     if (atual === 0) {
@@ -177,8 +185,6 @@ export class RateLimiter extends DurableObject {
       // devolveria o limite pra quem acabou de estourá-lo.
       await this.ctx.storage.setAlarm(Date.now() + windowSecs * 2000);
     }
-
-    await this.ctx.storage.put('w', { janela, contagem: atual + 1 });
     return true;
   }
 

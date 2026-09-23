@@ -143,10 +143,19 @@ describe('RateLimiter — no runtime de verdade', () => {
   it('conta certo sob concorrência — nunca deixa passar mais que o limite', async () => {
     // O modo de falha do KV era este: duas requisições liam a mesma contagem e
     // ambas passavam. Serializado, o excedente é barrado.
-    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('drive')));
-    const out = await Promise.all(Array.from({ length: 50 }, () => stub.check(10, 3600)));
-    expect(out.filter(Boolean)).toHaveLength(10);
-  });
+    //
+    // UM objeto só não prova nada: com um `await` entre a leitura e a gravação
+    // (o `setAlarm` já esteve ali), a corrida deixava passar 11 em ~6% dos
+    // objetos — este teste passava 12 vezes em 13 com o defeito dentro. Cem
+    // objetos novos levam a chance de o defeito escapar para ~0,1%.
+    const passaram = [];
+    for (let i = 0; i < 100; i++) {
+      const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('drive')));
+      const out = await Promise.all(Array.from({ length: 50 }, () => stub.check(10, 3600)));
+      passaram.push(out.filter(Boolean).length);
+    }
+    expect(passaram.filter(n => n !== 10)).toEqual([]);
+  }, 60000);
 
   it('objetos diferentes (IP/chave) não dividem orçamento', async () => {
     const a = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('login')));
