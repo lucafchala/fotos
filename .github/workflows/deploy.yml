@@ -77,6 +77,14 @@ jobs:
       # avisa que o ambiente-alvo é ambíguo. Explícito não depende de qual é o
       # default da versão do wrangler instalada.
       WRANGLER_ENV_FLAG: '--env='
+      # ID de versão da Cloudflare: UUID inteiro, conferido por UMA regra só —
+      # vale para o que sai do upload, do `deployments status` e do
+      # `version_id` digitado à mão num rollback (#164). Use sempre como
+      # `[[ "$X" =~ ${UUID_RE:?} ]]`. O `:?` derruba o passo se a variável
+      # sumir (regex vazia casa com tudo). E `[[ =~ ]]`, não `grep`: o grep
+      # confere LINHA a linha, e um valor de duas linhas com um UUID na
+      # primeira passaria — a segunda iria parar no $GITHUB_OUTPUT.
+      UUID_RE: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -288,7 +296,7 @@ jobs:
           # UUID conferido por inteiro, não por "parece um UUID": este valor vai
           # direto para uma promoção.
           ID=$(sed -n 's/^[[:space:]]*Worker Version ID:[[:space:]]*//p' "$SAIDA" | head -1 | tr -d '[:space:]' || true)
-          if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+          if [[ "$ID" =~ ${UUID_RE:?} ]]; then
             echo "version_id=$ID" >> "$GITHUB_OUTPUT"
             echo "Versão: $ID"
           else
@@ -402,11 +410,28 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # O input entra por variável de ambiente, nunca como `${{ }}` dentro
+          # do script (#164): a expressão é colada no TEXTO do shell antes de
+          # ele rodar, e um valor com aspas e `;` viraria comando num job que
+          # carrega o token da Cloudflare e `contents: write`. Quem dispara já
+          # tem escrita no repositório — o risco é o typo e o link colado de
+          # fonte duvidosa, não um estranho. scripts/verifica-shell-dos-workflows.py
+          # recusa `${{ inputs.* }}` em qualquer `run:`.
+          VERSION_ID_MANUAL: ${{ inputs.version_id }}
         run: |
           set -eo pipefail
-          if [ -n "${{ inputs.version_id }}" ]; then
-            echo "version_id=${{ inputs.version_id }}" >> "$GITHUB_OUTPUT"
-            echo "Promovendo versão informada à mão (rollback): ${{ inputs.version_id }}"
+          if [ -n "$VERSION_ID_MANUAL" ]; then
+            # Conferido antes de virar output: daqui ele vai para
+            # `versions deploy`, para a mensagem da tag e para o resumo.
+            # O valor recusado NÃO é ecoado — texto arbitrário no log pode
+            # carregar comando de workflow (`::…::`); ele já aparece nos
+            # inputs da execução.
+            if ! [[ "$VERSION_ID_MANUAL" =~ ${UUID_RE:?} ]]; then
+              echo "::error::version_id não é um ID de versão (UUID como 0e65efc8-c701-47b1-9b50-21108d826fce). Copie o ID do resumo de um deploy anterior ou de 'wrangler versions list'."
+              exit 1
+            fi
+            echo "version_id=$VERSION_ID_MANUAL" >> "$GITHUB_OUTPUT"
+            echo "Promovendo versão informada à mão (rollback): $VERSION_ID_MANUAL"
             exit 0
           fi
           # Caminho normal: o upload já disse qual é o ID. Nada a resolver.
@@ -487,7 +512,7 @@ jobs:
                 console.log(v?.version_id || v?.id || r.version_id || "");
               } catch { console.log(""); }
             });' || true)
-          if printf '%s' "$ID" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+          if [[ "$ID" =~ ${UUID_RE:?} ]]; then
             echo "version_id=$ID" >> "$GITHUB_OUTPUT"
             echo "Em produção agora: $ID (alvo de reversão)"
           else
@@ -699,6 +724,8 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Resumo do deploy
         if: always()
+        env:
+          UNVERSIONED: ${{ inputs.unversioned }}
         run: |
           {
             echo "## Deploy"
@@ -719,7 +746,7 @@ jobs:
             echo "| Tag | \`${TAG_CRIADA:-—}\` |"
             echo "| Release | ${{ steps.release.outcome == 'success' && format('✅ https://github.com/{0}/releases/tag/{1}', github.repository, steps.tag.outputs.tag) || (steps.release.outcome == 'failure' && '⚠️ tag criada, Release falhou — ver log do passo' || '—') }} |"
             echo
-            if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "${{ inputs.unversioned }}" != "true" ]; then
+            if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "$UNVERSIONED" != "true" ]; then
               echo "> A versão foi publicada e verificada, mas **não** recebeu tráfego."
               echo "> Para promovê-la: rode este workflow com \`version_id\` = \`${{ steps.resolve.outputs.version_id }}\`."
             fi
