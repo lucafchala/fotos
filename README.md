@@ -493,7 +493,9 @@ depois.
   resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
   publicado antes de mandar para cliente" sem prazo para decidir.
 - **`version_id`**. Promove uma versão **já existente**, pulando build e upload
-  — é o rollback: segundos, sem recompilar e sem mexer no Git.
+  — é o rollback: segundos, sem recompilar e sem mexer no Git. Tem de ser o ID
+  inteiro (UUID, como `0e65efc8-c701-47b1-9b50-21108d826fce`); qualquer outra
+  coisa para o workflow antes de tocar em produção.
 - **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
   Existe por um motivo só: `versions upload` não aplica migração de Durable
   Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
@@ -566,7 +568,7 @@ fotos/
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
-│   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
+│   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
