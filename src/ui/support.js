@@ -1,4 +1,4 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -32,8 +32,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="supTsBlocked"></script>
   <!-- Registered here, right after the tag above, so the capture listener is
        in place before the async fetch for it can resolve (error or not) — a
@@ -41,6 +40,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
        the race against a fast (e.g. ad-blocker) failure. -->
   <script nonce="${nonce}">document.addEventListener('error', function(e){ if (e.target && e.target.dataset && e.target.dataset.onerror === 'supTsBlocked') window.__supTsBlocked = true; }, true);</script>
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-muted:#999; --text-dim:#666; --text-dim-2:#555;

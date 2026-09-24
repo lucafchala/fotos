@@ -12,8 +12,6 @@
 const CSP_TURNSTILE = 'https://challenges.cloudflare.com';
 const CSP_CF_INSIGHTS_SCRIPT = 'https://static.cloudflareinsights.com';
 const CSP_CF_INSIGHTS_CONNECT = 'https://cloudflareinsights.com';
-const CSP_GOOGLE_FONTS_CSS = 'https://fonts.googleapis.com';
-const CSP_GOOGLE_FONTS_FILES = 'https://fonts.gstatic.com';
 const CSP_IMAGES = "https://*.googleusercontent.com https://drive.google.com";
 
 // 2 anos (não 1) porque é o que a lista de preload do Chrome exige — mas
@@ -95,8 +93,11 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
     `script-src ${scriptSrc}`,
     // 'unsafe-inline' aqui é seguro: CSS não executa script sob esta CSP
     // (sem 'unsafe-eval', sem script-src aberto).
-    `style-src 'self' 'unsafe-inline' ${CSP_GOOGLE_FONTS_CSS}`,
-    `font-src 'self' ${CSP_GOOGLE_FONTS_FILES}`,
+    "style-src 'self' 'unsafe-inline'",
+    // Só a própria origem: o Inter sai de /fonts/ desde o #131. Voltar a
+    // carregar fonte de terceiro exige reabrir isto E refazer o registro de
+    // operadores (docs/legal/ROPA.md) — o IP do visitante iria junto.
+    "font-src 'self'",
     `img-src 'self' data: blob: ${CSP_IMAGES}`,
     `connect-src 'self' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_CONNECT}`,
     `frame-src ${CSP_TURNSTILE}`,
