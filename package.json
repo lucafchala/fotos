@@ -27,7 +27,7 @@
     "@cloudflare/workers-types": "^5.20260829.1",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "^10.9.1",
+    "eslint": "^10.11.0",
     "playwright-core": "^1.63.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
