@@ -585,6 +585,7 @@ fotos/
 │   ├── healthz.test.js     ← handleHealthz, scheduled(), login (rate-limit/cookie), render de /sobre e /equipamentos
 │   ├── d1-migrate.test.js  ← o que o retomador de migração aceita e, sobretudo, o que ele RECUSA
 │   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
+│   ├── scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas emitem (tipos em helpers/scripts-embutidos.d.ts)
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
 │   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)

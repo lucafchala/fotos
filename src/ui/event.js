@@ -1384,7 +1384,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         try {
           fileBase64 = await new Promise((res, rej) => {
             const r = new FileReader();
-            r.onload = ev => res((ev.target.result || '').split(',')[1] || '');
+            // readAsDataURL sempre entrega string; o String() diz isso ao tsc (#127).
+            r.onload = ev => res(String(ev.target.result || '').split(',')[1] || '');
             r.onerror = () => rej(new Error('read'));
             r.readAsDataURL(file);
           });
