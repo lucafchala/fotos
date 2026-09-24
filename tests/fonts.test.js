@@ -59,13 +59,22 @@ describe('rota /fonts/', () => {
     // Duas vezes: a segunda sai do cache de bytes decodificados do isolate, e
     // um buffer reaproveitado que tivesse sido consumido pela primeira resposta
     // chegaria vazio aqui.
+    //
+    // O corpo é comparado byte a byte com o arquivo, NÃO por sha256: para o
+    // CodeQL, o que `worker.fetch` devolve pode ser a resposta da troca de
+    // senha (é o mesmo roteador), e hash rápido sobre isso vira alerta alto de
+    // "senha com hash fraco" (js/insufficient-password-hash). Já aconteceu
+    // neste teste; a comparação direta ainda é a prova mais forte das duas.
+    const noDisco = readFileSync(new URL('../' + f.source, import.meta.url));
     for (let i = 0; i < 2; i++) {
       const res = await get(f.path);
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toBe('font/woff2');
       expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
       expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
-      expect(sha256(new Uint8Array(await res.arrayBuffer())), `chamada ${i + 1}`).toBe(f.sha256);
+      const corpo = Buffer.from(await res.arrayBuffer());
+      expect(corpo.length, `chamada ${i + 1}`).toBe(f.bytes);
+      expect(corpo.equals(noDisco), `chamada ${i + 1}: bytes diferentes do arquivo`).toBe(true);
     }
   });
 
