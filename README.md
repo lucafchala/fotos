@@ -164,10 +164,9 @@ migrations_dir = "migrations"
 [triggers]
 # Diário 03:00 UTC — purga solicitações resolvidas + consentimentos expirados.
 crons = ["0 3 * * *"]
-
-[env.preview]
-name = "fotos-preview"
 ```
+
+Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). Preview de verdade é a versão que o deploy sobe sem tráfego, no próprio Worker `fotos` (seção de deploy abaixo).
 
 O binding `FOTOS` é referenciado em todo o código como `env.FOTOS`. Para fork pessoal: crie um KV namespace novo (`npx wrangler kv namespace create FOTOS`) e troque o `id`.
 
@@ -215,7 +214,7 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 >
 > | Valor | O que o `/api/healthz` diz | Por quê |
 > | --- | --- | --- |
-> | binding ausente | `NÃO EXISTE neste Worker` | Não chegou — provavelmente salvo no Worker errado (há um `fotos-preview`) |
+> | binding ausente | `NÃO EXISTE neste Worker` | Não chegou — provavelmente salvo em outro Worker da conta (confira o nome `fotos` no topo da página do painel) |
 > | vazio | `EXISTE neste Worker, mas o valor está VAZIO` | O nome está lá e o valor não; recriar colando o valor |
 > | só espaço / `\n` | `EXISTE, mas só contém espaço em branco (N)` | Seria *truthy* em JS e viraria chave HMAC de verdade, com o painel dizendo que está tudo certo — o **falso verde** |
 > | < 32 caracteres | `curto demais (N de 32)` | Cai numa varredura offline a partir de um único token assinado; daí em diante dá para forjar nonce e token de formulário |
