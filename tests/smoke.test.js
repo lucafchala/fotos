@@ -116,3 +116,17 @@ describe('fonteDoPreload', () => {
     expect(fonteDoPreload(html)).toBe(esperado);
   });
 });
+
+describe('versão no healthz, como o smoke lê', () => {
+  it('o campo que o smoke lê (VERSAO_CAMPO) existe quando o binding existe', async () => {
+    const campo = doSmoke('VERSAO_CAMPO');
+    const res = await chama(
+      { CF_VERSION_METADATA: { id: '6a9c2f1e-4b7d-4f0a-9e3c-2d8b1a7f5e40', tag: '3aba593', timestamp: '2026-09-24T09:12:40.000Z' } },
+      new Request(`${ALVO}/api/healthz`),
+    );
+    const body = await res.json();
+    const valor = campo.split('.').reduce((/** @type {any} */ o, k) => (o == null ? o : o[k]), body);
+    expect(valor).toBe('6a9c2f1e-4b7d-4f0a-9e3c-2d8b1a7f5e40');
+    expect(body.versao.tag).toBe('3aba593');
+  });
+});

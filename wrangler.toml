@@ -109,6 +109,17 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["Counter", "RateLimiter"]
 
+# ---------------------------------------------------------------------------
+# Versão implantada (/api/healthz → versao)
+# ---------------------------------------------------------------------------
+# Expõe ao Worker o id, a etiqueta e a data da versão que está respondendo. O
+# deploy.yml sobe cada versão com `--tag <sha curto>`, então a etiqueta é o
+# commit. O painel de status usa isso para marcar deploys na linha do tempo e
+# correlacionar incidente com deploy. Binding de metadado: sem I/O, sem custo,
+# e não é migração de Durable Object (sobe normalmente por `versions upload`).
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [triggers]
 # Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
 crons = ["0 3 * * *"]

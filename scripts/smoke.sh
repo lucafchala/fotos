@@ -168,6 +168,8 @@ esac
 echo
 echo "Saúde"
 HEALTH=$(curl -s --max-time 25 "$BASE/api/healthz" || true)
+# Campo da versão implantada (tests/smoke.test.js confere contra o Worker).
+VERSAO_CAMPO='versao.id'
 leia_health() { printf '%s' "$HEALTH" | node -e '
   let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     try{const j=JSON.parse(s);const v=process.argv[1].split(".").reduce((o,k)=>o==null?o:o[k],j);
@@ -186,6 +188,19 @@ else
   KVL=$(leia_health kvLatencyMs)
   [ -n "$KVL" ] && registra "healthz mede o KV" OK "${KVL}ms" \
                 || registra "healthz mede o KV" FALHA "kvLatencyMs ausente"
+  # Qual versão respondeu (binding [version_metadata], docs/healthz-contrato.json).
+  # AVISO, nunca FALHA: é telemetria para o painel de status marcar o deploy,
+  # e não há valor "certo" a exigir — um rollback manual promove de propósito
+  # uma versão com etiqueta antiga. Reprovar aqui reverteria a produção por
+  # causa de um campo que não muda nada para o visitante.
+  VERSAO=$(leia_health "$VERSAO_CAMPO")
+  if [ -n "$VERSAO" ]; then
+    ETIQUETA=$(leia_health versao.tag)
+    registra "healthz diz a versão" OK "id ${VERSAO:0:8} · ${ETIQUETA:+etiqueta }${ETIQUETA:-sem etiqueta (wrangler dev?)}"
+  else
+    registra "healthz diz a versão" AVISO "sem $VERSAO_CAMPO — binding [version_metadata] fora do wrangler.toml?"
+    FAIL=$((FAIL - 1)); PASS=$((PASS + 1))   # AVISO não conta como falha
+  fi
 fi
 
 # O PBKDF2 do login é o canário de CPU: estourar o orçamento MATA a requisição,
