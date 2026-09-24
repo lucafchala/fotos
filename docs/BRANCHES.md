@@ -119,9 +119,13 @@ localmente (`llms.md`, seção 2).
   mexe. O dono comenta `@dependabot rebase`; numa sessão de agente, o
   caminho é o *Update branch* (`update_pull_request_branch` — merge commit,
   sem reescrever história), esperar a CI do head novo e mergear em seguida.
-  Comentário de sessão **não serve**: o texto sai publicado com as menções
-  neutralizadas (`·@·d·ependabot r·ebase`) e o comando nunca chega — foi o
-  que aconteceu no #157.
+  *Em seguida* porque esse merge commit também é uma alteração no branch
+  dele (o primeiro item): dali em diante não conte com o rebase automático —
+  se outro merge deixar o PR em conflito antes, o dono comenta
+  `@dependabot recreate`, que refaz o PR do zero. Comentário de sessão
+  **não serve**: o texto sai publicado com as menções neutralizadas
+  (`·@·d·ependabot r·ebase`) e o comando nunca chega — foi o que aconteceu
+  no #157, que entrou pelo *Update branch*.
 - **Mudou o `.github/dependabot.yml`?** O Dependabot pode fechar um PR aberto
   e abrir outro com o mesmo bump ("Superseded by #N") — o #159 virou o #176
   assim. Siga o número novo.
