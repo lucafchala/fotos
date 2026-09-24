@@ -138,7 +138,6 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
 | Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa) | EUA | idem |
-| Google Fonts | IP do visitante ao buscar a fonte | EUA / global | idem |
 
 ---
 

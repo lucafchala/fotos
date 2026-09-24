@@ -99,7 +99,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · ⚖️ depende de parecer
 | Transparência ao titular | ✅ `/privacidade` |
 | **DPA do Google confirmado** | ❌⚖️👤 **Verificar se é Workspace ou conta pessoal** |
 | Cópias arquivadas dos DPAs | ❌ Recomendado |
-| Google Fonts eliminável | 🟡 CSP já preparada; migração pendente |
+| Google Fonts eliminado | ✅ Fontes servidas pela própria origem desde 23/09/2026 |
 
 ---
 
@@ -142,6 +142,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · ⚖️ depende de parecer
 ### 🟢 Desejável
 
 8. Hospedar as fontes localmente e eliminar a transferência ao Google Fonts.
+   *(Feito em 23/09/2026 — o Inter sai de `/fonts/`, e o Google Fonts saiu da CSP.)*
 9. Segundo fator no painel.
 10. Concluir a migração da CSP (remover handlers inline, impor a política estrita).
 11. Registrar formalmente o encarregado, conforme o enquadramento de porte.

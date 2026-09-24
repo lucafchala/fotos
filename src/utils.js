@@ -1,5 +1,6 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
 import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS } from './config.js';
+import { FONTS } from './content/fonts.js';
 
 /**
  * Um projeto como ele vive no KV. Índice aberto de propósito: a forma real é
@@ -865,24 +866,36 @@ export function updateBannerHTML() {
 }
 
 // ---------------------------------------------------------------------------
-// Dicas de conexão para o Google Fonts — as DUAS, sempre juntas
+// Inter servido pela própria origem (#131)
 // ---------------------------------------------------------------------------
-// Inter vem de DOIS hosts: fonts.googleapis.com serve o CSS,
-// fonts.gstatic.com serve os WOFF2 que o @font-face daquele CSS aponta. Sem
-// preconnect aos dois, o browser só descobre o segundo host depois de baixar
-// e parsear o CSS — handshake serial atrasado, visível como FOUT com
-// display=swap (mais em rede móvel, onde o handshake dói mais).
+// Vinha do Google Fonts: um CSS de fonts.googleapis.com e os WOFF2 de
+// fonts.gstatic.com, em TODA página — o IP de cada visitante ia para um
+// terceiro no exterior, e a CSP precisava de duas origens a mais. Hoje os
+// arquivos saem de /fonts/ (bytes em src/content/fonts.js, gerado por
+// `npm run build:fonts`) e as duas origens saíram da CSP.
 //
-// `crossorigin` no link do gstatic não é enfeite: fonte é buscada em modo
-// CORS, e o browser usa pools de conexão separados para CORS/não-CORS — sem o
-// atributo a conexão não é reaproveitada e o handshake repete. O link do CSS
-// fica sem o atributo pelo motivo oposto (busca não-CORS).
+// Uma função só para o @font-face, chamada no <style> de todas as páginas: o
+// par caminho/faixa não pode ser copiado em dez arquivos e divergir num deles.
+// `font-weight: 100 900` porque o arquivo é VARIÁVEL — um só serve os pesos
+// 300 a 700 que as páginas usam. `swap`: o texto aparece na fonte do sistema
+// enquanto o arquivo chega, em vez de ficar invisível.
+export function fontFaceCSS() {
+  return FONTS.map(f =>
+    `@font-face{font-family:'Inter';font-style:${f.style};font-weight:100 900;font-display:swap;` +
+    `src:url(${f.path}) format('woff2');unicode-range:${f.unicodeRange}}`,
+  ).join('\n');
+}
+
+// Preload só da face normal: é a que TODA página usa já no primeiro texto. O
+// itálico aparece em poucas páginas e o browser o busca sozinho quando um
+// <em> precisar.
 //
-// Remendo temporário — hospedar o Inter localmente (TODO.md) elimina os dois
-// hosts de uma vez.
-export function fontPreconnectHTML() {
-  return `<link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`;
+// `crossorigin` é obrigatório mesmo sendo a mesma origem: fonte é SEMPRE
+// buscada em modo CORS, e um preload sem o atributo fica num pool separado —
+// o browser baixaria o arquivo duas vezes e ainda avisaria no console.
+export function fontPreloadHTML() {
+  const normal = FONTS.find(f => f.style === 'normal');
+  return normal ? `<link rel="preload" href="${normal.path}" as="font" type="font/woff2" crossorigin>` : '';
 }
 
 // Host de onde sai TODA foto do site. A galeria abre dezenas de <img> daqui

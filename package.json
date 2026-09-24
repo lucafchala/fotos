@@ -11,6 +11,7 @@
     "deploy": "wrangler deploy",
     "lint": "eslint src tests scripts eslint.config.js",
     "build:legal": "node scripts/build-legal-docs.mjs",
+    "build:fonts": "node scripts/build-fonts.mjs",
     "smoke": "bash scripts/smoke.sh",
     "smoke:local": "bash scripts/smoke.sh http://127.0.0.1:8787",
     "predeploy:check": "wrangler versions upload --env= --dry-run --outdir /tmp/bundle-check",
@@ -18,7 +19,8 @@
     "test:unit": "vitest run --project unit",
     "test:workers": "vitest run --project workers",
     "test:coverage": "vitest run --project unit --coverage",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "verifica:navegador": "node scripts/verifica-navegador.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
@@ -26,6 +28,7 @@
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
+    "playwright-core": "^1.63.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "wrangler": "^4.131.1"
