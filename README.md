@@ -254,9 +254,9 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 
 ### Turnstile
 
-Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção e no suporte.
+Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção, no suporte e no **login do painel** — lá, token recusado barra a entrada, mas Turnstile *indisponível* (secret ausente, siteverify fora do ar) deixa entrar só com senha e rate limit e registra no `/api/healthz`, para uma queda da Cloudflare não trancar o dono fora do painel (ver `SECURITY.md`).
 
-O modo do widget (*Managed*, *Non-interactive* ou *Invisible*) mora no painel, não no repositório. Por isso os textos legais (`/privacidade`, `LEGAL.md`, `docs/legal/transferencia-internacional.md`) dizem o que é verdade em **qualquer** modo — automático na maior parte dos acessos, **pode** pedir uma confirmação — e não prometem invisibilidade (#165; `tests/textos-turnstile.test.js` recusa a promessa). No código: o `/suporte` renderiza o widget com a aparência padrão, à vista no formulário; o portão do Drive e o pedido de remoção usam `appearance: 'interaction-only'`, que só aparece se a Cloudflare pedir interação.
+O modo do widget (*Managed*, *Non-interactive* ou *Invisible*) mora no painel, não no repositório. Por isso os textos legais (`/privacidade`, `LEGAL.md`, `docs/legal/transferencia-internacional.md`) dizem o que é verdade em **qualquer** modo — automático na maior parte dos acessos, **pode** pedir uma confirmação — e não prometem invisibilidade (#165; `tests/textos-turnstile.test.js` recusa a promessa). No código: o `/suporte` e o login do painel renderizam o widget com a aparência padrão, à vista no formulário; o portão do Drive e o pedido de remoção usam `appearance: 'interaction-only'`, que só aparece se a Cloudflare pedir interação.
 
 ---
 

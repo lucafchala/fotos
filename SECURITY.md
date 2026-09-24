@@ -129,6 +129,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
 | Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
 | Layered login rate limit + e-mail alert | `handleLogin()` | Silent brute force |
+| Turnstile on the panel login | `handleLogin()`, `checkTurnstile()` | Password guessing spread across many IPs, which the per-IP limit never sees |
 | Password policy (12+, classes, weak patterns) | `validatePassword()` | An offline attack against a leaked hash |
 | CSV formula-injection guard | `csvCell()` | `=HYPERLINK(...)` in a visitor-supplied field executing in the admin's spreadsheet |
 | EXIF/GPS stripping on uploads | `stripImageMetadata()` | A removal request handing us the GPS coordinates of the photo |
@@ -427,6 +428,33 @@ One write in the panel path is allowed to fail open: seeding the hash from the
 computed hash still authenticates *this* request and the next one retries the
 seed — refusing the login over a convenience write would lock the owner out on
 exactly the day the quota is exhausted. Pinned by `tests/queda-kv.test.js`.
+
+### Turnstile on the login: closed for the client, open for Cloudflare
+
+The panel login requires a Turnstile token since #167 (the original #20 was
+merged into a branch that had already shipped and never reached `main`).
+`checkTurnstile()` returns three answers instead of a boolean: `ok`,
+`recusado` (token missing, invalid, expired or replayed — what the **client**
+controls) and `indisponivel` (no secret, siteverify down or answering 5xx, or
+Cloudflare rejecting **our** key — what the client does not control).
+
+- The public forms (support, removal, Drive gate) keep failing closed on both
+  non-`ok` answers, through `verifyTurnstile()`.
+- The login fails closed on `recusado` and **continues** on `indisponivel`,
+  with rate limit, PBKDF2 and the e-mail alert still in place, and the outage
+  recorded in `/api/healthz`. Turnstile is an extra layer there; a Cloudflare
+  outage must not lock the owner out of the only place the site is run from.
+- The token is checked **after** PBKDF2, on purpose: the deploy smoke posts a
+  wrong password without a token to prove the hash fits the CPU budget, and a
+  token check first would silence that canary. A refused token answers the
+  same (`?error=ts`) whether the password was right or wrong, and writes
+  nothing to KV — only an attempt that passed the challenge is counted by
+  `noteFailedLogin`.
+
+A blocked Turnstile script (ad-blocker) means the owner cannot log in from that
+browser — deliberately, since there is no bypass path here as there is for the
+Drive gate; the login page says so after 5 s. Pinned by
+`tests/login-turnstile.test.js`.
 
 Two things that are **not** relaxed while degraded, both pinned by
 `tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses

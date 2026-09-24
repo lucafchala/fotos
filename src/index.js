@@ -600,7 +600,7 @@ async function handleDashboardPage(request, env, url, nonce) {
     // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
     // desconhecido cai no formulário limpo.
     const erro = url.searchParams.get('error');
-    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv' }, nonce), 200, nonce);
+    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv', verificacao: erro === 'ts' }, nonce), 200, nonce);
   }
 
   const [events, categories] = dados;
@@ -672,6 +672,17 @@ export async function handleLogin(request, env, ctx) {
   const ok = stored
     ? await verifyPassword(password, stored)
     : (await hashPassword(password), false);
+
+  // Turnstile (#167) DEPOIS do PBKDF2, de propósito. O smoke do deploy posta
+  // uma senha errada SEM token para medir se o hash cabe no orçamento de CPU;
+  // checar o token antes faria esse canário parar de medir. E a resposta de
+  // quem não passou na verificação é a MESMA com senha certa ou errada — o
+  // resultado do hash só aparece para quem passou. Sem noteFailedLogin aqui:
+  // é escrita em KV, e tentativa sem token não pode gastar a cota.
+  // 'indisponivel' segue só com senha e rate limit (ver checkTurnstile).
+  const verificacao = await checkTurnstile(body['cf-turnstile-response'] || '', env);
+  if (verificacao === 'recusado') return redirect('/dashboard?error=ts');
+
   if (!ok) {
     ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
     return redirect('/dashboard?error=1');
@@ -2253,14 +2264,28 @@ export async function handleCspReport(request, env) {
 // ---------------------------------------------------------------------------
 // Turnstile verification
 // ---------------------------------------------------------------------------
+// Três respostas, não duas (#167):
+//   'ok'           — a Cloudflare aprovou o token;
+//   'recusado'     — token ausente, inválido, vencido ou repetido: o que o
+//                    CLIENTE controla;
+//   'indisponivel' — sem secret, siteverify fora do ar, ou a Cloudflare
+//                    recusando a NOSSA chave: o que o cliente não controla.
+// Suporte, remoção e portão do Drive tratam as duas últimas igual e falham
+// fechado (verifyTurnstile). O login do painel não: lá o Turnstile é camada a
+// mais sobre rate limit, PBKDF2 e alerta por e-mail, e uma queda da
+// Cloudflare não pode trancar o dono fora do próprio painel.
 /**
  * @param {string} token
  * @param {Env} env
+ * @returns {Promise<'ok' | 'recusado' | 'indisponivel'>}
  */
-async function verifyTurnstile(token, env) {
+async function checkTurnstile(token, env) {
   const secret = env.TURNSTILE_SECRET_KEY;
-  if (!secret) return false; // fail closed — a missing secret is a deploy error, not a bypass
-  if (!token) return false;
+  // Secret ausente é erro de deploy — o auditSite já o acusa no healthz.
+  if (!secret) return 'indisponivel';
+  if (!token) return 'recusado';
+  /** @type {any} */
+  let data;
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
@@ -2268,11 +2293,29 @@ async function verifyTurnstile(token, env) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ secret, response: token }),
     });
-    const data = await res.json();
-    return data.success === true;
-  } catch {
-    return false;
+    if (!res.ok) throw new Error(`siteverify respondeu HTTP ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    noteDegraded('Turnstile não respondeu', 'formulários públicos recusam; o login segue com senha e rate limit', e);
+    return 'indisponivel';
   }
+  if (data && data.success === true) return 'ok';
+  const codigos = Array.isArray(data?.['error-codes']) ? data['error-codes'].map(String) : [];
+  if (codigos.some(c => c === 'missing-input-secret' || c === 'invalid-input-secret' || c === 'internal-error')) {
+    noteDegraded('Turnstile recusou a configuração', `siteverify: ${codigos.join(', ')}`);
+    return 'indisponivel';
+  }
+  return 'recusado';
+}
+
+/**
+ * Falha fechado em tudo que não for 'ok' — é o que os formulários públicos
+ * querem: sem verificação, sem envio.
+ * @param {string} token
+ * @param {Env} env
+ */
+async function verifyTurnstile(token, env) {
+  return (await checkTurnstile(token, env)) === 'ok';
 }
 
 // ---------------------------------------------------------------------------
