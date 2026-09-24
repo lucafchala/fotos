@@ -26,7 +26,7 @@ import { eventHTML } from '../src/ui/event.js';
 import { supportHTML } from '../src/ui/support.js';
 import { docHTML } from '../src/ui/doc.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
-import { perfBootScript, degradedHealth, resetDegraded } from '../src/utils.js';
+import { perfBootScript, degradedHealth, resetDegraded, fontPreloadHTML, fontFaceCSS } from '../src/utils.js';
 import { TURNSTILE_SITE_KEY } from '../src/config.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -66,37 +66,33 @@ describe('scripts embutidos nas páginas', () => {
 });
 
 describe('dicas de conexão no cabeçalho', () => {
-  // O defeito que estes testes travam existiu em DOZE cabeçalhos ao mesmo
-  // tempo: todos preconectavam a `fonts.googleapis.com` (o CSS) e nenhum a
-  // `fonts.gstatic.com` (os WOFF2 que aquele CSS aponta). Meio par não é meio
-  // ganho — é ganho nenhum, porque o handshake que importa é justamente o do
-  // host que ficou de fora, e ele só começa depois do CSS chegar e ser
-  // parseado.
-  //
-  // É um defeito invisível para todo o resto da suíte: a página renderiza,
-  // o JavaScript compila, a CSP continua válida. Só um waterfall de rede
-  // mostra. Daí a asserção ser estrutural — sobre o par, não sobre a página.
+  // Até o #131 o Inter vinha do Google Fonts e estes testes travavam o PAR de
+  // preconnects (CSS em fonts.googleapis.com, WOFF2 em fonts.gstatic.com) —
+  // meio par já tinha existido em doze cabeçalhos ao mesmo tempo. A fonte
+  // agora sai da própria origem, e o que precisa ficar preso é outro par: o
+  // preload e o @font-face apontando para o MESMO arquivo. Se divergirem, o
+  // browser baixa a fonte duas vezes e avisa "preloaded but not used" — de
+  // novo um defeito que só um waterfall de rede mostraria.
   const paginasComFonte = Object.entries(paginas());
 
   it.each(paginasComFonte.map(([nome]) => nome))(
-    '%s preconecta aos DOIS hosts do Google Fonts',
+    '%s pré-carrega a fonte da própria origem e a declara no <style>',
     nome => {
       const html = paginas()[nome];
-      expect(html, `${nome}: preconnect do CSS ausente`)
-        .toContain('<link rel="preconnect" href="https://fonts.googleapis.com">');
-      expect(html, `${nome}: preconnect dos arquivos de fonte ausente`)
-        .toContain('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
+      expect(html, `${nome}: preload da fonte ausente`).toContain(fontPreloadHTML());
+      const css = [...html.matchAll(RE_STYLE_BLOCO)].map(m => m[0]).join('\n');
+      expect(css, `${nome}: @font-face ausente do <style>`).toContain(fontFaceCSS());
+      const preload = /<link rel="preload" href="([^"]+)" as="font"/.exec(html);
+      const urls = [...css.matchAll(/@font-face\{[^}]*src:url\(([^)]+)\)/g)].map(m => m[1]);
+      expect(urls, `${nome}: o preload aponta para um arquivo que nenhum @font-face usa`).toContain(preload?.[1]);
     },
   );
 
-  it('o preconnect de fonte leva crossorigin e o de CSS não leva', () => {
-    // Requisição de fonte é CORS; folha de estilo não é. O browser guarda
-    // pools de conexão separados para os dois modos, então trocar o atributo
-    // de lugar (ou pô-lo nos dois) abre a conexão que a busca real NÃO
-    // reaproveita — pior que não preconectar, porque parece resolvido.
-    const html = galleryHTML([EVENTO], null, 'NONCE');
-    expect(html).not.toMatch(/<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com" crossorigin>/);
-    expect(html).not.toMatch(/<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com">/);
+  it.each(paginasComFonte.map(([nome]) => nome))('%s não fala mais com o Google Fonts', nome => {
+    // Nem <link>, nem preconnect, nem @import: qualquer menção levaria o IP
+    // do visitante de volta a um terceiro que os documentos legais já dizem
+    // ter sido eliminado.
+    expect(paginas()[nome]).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
   });
 
   it('a galeria preconecta ao host das miniaturas', () => {
@@ -118,8 +114,6 @@ describe('dicas de conexão no cabeçalho', () => {
     // apareceria em lugar nenhum. Amarrar os dois lados aqui evita que uma
     // origem removida da CSP fique para trás no cabeçalho.
     const permitidos = new Set([
-      'https://fonts.googleapis.com',   // style-src
-      'https://fonts.gstatic.com',      // font-src
       'https://lh3.googleusercontent.com', // img-src (*.googleusercontent.com)
       'https://drive.google.com',       // img-src
       'https://challenges.cloudflare.com', // script-src/frame-src/connect-src

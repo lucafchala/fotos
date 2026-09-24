@@ -9,6 +9,7 @@ import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
+import { FONTS } from './content/fonts.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -229,6 +230,9 @@ const worker = {
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
       if (path === '/icon.svg' && method === 'GET') return handleIcon();
       if (path === '/og-coming-soon.png' && method === 'GET') return handleComingSoonOgImage();
+      // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
+      // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
+      if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
@@ -2582,6 +2586,33 @@ function handleComingSoonOgImage() {
   return new Response(bytes, {
     status: 200,
     headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=604800' },
+  });
+}
+
+// Os WOFF2 do Inter, servidos daqui em vez do Google Fonts (#131). O nome leva
+// um pedaço do sha256 do arquivo (ver scripts/build-fonts.mjs), então a URL
+// muda sempre que o conteúdo muda — daí poder dizer `immutable` por um ano sem
+// risco de prender alguém numa fonte velha.
+//
+// Decodificado uma vez por isolate: o base64 tem ~65 KB por face, e toda
+// página pede a fonte. `new Response()` COPIA os bytes que recebe, então
+// reaproveitar o mesmo Uint8Array entre respostas é seguro (o teste em
+// tests/workers/ prova isso no workerd, não num dublê).
+const FONT_BY_PATH = new Map(FONTS.map(f => [f.path, f]));
+/** @type {Map<string, Uint8Array>} */
+const fontBytes = new Map();
+
+/** @param {string} path */
+function handleFont(path) {
+  let bytes = fontBytes.get(path);
+  if (!bytes) {
+    const font = /** @type {typeof FONTS[number]} */ (FONT_BY_PATH.get(path));
+    bytes = Uint8Array.from(atob(font.b64), c => c.charCodeAt(0));
+    fontBytes.set(path, bytes);
+  }
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...dataSecurityHeaders('font/woff2', { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
   });
 }
 

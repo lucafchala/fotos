@@ -1,7 +1,8 @@
-import { sortEvents, escape, safeUrl, fontPreconnectHTML } from '../utils.js';
+import { sortEvents, escape, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 
 const BASE = `
+${fontFaceCSS()}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#555;--accent:#f0ebe5;--red:#c0392b;--green:#27ae60;--radius:10px}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
@@ -43,8 +44,7 @@ export function loginHTML(opts = {}, nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
     ${BASE}
     body{display:flex;align-items:center;justify-content:center;padding:2rem 1rem;min-height:100vh}
@@ -147,8 +147,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
     ${BASE}
     /* layout */
