@@ -73,9 +73,12 @@ src/
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
+    fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
+fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
-tests/          ← 244 testes; security.test.js é o maior
+scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode

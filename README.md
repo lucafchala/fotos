@@ -58,7 +58,7 @@ O site tem três audiências:
 
 Cada evento contém: slug (URL), título, descrição curta/longa, até 6 fotos de capa, link da pasta do Drive, data, créditos, link extra, status (em-edição/em-revisão/entregue/arquivado), notas privadas, flags `visible`/`comingSoon`/`pinned`, e um "banner de novas fotos" opcional com expiração configurável.
 
-O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Google Fonts), sem JS framework — apenas vanilla. Todo HTML é gerado server-side via template strings em ES modules e enviado com `Content-Type: text/html; charset=utf-8`.
+O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter servida pela própria origem (`/fonts/`, sem Google Fonts), sem JS framework — apenas vanilla. Todo HTML é gerado server-side via template strings em ES modules e enviado com `Content-Type: text/html; charset=utf-8`.
 
 ---
 
@@ -74,7 +74,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
 | CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
-| Fontes externas | Google Fonts (Inter) |
+| Fontes | Inter variável (SIL OFL 1.1), servido pela própria origem em `/fonts/` — nenhuma fonte de terceiro |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
@@ -114,6 +114,10 @@ npx wrangler login
 #    Regerar o módulo com o texto dos documentos legais. A CI falha se você
 #    esquecer — ver "Páginas dos documentos legais".
 npm run build:legal
+
+#    (Só se você trocou um arquivo em fonts/) Regerar o módulo das fontes.
+#    A suíte reprova se o módulo divergir dos arquivos.
+npm run build:fonts
 
 # 4. Subir o dev server
 npm run dev
@@ -560,6 +564,7 @@ fotos/
 │       └── checklist-conformidade.md
 ├── scripts/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
 │   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
 │   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
@@ -568,7 +573,8 @@ fotos/
 │       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
-├── tests/                  ← Vitest (509 testes)
+├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto
+├── tests/                  ← Vitest: suíte `unit` (node) e `workers` (workerd)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
@@ -577,13 +583,15 @@ fotos/
 │   ├── d1-migrate.test.js  ← o que o retomador de migração aceita e, sobretudo, o que ele RECUSA
 │   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
 │   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── content/
-    │   └── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
+    │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
+    │   └── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
     └── ui/
         ├── gallery.js      ← HTML da galeria pública /
         ├── event.js        ← HTML da página de projeto /<slug>
@@ -598,7 +606,7 @@ fotos/
         └── gear.js         ← HTML de /equipamentos
 ```
 
-Tamanhos aproximados: `legal-docs.js` ~110 KB (texto dos documentos), `index.js` ~90 KB, `dashboard.js` ~85 KB (tem todo o JS do painel inline), `event.js` ~65 KB, `gallery.js` ~24 KB, `utils.js` ~28 KB, `legal.js` ~26 KB, `doc.js` ~10 KB, `support.js` ~10 KB, `security.js` ~14 KB, `markdown.js` ~9 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
+Tamanhos aproximados: `fonts.js` ~135 KB (as duas faces do Inter em base64), `legal-docs.js` ~110 KB (texto dos documentos), `index.js` ~90 KB, `dashboard.js` ~85 KB (tem todo o JS do painel inline), `event.js` ~65 KB, `gallery.js` ~24 KB, `utils.js` ~28 KB, `legal.js` ~26 KB, `doc.js` ~10 KB, `support.js` ~10 KB, `security.js` ~14 KB, `markdown.js` ~9 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
 
 ---
 
@@ -1549,16 +1557,16 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 ## Convenções e detalhes do código
 
 - **PT-BR** em todo conteúdo, mensagens de erro e comentários.
-- **Sem dependências runtime**. As dev deps são só `wrangler`, `vitest` e `eslint` (+ `@eslint/js`).
+- **Sem dependências runtime**. As dev deps são ferramentas: `wrangler`, `vitest` (+ `@vitest/coverage-v8` e `@cloudflare/vitest-pool-workers`), `eslint` (+ `@eslint/js`), `typescript` e `@cloudflare/workers-types` (só para o `npm run typecheck`).
 - **Sem TypeScript**, sem build, sem JSX. Template strings + `escape()`.
 - **`escape()`** (em `utils.js`) é o único mecanismo de escape de **HTML**. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
 - **`safeUrl()`** é coisa diferente e **não substitui** o `escape()`: é allowlist de *esquema* (deixa passar só `https:`, promove `http:`, mata `javascript:`/`data:`), e não escapa aspas — `https://x/" onload="…` passa inteiro por ela. Num atributo HTML use as duas, `escape(safeUrl(v))`; numa atribuição de propriedade no cliente (`el.href = v`) o `safeUrl()` basta, porque não há HTML sendo parseado. Nenhuma das duas sozinha cobre os dois ataques — ver `SECURITY.md`, seção *Invariants for contributors*.
-- **`toCount()`** (em `index.js`) é obrigatório ao ler contador do KV. Contadores são strings; um valor corrompido lido com `parseInt` cru vira `NaN`, e `String(NaN)` gravado de volta envenena o contador para sempre.
+- **`toCount()`** (em `utils.js`) é obrigatório ao ler contador vindo de fora do Durable Object (o KV pré-migração, um backup). Contadores são strings; um valor corrompido lido com `parseInt` cru vira `NaN`, e `String(NaN)` gravado de volta envenena o contador para sempre.
 - **`generateId()`** → 16 bytes random hex (32 chars). Usado para event id e removal request id.
 - **`formatDatePT(dateStr)`** → "12 de maio de 2025" (mês em português, dia/ano numéricos). Aceita `YYYY-MM-DD`; retorna string original se inválida.
 - **`toHttps(url)`** → reescreve `http://` para `https://`, no-op caso contrário. Aplicado em todo URL de foto/Drive ao salvar.
 - **CSS variables**: o dashboard usa seu próprio esquema (`--bg`/`--bg2`/`--bg3`/`--text`/`--text2`/`--text3`/`--accent`/`--red`/`--green`, declarado uma vez no `BASE`, herdado em todos os panels, sempre escuro). As páginas públicas têm seu próprio esquema, independente e não intercompatível com o do dashboard (`--bg-page`/`--text`/`--accent`/etc., variando um pouco por arquivo conforme o que cada um precisa), com um bloco `@media(prefers-color-scheme:light)` sobrescrevendo os valores no tema claro — ver "Páginas públicas" acima.
-- **Dicas de conexão (`<link rel="preconnect">`)**: saem de `fontPreconnectHTML()` e `photoPreconnectHTML()`, em `utils.js` — não escreva a tag à mão numa página nova. O Google Fonts usa **dois** hosts (`fonts.googleapis.com` serve o CSS, `fonts.gstatic.com` serve os WOFF2), e preconectar só ao primeiro não adianta nada: o handshake que importa é o do segundo, e ele só começa depois do CSS chegar e ser parseado. O `crossorigin` vai **só** no de fonte — busca de fonte é CORS, busca de folha de estilo e de `<img>` não são, e o browser mantém pools de conexão separados para os dois modos, então o atributo no lugar errado abre uma conexão que a busca real não reaproveita. `tests/rendered-pages.test.js` trava o par em toda página e recusa preconnect a host que a CSP não permite.
+- **Fonte e dicas de conexão**: o Inter sai de `/fonts/` (bytes em `src/content/fonts.js`, gerado por `npm run build:fonts` a partir de `fonts/*.woff2`). Toda página chama `fontPreloadHTML()` no `<head>` e `fontFaceCSS()` no começo do `<style>`, ambas em `utils.js` — não escreva a tag nem o `@font-face` à mão numa página nova. O preload leva `crossorigin` mesmo sendo a mesma origem: busca de fonte é sempre CORS, e o browser mantém pools de conexão separados para CORS e não-CORS, então sem o atributo o arquivo desce duas vezes. O único preconnect que sobrou é o das fotos (`photoPreconnectHTML()`, sem `crossorigin`: `<img>` busca em modo não-CORS). `tests/rendered-pages.test.js` trava preload e `@font-face` apontando para o mesmo arquivo em toda página, recusa qualquer menção ao Google Fonts e recusa preconnect a host que a CSP não permite.
 - **Acessibilidade**: `aria-label` nos botões de ícone do carrossel/modal, `autocomplete` apropriado nos forms, foco gerenciado nos modais.
 - **Mobile-first**: media queries só para "subir" colunas/larguras. Sheets mobile saem do bottom; em ≥ 580px viram modal centralizado.
 
