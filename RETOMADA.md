@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # 726 testes em duas suítes (node + workerd), ~20 s — set/2026
+npm test          # 740 testes em duas suítes (node + workerd), ~20 s — set/2026
 npm run lint
 ```
 
@@ -85,10 +85,12 @@ fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + 
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
+scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
+  smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
 ```
@@ -305,12 +307,18 @@ O `deploy.yml` foi feito para rodar o smoke numa versão sem tráfego e só ent�
 promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker
 (provável causa: ele implementa Durable Objects — #179), e o resumo de todo
 deploy diz "Portão de preview: ⚠️ indisponível". O deploy então promove, roda o
-smoke em produção e **reverte sozinho** se reprovar. Duas consequências:
+smoke em produção e **reverte sozinho** se reprovar. Três consequências:
 
 - clientes ficam expostos por segundos a uma versão não verificada;
 - depois de uma reversão, a `main` ainda tem o commit ruim, e o **próximo
   merge o republica**. Por isso: um merge por vez, esperando o deploy anterior
-  terminar verde (`docs/BRANCHES.md`, "Merge = deploy").
+  terminar verde (`docs/BRANCHES.md`, "Merge = deploy");
+- toda expectativa do smoke é uma segunda cópia de algo que mora no código, e
+  uma cópia que diverge reverte a produção. Os valores que ele compara com o
+  Worker ficam em variáveis no topo de cada checagem do `scripts/smoke.sh`, e
+  o `tests/smoke.test.js` confere cada um contra o Worker de verdade (#181).
+  Mudou um destino do login, a marcação do preload ou o cache da fonte? A
+  suíte reprova, e o smoke muda no mesmo PR.
 
 ---
 

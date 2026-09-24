@@ -301,7 +301,7 @@ uma versão nova.
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
 | 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
 | 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
-| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: 39 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
+| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: 51 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
 | 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
 | 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
 | 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
@@ -459,7 +459,7 @@ autorização de uso de imagem.
 
 ```bash
 npx wrangler dev          # num terminal
-npm run smoke:local       # no outro — 39 checagens contra o Worker de verdade
+npm run smoke:local       # no outro — 44 checagens contra o Worker de verdade
 ```
 
 Mesma suíte, mesmos números, mesma saída que o CI usa. Também dá para apontar
@@ -567,7 +567,8 @@ fotos/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 │   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
-│   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
+│   ├── smoke.sh             ← 44 checagens (51 com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
+│   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
 │   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
@@ -586,6 +587,7 @@ fotos/
 │   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
+│   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)
 │   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
