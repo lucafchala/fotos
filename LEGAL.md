@@ -20,7 +20,7 @@
 | Contadores de view/clique (Durable Object) | Acesso | Legítimo interesse (métrica) | Indefinido (agregado, sem PII) |
 
 ## Operadores / terceiros
-Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile em modo invisível** — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails). As fontes tipográficas saem do próprio site — nenhum terceiro recebe o IP do visitante por causa delas.
+Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile**, a verificação anti-robô: automática na maior parte dos acessos, pode pedir uma confirmação simples — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails). As fontes tipográficas saem do próprio site — nenhum terceiro recebe o IP do visitante por causa delas.
 
 ## Segurança (resumo técnico)
 PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameSite=Strict (24 h); CSP/HSTS/COOP/CORP; Turnstile; rate-limit por IP (inclui login); escaping de saída; validação de entrada + sniff de upload por magic bytes; cron de retenção; `security.txt` (RFC 9116) e procedimento de incidente (art. 48 LGPD).
