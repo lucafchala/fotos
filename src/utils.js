@@ -1,4 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
+import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS } from './config.js';
 import { FONTS } from './content/fonts.js';
 
 /**
@@ -1964,6 +1965,70 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔐 Tentativas de login no painel — fotos.lucafchala.com',
+        html,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Alerta de varredura pelo caminho noscript do portão do Drive (#147). Mesmo
+// contrato do sendLoginAlert: nunca lança, sem corpo de requisição, cooldown
+// próprio. O IP vai inteiro, como no alerta de login: é o que permite agir
+// (regra de WAF, consulta ao registro de consentimentos).
+//
+// A trava do isolate vem antes da do KV: sem ela, com o KV fora, cada
+// requisição acima do limiar mandaria um e-mail.
+let ultimoAlertaVarredura = 0;
+
+/** Só para os testes: o módulo sobrevive entre um caso e outro. */
+export function resetNoscriptSweepAlert() { ultimoAlertaVarredura = 0; }
+
+/**
+ * @param {Env} env
+ * @param {{ ip: string, slugs: number, restritos: number, total: number, janelaHoras: number }} dados
+ * @returns {Promise<boolean>} true se o e-mail saiu
+ */
+export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total, janelaHoras }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  if (Date.now() - ultimoAlertaVarredura < NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS * 1000) return false;
+  const chave = 'noscript-sweep-alert:cooldown';
+  try {
+    if (await env.FOTOS.get(chave)) { ultimoAlertaVarredura = Date.now(); return false; }
+    await env.FOTOS.put(chave, '1', { expirationTtl: NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS });
+  } catch (e) {
+    // Sem o KV, a trava do isolate ainda segura; o alerta sai assim mesmo.
+    noteKvFailure('escrita', e, 'cooldown do alerta de varredura noscript');
+  }
+  ultimoAlertaVarredura = Date.now();
+
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">🔎 Possível varredura pelo caminho sem verificação</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — portão do Drive</p>
+  <p style="font-size:14px;line-height:1.6">O mesmo IP liberou o link do Drive de <strong>${esc(slugs)} projetos diferentes</strong> nas últimas ${esc(janelaHoras)} h pelo caminho sem Turnstile (o fallback para bloqueador de anúncios ou JavaScript desligado)${restritos ? ` — <strong>${esc(restritos)}</strong> deles família ou privados` : ''}. Quem usa bloqueador de verdade abre um ou dois.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+    <tr><td style="padding:8px 0;color:#666;width:160px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Liberações sem verificação</td><td style="padding:8px 0">${esc(total)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+  </table>
+  <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Quais projetos, horários e navegador: <strong>/dashboard → Config. → Consentimentos (CSV)</strong>, filtrando por este IP e <code>turnstile_ok = 0</code>. Para bloquear, uma regra de WAF na Cloudflare para o IP.</p>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas deste tipo ficam em silêncio por ${Math.round(NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS / 3600)} h.</p>
+</div>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Fotos <noreply@lucafchala.com>',
+        to: [env.ADMIN_EMAIL],
+        subject: '🔎 Possível varredura de projetos — fotos.lucafchala.com',
         html,
       }),
     });

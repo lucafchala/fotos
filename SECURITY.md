@@ -76,6 +76,19 @@ issue before any public disclosure.
   real Turnstile pass for restricted events, or an identity requirement) is
   an open decision the owner still needs to make, not something this
   paragraph resolves on its own.
+- **A sweep through the noscript path now raises an alert — it does not
+  block (#147).** After each noscript grant is logged, the Worker counts how
+  many *distinct* projects that IP opened without Turnstile in the last 24 h;
+  at 5 or more, the owner gets an e-mail with the IP, the number of grants and
+  how many of the projects are `family`/`private` — at most one every 6 h for
+  all IPs together, so IP rotation can't turn it into an e-mail flood or burn
+  the KV write quota. Volume on a single project is deliberately *not*
+  alerted: a school or event behind one NAT, everyone with an ad-blocker,
+  looks exactly like that. Known limits: IP rotation (and IPv6, where one
+  client can hold a whole /64) splits a sweep below the threshold; while the
+  cooldown holds, a second sweeper only shows up in the consent export; and a
+  D1 outage silences the check (reported in `/api/healthz`, never in the
+  response that delivers the photos). Thresholds live in `src/config.js`.
 - **Unlisted ≠ private.** A project toggled off ("Ocultar") leaves the gallery,
   the sitemap and the self-test, and is served with `X-Robots-Tag: noindex`,
   but **still opens on a direct link** — that is what keeps a preview link sent

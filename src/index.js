@@ -19,7 +19,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
-  sendErrorAlert, sendLoginAlert,
+  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
 import {
@@ -30,6 +30,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -2398,20 +2399,60 @@ export async function handleDriveLink(request, env, ctx) {
     // Best-effort de propósito (log falhando não pode barrar a foto), mas com
     // barulho: o registro de consentimento é a peça de não-repúdio da LGPD,
     // e perdê-lo em silêncio seria o pior modo de falha do sistema.
-    ctx.waitUntil(stmt.run().catch(e => {
-      noteDegraded(
-        'registro de consentimento não gravou',
-        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
-        e
-      );
-      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
-    }));
+    //
+    // A checagem de varredura (#147) vem DEPOIS do INSERT, para a linha desta
+    // requisição entrar na conta, e só no caminho noscript — com Turnstile de
+    // verdade não há o que alertar.
+    ctx.waitUntil(stmt.run().then(
+      () => (isNoscript ? checkNoscriptSweep(env, ip) : undefined),
+      e => {
+        noteDegraded(
+          'registro de consentimento não gravou',
+          `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+          e
+        );
+        return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+      },
+    ));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
   return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
+}
+
+// Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
+// abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
+// projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
+// e nunca lança: falhar aqui não pode afetar a entrega das fotos.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ */
+async function checkNoscriptSweep(env, ip) {
+  if (!env.CONSENT_DB) return;
+  try {
+    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    /** @type {{ slugs: number, total: number, restritos: number } | null} */
+    const linha = await env.CONSENT_DB.prepare(
+      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+         FROM image_use_consent
+        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+    ).bind(ip.slice(0, 64), desde).first();
+    const slugs = Number(linha?.slugs) || 0;
+    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    await sendNoscriptSweepAlert(env, {
+      ip,
+      slugs,
+      restritos: Number(linha?.restritos) || 0,
+      total: Number(linha?.total) || 0,
+      janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
+    });
+  } catch (e) {
+    noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
 }
 
 /**
