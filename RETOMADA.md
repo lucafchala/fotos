@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # 244 testes, ~3 s
+npm test          # 726 testes em duas suítes (node + workerd), ~20 s — set/2026
 npm run lint
 ```
 
@@ -52,6 +52,8 @@ Depois suba o site localmente e clique nele:
 
 ```bash
 npx wrangler dev
+npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
+npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -68,7 +70,11 @@ testes passavam com a interface inteira quebrada. Ver "As armadilhas" abaixo.
 src/
   index.js      ← roteador + todos os handlers. É o arquivo grande. Comece por ele.
   security.js   ← CSP, CSRF, tokens assinados, headers, senha. Política de segurança fica AQUI.
-  utils.js      ← KV, sessão, e-mail, EXIF, CSV, escape
+  utils.js      ← KV, sessão, e-mail, EXIF, CSV, escape, registro de degradação (healthz)
+  config.js     ← constantes compartilhadas (chave pública do Turnstile, limites). Não moram no
+                  index.js porque o módulo de entrada só pode exportar função ou classe — um
+                  `export const` lá derruba o workerd na inicialização.
+  counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
   content/
@@ -78,7 +84,13 @@ docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verda
 fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
+scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
+scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
+  helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
+.github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
+docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode
@@ -271,6 +283,35 @@ CPU, o sinal é de fora — estourar o orçamento mata a requisição e vira 5xx
 o smoke test e o painel já detectam. Se precisar do número, ele está nas métricas
 do Worker no painel da Cloudflare, não no seu código.
 
+### 5.10. Turnstile tem três respostas, e o login é o único que segue com a Cloudflare fora
+
+`checkTurnstile()` responde `ok`, `recusado` (token ausente/inválido/repetido —
+o que o cliente controla) ou `indisponivel` (sem secret, siteverify fora, ou a
+Cloudflare recusando a **nossa** chave). Suporte, remoção e portão do Drive
+falham fechado nos dois últimos (`verifyTurnstile()`); o **login do painel**
+falha fechado em `recusado` e **segue** em `indisponivel`, só com senha, rate
+limit e alerta — senão uma queda da Cloudflare trancaria o dono fora do único
+lugar de onde o site é operado. A verificação vem **depois** do PBKDF2 de
+propósito (o canário de CPU do smoke posta sem token). Detalhes em
+`SECURITY.md`, "Turnstile on the login".
+
+Consequência prática: **com bloqueador de anúncios, o dono não entra** naquele
+navegador — a tela avisa em 5 s. Não há caminho alternativo, ao contrário do
+portão do Drive.
+
+### 5.11. O smoke roda depois da promoção — o portão de preview está indisponível
+
+O `deploy.yml` foi feito para rodar o smoke numa versão sem tráfego e só então
+promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker
+(provável causa: ele implementa Durable Objects — #179), e o resumo de todo
+deploy diz "Portão de preview: ⚠️ indisponível". O deploy então promove, roda o
+smoke em produção e **reverte sozinho** se reprovar. Duas consequências:
+
+- clientes ficam expostos por segundos a uma versão não verificada;
+- depois de uma reversão, a `main` ainda tem o commit ruim, e o **próximo
+  merge o republica**. Por isso: um merge por vez, esperando o deploy anterior
+  terminar verde (`docs/BRANCHES.md`, "Merge = deploy").
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -293,8 +334,10 @@ do Worker no painel da Cloudflare, não no seu código.
 4. Mexeu em UI, CSP ou rota? **Abra num navegador.** Ver `docs/VERIFICACAO.md`.
 5. Mexeu em `docs/legal/`? `npm run build:legal`.
 6. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de
-   dependências.
-7. Merge → deploy automático → smoke test contra a produção.
+   dependências. O CodeQL só analisa PR com base na `main` — PR empilhado
+   passa sem ele até a base ser trocada (`docs/BRANCHES.md`).
+7. Merge → deploy automático → smoke test contra a produção. **Um merge por
+   vez**: espere o deploy anterior terminar verde (§5.11).
 
 **Deploy manual** (sem commit): Actions → Deploy → Run workflow. Funciona do
 celular. Serve para rotação de secret, rollback e reverificação.
@@ -306,17 +349,21 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Sintoma | Primeiro lugar para olhar |
 | --- | --- |
 | Site fora do ar | Actions → último Deploy; depois o painel da Cloudflare |
-| Painel não loga | `healthz` → `problems`; depois cookie legado `session` no browser |
+| Painel não loga | A mensagem da tela diz qual: "senha incorreta", "banco de dados não respondeu" (KV) ou "verificação anti-robô não passou" (Turnstile — bloqueador de anúncios? §5.10). Depois `healthz` → `problems` e o cookie legado `session` no browser |
 | Formulários recusam tudo | `TURNSTILE_SECRET_KEY` — ele falha **fechado** |
 | E-mail não chega | `RESEND_API_KEY` e `ADMIN_EMAIL` no `healthz` |
 | Link do Drive não abre | `healthz` → `drive: { bad: N }` |
-| Deploy vermelho, site no ar | O smoke test roda **depois** de publicar. Ver Rollback no README |
+| Deploy vermelho, site no ar | O smoke test roda **depois** de publicar (§5.11); se reprovou, a reversão automática já agiu — veja a linha "Reversão" do resumo. Não mergeie nada até reverter o commit no Git |
+| Resumo do deploy: "Portão de preview ⚠️ indisponível" | Normal hoje (#179). O smoke rodou depois da promoção |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
-**Rollback:** `git revert <sha> && git push` (preferido), ou promover um
-deployment anterior no painel da Cloudflare — mas aí a `main` fica à frente da
-produção, e isso precisa ser resolvido logo em seguida.
+**Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
+a versão boa anterior (UUID inteiro — o resumo de cada deploy imprime o ID;
+qualquer outra coisa é recusada antes de tocar em produção). Promove em
+segundos, sem recompilar. Depois, `git revert <sha>` em PR, para a `main` não
+ficar à frente da produção — senão o próximo merge republica o que foi
+revertido.
 
 ---
 
@@ -334,6 +381,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   mudar, o caminho é autenticar o detalhe, e está descrito lá.
 - **Autorização de imagem para menores** continua sendo o item de conformidade
   mais relevante em aberto.
+- **Depois da rodada de 23–24/09/2026** (14 PRs, #161–#176), três coisas só o
+  dono pode fazer: importar a proteção da `main` e apagar os 72 branches
+  entregues (#177); conferir em produção o que a sessão não alcançava — login
+  com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
+  rollback manual (#178); e decidir o portão de preview (#179).
 
 ---
 
@@ -346,6 +398,7 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 | [README.md](./README.md) | Referência completa: rotas, dados, deploy, decisões |
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | Política, orçamento de cota, regras vivas, o que foi decidido e por quê |
+| [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |
 | [Issues](https://github.com/lucafchala/fotos/issues) | O que falta fazer — cada item de ação vive aqui, não em TODO.md |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |

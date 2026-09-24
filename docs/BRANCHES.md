@@ -1,8 +1,10 @@
 # Branches — como uma mudança chega à produção
 
 `main` é produção: cada merge dispara o `deploy.yml`, que publica uma versão
-sem tráfego, roda o smoke nela e só então promove. Não existe outro caminho
-para o site. Por isso tudo aqui gira em torno de uma ideia só: **o que entra
+sem tráfego e a promove — o smoke roda **antes** da promoção quando a
+Cloudflare entrega URL de preview, e **depois** dela, com reversão automática,
+quando não entrega (é o caso hoje: #179). Não existe outro caminho para o
+site. Por isso tudo aqui gira em torno de uma ideia só: **o que entra
 na `main` entra por PR, com a CI verde, um assunto por vez.** PR pequeno é
 deploy pequeno — fácil de revisar, fácil de reverter sozinho.
 
@@ -20,14 +22,14 @@ Este é o único lugar onde estas regras estão escritas; `llms.md` e
 | `chore/<assunto>` | até o merge | CI, dependências, ferramentas, organização do repositório. |
 | `hotfix/<assunto>` | horas | Produção quebrada agora. Mesmo fluxo, o menor diff que resolve. |
 | `claude/<nome-gerado>` | até o merge | Sessão do Claude Code. A plataforma dá o nome; as regras são as mesmas. |
-| `dependabot/…` | até o merge | Do Dependabot. Não mexa à mão — a configuração está em `.github/dependabot.yml`. |
+| `dependabot/…` | até o merge | Do Dependabot. Não mexa à mão — a configuração está em `.github/dependabot.yml`. Ver "PRs do Dependabot" abaixo. |
 
 `<issue>` é o número da issue que o branch resolve (`fix/118-queda-do-kv`);
 sem issue, só o assunto. Minúsculas, palavras separadas por hífen.
 
-**Não há `develop` nem `staging`, de propósito.** Cada PR já ganha um preview
-próprio (Workers Builds), e o deploy da `main` passa por versão sem tráfego e
-smoke antes de promover — o papel que um staging teria. Um branch de
+**Não há `develop` nem `staging`, de propósito.** Cada PR já ganha um build
+próprio (Workers Builds), e o deploy da `main` passa por versão sem tráfego,
+smoke e reversão automática — o papel que um staging teria. Um branch de
 integração sem ambiente próprio só acumularia diferença em relação à
 produção.
 
@@ -48,7 +50,8 @@ pedido de remoção).
 4. **PR pronto é PR congelado.** Depois de marcado como pronto (ou aprovado),
    commit novo só para responder à revisão. Trabalho novo vai para branch
    novo — senão o merge leva para produção algo que ninguém revisou.
-5. **Merge** com merge commit, o método do repositório.
+5. **Merge** com merge commit, o método do repositório — um por vez (ver
+   "Merge = deploy" abaixo).
 6. **O branch é apagado no merge** (automático, ver abaixo). Branch mergeado
    não é arquivo: o conteúdo está na `main`, e a página do PR tem o botão
    *Restore branch* se um dia for preciso.
@@ -69,6 +72,55 @@ sumir: o PR aparece como *merged*, mas nada chega à produção. Aconteceu com o
 `main` pelo #19, e o login nunca ganhou o Turnstile. Com a exclusão
 automática ligada, o GitHub troca a base sozinho quando o branch de baixo é
 apagado no merge — confira mesmo assim.
+
+**Trocar a base não roda a CI de novo — e o CodeQL nem tinha rodado.** O
+CodeQL deste repositório é o *default setup* (configurado nas Settings, não
+em workflow), e ele só analisa PR cuja base é a `main`: enquanto o PR está
+empilhado, a lista de checks parece completa sem ele. Depois de trocar a base,
+traga a `main` para o branch (*Update branch*, ou `update_pull_request_branch`
+numa sessão) — o push é o que dispara a análise — e confira o CodeQL antes do
+merge. Foi assim que apareceu, só no fim, um alerta alto no #163 que ficou
+escondido enquanto ele estava empilhado.
+
+## Merge = deploy: um por vez
+
+Cada merge publica. Com vários PRs prontos, a ordem é:
+
+1. traga a `main` atual para o PR (*Update branch*) e espere a CI verde **no
+   head novo** — o que foi testado tem de ser o que vai para produção;
+2. mergeie **um**;
+3. espere o `Deploy` desse merge terminar **verde** antes de mergear o
+   próximo.
+
+O passo 3 não é zelo: o smoke roda depois da promoção (#179), e se ele
+reprovar a reversão automática devolve a produção à versão anterior — mas a
+`main` continua com o commit ruim. O próximo merge dispara um deploy da `main`
+inteira e **republica** o que acabou de ser revertido. Depois de uma
+reversão, nada entra até o commit ruim ser revertido no Git
+(`git revert <sha>` em PR próprio).
+
+O check agregado do **CodeQL** às vezes sai *neutral* ("configuration not
+found") por ter rodado segundos antes de a análise subir; ele se corrige
+sozinho em seguida. Confira de novo antes de concluir que há problema — e,
+se precisar ver um alerta que a sessão não consegue ler, rode o CodeQL
+localmente (`llms.md`, seção 2).
+
+## PRs do Dependabot
+
+- **Não faça push no branch dele.** O Dependabot para de manter um PR que
+  alguém alterou. Para testar a combinação com a `main`, faça o merge
+  **localmente** (`git merge origin/main` num checkout destacado), rode
+  `npm ci`, lint, typecheck e as duas suítes — e para o `wrangler`, também
+  `npx wrangler deploy --dry-run --env=`.
+- **Conflito no `package-lock.json`** depois de outro merge: o Dependabot
+  rebaseia sozinho em um ou dois minutos. Se não rebasear, comente
+  `@dependabot rebase`.
+- **Mudou o `.github/dependabot.yml`?** O Dependabot pode fechar um PR aberto
+  e abrir outro com o mesmo bump ("Superseded by #N") — o #159 virou o #176
+  assim. Siga o número novo.
+- Um bump que não instala (peer dependency recusada) se **fecha com o motivo
+  escrito** e vira issue de acompanhamento, não fica aberto em vermelho — ver
+  o vitest 5 (#156, #158 → #180).
 
 ## Proteção da `main`
 
@@ -112,3 +164,7 @@ Um branch pode ser apagado quando:
 
 Branch com commit que não está na `main` nem em PR nenhum **não** se apaga
 antes de alguém ler esses commits.
+
+A faxina de 24/09/2026 (72 branches conferidos um a um) está pendente no
+#177: a sessão não tem permissão para apagar branch remoto, e o comando pronto
+ficou num comentário do #162.

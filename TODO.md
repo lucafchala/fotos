@@ -379,6 +379,20 @@ verdade e congele no repositório.
 
 ---
 
+### Espião não sabe quem o chamou
+
+`vi.spyOn(crypto.subtle, 'deriveBits')` conta chamadas de **qualquer** lugar.
+O teste "o PBKDF2 roda mesmo sem token" (o canário de CPU do smoke, #175)
+passou com o defeito dentro — a verificação posta antes do hash —, porque o
+`getAdminHash()`, com o KV vazio, semeia o `ADMIN_PASSWORD` fazendo um PBKDF2
+próprio, e esse chamado satisfazia o espião. Só apareceu reintroduzindo o
+defeito de propósito. Teste com espião precisa de um estado em que o **único**
+caminho possível até o espião seja o que está sendo testado (aqui: hash já
+gravado, espião criado depois) — e a prova de que isso vale é o teste
+reprovar com o defeito de volta, não passar sem ele.
+
+---
+
 ### Teste verde não é verificação
 
 `npm test` prova que as funções fazem o que as funções fazem, não que o site

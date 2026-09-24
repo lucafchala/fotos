@@ -94,7 +94,7 @@ globalThis.fetch = async (input, init) => {
 // …e um http.createServer que repassa para worker.fetch(request, env, ctx).
 ```
 
-**Duas pegadinhas ao escrever o harness:**
+**Três pegadinhas ao escrever o harness:**
 
 1. **`admin_password` semeado vence `ADMIN_PASSWORD`.** `getAdminHash()` lê o KV
    primeiro. Se semear o hash, a variável de ambiente é ignorada — e você
@@ -102,6 +102,16 @@ globalThis.fetch = async (input, init) => {
 2. **`ctx.waitUntil` precisa ser coletado e aguardado.** Contador de visitas,
    alerta de login e dedupe rodam fora do caminho da resposta. Um harness que
    descarta as promessas mede o nada.
+3. **O login do painel exige token do Turnstile** (#175) sempre que
+   `TURNSTILE_SECRET_KEY` existe — e aqui o widget nunca carrega, então
+   nenhum navegador produz token. Sem token, a resposta é
+   `/dashboard?error=ts`, com senha certa ou errada. Mande
+   `cf-turnstile-response` no POST (qualquer valor: o `fetch` interceptado
+   aprova), ou, no navegador, acrescente o campo ao formulário antes de
+   enviar (`page.evaluate` criando um `<input type="hidden"
+   name="cf-turnstile-response">`). Deixar o secret de fora também entra — o
+   login cai em "Turnstile indisponível" e segue só com a senha — mas aí o
+   caminho testado não é o de produção.
 
 ---
 
@@ -179,10 +189,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8787/api/event
 # HEAD responde como GET, sem corpo e sem gravar em KV
 curl -sI -o /dev/null -w '%{http_code}\n' http://localhost:8787/            # 200
 
-# Login real → o cookie de sessão
+# Login real → o cookie de sessão. O token é obrigatório com o secret do
+# Turnstile configurado (§2, pegadinha 3); sem ele: Location /dashboard?error=ts
 curl -s -i -X POST http://localhost:8787/dashboard/login \
   -H 'Content-Type: application/x-www-form-urlencoded' -H 'Sec-Fetch-Site: same-origin' \
-  -d 'password=Senha-De-Teste-2026!' | grep -i set-cookie
+  -d 'password=Senha-De-Teste-2026!' -d 'cf-turnstile-response=teste' | grep -i set-cookie
 ```
 
 **Cuidado com o rate limit ao repetir testes**: `/api/removal-request` e o login
@@ -212,8 +223,13 @@ outras.
 - [ ] `npm test` e `npm run lint`
 - [ ] **O bug foi reintroduzido e o teste falhou?** Se o teste passa com o bug de
       volta, ele não testa o que você acha
-- [ ] Mexeu em UI, CSP ou rota → aberto num navegador, console limpo
+- [ ] Mexeu em UI, CSP ou rota → `npm run verifica:navegador` e a verificação
+      específica da mudança num navegador, console limpo
+- [ ] Mexeu em login, healthz ou algo que o smoke olha → `npm run smoke:local`
+      (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local
 - [ ] Mexeu em `docs/legal/` → `npm run build:legal` e os dois commitados
 - [ ] Adicionou `put()` em caminho público → calculou o pior caso contra as
       1000 escritas/dia
+- [ ] O check do CodeQL acusou alerta que você não consegue abrir → rode o
+      CodeQL localmente (`llms.md`, "CodeQL local") antes de mexer às cegas
