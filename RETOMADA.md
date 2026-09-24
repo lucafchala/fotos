@@ -73,9 +73,12 @@ src/
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
+    fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
+fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
-tests/          ← 244 testes; security.test.js é o maior
+scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode
@@ -130,11 +133,13 @@ falha (fail-open deliberado, ver SECURITY.md), o `/api/healthz` acusa em
 `problems`, e nenhuma rota pública gasta escrita antes de saber que tem algo
 real para contar.
 
-**Os contadores são atômicos, um Durable Object por chave.** `views:` e
-`drive_clicks:` passam por `bumpCounter()` (utils.js), que chama `increment()`
-no objeto endereçado por aquela chave. O runtime serializa as chamadas de um
-mesmo objeto, então a contagem sai exata em qualquer formato de tráfego —
-espalhado ou em rajada — sem nada acumulado em memória.
+**Os contadores são atômicos, num Durable Object só para todos.** `views:` e
+`drive_clicks:` passam por `bumpCounter()` (utils.js), que chama
+`increment(chave)` no objeto único `Counter`. O runtime serializa as chamadas de
+um mesmo objeto, então a contagem sai exata em qualquer formato de tráfego —
+espalhado ou em rajada — sem nada acumulado em memória. (Já foi um objeto por
+chave: quebrou o painel de métricas, porque chamada de DO é subrequisição — 50
+por invocação no plano gratuito — e o painel lia duas por projeto.)
 
 **Cuidado ao mexer nisto — já quebrou de dois jeitos, os dois silenciosos.** Os
 dois defeitos são da era do KV e não podem mais acontecer do mesmo jeito, mas o

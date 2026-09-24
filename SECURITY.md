@@ -91,8 +91,9 @@ issue before any public disclosure.
   only search-engine discovery is affected (`isRestrictedAccess()` in
   `src/utils.js`).
 - Counters (`views`, `drive_clicks`) are **atomic** since they moved from KV to
-  Durable Objects: one object per key, calls serialized by the runtime. The
-  undercounting-under-load caveat that used to live here no longer applies.
+  Durable Objects: one object holds every counter, and the runtime serializes
+  calls to it. The undercounting-under-load caveat that used to live here no
+  longer applies.
 - Rate limits are abuse-mitigation, not a hard guarantee. In particular they
   **stop counting when the store refuses a write** — see "Rate limits fail open
   when they cannot be recorded" below. They are not, however, optional: see the
@@ -119,7 +120,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | CSV formula-injection guard | `csvCell()` | `=HYPERLINK(...)` in a visitor-supplied field executing in the admin's spreadsheet |
 | EXIF/GPS stripping on uploads | `stripImageMetadata()` | A removal request handing us the GPS coordinates of the photo |
 | `no-store` on every data response | `dataSecurityHeaders()` | Personal data sitting in a disk or intermediary cache |
-| Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes and `javascript:` URLs |
+| Restore sanitisation | `sanitizeRestoredRequest()`, `mergeRestore()` | A hand-edited backup planting junk shapes, `javascript:` URLs, a slug that turns the gallery card into `href="//other-host"`, or a non-string title that 500s the public gallery |
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
@@ -207,10 +208,13 @@ question of shape rather than of tuning: a counter written once per visitor
 makes the site's cost grow with its audience, against a ceiling that does not
 move. Three changes take that out:
 
-- **Counters live in Durable Objects, one object per key.** `views:` and
-  `drive_clicks:` go through `bumpCounter()`, which calls `increment()` on the
-  object addressed by that key. The runtime serializes calls to a single object,
-  so the increment is atomic and the count is exact under any traffic shape.
+- **Counters live in a Durable Object — one object for all of them.** `views:`
+  and `drive_clicks:` go through `bumpCounter()`, which calls `increment(key)` on
+  the single `Counter` object. The runtime serializes calls to a single object,
+  so the increment is atomic and the count is exact under any traffic shape. (It
+  was one object per key at first; that broke the metrics panel, because every
+  Durable Object call is a subrequest — 50 per invocation on the Free plan — and
+  the panel read two counters per project. See `src/counters.js`.)
   This replaced an in-memory coalescing scheme (pending map, one-second per-key
   floor, flush lock, scheduled drain) that existed only because KV has no atomic
   increment and refuses more than one write per second per key — a limit the
@@ -377,6 +381,36 @@ propagates. Serving a stale list there is not graceful degradation, it is a
 staged data loss: the `saveEvents` that follows would write the old list back
 over the new one, deleting every project changed since the copy was taken.
 Failing costs the owner an error message; the alternative costs the projects.
+
+### The panel and the support form in a KV outage — opposite answers on purpose
+
+Outside the photo path, two routes still answered a KV outage with the generic
+500 (and an "error on the site" email per attempt). They get opposite
+treatments, because they protect opposite things:
+
+- **Support form: fail open on the dedupe.** The only KV access on its critical
+  path was the read of the "same message from the same IP in the last hour"
+  marker — a convenience, not a control. The message itself travels by email,
+  which does not touch KV. With KV down the read is skipped (and reported to
+  `noteDegraded`), so the worst case is one duplicate email; the old worst case
+  was the message being thrown away.
+- **Panel: fail closed, but say so.** The password hash and the session record
+  both live in KV, and there is deliberately **no** surviving copy of either:
+  authenticating against a cached hash would accept a password the owner has
+  already changed, and a cached session would outlive its revocation. So with
+  KV down there is no way in — but the answer is a `503` that explains the
+  outage (`/dashboard`), a JSON `503` for authenticated API calls (a `401` would
+  make the panel think the session expired and bounce the owner to a login that
+  cannot work), and on the login form a notice that **the password was not
+  refused**. The login used to reuse the "wrong password" screen when KV refused
+  to store a correct login's session; on the day the quota ran out, that told
+  the owner to distrust the one thing that was right.
+
+One write in the panel path is allowed to fail open: seeding the hash from the
+`ADMIN_PASSWORD` secret into an empty namespace. If KV refuses it, the freshly
+computed hash still authenticates *this* request and the next one retries the
+seed — refusing the login over a convenience write would lock the owner out on
+exactly the day the quota is exhausted. Pinned by `tests/queda-kv.test.js`.
 
 Two things that are **not** relaxed while degraded, both pinned by
 `tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses

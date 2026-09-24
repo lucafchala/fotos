@@ -58,7 +58,7 @@ O site tem três audiências:
 
 Cada evento contém: slug (URL), título, descrição curta/longa, até 6 fotos de capa, link da pasta do Drive, data, créditos, link extra, status (em-edição/em-revisão/entregue/arquivado), notas privadas, flags `visible`/`comingSoon`/`pinned`, e um "banner de novas fotos" opcional com expiração configurável.
 
-O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Google Fonts), sem JS framework — apenas vanilla. Todo HTML é gerado server-side via template strings em ES modules e enviado com `Content-Type: text/html; charset=utf-8`.
+O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter servida pela própria origem (`/fonts/`, sem Google Fonts), sem JS framework — apenas vanilla. Todo HTML é gerado server-side via template strings em ES modules e enviado com `Content-Type: text/html; charset=utf-8`.
 
 ---
 
@@ -74,7 +74,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter (Goog
 | Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
 | CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
-| Fontes externas | Google Fonts (Inter) |
+| Fontes | Inter variável (SIL OFL 1.1), servido pela própria origem em `/fonts/` — nenhuma fonte de terceiro |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
@@ -114,6 +114,10 @@ npx wrangler login
 #    Regerar o módulo com o texto dos documentos legais. A CI falha se você
 #    esquecer — ver "Páginas dos documentos legais".
 npm run build:legal
+
+#    (Só se você trocou um arquivo em fonts/) Regerar o módulo das fontes.
+#    A suíte reprova se o módulo divergir dos arquivos.
+npm run build:fonts
 
 # 4. Subir o dev server
 npm run dev
@@ -558,6 +562,8 @@ fotos/
 │       └── checklist-conformidade.md
 ├── scripts/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
+│   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
+│   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
 │   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
@@ -566,7 +572,8 @@ fotos/
 │       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
-├── tests/                  ← Vitest (509 testes)
+├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto
+├── tests/                  ← Vitest: suíte `unit` (node) e `workers` (workerd)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
 │   ├── kv.test.js          ← rate limit, getEvents/saveEvents, resiliência a KV corrompido
@@ -575,13 +582,15 @@ fotos/
 │   ├── d1-migrate.test.js  ← o que o retomador de migração aceita e, sobretudo, o que ele RECUSA
 │   ├── rendered-pages.test.js ← HTML das páginas públicas e do painel, incluindo os pares cliente/servidor
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
+│   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
 │   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── content/
-    │   └── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
+    │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
+    │   └── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
     └── ui/
         ├── gallery.js      ← HTML da galeria pública /
         ├── event.js        ← HTML da página de projeto /<slug>
@@ -596,7 +605,7 @@ fotos/
         └── gear.js         ← HTML de /equipamentos
 ```
 
-Tamanhos aproximados: `legal-docs.js` ~110 KB (texto dos documentos), `index.js` ~90 KB, `dashboard.js` ~85 KB (tem todo o JS do painel inline), `event.js` ~65 KB, `gallery.js` ~24 KB, `utils.js` ~28 KB, `legal.js` ~26 KB, `doc.js` ~10 KB, `support.js` ~10 KB, `security.js` ~14 KB, `markdown.js` ~9 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
+Tamanhos aproximados: `fonts.js` ~135 KB (as duas faces do Inter em base64), `legal-docs.js` ~110 KB (texto dos documentos), `index.js` ~90 KB, `dashboard.js` ~85 KB (tem todo o JS do painel inline), `event.js` ~65 KB, `gallery.js` ~24 KB, `utils.js` ~28 KB, `legal.js` ~26 KB, `doc.js` ~10 KB, `support.js` ~10 KB, `security.js` ~14 KB, `markdown.js` ~9 KB. Tudo cabe folgadamente no limite de 10 MB do Workers script.
 
 ---
 
@@ -608,21 +617,23 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | --- | --- | --- |
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
-| `admin_session:<token>` | String `"valid"` com `expirationTtl=86400` (24 h) | `handleLogin` ao sucesso; deletada no logout |
-| `views:<slug>` | String numérica (contador de visualizações da página do projeto) | `handleEventPage` via `ctx.waitUntil` |
-| `drive_clicks:<slug>` | String numérica (contador de cliques no botão "Ir para o Drive") | `handleTrackDrive` |
+| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (sessões antigas `"valid"` ainda são aceitas até expirar) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
-| `ratelimit:<key>:<ip>:<window>` | String numérica, TTL = janela | `checkRateLimit` (todas as rotas com rate limit) |
+| `cron:last` | ISO da última execução do cron diário | `scheduled()` |
+| `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
+| `login-fail:<ip>:<janela>` | Contagem de logins falhos, TTL 15 min — só alimenta o alerta | `noteFailedLogin` |
+| `error-alert:cooldown`, `login-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert` |
+| `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
 
-> O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo).
+> O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo). Contadores e rate limit também não: são Durable Objects (`Counter`, `RateLimiter` — ver [Métricas](#métricas) e `src/counters.js`).
 
 ### Schema de um evento
 
 ```js
 {
   id: "16 bytes hex",            // generateId()
-  slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug
+  slug: "meu-evento-2025",       // [a-z0-9-], 1..60, validado por validateSlug (fora de RESERVED_SLUGS)
   title: "string ≤ 200",
   longDescription: "string ≤ 5000",
   photos: ["url1", "url2", ...],  // até 6, cada uma string ≤ 2000, https-only depois do toHttps()
@@ -1144,12 +1155,12 @@ Já listados em [Rotas HTTP](#rotas-http) — `nosniff`, `frame DENY`, `Referrer
   foi tirada. O portão é a própria limpeza: o que não sai comprovadamente limpo
   é recusado com orientação, não anexado.
 - Restore de backup: `sanitizeRestoredRequest()` e `mergeRestore()` filtram por
-  chave, tipo e tamanho. Era o único caminho que gravava em KV sem passar pelo
-  normalizador de eventos.
+  chave, tipo e tamanho, e um evento sem `id` ou `slug` utilizável não entra.
+  Era o único caminho que gravava em KV sem passar pelo normalizador de eventos.
 
 ### `ctx.waitUntil`
 
-Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a resposta. Se a escrita falhar, o usuário não percebe.
+Usado em `handleEventPage` para incrementar `views:<slug>` sem bloquear a resposta. Se o incremento falhar, o visitante não percebe — e a falha entra no registro de degradações (`noteDegraded`), que o `/api/healthz` publica.
 
 ---
 
@@ -1361,16 +1372,16 @@ Todos enviam via `POST https://api.resend.com/emails` com `Authorization: Bearer
 
 ## Métricas
 
-Dois contadores em KV, ambos por evento:
+Dois contadores por evento, num **Durable Object** (`Counter`, `src/counters.js`) — não no KV:
 
-- `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. Race conditions são possíveis em alta concorrência (read-modify-write não atômico), mas o erro de contagem é aceitável para o caso de uso.
-- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive" antes de abrir a modal externa. Rate-limit: 60/h por IP (60 cliques por hora por IP é mais que suficiente).
+- `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. HEAD, prefetch do navegador (`Sec-Purpose: prefetch`) e quem já tem o cookie `fv_<slug>` da última hora não contam.
+- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive". Rate-limit: 60/h por IP.
 
-Os dois passam por `bumpCounter()` (`src/utils.js`), que **não grava um `put` por requisição**. O primeiro incremento de cada isolate grava na hora; os que chegam nos 10 s seguintes se somam na memória e viram um lote só. É o que impede o custo em KV de crescer junto com o público — e a gravação imediata do primeiro é o que impede tráfego esparso de perder a contagem inteira, já que um isolate ocioso morre antes de qualquer segundo incremento (e o cron não alcança: roda em outro isolate, com o mapa vazio).
+Os dois passam por `bumpCounter()` (`src/utils.js`), que chama `increment()` no objeto. O runtime serializa as chamadas de um mesmo objeto, então a contagem é **exata** em qualquer formato de tráfego — espalhado ou em rajada — sem nada acumulado em memória. Todos os contadores moram no MESMO objeto: chamada de Durable Object é subrequisição (50 por invocação no plano gratuito), e o painel lê tudo de uma vez. O porquê completo, e as três armadilhas que a migração ensinou, estão em `src/counters.js` e no RETOMADA §5.3.
 
-O rate-limit do `/api/track-drive` continua existindo **apesar** da agregação, e roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo custe zero escrita. A agregação limita o custo por *requisição*; sem o limite por IP, um flood sustentado ainda custaria uma escrita por janela — ~8600/dia contra a cota de 1000/dia do plano gratuito.
+O rate-limit do `/api/track-drive` roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo não custe escrita nenhuma; sem ele, um flood sustentado inflaria a métrica e gastaria a franquia de escrita do Durable Object.
 
-Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores em paralelo via `Promise.all`.
+Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores numa chamada só (`readCounters` → `snapshot()`), e assenta do KV, uma única vez, as chaves que o objeto ainda não conhecia (valores da era do KV).
 
 Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYTICS_TOKEN`). Quando definido, o beacon é injetado nas páginas públicas e o painel da Cloudflare mostra agregados (pageviews, dispositivos, países, referrers) sem cookies e sem tracking individual.
 
@@ -1404,13 +1415,15 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 `POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos e **v2** completo). Eventos via `mergeRestore`:
 
 - Para cada evento do backup:
+  - Sem `id` utilizável (`[\w-]{1,64}`) ou sem `slug` válido (formato de `validateSlug`, fora dos slugs reservados pelas rotas fixas) → **ignorado** (`skipped++`). Nem entra como novo, nem substitui um existente de mesmo id — um evento sem id não pode ser editado nem apagado pelo painel, e um slug como `/evil.example` viraria `href="//evil.example"` no card da galeria.
   - Se não existe no KV → adicionar (`added++`).
   - Se existe → comparar `updatedAt || createdAt`. O mais recente vence (`updated++`).
 - Eventos atuais que **não** estão no backup são preservados (nunca deleta).
+- O restore é o único caminho que grava eventos sem passar por `normalizeEventFields()`, então `sanitizeRestoredEvent()` aplica o que as páginas precisam: URLs só `https` (`toHttps`), campos de texto como string e com os mesmos tetos do painel (um `"title": 2026` derrubava a galeria com 500), datas `AAAA-MM-DD` ou vazio, enums válidos e o aviso de novas fotos normalizado (horas com teto — um número absurdo virava `RangeError` na página do projeto). Campo ausente continua ausente; campo desconhecido passa intacto.
 
 Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, total, categories?, removalRequestsAdded?}`.
+Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?}`. O painel diz quantos foram ignorados na confirmação.
 
 ---
 
@@ -1543,16 +1556,16 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 ## Convenções e detalhes do código
 
 - **PT-BR** em todo conteúdo, mensagens de erro e comentários.
-- **Sem dependências runtime**. As dev deps são só `wrangler`, `vitest` e `eslint` (+ `@eslint/js`).
+- **Sem dependências runtime**. As dev deps são ferramentas: `wrangler`, `vitest` (+ `@vitest/coverage-v8` e `@cloudflare/vitest-pool-workers`), `eslint` (+ `@eslint/js`), `typescript` e `@cloudflare/workers-types` (só para o `npm run typecheck`).
 - **Sem TypeScript**, sem build, sem JSX. Template strings + `escape()`.
 - **`escape()`** (em `utils.js`) é o único mecanismo de escape de **HTML**. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
 - **`safeUrl()`** é coisa diferente e **não substitui** o `escape()`: é allowlist de *esquema* (deixa passar só `https:`, promove `http:`, mata `javascript:`/`data:`), e não escapa aspas — `https://x/" onload="…` passa inteiro por ela. Num atributo HTML use as duas, `escape(safeUrl(v))`; numa atribuição de propriedade no cliente (`el.href = v`) o `safeUrl()` basta, porque não há HTML sendo parseado. Nenhuma das duas sozinha cobre os dois ataques — ver `SECURITY.md`, seção *Invariants for contributors*.
-- **`toCount()`** (em `index.js`) é obrigatório ao ler contador do KV. Contadores são strings; um valor corrompido lido com `parseInt` cru vira `NaN`, e `String(NaN)` gravado de volta envenena o contador para sempre.
+- **`toCount()`** (em `utils.js`) é obrigatório ao ler contador vindo de fora do Durable Object (o KV pré-migração, um backup). Contadores são strings; um valor corrompido lido com `parseInt` cru vira `NaN`, e `String(NaN)` gravado de volta envenena o contador para sempre.
 - **`generateId()`** → 16 bytes random hex (32 chars). Usado para event id e removal request id.
 - **`formatDatePT(dateStr)`** → "12 de maio de 2025" (mês em português, dia/ano numéricos). Aceita `YYYY-MM-DD`; retorna string original se inválida.
 - **`toHttps(url)`** → reescreve `http://` para `https://`, no-op caso contrário. Aplicado em todo URL de foto/Drive ao salvar.
 - **CSS variables**: o dashboard usa seu próprio esquema (`--bg`/`--bg2`/`--bg3`/`--text`/`--text2`/`--text3`/`--accent`/`--red`/`--green`, declarado uma vez no `BASE`, herdado em todos os panels, sempre escuro). As páginas públicas têm seu próprio esquema, independente e não intercompatível com o do dashboard (`--bg-page`/`--text`/`--accent`/etc., variando um pouco por arquivo conforme o que cada um precisa), com um bloco `@media(prefers-color-scheme:light)` sobrescrevendo os valores no tema claro — ver "Páginas públicas" acima.
-- **Dicas de conexão (`<link rel="preconnect">`)**: saem de `fontPreconnectHTML()` e `photoPreconnectHTML()`, em `utils.js` — não escreva a tag à mão numa página nova. O Google Fonts usa **dois** hosts (`fonts.googleapis.com` serve o CSS, `fonts.gstatic.com` serve os WOFF2), e preconectar só ao primeiro não adianta nada: o handshake que importa é o do segundo, e ele só começa depois do CSS chegar e ser parseado. O `crossorigin` vai **só** no de fonte — busca de fonte é CORS, busca de folha de estilo e de `<img>` não são, e o browser mantém pools de conexão separados para os dois modos, então o atributo no lugar errado abre uma conexão que a busca real não reaproveita. `tests/rendered-pages.test.js` trava o par em toda página e recusa preconnect a host que a CSP não permite.
+- **Fonte e dicas de conexão**: o Inter sai de `/fonts/` (bytes em `src/content/fonts.js`, gerado por `npm run build:fonts` a partir de `fonts/*.woff2`). Toda página chama `fontPreloadHTML()` no `<head>` e `fontFaceCSS()` no começo do `<style>`, ambas em `utils.js` — não escreva a tag nem o `@font-face` à mão numa página nova. O preload leva `crossorigin` mesmo sendo a mesma origem: busca de fonte é sempre CORS, e o browser mantém pools de conexão separados para CORS e não-CORS, então sem o atributo o arquivo desce duas vezes. O único preconnect que sobrou é o das fotos (`photoPreconnectHTML()`, sem `crossorigin`: `<img>` busca em modo não-CORS). `tests/rendered-pages.test.js` trava preload e `@font-face` apontando para o mesmo arquivo em toda página, recusa qualquer menção ao Google Fonts e recusa preconnect a host que a CSP não permite.
 - **Acessibilidade**: `aria-label` nos botões de ícone do carrossel/modal, `autocomplete` apropriado nos forms, foco gerenciado nos modais.
 - **Mobile-first**: media queries só para "subir" colunas/larguras. Sheets mobile saem do bottom; em ≥ 580px viram modal centralizado.
 

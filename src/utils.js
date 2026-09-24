@@ -1,4 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
+import { FONTS } from './content/fonts.js';
 
 /**
  * Um projeto como ele vive no KV. Índice aberto de propósito: a forma real é
@@ -222,12 +223,16 @@ export async function getEvents(env, fresh = false) {
  * @param {Evento[]} events
  */
 export async function saveEvents(env, events) {
-  _cache = events;
-  _cacheAt = Date.now();
   const raw = JSON.stringify(events);
   await env.FOTOS.put('events', raw);
-  // Depois do KV aceitar, e não antes: espelhar um valor que não chegou a ser
-  // gravado faria a cópia contradizer a fonte.
+  // Cache do isolate e cópia só DEPOIS do KV aceitar, e pelo mesmo motivo: um
+  // valor que não chegou a ser gravado não pode ser servido como se fosse a
+  // lista. O cache era atualizado antes do `put` — com a escrita recusada (cota
+  // estourada), o painel mostrava o erro e os visitantes deste isolate viam por
+  // até 30 s um projeto que nunca existiu no KV. A regra já estava escrita aqui
+  // para a cópia; faltava valer para o cache.
+  _cache = events;
+  _cacheAt = Date.now();
   await mirrorEvents(raw);
 }
 
@@ -624,7 +629,7 @@ export function noteKvFailure(op, err, context = '') {
 }
 
 // ---------------------------------------------------------------------------
-// Contadores: um Durable Object por chave, incremento atômico
+// Contadores: um Durable Object para todos, incremento atômico
 // ---------------------------------------------------------------------------
 // Substituiu a agregação em memória (mapa de pendentes, piso de 1s, trava de
 // flush) que existia porque KV não tem incremento atômico e recusa >1
@@ -860,24 +865,36 @@ export function updateBannerHTML() {
 }
 
 // ---------------------------------------------------------------------------
-// Dicas de conexão para o Google Fonts — as DUAS, sempre juntas
+// Inter servido pela própria origem (#131)
 // ---------------------------------------------------------------------------
-// Inter vem de DOIS hosts: fonts.googleapis.com serve o CSS,
-// fonts.gstatic.com serve os WOFF2 que o @font-face daquele CSS aponta. Sem
-// preconnect aos dois, o browser só descobre o segundo host depois de baixar
-// e parsear o CSS — handshake serial atrasado, visível como FOUT com
-// display=swap (mais em rede móvel, onde o handshake dói mais).
+// Vinha do Google Fonts: um CSS de fonts.googleapis.com e os WOFF2 de
+// fonts.gstatic.com, em TODA página — o IP de cada visitante ia para um
+// terceiro no exterior, e a CSP precisava de duas origens a mais. Hoje os
+// arquivos saem de /fonts/ (bytes em src/content/fonts.js, gerado por
+// `npm run build:fonts`) e as duas origens saíram da CSP.
 //
-// `crossorigin` no link do gstatic não é enfeite: fonte é buscada em modo
-// CORS, e o browser usa pools de conexão separados para CORS/não-CORS — sem o
-// atributo a conexão não é reaproveitada e o handshake repete. O link do CSS
-// fica sem o atributo pelo motivo oposto (busca não-CORS).
+// Uma função só para o @font-face, chamada no <style> de todas as páginas: o
+// par caminho/faixa não pode ser copiado em dez arquivos e divergir num deles.
+// `font-weight: 100 900` porque o arquivo é VARIÁVEL — um só serve os pesos
+// 300 a 700 que as páginas usam. `swap`: o texto aparece na fonte do sistema
+// enquanto o arquivo chega, em vez de ficar invisível.
+export function fontFaceCSS() {
+  return FONTS.map(f =>
+    `@font-face{font-family:'Inter';font-style:${f.style};font-weight:100 900;font-display:swap;` +
+    `src:url(${f.path}) format('woff2');unicode-range:${f.unicodeRange}}`,
+  ).join('\n');
+}
+
+// Preload só da face normal: é a que TODA página usa já no primeiro texto. O
+// itálico aparece em poucas páginas e o browser o busca sozinho quando um
+// <em> precisar.
 //
-// Remendo temporário — hospedar o Inter localmente (TODO.md) elimina os dois
-// hosts de uma vez.
-export function fontPreconnectHTML() {
-  return `<link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`;
+// `crossorigin` é obrigatório mesmo sendo a mesma origem: fonte é SEMPRE
+// buscada em modo CORS, e um preload sem o atributo fica num pool separado —
+// o browser baixaria o arquivo duas vezes e ainda avisaria no console.
+export function fontPreloadHTML() {
+  const normal = FONTS.find(f => f.style === 'normal');
+  return normal ? `<link rel="preload" href="${normal.path}" as="font" type="font/woff2" crossorigin>` : '';
 }
 
 // Host de onde sai TODA foto do site. A galeria abre dezenas de <img> daqui
@@ -1032,11 +1049,28 @@ export function socialMetaHTML({
   <meta name="twitter:description" content="${escape(desc)}">`;
 }
 
+// Caminhos de UM segmento que o roteador (src/index.js) atende ANTES da rota de
+// projeto, que é a última. Um projeto com um destes slugs era aceito pelo
+// painel e ficava inalcançável em silêncio: o card da galeria levava para
+// `/sobre` e abria a página Sobre. `api` e `cdn-cgi` não colidem com rota
+// nenhuma hoje, mas são prefixos de infraestrutura (a Cloudflare intercepta
+// `/cdn-cgi/` na borda) — um projeto ali seria armadilha para a próxima rota.
+//
+// A lista NÃO é mantida à mão contra o roteador: `tests/index.test.js` lê as
+// rotas fixas de src/index.js e reprova se alguma ficar de fora daqui — regra
+// escrita duas vezes só vale se um teste afirmar que as duas concordam.
+export const RESERVED_SLUGS = new Set([
+  'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
+  'sobre', 'equipamentos', 'api', 'cdn-cgi',
+]);
+
 /**
  * @param {unknown} slug
  */
 export function validateSlug(slug) {
-  return typeof slug === 'string' && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug) && slug.length <= 60;
+  return typeof slug === 'string' && slug.length <= 60
+    && /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug)
+    && !RESERVED_SLUGS.has(slug);
 }
 
 export function generateId() {

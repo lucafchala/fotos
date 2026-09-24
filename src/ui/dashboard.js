@@ -1,7 +1,8 @@
-import { sortEvents, escape, safeUrl, fontPreconnectHTML } from '../utils.js';
+import { sortEvents, escape, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 
 const BASE = `
+${fontFaceCSS()}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#555;--accent:#f0ebe5;--red:#c0392b;--green:#27ae60;--radius:10px}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
@@ -23,11 +24,14 @@ button{cursor:pointer}
 // de código de autenticação. Se o cadastro inicial voltar, ele volta com
 // handler, não só com formulário.
 /**
- * @param {{ error?: boolean }} [opts]
+ * @param {{ error?: boolean, indisponivel?: boolean }} [opts]
+ *   `error`: senha recusada. `indisponivel`: o KV recusou ler o hash ou gravar
+ *   a sessão — a senha pode estar certa, e dizer "incorreta" aqui mandaria o
+ *   dono desconfiar dela no dia em que o problema era o banco.
  * @param {string} [nonce]
  */
 export function loginHTML(opts = {}, nonce = '') {
-  const { error = false } = opts;
+  const { error = false, indisponivel = false } = opts;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -40,8 +44,7 @@ export function loginHTML(opts = {}, nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
     ${BASE}
     body{display:flex;align-items:center;justify-content:center;padding:2rem 1rem;min-height:100vh}
@@ -66,7 +69,9 @@ export function loginHTML(opts = {}, nonce = '') {
     <div class="logo"><span>fotos · <strong>Luca F. Chala</strong></span></div>
     <h1>Painel administrativo</h1>
     <p class="subtitle">Entre para gerenciar os projetos.</p>
-    ${error ? `<div class="error-msg">Senha incorreta. Tente novamente.</div>` : ''}
+    ${indisponivel
+      ? `<div class="error-msg" role="alert">Não foi possível entrar agora: o banco de dados do site não respondeu. Sua senha não foi recusada — tente de novo em alguns minutos.</div>`
+      : error ? `<div class="error-msg" role="alert">Senha incorreta. Tente novamente.</div>` : ''}
     <form method="POST" action="/dashboard/login">
       <div class="field">
         <label for="password">Senha</label>
@@ -142,8 +147,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <meta name="theme-color" content="#0a0a0a">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
     ${BASE}
     /* layout */
@@ -285,6 +289,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
+    .btn-resolve:disabled{opacity:.5;cursor:wait}
     .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
     .req-group{margin-bottom:1.75rem}
     .req-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:.375rem;padding:.5rem 0;border-bottom:1px solid var(--border);margin-bottom:.75rem}
@@ -450,7 +455,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     </div>
     <div class="settings-card">
       <h3>Backup dos dados</h3>
-      <p style="margin-bottom:1rem">Baixe uma cópia completa dos seus eventos. O Drive é atualizado automaticamente a cada mudança — se configurado.</p>
+      <p style="margin-bottom:1rem">Baixe uma cópia completa: projetos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
       <button class="btn-sm" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
     </div>
     <div class="settings-card">
@@ -710,7 +715,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     // Requests tab (container survives loadRequests()'s innerHTML swaps).
     document.getElementById('requests-body').addEventListener('click', function(ev) {
       const resolveBtn = ev.target.closest('[data-action="resolveRequest"]');
-      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id); return; }
+      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id, resolveBtn); return; }
       const toggleBtn = ev.target.closest('[data-action="toggleResolved"]');
       if (toggleBtn) toggleResolved(parseInt(toggleBtn.dataset.gi, 10));
     });
@@ -992,10 +997,6 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         try { lastFocused.focus(); } catch (e) {}
       }
       lastFocused = null;
-    }
-
-    function overlayClick(e) {
-      if (e.target === document.getElementById('overlay')) closeForm();
     }
 
     window.addEventListener('beforeunload', function(e) {
@@ -1402,13 +1403,19 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       toggle.textContent = (open ? '▶' : '▼') + ' ' + txt;
     }
 
-    async function resolveRequest(id) {
+    async function resolveRequest(id, btn) {
+      // Desabilitado enquanto a requisição corre: um duplo clique mandava dois
+      // PUT simultâneos, os dois liam o pedido ainda em aberto e a pessoa
+      // recebia dois e-mails de "Solicitação atendida". A guarda do servidor
+      // pega a repetição em sequência; a simultânea só se evita aqui.
+      if (btn) btn.disabled = true;
       try {
         await api('PUT', '/api/removal-requests/' + id + '/resolve');
         await loadRequests();
         toast('Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
+        if (btn) btn.disabled = false;
       }
     }
 
@@ -1518,7 +1525,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       if (!ok) return;
       try {
         const res = await api('POST', '/api/backup/restore', backup);
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados.', 'ok');
+        // Ignorados = sem id ou sem URL válida no backup. Dizer quantos é o que
+        // separa "restaurei tudo" de "restaurei tudo o que dava".
+        const ignorados = res.skipped ? ', ' + res.skipped + ' ignorado' + (res.skipped !== 1 ? 's' : '') + ' (sem id ou URL válida)' : '';
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.', 'ok');
         setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
         toast(err.message || 'Erro ao restaurar.', 'err');

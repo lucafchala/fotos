@@ -1,5 +1,6 @@
-import { escape, footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
+import { escape, footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { TURNSTILE_SITE_KEY } from '../config.js';
 
 /**
  * @param {boolean} [sent]
@@ -31,8 +32,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="supTsBlocked"></script>
   <!-- Registered here, right after the tag above, so the capture listener is
        in place before the async fetch for it can resolve (error or not) — a
@@ -40,6 +40,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
        the race against a fast (e.g. ad-blocker) failure. -->
   <script nonce="${nonce}">document.addEventListener('error', function(e){ if (e.target && e.target.dataset && e.target.dataset.onerror === 'supTsBlocked') window.__supTsBlocked = true; }, true);</script>
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-muted:#999; --text-dim:#666; --text-dim-2:#555;
@@ -89,7 +90,10 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     input:focus,textarea:focus{border-color:var(--text-dim-2)}
     textarea{min-height:120px}
     .submit-btn{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
-    .submit-btn:hover{opacity:.88}
+    .submit-btn:hover:not(:disabled){opacity:.88}
+    /* O botão nasce desabilitado até o Turnstile passar. Com fundo e cor próprios,
+       o navegador não o acinzenta sozinho: parecia ativo e não fazia nada. */
+    .submit-btn:disabled{opacity:.45;cursor:not-allowed}
     .success{background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text);padding:1rem 1.25rem;border-radius:8px;font-size:.875rem;line-height:1.6}
     .error-msg{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);padding:.75rem 1rem;border-radius:8px;font-size:.82rem}
     .adblock-warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.75rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55}
@@ -165,7 +169,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
       <div id="support-adblock" class="adblock-warn" style="display:none;margin-bottom:.5rem">
         <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-onclick="reload">recarregue a página</button>, ou use o WhatsApp/e-mail acima.
       </div>
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAADg-tbuoPRO9s2I5" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
+      <div class="cf-turnstile" data-sitekey="${escape(TURNSTILE_SITE_KEY)}" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" style="margin-bottom:.5rem"></div>
       <button type="submit" class="submit-btn" id="support-submit" disabled>Enviar mensagem</button>
     </form>
     <script nonce="${nonce}">

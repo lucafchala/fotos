@@ -35,6 +35,14 @@ describe('validateSlug', () => {
     expect(validateSlug('a'.repeat(61))).toBe(false);
     expect(validateSlug(123)).toBe(false);
   });
+  it.each(['dashboard', 'sobre', 'suporte', 'termos', 'privacidade', 'legal', 'compliance', 'equipamentos', 'api', 'cdn-cgi'])(
+    'recusa o slug reservado %s — o roteador atende essa URL antes da página do projeto',
+    slug => { expect(validateSlug(slug)).toBe(false); },
+  );
+  it('não confunde um slug que só CONTÉM uma palavra reservada', () => {
+    expect(validateSlug('sobre-nos-2026')).toBe(true);
+    expect(validateSlug('formatura-legal')).toBe(true);
+  });
 });
 
 describe('formatDatePT', () => {

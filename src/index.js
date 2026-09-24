@@ -9,10 +9,11 @@ import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
+import { FONTS } from './content/fonts.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, generateId, checkRateLimit,
+  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
@@ -229,6 +230,9 @@ const worker = {
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
       if (path === '/icon.svg' && method === 'GET') return handleIcon();
       if (path === '/og-coming-soon.png' && method === 'GET') return handleComingSoonOgImage();
+      // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
+      // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
+      if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
@@ -563,20 +567,52 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
  * @param {string} nonce
  */
 async function handleDashboardPage(request, env, url, nonce) {
-  const stored = await getAdminHash(env);
+  // Tudo o que decide o acesso ao painel mora no KV (hash da senha, registro
+  // da sessão) — e diferente da galeria, aqui NÃO existe cópia de
+  // sobrevivência, de propósito: servir sessão ou hash de cópia seria
+  // autenticar contra um estado que pode já ter sido revogado. Com o KV fora,
+  // o painel falha FECHADO, mas com um 503 que diz o que houve, e não com a
+  // página 500 genérica e um e-mail de "erro no site" para cada tentativa.
+  //
+  // O `try` cerca só as leituras. Um defeito de RENDERIZAÇÃO lá embaixo tem de
+  // continuar indo para o catch do roteador (500 + alerta): rotulá-lo como
+  // queda de KV mandaria quem investiga procurar o problema no lugar errado.
+  /** @type {string|null} */
+  let stored;
+  let authed = false;
+  /** @type {[Evento[], string[]]|null} */
+  let dados = null;
+  try {
+    stored = await getAdminHash(env);
+    if (stored) authed = await verifySession(env, request);
+    if (authed) dados = await Promise.all([getEvents(env, true), getCategories(env)]);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'abertura do painel');
+    return adminHtml(PAINEL_INDISPONIVEL_HTML, 503, nonce);
+  }
+
   if (!stored) {
     return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
   }
-
-  const authed = await verifySession(env, request);
-  if (!authed) {
-    const hasError = url.searchParams.get('error') === '1';
-    return adminHtml(loginHTML({ error: hasError }, nonce), 200, nonce);
+  if (!authed || !dados) {
+    // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
+    // desconhecido cai no formulário limpo.
+    const erro = url.searchParams.get('error');
+    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv' }, nonce), 200, nonce);
   }
 
-  const [events, categories] = await Promise.all([getEvents(env, true), getCategories(env)]);
+  const [events, categories] = dados;
   return adminHtml(dashboardHTML(events, categories, nonce), 200, nonce);
 }
+
+// Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
+// há o que o dono possa fazer daqui além de esperar, e dizer isso poupa a
+// tentativa de login que falharia de novo pelo mesmo motivo.
+const PAINEL_INDISPONIVEL_MSG =
+  'O painel está temporariamente indisponível: o banco de dados do site (KV) não respondeu. ' +
+  'Nada foi alterado e o site público segue no ar. Tente de novo em alguns minutos.';
+const PAINEL_INDISPONIVEL_HTML =
+  `<p style="font-family:monospace;padding:40px;max-width:640px;line-height:1.6">${PAINEL_INDISPONIVEL_MSG}</p>`;
 
 // ---------------------------------------------------------------------------
 // Login
@@ -614,7 +650,17 @@ export async function handleLogin(request, env, ctx) {
   }
 
   const password = body.password || '';
-  const stored = await getAdminHash(env);
+  // KV fora: falha FECHADO, mas sem 500. Nada de hash de cópia — autenticar
+  // contra um estado velho aceitaria uma senha que o dono já trocou. O aviso
+  // na tela de login é o de indisponibilidade, não "senha incorreta": mandar o
+  // dono redigitar uma senha certa por causa do banco é a pior pista possível.
+  let stored;
+  try {
+    stored = await getAdminHash(env);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'login do painel');
+    return redirect('/dashboard?error=kv');
+  }
 
   // No trust-on-first-use: with no stored credential and no ADMIN_PASSWORD
   // secret, login is impossible rather than claimable by the first visitor.
@@ -638,12 +684,14 @@ export async function handleLogin(request, env, ctx) {
   const token = generateToken();
   // Única escrita do fluxo que não dá para contornar: sem sessão gravada não
   // há login. Reporta a falha (noteKvFailure alimenta o healthz) em vez de
-  // deixar um 500 cru sem ninguém saber por quê.
+  // deixar um 500 cru sem ninguém saber por quê. `error=kv`, e não `error=1`:
+  // a senha estava CERTA, e a tela de "senha incorreta" mandava o dono
+  // desconfiar da própria senha no dia em que o problema era a cota do KV.
   try {
     await env.FOTOS.put(`admin_session:${token}`, sessionRecord(request), { expirationTtl: SESSION_TTL_SECS });
   } catch (e) {
     noteKvFailure('escrita', e, 'abertura de sessão do painel');
-    return redirect('/dashboard?error=1');
+    return redirect('/dashboard?error=kv');
   }
 
   const headers = new Headers({
@@ -692,6 +740,12 @@ async function noteFailedLogin(env, request, ip) {
 
 // Stored credential, seeded from the ADMIN_PASSWORD secret when KV is empty
 // (fresh deploy / wiped namespace) so there is never an open setup window.
+//
+// A LEITURA propaga (quem chama responde 503: sem saber se há hash gravado, não
+// há como decidir nada). A semeadura não: se o KV recusar gravar o hash, o
+// hash recém-calculado vale para ESTA requisição e a próxima tenta de novo —
+// recusar o login por causa de uma escrita de conveniência trancaria o dono
+// fora do painel justamente no dia de cota estourada.
 /**
  * @param {Env} env
  */
@@ -700,7 +754,8 @@ async function getAdminHash(env) {
   if (stored) return stored;
   if (env.ADMIN_PASSWORD) {
     const hash = await hashPassword(env.ADMIN_PASSWORD);
-    await env.FOTOS.put('admin_password', hash);
+    await env.FOTOS.put('admin_password', hash)
+      .catch(e => noteKvFailure('escrita', e, 'semeadura do hash da senha do painel'));
     return hash;
   }
   return null;
@@ -771,14 +826,30 @@ function withEventDefaults(ev) {
   return out;
 }
 
+// Teto do "sumir em N horas" do aviso de novas fotos. O painel oferece no
+// máximo 7 dias; o teto existe para o valor que NÃO veio do painel (API direta,
+// restore de backup). Sem ele, um número grande o bastante fazia
+// `addedAt + horas` passar da data máxima do JavaScript, e o `toISOString()` da
+// página do projeto LANÇAVA RangeError — 500 na página pública, com alerta.
+const PHOTOS_ALERT_MAX_HOURS = 24 * 365;
+
 /**
  * @param {any} pa
  * @param {any} fallback
  */
 function normalizePhotosAlert(pa, fallback) {
-  return pa && typeof pa === 'object'
-    ? { active: pa.active === true, addedAt: pa.addedAt || null, expiresAfterHours: parseInt(pa.expiresAfterHours) || 0 }
-    : fallback;
+  if (!pa || typeof pa !== 'object' || Array.isArray(pa)) return fallback;
+  const horas = parseInt(pa.expiresAfterHours, 10);
+  // Data ilegível vira null em vez de ser gravada: é ela que a página soma às
+  // horas para decidir se o aviso ainda aparece.
+  const addedAt = typeof pa.addedAt === 'string' && Number.isFinite(Date.parse(pa.addedAt))
+    ? pa.addedAt.slice(0, 40)
+    : null;
+  return {
+    active: pa.active === true,
+    addedAt,
+    expiresAfterHours: Number.isInteger(horas) ? Math.min(Math.max(horas, 0), PHOTOS_ALERT_MAX_HOURS) : 0,
+  };
 }
 
 // Normalize the scalar/flag fields common to create and update. A field present
@@ -821,6 +892,18 @@ export function normalizeEventFields(body, base, cats) {
   };
 }
 
+// Mensagem do painel para um slug recusado. O reservado ganha a sua: "URL
+// inválida" para `sobre`, que tem formato perfeito, mandaria o dono procurar o
+// erro de digitação que não existe.
+/**
+ * @param {unknown} slug
+ */
+function slugRecusado(slug) {
+  return typeof slug === 'string' && RESERVED_SLUGS.has(slug)
+    ? `A URL /${slug} já é uma página do site. Escolha outra.`
+    : 'URL inválida.';
+}
+
 // Map a photos array to sanitized https URLs (max 6). Shared by create + update.
 /**
  * @param {any[]} arr
@@ -844,7 +927,7 @@ async function handleCreateEvent(request, env) {
   if (!body) return jsonErr('JSON inválido.', 400);
 
   const { slug, title, driveUrl } = body;
-  if (!slug || !validateSlug(slug)) return jsonErr('URL inválida.', 400);
+  if (!slug || !validateSlug(slug)) return jsonErr(slugRecusado(slug), 400);
   if (!title || typeof title !== 'string') return jsonErr('Título obrigatório.', 400);
   if (!driveUrl || typeof driveUrl !== 'string') return jsonErr('Link do Drive obrigatório.', 400);
 
@@ -908,7 +991,7 @@ async function handleUpdateEvent(request, env, path) {
 
   // Allow slug update only if no other event uses it
   if (body.slug && body.slug !== existing.slug) {
-    if (!validateSlug(body.slug)) return jsonErr('URL inválida.', 400);
+    if (!validateSlug(body.slug)) return jsonErr(slugRecusado(body.slug), 400);
     if (events.some((e, i) => i !== idx && e.slug === body.slug)) return jsonErr('URL já está em uso.', 409);
     updated.slug = body.slug;
   }
@@ -1112,10 +1195,11 @@ async function handleMetrics(request, env) {
  * @param {ExecutionContext} ctx
  */
 export async function handleTrackDrive(request, env, ctx) {
-  // Ordem importa por causa da cota: checkRateLimit GRAVA em KV (1000/dia,
-  // conta inteira), e este endpoint é público e aceita corpo qualquer. Corpo,
-  // slug e existência do evento são checados de graça primeiro (leitura tem
-  // cota 100x maior) — só quem passa por tudo isso chega ao rate limit.
+  // Ordem importa por causa da cota: checkRateLimit GRAVA no storage do
+  // Durable Object (linhas escritas/dia, franquia compartilhada com os
+  // contadores), e este endpoint é público e aceita corpo qualquer. Corpo,
+  // slug e existência do evento são checados de graça primeiro — só quem
+  // passa por tudo isso chega ao rate limit.
   const body = await readJsonBody(request);
   if (!body) return jsonOk({ ok: true });
   const slug = String(body.slug || '').slice(0, 60);
@@ -1123,18 +1207,27 @@ export async function handleTrackDrive(request, env, ctx) {
 
   // `comingSoon` não desenha o botão do Drive, então clique nenhum vem de lá
   // legitimamente — um POST direto só inflaria a métrica.
-  const events = await getEvents(env);
-  const event = events.find(e => e.slug === slug);
+  //
+  // KV fora e sem cópia: o clique simplesmente não conta. É um beacon que o
+  // cliente nem lê — um 500 aqui só dispararia o alerta de "erro no site" por
+  // causa de uma métrica, no meio de uma queda que o healthz já acusa.
+  let event;
+  try {
+    event = (await getEvents(env)).find(e => e.slug === slug);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'contagem de clique no Drive');
+    return jsonOk({ ok: true });
+  }
   if (!event || event.comingSoon) return jsonOk({ ok: true });
 
-  // Rate limit continua necessário mesmo com a agregação: ela grava uma vez
-  // por janela de 10s, não uma vez por hora — um flood sustentado ainda são
-  // ~8600 escritas/dia sem este limite, contra a cota de 1000/dia.
+  // Sem este limite, um flood sustentado inflaria a métrica à vontade e
+  // gastaria a franquia de escrita do Durable Object com um clique falso por
+  // requisição.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
 
-  // ctx vem do roteador — sem ele, o flush do mapa recém-esvaziado podia ser
-  // descartado junto com a requisição.
+  // ctx vem do roteador — sem ele, o incremento em voo podia ser descartado
+  // junto com a requisição; quem chama sem ctx (teste) aguarda aqui mesmo.
   const work = bumpCounter(env, ctx, `drive_clicks:${slug}`);
   if (work && !(ctx && typeof ctx.waitUntil === 'function')) await work;
   return jsonOk({ ok: true });
@@ -1308,7 +1401,16 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   // enviar 5x com a mesma mensagem. Chave é hash da mensagem por IP; resposta
   // é a tela de sucesso, pois o pedido já chegou da primeira vez.
   const dupKey = `support-dup:${ip}:${await shortHash(message)}`;
-  if (await env.FOTOS.get(dupKey)) return page(true);
+  // A supressão é conforto, não controle: com o KV fora, deixar passar custa
+  // no máximo um e-mail repetido; propagar a falha custava a MENSAGEM — o
+  // e-mail abaixo não depende do KV, e era um 500 que a jogava fora.
+  let repetida = false;
+  try {
+    repetida = !!(await env.FOTOS.get(dupKey));
+  } catch (e) {
+    noteKvFailure('leitura', e, 'supressão de repetição do formulário de suporte');
+  }
+  if (repetida) return page(true);
 
   // Marca de dedupe só é gravada DEPOIS do envio dar certo — senão uma falha
   // do Resend faria o dedupe engolir o reenvio de uma mensagem nunca entregue.
@@ -1322,7 +1424,10 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
   } catch (e) {
     falha = e;
   }
-  if (sent) await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 }).catch(() => {});
+  if (sent) {
+    await env.FOTOS.put(dupKey, '1', { expirationTtl: 3600 })
+      .catch(e => noteKvFailure('escrita', e, 'supressão de repetição do formulário de suporte'));
+  }
 
   if (!sent) {
     // Diferente do pedido de remoção, a mensagem de suporte não fica gravada
@@ -1378,7 +1483,17 @@ export async function handleChangePassword(request, env, ctx) {
   if (!check.ok) return jsonErr(check.error, 400);
 
   const hash = await hashPassword(password);
-  await env.FOTOS.put('admin_password', hash);
+  try {
+    await env.FOTOS.put('admin_password', hash);
+  } catch (e) {
+    // Com o KV recusando a gravação (cota diária esgotada é o caso real), isto
+    // virava o 500 genérico do roteador — logo na troca de senha, a reação
+    // padrão a "acho que invadiram". A resposta diz o que aconteceu e o que
+    // continua valendo, e a varredura de sessões abaixo não roda: sem senha
+    // nova, derrubar as outras sessões só deslogaria o próprio dono.
+    noteKvFailure('escrita', e, 'troca de senha do painel');
+    return jsonErr('A senha não foi trocada: o banco de dados do site não respondeu. A senha antiga continua valendo — tente de novo em alguns minutos.', 503);
+  }
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
@@ -1796,6 +1911,11 @@ async function handleResolveRequest(request, env, id) {
 
   const req = requests[idx];
 
+  // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
+  // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
+  // "Solicitação atendida" para a pessoa a cada vez.
+  if (req.resolved) return jsonOk(req);
+
   // Send "resolved" email to requester
   let resolvedEmailStatus;
   try {
@@ -1811,7 +1931,20 @@ async function handleResolveRequest(request, env, id) {
     resolvedAt: new Date().toISOString(),
     resolvedEmailStatus,
   };
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  // Uma gravação só, depois do e-mail: o status dele mora no mesmo registro, e
+  // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
+  // antes e atualizar depois falharia justamente em produção.
+  try {
+    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  } catch (e) {
+    // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
+    // novo às cegas mandaria um segundo aviso à pessoa.
+    noteKvFailure('escrita', e, 'resolução de pedido de remoção');
+    const email = resolvedEmailStatus === 'sent'
+      ? 'O e-mail de confirmação JÁ foi enviado — resolver de novo manda outro.'
+      : 'Nenhum e-mail de confirmação foi enviado.';
+    return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
+  }
   return jsonOk(requests[idx]);
 }
 
@@ -1901,6 +2034,10 @@ export function auditSite(events, env = {}, degradacoes = []) {
     const slug = typeof e.slug === 'string' ? e.slug : '';
     const title = typeof e.title === 'string' ? e.title : '';
     if (!slug) { problems.push(`evento público sem slug${title ? ` ("${title}")` : ''}`); continue; }
+    // Slug que o roteador nunca entrega a este projeto: reservado por uma
+    // página do site (`sobre`) ou fora do formato (só chega por restore antigo
+    // ou edição à mão no KV). O card aparece na galeria e leva a outro lugar.
+    if (!validateSlug(slug)) problems.push(`slug inválido ou reservado: ${slug.slice(0, 60)} (a página do projeto não abre)`);
     if (seen.has(slug)) problems.push(`slug duplicado: ${slug} (rotas colidem)`); else seen.add(slug);
     if (!title) problems.push(`evento sem título: ${slug}`);
     if (e.status && !EVENT_STATUSES.includes(e.status)) problems.push(`status inválido em ${slug}: ${e.status}`);
@@ -2312,7 +2449,18 @@ async function pruneOldConsent(env) {
  * @param {Env} env
  */
 async function checkAuth(request, env) {
-  const authed = await verifySession(env, request);
+  // Falha FECHADA também com o KV fora — mas 503, não 401 e não 500. O 401
+  // faria o painel achar que a sessão expirou e mandar o dono para um login
+  // que falharia pelo mesmo motivo; o 500 dispararia um e-mail de "erro no
+  // site" por clique. O 503 vira um aviso na tela, e a sessão segue intacta
+  // para quando o KV voltar.
+  let authed;
+  try {
+    authed = await verifySession(env, request);
+  } catch (e) {
+    noteKvFailure('leitura', e, 'verificação de sessão do painel');
+    return jsonErr(PAINEL_INDISPONIVEL_MSG, 503);
+  }
   if (!authed) return jsonErr('Não autorizado.', 401);
   return null;
 }
@@ -2441,6 +2589,33 @@ function handleComingSoonOgImage() {
   });
 }
 
+// Os WOFF2 do Inter, servidos daqui em vez do Google Fonts (#131). O nome leva
+// um pedaço do sha256 do arquivo (ver scripts/build-fonts.mjs), então a URL
+// muda sempre que o conteúdo muda — daí poder dizer `immutable` por um ano sem
+// risco de prender alguém numa fonte velha.
+//
+// Decodificado uma vez por isolate: o base64 tem ~65 KB por face, e toda
+// página pede a fonte. `new Response()` COPIA os bytes que recebe, então
+// reaproveitar o mesmo Uint8Array entre respostas é seguro (o teste em
+// tests/workers/ prova isso no workerd, não num dublê).
+const FONT_BY_PATH = new Map(FONTS.map(f => [f.path, f]));
+/** @type {Map<string, Uint8Array>} */
+const fontBytes = new Map();
+
+/** @param {string} path */
+function handleFont(path) {
+  let bytes = fontBytes.get(path);
+  if (!bytes) {
+    const font = /** @type {typeof FONTS[number]} */ (FONT_BY_PATH.get(path));
+    bytes = Uint8Array.from(atob(font.b64), c => c.charCodeAt(0));
+    fontBytes.set(path, bytes);
+  }
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...dataSecurityHeaders('font/woff2', { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
@@ -2461,8 +2636,44 @@ export function buildBackup({ events, categories, removalRequests }) {
 // Restore is the one path that writes events without going through
 // normalizeEventFields(), so a hand-edited backup could inject `javascript:`
 // into a public href or a non-object entry could 500 the gallery. Sanitize
-// only shape + URL sinks; pass everything else through untouched.
+// shape, identity and the fields the pages use as sinks; pass everything else
+// (unknown fields included) through untouched, and never invent a field the
+// backup did not bring.
 const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
+
+// Campos de TEXTO, com os mesmos tetos de normalizeEventFields(). As páginas
+// públicas os tratam como string (`.toLowerCase()` na galeria, `.slice()` e
+// `.split()` na data) — um `"title": 2026` num backup editado à mão LANÇAVA
+// TypeError dentro de galleryHTML e derrubava a home inteira com 500.
+const RESTORE_TEXT_FIELDS = {
+  title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
+};
+const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
+
+/**
+ * @param {unknown} v
+ */
+function textoRestaurado(v) {
+  if (typeof v === 'string') return v;
+  // Número vira o texto dele ("title": 2026 → "2026"); objeto, lista e
+  // booleano não têm leitura honesta como texto e viram vazio.
+  return typeof v === 'number' && Number.isFinite(v) ? String(v) : '';
+}
+
+// Um evento do backup só entra com IDENTIDADE utilizável — sem ela ele não é
+// dado a preservar, é armadilha:
+//   • `id`: é por ele que o painel edita e apaga (`/api/events/<id>`). Sem id,
+//     ou com um que não sobrevive a ser um trecho de URL, o evento ficava
+//     visível e impossível de editar ou apagar — e o restore nunca apaga.
+//   • `slug`: vai cru para o `href` do card (`/<slug>`). Um `/evil.example`
+//     virava `href="//evil.example"`, link de protocolo relativo para FORA do
+//     site; e um slug reservado (`sobre`) simplesmente nunca abre.
+/**
+ * @param {any} ev
+ */
+function identidadeRestauravel(ev) {
+  return typeof ev.id === 'string' && /^[\w-]{1,64}$/.test(ev.id) && validateSlug(ev.slug);
+}
 
 /**
  * @param {any} ev
@@ -2475,11 +2686,20 @@ function sanitizeRestoredEvent(ev) {
   if (Array.isArray(out.photos)) {
     out.photos = out.photos.map(/** @param {unknown} u */ u => toHttps(String(u ?? '').slice(0, MAX_URL_LENGTH))).filter(Boolean);
   }
+  for (const [f, max] of Object.entries(RESTORE_TEXT_FIELDS)) {
+    if (out[f] !== undefined && out[f] !== null) out[f] = textoRestaurado(out[f]).slice(0, max);
+  }
+  for (const f of RESTORE_DATE_FIELDS) {
+    if (out[f] !== undefined && !(typeof out[f] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(out[f]))) out[f] = '';
+  }
   // Os dois campos de enum: normalizeEventFields() os valida no caminho
   // normal, mas restore não passa por lá. Desembocam em atributo de HTML no
   // painel (escapado no sink); isto impede o valor absurdo de ser GRAVADO.
   if (out.status !== undefined && !EVENT_STATUSES.includes(out.status)) out.status = DEFAULT_EVENT.status;
   if (out.accessType !== undefined && !ACCESS_TYPES.includes(out.accessType)) out.accessType = DEFAULT_EVENT.accessType;
+  // O aviso de novas fotos soma horas a uma data para decidir se aparece — um
+  // número absurdo aqui virava RangeError na página do projeto.
+  if (out.photosAlert !== undefined) out.photosAlert = normalizePhotosAlert(out.photosAlert, { ...DEFAULT_EVENT.photosAlert });
   return out;
 }
 
@@ -2518,10 +2738,13 @@ export function sanitizeRestoredRequest(r) {
  */
 export function mergeRestore(current, backupEvents) {
   const result = [...current];
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, skipped = 0;
   for (const raw of backupEvents) {
     // Skip junk entries instead of letting them reach KV (null/string/array).
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { skipped++; continue; }
+    // Sem id e slug utilizáveis o evento não entra — nem como novo, nem
+    // SUBSTITUINDO um existente de mesmo id (que perderia o slug que tinha).
+    if (!identidadeRestauravel(raw)) { skipped++; continue; }
     const bEv = sanitizeRestoredEvent(raw);
     const idx = result.findIndex(e => e.id === bEv.id);
     if (idx === -1) {
@@ -2533,7 +2756,7 @@ export function mergeRestore(current, backupEvents) {
       if (bt > ct) { result[idx] = bEv; updated++; }
     }
   }
-  return { events: result, added, updated };
+  return { events: result, added, updated, skipped };
 }
 
 /**
@@ -2573,12 +2796,14 @@ async function handleRestoreBackup(request, env) {
   // criado noutro isolate) ou, pior, sobre a cópia de sobrevivência de até 7
   // dias se o KV estivesse fora — e gravar isso como se fosse o estado atual.
   const current = await getEvents(env, true);
-  const { events: merged, added, updated } = mergeRestore(current, body.events);
+  const { events: merged, added, updated, skipped } = mergeRestore(current, body.events);
   await saveEvents(env, merged);
   // `categories` e `removalRequestsAdded` entram depois, só quando o backup
   // traz essas seções (v2). A forma inferida do literal não as inclui.
+  // `skipped` é dito sempre: um evento do backup que não entrou (sem id ou
+  // slug utilizável) precisa aparecer na confirmação, não sumir calado.
   /** @type {Record<string, any>} */
-  const result = { ok: true, added, updated, total: merged.length };
+  const result = { ok: true, added, updated, skipped, total: merged.length };
 
   // v2 sections — optional and backward-compatible (v1 backups simply omit them).
   if (Array.isArray(body.categories)) {
