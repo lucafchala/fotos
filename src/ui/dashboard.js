@@ -289,6 +289,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
+    .btn-resolve:disabled{opacity:.5;cursor:wait}
     .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
     .req-group{margin-bottom:1.75rem}
     .req-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:.375rem;padding:.5rem 0;border-bottom:1px solid var(--border);margin-bottom:.75rem}
@@ -714,7 +715,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     // Requests tab (container survives loadRequests()'s innerHTML swaps).
     document.getElementById('requests-body').addEventListener('click', function(ev) {
       const resolveBtn = ev.target.closest('[data-action="resolveRequest"]');
-      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id); return; }
+      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id, resolveBtn); return; }
       const toggleBtn = ev.target.closest('[data-action="toggleResolved"]');
       if (toggleBtn) toggleResolved(parseInt(toggleBtn.dataset.gi, 10));
     });
@@ -1402,13 +1403,19 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       toggle.textContent = (open ? '▶' : '▼') + ' ' + txt;
     }
 
-    async function resolveRequest(id) {
+    async function resolveRequest(id, btn) {
+      // Desabilitado enquanto a requisição corre: um duplo clique mandava dois
+      // PUT simultâneos, os dois liam o pedido ainda em aberto e a pessoa
+      // recebia dois e-mails de "Solicitação atendida". A guarda do servidor
+      // pega a repetição em sequência; a simultânea só se evita aqui.
+      if (btn) btn.disabled = true;
       try {
         await api('PUT', '/api/removal-requests/' + id + '/resolve');
         await loadRequests();
         toast('Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
+        if (btn) btn.disabled = false;
       }
     }
 
