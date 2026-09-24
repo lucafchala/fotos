@@ -100,7 +100,8 @@ vezes").
 Descoberto tentando, não suposto: não há tool para **branch protection /
 ruleset**, **topics do repositório**, nem **criar uma GitHub Release**. Essas
 três exigem a UI do GitHub (Settings → Branches / General / Releases) ou uma
-automação de CI que use o `GITHUB_TOKEN` do próprio workflow. Se a tarefa
+automação de CI que use o `GITHUB_TOKEN` do próprio workflow. A proteção da `main`
+já está escrita como ruleset importável — ver `docs/BRANCHES.md`. Se a tarefa
 pedir uma dessas três, não finja que existe uma chamada de API disponível —
 diga que precisa ser feito manualmente ou proponha o caminho de automação
 (um step novo em algum `.github/workflows/*.yml`), sem executá-lo sem
@@ -127,8 +128,10 @@ confirmação: mexer no pipeline de deploy já quebrou produção mais de uma ve
 
 ## 4. Fluxo de trabalho de uma sessão de agente neste repositório
 
-1. Branch a partir de `main` (o harness que abriu a sessão normalmente já
-   designa qual).
+1. Branch a partir de `main`, com nome e ciclo de vida de
+   [`docs/BRANCHES.md`](./docs/BRANCHES.md) (o harness que abriu a sessão
+   normalmente já designa um `claude/…`). PR que o dono já marcou como pronto
+   está congelado: trabalho novo vai para branch novo.
 2. Código + teste, rodando as três camadas da seção 3 conforme a mudança.
 3. Commit com mensagem que explica o **porquê**, não só o quê — mesmo padrão
    dos commits já em `main`.
