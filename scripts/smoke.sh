@@ -69,6 +69,11 @@ registra() { # nome, estado, detalhe
 # uma saída abrupta do script no meio da lista.
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true; }
 
+# Valor de um cabeçalho num arquivo gravado por `curl -D`, sem o CR do HTTP.
+cabecalho() { # nome, arquivo
+  grep -i "^$1:" "$2" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' || true
+}
+
 checa_status() { # rótulo, caminho, esperado, [curl extra...]
   local rotulo="$1" caminho="$2" esperado="$3"; shift 3
   local obtido; obtido=$(http_code "$@" "$BASE$caminho")
@@ -119,6 +124,46 @@ else
   registra "sitemap é XML válido" FALHA "malformado ou com & solto"
 fi
 
+# --- fonte da própria origem ------------------------------------------------
+# A fonte some sem quebrar nada que se veja (#181): com um WOFF2 fora do bundle,
+# ou com a página e a rota escrevendo o caminho de jeitos diferentes, o site
+# cai na fonte do sistema em silêncio. Por isso o caminho sai do HTML da home.
+# Fixado aqui, a checagem passaria justamente quando os dois divergem. O
+# parser é o mesmo que o tests/smoke.test.js roda no HTML do Worker, e o tipo
+# e o cache exigidos abaixo são conferidos lá contra a rota de verdade.
+echo
+echo "Fonte da própria origem"
+FONTE_TIPO='font/woff2'
+FONTE_CACHE='immutable'
+FONTE=$(curl -s --max-time 20 "$BASE/" | node "$(dirname "$0")/fonte-do-preload.mjs" || true)
+case "$FONTE" in
+  '')
+    registra "home pré-carrega a fonte" FALHA "sem <link rel=preload as=font> no HTML" ;;
+  //*|*://*)
+    # A fonte saiu do Google Fonts (#131) e a CSP só aceita 'self'.
+    registra "home pré-carrega a fonte" FALHA "fora da própria origem: $FONTE" ;;
+  /*)
+    registra "home pré-carrega a fonte" OK "$FONTE"
+    FONTE_HDRS=$(mktemp)
+    FONTE_CODE=$(http_code -D "$FONTE_HDRS" "$BASE$FONTE")
+    FONTE_CT=$(cabecalho content-type "$FONTE_HDRS")
+    FONTE_CC=$(cabecalho cache-control "$FONTE_HDRS")
+    rm -f "$FONTE_HDRS"
+    [ "$FONTE_CODE" = 200 ] && registra "fonte responde" OK "200" \
+                            || registra "fonte responde" FALHA "esperado 200, veio $FONTE_CODE"
+    [ "$(printf '%s' "${FONTE_CT%%;*}" | tr 'A-Z' 'a-z')" = "$FONTE_TIPO" ] \
+      && registra "tipo da fonte" OK "$FONTE_TIPO" \
+      || registra "tipo da fonte" FALHA "esperado $FONTE_TIPO, veio ${FONTE_CT:-nada}"
+    # Diretiva inteira, não substring: o nome do arquivo carrega o hash do
+    # conteúdo, e é isso que torna seguro o cache de um ano sem revalidar.
+    case ",${FONTE_CC// /}," in
+      *",$FONTE_CACHE,"*) registra "cache da fonte" OK "$FONTE_CACHE" ;;
+      *) registra "cache da fonte" FALHA "sem $FONTE_CACHE: ${FONTE_CC:-sem Cache-Control}" ;;
+    esac ;;
+  *)
+    registra "home pré-carrega a fonte" FALHA "caminho relativo inesperado: $FONTE" ;;
+esac
+
 # --- healthz ----------------------------------------------------------------
 echo
 echo "Saúde"
@@ -146,8 +191,56 @@ fi
 # O PBKDF2 do login é o canário de CPU: estourar o orçamento MATA a requisição,
 # e aí isto volta 5xx em vez de 302. É o portão de CPU de verdade — o `hashMs`
 # que existia aqui era zero por construção (o Workers congela Date.now()).
-checa_status "login não estoura CPU" /dashboard/login 302 \
-  -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'password=smoke-check-errada'
+#
+# O status sozinho não diz para ONDE o 302 manda (#181): senha aceita também é
+# 302, e um login sem Turnstile também. Por isso o destino sai da MESMA
+# resposta. Sem token e com o secret do Turnstile no ar, a recusa TEM de ser a
+# dele (LOGIN_SEM_TOKEN) — e o canário continua medindo, porque o handleLogin
+# roda o PBKDF2 antes de olhar o token. Sem o secret, quem recusa é a senha.
+#
+# Quem diz se o secret existe é o próprio healthz (config.turnstile). No modo
+# configurado ele é obrigatório — a checagem "secret turnstile", abaixo, cobra
+# —, então lá só vale a recusa do Turnstile. Num smoke local sem healthz
+# legível, valem as duas recusas.
+#
+# Os destinos são conferidos contra o próprio Worker em tests/smoke.test.js:
+# renomear um deles no código reprova a suíte, em vez de reprovar este smoke
+# em produção e disparar a reversão automática.
+LOGIN_CORPO='password=smoke-check-errada'
+LOGIN_SEM_TOKEN='/dashboard?error=ts'
+LOGIN_SENHA_ERRADA='/dashboard?error=1'
+TS_SECRET=$(leia_health config.turnstile)
+if [ "$EXPECT_CONFIGURED" = 1 ] || [ "$TS_SECRET" = true ]; then
+  LOGIN_ACEITOS=("$LOGIN_SEM_TOKEN")
+elif [ "$TS_SECRET" = false ]; then
+  LOGIN_ACEITOS=("$LOGIN_SENHA_ERRADA")
+else
+  LOGIN_ACEITOS=("$LOGIN_SEM_TOKEN" "$LOGIN_SENHA_ERRADA")
+fi
+LOGIN_HDRS=$(mktemp)
+LOGIN_CODE=$(http_code -D "$LOGIN_HDRS" -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "$LOGIN_CORPO" "$BASE/dashboard/login")
+LOGIN_DESTINO=$(cabecalho location "$LOGIN_HDRS")
+LOGIN_DESTINO="${LOGIN_DESTINO#"$BASE"}"   # URL absoluta da própria origem vira caminho
+rm -f "$LOGIN_HDRS"
+if [ "$LOGIN_CODE" = 302 ]; then registra "login não estoura CPU" OK "302"
+else registra "login não estoura CPU" FALHA "esperado 302, veio $LOGIN_CODE"; fi
+LOGIN_OK=0
+for aceito in "${LOGIN_ACEITOS[@]}"; do [ "$LOGIN_DESTINO" = "$aceito" ] && LOGIN_OK=1; done
+if [ "$LOGIN_OK" = 1 ] && [ "$LOGIN_DESTINO" = "$LOGIN_SEM_TOKEN" ]; then
+  registra "login sem token barrado" OK "$LOGIN_DESTINO (pelo Turnstile)"
+elif [ "$LOGIN_OK" = 1 ]; then
+  registra "login sem token barrado" OK "$LOGIN_DESTINO (sem secret do Turnstile: pela senha)"
+elif [ "$LOGIN_DESTINO" = "$LOGIN_SENHA_ERRADA" ]; then
+  # Nem rate limit nem queda da Cloudflare explicam isto: o smoke faz UM login
+  # por execução (o limite é 10 por IP a cada 10 minutos), e sem token o
+  # checkTurnstile recusa antes de consultar o siteverify.
+  registra "login sem token barrado" FALHA "veio $LOGIN_DESTINO com o Turnstile configurado: a recusa não veio dele (verificação fora do handleLogin, ou aceitando a falta de token)"
+elif [ "$LOGIN_DESTINO" = /dashboard ]; then
+  registra "login sem token barrado" FALHA "ENTROU com senha errada e sem token"
+else
+  registra "login sem token barrado" FALHA "esperado ${LOGIN_ACEITOS[*]}, veio ${LOGIN_DESTINO:-nenhum Location}"
+fi
 
 if [ "$EXPECT_CONFIGURED" = 1 ]; then
   checa_status "dashboard configurado" /dashboard 200

@@ -216,6 +216,24 @@ npm run smoke:local     # = bash scripts/smoke.sh http://127.0.0.1:8787
 Ele relata cada checagem e só reprova no fim, então uma falha não esconde as
 outras.
 
+O que ele compara com o Worker mora em variáveis no próprio `smoke.sh`: o
+destino do login recusado, o tipo e o cache da fonte. O parser que acha a
+fonte pré-carregada é o `scripts/fonte-do-preload.mjs`. O
+`tests/smoke.test.js` confere cada um contra o Worker (#181). Se ele reprovar
+depois de você mexer no login ou nas fontes, atualize o smoke **no mesmo PR**.
+Do contrário, quem reprova é o smoke em produção, e ele dispara a reversão.
+
+Duas coisas que confundem na primeira vez:
+
+- **Com o secret do Turnstile no `.dev.vars`, o login recusado tem de ser
+  `?error=ts`**, como em produção. O smoke descobre pelo healthz
+  (`config.turnstile`) se o secret existe. Sem secret, a recusa vem da senha
+  (`?error=1`), e o smoke aceita.
+- **Cada execução faz um login, e o rate limit aceita 10 por IP a cada janela
+  de 10 minutos.** Com o secret configurado, a 11ª execução seguida recebe
+  `?error=1` do rate limit, e a linha "login sem token barrado" reprova. Não
+  é defeito: espere a janela virar.
+
 ---
 
 ## 6. Checklist antes de abrir PR
@@ -225,7 +243,7 @@ outras.
       volta, ele não testa o que você acha
 - [ ] Mexeu em UI, CSP ou rota → `npm run verifica:navegador` e a verificação
       específica da mudança num navegador, console limpo
-- [ ] Mexeu em login, healthz ou algo que o smoke olha → `npm run smoke:local`
+- [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local
 - [ ] Mexeu em `docs/legal/` → `npm run build:legal` e os dois commitados
