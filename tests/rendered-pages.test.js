@@ -736,6 +736,7 @@ describe('estrutura do HTML emitido', () => {
   const variacoes = () => ({
     ...paginas(),
     loginComErro: loginHTML({ error: true }, 'NONCE'),
+    loginVerificacao: loginHTML({ verificacao: true }, 'NONCE'),
     eventEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
     eventCarrossel: eventHTML({ ...EVENTO, photos: [EVENTO.photos[0], 'https://lh3.googleusercontent.com/d/BBB'], driveUrlInstagram: 'https://drive.google.com/y' }, '2026', 'tok', 'NONCE', 'dn', 'ft'),
     eventComAviso: eventHTML({ ...EVENTO, photosAlert: { active: true, addedAt: new Date().toISOString(), expiresAfterHours: 24 } }, '2026', null, 'NONCE', 'dn', 'ft'),

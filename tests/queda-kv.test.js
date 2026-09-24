@@ -233,10 +233,12 @@ describe('clique no Drive com o KV fora e sem cópia', () => {
   });
 });
 
+// Com o token do Turnstile, como um navegador que passou na verificação: o
+// assunto destes testes é o KV, e o siteverify já está no `fetchStub` (#167).
 function loginReq(password) {
   return new Request(`${SITE}/dashboard/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'CF-Connecting-IP': '9.9.9.9' },
-    body: `password=${encodeURIComponent(password)}`,
+    body: new URLSearchParams({ password, 'cf-turnstile-response': 'tok-de-teste' }).toString(),
   });
 }

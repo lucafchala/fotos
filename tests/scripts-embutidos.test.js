@@ -79,6 +79,7 @@ function variacoes() {
   return {
     ...paginas(),
     loginComErro: loginHTML({ error: true }, 'NONCE'),
+    loginVerificacao: loginHTML({ verificacao: true }, 'NONCE'),
     galeriaComBeaconEMais: galleryHTML([...muitos, { ...EVENTO, pinned: true }], 'tok', 'NONCE'),
     eventoEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
     eventoCarrosselComBeacon: eventHTML({
