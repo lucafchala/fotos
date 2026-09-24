@@ -30,7 +30,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
-  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -2108,6 +2108,29 @@ export function auditSite(events, env = {}, degradacoes = []) {
   };
 }
 
+// Qual versão do Worker respondeu, pelo binding de version metadata
+// ([version_metadata] no wrangler.toml). O deploy publica cada versão com
+// `--tag <sha curto do commit>`, então `tag` liga a resposta ao commit — e o
+// painel de status marca "deploy às HH:MM" na linha do tempo, que é onde a
+// causa mais comum de regressão aparece. Custo zero: o binding é um objeto
+// em memória, sem I/O.
+//
+// Ausente (binding removido, runtime antigo) é `null` — "não sei", nunca uma
+// versão inventada.
+/**
+ * @param {Env} env
+ * @returns {{ id: string, tag: string|null, em: string|null } | null}
+ */
+function versaoImplantada(env) {
+  const v = env.CF_VERSION_METADATA;
+  if (!v || typeof v.id !== 'string' || !v.id) return null;
+  return {
+    id: v.id,
+    tag: typeof v.tag === 'string' && v.tag ? v.tag : null,
+    em: typeof v.timestamp === 'string' && v.timestamp ? v.timestamp : null,
+  };
+}
+
 /**
  * @param {Request} request
  * @param {Env} env
@@ -2188,8 +2211,10 @@ export async function handleHealthz(request, env) {
   // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
   const ok = kv && events !== null;
   return jsonOk({
-    // Contrato estável (smoke test + painel já fazem parsing destes nomes).
+    // Contrato estável (smoke test + painel já fazem parsing destes nomes),
+    // escrito em docs/healthz-contrato.json e conferido pelos dois lados.
     // `hashMs` fica de fora de propósito — ver o comentário do PBKDF2 acima.
+    contrato: HEALTHZ_CONTRATO,
     ok, kv, events, d1,
     kvLatencyMs,
     d1LatencyMs,
@@ -2203,6 +2228,7 @@ export async function handleHealthz(request, env) {
       signing: signingSecretProblem(env) === null,
     },
     termsVersion: TERMS_VERSION,
+    versao: versaoImplantada(env),
     colo: request.cf?.colo || null,
     country: request.cf?.country || null,
     now: new Date().toISOString(),

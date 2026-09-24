@@ -49,3 +49,15 @@ export const NOSCRIPT_SWEEP_WINDOW_SECS = 24 * 3600;
 // Um alerta a cada 6 h no máximo, para o conjunto — não por IP: com rotação de
 // IP, um cooldown por IP viraria enxurrada de e-mails e de escritas no KV.
 export const NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS = 6 * 3600;
+
+// Versão do CONTRATO do /api/healthz: os campos que o smoke do deploy e o
+// painel de status (status.lucafchala.com) leem. O contrato inteiro — nome e
+// tipo de cada campo, e um exemplo — mora em docs/healthz-contrato.json, e
+// é aquele arquivo, não esta constante, que os dois lados conferem:
+//   • tests/healthz-contrato.test.js prende o healthz de verdade ao arquivo
+//     (campo novo sem contrato reprova, campo do contrato que sumiu reprova);
+//   • o CI do status baixa o arquivo e reprova se o status ler um campo que
+//     o contrato não tem.
+// Suba o número só quando um campo MUDAR de sentido ou sair — acrescentar
+// campo não quebra quem lê, e o arquivo já registra o acréscimo.
+export const HEALTHZ_CONTRATO = 1;

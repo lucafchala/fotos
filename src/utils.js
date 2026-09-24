@@ -27,6 +27,7 @@ import { FONTS } from './content/fonts.js';
  *   SIGNING_SECRET?: string,
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
+ *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  * }} Env
  */
 
