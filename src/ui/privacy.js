@@ -116,7 +116,7 @@ export function privacyHTML() {
     <ul>
       <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos dos eventos.</li>
       <li><strong>Resend</strong> — envio dos e-mails das solicitações e do suporte.</li>
-      <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile roda em <strong>modo invisível</strong>, fazendo uma verificação automática do navegador para distinguir pessoas de robôs, sem exibir desafio nem coletar dados para publicidade. Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
+      <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
     </ul>
     <p>Os dados não são vendidos nem usados para publicidade.</p>
 

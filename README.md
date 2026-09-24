@@ -256,6 +256,8 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 
 Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção e no suporte.
 
+O modo do widget (*Managed*, *Non-interactive* ou *Invisible*) mora no painel, não no repositório. Por isso os textos legais (`/privacidade`, `LEGAL.md`, `docs/legal/transferencia-internacional.md`) dizem o que é verdade em **qualquer** modo — automático na maior parte dos acessos, **pode** pedir uma confirmação — e não prometem invisibilidade (#165; `tests/textos-turnstile.test.js` recusa a promessa). No código: o `/suporte` renderiza o widget com a aparência padrão, à vista no formulário; o portão do Drive e o pedido de remoção usam `appearance: 'interaction-only'`, que só aparece se a Cloudflare pedir interação.
+
 ---
 
 ## Monitoramento (Uptime Kuma)
