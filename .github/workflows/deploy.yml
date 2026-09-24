@@ -73,9 +73,12 @@ jobs:
     timeout-minutes: 20
     env:
       WORKER_NAME: fotos
-      # --env="": o wrangler.toml declara `[env.preview]`, e sem o flag o CLI
-      # avisa que o ambiente-alvo é ambíguo. Explícito não depende de qual é o
-      # default da versão do wrangler instalada.
+      # --env="": o topo do wrangler.toml, nunca um `[env.*]`. Hoje não há
+      # nenhum (o `[env.preview]`, que apontava para o KV de produção, saiu no
+      # #166), e o flag vazio equivale a não passar nada. Fica por ser
+      # explícito: se alguém declarar um ambiente, a produção não muda de alvo
+      # por acidente — e tirá-lo mexeria nos comandos de reversão, que só
+      # rodam quando algo já deu errado.
       WRANGLER_ENV_FLAG: '--env='
       # ID de versão da Cloudflare: UUID inteiro, conferido por UMA regra só —
       # vale para o que sai do upload, do `deployments status` e do
