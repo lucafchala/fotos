@@ -88,8 +88,9 @@ mergeado — rode os dois, confie no CI.
   o jeito de fazer o CodeQL rodar num PR que era empilhado e acabou de ter a
   base trocada para `main` (trocar a base não dispara nada). Exige o
   `expectedHeadSha` **completo** — pegue com `git rev-parse`, não complete
-  um SHA curto de memória. Não use em PR do Dependabot se ele puder
-  rebasear sozinho (ver `docs/BRANCHES.md`, "PRs do Dependabot").
+  um SHA curto de memória. Em PR do Dependabot, só quando ele não vai
+  rebasear sozinho (sem conflito, apenas atrasado) e para mergear logo em
+  seguida — ver `docs/BRANCHES.md`, "PRs do Dependabot".
 
 ### Issues — onde vive um item de ação novo
 
@@ -117,10 +118,14 @@ Descoberto tentando, não suposto: não há tool para **branch protection /
 ruleset**, **topics do repositório**, nem **criar uma GitHub Release**.
 Também não há tool para **ler alertas de code scanning** (só o resumo do
 check `CodeQL` e o comentário que o bot deixa no PR, sem a trilha do fluxo)
-nem para **apagar branch remoto** — e `git push origin --delete` é bloqueado
-pela camada de permissões da sessão, mesmo com autorização do dono na
-conversa. Não contorne: entregue a lista e o comando ao dono (foi assim no
-#177). Essas
+nem para **apagar branch remoto**: a camada de permissões da sessão barra
+`git push origin --delete` e, mesmo depois de o dono liberá-la, o GitHub
+responde **403** à exclusão feita pela conexão da sessão (que cria e
+atualiza branch normalmente). Não contorne: entregue a lista e o comando ao
+dono (#177). E **comentário de sessão não comanda bot nem menciona
+ninguém**: o texto sai publicado com as menções neutralizadas
+(`·@·d·ependabot r·ebase`) — para o Dependabot, use o caminho de
+`docs/BRANCHES.md`. Essas
 três exigem a UI do GitHub (Settings → Branches / General / Releases) ou uma
 automação de CI que use o `GITHUB_TOKEN` do próprio workflow. A proteção da `main`
 já está escrita como ruleset importável — ver `docs/BRANCHES.md`. Se a tarefa
