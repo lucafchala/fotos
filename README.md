@@ -492,7 +492,9 @@ depois.
   resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
   publicado antes de mandar para cliente" sem prazo para decidir.
 - **`version_id`**. Promove uma versão **já existente**, pulando build e upload
-  — é o rollback: segundos, sem recompilar e sem mexer no Git.
+  — é o rollback: segundos, sem recompilar e sem mexer no Git. Tem de ser o ID
+  inteiro (UUID, como `0e65efc8-c701-47b1-9b50-21108d826fce`); qualquer outra
+  coisa para o workflow antes de tocar em produção.
 - **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
   Existe por um motivo só: `versions upload` não aplica migração de Durable
   Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
@@ -565,7 +567,7 @@ fotos/
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
-│   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
+│   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
@@ -865,7 +867,7 @@ test do deploy recusa um nonce aparecendo no cabeçalho enforced.
 
 ## Páginas públicas
 
-Todas as oito páginas públicas (`/`, `/<slug>`, `/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`, mais o listing raiz) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Sobre/Equipamento/Suporte/Legal/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A função não tem ponto de extensão: já teve um parâmetro `extra`, usado por um único chamador (o "Ver tour novamente" da página de projeto), e ele saiu junto com o tour — rodapé que varia por página é exatamente o que este bloco compartilhado existe para impedir. "Sugestões" propositalmente **não** entrou nesse rodapé (ficaria apertado); vive só no aviso de nova interface, abaixo. A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com links "Reportar" e "Tem uma sugestão?" para `/suporte?tema=bug` e `/suporte?tema=sugestao` (pré-preenchem a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar). Todas as oito páginas também trazem, comentados no `<head>` (sem efeito nenhum até serem descomentados e preenchidos com um ID real), placeholders prontos pra Microsoft Clarity; a galeria ganha ainda um placeholder de verificação do Google Search Console.
+Todas as páginas públicas (`/`, `/<slug>`, `/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`, `/legal` e `/legal/<documento>`) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Sobre/Equipamento/Suporte/Legal/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A função não tem ponto de extensão: já teve um parâmetro `extra`, usado por um único chamador (o "Ver tour novamente" da página de projeto), e ele saiu junto com o tour — rodapé que varia por página é exatamente o que este bloco compartilhado existe para impedir. "Sugestões" propositalmente **não** entrou nesse rodapé (ficaria apertado); vive só no aviso de nova interface, abaixo. A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com links "Reportar" e "Tem uma sugestão?" para `/suporte?tema=bug` e `/suporte?tema=sugestao` (pré-preenchem a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar). Todas as oito páginas também trazem, comentados no `<head>` (sem efeito nenhum até serem descomentados e preenchidos com um ID real), placeholders prontos pra Microsoft Clarity; a galeria ganha ainda um placeholder de verificação do Google Search Console.
 
 Todas as páginas públicas respeitam **`prefers-color-scheme`** automaticamente — sem toggle manual (o experimental foi removido em fase anterior e não volta). Cada arquivo declara seu próprio conjunto de variáveis CSS (`:root{...}` + `@media(prefers-color-scheme:light){:root{...}}`), sem CSS compartilhado entre páginas — mesmo padrão de "cada página é seu próprio template literal" já usado no resto do projeto. Chrome sobreposto a uma foto (pill de voltar, setas/dots/contador do carrossel, badges do card) fica sempre escuro/translúcido nos dois temas, porque a função dele é contraste contra a foto, não contra a página. Os botões de CTA ("Acessar fotos", "Ir para o Drive", "Enviar mensagem") usam a cor de destaque dourada como fundo nos dois temas (`--cta-bg`/`--cta-text`) — mesma cor de marca em vez de inverter pra uma pílula preto/branco conforme o tema. O dashboard admin **não** foi incluído nesse trabalho — continua só escuro.
 
