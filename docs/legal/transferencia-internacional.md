@@ -37,9 +37,10 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 | **Salvaguardas** | ISO 27001, ISO 27701, SOC 2 Type II; DPA público com adendo de LGPD |
 | **Referência** | <https://www.cloudflare.com/trust-hub/gdpr/> · Turnstile: <https://www.cloudflare.com/turnstile-privacy-policy/> |
 
-Nota sobre o Turnstile: opera em **modo invisível**, verificando sinais do
-navegador. Não exibe desafio, não usa cookie de rastreamento publicitário e não
-alimenta perfil de anúncios — a Cloudflare declara isso no adendo acima.
+Nota sobre o Turnstile: verifica sinais do navegador. Na maior parte dos
+acessos não pede nada; quando a Cloudflare julga necessário, pode exibir um
+desafio simples. Não usa cookie de rastreamento publicitário e não alimenta
+perfil de anúncios — a Cloudflare declara isso no adendo acima.
 
 ### 2. Google — Google Drive (armazenamento das fotografias)
 
