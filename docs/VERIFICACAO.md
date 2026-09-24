@@ -94,7 +94,7 @@ globalThis.fetch = async (input, init) => {
 // …e um http.createServer que repassa para worker.fetch(request, env, ctx).
 ```
 
-**Duas pegadinhas ao escrever o harness:**
+**Três pegadinhas ao escrever o harness:**
 
 1. **`admin_password` semeado vence `ADMIN_PASSWORD`.** `getAdminHash()` lê o KV
    primeiro. Se semear o hash, a variável de ambiente é ignorada — e você
@@ -102,6 +102,16 @@ globalThis.fetch = async (input, init) => {
 2. **`ctx.waitUntil` precisa ser coletado e aguardado.** Contador de visitas,
    alerta de login e dedupe rodam fora do caminho da resposta. Um harness que
    descarta as promessas mede o nada.
+3. **O login do painel exige token do Turnstile** (#175) sempre que
+   `TURNSTILE_SECRET_KEY` existe — e aqui o widget nunca carrega, então
+   nenhum navegador produz token. Sem token, a resposta é
+   `/dashboard?error=ts`, com senha certa ou errada. Mande
+   `cf-turnstile-response` no POST (qualquer valor: o `fetch` interceptado
+   aprova), ou, no navegador, acrescente o campo ao formulário antes de
+   enviar (`page.evaluate` criando um `<input type="hidden"
+   name="cf-turnstile-response">`). Deixar o secret de fora também entra — o
+   login cai em "Turnstile indisponível" e segue só com a senha — mas aí o
+   caminho testado não é o de produção.
 
 ---
 
@@ -159,9 +169,10 @@ report-only é o sistema funcionando como projetado.
 const ctx = await browser.newContext({ javaScriptEnabled: false });
 ```
 
-A galeria usa masonry calculado por JS. Sem ele, os cards já colapsaram para 4px
-e se empilharam no mesmo ponto. Há um fallback hoje — não o remova sem testar
-com JS desligado.
+A galeria já usou masonry calculado por JS, e sem ele os cards colapsavam para
+4px e se empilhavam no mesmo ponto. Hoje é uma grade uniforme em CSS puro, sem
+depender de script — mantenha assim, e teste com JS desligado qualquer mudança
+de layout.
 
 ---
 
@@ -178,10 +189,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8787/api/event
 # HEAD responde como GET, sem corpo e sem gravar em KV
 curl -sI -o /dev/null -w '%{http_code}\n' http://localhost:8787/            # 200
 
-# Login real → o cookie de sessão
+# Login real → o cookie de sessão. O token é obrigatório com o secret do
+# Turnstile configurado (§2, pegadinha 3); sem ele: Location /dashboard?error=ts
 curl -s -i -X POST http://localhost:8787/dashboard/login \
   -H 'Content-Type: application/x-www-form-urlencoded' -H 'Sec-Fetch-Site: same-origin' \
-  -d 'password=Senha-De-Teste-2026!' | grep -i set-cookie
+  -d 'password=Senha-De-Teste-2026!' -d 'cf-turnstile-response=teste' | grep -i set-cookie
 ```
 
 **Cuidado com o rate limit ao repetir testes**: `/api/removal-request` e o login
@@ -191,21 +203,18 @@ têm limites por IP. Reiniciar o harness zera tudo, porque o KV é em memória.
 
 ## 5. Rodando o smoke test do deploy localmente
 
-Um check do `deploy.yml` ficou dois deploys sem nunca executar — `set -e` fazia
-a primeira falha esconder as seguintes — e era incapaz de passar. Extraia o
-passo inteiro e rode contra o harness antes de subir:
+Um check do `deploy.yml` já ficou dois deploys sem nunca executar — `set -e`
+fazia a primeira falha esconder as seguintes — e era incapaz de passar. Por isso
+o smoke saiu do YAML para `scripts/smoke.sh`, o **mesmo** script que o
+`deploy.yml` roda contra o preview e contra a produção. Rode contra o
+`wrangler dev` antes de subir:
 
 ```bash
-python3 - <<'PY'
-import yaml
-w = yaml.safe_load(open('.github/workflows/deploy.yml'))
-step = [s for s in w['jobs']['deploy']['steps'] if s.get('name') == 'Smoke tests'][0]
-open('/tmp/smoke.sh','w').write("#!/usr/bin/env bash\nset -e\nDEPLOYMENT_URL=http://localhost:8787\n" + step['run'])
-PY
-bash /tmp/smoke.sh
+npm run smoke:local     # = bash scripts/smoke.sh http://127.0.0.1:8787
 ```
 
-São 24 checagens. Todas passam contra o harness.
+Ele relata cada checagem e só reprova no fim, então uma falha não esconde as
+outras.
 
 ---
 
@@ -214,8 +223,13 @@ São 24 checagens. Todas passam contra o harness.
 - [ ] `npm test` e `npm run lint`
 - [ ] **O bug foi reintroduzido e o teste falhou?** Se o teste passa com o bug de
       volta, ele não testa o que você acha
-- [ ] Mexeu em UI, CSP ou rota → aberto num navegador, console limpo
+- [ ] Mexeu em UI, CSP ou rota → `npm run verifica:navegador` e a verificação
+      específica da mudança num navegador, console limpo
+- [ ] Mexeu em login, healthz ou algo que o smoke olha → `npm run smoke:local`
+      (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local
 - [ ] Mexeu em `docs/legal/` → `npm run build:legal` e os dois commitados
 - [ ] Adicionou `put()` em caminho público → calculou o pior caso contra as
       1000 escritas/dia
+- [ ] O check do CodeQL acusou alerta que você não consegue abrir → rode o
+      CodeQL localmente (`llms.md`, "CodeQL local") antes de mexer às cegas

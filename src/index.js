@@ -19,7 +19,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
-  sendErrorAlert, sendLoginAlert,
+  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
 import {
@@ -30,6 +30,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -519,13 +520,14 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
-  // Cookie de 1h evita contar a mesma pessoa duas vezes (KV read-modify-write
-  // não é atômico, então isto é analytics aproximado, não métrica exata).
+  // Cookie de 1h evita contar a mesma pessoa duas vezes. O incremento em si é
+  // exato (Durable Object, ver bumpCounter); o que é aproximado é a noção de
+  // "visita" — um navegador por hora, por projeto.
   const cookieName = `fv_${slug}`;
   // HEAD não conta nem seta o cookie: HEAD reexecuta como GET, e monitores de
-  // uptime batem por minuto — sem esta exceção, cada um gastaria uma escrita
-  // de KV contra a cota diária de 1000, e o GET real seguinte não contaria
-  // (o visitante já apareceria como "já contado" pelo cookie de um HEAD).
+  // uptime batem por minuto — sem esta exceção, cada sondagem viraria uma
+  // "visita", e o GET real seguinte não contaria (o visitante já apareceria
+  // como "já contado" pelo cookie de um HEAD).
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   // A galeria faz prefetch da página do projeto no hover (speculation rules em
   // gallery.js). Isso é uma aposta do BROWSER, não uma visita: contar aqui
@@ -535,8 +537,8 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
   const counts = !alreadyCounted && !headOnly && !prefetch;
   if (counts) {
-    // Agregado em memória do isolate, não gravado na hora — vira uma escrita
-    // por janela em vez de uma por visitante. Ver bumpCounter() em utils.js.
+    // Uma chamada ao Durable Object `Counter` por visita contada, fora do
+    // caminho da resposta (waitUntil). Ver bumpCounter() em utils.js.
     bumpCounter(env, ctx, `views:${slug}`);
   }
 
@@ -598,7 +600,7 @@ async function handleDashboardPage(request, env, url, nonce) {
     // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
     // desconhecido cai no formulário limpo.
     const erro = url.searchParams.get('error');
-    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv' }, nonce), 200, nonce);
+    return adminHtml(loginHTML({ error: erro === '1', indisponivel: erro === 'kv', verificacao: erro === 'ts' }, nonce), 200, nonce);
   }
 
   const [events, categories] = dados;
@@ -670,6 +672,17 @@ export async function handleLogin(request, env, ctx) {
   const ok = stored
     ? await verifyPassword(password, stored)
     : (await hashPassword(password), false);
+
+  // Turnstile (#167) DEPOIS do PBKDF2, de propósito. O smoke do deploy posta
+  // uma senha errada SEM token para medir se o hash cabe no orçamento de CPU;
+  // checar o token antes faria esse canário parar de medir. E a resposta de
+  // quem não passou na verificação é a MESMA com senha certa ou errada — o
+  // resultado do hash só aparece para quem passou. Sem noteFailedLogin aqui:
+  // é escrita em KV, e tentativa sem token não pode gastar a cota.
+  // 'indisponivel' segue só com senha e rate limit (ver checkTurnstile).
+  const verificacao = await checkTurnstile(body['cf-turnstile-response'] || '', env);
+  if (verificacao === 'recusado') return redirect('/dashboard?error=ts');
+
   if (!ok) {
     ctx?.waitUntil(noteFailedLogin(env, request, ip).catch(() => {}));
     return redirect('/dashboard?error=1');
@@ -1483,7 +1496,17 @@ export async function handleChangePassword(request, env, ctx) {
   if (!check.ok) return jsonErr(check.error, 400);
 
   const hash = await hashPassword(password);
-  await env.FOTOS.put('admin_password', hash);
+  try {
+    await env.FOTOS.put('admin_password', hash);
+  } catch (e) {
+    // Com o KV recusando a gravação (cota diária esgotada é o caso real), isto
+    // virava o 500 genérico do roteador — logo na troca de senha, a reação
+    // padrão a "acho que invadiram". A resposta diz o que aconteceu e o que
+    // continua valendo, e a varredura de sessões abaixo não roda: sem senha
+    // nova, derrubar as outras sessões só deslogaria o próprio dono.
+    noteKvFailure('escrita', e, 'troca de senha do painel');
+    return jsonErr('A senha não foi trocada: o banco de dados do site não respondeu. A senha antiga continua valendo — tente de novo em alguns minutos.', 503);
+  }
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
@@ -1901,6 +1924,11 @@ async function handleResolveRequest(request, env, id) {
 
   const req = requests[idx];
 
+  // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
+  // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
+  // "Solicitação atendida" para a pessoa a cada vez.
+  if (req.resolved) return jsonOk(req);
+
   // Send "resolved" email to requester
   let resolvedEmailStatus;
   try {
@@ -1916,7 +1944,20 @@ async function handleResolveRequest(request, env, id) {
     resolvedAt: new Date().toISOString(),
     resolvedEmailStatus,
   };
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  // Uma gravação só, depois do e-mail: o status dele mora no mesmo registro, e
+  // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
+  // antes e atualizar depois falharia justamente em produção.
+  try {
+    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  } catch (e) {
+    // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
+    // novo às cegas mandaria um segundo aviso à pessoa.
+    noteKvFailure('escrita', e, 'resolução de pedido de remoção');
+    const email = resolvedEmailStatus === 'sent'
+      ? 'O e-mail de confirmação JÁ foi enviado — resolver de novo manda outro.'
+      : 'Nenhum e-mail de confirmação foi enviado.';
+    return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
+  }
   return jsonOk(requests[idx]);
 }
 
@@ -2072,9 +2113,11 @@ export function auditSite(events, env = {}, degradacoes = []) {
  * @param {Env} env
  */
 export async function handleHealthz(request, env) {
-  // Sem rate-limit por KV de propósito: este endpoint é sondado pelo monitor
-  // de status em intervalo fixo, e checkRateLimit() gasta escrita (cota
-  // compartilhada de 1000/dia) que o trabalho limitado desta rota não justifica.
+  // Sem rate limit de propósito: este endpoint é sondado pelo monitor de
+  // status em intervalo fixo, e o trabalho dele é limitado (leituras de KV e
+  // um hash) e fica atrás da borda da Cloudflare. O motivo original era a cota
+  // de escrita do KV, que o rate limit gastava quando morava lá; hoje ele é um
+  // Durable Object, mas limitar o monitor continua sem proteger nada.
   //
   // KV é o binding do qual tudo depende; falha de leitura aqui é a única
   // condição que vira ok:false.
@@ -2221,14 +2264,28 @@ export async function handleCspReport(request, env) {
 // ---------------------------------------------------------------------------
 // Turnstile verification
 // ---------------------------------------------------------------------------
+// Três respostas, não duas (#167):
+//   'ok'           — a Cloudflare aprovou o token;
+//   'recusado'     — token ausente, inválido, vencido ou repetido: o que o
+//                    CLIENTE controla;
+//   'indisponivel' — sem secret, siteverify fora do ar, ou a Cloudflare
+//                    recusando a NOSSA chave: o que o cliente não controla.
+// Suporte, remoção e portão do Drive tratam as duas últimas igual e falham
+// fechado (verifyTurnstile). O login do painel não: lá o Turnstile é camada a
+// mais sobre rate limit, PBKDF2 e alerta por e-mail, e uma queda da
+// Cloudflare não pode trancar o dono fora do próprio painel.
 /**
  * @param {string} token
  * @param {Env} env
+ * @returns {Promise<'ok' | 'recusado' | 'indisponivel'>}
  */
-async function verifyTurnstile(token, env) {
+async function checkTurnstile(token, env) {
   const secret = env.TURNSTILE_SECRET_KEY;
-  if (!secret) return false; // fail closed — a missing secret is a deploy error, not a bypass
-  if (!token) return false;
+  // Secret ausente é erro de deploy — o auditSite já o acusa no healthz.
+  if (!secret) return 'indisponivel';
+  if (!token) return 'recusado';
+  /** @type {any} */
+  let data;
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
@@ -2236,11 +2293,29 @@ async function verifyTurnstile(token, env) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ secret, response: token }),
     });
-    const data = await res.json();
-    return data.success === true;
-  } catch {
-    return false;
+    if (!res.ok) throw new Error(`siteverify respondeu HTTP ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    noteDegraded('Turnstile não respondeu', 'formulários públicos recusam; o login segue com senha e rate limit', e);
+    return 'indisponivel';
   }
+  if (data && data.success === true) return 'ok';
+  const codigos = Array.isArray(data?.['error-codes']) ? data['error-codes'].map(String) : [];
+  if (codigos.some(c => c === 'missing-input-secret' || c === 'invalid-input-secret' || c === 'internal-error')) {
+    noteDegraded('Turnstile recusou a configuração', `siteverify: ${codigos.join(', ')}`);
+    return 'indisponivel';
+  }
+  return 'recusado';
+}
+
+/**
+ * Falha fechado em tudo que não for 'ok' — é o que os formulários públicos
+ * querem: sem verificação, sem envio.
+ * @param {string} token
+ * @param {Env} env
+ */
+async function verifyTurnstile(token, env) {
+  return (await checkTurnstile(token, env)) === 'ok';
 }
 
 // ---------------------------------------------------------------------------
@@ -2370,20 +2445,60 @@ export async function handleDriveLink(request, env, ctx) {
     // Best-effort de propósito (log falhando não pode barrar a foto), mas com
     // barulho: o registro de consentimento é a peça de não-repúdio da LGPD,
     // e perdê-lo em silêncio seria o pior modo de falha do sistema.
-    ctx.waitUntil(stmt.run().catch(e => {
-      noteDegraded(
-        'registro de consentimento não gravou',
-        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
-        e
-      );
-      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
-    }));
+    //
+    // A checagem de varredura (#147) vem DEPOIS do INSERT, para a linha desta
+    // requisição entrar na conta, e só no caminho noscript — com Turnstile de
+    // verdade não há o que alertar.
+    ctx.waitUntil(stmt.run().then(
+      () => (isNoscript ? checkNoscriptSweep(env, ip) : undefined),
+      e => {
+        noteDegraded(
+          'registro de consentimento não gravou',
+          `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+          e
+        );
+        return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+      },
+    ));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
   return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
+}
+
+// Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
+// abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
+// projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
+// e nunca lança: falhar aqui não pode afetar a entrega das fotos.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ */
+async function checkNoscriptSweep(env, ip) {
+  if (!env.CONSENT_DB) return;
+  try {
+    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    /** @type {{ slugs: number, total: number, restritos: number } | null} */
+    const linha = await env.CONSENT_DB.prepare(
+      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+         FROM image_use_consent
+        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+    ).bind(ip.slice(0, 64), desde).first();
+    const slugs = Number(linha?.slugs) || 0;
+    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    await sendNoscriptSweepAlert(env, {
+      ip,
+      slugs,
+      restritos: Number(linha?.restritos) || 0,
+      total: Number(linha?.total) || 0,
+      janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
+    });
+  } catch (e) {
+    noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
 }
 
 /**

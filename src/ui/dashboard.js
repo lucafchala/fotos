@@ -1,5 +1,6 @@
 import { sortEvents, escape, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
+import { TURNSTILE_SITE_KEY } from '../config.js';
 
 const BASE = `
 ${fontFaceCSS()}
@@ -24,14 +25,16 @@ button{cursor:pointer}
 // de código de autenticação. Se o cadastro inicial voltar, ele volta com
 // handler, não só com formulário.
 /**
- * @param {{ error?: boolean, indisponivel?: boolean }} [opts]
+ * @param {{ error?: boolean, indisponivel?: boolean, verificacao?: boolean }} [opts]
  *   `error`: senha recusada. `indisponivel`: o KV recusou ler o hash ou gravar
  *   a sessão — a senha pode estar certa, e dizer "incorreta" aqui mandaria o
  *   dono desconfiar dela no dia em que o problema era o banco.
+ *   `verificacao`: o Turnstile recusou o token (ou ele não veio). Não diz nada
+ *   sobre a senha — a mesma tela sai com senha certa ou errada (#167).
  * @param {string} [nonce]
  */
 export function loginHTML(opts = {}, nonce = '') {
-  const { error = false, indisponivel = false } = opts;
+  const { error = false, indisponivel = false, verificacao = false } = opts;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -45,6 +48,8 @@ export function loginHTML(opts = {}, nonce = '') {
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   ${fontPreloadHTML()}
+  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="loginTsBlocked"></script>
+  <script nonce="${nonce}">document.addEventListener('error', function(e){ if (e.target && e.target.dataset && e.target.dataset.onerror === 'loginTsBlocked') window.__loginTsBlocked = true; }, true);</script>
   <style>
     ${BASE}
     body{display:flex;align-items:center;justify-content:center;padding:2rem 1rem;min-height:100vh}
@@ -59,9 +64,12 @@ export function loginHTML(opts = {}, nonce = '') {
     input[type=password]{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.875rem 1rem;border-radius:var(--radius);font-size:1rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     input[type=password]:focus{border-color:#444}
     .btn-primary{width:100%;background:var(--accent);color:#0a0a0a;padding:.9rem;border:none;border-radius:var(--radius);font-size:.9rem;font-weight:600;letter-spacing:.02em;margin-top:.5rem;transition:opacity .2s,transform .15s;-webkit-appearance:none}
-    .btn-primary:hover{opacity:.9;transform:translateY(-1px)}
-    .btn-primary:active{transform:translateY(0)}
+    .btn-primary:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+    .btn-primary:active:not(:disabled){transform:translateY(0)}
+    .btn-primary:disabled{opacity:.45;cursor:not-allowed}
+    .cf-turnstile{min-height:65px;margin-bottom:.75rem}
     .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:#e07070;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
+    .aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
   </style>
 </head>
 <body>
@@ -71,14 +79,30 @@ export function loginHTML(opts = {}, nonce = '') {
     <p class="subtitle">Entre para gerenciar os projetos.</p>
     ${indisponivel
       ? `<div class="error-msg" role="alert">Não foi possível entrar agora: o banco de dados do site não respondeu. Sua senha não foi recusada — tente de novo em alguns minutos.</div>`
-      : error ? `<div class="error-msg" role="alert">Senha incorreta. Tente novamente.</div>` : ''}
+      : verificacao
+        ? `<div class="error-msg" role="alert">Não deu para entrar: a verificação anti-robô não passou. Recarregue a página e tente de novo — se o quadro de verificação não aparecer, desative o bloqueador de anúncios para este site.</div>`
+        : error ? `<div class="error-msg" role="alert">Senha incorreta. Tente novamente.</div>` : ''}
     <form method="POST" action="/dashboard/login">
       <div class="field">
         <label for="password">Senha</label>
         <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" autofocus>
       </div>
-      <button type="submit" class="btn-primary">Entrar</button>
+      <div class="cf-turnstile" data-sitekey="${escape(TURNSTILE_SITE_KEY)}" data-callback="onLoginTs" data-error-callback="onLoginTsErro" data-expired-callback="onLoginTsExpirou"></div>
+      <div class="aviso" id="login-adblock" role="alert" style="display:none">A verificação anti-robô não carregou — quase sempre é um bloqueador de anúncios. Desative-o para este site e recarregue a página.</div>
+      <button type="submit" class="btn-primary" id="login-btn" disabled>Entrar</button>
     </form>
+    <noscript><div class="aviso">O painel precisa de JavaScript ligado.</div></noscript>
+    <script nonce="${nonce}">
+      function loginBtn(){return document.getElementById('login-btn');}
+      function avisoBloqueio(){var a=document.getElementById('login-adblock');if(a)a.style.display='';}
+      function onLoginTs(){var b=loginBtn();if(b)b.disabled=false;}
+      function onLoginTsExpirou(){var b=loginBtn();if(b)b.disabled=true;}
+      // Erro do widget não pode deixar o dono num botão morto: o botão volta
+      // (o servidor responde com a mensagem certa) e o aviso aparece.
+      function onLoginTsErro(){onLoginTs();avisoBloqueio();}
+      if(window.__loginTsBlocked)avisoBloqueio();
+      setTimeout(function(){if(typeof turnstile==='undefined'||window.__loginTsBlocked){avisoBloqueio();onLoginTs();}},5000);
+    </script>
   </div>
 </body>
 </html>`;
@@ -289,6 +313,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
+    .btn-resolve:disabled{opacity:.5;cursor:wait}
     .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
     .req-group{margin-bottom:1.75rem}
     .req-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:.375rem;padding:.5rem 0;border-bottom:1px solid var(--border);margin-bottom:.75rem}
@@ -714,7 +739,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     // Requests tab (container survives loadRequests()'s innerHTML swaps).
     document.getElementById('requests-body').addEventListener('click', function(ev) {
       const resolveBtn = ev.target.closest('[data-action="resolveRequest"]');
-      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id); return; }
+      if (resolveBtn) { resolveRequest(resolveBtn.dataset.id, resolveBtn); return; }
       const toggleBtn = ev.target.closest('[data-action="toggleResolved"]');
       if (toggleBtn) toggleResolved(parseInt(toggleBtn.dataset.gi, 10));
     });
@@ -1402,13 +1427,19 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       toggle.textContent = (open ? '▶' : '▼') + ' ' + txt;
     }
 
-    async function resolveRequest(id) {
+    async function resolveRequest(id, btn) {
+      // Desabilitado enquanto a requisição corre: um duplo clique mandava dois
+      // PUT simultâneos, os dois liam o pedido ainda em aberto e a pessoa
+      // recebia dois e-mails de "Solicitação atendida". A guarda do servidor
+      // pega a repetição em sequência; a simultânea só se evita aqui.
+      if (btn) btn.disabled = true;
       try {
         await api('PUT', '/api/removal-requests/' + id + '/resolve');
         await loadRequests();
         toast('Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
+        if (btn) btn.disabled = false;
       }
     }
 

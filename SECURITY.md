@@ -76,6 +76,19 @@ issue before any public disclosure.
   real Turnstile pass for restricted events, or an identity requirement) is
   an open decision the owner still needs to make, not something this
   paragraph resolves on its own.
+- **A sweep through the noscript path now raises an alert — it does not
+  block (#147).** After each noscript grant is logged, the Worker counts how
+  many *distinct* projects that IP opened without Turnstile in the last 24 h;
+  at 5 or more, the owner gets an e-mail with the IP, the number of grants and
+  how many of the projects are `family`/`private` — at most one every 6 h for
+  all IPs together, so IP rotation can't turn it into an e-mail flood or burn
+  the KV write quota. Volume on a single project is deliberately *not*
+  alerted: a school or event behind one NAT, everyone with an ad-blocker,
+  looks exactly like that. Known limits: IP rotation (and IPv6, where one
+  client can hold a whole /64) splits a sweep below the threshold; while the
+  cooldown holds, a second sweeper only shows up in the consent export; and a
+  D1 outage silences the check (reported in `/api/healthz`, never in the
+  response that delivers the photos). Thresholds live in `src/config.js`.
 - **Unlisted ≠ private.** A project toggled off ("Ocultar") leaves the gallery,
   the sitemap and the self-test, and is served with `X-Robots-Tag: noindex`,
   but **still opens on a direct link** — that is what keeps a preview link sent
@@ -116,6 +129,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
 | Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
 | Layered login rate limit + e-mail alert | `handleLogin()` | Silent brute force |
+| Turnstile on the panel login | `handleLogin()`, `checkTurnstile()` | Password guessing spread across many IPs, which the per-IP limit never sees |
 | Password policy (12+, classes, weak patterns) | `validatePassword()` | An offline attack against a leaked hash |
 | CSV formula-injection guard | `csvCell()` | `=HYPERLINK(...)` in a visitor-supplied field executing in the admin's spreadsheet |
 | EXIF/GPS stripping on uploads | `stripImageMetadata()` | A removal request handing us the GPS coordinates of the photo |
@@ -135,8 +149,11 @@ Every HTML response carries **both** `Content-Security-Policy` and
   That combination is deliberate and load-bearing: per CSP Level 3, **a nonce
   makes the browser discard `'unsafe-inline'`**. So `'self' 'unsafe-inline'
   'nonce-abc'` is not "both" — it is effectively `'self' 'nonce-abc'`, and every
-  `onclick="…"` attribute handler stops firing. The UI has ~63 of them, so that
-  silently kills the gallery, the event page, the Drive gate and the dashboard.
+  `onclick="…"` attribute handler stops firing. The UI had ~63 of them then, so
+  that silently killed the gallery, the event page, the Drive gate and the
+  dashboard. Since 2026-09-03 (`4552180`) none are left — they became delegated
+  listeners (`data-onclick` and friends) — but the rule stands until the flip
+  tracked in #126 is done with a real browser.
   This was actually committed once and caught only by driving a real browser —
   a unit test asserting the policy *string* contains `'unsafe-inline'` passes
   happily while the browser ignores it.
@@ -411,6 +428,33 @@ One write in the panel path is allowed to fail open: seeding the hash from the
 computed hash still authenticates *this* request and the next one retries the
 seed — refusing the login over a convenience write would lock the owner out on
 exactly the day the quota is exhausted. Pinned by `tests/queda-kv.test.js`.
+
+### Turnstile on the login: closed for the client, open for Cloudflare
+
+The panel login requires a Turnstile token since #167 (the original #20 was
+merged into a branch that had already shipped and never reached `main`).
+`checkTurnstile()` returns three answers instead of a boolean: `ok`,
+`recusado` (token missing, invalid, expired or replayed — what the **client**
+controls) and `indisponivel` (no secret, siteverify down or answering 5xx, or
+Cloudflare rejecting **our** key — what the client does not control).
+
+- The public forms (support, removal, Drive gate) keep failing closed on both
+  non-`ok` answers, through `verifyTurnstile()`.
+- The login fails closed on `recusado` and **continues** on `indisponivel`,
+  with rate limit, PBKDF2 and the e-mail alert still in place, and the outage
+  recorded in `/api/healthz`. Turnstile is an extra layer there; a Cloudflare
+  outage must not lock the owner out of the only place the site is run from.
+- The token is checked **after** PBKDF2, on purpose: the deploy smoke posts a
+  wrong password without a token to prove the hash fits the CPU budget, and a
+  token check first would silence that canary. A refused token answers the
+  same (`?error=ts`) whether the password was right or wrong, and writes
+  nothing to KV — only an attempt that passed the challenge is counted by
+  `noteFailedLogin`.
+
+A blocked Turnstile script (ad-blocker) means the owner cannot log in from that
+browser — deliberately, since there is no bypass path here as there is for the
+Drive gate; the login page says so after 5 s. Pinned by
+`tests/login-turnstile.test.js`.
 
 Two things that are **not** relaxed while degraded, both pinned by
 `tests/drive-gate.test.js`: the Drive gate refuses exactly what it refuses

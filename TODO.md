@@ -307,6 +307,22 @@ Extração de log ancora no rótulo que a ferramenta imprime
 formato for a única pista, ele precisa ser específico o bastante para não
 casar com o vizinho perigoso.
 
+### `${{ }}` dentro de `run:` é código — e `grep` confere linha, não valor
+
+O `version_id` do rollback manual entrava no shell como
+`if [ -n "${{ inputs.version_id }}" ]`. O Actions cola a expressão no TEXTO do
+script antes de o bash rodar: um valor com `"; comando; "` era executado num
+job com o token da Cloudflare e `contents: write`, e um typo virava output e
+só estourava no `versions deploy` (#164). Input entra por `env:` e é lido como
+`"$VARIAVEL"`; o `verifica-shell-dos-workflows.py` recusa `${{ inputs.* }}` em
+qualquer `run:`.
+
+A validação trouxe a segunda lição: `printf '%s' "$V" | grep -qE '^uuid$'`
+aprova um valor de DUAS linhas com um UUID na primeira — o grep ancora por
+linha — e a segunda linha ia parar no `$GITHUB_OUTPUT`. Valor inteiro se
+confere com `[[ "$V" =~ ${UUID_RE:?} ]]`; o `:?` derruba o passo se a regra
+sumir do `env:`, em vez de uma regex vazia aprovar tudo.
+
 ### Passo best-effort é passo que ninguém lê
 
 `d1 migrations apply` falhava com `duplicate column name: access_type` em
@@ -360,6 +376,20 @@ varredura final procurava. É o mesmo erro do contador em dublê de Durable
 Object (`RETOMADA.md` §5.3), em outra roupa: **não teste contra dublê aquilo
 que o formato é que define.** Gere ao menos uma amostra com um codificador de
 verdade e congele no repositório.
+
+---
+
+### Espião não sabe quem o chamou
+
+`vi.spyOn(crypto.subtle, 'deriveBits')` conta chamadas de **qualquer** lugar.
+O teste "o PBKDF2 roda mesmo sem token" (o canário de CPU do smoke, #175)
+passou com o defeito dentro — a verificação posta antes do hash —, porque o
+`getAdminHash()`, com o KV vazio, semeia o `ADMIN_PASSWORD` fazendo um PBKDF2
+próprio, e esse chamado satisfazia o espião. Só apareceu reintroduzindo o
+defeito de propósito. Teste com espião precisa de um estado em que o **único**
+caminho possível até o espião seja o que está sendo testado (aqui: hash já
+gravado, espião criado depois) — e a prova de que isso vale é o teste
+reprovar com o defeito de volta, não passar sem ele.
 
 ---
 
