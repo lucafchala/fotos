@@ -148,8 +148,11 @@ Every HTML response carries **both** `Content-Security-Policy` and
   That combination is deliberate and load-bearing: per CSP Level 3, **a nonce
   makes the browser discard `'unsafe-inline'`**. So `'self' 'unsafe-inline'
   'nonce-abc'` is not "both" — it is effectively `'self' 'nonce-abc'`, and every
-  `onclick="…"` attribute handler stops firing. The UI has ~63 of them, so that
-  silently kills the gallery, the event page, the Drive gate and the dashboard.
+  `onclick="…"` attribute handler stops firing. The UI had ~63 of them then, so
+  that silently killed the gallery, the event page, the Drive gate and the
+  dashboard. Since 2026-09-03 (`4552180`) none are left — they became delegated
+  listeners (`data-onclick` and friends) — but the rule stands until the flip
+  tracked in #126 is done with a real browser.
   This was actually committed once and caught only by driving a real browser —
   a unit test asserting the policy *string* contains `'unsafe-inline'` passes
   happily while the browser ignores it.
