@@ -164,10 +164,9 @@ migrations_dir = "migrations"
 [triggers]
 # Diário 03:00 UTC — purga solicitações resolvidas + consentimentos expirados.
 crons = ["0 3 * * *"]
-
-[env.preview]
-name = "fotos-preview"
 ```
+
+Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). Preview de verdade é a versão que o deploy sobe sem tráfego, no próprio Worker `fotos` (seção de deploy abaixo).
 
 O binding `FOTOS` é referenciado em todo o código como `env.FOTOS`. Para fork pessoal: crie um KV namespace novo (`npx wrangler kv namespace create FOTOS`) e troque o `id`.
 
@@ -215,7 +214,7 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 >
 > | Valor | O que o `/api/healthz` diz | Por quê |
 > | --- | --- | --- |
-> | binding ausente | `NÃO EXISTE neste Worker` | Não chegou — provavelmente salvo no Worker errado (há um `fotos-preview`) |
+> | binding ausente | `NÃO EXISTE neste Worker` | Não chegou — provavelmente salvo em outro Worker da conta (confira o nome `fotos` no topo da página do painel) |
 > | vazio | `EXISTE neste Worker, mas o valor está VAZIO` | O nome está lá e o valor não; recriar colando o valor |
 > | só espaço / `\n` | `EXISTE, mas só contém espaço em branco (N)` | Seria *truthy* em JS e viraria chave HMAC de verdade, com o painel dizendo que está tudo certo — o **falso verde** |
 > | < 32 caracteres | `curto demais (N de 32)` | Cai numa varredura offline a partir de um único token assinado; daí em diante dá para forjar nonce e token de formulário |
@@ -256,6 +255,8 @@ A migração vive em `migrations/0001_consent.sql`. Retenção: o cron diário a
 ### Turnstile
 
 Use o widget no modo **managed** (painel da Cloudflare) para verificação sem atrito (sem desafio visível na maioria dos acessos). O `TURNSTILE_SECRET_KEY` é verificado server-side em `/api/drive-link` (fail-closed — sem ele, o link do Drive nunca é liberado), no formulário de remoção e no suporte.
+
+O modo do widget (*Managed*, *Non-interactive* ou *Invisible*) mora no painel, não no repositório. Por isso os textos legais (`/privacidade`, `LEGAL.md`, `docs/legal/transferencia-internacional.md`) dizem o que é verdade em **qualquer** modo — automático na maior parte dos acessos, **pode** pedir uma confirmação — e não prometem invisibilidade (#165; `tests/textos-turnstile.test.js` recusa a promessa). No código: o `/suporte` renderiza o widget com a aparência padrão, à vista no formulário; o portão do Drive e o pedido de remoção usam `appearance: 'interaction-only'`, que só aparece se a Cloudflare pedir interação.
 
 ---
 
@@ -493,7 +494,9 @@ depois.
   resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
   publicado antes de mandar para cliente" sem prazo para decidir.
 - **`version_id`**. Promove uma versão **já existente**, pulando build e upload
-  — é o rollback: segundos, sem recompilar e sem mexer no Git.
+  — é o rollback: segundos, sem recompilar e sem mexer no Git. Tem de ser o ID
+  inteiro (UUID, como `0e65efc8-c701-47b1-9b50-21108d826fce`); qualquer outra
+  coisa para o workflow antes de tocar em produção.
 - **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
   Existe por um motivo só: `versions upload` não aplica migração de Durable
   Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
@@ -566,7 +569,7 @@ fotos/
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── smoke.sh             ← as 39 checagens; roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
-│   └── verifica-shell-dos-workflows.py ← bash -n em cada bloco `run:` dos workflows
+│   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
@@ -623,7 +626,7 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
 | `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
 | `login-fail:<ip>:<janela>` | Contagem de logins falhos, TTL 15 min — só alimenta o alerta | `noteFailedLogin` |
-| `error-alert:cooldown`, `login-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert` |
+| `error-alert:cooldown`, `login-alert:cooldown`, `noscript-sweep-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert`, `sendNoscriptSweepAlert` |
 | `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
 
 > O log de consentimento **não** fica no KV — vive no D1 (`image_use_consent`, ver abaixo). Contadores e rate limit também não: são Durable Objects (`Counter`, `RateLimiter` — ver [Métricas](#métricas) e `src/counters.js`).
@@ -764,7 +767,7 @@ compatibilidade sem comprar segurança.
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 5/h por IP), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
-| POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 60/h por IP (10/h no caminho `noscript` p/ ad-blocker) — e grava o aceite em D1 (best-effort, no-op sem D1) |
+| POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 60/h por IP (10/h no caminho `noscript` p/ ad-blocker) — e grava o aceite em D1 (best-effort, no-op sem D1). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147) |
 | POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
 | POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP estrita (que roda em Report-Only). Serve a dois fins: medir quantos handlers inline faltam para a virada da política, e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 5/h por IP) |
@@ -866,7 +869,7 @@ test do deploy recusa um nonce aparecendo no cabeçalho enforced.
 
 ## Páginas públicas
 
-Todas as oito páginas públicas (`/`, `/<slug>`, `/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`, mais o listing raiz) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Sobre/Equipamento/Suporte/Legal/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A função não tem ponto de extensão: já teve um parâmetro `extra`, usado por um único chamador (o "Ver tour novamente" da página de projeto), e ele saiu junto com o tour — rodapé que varia por página é exatamente o que este bloco compartilhado existe para impedir. "Sugestões" propositalmente **não** entrou nesse rodapé (ficaria apertado); vive só no aviso de nova interface, abaixo. A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com links "Reportar" e "Tem uma sugestão?" para `/suporte?tema=bug` e `/suporte?tema=sugestao` (pré-preenchem a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar). Todas as oito páginas também trazem, comentados no `<head>` (sem efeito nenhum até serem descomentados e preenchidos com um ID real), placeholders prontos pra Microsoft Clarity; a galeria ganha ainda um placeholder de verificação do Google Search Console.
+Todas as páginas públicas (`/`, `/<slug>`, `/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`, `/legal` e `/legal/<documento>`) compartilham um rodapé gerado por `footerLegalLinksHTML()` (`src/utils.js`): links Sobre/Equipamento/Suporte/Legal/Código-fonte + linha de copyright com o ano calculado em tempo de request (`© {ano} Luca F. Chala. Todos os direitos reservados.`, sempre correto, sem cron). A função não tem ponto de extensão: já teve um parâmetro `extra`, usado por um único chamador (o "Ver tour novamente" da página de projeto), e ele saiu junto com o tour — rodapé que varia por página é exatamente o que este bloco compartilhado existe para impedir. "Sugestões" propositalmente **não** entrou nesse rodapé (ficaria apertado); vive só no aviso de nova interface, abaixo. A galeria e a página de projeto também mostram, no topo, um **aviso dispensável de "nova interface"** (`updateBannerHTML()`, mesmo `src/utils.js`) com links "Reportar" e "Tem uma sugestão?" para `/suporte?tema=bug` e `/suporte?tema=sugestao` (pré-preenchem a mensagem do formulário); a dispensa é lembrada via `localStorage['fotos:update_banner_dismissed']`, por página (cada uma escuta o próprio botão de fechar). Todas as oito páginas também trazem, comentados no `<head>` (sem efeito nenhum até serem descomentados e preenchidos com um ID real), placeholders prontos pra Microsoft Clarity; a galeria ganha ainda um placeholder de verificação do Google Search Console.
 
 Todas as páginas públicas respeitam **`prefers-color-scheme`** automaticamente — sem toggle manual (o experimental foi removido em fase anterior e não volta). Cada arquivo declara seu próprio conjunto de variáveis CSS (`:root{...}` + `@media(prefers-color-scheme:light){:root{...}}`), sem CSS compartilhado entre páginas — mesmo padrão de "cada página é seu próprio template literal" já usado no resto do projeto. Chrome sobreposto a uma foto (pill de voltar, setas/dots/contador do carrossel, badges do card) fica sempre escuro/translúcido nos dois temas, porque a função dele é contraste contra a foto, não contra a página. Os botões de CTA ("Acessar fotos", "Ir para o Drive", "Enviar mensagem") usam a cor de destaque dourada como fundo nos dois temas (`--cta-bg`/`--cta-text`) — mesma cor de marca em vez de inverter pra uma pílula preto/branco conforme o tema. O dashboard admin **não** foi incluído nesse trabalho — continua só escuro.
 

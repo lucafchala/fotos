@@ -6,6 +6,26 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      # vitest, @vitest/* e o pool do workerd exigem versões casadas entre si
+      # (peerDependencies). Atualizados um de cada vez, cada PR quebra o
+      # `npm ci` com ERESOLVE — foi o que aconteceu com #156 e #158. No mesmo
+      # grupo, sobem juntos, num PR só; tests/repositorio.test.js reprova se um
+      # pacote da família ficar de fora.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@cloudflare/vitest-pool-workers"
+    ignore:
+      # O vitest 5 ainda não é instalável aqui: o @cloudflare/vitest-pool-workers
+      # mais novo (0.22.0, set/2026) exige vitest ^4.1.0. Apague este bloco
+      # quando `npm view @cloudflare/vitest-pool-workers peerDependencies`
+      # aceitar o 5.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
+        update-types: ["version-update:semver-major"]
   # Keep GitHub Actions (checkout, wrangler-action, setup-node, codeql) current.
   - package-ecosystem: "github-actions"
     directory: "/"
