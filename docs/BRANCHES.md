@@ -107,14 +107,21 @@ localmente (`llms.md`, seção 2).
 
 ## PRs do Dependabot
 
-- **Não faça push no branch dele.** O Dependabot para de manter um PR que
-  alguém alterou. Para testar a combinação com a `main`, faça o merge
+- **Não faça commit seu no branch dele.** O Dependabot para de manter um PR
+  que alguém alterou. Para testar a combinação com a `main`, faça o merge
   **localmente** (`git merge origin/main` num checkout destacado), rode
   `npm ci`, lint, typecheck e as duas suítes — e para o `wrangler`, também
   `npx wrangler deploy --dry-run --env=`.
 - **Conflito no `package-lock.json`** depois de outro merge: o Dependabot
-  rebaseia sozinho em um ou dois minutos. Se não rebasear, comente
-  `@dependabot rebase`.
+  rebaseia sozinho em um ou dois minutos (o #176 foi rebaseado assim logo
+  depois do #160).
+- **Sem conflito, só atrasado em relação à `main`:** o Dependabot não se
+  mexe. O dono comenta `@dependabot rebase`; numa sessão de agente, o
+  caminho é o *Update branch* (`update_pull_request_branch` — merge commit,
+  sem reescrever história), esperar a CI do head novo e mergear em seguida.
+  Comentário de sessão **não serve**: o texto sai publicado com as menções
+  neutralizadas (`·@·d·ependabot r·ebase`) e o comando nunca chega — foi o
+  que aconteceu no #157.
 - **Mudou o `.github/dependabot.yml`?** O Dependabot pode fechar um PR aberto
   e abrir outro com o mesmo bump ("Superseded by #N") — o #159 virou o #176
   assim. Siga o número novo.
