@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # 740 testes em duas suítes (node + workerd), ~20 s — set/2026
+npm test          # 747 testes em duas suítes (node + workerd), ~20 s — set/2026
 npm run lint
 ```
 
@@ -91,6 +91,8 @@ scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
   smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
+  scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas EMITEM (#127)
+  helpers/scripts-embutidos.d.ts ← o que o tsc não sabe desses scripts, em listas fechadas
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
 ```
@@ -337,6 +339,15 @@ smoke em produção e **reverte sozinho** se reprovar. Três consequências:
      `tsc --checkJs` sobre JSDoc, sem passo de build. Se um arquivo novo não
      passar, anote o arquivo — não baixe o gate. O raciocínio e a lista de bugs
      reais que ele já encontrou estão no `tsconfig.json`.
+   - **Os `<script>` das páginas também passam pelo lint e pelo tsc**, como
+     SAEM da página renderizada (`tests/scripts-embutidos.test.js`, #127). O
+     tsc roda sem `strict` e com as listas fechadas de
+     `tests/helpers/scripts-embutidos.d.ts`: o que um bloco pendura em
+     `window` para outro ler, e as propriedades de subtipo (`value`,
+     `checked`…) que os scripts usam num elemento genérico. Reprovou com uma
+     propriedade nova e legítima? Acrescente à lista — ou estreite o tipo no
+     script. Nunca troque a lista por `any` geral: é ela que pega
+     `classList.contians`.
    - `test:coverage` é catraca: os limiares são o que a suíte já cobre. Se
      falhar, escreva o teste que falta em vez de baixar o número.
 4. Mexeu em UI, CSP ou rota? **Abra num navegador.** Ver `docs/VERIFICACAO.md`.

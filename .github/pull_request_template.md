@@ -25,8 +25,10 @@ Fixes #
 <!-- O que causava o problema (se for bug) ou como a funcionalidade foi
      implementada. Inclua trechos de log/erro reais quando ajudar a
      revisão. Se tocou em template strings de HTML/JS do painel ou das
-     páginas públicas, lembre que esse código não é lintado nem
-     typechecado (vive dentro de strings) — descreva como validou manualmente. -->
+     páginas públicas: o lint e o tsc só enxergam esse código como ele SAI
+     das páginas que tests/scripts-embutidos.test.js renderiza. Caminho que
+     nenhuma variação exercita continua sem rede, e comportamento só um
+     navegador mostra — descreva como validou. -->
 
 ## Test plan (automatizado)
 
