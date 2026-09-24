@@ -23,8 +23,12 @@ jobs:
           # tipo de divergência que este par de workflows existe para evitar.
           node-version: '22'
 
+      # `npm ci`, como o deploy.yml e o security.yml: instala exatamente o
+      # package-lock.json e FALHA se ele divergir do package.json. Com
+      # `npm install`, este job resolvia de novo e passava com um lockfile que o
+      # `npm ci` do deploy recusaria — testar uma árvore e publicar outra.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Lint
         run: npm run lint

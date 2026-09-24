@@ -28,6 +28,7 @@ O incidente chega por um destes caminhos:
 | --- | --- |
 | Alerta automático de erro | E-mail de `sendErrorAlert()` (`ADMIN_EMAIL`), disparado por qualquer exceção não tratada |
 | Alerta de login | E-mail após 5 tentativas falhas em 15 min |
+| Alerta de varredura | E-mail quando um mesmo IP libera 5 ou mais projetos distintos sem Turnstile em 24 h — possível coleta automatizada das fotos |
 | Relatório de CSP | `csp-violation` nos logs do Worker — possível tentativa de XSS |
 | Denúncia externa | `security@lucafchala.com` (RFC 9116, `/.well-known/security.txt`) |
 | Titular | `/suporte`, `privacidade@lucafchala.com` ou WhatsApp |

@@ -36,3 +36,16 @@ export const DEFAULT_EVENT = {
 // Cloudflare atualizaria uma e esqueceria a outra — o formulário que ficasse
 // com a velha recusaria todo envio.
 export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
+
+// Varredura pelo caminho noscript do portão do Drive (#147). O fallback para
+// quem tem o Turnstile bloqueado entrega o link sem desafio, e um script que já
+// carregou a página consegue percorrer o catálogo por ele. Quem usa bloqueador
+// de verdade abre um ou dois projetos; CINCO projetos distintos do mesmo IP em
+// 24 h por esse caminho é o formato de coleta, não de visita. Volume num
+// projeto só NÃO alerta: é indistinguível de um grupo atrás do mesmo IP (uma
+// escola, um evento) com bloqueador — ver SECURITY.md.
+export const NOSCRIPT_SWEEP_MIN_SLUGS = 5;
+export const NOSCRIPT_SWEEP_WINDOW_SECS = 24 * 3600;
+// Um alerta a cada 6 h no máximo, para o conjunto — não por IP: com rotação de
+// IP, um cooldown por IP viraria enxurrada de e-mails e de escritas no KV.
+export const NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS = 6 * 3600;

@@ -159,9 +159,10 @@ report-only é o sistema funcionando como projetado.
 const ctx = await browser.newContext({ javaScriptEnabled: false });
 ```
 
-A galeria usa masonry calculado por JS. Sem ele, os cards já colapsaram para 4px
-e se empilharam no mesmo ponto. Há um fallback hoje — não o remova sem testar
-com JS desligado.
+A galeria já usou masonry calculado por JS, e sem ele os cards colapsavam para
+4px e se empilhavam no mesmo ponto. Hoje é uma grade uniforme em CSS puro, sem
+depender de script — mantenha assim, e teste com JS desligado qualquer mudança
+de layout.
 
 ---
 
@@ -191,21 +192,18 @@ têm limites por IP. Reiniciar o harness zera tudo, porque o KV é em memória.
 
 ## 5. Rodando o smoke test do deploy localmente
 
-Um check do `deploy.yml` ficou dois deploys sem nunca executar — `set -e` fazia
-a primeira falha esconder as seguintes — e era incapaz de passar. Extraia o
-passo inteiro e rode contra o harness antes de subir:
+Um check do `deploy.yml` já ficou dois deploys sem nunca executar — `set -e`
+fazia a primeira falha esconder as seguintes — e era incapaz de passar. Por isso
+o smoke saiu do YAML para `scripts/smoke.sh`, o **mesmo** script que o
+`deploy.yml` roda contra o preview e contra a produção. Rode contra o
+`wrangler dev` antes de subir:
 
 ```bash
-python3 - <<'PY'
-import yaml
-w = yaml.safe_load(open('.github/workflows/deploy.yml'))
-step = [s for s in w['jobs']['deploy']['steps'] if s.get('name') == 'Smoke tests'][0]
-open('/tmp/smoke.sh','w').write("#!/usr/bin/env bash\nset -e\nDEPLOYMENT_URL=http://localhost:8787\n" + step['run'])
-PY
-bash /tmp/smoke.sh
+npm run smoke:local     # = bash scripts/smoke.sh http://127.0.0.1:8787
 ```
 
-São 24 checagens. Todas passam contra o harness.
+Ele relata cada checagem e só reprova no fim, então uma falha não esconde as
+outras.
 
 ---
 

@@ -307,6 +307,22 @@ Extração de log ancora no rótulo que a ferramenta imprime
 formato for a única pista, ele precisa ser específico o bastante para não
 casar com o vizinho perigoso.
 
+### `${{ }}` dentro de `run:` é código — e `grep` confere linha, não valor
+
+O `version_id` do rollback manual entrava no shell como
+`if [ -n "${{ inputs.version_id }}" ]`. O Actions cola a expressão no TEXTO do
+script antes de o bash rodar: um valor com `"; comando; "` era executado num
+job com o token da Cloudflare e `contents: write`, e um typo virava output e
+só estourava no `versions deploy` (#164). Input entra por `env:` e é lido como
+`"$VARIAVEL"`; o `verifica-shell-dos-workflows.py` recusa `${{ inputs.* }}` em
+qualquer `run:`.
+
+A validação trouxe a segunda lição: `printf '%s' "$V" | grep -qE '^uuid$'`
+aprova um valor de DUAS linhas com um UUID na primeira — o grep ancora por
+linha — e a segunda linha ia parar no `$GITHUB_OUTPUT`. Valor inteiro se
+confere com `[[ "$V" =~ ${UUID_RE:?} ]]`; o `:?` derruba o passo se a regra
+sumir do `env:`, em vez de uma regex vazia aprovar tudo.
+
 ### Passo best-effort é passo que ninguém lê
 
 `d1 migrations apply` falhava com `duplicate column name: access_type` em

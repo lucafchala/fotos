@@ -19,7 +19,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
-  sendErrorAlert, sendLoginAlert,
+  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
 import {
@@ -30,6 +30,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -519,13 +520,14 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
 
   const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
 
-  // Cookie de 1h evita contar a mesma pessoa duas vezes (KV read-modify-write
-  // não é atômico, então isto é analytics aproximado, não métrica exata).
+  // Cookie de 1h evita contar a mesma pessoa duas vezes. O incremento em si é
+  // exato (Durable Object, ver bumpCounter); o que é aproximado é a noção de
+  // "visita" — um navegador por hora, por projeto.
   const cookieName = `fv_${slug}`;
   // HEAD não conta nem seta o cookie: HEAD reexecuta como GET, e monitores de
-  // uptime batem por minuto — sem esta exceção, cada um gastaria uma escrita
-  // de KV contra a cota diária de 1000, e o GET real seguinte não contaria
-  // (o visitante já apareceria como "já contado" pelo cookie de um HEAD).
+  // uptime batem por minuto — sem esta exceção, cada sondagem viraria uma
+  // "visita", e o GET real seguinte não contaria (o visitante já apareceria
+  // como "já contado" pelo cookie de um HEAD).
   const alreadyCounted = (request.headers.get('Cookie') || '').includes(`${cookieName}=1`);
   // A galeria faz prefetch da página do projeto no hover (speculation rules em
   // gallery.js). Isso é uma aposta do BROWSER, não uma visita: contar aqui
@@ -535,8 +537,8 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
   const counts = !alreadyCounted && !headOnly && !prefetch;
   if (counts) {
-    // Agregado em memória do isolate, não gravado na hora — vira uma escrita
-    // por janela em vez de uma por visitante. Ver bumpCounter() em utils.js.
+    // Uma chamada ao Durable Object `Counter` por visita contada, fora do
+    // caminho da resposta (waitUntil). Ver bumpCounter() em utils.js.
     bumpCounter(env, ctx, `views:${slug}`);
   }
 
@@ -2100,9 +2102,11 @@ export function auditSite(events, env = {}, degradacoes = []) {
  * @param {Env} env
  */
 export async function handleHealthz(request, env) {
-  // Sem rate-limit por KV de propósito: este endpoint é sondado pelo monitor
-  // de status em intervalo fixo, e checkRateLimit() gasta escrita (cota
-  // compartilhada de 1000/dia) que o trabalho limitado desta rota não justifica.
+  // Sem rate limit de propósito: este endpoint é sondado pelo monitor de
+  // status em intervalo fixo, e o trabalho dele é limitado (leituras de KV e
+  // um hash) e fica atrás da borda da Cloudflare. O motivo original era a cota
+  // de escrita do KV, que o rate limit gastava quando morava lá; hoje ele é um
+  // Durable Object, mas limitar o monitor continua sem proteger nada.
   //
   // KV é o binding do qual tudo depende; falha de leitura aqui é a única
   // condição que vira ok:false.
@@ -2398,20 +2402,60 @@ export async function handleDriveLink(request, env, ctx) {
     // Best-effort de propósito (log falhando não pode barrar a foto), mas com
     // barulho: o registro de consentimento é a peça de não-repúdio da LGPD,
     // e perdê-lo em silêncio seria o pior modo de falha do sistema.
-    ctx.waitUntil(stmt.run().catch(e => {
-      noteDegraded(
-        'registro de consentimento não gravou',
-        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
-        e
-      );
-      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
-    }));
+    //
+    // A checagem de varredura (#147) vem DEPOIS do INSERT, para a linha desta
+    // requisição entrar na conta, e só no caminho noscript — com Turnstile de
+    // verdade não há o que alertar.
+    ctx.waitUntil(stmt.run().then(
+      () => (isNoscript ? checkNoscriptSweep(env, ip) : undefined),
+      e => {
+        noteDegraded(
+          'registro de consentimento não gravou',
+          `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+          e
+        );
+        return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+      },
+    ));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
   return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
+}
+
+// Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
+// abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
+// projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
+// e nunca lança: falhar aqui não pode afetar a entrega das fotos.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ */
+async function checkNoscriptSweep(env, ip) {
+  if (!env.CONSENT_DB) return;
+  try {
+    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    /** @type {{ slugs: number, total: number, restritos: number } | null} */
+    const linha = await env.CONSENT_DB.prepare(
+      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+         FROM image_use_consent
+        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+    ).bind(ip.slice(0, 64), desde).first();
+    const slugs = Number(linha?.slugs) || 0;
+    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    await sendNoscriptSweepAlert(env, {
+      ip,
+      slugs,
+      restritos: Number(linha?.restritos) || 0,
+      total: Number(linha?.total) || 0,
+      janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
+    });
+  } catch (e) {
+    noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
 }
 
 /**
