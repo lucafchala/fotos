@@ -68,7 +68,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Um push publica uma vez só (#186). O GitHub já entregou o mesmo push duas
+  # vezes (165 e 166, para o merge do #184), e a segunda execução republicou o
+  # commit. Esta conferência decide se o `deploy` roda. Ela fica num job à
+  # parte para o `deploy` inteiro virar "skipped", sem migração, upload, tag
+  # nem release, em vez de um `if:` em cada passo. A regra e o porquê estão em
+  # scripts/deploy-duplicado.mjs.
+  duplicado:
+    name: Commit já publicado?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read   # checkout do script
+      actions: read    # listar as execuções deste workflow
+    outputs:
+      pular: ${{ steps.confere.outputs.pular }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Conferir execuções anteriores deste commit
+        id: confere
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-duplicado.mjs
+
   deploy:
+    needs: duplicado
+    # `!cancelled()` no lugar do `success()` implícito: se a própria
+    # conferência quebrar, o deploy segue (falha aberta, como o script faz
+    # quando a API não responde). Só um `pular=true` explícito o segura.
+    if: ${{ !cancelled() && needs.duplicado.outputs.pular != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
