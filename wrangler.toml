@@ -155,23 +155,9 @@ enabled = true
 head_sampling_rate = 1
 persist = true
 
-[env.preview]
-name = "fotos-preview"
-
-[[env.preview.kv_namespaces]]
-binding = "FOTOS"
-id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
-
-# O preview precisa dos mesmos bindings: um ambiente sem eles quebra em
-# `env.COUNTER is undefined` no primeiro visitante, e não no deploy.
-[[env.preview.durable_objects.bindings]]
-name = "COUNTER"
-class_name = "Counter"
-
-[[env.preview.durable_objects.bindings]]
-name = "RATELIMIT"
-class_name = "RateLimiter"
-
-[[env.preview.migrations]]
-tag = "v1"
-new_sqlite_classes = ["Counter", "RateLimiter"]
+# Sem `[env.*]`, de propósito (#166). Existia um `[env.preview]` que declarava
+# um Worker à parte (`fotos-preview`) com o MESMO KV de produção e sem D1:
+# quem rodasse `--env preview` achando que estava isolado gravava nos dados
+# reais, sem registro de consentimento. Preview de verdade é a versão que o
+# deploy.yml sobe sem tráfego (`versions upload`), no próprio Worker `fotos`.
+# Um ambiente isolado precisa de KV e D1 PRÓPRIOS — nunca do id acima.
