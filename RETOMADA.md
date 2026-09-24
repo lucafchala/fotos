@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # 747 testes em duas suítes (node + workerd), ~20 s — set/2026
+npm test          # 766 testes em duas suítes (node + workerd), ~20 s — set/2026
 npm run lint
 ```
 
@@ -86,6 +86,7 @@ scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
+scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
@@ -374,6 +375,7 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Link do Drive não abre | `healthz` → `drive: { bad: N }` |
 | Deploy vermelho, site no ar | O smoke test roda **depois** de publicar (§5.11); se reprovou, a reversão automática já agiu — veja a linha "Reversão" do resumo. Não mergeie nada até reverter o commit no Git |
 | Resumo do deploy: "Portão de preview ⚠️ indisponível" | Normal hoje (#179). O smoke rodou depois da promoção |
+| Deploy com o job `deploy` **pulado** e "Deploy pulado: este commit já foi publicado" no resumo | O GitHub entregou o mesmo push duas vezes; a primeira execução publicou, e o resumo aponta qual (#186). Nada a fazer. Para republicar de propósito: **Run workflow** |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 

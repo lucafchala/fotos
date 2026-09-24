@@ -296,6 +296,7 @@ uma versão nova.
 
 | # | Etapa | O que garante |
 | --- | --- | --- |
+| 0 | Job `duplicado`: o mesmo commit já teve execução por `push`? | Um push publica uma vez só. Se o GitHub entregar o mesmo push duas vezes, a segunda execução pula o deploy inteiro (#186). Falha aberta: se a API não responder, o deploy segue, com aviso |
 | 1 | `npm ci` + versão do wrangler derivada de `node_modules` | A produção sobe pela versão que os testes usaram |
 | 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
@@ -569,6 +570,7 @@ fotos/
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── smoke.sh             ← 44 checagens (51 com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
+│   ├── deploy-duplicado.mjs ← o deploy.yml pula um push repetido do mesmo commit (#186)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
 │   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
@@ -589,6 +591,7 @@ fotos/
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
 │   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)
+│   ├── deploy-duplicado.test.js ← a regra do push repetido, o script contra uma API falsa e o deploy.yml
 │   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
 └── src/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
