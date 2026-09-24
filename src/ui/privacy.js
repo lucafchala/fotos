@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML, fontPreconnectHTML, socialMetaHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
 
 export function privacyHTML() {
   return `<!DOCTYPE html>
@@ -25,9 +25,9 @@ export function privacyHTML() {
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
     })(window, document, "clarity", "script", "PROJECT_ID");
   </script> -->
-  ${fontPreconnectHTML()}
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+  ${fontPreloadHTML()}
   <style>
+    ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
@@ -80,7 +80,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 16 de agosto de 2026</p>
+    <p class="updated">Atualizada em 23 de setembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -117,7 +117,6 @@ export function privacyHTML() {
       <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos dos eventos.</li>
       <li><strong>Resend</strong> — envio dos e-mails das solicitações e do suporte.</li>
       <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile roda em <strong>modo invisível</strong>, fazendo uma verificação automática do navegador para distinguir pessoas de robôs, sem exibir desafio nem coletar dados para publicidade. Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
-      <li><strong>Google Fonts</strong> — fontes tipográficas do site.</li>
     </ul>
     <p>Os dados não são vendidos nem usados para publicidade.</p>
 

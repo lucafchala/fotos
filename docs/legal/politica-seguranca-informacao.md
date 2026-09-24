@@ -141,7 +141,11 @@ fragilidades conhecidas, com o motivo de cada uma:
 3. **Caminho sem JavaScript é mais fraco.** Com o Turnstile bloqueado por
    ad-blocker, o cliente usa `turnstileToken: "noscript"`. Continua sendo um
    POST por evento, com rate limit mais apertado e auditado com
-   `turnstile_ok=0`. É uma escolha de acessibilidade, documentada.
+   `turnstile_ok=0`. É uma escolha de acessibilidade, documentada. Uma
+   varredura por esse caminho gera alerta, mas não é bloqueada: 5 ou mais
+   projetos distintos do mesmo IP em 24 h mandam e-mail ao controlador
+   (`checkNoscriptSweep()` em `src/index.js`, `sendNoscriptSweepAlert()` em
+   `src/utils.js`).
 4. **Sem segundo fator no painel.** Registrado no TODO (magic link ou TOTP).
 5. **Sem COEP.** `require-corp` quebraria as imagens do
    `lh3.googleusercontent.com`, que não enviam CORP.

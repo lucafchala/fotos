@@ -9,6 +9,7 @@ import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
+import { FONTS } from './content/fonts.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   hashPassword, verifyPassword, generateToken,
@@ -18,7 +19,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
   toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
-  sendErrorAlert, sendLoginAlert,
+  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
 } from './utils.js';
 import {
@@ -29,6 +30,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -229,6 +231,9 @@ const worker = {
       if (path === '/manifest.json' && method === 'GET') return handleManifest();
       if (path === '/icon.svg' && method === 'GET') return handleIcon();
       if (path === '/og-coming-soon.png' && method === 'GET') return handleComingSoonOgImage();
+      // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
+      // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
+      if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
@@ -1480,7 +1485,17 @@ export async function handleChangePassword(request, env, ctx) {
   if (!check.ok) return jsonErr(check.error, 400);
 
   const hash = await hashPassword(password);
-  await env.FOTOS.put('admin_password', hash);
+  try {
+    await env.FOTOS.put('admin_password', hash);
+  } catch (e) {
+    // Com o KV recusando a gravação (cota diária esgotada é o caso real), isto
+    // virava o 500 genérico do roteador — logo na troca de senha, a reação
+    // padrão a "acho que invadiram". A resposta diz o que aconteceu e o que
+    // continua valendo, e a varredura de sessões abaixo não roda: sem senha
+    // nova, derrubar as outras sessões só deslogaria o próprio dono.
+    noteKvFailure('escrita', e, 'troca de senha do painel');
+    return jsonErr('A senha não foi trocada: o banco de dados do site não respondeu. A senha antiga continua valendo — tente de novo em alguns minutos.', 503);
+  }
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
@@ -1898,6 +1913,11 @@ async function handleResolveRequest(request, env, id) {
 
   const req = requests[idx];
 
+  // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
+  // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
+  // "Solicitação atendida" para a pessoa a cada vez.
+  if (req.resolved) return jsonOk(req);
+
   // Send "resolved" email to requester
   let resolvedEmailStatus;
   try {
@@ -1913,7 +1933,20 @@ async function handleResolveRequest(request, env, id) {
     resolvedAt: new Date().toISOString(),
     resolvedEmailStatus,
   };
-  await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  // Uma gravação só, depois do e-mail: o status dele mora no mesmo registro, e
+  // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
+  // antes e atualizar depois falharia justamente em produção.
+  try {
+    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+  } catch (e) {
+    // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
+    // novo às cegas mandaria um segundo aviso à pessoa.
+    noteKvFailure('escrita', e, 'resolução de pedido de remoção');
+    const email = resolvedEmailStatus === 'sent'
+      ? 'O e-mail de confirmação JÁ foi enviado — resolver de novo manda outro.'
+      : 'Nenhum e-mail de confirmação foi enviado.';
+    return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
+  }
   return jsonOk(requests[idx]);
 }
 
@@ -2369,20 +2402,60 @@ export async function handleDriveLink(request, env, ctx) {
     // Best-effort de propósito (log falhando não pode barrar a foto), mas com
     // barulho: o registro de consentimento é a peça de não-repúdio da LGPD,
     // e perdê-lo em silêncio seria o pior modo de falha do sistema.
-    ctx.waitUntil(stmt.run().catch(e => {
-      noteDegraded(
-        'registro de consentimento não gravou',
-        `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
-        e
-      );
-      return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
-    }));
+    //
+    // A checagem de varredura (#147) vem DEPOIS do INSERT, para a linha desta
+    // requisição entrar na conta, e só no caminho noscript — com Turnstile de
+    // verdade não há o que alertar.
+    ctx.waitUntil(stmt.run().then(
+      () => (isNoscript ? checkNoscriptSweep(env, ip) : undefined),
+      e => {
+        noteDegraded(
+          'registro de consentimento não gravou',
+          `D1 recusou o INSERT (evento ${slug}). As fotos foram entregues, mas sem prova de aceite`,
+          e
+        );
+        return sendErrorAlert(env, e, { path: 'POST /api/drive-link (consent insert)' }).catch(() => {});
+      },
+    ));
   }
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
   return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
+}
+
+// Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
+// abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
+// projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
+// e nunca lança: falhar aqui não pode afetar a entrega das fotos.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ */
+async function checkNoscriptSweep(env, ip) {
+  if (!env.CONSENT_DB) return;
+  try {
+    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    /** @type {{ slugs: number, total: number, restritos: number } | null} */
+    const linha = await env.CONSENT_DB.prepare(
+      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+         FROM image_use_consent
+        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+    ).bind(ip.slice(0, 64), desde).first();
+    const slugs = Number(linha?.slugs) || 0;
+    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    await sendNoscriptSweepAlert(env, {
+      ip,
+      slugs,
+      restritos: Number(linha?.restritos) || 0,
+      total: Number(linha?.total) || 0,
+      janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
+    });
+  } catch (e) {
+    noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
 }
 
 /**
@@ -2557,6 +2630,33 @@ function handleComingSoonOgImage() {
   return new Response(bytes, {
     status: 200,
     headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=604800' },
+  });
+}
+
+// Os WOFF2 do Inter, servidos daqui em vez do Google Fonts (#131). O nome leva
+// um pedaço do sha256 do arquivo (ver scripts/build-fonts.mjs), então a URL
+// muda sempre que o conteúdo muda — daí poder dizer `immutable` por um ano sem
+// risco de prender alguém numa fonte velha.
+//
+// Decodificado uma vez por isolate: o base64 tem ~65 KB por face, e toda
+// página pede a fonte. `new Response()` COPIA os bytes que recebe, então
+// reaproveitar o mesmo Uint8Array entre respostas é seguro (o teste em
+// tests/workers/ prova isso no workerd, não num dublê).
+const FONT_BY_PATH = new Map(FONTS.map(f => [f.path, f]));
+/** @type {Map<string, Uint8Array>} */
+const fontBytes = new Map();
+
+/** @param {string} path */
+function handleFont(path) {
+  let bytes = fontBytes.get(path);
+  if (!bytes) {
+    const font = /** @type {typeof FONTS[number]} */ (FONT_BY_PATH.get(path));
+    bytes = Uint8Array.from(atob(font.b64), c => c.charCodeAt(0));
+    fontBytes.set(path, bytes);
+  }
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...dataSecurityHeaders('font/woff2', { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
   });
 }
 

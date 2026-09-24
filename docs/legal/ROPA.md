@@ -123,11 +123,11 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | Contadores de rate limit por IP (`ratelimit:*`), contador de falhas de login por IP (`login-fail:*`). |
+| **Dados** | Contadores de rate limit por IP (Durable Object `RateLimiter`, um por rota e IP), contador de falhas de login por IP (`login-fail:*`), e a contagem de projetos abertos sem Turnstile por IP, lida do registro de consentimento (seção 2) para o alerta de varredura. |
 | **Finalidade** | Conter força bruta e abuso; alertar o controlador. |
 | **Base legal** | **Art. 7º, IX** + **art. 16, I** (guarda para exercício regular de direito). |
 | **Retenção** | TTL curto: de 10 min a 24 h, conforme a janela. Nenhum registro de segurança sobrevive além disso. |
-| **Nota** | O alerta de login por e-mail inclui o IP de origem. Os alertas de erro (`sendErrorAlert`) **nunca** incluem IP, cabeçalhos ou corpo de requisição — só mensagem, stack truncada e rota. |
+| **Nota** | O alerta de login e o de varredura pelo caminho sem Turnstile incluem, por e-mail ao controlador, o IP de origem — é o que permite agir (bloqueio no firewall, consulta ao registro). Os alertas de erro (`sendErrorAlert`) **nunca** incluem IP, cabeçalhos ou corpo de requisição — só mensagem, stack truncada e rota. |
 
 ---
 
@@ -138,7 +138,6 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
 | Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa) | EUA | idem |
-| Google Fonts | IP do visitante ao buscar a fonte | EUA / global | idem |
 
 ---
 

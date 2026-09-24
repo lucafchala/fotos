@@ -17,10 +17,10 @@
 | Registro de aceite (consent log, D1) | Gerado no acesso ao Drive | Comprovação / exercício regular de direito | **5 anos** (cron) |
 | Solicitação de remoção (e-mail, telefone, foto) | Formulário | Consentimento + cumprimento de pedido do titular | **6 meses** após resolução (cron) |
 | Mensagem de suporte | Formulário | Consentimento | Não armazenada (vai por e-mail) |
-| Contadores de view/clique (KV) | Acesso | Legítimo interesse (métrica) | Indefinido (agregado, sem PII) |
+| Contadores de view/clique (Durable Object) | Acesso | Legítimo interesse (métrica) | Indefinido (agregado, sem PII) |
 
 ## Operadores / terceiros
-Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile em modo invisível** — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails) · Google Fonts.
+Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile em modo invisível** — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails). As fontes tipográficas saem do próprio site — nenhum terceiro recebe o IP do visitante por causa delas.
 
 ## Segurança (resumo técnico)
 PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameSite=Strict (24 h); CSP/HSTS/COOP/CORP; Turnstile; rate-limit por IP (inclui login); escaping de saída; validação de entrada + sniff de upload por magic bytes; cron de retenção; `security.txt` (RFC 9116) e procedimento de incidente (art. 48 LGPD).

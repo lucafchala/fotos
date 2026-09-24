@@ -80,6 +80,9 @@ export default [
         Buffer: 'readonly',
         TextEncoder: 'readonly',
         TextDecoder: 'readonly',
+        // Global no Node 22 (engines do package.json); o roteiro de navegador
+        // lê o sitemap com ele.
+        fetch: 'readonly',
       },
     },
     rules: {
