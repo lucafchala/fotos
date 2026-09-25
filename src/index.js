@@ -17,7 +17,7 @@ import {
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, safeUrl, isLikelyImage, csvResponse, stripImageMetadata,
+  toHttps, safeUrl, isLikelyImage, sortEvents, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
@@ -239,6 +239,9 @@ const worker = {
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
       if (path === '/robots.txt' && method === 'GET') return handleRobots();
       if (path === '/llms.txt' && method === 'GET') return handleLlmsTxt();
+      // Lista curta para o widget "Galerias recentes" da home lucafchala.com
+      // (outra origem, por isso o CORS aberto). Ver handleRecentes().
+      if (path === '/api/recentes' && method === 'GET') return handleRecentes(env);
 
       // Security contact (RFC 9116)
       if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
@@ -489,6 +492,54 @@ function handleGpc() {
   const body = JSON.stringify({ gpc: true, lastUpdate: '2026-06-16' });
   return new Response(body, {
     headers: { ...dataSecurityHeaders('application/json; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+// Quantos itens a home mostra. Fixo aqui, não por query string: um parâmetro
+// viraria chave de cache nova a cada valor e deixaria qualquer um pedir a
+// lista inteira por um endpoint que existe para ser pequeno.
+const RECENTES_MAX = 5;
+
+/**
+ * Últimas galerias públicas, para a home lucafchala.com mostrar projeto novo
+ * sem ninguém editar o HTML de lá. Mesma ordem da galeria (fixados primeiro,
+ * depois o mais novo) e mesmo filtro do sitemap: o que o sitemap não anuncia
+ * (oculto, private/family) também não sai daqui, senão este virava o atalho
+ * que o F1 fechou lá.
+ *
+ * Só os campos que o widget desenha — nada de link do Drive, capa, tipo de
+ * acesso ou contador: um endpoint com CORS aberto é lido por qualquer site, e
+ * o que não está aqui não precisa ser defendido depois.
+ * @param {Env} env
+ */
+async function handleRecentes(env) {
+  const events = await getEvents(env);
+  const visible = sortEvents(events.filter(e => e.visible !== false && !isRestrictedAccess(e)));
+  const galerias = visible
+    .filter(e => typeof e.slug === 'string' && e.slug && typeof e.title === 'string' && e.title)
+    .slice(0, RECENTES_MAX)
+    .map(e => ({
+      slug: e.slug,
+      titulo: e.title,
+      // Só a data no formato que o widget sabe formatar; o resto (vazio, lixo
+      // de restore) vira null e o widget esconde a data em vez de mostrar
+      // "Invalid Date".
+      data: typeof e.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : null,
+      url: `${SITE_URL}/${encodeURIComponent(e.slug)}`,
+      destaque: e.pinned === true,
+      emBreve: e.comingSoon === true,
+    }));
+  return new Response(JSON.stringify({ galerias }), {
+    headers: {
+      ...dataSecurityHeaders('application/json; charset=utf-8', { store: true }),
+      'Access-Control-Allow-Origin': '*',
+      // same-origin (o padrão de dataSecurityHeaders) é justamente o que este
+      // endpoint não pode ter: ele existe para ser lido de outra origem.
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      // 5 min: projeto novo aparece na home logo, e a home não bate no KV a
+      // cada visita (getEvents já tem o cache do isolate por baixo).
+      'Cache-Control': 'public, max-age=300',
+    },
   });
 }
 
