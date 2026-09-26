@@ -111,7 +111,9 @@ issue before any public disclosure.
   **stop counting when the store refuses a write** — see "Rate limits fail open
   when they cannot be recorded" below. They are not, however, optional: see the
   same section for why `/api/track-drive` keeps its per-IP limit even with an
-  atomic counter behind it.
+  atomic counter behind it. "Per IP" means per IPv4 address or per IPv6 **/64**
+  (`ipParaLimite()` in `src/utils.js`): a client gets a whole /64 from its ISP,
+  so counting full IPv6 addresses gave anyone unlimited buckets.
 - Automated-scanner output with no demonstrated impact, "best-practice" header
   nitpicks already covered by our CSP/HSTS, volumetric DoS, and
   social-engineering reports.

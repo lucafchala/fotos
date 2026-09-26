@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -33,7 +33,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // Teasers, not downloads — request right-sized Drive thumbnails so the page loads fast.
   const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, 1600));
 
-  const photosJSON  = JSON.stringify(displayPhotos).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const photosJSON  = jsonParaScript(displayPhotos);
   const slugJSON    = JSON.stringify(event.slug || '');
   // Imagem do cartão de link. O PNG de "em breve" tem exatamente OG_IMAGE_W ×
   // OG_IMAGE_H (ver handleComingSoonOgImage), então nos dois caminhos as
@@ -108,14 +108,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
   <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
-  <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
-  <!-- <script type="text/javascript">
-    (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-    })(window, document, "clarity", "script", "PROJECT_ID");
-  </script> -->
   ${socialMetaHTML({
     title: event.title,
     description: ogDescription,
@@ -134,7 +126,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <link rel="preconnect" href="https://drive.google.com">
   ${photoPreconnectHTML()}
   ${perfBootScript('event', !!analyticsToken, nonce)}
-  <script type="application/ld+json" nonce="${nonce}">${JSON.stringify([
+  <script type="application/ld+json" nonce="${nonce}">${jsonParaScript([
     {
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
@@ -166,7 +158,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       ...(event.eventCredits ? { creditText: event.eventCredits } : {}),
       ...(event.category ? { genre: event.category } : {}),
     },
-  ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</script>
+  ])}</script>
   <style>
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -707,7 +699,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     const EVENT_SLUG     = ${slugJSON};
-    const EVENT_TITLE    = ${JSON.stringify(event.title || '')};
+    const EVENT_TITLE    = ${jsonParaScript(event.title || '')};
     // Nonce assinado para ESTE slug — impede que um token Turnstile válido
     // seja reaproveitado pra varrer os slugs do site sem carregar a página.
     // Vazio quando SIGNING_SECRET não está configurado (ver src/index.js).

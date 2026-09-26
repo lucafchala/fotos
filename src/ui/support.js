@@ -24,14 +24,6 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     description: 'Dúvida, sugestão, problema no site ou pedido de remoção de foto — fale direto com Luca F. Chala.',
     url: 'https://fotos.lucafchala.com/suporte',
   })}
-  <!-- Microsoft Clarity: replace PROJECT_ID with your Clarity project ID -->
-  <!-- <script type="text/javascript">
-    (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-    })(window, document, "clarity", "script", "PROJECT_ID");
-  </script> -->
   ${fontPreloadHTML()}
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="supTsBlocked"></script>
   <!-- Registered here, right after the tag above, so the capture listener is

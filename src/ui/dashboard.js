@@ -1,4 +1,4 @@
-import { sortEvents, escape, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
+import { sortEvents, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -117,8 +117,8 @@ const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revis�
  * @param {string} [nonce]
  */
 export function dashboardHTML(events, categories = [], nonce = '') {
-  const eventsJSON = JSON.stringify(events).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const categoriesJSON = JSON.stringify(categories).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const eventsJSON = jsonParaScript(events);
+  const categoriesJSON = jsonParaScript(categories);
 
   const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
   const catOptionsBody = categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');

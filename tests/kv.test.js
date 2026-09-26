@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
-  checkRateLimit, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
+  checkRateLimit, ipParaLimite, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
   MAX_CATEGORIES, MAX_CATEGORY_LEN,
   degradedHealth, resetDegraded, noteDegraded,
   bumpCounter, readCounter, readCounters, deleteCounters,
@@ -35,6 +35,12 @@ describe('checkRateLimit', () => {
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(true);
     expect(await checkRateLimit(env, 'a', 'k', 1, 600)).toBe(false);
     expect(await checkRateLimit(env, 'b', 'k', 1, 600)).toBe(true);
+  });
+  it('IPv6 conta por /64: trocar o fim do endereço não dá balde novo', async () => {
+    const env = withDurableObjects({ FOTOS: fakeKV() });
+    expect(await checkRateLimit(env, '2001:db8:1:2::1', 'k', 1, 600)).toBe(true);
+    expect(await checkRateLimit(env, '2001:db8:1:2:dead:beef:0:9', 'k', 1, 600)).toBe(false);
+    expect(await checkRateLimit(env, '2001:db8:1:3::1', 'k', 1, 600)).toBe(true);
   });
   it('separa chaves diferentes do mesmo IP', async () => {
     // `login` e `login-day` correm no mesmo IP e não podem dividir contagem:
@@ -668,3 +674,16 @@ describe('troca de senha quando a varredura de sessões falha', () => {
     expect(problemas[0].label).toMatch(/sess/i);
   });
 });
+
+describe('ipParaLimite', () => {
+  it.each([
+    ['1.2.3.4', '1.2.3.4'],
+    ['::ffff:1.2.3.4', '1.2.3.4'],
+    ['2001:DB8:0001:0002:0003:4:5:6', '2001:db8:1:2::/64'],
+    ['2001:db8::1', '2001:db8:0:0::/64'],
+    ['2001:db8:1:2::', '2001:db8:1:2::/64'],
+    ['::1', '0:0:0:0::/64'],
+    ['', ''],
+  ])('%s → %s', (ip, esperado) => { expect(ipParaLimite(ip)).toBe(esperado); });
+});
+
