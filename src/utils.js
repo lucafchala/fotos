@@ -783,12 +783,33 @@ export function toCount(v) {
  */
 export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   try {
-    const id = env.RATELIMIT.idFromName(`${key}:${ip}`);
+    const id = env.RATELIMIT.idFromName(`${key}:${ipParaLimite(ip)}`);
     return await env.RATELIMIT.get(id).check(limit, windowSecs);
   } catch (e) {
     noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return true;
   }
+}
+
+/**
+ * A chave de limite por IP. Um cliente IPv6 recebe um /64 inteiro do
+ * provedor, então contar por endereço completo dava a qualquer um 2^64
+ * baldes: o limite do login, do portão do Drive (inclusive o noscript) e dos
+ * formulários virava enfeite. O /64 é o que a rede entrega a UM cliente.
+ * IPv4 (e IPv4 mapeado em IPv6) segue por endereço.
+ * @param {string} ip
+ * @returns {string}
+ */
+export function ipParaLimite(ip) {
+  const s = String(ip || '').trim().toLowerCase();
+  if (!s.includes(':')) return s;
+  const v4 = s.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4) return v4[1];
+  const [cabeca, cauda] = s.split('::');
+  const a = cabeca ? cabeca.split(':') : [];
+  const b = cauda ? cauda.split(':') : [];
+  const grupos = cauda === undefined ? a : [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b];
+  return grupos.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
 }
 
 /**
@@ -802,6 +823,18 @@ export function escape(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
+}
+
+/**
+ * JSON para dentro de um <script>. `<` e `>` viram \u003c / \u003e: o valor
+ * para o JS é o mesmo, mas um `</script>` ou `<!--` vindo de dado (título de
+ * projeto, backup restaurado) não fecha nem desvia o bloco. Era uma regra
+ * escrita em cinco lugares, e o sexto (EVENT_TITLE) ficou sem ela.
+ * @param {unknown} v
+ * @returns {string}
+ */
+export function jsonParaScript(v) {
+  return JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 }
 
 // Rodapé compartilhado por toda página pública, para não divergir conforme
@@ -825,18 +858,6 @@ export function footerLegalLinksHTML() {
       <a href="/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
     </div>
-/**
- * JSON para dentro de um <script>. `<` e `>` viram \u003c / \u003e: o valor
- * para o JS é o mesmo, mas um `</script>` ou `<!--` vindo de dado (título de
- * projeto, backup restaurado) não fecha nem desvia o bloco. Era uma regra
- * escrita em cinco lugares, e o sexto (EVENT_TITLE) ficou sem ela.
- * @param {unknown} v
- * @returns {string}
- */
-export function jsonParaScript(v) {
-  return JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-}
-
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
 }
 
