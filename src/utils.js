@@ -825,6 +825,18 @@ export function footerLegalLinksHTML() {
       <a href="/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
     </div>
+/**
+ * JSON para dentro de um <script>. `<` e `>` viram \u003c / \u003e: o valor
+ * para o JS é o mesmo, mas um `</script>` ou `<!--` vindo de dado (título de
+ * projeto, backup restaurado) não fecha nem desvia o bloco. Era uma regra
+ * escrita em cinco lugares, e o sexto (EVENT_TITLE) ficou sem ela.
+ * @param {unknown} v
+ * @returns {string}
+ */
+export function jsonParaScript(v) {
+  return JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
+
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
 }
 
