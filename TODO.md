@@ -22,11 +22,11 @@ para merecer registro, ideias não comprometidas e decisões de não fazer.
 
 ## Plano gratuito — a restrição que decide o resto
 
-> 🔜 **A decisão mudou: o dono vai assinar o Workers Paid.** Enquanto o
-> pagamento não acontecer, tudo nesta seção continua valendo e o código no
-> `main` está correto como está. Depois de assinar, o passo a passo da compra e
-> a lista do que mexer (e do que **não** mexer) estão em
-> [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md).
+> **O projeto segue no plano gratuito.** O Workers Paid **não** foi assinado
+> (ver `RETOMADA.md` §5.3): os contadores e o rate limit foram para Durable
+> Objects no próprio plano gratuito. [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md)
+> é o histórico daquela decisão e o roteiro caso ela volte, não um plano em
+> curso.
 
 **Enquanto isso, o projeto está no plano gratuito.** Isso não é nota de rodapé
 sobre custo — é a restrição de projeto mais forte que existe aqui, e qualquer

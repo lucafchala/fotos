@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # 766 testes em duas suítes (node + workerd), ~20 s — set/2026
+npm test          # ~780 testes em duas suítes (node + workerd), ~20 s — set/2026
 npm run lint
 ```
 

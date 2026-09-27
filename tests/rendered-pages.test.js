@@ -774,3 +774,24 @@ describe('chave pública do Turnstile', () => {
     }
   });
 });
+
+describe('dado de projeto não fecha o <script> da página', () => {
+  // EVENT_TITLE era o único JSON dentro de <script> sem escapar `<`: um título
+  // com `</script>` (dashboard ou backup restaurado) fechava o bloco com nonce,
+  // e o <script> seguinte rodava, porque a CSP aplicada ainda tem
+  // 'unsafe-inline' (#126).
+  const T = 'Festa </script><script>window.PWNED=1</script><!--';
+  const html = () => eventHTML({ ...EVENTO, title: T }, '2026', null, 'NONCE', 'nonce-drive', 'form-token');
+
+  it('o título hostil não aparece cru em lugar nenhum', () => {
+    expect(html()).not.toContain('</script><script>window.PWNED');
+    expect(html()).not.toContain('PWNED=1</script><!--');
+  });
+
+  it('o título continua no script, escapado, com o mesmo valor', () => {
+    const m = html().match(/const EVENT_TITLE\s*=\s*(".*?");/);
+    expect(m).not.toBeNull();
+    expect(JSON.parse(/** @type {RegExpMatchArray} */ (m)[1])).toBe(T);
+  });
+});
+
