@@ -47,7 +47,7 @@ export { Counter, RateLimiter } from './counters.js';
 const SITE_URL = 'https://fotos.lucafchala.com';
 const REMOVAL_RETENTION_DAYS = 180; // resolved removal requests are purged after this
 const CONSENT_RETENTION_DAYS = 1825; // image-use consent rows purged after this (~5 anos — prazo prescricional de reparação civil)
-// Teto para campos de URL (photos, driveUrl, driveUrlInstagram, projectUrl).
+// Teto para campos de URL (photos, driveUrl, driveUrlInstagram, driveUrlVideos, projectUrl).
 // Era 500 — curto demais para link do Drive/Fotos com resourcekey ou URL
 // assinada (S3/GCS) com token na querystring; truncar no meio não dava erro,
 // só salvava um link que não carregava. 2000 cobre com folga.
@@ -896,6 +896,7 @@ function withEventDefaults(ev) {
 // `addedAt + horas` passar da data máxima do JavaScript, e o `toISOString()` da
 // página do projeto LANÇAVA RangeError — 500 na página pública, com alerta.
 const PHOTOS_ALERT_MAX_HOURS = 24 * 365;
+const PHOTOS_ALERT_KINDS = ['fotos', 'videos'];
 
 /**
  * @param {any} pa
@@ -913,6 +914,9 @@ function normalizePhotosAlert(pa, fallback) {
     active: pa.active === true,
     addedAt,
     expiresAfterHours: Number.isInteger(horas) ? Math.min(Math.max(horas, 0), PHOTOS_ALERT_MAX_HOURS) : 0,
+    // O que foi acrescentado: muda só o texto do aviso ("Novas fotos" /
+    // "Novos vídeos"). Qualquer outro valor vira o padrão, fotos.
+    kind: PHOTOS_ALERT_KINDS.includes(pa.kind) ? pa.kind : 'fotos',
   };
 }
 
@@ -939,6 +943,9 @@ export function normalizeEventFields(body, base, cats) {
     longDescription: pick('longDescription', v => String(v).slice(0, 5000)),
     driveUrl: pick('driveUrl', v => toHttps(String(v).slice(0, MAX_URL_LENGTH))),
     driveUrlInstagram: pick('driveUrlInstagram', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
+    // Pasta só com os vídeos do evento (opcional): um atalho para quem já
+    // baixou as fotos. Os vídeos continuam também dentro da pasta principal.
+    driveUrlVideos: pick('driveUrlVideos', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
     projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
@@ -2491,7 +2498,7 @@ export async function handleDriveLink(request, env, ctx) {
       new Date().toISOString(),
       slug,
       (event.title || '').slice(0, 200),
-      event.driveUrlInstagram ? 'both' : 'full', // granted, no longer "clicked"
+      driveTarget(event), // granted, no longer "clicked"
       accessType,
       TERMS_VERSION,
       await getTermsHash(),
@@ -2542,7 +2549,24 @@ export async function handleDriveLink(request, env, ctx) {
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
-  return jsonOk({ ok: true, driveUrl: safeUrl(event.driveUrl), driveUrlInstagram: safeUrl(event.driveUrlInstagram) });
+  return jsonOk({
+    ok: true,
+    driveUrl: safeUrl(event.driveUrl),
+    driveUrlInstagram: safeUrl(event.driveUrlInstagram),
+    driveUrlVideos: safeUrl(event.driveUrlVideos),
+  });
+}
+
+// O que o aceite liberou, para o registro de consentimento. 'full' e 'both'
+// (principal + Instagram) são os valores de antes da pasta de vídeos e
+// continuam iguais, para as linhas antigas e novas se lerem do mesmo jeito;
+// com vídeos, entra '+videos' no fim.
+/**
+ * @param {import('./utils.js').Evento} event
+ */
+export function driveTarget(event) {
+  const base = event.driveUrlInstagram ? 'both' : 'full';
+  return event.driveUrlVideos ? `${base}+videos` : base;
 }
 
 // Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
@@ -2803,7 +2827,7 @@ export function buildBackup({ events, categories, removalRequests }) {
 // shape, identity and the fields the pages use as sinks; pass everything else
 // (unknown fields included) through untouched, and never invent a field the
 // backup did not bring.
-const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'projectUrl', 'thumbnailUrl'];
+const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', 'projectUrl', 'thumbnailUrl'];
 
 // Campos de TEXTO, com os mesmos tetos de normalizeEventFields(). As páginas
 // públicas os tratam como string (`.toLowerCase()` na galeria, `.slice()` e

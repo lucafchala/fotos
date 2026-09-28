@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import worker, { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite } from '../src/index.js';
+import worker, { mergeRestore, buildBackup, trimRequests, normalizeEventFields, cronStale, auditSite, driveTarget } from '../src/index.js';
 import { DEFAULT_EVENT } from '../src/config.js';
 import { saveEvents, readCounter, RESERVED_SLUGS } from '../src/utils.js';
 import { galleryHTML } from '../src/ui/gallery.js';
@@ -60,7 +60,7 @@ describe('normalizeEventFields', () => {
       category: '', internalNotes: '', pinned: false,
     });
     expect(f).not.toHaveProperty('shortDescription');
-    expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24 });
+    expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' });
   });
 
   it('sanitizes provided fields (slice limits, https coercion, enums)', () => {
@@ -123,14 +123,34 @@ describe('normalizeEventFields', () => {
     const f = normalizeEventFields({ title: 'x' }, { title: 'x' }, CATS);
     expect(f.status).toBe('entregue');
     expect(f.accessType).toBe('public');
-    expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24 });
+    expect(f.photosAlert).toEqual({ active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' });
   });
 
   it('normalizes a provided photosAlert object', () => {
     const f = normalizeEventFields(
       { photosAlert: { active: true, addedAt: '2026-06-19', expiresAfterHours: '48' } },
       DEFAULT_EVENT, CATS);
-    expect(f.photosAlert).toEqual({ active: true, addedAt: '2026-06-19', expiresAfterHours: 48 });
+    expect(f.photosAlert).toEqual({ active: true, addedAt: '2026-06-19', expiresAfterHours: 48, kind: 'fotos' });
+  });
+
+  it('keeps a "videos" alert kind and turns anything else into "fotos"', () => {
+    const kind = (/** @type {any} */ k) => normalizeEventFields(
+      { photosAlert: { active: true, addedAt: '2026-06-19', expiresAfterHours: 24, kind: k } },
+      DEFAULT_EVENT, CATS).photosAlert.kind;
+    expect(kind('videos')).toBe('videos');
+    expect(kind('fotos')).toBe('fotos');
+    expect(kind('<script>')).toBe('fotos');
+    expect(kind(undefined)).toBe('fotos');
+  });
+
+  it('normalizes driveUrlVideos like the other Drive links', () => {
+    expect(normalizeEventFields({}, DEFAULT_EVENT, CATS).driveUrlVideos).toBe('');
+    expect(normalizeEventFields({ driveUrlVideos: 'http://drive.google.com/v' }, DEFAULT_EVENT, CATS).driveUrlVideos)
+      .toBe('https://drive.google.com/v');
+    expect(normalizeEventFields({ driveUrlVideos: 'javascript:alert(1)' }, DEFAULT_EVENT, CATS).driveUrlVideos).toBe('');
+    // Update sem o campo mantém o que já estava gravado.
+    expect(normalizeEventFields({ title: 'x' }, { driveUrlVideos: 'https://drive.google.com/v' }, CATS).driveUrlVideos)
+      .toBe('https://drive.google.com/v');
   });
 });
 
@@ -272,6 +292,7 @@ describe('mergeRestore hardening', () => {
       projectUrl: 'javascript:alert(document.cookie)',
       driveUrl: 'javascript:alert(1)',
       driveUrlInstagram: 'data:text/html,<script>alert(1)</script>',
+      driveUrlVideos: 'javascript:alert(4)',
       thumbnailUrl: 'javascript:alert(2)',
       photos: ['javascript:alert(3)', 'https://lh3.googleusercontent.com/d/ok'],
     }]);
@@ -279,6 +300,7 @@ describe('mergeRestore hardening', () => {
     expect(ev.projectUrl).toBe('');
     expect(ev.driveUrl).toBe('');
     expect(ev.driveUrlInstagram).toBe('');
+    expect(ev.driveUrlVideos).toBe('');
     expect(ev.thumbnailUrl).toBe('');
     // Only the safe https photo survives.
     expect(ev.photos).toEqual(['https://lh3.googleusercontent.com/d/ok']);
@@ -453,6 +475,60 @@ describe('aviso de novas fotos com número de horas absurdo', () => {
     const html = eventHTML(evento, '2026', null, 'NONCE');
     expect(html).toContain('id="photos-banner"');
     expect(html).toMatch(/const ALERT_ADDED_AT = "";/);
+  });
+});
+
+describe('pasta só de vídeos', () => {
+  const base = { id: 'v', slug: 'fnusc', title: 'FNUSC', driveUrl: 'https://drive.google.com/tudo' };
+  const comVideos = { ...base, driveUrlVideos: 'https://drive.google.com/videos' };
+
+  it('a página oferece a opção "Só os vídeos" e anuncia fotos e vídeos', () => {
+    const html = eventHTML(comVideos, '2026', null, 'NONCE');
+    expect(html).toContain('id="drive-link-videos"');
+    expect(html).toContain('Só os vídeos');
+    expect(html).toContain('<strong>Fotos e vídeos</strong>');
+    expect(html).toContain('Acessar fotos e vídeos');
+    expect(html).toContain('class="video-chip"');
+    // Sem pasta do Instagram, a opção dela não aparece vazia ao lado.
+    expect(html).not.toContain('id="drive-link-ig"');
+    // O link não vai para o HTML: só sai do portão, depois do aceite.
+    expect(html).not.toContain('drive.google.com/videos');
+  });
+
+  it('com Instagram e vídeos, as três opções aparecem', () => {
+    const html = eventHTML({ ...comVideos, driveUrlInstagram: 'https://drive.google.com/ig' }, '2026', null, 'NONCE');
+    expect(html).toContain('id="drive-link"');
+    expect(html).toContain('id="drive-link-ig"');
+    expect(html).toContain('id="drive-link-videos"');
+  });
+
+  it('sem a pasta de vídeos, a página fica como antes', () => {
+    const html = eventHTML(base, '2026', null, 'NONCE');
+    expect(html).not.toContain('id="drive-link-videos"');
+    expect(html).not.toContain('class="video-chip"');
+    expect(html).not.toContain('Acessar fotos e vídeos');
+    expect(html).toContain('class="btn-drive-go"');
+  });
+
+  it('o aviso de novidade diz "Novos vídeos" quando é esse o tipo', () => {
+    const alerta = { active: true, addedAt: new Date().toISOString(), expiresAfterHours: 0 };
+    expect(eventHTML({ ...comVideos, photosAlert: { ...alerta, kind: 'videos' } }, '2026', null, 'NONCE'))
+      .toContain('<strong>Novos vídeos adicionados</strong>');
+    // Registro antigo, sem `kind`: continua dizendo fotos.
+    expect(eventHTML({ ...base, photosAlert: alerta }, '2026', null, 'NONCE'))
+      .toContain('<strong>Novas fotos adicionadas</strong>');
+  });
+
+  it('a galeria marca o card com o selo "Vídeos"', () => {
+    const html = galleryHTML([comVideos, { ...base, id: 'w', slug: 'outro', title: 'Outro' }], null, 'NONCE');
+    expect(html.match(/class="video-badge"/g)).toHaveLength(1);
+  });
+
+  it('o registro de consentimento diz o que foi liberado', () => {
+    expect(driveTarget(base)).toBe('full');
+    expect(driveTarget({ ...base, driveUrlInstagram: 'https://drive.google.com/ig' })).toBe('both');
+    expect(driveTarget(comVideos)).toBe('full+videos');
+    expect(driveTarget({ ...comVideos, driveUrlInstagram: 'https://drive.google.com/ig' })).toBe('both+videos');
   });
 });
 

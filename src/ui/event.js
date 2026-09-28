@@ -77,6 +77,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ? new Date(alertExpiresMs).toISOString()
     : null);
 
+  // Pasta só de vídeos: ganha a própria opção no portão, e o projeto passa a
+  // se anunciar como "fotos e vídeos" (os vídeos também estão na pasta
+  // principal — a opção separada é o atalho de quem já baixou as fotos).
+  const hasVideos = !!event.driveUrlVideos;
+  const ctaLabel = hasVideos ? 'Acessar fotos e vídeos' : 'Acessar fotos';
+  const bannerText = alert && alert.kind === 'videos' ? 'Novos vídeos adicionados' : 'Novas fotos adicionadas';
+
   const heroHTML = event.comingSoon
     ? photos.length > 0
       ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
@@ -233,8 +240,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .breadcrumbs a{color:var(--text-dim-2);text-decoration:none;transition:color .2s}
     .breadcrumbs a:hover{color:var(--text-2)}
     .breadcrumbs .sep{color:var(--border-dim-2)}
-    .meta{margin-bottom:.875rem}
+    .meta{margin-bottom:.875rem;display:flex;align-items:center;gap:.875rem;flex-wrap:wrap}
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)}
+    .video-chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+    .video-chip svg{width:11px;height:11px}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
     .desc{font-size:.95rem;line-height:1.85;color:var(--text-2);white-space:pre-wrap;word-break:break-word;margin-bottom:2.75rem}
     .drive-wrap{margin-bottom:3rem}
@@ -417,7 +426,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   ${showBanner ? `<div class="photos-banner" id="photos-banner">
     <div class="banner-inner">
       <span class="banner-dot"></span>
-      <span class="banner-text"><strong>Novas fotos adicionadas</strong> <span class="banner-time" id="banner-time"></span></span>
+      <span class="banner-text"><strong>${bannerText}</strong> <span class="banner-time" id="banner-time"></span></span>
     </div>
   </div>` : ''}
 
@@ -439,6 +448,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     </nav>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
+      ${hasVideos && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
@@ -451,7 +461,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           </button>`
         : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
-            Acessar fotos
+            ${ctaLabel}
           </button>`}
     </div>
 
@@ -493,16 +503,16 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${footerLegalLinksHTML()}
   </footer>
 
-  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="Acessar fotos">
+  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="${ctaLabel}">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
-    Acessar fotos
+    ${ctaLabel}
   </button>` : ''}
 
   <!-- DRIVE MODAL -->
   <div class="modal-ov" id="modal">
-    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="Acessar fotos">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="${ctaLabel}">
       <div class="modal-head">
-        <h2>Acessar fotos</h2>
+        <h2>${ctaLabel}</h2>
         <button class="m-close" data-action="closeModal" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -549,18 +559,25 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
         </div>
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
-        ${event.driveUrlInstagram
+        ${event.driveUrlInstagram || hasVideos
           ? `<div class="drive-opts">
               <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
                 <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
                 <span class="btn-spin"><span class="spin"></span></span>
-                <div class="drive-opt-text"><strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span></div>
+                <div class="drive-opt-text">${hasVideos
+                  ? '<strong>Fotos e vídeos</strong><span>Tudo, nos arquivos originais em alta qualidade</span>'
+                  : '<strong>Resolução completa</strong><span>Arquivos originais em alta qualidade</span>'}</div>
               </a>
-              <a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
+              ${event.driveUrlInstagram ? `<a id="drive-link-ig" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
                 <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg></span>
                 <span class="btn-spin"><span class="spin"></span></span>
                 <div class="drive-opt-text"><strong>Para o Instagram</strong><span>Já redimensionadas e prontas para postar</span></div>
-              </a>
+              </a>` : ''}
+              ${hasVideos ? `<a id="drive-link-videos" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
+                <span class="btn-icon">${iconPlay()}</span>
+                <span class="btn-spin"><span class="spin"></span></span>
+                <div class="drive-opt-text"><strong>Só os vídeos</strong><span>Para quem já baixou as fotos</span></div>
+              </a>` : ''}
             </div>`
           : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" data-action="driveLink">
               <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
@@ -867,7 +884,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     let driveTsToken   = '';
     let driveTimeout   = null;
     let driveLinkState = 'idle'; // idle | loading | ready | error
-    let driveLinkResult = null;  // { driveUrl, driveUrlInstagram } cached after a successful fetch
+    let driveLinkResult = null;  // { driveUrl, driveUrlInstagram, driveUrlVideos } cached after a successful fetch
     let driveAttnTimer = null;
     let remWidgetId   = null;
     let remTsToken    = '';
@@ -1101,6 +1118,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         }
         const ig = document.getElementById('drive-link-ig');
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
+        const videos = document.getElementById('drive-link-videos');
+        if (videos) videos.href = (data && data.driveUrlVideos) || '#';
         driveAttnTimer = setTimeout(function() { wrap.classList.add('drive-attn'); }, 7000);
       } else if (state === 'error') {
         wrap.classList.add('drive-locked');
@@ -1539,4 +1558,9 @@ function camIcon(size) {
 /** @param {number} size */
 function clockIcon(size) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+}
+
+// Triângulo de "play" — marca de vídeo no selo da página e na opção do portão.
+function iconPlay() {
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
 }

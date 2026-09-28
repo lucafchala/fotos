@@ -193,11 +193,12 @@ describe('handleDriveLink — grants', () => {
   // backup must not survive into the client's href.
   it('strips a script-executing URL that reached KV', async () => {
     stubTurnstile(true);
-    await saveEvents(env, [{ id: '9', slug: 'poison', title: 'P', accessType: 'public', driveUrl: 'javascript:alert(1)', driveUrlInstagram: 'data:text/html,<script>' }]);
+    await saveEvents(env, [{ id: '9', slug: 'poison', title: 'P', accessType: 'public', driveUrl: 'javascript:alert(1)', driveUrlInstagram: 'data:text/html,<script>', driveUrlVideos: 'javascript:alert(2)' }]);
     const res = await handleDriveLink(req({ slug: 'poison', turnstileToken: 't', consent: true }), env, fakeCtx());
     const body = await res.json();
     expect(body.driveUrl).toBe('');
     expect(body.driveUrlInstagram).toBe('');
+    expect(body.driveUrlVideos).toBe('');
   });
 });
 
