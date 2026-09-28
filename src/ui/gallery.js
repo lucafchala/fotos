@@ -340,7 +340,9 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
     .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    .video-badge{position:absolute;top:.5rem;right:.5rem;display:inline-flex;align-items:center;gap:.3rem;background:rgba(0,0,0,.6);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
+    /* Embaixo, à esquerda: em cima o "Em destaque" (esquerda) e, em card
+       estreito, qualquer canto de cima colide com ele. */
+    .video-badge{position:absolute;bottom:.5rem;left:.5rem;display:inline-flex;align-items:center;gap:.3rem;background:rgba(0,0,0,.6);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
     .video-badge svg{width:9px;height:9px}
     /* Precisa de height definida (não só min-height): sem isso, height:100%
        da <img> não resolve, cai pra auto, e o card estica pra caber uma
