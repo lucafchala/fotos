@@ -23,10 +23,10 @@ export const FORM_TOKEN_MIN_AGE_SECS = 3;
 // existente.
 export const DEFAULT_EVENT = {
   title: '', longDescription: '',
-  driveUrl: '', driveUrlInstagram: '', date: '', eventCredits: '',
+  driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
   accessType: 'public', category: '', internalNotes: '', pinned: false,
-  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+  photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
 // Chave PÚBLICA do widget Turnstile (site key) — vai para o HTML de propósito;

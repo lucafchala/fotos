@@ -572,6 +572,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <div class="field-hint" style="margin-bottom:.625rem">Pasta com as fotos já redimensionadas e prontas para o Instagram.</div>
           <input type="url" id="f-drive-ig" placeholder="https://drive.google.com/drive/folders/...">
         </div>
+        <div class="field">
+          <label>Link do Drive só com os vídeos <span style="color:#555">(opcional)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">Pasta só com os vídeos do evento, para quem já baixou as fotos. Deixe os vídeos também dentro da pasta principal — quem entra por ela deve ver tudo. Preenchido, o projeto ganha o selo "Vídeos" na galeria.</div>
+          <input type="url" id="f-drive-videos" placeholder="https://drive.google.com/drive/folders/...">
+        </div>
         <div class="field-row">
           <div class="field">
             <label>Data</label>
@@ -639,7 +644,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <div class="field-hint" style="margin-top:.5rem">Quando ativo: o card na galeria e a página do projeto ficam visíveis, mas as fotos de capa são escondidas e o botão do Drive vira "As fotos virão em breve".</div>
         </div>
         <div class="field" style="border-top:1px solid var(--border);padding-top:1.125rem;margin-top:.25rem">
-          <label>Aviso de novas fotos</label>
+          <label>Aviso de novidade</label>
           <div class="toggle-row" style="margin-bottom:.75rem">
             <span style="font-size:.85rem;color:var(--text2)">Mostrar banner na página do projeto</span>
             <label class="toggle">
@@ -648,7 +653,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
             </label>
           </div>
           <div id="alert-opts" style="display:none">
-            <div class="field-hint" style="margin-bottom:.625rem">Exibe "Novas fotos adicionadas há X" com o horário atual. Ao reativar o aviso, o contador reinicia.</div>
+            <div class="field-hint" style="margin-bottom:.625rem">Exibe "Novas fotos adicionadas há X" (ou "Novos vídeos") com o horário atual. Ao reativar o aviso, o contador reinicia.</div>
+            <select id="f-alert-kind" aria-label="O que foi adicionado" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;-webkit-appearance:none;margin-bottom:.625rem">
+              <option value="fotos" selected>Novas fotos adicionadas</option>
+              <option value="videos">Novos vídeos adicionados</option>
+            </select>
             <select id="f-alert-expires" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;-webkit-appearance:none">
               <option value="0">Não expirar automaticamente</option>
               <option value="1">Sumir em 1 hora</option>
@@ -905,6 +914,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       document.getElementById('f-long').value = e ? (e.longDescription || '') : '';
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
+      document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
@@ -920,6 +930,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       alertActiveEl.checked = alertActive;
       alertActiveEl.dataset.wasActive = alertActive ? '1' : '0';
       document.getElementById('f-alert-expires').value = String(e?.photosAlert?.expiresAfterHours ?? 24);
+      document.getElementById('f-alert-kind').value = e?.photosAlert?.kind === 'videos' ? 'videos' : 'fotos';
       toggleAlertOpts(alertActive);
       const initPhotos = e
         ? (Array.isArray(e.photos) && e.photos.length ? e.photos : e.thumbnailUrl ? [e.thumbnailUrl] : [])
@@ -941,11 +952,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const chk = id => document.getElementById(id)?.checked ?? false;
       return JSON.stringify({
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
-        alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'),
+        alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'), alertKind: val('f-alert-kind'),
         photos: photoList,
       });
     }
@@ -990,9 +1001,10 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
+      set('f-alert-kind', f.alertKind || 'fotos');
       setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon);
       setChk('f-alert-active', f.alertActive);
       toggleAlertOpts(!!f.alertActive);
@@ -1174,6 +1186,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         thumbnailUrl: photos[0] || '',
         driveUrl: drive,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
+        driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
@@ -1192,6 +1205,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
             active: nowActive,
             addedAt: nowActive ? (wasActive && existingAddedAt ? existingAddedAt : new Date().toISOString()) : null,
             expiresAfterHours: parseInt(document.getElementById('f-alert-expires').value) || 0,
+            kind: document.getElementById('f-alert-kind').value === 'videos' ? 'videos' : 'fotos',
           };
         })(),
       };

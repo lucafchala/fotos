@@ -650,6 +650,7 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
   thumbnailUrl: "url1",           // sempre = photos[0] || legado
   driveUrl: "https://drive.google.com/drive/folders/...", // string ≤ 2000
   driveUrlInstagram: "https://drive.google.com/drive/folders/...", // opcional — pasta já redimensionada p/ Instagram — string ≤ 2000
+  driveUrlVideos: "https://drive.google.com/drive/folders/...", // opcional — só os vídeos (atalho de quem já baixou as fotos; os vídeos seguem também na pasta principal). Liga a opção "Só os vídeos" no portão e o selo "Vídeos" na galeria — string ≤ 2000
   date: "YYYY-MM-DD",             // ou "" — validado contra regex
   eventCredits: "string ≤ 200",   // exibido como "Em colaboração com: <valor>" (instituição, fotógrafo colaborador ou projeto)
   projectUrl: "string ≤ 2000",
@@ -663,7 +664,8 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
   photosAlert: {
     active: false,
     addedAt: ISO date string | null,
-    expiresAfterHours: 24
+    expiresAfterHours: 24,
+    kind: "fotos" | "videos"      // só o texto do banner: "Novas fotos" / "Novos vídeos adicionados"
   },
   createdAt: ISO date string,
   updatedAt: ISO date string      // só presente após primeiro update
