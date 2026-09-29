@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -84,7 +84,23 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   const ctaLabel = hasVideos ? 'Acessar fotos e vídeos' : 'Acessar fotos';
   const bannerText = alert && alert.kind === 'videos' ? 'Novos vídeos adicionados' : 'Novas fotos adicionadas';
 
-  const heroHTML = event.comingSoon
+  // Vídeo do YouTube no lugar das fotos de capa. Sai só a miniatura com um
+  // botão de play; o iframe (youtube-nocookie) entra no clique. Assim quem só
+  // abre a página não fala com o Google, e a página não paga o peso do
+  // player antes de alguém querer assistir. Sem JS, o link abre no YouTube.
+  const ytId = /^[A-Za-z0-9_-]{11}$/.test(event.youtubeId || '') ? event.youtubeId : '';
+  const videoHeroHTML = ytId
+    ? `<div class="hero hero-video" id="yt-hero">
+        <a class="yt-facade" href="https://www.youtube.com/watch?v=${escape(ytId)}" target="_blank" rel="noopener" data-action="playVideo" data-yt="${escape(ytId)}" aria-label="Assistir ao vídeo de ${escape(event.title)}">
+          <img src="https://i.ytimg.com/vi/${escape(ytId)}/hqdefault.jpg" alt="" fetchpriority="high" decoding="async" data-onerror="heroImgError">
+          <span class="yt-play"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"/></svg></span>
+        </a>
+      </div>`
+    : '';
+
+  const heroHTML = videoHeroHTML && !event.comingSoon
+    ? videoHeroHTML
+    : event.comingSoon
     ? photos.length > 0
       ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
@@ -210,6 +226,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
+    .hero-video{aspect-ratio:16/9;max-height:72vh}
+    .hero-video .yt-facade,.hero-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+    .hero-video img{width:100%;height:100%;max-height:none;object-fit:cover;cursor:pointer}
+    .yt-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;transition:background .18s,transform .18s;backdrop-filter:blur(4px)}
+    .yt-play svg{width:30px;height:30px;margin-left:4px}
+    .yt-facade:hover .yt-play,.yt-facade:focus-visible .yt-play{background:var(--accent);transform:translate(-50%,-50%) scale(1.06)}
     .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#333}
     .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
     .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
@@ -388,11 +410,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
     /* new-interface banner */
-    .update-banner{background:var(--warn-bg);border-bottom:1px solid var(--warn-border);padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:var(--warn-text);text-align:center}
-    .update-banner a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-    .update-banner a:hover{color:var(--accent-hover)}
-    .update-banner .ub-close{background:none;border:none;color:var(--text-dim-2);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
-    .update-banner .ub-close:hover{color:var(--warn-text)}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -422,7 +439,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       Para acessar as fotos, ative o <strong>JavaScript</strong> e desative o bloqueador de anúncios para este site; depois recarregue a página. Precisa de ajuda? <a href="/suporte">Suporte</a>.
     </div>
   </noscript>
-  ${updateBannerHTML()}
   ${showBanner ? `<div class="photos-banner" id="photos-banner">
     <div class="banner-inner">
       <span class="banner-dot"></span>
@@ -448,7 +464,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     </nav>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
-      ${hasVideos && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
+      ${(hasVideos || ytId) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
@@ -739,6 +755,21 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // before the event loop gets a chance to fire any queued load/error task
     // for images already in the markup above, so nothing is missed.
     function heroImgError(el) { el.style.opacity = '0'; }
+    // Troca a miniatura pelo player. O ID sai do data-yt, que o servidor só
+    // escreve depois de validar o formato.
+    function playVideo(el) {
+      var id = el.dataset.yt;
+      var hero = document.getElementById('yt-hero');
+      if (!hero || !/^[A-Za-z0-9_-]{11}$/.test(id || '')) return;
+      var f = document.createElement('iframe');
+      f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&playsinline=1';
+      f.title = el.getAttribute('aria-label') || 'Vídeo';
+      f.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+      f.allowFullscreen = true;
+      f.referrerPolicy = 'strict-origin-when-cross-origin';
+      hero.replaceChildren(f);
+      f.focus();
+    }
     function cImgLoad(el) { el.style.opacity = '1'; if (window.cImgSettled) cImgSettled(); }
     function cImgError(el) { el.style.opacity = '0'; if (window.cImgSettled) cImgSettled(); }
     document.addEventListener('error', function(e) {
@@ -785,6 +816,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         // onDriveLinkClick() already calls e.preventDefault() itself when the
         // link isn't ready yet (same as the old onclick="return …" pattern).
         case 'driveLink': onDriveLinkClick(e); break;
+        case 'playVideo': e.preventDefault(); playVideo(el); break;
       }
     });
     document.addEventListener('change', function(e) {
@@ -844,22 +876,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         const cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
         updateStickyCta();
-      });
-    })();
-
-    // ---- New-interface banner (dismiss remembered per visitor) ----
-    try {
-      if (localStorage.getItem('fotos:update_banner_dismissed')) {
-        const ub0 = document.getElementById('update-banner');
-        if (ub0) ub0.style.display = 'none';
-      }
-    } catch(_) {}
-    (function(){
-      const ubClose = document.getElementById('update-banner-close');
-      if (ubClose) ubClose.addEventListener('click', function(){
-        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
-        const ub = document.getElementById('update-banner');
-        if (ub) ub.style.display = 'none';
       });
     })();
 

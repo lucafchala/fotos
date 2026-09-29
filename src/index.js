@@ -21,6 +21,7 @@ import {
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
+  youtubeIdFrom,
 } from './utils.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -946,6 +947,9 @@ export function normalizeEventFields(body, base, cats) {
     // Pasta só com os vídeos do evento (opcional): um atalho para quem já
     // baixou as fotos. Os vídeos continuam também dentro da pasta principal.
     driveUrlVideos: pick('driveUrlVideos', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
+    // Vídeo que toca na página do projeto, no lugar das fotos de capa. O
+    // painel manda o link colado; grava-se só o ID (ver youtubeIdFrom).
+    youtubeId: pick('youtubeId', v => youtubeIdFrom(String(v).slice(0, MAX_URL_LENGTH))),
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
     projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
@@ -2888,6 +2892,8 @@ function sanitizeRestoredEvent(ev) {
   // O aviso de novas fotos soma horas a uma data para decidir se aparece — um
   // número absurdo aqui virava RangeError na página do projeto.
   if (out.photosAlert !== undefined) out.photosAlert = normalizePhotosAlert(out.photosAlert, { ...DEFAULT_EVENT.photosAlert });
+  // Vira pedaço de URL (src do iframe e da miniatura): só um ID válido passa.
+  if (out.youtubeId !== undefined) out.youtubeId = youtubeIdFrom(out.youtubeId);
   return out;
 }
 

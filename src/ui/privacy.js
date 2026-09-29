@@ -72,7 +72,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 23 de setembro de 2026</p>
+    <p class="updated">Atualizada em 29 de setembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -108,6 +108,7 @@ export function privacyHTML() {
     <ul>
       <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos dos eventos.</li>
       <li><strong>Resend</strong> — envio dos e-mails das solicitações e do suporte.</li>
+      <li><strong>YouTube (Google)</strong> — só em projetos que têm um vídeo na página. A imagem de capa do vídeo vem do YouTube junto com a página; o player em si só é carregado quando você clica em reproduzir, no modo de privacidade aprimorada (<code>youtube-nocookie.com</code>). A partir daí vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
       <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
     </ul>
     <p>Os dados não são vendidos nem usados para publicidade.</p>

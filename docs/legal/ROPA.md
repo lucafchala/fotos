@@ -6,7 +6,7 @@ tratamento que realizar.
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV e Cloudflare D1.
-- **Última revisão:** 2026-08-16
+- **Última revisão:** 2026-09-29
 - **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `migrations/` (esquema do D1).
 
 ---
@@ -138,6 +138,7 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
 | Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa) | EUA | idem |
+| Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 
 ---
 
