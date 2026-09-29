@@ -554,10 +554,31 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
           if (saved && typeof saved.y === 'number') savedY = saved.y;
         }
       } catch(_) {}
+      // ?year=AAAA vem da trilha da página de projeto (breadcrumb e JSON-LD).
+      // Sem isto o link largava o visitante no topo da home, como se o ano
+      // não existisse. Revela os cartões até o último daquele ano e rola até
+      // o título dele; ano sem projeto na galeria cai no comportamento normal.
+      var yearHead = null;
+      try {
+        var yearVal = new URLSearchParams(location.search).get('year');
+        if (yearVal && /^\\d{4}$/.test(yearVal)) {
+          var ultimoDoAno = -1;
+          for (var yi = 0; yi < batchCards.length; yi++) {
+            if (batchCards[yi].getAttribute('data-year') === yearVal) ultimoDoAno = yi;
+          }
+          if (ultimoDoAno >= 0) {
+            if (ultimoDoAno + 1 > shown) shown = ultimoDoAno + 1;
+            yearHead = document.querySelector('[data-year-head="' + yearVal + '"]');
+            savedY = null;
+          }
+        }
+      } catch(_) {}
       updateFiltersBtn();
       apply();
       if (savedY !== null) {
         requestAnimationFrame(function(){ requestAnimationFrame(function(){ scrollTo(0, savedY); }); });
+      } else if (yearHead) {
+        requestAnimationFrame(function(){ yearHead.scrollIntoView({ block: 'start' }); });
       }
 
       function saveGalleryState() {
