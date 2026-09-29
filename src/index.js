@@ -12,6 +12,7 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
+  getAgenda, saveAgenda, limpaAgenda,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
@@ -268,6 +269,7 @@ const worker = {
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
+      if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
@@ -308,7 +310,7 @@ const worker = {
       }
 
       // About page
-      if (path === '/sobre' && method === 'GET') return html(aboutHTML(), 200, nonce);
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML(await getAgenda(env)), 200, nonce);
 
       // Gear list
       if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);
@@ -378,8 +380,10 @@ export default worker;
  * @param {string} nonce
  */
 async function handleGallery(env, nonce) {
-  const events = await getEvents(env);
-  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce), 200, nonce);
+  // getAgenda nunca lança (o selo é enfeite): quem decide se a home cai é só
+  // o getEvents, como antes.
+  const [events, agenda] = await Promise.all([getEvents(env), getAgenda(env)]);
+  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce, agenda), 200, nonce);
   // Agent/crawler discovery hints (RFC 8288)
   res.headers.set('Link', `<${SITE_URL}/>; rel="canonical", <${SITE_URL}/sitemap.xml>; rel="sitemap"`);
   return res;
@@ -656,7 +660,10 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   const [events, categories] = dados;
-  return adminHtml(dashboardHTML(events, categories, nonce), 200, nonce);
+  // Fora do `try` acima de propósito: getAgenda não lança, e o selo não pode
+  // ser motivo de "painel indisponível".
+  const agenda = await getAgenda(env, true);
+  return adminHtml(dashboardHTML(events, categories, nonce, agenda), 200, nonce);
 }
 
 // Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
@@ -1104,6 +1111,29 @@ async function handleDeleteEvent(request, env, path) {
   // slug.
   await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`]);
   return jsonOk({ deleted: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: selo de agenda (#211)
+// ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleSaveAgenda(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  if (body.texto !== undefined && typeof body.texto !== 'string') return jsonErr('Texto inválido.', 400);
+  const texto = limpaAgenda(body.texto ?? '');
+  try {
+    await saveAgenda(env, texto);
+  } catch (e) {
+    noteKvFailure('escrita', e, 'selo de agenda');
+    return jsonErr('Não foi possível salvar agora (banco de dados). Tente de novo mais tarde.', 503);
+  }
+  return jsonOk({ texto });
 }
 
 // ---------------------------------------------------------------------------

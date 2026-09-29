@@ -34,8 +34,9 @@ const SOON_FEATURED_WIDTHS = [640];
  * @param {import('../utils.js').Evento[]} events
  * @param {string|null} analyticsToken
  * @param {string} [nonce]
+ * @param {string} [agenda] selo de agenda (#211); vazio, nada aparece
  */
-export function galleryHTML(events, analyticsToken, nonce = '') {
+export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   // Second guard beyond getEvents(): a null/non-object entry here would throw
   // on e.visible and 500 the whole homepage instead of just skipping it.
   const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
@@ -253,6 +254,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
+    .agenda-selo{display:inline-block;margin:.9rem 0 0;padding:.3rem .8rem;border:1px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.75rem;letter-spacing:.03em}
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
@@ -389,6 +391,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
 <body>
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
+    ${agenda ? `<p class="agenda-selo">${escape(agenda)}</p>` : ''}
   </header>
   <main>
     <h1 class="sr-only">Galeria de fotos</h1>

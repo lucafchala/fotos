@@ -630,6 +630,7 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (o valor legado `"valid"` é recusado e apagado desde o #197) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
+| `agenda` | Texto do selo de agenda (até 80 caracteres, uma linha); ausente = sem selo. Lido com cache de 30 s por isolate, e uma falha de leitura só omite o selo. **Fora do backup** — é uma frase, redigitada em segundos | `handleSaveAgenda` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
 | `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
 | `error-alert:cooldown`, `login-alert:cooldown`, `noscript-sweep-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert`, `sendNoscriptSweepAlert` |
@@ -798,6 +799,7 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | PUT | `/api/settings/password` | Trocar senha do admin |
+| PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
 | POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |

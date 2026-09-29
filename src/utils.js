@@ -284,6 +284,60 @@ export async function saveCategories(env, cats) {
   await env.FOTOS.put('categories', JSON.stringify(cats));
 }
 
+// Selo de agenda (#211): uma frase curta ("Agendando para janeiro/2027") que
+// o dono edita no painel e aparece no topo da galeria e da /sobre. Custo de
+// cota: uma escrita quando o dono salva, nenhuma por visitante; a leitura tem
+// o mesmo cache de 30 s por isolate da lista de eventos.
+//
+// Nunca lança. O selo é enfeite, e a galeria é o site: uma falha de leitura
+// aqui não pode virar 500 na home. Sem valor lido, o selo some (ou fica o
+// último que este isolate viu), e o resto da página sai igual.
+export const AGENDA_MAX_LEN = 80;
+/** @type {string|null} */
+let _agenda = null;
+let _agendaAt = 0;
+
+/**
+ * Uma linha, sem espaço sobrando, no teto. Vale para o que entra pelo painel
+ * e para o que sai do KV (que pode ter sido editado à mão no painel da
+ * Cloudflare).
+ * @param {unknown} v
+ */
+export function limpaAgenda(v) {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, AGENDA_MAX_LEN) : '';
+}
+
+/**
+ * @param {Env} env
+ * @param {boolean} [fresh] ignora o cache do isolate (o painel)
+ * @returns {Promise<string>}
+ */
+export async function getAgenda(env, fresh = false) {
+  const now = Date.now();
+  if (!fresh && _agenda !== null && now - _agendaAt < CACHE_TTL) return _agenda;
+  try {
+    _agenda = limpaAgenda(await env.FOTOS.get('agenda'));
+    _agendaAt = now;
+    return _agenda;
+  } catch (e) {
+    console.error('agenda: leitura do KV falhou; selo omitido', e);
+    return _agenda ?? '';
+  }
+}
+
+/**
+ * Texto vazio apaga a chave: "sem selo" não ocupa espaço nem precisa de
+ * leitura especial.
+ * @param {Env} env
+ * @param {string} texto já passado por limpaAgenda()
+ */
+export async function saveAgenda(env, texto) {
+  if (texto) await env.FOTOS.put('agenda', texto);
+  else await env.FOTOS.delete('agenda');
+  _agenda = texto;
+  _agendaAt = Date.now();
+}
+
 
 /**
  * @param {string} hex

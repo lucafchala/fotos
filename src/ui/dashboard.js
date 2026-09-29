@@ -1,4 +1,4 @@
-import { sortEvents, hojeEmSaoPaulo, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
+import { sortEvents, hojeEmSaoPaulo, AGENDA_MAX_LEN, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -115,8 +115,9 @@ const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revis�
  * @param {import('../utils.js').Evento[]} events
  * @param {string[]} [categories]
  * @param {string} [nonce]
+ * @param {string} [agenda] selo de agenda (#211)
  */
-export function dashboardHTML(events, categories = [], nonce = '') {
+export function dashboardHTML(events, categories = [], nonce = '', agenda = '') {
   const eventsJSON = jsonParaScript(events);
   const categoriesJSON = jsonParaScript(categories);
 
@@ -471,6 +472,14 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <!-- SETTINGS TAB -->
   <div id="tab-settings" class="panel">
     <div class="settings-card">
+      <h3>Selo de agenda</h3>
+      <p>Uma frase curta no topo da galeria e da página Sobre — por exemplo "Agendando para janeiro/2027" ou "Agenda fechada até março". Vazio, o selo some.</p>
+      <div class="cat-add">
+        <input type="text" id="agenda-texto" value="${esc(agenda)}" placeholder="Aceitando novos projetos" maxlength="${AGENDA_MAX_LEN}" data-keydown="saveAgenda">
+        <button class="btn-sm" data-onclick="saveAgenda">Salvar</button>
+      </div>
+    </div>
+    <div class="settings-card">
       <h3>Categorias</h3>
       <p>Usadas para filtrar a galeria. Para aplicar uma categoria a vários eventos de uma vez, use o botão "Selecionar" na aba Eventos.</p>
       <div id="cat-list" class="cat-list"></div>
@@ -793,6 +802,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         case 'applyMassAccess': applyMassAccess(); break;
         case 'exportMetricsCSV': exportMetricsCSV(); break;
         case 'createCategory': createCategory(); break;
+        case 'saveAgenda': saveAgenda(); break;
         case 'downloadBackup': downloadBackup(); break;
         case 'exportConsentCSV': exportConsentCSV(); break;
         case 'exportRemovalCSV': exportRemovalCSV(); break;
@@ -820,6 +830,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     });
     document.addEventListener('keydown', function(ev) {
       if (ev.key === 'Enter' && ev.target.closest('[data-keydown="createCategory"]')) createCategory();
+      if (ev.key === 'Enter' && ev.target.closest('[data-keydown="saveAgenda"]')) saveAgenda();
     });
 
     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
@@ -1716,6 +1727,16 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const btn = ev.target.closest('[data-cat-del]');
       if (btn) deleteCategory(btn.dataset.catDel);
     });
+    async function saveAgenda() {
+      const input = document.getElementById('agenda-texto');
+      try {
+        const res = await api('PUT', '/api/settings/agenda', { texto: input.value || '' });
+        input.value = res.texto;
+        toast(res.texto ? 'Selo salvo. A galeria mostra em até 30 s.' : 'Selo removido.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao salvar o selo.', 'err');
+      }
+    }
     async function createCategory() {
       const input = document.getElementById('cat-new');
       const name = (input.value || '').trim();

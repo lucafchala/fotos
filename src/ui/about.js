@@ -1,9 +1,11 @@
-import { footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
+import { footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML, escape } from '../utils.js';
 
-// Static "Sobre" (About) page — mirrors privacy.js structure (same head, dark
-// theme, back link, footer). No dynamic content, so no escaping is needed.
-// The copy below is a placeholder the owner can edit freely.
-export function aboutHTML() {
+// "Sobre" (About) page — mirrors privacy.js structure (same head, dark
+// theme, back link, footer). The only dynamic content is the agenda badge
+// (#211), escaped like every interpolation. The copy below is a placeholder
+// the owner can edit freely.
+/** @param {string} [agenda] selo de agenda; vazio, nada aparece */
+export function aboutHTML(agenda = '') {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -52,6 +54,7 @@ export function aboutHTML() {
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
     .tagline{font-size:.85rem;color:var(--text-muted);margin-bottom:2.25rem;letter-spacing:.02em}
+    .agenda-selo{display:inline-block;margin:-1.25rem 0 2.25rem;padding:.3rem .8rem;border:1px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.75rem;letter-spacing:.03em}
     h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:var(--text-heading)}
     p,li{font-size:.9rem;line-height:1.75;color:var(--text-2)}
     p{margin-bottom:.75rem}
@@ -89,6 +92,7 @@ export function aboutHTML() {
   <main>
     <h1>Sobre</h1>
     <p class="tagline">Luca F. Chala · fotografia de formaturas, casamentos, ensaios e eventos</p>
+    ${agenda ? `<p class="agenda-selo">${escape(agenda)}</p>` : ''}
 
     <p class="intro">Olá! Sou <strong>Luca F. Chala</strong>, fotógrafo. Registro formaturas, casamentos,
     ensaios e eventos com um olhar atento aos momentos que costumam passar despercebidos: as risadas,
