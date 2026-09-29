@@ -44,7 +44,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Convenções e detalhes do código](#convenções-e-detalhes-do-código)
 - [Como o Drive vira foto na página](#como-o-drive-vira-foto-na-página)
 - [Limitações conhecidas](#limitações-conhecidas)
-- [Roadmap (TODO.md)](#roadmap-todomd)
+- [Pendências e roadmap](#pendências-e-roadmap)
 
 ---
 
@@ -1607,31 +1607,21 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 ## Limitações conhecidas
 
-- **Contadores não atômicos**: `views`, `drive_clicks` e `ratelimit` são read-modify-write. Em alta concorrência, alguns incrementos podem ser perdidos. Aceitável aqui.
-- **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar para R2 está no roadmap.
-- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 resolveria o que sobra.
-- **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
+- **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
+- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
+- **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
 - **CPU budget do Worker**: o hashing PBKDF2 (100k iterações) roda no `/api/healthz` como canário — se não couber no orçamento de CPU, a requisição morre e o CI reprova (healthz sem `ok:true`, login sem 302). Não dá para medir o tempo de dentro do isolate (RETOMADA §5.9); ao mexer no `iterations`, o número real está nas métricas do Worker no painel da Cloudflare.
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
-- **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
-- **Log de consentimento é best-effort**: o D1 (`CONSENT_DB`) está provisionado e o `/api/healthz` reporta `d1: "ok"`, mas a gravação roda em `ctx.waitUntil` — se o insert falhar, o visitante recebe o link do mesmo jeito e a falha só aparece no log. Se o binding for removido, o aceite continua barrando o acesso normalmente, porém sem registro (no-op silencioso).
-- **Sem nonce de curta duração no `/api/drive-link`**: o gate já é verificado no servidor (Turnstile fail-closed + rate limit por IP), mas ainda não há um nonce por carregamento de página amarrando a chamada a uma visita real do evento — um script com um token Turnstile válido em mãos ainda poderia varrer vários slugs. Rate limit por IP mitiga isso parcialmente; nonce fica no roadmap (`TODO.md`, Etapa 3.1).
-- **Formulários e gate exigem JavaScript + Turnstile**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte e a verificação do gate. O site **detecta e avisa** (desative o bloqueador / ative o JS), mantém o acesso às fotos liberado e oferece WhatsApp/e-mail como alternativa; banners `<noscript>` cobrem o caso sem JS.
+- **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume. (O array único no KV também tem uma janela de escrita concorrente — #198.)
+- **Registro de consentimento fora do caminho da resposta**: a gravação no D1 roda em `ctx.waitUntil`, então o visitante recebe o link mesmo se o insert falhar. A falha **não** é silenciosa: entra no `/api/healthz` (`noteDegraded`) e dispara o e-mail de alerta (`sendErrorAlert`). Sem o binding `CONSENT_DB`, o aceite continua barrando o acesso normalmente, porém sem registro — e o autoteste do healthz acusa.
+- **Formulários exigem JavaScript + Turnstile; o portão do Drive não**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte — o site **detecta e avisa** e oferece WhatsApp/e-mail como alternativa. O portão do Drive tem o caminho noscript (grava a concessão com `turnstile_ok = 0` e alerta varredura — ver `SECURITY.md`).
 
 ---
 
-## Roadmap (TODO.md)
+## Pendências e roadmap
 
-O arquivo [`TODO.md`](./TODO.md) lista **só o que está em aberto** — item entregue sai de lá, e o histórico de quem fez o quê fica no `git log`. Resumo do que falta:
-
-**Segurança / anti-abuso**: nonce de curta duração no `/api/drive-link` (anti-varredura de slugs — requer decisão sobre cota de KV vs. secret novo), auditar vazamento de `internalNotes` no HTML público, magic link no painel, honeypot nos formulários, endurecer a CSP, afinar WAF/Bot Fight Mode, strip de EXIF. Política e invariantes em [`SECURITY.md`](./SECURITY.md).
-
-**Operação**: marcar releases com tag (hoje o repo não tem nenhuma — ver [Rollback](#rollback)); destino persistente para o beacon de `/api/perf` (binding `PERF` do Analytics Engine).
-
-**Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega, modelo/"template" de evento (ao lado do "Duplicar" já existente), guardar a proporção da foto na hora de curar o evento para eliminar o reflow residual do grid masonry.
-
-**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", i18n EN/PT, links nominados por convidado, download em ZIP, app nativo, mini-gráfico de visualizações no dashboard.
+Item de ação vive nas [Issues do GitHub](https://github.com/lucafchala/fotos/issues), organizado por fases no [roadmap (#204)](https://github.com/lucafchala/fotos/issues/204). Este README não mantém uma cópia do backlog — uma lista escrita em dois lugares é corrigida num só (`TODO.md`, "Regras vivas"). O [`TODO.md`](./TODO.md) guarda o que não é tarefa: o orçamento de cota, as regras vivas, ideias não priorizadas e o que foi decidido não fazer.
 
 ---
 
