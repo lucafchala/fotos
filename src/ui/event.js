@@ -155,13 +155,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'Início', item: SITE_URL },
-        { '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` },
+        // Sem ano utilizável (#196) a trilha pula o degrau em vez de "1970".
+        ...(year ? [{ '@type': 'ListItem', position: 2, name: year, item: `${SITE_URL}/?year=${year}` }] : []),
         // Sem escape() aqui: o valor é serializado por JSON.stringify e o bloco
         // inteiro sai com < e > neutralizados na linha de baixo. escape() antes
         // disso injetava ENTIDADE HTML dentro do JSON — um slug com "&" virava
         // "&amp;" no item da trilha, uma URL que não existe. O PhotoGallery
         // abaixo já fazia certo; eram os dois discordando sobre o mesmo campo.
-        { '@type': 'ListItem', position: 3, name: event.title, item: `${SITE_URL}/${event.slug}` },
+        { '@type': 'ListItem', position: year ? 3 : 2, name: event.title, item: `${SITE_URL}/${event.slug}` },
       ],
     },
     // Mesmo conjunto de fatos do cartão de link, na forma que o buscador lê.
@@ -458,8 +459,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <a href="/">Início</a>
       <span class="sep">·</span>
-      <a href="/?year=${escape(year)}">${escape(year)}</a>
-      <span class="sep">·</span>
+      ${year ? `<a href="/?year=${escape(year)}">${escape(year)}</a>
+      <span class="sep">·</span>` : ''}
       <span>${escape(event.title)}</span>
     </nav>
     <div class="meta">

@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -47,7 +47,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   for (const e of visible) (e.pinned === true ? pinned : rest).push(e);
 
   /** @param {import('../utils.js').Evento} e */
-  const yearOf = e => e.date ? e.date.slice(0, 4) : String(new Date(eventTime(e)).getFullYear());
+  const yearOf = eventYear;
 
   // Uma <picture> em vez de uma <img> solta: o `<source type="image/webp">`
   // faz o WebP ser escolhido pelo BROWSER, antes de a requisição sair. Quem não
@@ -143,7 +143,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     if (y !== lastYear) {
       lastYear = y;
       const headHidden = idx >= INITIAL;
-      restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${escape(y)}</h2>`);
+      // Sem ano utilizável (#196) o grupo ganha um rótulo em vez de "1970".
+      restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${y ? escape(y) : 'Sem data'}</h2>`);
     }
     restNodes.push(cardHTML(e, { hidden: idx >= INITIAL, year: y, priority: e === lcpCard }));
     idx++;
@@ -183,7 +184,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
 
   // O cartão da home mostra o tamanho e o alcance do acervo em vez de repetir
   // o título: quantos projetos, de que tipo e de que período.
-  const ogYears = [...new Set(visible.map(yearOf))].sort();
+  const ogYears = [...new Set(visible.map(yearOf).filter(Boolean))].sort();
   const ogPeriod = ogYears.length > 1 ? `${ogYears[0]}–${ogYears[ogYears.length - 1]}` : (ogYears[0] || '');
   const ogDescription = previewDescription([
     visible.length > 0 ? `${visible.length} ${visible.length === 1 ? 'projeto' : 'projetos'}` : '',

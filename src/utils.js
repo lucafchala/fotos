@@ -1135,6 +1135,25 @@ export function eventTime(e) {
   return e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
 }
 
+// Ano de um projeto, para o rótulo da galeria e a trilha da página. Vazio
+// quando não há data utilizável: `new Date(0).getFullYear()` era 1970, e um
+// evento sem `date` nem `createdAt` (restauração, dado legado) saía com "1970"
+// na galeria, no breadcrumb e no JSON-LD (#196). Um lugar só decide, para a
+// galeria e a página não voltarem a discordar sobre qual campo vem antes.
+/**
+ * @param {Evento} e
+ * @returns {string} 'AAAA' ou ''
+ */
+export function eventYear(e) {
+  if (typeof e.date === 'string' && /^\d{4}-/.test(e.date)) return e.date.slice(0, 4);
+  for (const v of [e.createdAt, e.updatedAt]) {
+    if (!v) continue;
+    const t = new Date(v).getTime();
+    if (Number.isFinite(t) && t > 0) return String(new Date(t).getUTCFullYear());
+  }
+  return '';
+}
+
 /**
  * @param {Evento[]} events
  */

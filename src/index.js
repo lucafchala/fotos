@@ -17,7 +17,7 @@ import {
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, safeUrl, isLikelyImage, sortEvents, csvResponse, stripImageMetadata,
+  toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
@@ -570,7 +570,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // do sitemap (link compartilhado, backlink).
   const restricted = isRestrictedAccess(event);
 
-  const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
+  const year = eventYear(event);
 
   // Cookie de 1h evita contar a mesma pessoa duas vezes. O incremento em si é
   // exato (Durable Object, ver bumpCounter); o que é aproximado é a noção de
