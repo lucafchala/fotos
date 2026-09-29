@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, formatDatePT, hojeEmSaoPaulo, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -100,6 +100,24 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <span class="yt-play"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"/></svg></span>
         </a>
       </div>`
+    : '';
+
+  // Os demais vídeos (#209): mesma fachada, abaixo da descrição. A capa não
+  // se repete aqui, e "em breve" não mostra nenhum (como a capa). Registro
+  // antigo sem o campo, ou com lixo restaurado, vira lista vazia.
+  const maisVideos = event.comingSoon ? [] : youtubeMaisFrom(event.youtubeMais).filter(v => v.id !== ytId);
+  const maisVideosHTML = maisVideos.length
+    ? `<section class="mais-videos" aria-label="Mais vídeos">
+        <h2 class="mv-titulo">Mais vídeos</h2>
+        <div class="mv-grade">${maisVideos.map((v, i) => `
+          <div class="mv${v.vertical ? ' mv-vertical' : ''}" id="yt-mais-${i}">
+            <a class="yt-facade" href="https://www.youtube.com/watch?v=${escape(v.id)}" target="_blank" rel="noopener" data-action="playVideo" data-yt="${escape(v.id)}" data-alvo="yt-mais-${i}" aria-label="Assistir ao vídeo ${i + 2} de ${escape(event.title)}">
+              <img src="https://i.ytimg.com/vi/${escape(v.id)}/hqdefault.jpg" alt="" loading="lazy" decoding="async" data-onerror="heroImgError">
+              <span class="yt-play"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="7 4 20 12 7 20 7 4"/></svg></span>
+            </a>
+          </div>`).join('')}
+        </div>
+      </section>`
     : '';
 
   const heroHTML = videoHeroHTML && !event.comingSoon
@@ -232,6 +250,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
     .hero-video{aspect-ratio:16/9;max-height:72vh}
+    /* Mais vídeos (#209): 16:9 por padrão; vertical (Shorts/reels) em 9:16,
+       sem faixa preta, com largura contida para não ocupar a tela inteira. */
+    .mais-videos{margin:1.5rem 0}
+    .mv-titulo{font-size:.7rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-bottom:.75rem}
+    .mv-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;align-items:start}
+    .mv{position:relative;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
+    .mv-vertical{aspect-ratio:9/16;max-width:280px}
+    .mv .yt-facade,.mv iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+    .mv img{width:100%;height:100%;object-fit:cover;display:block}
     .hero-video .yt-facade,.hero-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
     .hero-video img{width:100%;height:100%;max-height:none;object-fit:cover;cursor:pointer}
     .yt-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;transition:background .18s,transform .18s;backdrop-filter:blur(4px)}
@@ -476,11 +503,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     </nav>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
-      ${(hasVideos || ytId) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
+      ${(hasVideos || ytId || maisVideos.length) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
       ${photos.length > 1 && !event.comingSoon ? `<button type="button" class="slideshow-btn" data-action="startSlideshow" hidden>${iconPlay()} Apresentação</button>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
+    ${maisVideosHTML}
 
     <div class="drive-wrap">
       ${event.comingSoon
@@ -773,7 +801,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // escreve depois de validar o formato.
     function playVideo(el) {
       var id = el.dataset.yt;
-      var hero = document.getElementById('yt-hero');
+      // A capa troca o #yt-hero; os demais vídeos (#209), a própria caixa.
+      var hero = document.getElementById(el.dataset.alvo || 'yt-hero');
       if (!hero || !/^[A-Za-z0-9_-]{11}$/.test(id || '')) return;
       var f = document.createElement('iframe');
       f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&playsinline=1';

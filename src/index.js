@@ -22,7 +22,7 @@ import {
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
-  youtubeIdFrom,
+  youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -961,6 +961,8 @@ export function normalizeEventFields(body, base, cats) {
     // Vídeo que toca na página do projeto, no lugar das fotos de capa. O
     // painel manda o link colado; grava-se só o ID (ver youtubeIdFrom).
     youtubeId: pick('youtubeId', v => youtubeIdFrom(String(v).slice(0, MAX_URL_LENGTH))),
+    // Os demais vídeos (#209), abaixo da descrição. Ver youtubeMaisFrom.
+    youtubeMais: pick('youtubeMais', v => youtubeMaisFrom(v)),
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
     projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
@@ -3005,6 +3007,7 @@ function sanitizeRestoredEvent(ev) {
   if (out.photosAlert !== undefined) out.photosAlert = normalizePhotosAlert(out.photosAlert, { ...DEFAULT_EVENT.photosAlert });
   // Vira pedaço de URL (src do iframe e da miniatura): só um ID válido passa.
   if (out.youtubeId !== undefined) out.youtubeId = youtubeIdFrom(out.youtubeId);
+  if (out.youtubeMais !== undefined) out.youtubeMais = youtubeMaisFrom(out.youtubeMais);
   return out;
 }
 

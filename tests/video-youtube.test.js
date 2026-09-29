@@ -123,3 +123,46 @@ describe('cabeçalhos para o player', () => {
     expect(pp).toContain('camera=()');
   });
 });
+
+// #209 — vídeos além da capa, em `youtubeMais`. Campo NOVO ao lado de
+// `youtubeId` (não uma lista no lugar dele): uma reversão automática do
+// deploy volta a um código que só conhece `youtubeId`, e a capa não pode sumir.
+describe('mais vídeos do YouTube (#209)', async () => {
+  const { youtubeMaisFrom, MAX_VIDEOS_EXTRAS } = await import('../src/utils.js');
+  const { eventHTML: pagina } = await import('../src/ui/event.js');
+  const A = 'aaaaaaaaaaa', B = 'bbbbbbbbbbb', C = 'ccccccccccc';
+
+  it('lê links colados, Shorts como vertical, sufixo "vertical", e recusa lixo e repetição', () => {
+    expect(youtubeMaisFrom([
+      `https://youtu.be/${A}`,
+      `https://www.youtube.com/shorts/${B}`,
+      `https://www.youtube.com/watch?v=${C} vertical`,
+      'https://exemplo.com/nada', `https://youtu.be/${A}`, '',
+    ])).toEqual([{ id: A, vertical: false }, { id: B, vertical: true }, { id: C, vertical: true }]);
+  });
+
+  it('aceita o formato gravado (restore) e texto com um link por linha; teto de 5', () => {
+    expect(youtubeMaisFrom([{ id: A, vertical: true }, { id: 'x', vertical: true }, { id: B }])).toEqual([{ id: A, vertical: true }, { id: B, vertical: false }]);
+    expect(youtubeMaisFrom(`https://youtu.be/${A}\nhttps://youtu.be/${B}`)).toHaveLength(2);
+    const muitos = Array.from({ length: 9 }, (_, i) => `https://youtu.be/${String(i).repeat(11)}`);
+    expect(youtubeMaisFrom(muitos)).toHaveLength(MAX_VIDEOS_EXTRAS);
+    expect(youtubeMaisFrom(null)).toEqual([]);
+    expect(youtubeMaisFrom({ id: A })).toEqual([]);
+  });
+
+  it('a página mostra os extras abaixo da descrição, sem repetir a capa, sem player antes do clique', () => {
+    const html = pagina({ id: 'x', slug: 'x', title: 'X', accessType: 'public', photos: [], youtubeId: A,
+      youtubeMais: [{ id: A, vertical: false }, { id: B, vertical: false }, { id: C, vertical: true }] }, '2026', null);
+    expect(html).toContain('id="yt-mais-0"');
+    expect(html).toContain(`data-yt="${B}" data-alvo="yt-mais-0"`);
+    expect(html).toContain('class="mv mv-vertical" id="yt-mais-1"');
+    expect(html).not.toContain(`data-alvo="yt-mais-0" aria-label="Assistir ao vídeo 2 de X"><img src="https://i.ytimg.com/vi/${A}`);
+    expect(html.match(/<iframe/g)).toBeNull();
+  });
+
+  it('registro antigo sem o campo e projeto "em breve" não mostram a seção', () => {
+    const base = { id: 'x', slug: 'x', title: 'X', accessType: 'public', photos: [], youtubeId: A };
+    expect(pagina(base, '2026', null)).not.toContain('class="mais-videos"');
+    expect(pagina({ ...base, comingSoon: true, youtubeMais: [{ id: B, vertical: false }] }, '2026', null)).not.toContain('class="mais-videos"');
+  });
+});

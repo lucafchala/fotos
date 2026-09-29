@@ -1346,6 +1346,48 @@ export function youtubeIdFrom(v) {
   return id && YT_ID.test(id) ? id : '';
 }
 
+// Os vídeos além da capa (#209), em `youtubeMais`: [{ id, vertical }]. Campo
+// NOVO ao lado de `youtubeId`, e não uma lista no lugar dele, de propósito: o
+// deploy reverte sozinho quando o smoke reprova, e a versão anterior continua
+// lendo `youtubeId` e ignorando o resto — com a capa virando lista, uma
+// reversão apagaria o vídeo de capa de todo projeto que o tivesse.
+//
+// Aceita o que o painel manda (links colados, um por linha, com " vertical"
+// opcional no fim) e o que já está gravado ({ id, vertical }), então serve
+// também ao restore. Link de Shorts é vertical sem precisar dizer: o YouTube
+// não informa a proporção sem a API, mas o formato do link informa.
+export const MAX_VIDEOS_EXTRAS = 5;
+/**
+ * @param {unknown} v
+ * @returns {{ id: string, vertical: boolean }[]}
+ */
+export function youtubeMaisFrom(v) {
+  const itens = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\r?\n/) : [];
+  /** @type {{ id: string, vertical: boolean }[]} */
+  const out = [];
+  const vistos = new Set();
+  for (const item of itens.slice(0, 50)) {
+    if (out.length >= MAX_VIDEOS_EXTRAS) break;
+    let id = '';
+    let vertical = false;
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const o = /** @type {Record<string, unknown>} */ (item);
+      id = typeof o.id === 'string' && YT_ID.test(o.id) ? o.id : '';
+      vertical = o.vertical === true;
+    } else if (typeof item === 'string') {
+      let s = item.trim().slice(0, 2048);
+      const sufixo = s.match(/\s+vertical$/i);
+      if (sufixo) { vertical = true; s = s.slice(0, sufixo.index).trim(); }
+      id = youtubeIdFrom(s);
+      if (/\/shorts\//i.test(s)) vertical = true;
+    }
+    if (!id || vistos.has(id)) continue;
+    vistos.add(id);
+    out.push({ id, vertical });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Remoção de metadados (EXIF/GPS/XMP) das imagens enviadas
 // ---------------------------------------------------------------------------
