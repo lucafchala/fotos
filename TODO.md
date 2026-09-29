@@ -406,39 +406,24 @@ browser.
 ## Ideias não priorizadas
 
 Nada aqui está comprometido — é material para escolher quando sobrar tempo.
+O que já foi escolhido saiu desta lista e virou Issue dentro do
+[roadmap (#204)](https://github.com/lucafchala/fotos/issues/204), dividido em
+fases; o que sobra abaixo são ideias que ainda não entraram em nenhuma fase.
 
 ### Engajamento do visitante
 
-- **Favoritas pelo visitante** — marcar fotos com ❤ (localStorage) e um botão
-  "compartilhar minha seleção" que gera link com as escolhidas. Bom para
-  casamentos, onde cada convidado quer mostrar só "as fotos dele".
 - **Livro de visitas** — recado dos convidados no fim da página do evento, com
-  moderação no dashboard.
-- **Slideshow / modo apresentação** — carrossel em tela cheia com transição
-  automática. Bom para projetar num evento.
+  moderação no dashboard. Cuidado: é escrita pública, com custo de cota por
+  visitante e moderação — contrário ao critério do roadmap.
 - **Stories estilo Instagram** — 5–10 fotos como highlights no topo da página.
-
-### Profissional / portfólio
-
-- **Página `/contato`** — formulário (nome / e-mail / tipo de evento / data /
-  mensagem) enviando via Resend. Captura cliente sem depender de DM.
-- **Depoimentos de clientes** em `/depoimentos` ou na home. Prova social.
-- **Status "aceitando novos projetos"** — badge na home ("Agendando para
-  janeiro/2027" / "Agenda fechada até março"). Define expectativa.
-- **Mini-gráfico de visualizações no dashboard** — hoje as métricas são só
-  números/CSV; um sparkline de views ao longo do tempo por evento ajudaria a ver
-  o que está performando sem exportar nada.
 
 ### UX
 
-- **Internacionalização (EN/PT)** na galeria e nas páginas de evento.
 - **Link nominado por convidado** — `/casamento-ana-joao?guest=marina` mostra
   "Olá, Marina!" no topo. Toque pessoal sem login.
 
 ### Futuro distante
 
-- **Integração com a Google Drive API** — listar e selecionar fotos direto da
-  pasta em vez de copiar URL uma a uma. Requer OAuth; elimina o trabalho manual.
 - **Download em ZIP via Worker** — visitante não precisa entender o Drive.
   Pesado em CPU/banda; só vale se o Drive virar problema.
 - **App nativo** (React Native ou Capacitor) — câmera direta, upload em massa,
@@ -460,7 +445,8 @@ Nada aqui está comprometido — é material para escolher quando sobrar tempo.
     hospedagem das capas cabe na franquia do R2.
   - **Plano Pro** é WAF e otimização de imagem. CSP, Turnstile, portão de CSRF e
     rate limit já cobrem o que o WAF compraria aqui.
-  - **Stream** não se aplica: não há vídeo.
+  - **Stream** não se aplica: o vídeo da página de projeto mora no YouTube
+    (não listado, player youtube-nocookie), sem custo nem hospedagem aqui.
   > A exceção que **não** é serviço da Cloudflare: se a conta do Google Drive
   > for pessoal, migrar para Workspace continua em aberto — e por motivo de
   > conformidade (DPA para o art. 33, III), não de armazenamento. Ver a seção
