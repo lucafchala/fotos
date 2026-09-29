@@ -110,7 +110,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
               ? pictureHTML(base, featured ? FEATURED_WIDTHS : GRID_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, width, `alt="${escape(e.title)}" ${loadAttrs}`)
               : `<div class="thumb-ph">${iconCamera()}</div>`}
           ${(featured || isPinned) ? `<span class="featured-badge">Em destaque</span>` : ''}
-          ${e.driveUrlVideos && !e.comingSoon ? `<span class="video-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>Vídeos</span>` : ''}
+          ${(e.driveUrlVideos || e.youtubeId) && !e.comingSoon ? `<span class="video-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>Vídeos</span>` : ''}
         </div>
         <div class="info">
           ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}

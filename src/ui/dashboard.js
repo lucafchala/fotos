@@ -577,6 +577,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <div class="field-hint" style="margin-bottom:.625rem">Pasta só com os vídeos do evento, para quem já baixou as fotos. Deixe os vídeos também dentro da pasta principal — quem entra por ela deve ver tudo. Preenchido, o projeto ganha o selo "Vídeos" na galeria.</div>
           <input type="url" id="f-drive-videos" placeholder="https://drive.google.com/drive/folders/...">
         </div>
+        <div class="field">
+          <label>Vídeo do YouTube na página <span style="color:#555">(opcional)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">Toca no topo da página do projeto, no lugar das fotos de capa. Suba no YouTube como <strong>Não listado</strong> e cole o link aqui. O player só carrega quando o visitante clica em play.</div>
+          <input type="url" id="f-youtube" placeholder="https://youtu.be/...">
+        </div>
         <div class="field-row">
           <div class="field">
             <label>Data</label>
@@ -915,6 +920,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
+      document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
@@ -952,7 +958,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const chk = id => document.getElementById(id)?.checked ?? false;
       return JSON.stringify({
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1001,7 +1007,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -1187,6 +1193,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         driveUrl: drive,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
+        youtubeId: document.getElementById('f-youtube').value.trim(),
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
@@ -1214,18 +1221,25 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Salvando…';
 
+      let saved = null;
       try {
         if (editingId) {
-          const updated = await api('PUT', '/api/events/' + editingId, body);
-          events = events.map(e => e.id === editingId ? updated : e);
+          saved = await api('PUT', '/api/events/' + editingId, body);
+          events = events.map(e => e.id === editingId ? saved : e);
           toast('Evento atualizado!', 'ok');
         } else {
-          const created = await api('POST', '/api/events', body);
-          events.push(created);
+          saved = await api('POST', '/api/events', body);
+          events.push(saved);
           toast('Evento adicionado!', 'ok');
         }
         renderEventList();
         closeForm(true);
+        // O servidor guarda só o ID do vídeo; link que não é do YouTube vira
+        // vazio. Salvar em silêncio sem o vídeo deixaria o dono achando que ele
+        // está na página.
+        if (body.youtubeId && saved && !saved.youtubeId) {
+          toast('Salvo, mas o link do YouTube não foi reconhecido — o vídeo não vai aparecer. Confira o link.', 'err');
+        }
       } catch(err) {
         toast(err.message || 'Erro ao salvar.', 'err');
       } finally {

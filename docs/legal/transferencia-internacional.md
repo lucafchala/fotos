@@ -84,7 +84,17 @@ com o Google Fonts, e os testes reprovam se uma voltar a falar
 Ganho colateral: uma requisição externa a menos no caminho crítico de
 renderização.
 
-### 5. GitHub — código-fonte
+### 5. Google — YouTube (vídeo exibido na página de um projeto)
+
+| | |
+| --- | --- |
+| **Sede** | Estados Unidos (Google LLC) |
+| **Papel** | Hospeda o vídeo que o controlador publicou como *não listado* e o reproduz no player embutido |
+| **Dados** | A **miniatura** do vídeo (`i.ytimg.com`) é carregada junto com a página, e com ela vão o **IP e o navegador do visitante**. Só **depois do clique em play** o player (`www.youtube-nocookie.com`, modo de privacidade aprimorada) é carregado e passa a tratar os dados de reprodução |
+| **Fundamento (art. 33)** | **III** — Termos de Serviço e política de privacidade do Google |
+| **Minimização aplicada** | Nada do player antes do clique; domínio *nocookie*; a CSP e a Permissions-Policy liberam só esses dois hosts. Projeto sem vídeo não fala com o YouTube |
+
+### 6. GitHub — código-fonte
 
 Hospeda **apenas código-fonte**, sem dados pessoais de titulares. Não é operador
 para fins da LGPD neste contexto. Os secrets ficam no Cloudflare e nos GitHub
@@ -100,6 +110,7 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 | Cloudflare | Tráfego, KV, D1, Turnstile | Alto | Art. 33, III | Não — é a plataforma |
 | Google Drive | **As fotografias** | **Alto** | Art. 33, III ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
 | Resend | E-mail, telefone, foto anexa | Alto | Art. 33, III | Não — é o canal de e-mail |
+| YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, III | Sim — basta não colocar vídeo no projeto |
 | Google Fonts | Nada (era o IP do visitante) | — | — | **Eliminado em 23/09/2026** — fontes servidas pela própria origem |
 
 ## Transparência ao titular

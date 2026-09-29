@@ -651,6 +651,7 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
   driveUrl: "https://drive.google.com/drive/folders/...", // string ≤ 2000
   driveUrlInstagram: "https://drive.google.com/drive/folders/...", // opcional — pasta já redimensionada p/ Instagram — string ≤ 2000
   driveUrlVideos: "https://drive.google.com/drive/folders/...", // opcional — só os vídeos (atalho de quem já baixou as fotos; os vídeos seguem também na pasta principal). Liga a opção "Só os vídeos" no portão e o selo "Vídeos" na galeria — string ≤ 2000
+  youtubeId: "dQw4w9WgXcQ",       // opcional — só o ID (11 chars), extraído do link que o painel manda (youtubeIdFrom). Toca no topo da página no lugar das fotos de capa; o player (youtube-nocookie) só carrega no clique
   date: "YYYY-MM-DD",             // ou "" — validado contra regex
   eventCredits: "string ≤ 200",   // exibido como "Em colaboração com: <valor>" (instituição, fotógrafo colaborador ou projeto)
   projectUrl: "string ≤ 2000",

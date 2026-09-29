@@ -1230,6 +1230,33 @@ export function safeUrl(url) {
   return toHttps(url);
 }
 
+// ID de vídeo do YouTube a partir do que o dono colar no painel: link de
+// watch, youtu.be, shorts, embed (inclusive youtube-nocookie) ou o próprio ID.
+// Guarda-se só o ID, e as páginas montam as URLs com host fixo — nada do que
+// foi colado chega a um href ou src. Qualquer outra coisa vira ''.
+const YT_ID = /^[A-Za-z0-9_-]{11}$/;
+const YT_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com',
+  'youtu.be', 'www.youtube-nocookie.com', 'youtube-nocookie.com']);
+/**
+ * @param {unknown} v
+ * @returns {string}
+ */
+export function youtubeIdFrom(v) {
+  const s = String(v ?? '').trim();
+  if (YT_ID.test(s)) return s;
+  let u;
+  try { u = new URL(/^[a-z]+:\/\//i.test(s) ? s : `https://${s}`); } catch { return ''; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+  if (!YT_HOSTS.has(u.hostname.toLowerCase())) return '';
+  const partes = u.pathname.split('/').filter(Boolean);
+  const id = u.hostname.toLowerCase() === 'youtu.be'
+    ? partes[0]
+    : partes[0] === 'watch' || partes.length === 0
+      ? u.searchParams.get('v')
+      : ['shorts', 'embed', 'live', 'v'].includes(partes[0]) ? partes[1] : null;
+  return id && YT_ID.test(id) ? id : '';
+}
+
 // ---------------------------------------------------------------------------
 // Remoção de metadados (EXIF/GPS/XMP) das imagens enviadas
 // ---------------------------------------------------------------------------

@@ -13,6 +13,11 @@ const CSP_TURNSTILE = 'https://challenges.cloudflare.com';
 const CSP_CF_INSIGHTS_SCRIPT = 'https://static.cloudflareinsights.com';
 const CSP_CF_INSIGHTS_CONNECT = 'https://cloudflareinsights.com';
 const CSP_IMAGES = "https://*.googleusercontent.com https://drive.google.com";
+// Vídeo de projeto (youtubeId): a miniatura vem do i.ytimg.com e o player é o
+// embed de privacidade aprimorada, que só carrega quando a pessoa clica em
+// play. Nenhum outro host do YouTube precisa entrar.
+const CSP_YT_THUMB = 'https://i.ytimg.com';
+const CSP_YT_PLAYER = 'https://www.youtube-nocookie.com';
 
 // 2 anos (não 1) porque é o que a lista de preload do Chrome exige — mas
 // `preload` em si não está declarado de propósito: é praticamente irreversível
@@ -24,11 +29,14 @@ const HSTS = 'max-age=63072000; includeSubDomains';
 // reconhece (ambient-light-sensor, battery, etc.) foram removidas: ele só loga
 // "Unrecognized feature" sem negar nada de fato.
 const PERMISSIONS_POLICY = [
-  'accelerometer=()', 'autoplay=()',
-  'camera=()', 'display-capture=()', 'encrypted-media=()',
-  'fullscreen=(self)', 'gamepad=()', 'geolocation=()', 'gyroscope=()',
+  // autoplay/encrypted-media/fullscreen/picture-in-picture só para o player
+  // do YouTube: sem isto o iframe não toca ao clicar (autoplay) e perde o
+  // botão de tela cheia. O `allow` do iframe não passa do que está aqui.
+  'accelerometer=()', `autoplay=(self "${CSP_YT_PLAYER}")`,
+  'camera=()', 'display-capture=()', `encrypted-media=(self "${CSP_YT_PLAYER}")`,
+  `fullscreen=(self "${CSP_YT_PLAYER}")`, 'gamepad=()', 'geolocation=()', 'gyroscope=()',
   'hid=()', 'idle-detection=()', 'local-fonts=()', 'magnetometer=()',
-  'microphone=()', 'midi=()', 'payment=()', 'picture-in-picture=()',
+  'microphone=()', 'midi=()', 'payment=()', `picture-in-picture=(self "${CSP_YT_PLAYER}")`,
   'publickey-credentials-get=()', 'screen-wake-lock=()', 'serial=()',
   'storage-access=()', 'usb=()', 'web-share=(self)',
   'xr-spatial-tracking=()',
@@ -98,9 +106,9 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
     // carregar fonte de terceiro exige reabrir isto E refazer o registro de
     // operadores (docs/legal/ROPA.md) — o IP do visitante iria junto.
     "font-src 'self'",
-    `img-src 'self' data: blob: ${CSP_IMAGES}`,
+    `img-src 'self' data: blob: ${CSP_IMAGES} ${CSP_YT_THUMB}`,
     `connect-src 'self' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_CONNECT}`,
-    `frame-src ${CSP_TURNSTILE}`,
+    `frame-src ${CSP_TURNSTILE} ${CSP_YT_PLAYER}`,
     // Nada abaixo é usado pelo site: negar explicitamente evita que um dia um
     // <object>/<embed> injetado tenha para onde ir.
     "object-src 'none'",
