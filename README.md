@@ -627,7 +627,7 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | --- | --- | --- |
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
-| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (sessões antigas `"valid"` ainda são aceitas até expirar) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
+| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (o valor legado `"valid"` é recusado e apagado desde o #197) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
@@ -1109,9 +1109,9 @@ Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-
 
 - `generateToken()` → 32 bytes random hex (64 chars).
 - Salva em `admin_session:<token>` como JSON `{ v, createdAt, lastSeen, fp }`
-  com TTL 86400 (24 h). Sessões antigas gravadas como a string `"valid"`
-  continuam válidas até expirarem — o deploy não desloga ninguém no meio de um
-  trabalho.
+  com TTL 86400 (24 h). O formato legado — a string `"valid"`, sem
+  metadado — é recusado e apagado desde o #197: com o teto de 24 h, nenhuma
+  sessão legítima assim existe mais.
 - Cookie: **`__Host-session`**`=<token>; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`.
   O prefixo `__Host-` não é cosmético: o browser só grava um cookie com esse
   nome se ele vier `Secure`, com `Path=/` e **sem** `Domain`. Isso impede que
@@ -1119,7 +1119,7 @@ Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-
   órfão apontando para serviço de terceiro — plante ou sobrescreva a sessão
   deste site. É a fixação de sessão por vizinho de domínio que o
   `SameSite=Strict` sozinho não cobria.
-- `verifySession(env, request)` aceita os dois nomes de cookie e encerra a sessão
+- `verifySession(env, request)` só aceita `__Host-session` (o `session=` legado saiu no #197) e encerra a sessão
   por **três** motivos: expiração absoluta (24 h, TTL do KV), **inatividade**
   (2 h) e **divergência do cliente** (hash do User-Agent). O IP fica fora do
   vínculo de propósito — celular troca de IP entre 4G e Wi-Fi o tempo todo, e

@@ -416,8 +416,11 @@ export function sessionCookie(token, { clear = false } = {}) {
  */
 export function sessionTokenFromCookie(cookies) {
   if (typeof cookies !== 'string' || !cookies) return null;
-  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
-             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  // Só o `__Host-session` (#197). O `session=` legado era reserva até 2026-08;
+  // toda sessão tem teto de 24 h, então nenhuma legítima nesse formato existe
+  // mais — e ele é justamente o nome que um vizinho de domínio consegue
+  // plantar. O login e o logout ainda o APAGAM (Max-Age=0), mais um release.
+  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/);
   return match ? match[1] : null;
 }
 
@@ -491,10 +494,10 @@ export async function verifySession(env, request) {
   const raw = await env.FOTOS.get(key);
   if (!raw) return false;
 
-  // Sessão criada antes deste deploy: sem metadado. Aceita até expirar pelo
-  // TTL do KV, senão o deploy deslogaria quem estava no meio de um trabalho.
-  if (raw === 'valid') return true;
-
+  // O valor legado `'valid'` (sessão sem metadado, anterior a 2026-08) não
+  // passa mais sem as checagens (#197): cai no parse abaixo, é recusado e
+  // apagado, como qualquer registro ilegível. Com o teto de 24 h, nenhuma
+  // sessão legítima nesse formato existe.
   // createdAt ausente/corrompido, ou qualquer campo de forma inesperada, não
   // pode virar "sessão eterna" nem "sessão sem checagem de inatividade": sem
   // registro confiável, a resposta segura para uma credencial ilegível é

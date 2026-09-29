@@ -1578,10 +1578,21 @@ describe('precedência do cookie de sessão', () => {
     expect(await verifySession(env, req(`__Host-session=${TOKEN_NOVO}; session=${TOKEN_LIXO}`))).toBe(true);
   });
 
-  // O fallback continua existindo: sessão legada legítima segue valendo.
-  it('still accepts a legacy cookie when no __Host- cookie is present', async () => {
+  // O fallback saiu (#197): `session=` é o nome que um vizinho de domínio
+  // planta, e nenhuma sessão legítima nesse formato sobrevive ao teto de 24 h.
+  // Mesmo apontando para um registro válido, o cookie legado não autentica.
+  it('recusa o cookie legado sozinho, mesmo apontando para uma sessão válida', async () => {
     const env = { FOTOS: kv({ [`admin_session:${TOKEN_NOVO}`]: sessaoValida() }) };
-    expect(await verifySession(env, req(`session=${TOKEN_NOVO}`))).toBe(true);
+    expect(await verifySession(env, req(`session=${TOKEN_NOVO}`))).toBe(false);
+  });
+
+  // O valor legado 'valid' passava sem inatividade, impressão digital nem
+  // prazo absoluto (#197). Agora é um registro ilegível como outro qualquer:
+  // recusado e apagado.
+  it("recusa e apaga o registro legado 'valid'", async () => {
+    const store = kv({ [`admin_session:${TOKEN_NOVO}`]: 'valid' });
+    expect(await verifySession({ FOTOS: store }, req(`__Host-session=${TOKEN_NOVO}`))).toBe(false);
+    expect(store._store.has(`admin_session:${TOKEN_NOVO}`)).toBe(false);
   });
 
   // ------------------------------------------------------------------------
@@ -1597,8 +1608,8 @@ describe('precedência do cookie de sessão', () => {
     expect(sessionTokenFromCookie(cookie)).toBe(TOKEN_NOVO);
     // Ordem no cabeçalho não pode mudar a resposta.
     expect(sessionTokenFromCookie(`__Host-session=${TOKEN_NOVO}; session=${TOKEN_LIXO}`)).toBe(TOKEN_NOVO);
-    // Sem `__Host-`, o legado ainda vale.
-    expect(sessionTokenFromCookie(`session=${TOKEN_NOVO}`)).toBe(TOKEN_NOVO);
+    // Sem `__Host-`, não há token (#197).
+    expect(sessionTokenFromCookie(`session=${TOKEN_NOVO}`)).toBe(null);
     // Sem cookie de sessão nenhum.
     expect(sessionTokenFromCookie('outra=coisa')).toBe(null);
     expect(sessionTokenFromCookie('')).toBe(null);
@@ -1981,7 +1992,7 @@ describe('auditoria: invariantes e entradas não confiáveis', () => {
   function kvComSessao(initial = {}) {
     const store = new Map(Object.entries({
       events: '[]',
-      [`admin_session:${TOKEN}`]: 'valid',
+      [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }),
       ...initial,
     }));
     return {
