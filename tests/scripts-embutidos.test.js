@@ -32,7 +32,7 @@ import { loginHTML } from '../src/ui/dashboard.js';
 const GLOBAIS_DO_BROWSER = [
   'window', 'document', 'console', 'navigator', 'location', 'history', 'performance',
   'localStorage', 'sessionStorage', 'fetch', 'URL', 'URLSearchParams', 'Blob', 'FileReader', 'Image',
-  'setTimeout', 'clearTimeout', 'setInterval', 'requestAnimationFrame',
+  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame',
   'addEventListener', 'innerWidth', 'innerHeight', 'scrollY', 'scrollTo',
   // Carregado pelo <script> do Turnstile, de fora; os blocos testam
   // `typeof turnstile` antes de usar.

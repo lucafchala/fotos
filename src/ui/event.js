@@ -269,6 +269,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .breadcrumbs .sep{color:var(--border-dim-2)}
     .meta{margin-bottom:.875rem;display:flex;align-items:center;gap:.875rem;flex-wrap:wrap}
     .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)}
+    /* Modo apresentação (#212). O botão nasce com [hidden] e só o script o
+       mostra: sem JS não há lightbox, e um botão morto seria pior que nenhum. */
+    .slideshow-btn{display:inline-flex;align-items:center;gap:.3rem;font:inherit;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);background:none;border:1px solid var(--border);border-radius:20px;padding:.25rem .6rem;cursor:pointer}
+    .slideshow-btn:hover{color:var(--accent);border-color:var(--accent)}
+    .slideshow-btn[hidden]{display:none}
+    .lb-play{position:absolute;bottom:1rem;left:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;min-width:44px;height:44px;border-radius:22px;padding:0 .9rem;font:inherit;font-size:.8rem;cursor:pointer;z-index:2;display:none}
+    .lightbox-ov.slideshow .lb-play{display:block}
     .video-chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
     .video-chip svg{width:11px;height:11px}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
@@ -470,6 +477,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
       ${(hasVideos || ytId) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
+      ${photos.length > 1 && !event.comingSoon ? `<button type="button" class="slideshow-btn" data-action="startSlideshow" hidden>${iconPlay()} Apresentação</button>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
@@ -726,6 +734,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
     <div class="c-count" id="lb-count" style="display:none"></div>
+    <button class="lb-play" id="lb-play" data-action="toggleSlideshow" aria-label="Pausar apresentação">❚❚ Pausar</button>
   </div>
 
   <div class="cookie-notice" id="cookie-notice">
@@ -814,10 +823,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         case 'toggleDriveName': toggleDriveName(); break;
         case 'retryDriveLink': retryDriveLink(); break;
         case 'reload': location.reload(); break;
-        case 'cGoPrev': cGo(-1); break;
-        case 'cGoNext': cGo(1); break;
+        case 'cGoPrev': pauseSlideshow(); cGo(-1); break;
+        case 'cGoNext': pauseSlideshow(); cGo(1); break;
         case 'cGoto': cGoto(parseInt(el.dataset.i, 10)); break;
         case 'openLightbox': openLightbox(el.dataset.i !== undefined ? parseInt(el.dataset.i, 10) : cur); break;
+        case 'startSlideshow': startSlideshow(); break;
+        case 'toggleSlideshow': toggleSlideshow(); break;
         // onDriveLinkClick() already calls e.preventDefault() itself when the
         // link isn't ready yet (same as the old onclick="return …" pattern).
         case 'driveLink': onDriveLinkClick(e); break;
@@ -1290,6 +1301,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       cGoto(i);
     }
     function closeLightbox() {
+      stopSlideshow();
       document.getElementById('lightbox').classList.remove('open');
       document.body.style.overflow = '';
       lbResetZoom();
@@ -1325,6 +1337,65 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         if (Math.abs(dx) > 40 && PHOTOS.length > 1) cGo(dx > 0 ? 1 : -1);
       });
     })();
+    // ---- Modo apresentação (#212) ----
+    // É o lightbox, em tela cheia e girando sozinho. Só as fotos de capa: o
+    // site não conhece as fotos do Drive (a pasta inteira depende da Drive
+    // API, #217). O vídeo do YouTube fica fora da rotação, para não dar
+    // autoplay com som num telão. Qualquer navegação manual pausa; o botão
+    // retoma. Sair da tela cheia (o Esc do navegador) encerra tudo.
+    const SLIDESHOW_MS = 5000;
+    let slideTimer = null, slideshowOn = false;
+    function slideshowLabel() {
+      const b = document.getElementById('lb-play');
+      if (!b) return;
+      b.textContent = slideTimer ? '❚❚ Pausar' : '▶ Continuar';
+      b.setAttribute('aria-label', slideTimer ? 'Pausar apresentação' : 'Continuar apresentação');
+    }
+    function playSlideshow() {
+      if (!slideshowOn || slideTimer) return;
+      slideTimer = setInterval(function() { cGoto(cur + 1); }, SLIDESHOW_MS);
+      slideshowLabel();
+    }
+    function pauseSlideshow() {
+      if (!slideTimer) return;
+      clearInterval(slideTimer);
+      slideTimer = null;
+      slideshowLabel();
+    }
+    function toggleSlideshow() { if (slideTimer) pauseSlideshow(); else playSlideshow(); }
+    function startSlideshow() {
+      if (PHOTOS.length < 2) return;
+      openLightbox(cur);
+      slideshowOn = true;
+      document.getElementById('lightbox').classList.add('slideshow');
+      const lb = document.getElementById('lightbox');
+      // Tela cheia é pedida, não exigida: iPhone não tem a API para elementos,
+      // e o lightbox já cobre a janela inteira sem ela.
+      try {
+        if (lb.requestFullscreen) lb.requestFullscreen().catch(function() {});
+      } catch (_) {}
+      playSlideshow();
+    }
+    function stopSlideshow() {
+      pauseSlideshow();
+      if (!slideshowOn) return;
+      slideshowOn = false;
+      document.getElementById('lightbox').classList.remove('slideshow');
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function() {});
+      } catch (_) {}
+    }
+    document.addEventListener('fullscreenchange', function() {
+      if (!document.fullscreenElement && slideshowOn) closeLightbox();
+    });
+    (function() {
+      const b = document.querySelector('[data-action="startSlideshow"]');
+      if (b && PHOTOS.length > 1) b.removeAttribute('hidden');
+      // Pausa no toque (e no swipe, que também é toque).
+      const lbImg = document.getElementById('lb-img');
+      if (lbImg) lbImg.addEventListener('touchstart', pauseSlideshow, { passive: true });
+    })();
+
     const car = document.getElementById('carousel');
     if (car) {
       let tx = 0;
@@ -1501,9 +1572,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         return;
       }
+      if (open && open.id === 'lightbox' && slideshowOn && e.key === ' ') { e.preventDefault(); toggleSlideshow(); return; }
       if ((!open || open.id === 'lightbox') && PHOTOS.length > 1) {
-        if (e.key === 'ArrowLeft') cGo(-1);
-        else if (e.key === 'ArrowRight') cGo(1);
+        if (e.key === 'ArrowLeft') { pauseSlideshow(); cGo(-1); }
+        else if (e.key === 'ArrowRight') { pauseSlideshow(); cGo(1); }
       }
     });
 
