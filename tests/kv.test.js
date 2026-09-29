@@ -503,7 +503,7 @@ describe('logout quando o KV recusa o delete', () => {
 
   it('registra a degradação: uma sessão que não foi revogada não pode passar em silêncio', async () => {
     const { handleLogout, degradedHealth: lidos } = await carregar();
-    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }) });
     kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
 
     await handleLogout(logoutRequest(), { FOTOS: kv });
@@ -514,7 +514,7 @@ describe('logout quando o KV recusa o delete', () => {
   });
 
   it('mesmo assim limpa os cookies e redireciona: falhar aqui não pode prender o admin logado no browser', async () => {
-    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }) });
     kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
     const { handleLogout } = await carregar();
 
@@ -529,7 +529,7 @@ describe('logout quando o KV recusa o delete', () => {
 
   it('no caminho normal não inventa degradação nenhuma', async () => {
     const { handleLogout, degradedHealth: lidos } = await carregar();
-    const kv = fakeKV({ [`admin_session:${TOKEN}`]: 'valid' });
+    const kv = fakeKV({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }) });
 
     await handleLogout(logoutRequest(), { FOTOS: kv });
 
@@ -645,8 +645,8 @@ describe('troca de senha quando a varredura de sessões falha', () => {
 
   function kvComDeleteQuebrado() {
     const kv = fakeKV({
-      [`admin_session:${TOKEN}`]: 'valid',
-      'admin_session:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc': 'valid',
+      [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }),
+      'admin_session:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc': JSON.stringify({ createdAt: Date.now() }),
     });
     kv.delete = async () => { throw new Error('KV DELETE failed: 429 Too Many Requests'); };
     return kv;

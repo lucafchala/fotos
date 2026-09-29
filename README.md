@@ -44,7 +44,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Convenções e detalhes do código](#convenções-e-detalhes-do-código)
 - [Como o Drive vira foto na página](#como-o-drive-vira-foto-na-página)
 - [Limitações conhecidas](#limitações-conhecidas)
-- [Roadmap (TODO.md)](#roadmap-todomd)
+- [Pendências e roadmap](#pendências-e-roadmap)
 
 ---
 
@@ -302,7 +302,7 @@ uma versão nova.
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
 | 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
 | 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
-| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: 52 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
+| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: ~55 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
 | 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
 | 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
 | 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
@@ -460,7 +460,7 @@ autorização de uso de imagem.
 
 ```bash
 npx wrangler dev          # num terminal
-npm run smoke:local       # no outro — 44 checagens contra o Worker de verdade
+npm run smoke:local       # no outro — ~50 checagens contra o Worker de verdade
 ```
 
 Mesma suíte, mesmos números, mesma saída que o CI usa. Também dá para apontar
@@ -568,7 +568,7 @@ fotos/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 │   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
-│   ├── smoke.sh             ← 44 checagens (51 com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
+│   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
 │   ├── deploy-duplicado.mjs ← o deploy.yml pula um push repetido do mesmo commit (#186)
 │   ├── d1-migrate.mjs       ← aplica/RETOMA as migrações do D1 e distingue "já estava" de "esquema quebrado"
@@ -627,12 +627,12 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | --- | --- | --- |
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
-| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (sessões antigas `"valid"` ainda são aceitas até expirar) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
+| `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (o valor legado `"valid"` é recusado e apagado desde o #197) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
 | `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
+| `agenda` | Texto do selo de agenda (até 80 caracteres, uma linha); ausente = sem selo. Lido com cache de 30 s por isolate, e uma falha de leitura só omite o selo. **Fora do backup** — é uma frase, redigitada em segundos | `handleSaveAgenda` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
 | `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
-| `login-fail:<ip>:<janela>` | Contagem de logins falhos, TTL 15 min — só alimenta o alerta | `noteFailedLogin` |
 | `error-alert:cooldown`, `login-alert:cooldown`, `noscript-sweep-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert`, `sendNoscriptSweepAlert` |
 | `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
 
@@ -799,6 +799,7 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | PUT | `/api/settings/password` | Trocar senha do admin |
+| PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
 | POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |
@@ -1110,9 +1111,9 @@ Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-
 
 - `generateToken()` → 32 bytes random hex (64 chars).
 - Salva em `admin_session:<token>` como JSON `{ v, createdAt, lastSeen, fp }`
-  com TTL 86400 (24 h). Sessões antigas gravadas como a string `"valid"`
-  continuam válidas até expirarem — o deploy não desloga ninguém no meio de um
-  trabalho.
+  com TTL 86400 (24 h). O formato legado — a string `"valid"`, sem
+  metadado — é recusado e apagado desde o #197: com o teto de 24 h, nenhuma
+  sessão legítima assim existe mais.
 - Cookie: **`__Host-session`**`=<token>; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`.
   O prefixo `__Host-` não é cosmético: o browser só grava um cookie com esse
   nome se ele vier `Secure`, com `Path=/` e **sem** `Domain`. Isso impede que
@@ -1120,7 +1121,7 @@ Web Crypto puro: `importKey('PBKDF2')` + `deriveBits({ name:'PBKDF2', hash:'SHA-
   órfão apontando para serviço de terceiro — plante ou sobrescreva a sessão
   deste site. É a fixação de sessão por vizinho de domínio que o
   `SameSite=Strict` sozinho não cobria.
-- `verifySession(env, request)` aceita os dois nomes de cookie e encerra a sessão
+- `verifySession(env, request)` só aceita `__Host-session` (o `session=` legado saiu no #197) e encerra a sessão
   por **três** motivos: expiração absoluta (24 h, TTL do KV), **inatividade**
   (2 h) e **divergência do cliente** (hash do User-Agent). O IP fica fora do
   vínculo de propósito — celular troca de IP entre 4G e Wi-Fi o tempo todo, e
@@ -1469,6 +1470,7 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 `GET /api/healthz`:
 
 1. **Sem rate-limit** (de propósito): o `checkRateLimit` faria um *write* no KV por chamada, e o monitor de status bate aqui de forma agendada — o write por chamada não compensava o teto de 10/min (o trabalho do healthz é limitado e fica atrás da borda/DDoS da Cloudflare). Resultado: o healthz **só lê** o KV, nunca grava.
+   - **Memória de 10 s por isolate (#195).** Os passos 2–6 abaixo (duas leituras de KV, o D1, o PBKDF2, o autoteste) são medidos no máximo uma vez a cada 10 s por isolate; os pedidos dentro da janela reaproveitam a medição e só `colo`, `country`, `now` e `config` são do próprio pedido. O cabeçalho `X-Healthz-Cache: hit|miss` diz qual foi o caso (cabeçalho e não campo, porque o corpo é contrato). **Só resposta `ok` é guardada:** com `ok:false` cada pedido mede de novo, para o conserto aparecer no pedido seguinte. Sem isso, ~50k pedidos anônimos esgotavam as 100k leituras de KV/dia da conta, das quais a galeria depende. O monitor (a cada 10 min) e o smoke (isolate novo a cada deploy) não veem diferença.
 2. **Leitura 1/2 (KV):** `getEvents(env, true)` — uma única leitura de `events` confirma que o binding KV responde **e** que a chave principal ainda é um array válido. Reporta a contagem em `events` e o tempo em `kvLatencyMs`. (Substituiu a antiga sonda descartável `__healthz__`: a mesma leitura agora faz trabalho útil.)
 3. Se o binding `CONSENT_DB` existir, um `SELECT 1` checa o D1 (log de consentimento) e cronometra em `d1LatencyMs` — não é KV. É **best-effort**: `d1` vira `"down"` mas isso *não* derruba o `ok` (um D1 ausente/sem escopo nunca pode reprovar o deploy — ver `deploy.yml`).
 4. `await hashPassword('healthcheck')` — canário do budget de CPU do Worker (não é KV). **Não cronometrado**: o Workers congela `Date.now()` durante execução síncrona, então o antigo `hashMs` era zero por construção (RETOMADA §5.9). O que prova o orçamento é o hash *completar*: se não couber, a requisição morre e o endpoint devolve 5xx.
@@ -1552,7 +1554,9 @@ senha algumas vezes de manhã e volta à tarde.
 
 Independente do bloqueio, falhas de login são **contadas e alertadas**: a partir
 de 5 em 15 min, o dono recebe e-mail (`sendLoginAlert`, com cooldown próprio de
-30 min para não virar flood). Antes desta revisão, uma força bruta era
+30 min para não virar flood). A contagem mora no Durable Object `RateLimiter`
+(chave `login-fail`), não no KV: uma força bruta não gasta a cota de escrita
+(#193). Antes desta revisão, uma força bruta era
 completamente silenciosa — o rate limit segurava o volume, mas ninguém ficava
 sabendo que houve tentativa.
 
@@ -1605,31 +1609,21 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 ## Limitações conhecidas
 
-- **Contadores não atômicos**: `views`, `drive_clicks` e `ratelimit` são read-modify-write. Em alta concorrência, alguns incrementos podem ser perdidos. Aceitável aqui.
-- **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar para R2 está no roadmap.
-- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 resolveria o que sobra.
-- **Sessões expiram em 24 h**: sem refresh automático. Após 24 h, qualquer ação no painel cai em 401 e o frontend redireciona pra login.
+- **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
+- **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
+- **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.
 - **Sem multi-tenant**: o app inteiro assume um único admin (chave `admin_password`).
 - **CPU budget do Worker**: o hashing PBKDF2 (100k iterações) roda no `/api/healthz` como canário — se não couber no orçamento de CPU, a requisição morre e o CI reprova (healthz sem `ok:true`, login sem 302). Não dá para medir o tempo de dentro do isolate (RETOMADA §5.9); ao mexer no `iterations`, o número real está nas métricas do Worker no painel da Cloudflare.
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
-- **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume.
-- **Log de consentimento é best-effort**: o D1 (`CONSENT_DB`) está provisionado e o `/api/healthz` reporta `d1: "ok"`, mas a gravação roda em `ctx.waitUntil` — se o insert falhar, o visitante recebe o link do mesmo jeito e a falha só aparece no log. Se o binding for removido, o aceite continua barrando o acesso normalmente, porém sem registro (no-op silencioso).
-- **Sem nonce de curta duração no `/api/drive-link`**: o gate já é verificado no servidor (Turnstile fail-closed + rate limit por IP), mas ainda não há um nonce por carregamento de página amarrando a chamada a uma visita real do evento — um script com um token Turnstile válido em mãos ainda poderia varrer vários slugs. Rate limit por IP mitiga isso parcialmente; nonce fica no roadmap (`TODO.md`, Etapa 3.1).
-- **Formulários e gate exigem JavaScript + Turnstile**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte e a verificação do gate. O site **detecta e avisa** (desative o bloqueador / ative o JS), mantém o acesso às fotos liberado e oferece WhatsApp/e-mail como alternativa; banners `<noscript>` cobrem o caso sem JS.
+- **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume. (O array único no KV também tem uma janela de escrita concorrente — #198.)
+- **Registro de consentimento fora do caminho da resposta**: a gravação no D1 roda em `ctx.waitUntil`, então o visitante recebe o link mesmo se o insert falhar. A falha **não** é silenciosa: entra no `/api/healthz` (`noteDegraded`) e dispara o e-mail de alerta (`sendErrorAlert`). Sem o binding `CONSENT_DB`, o aceite continua barrando o acesso normalmente, porém sem registro — e o autoteste do healthz acusa.
+- **Formulários exigem JavaScript + Turnstile; o portão do Drive não**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte — o site **detecta e avisa** e oferece WhatsApp/e-mail como alternativa. O portão do Drive tem o caminho noscript (grava a concessão com `turnstile_ok = 0` e alerta varredura — ver `SECURITY.md`).
 
 ---
 
-## Roadmap (TODO.md)
+## Pendências e roadmap
 
-O arquivo [`TODO.md`](./TODO.md) lista **só o que está em aberto** — item entregue sai de lá, e o histórico de quem fez o quê fica no `git log`. Resumo do que falta:
-
-**Segurança / anti-abuso**: nonce de curta duração no `/api/drive-link` (anti-varredura de slugs — requer decisão sobre cota de KV vs. secret novo), auditar vazamento de `internalNotes` no HTML público, magic link no painel, honeypot nos formulários, endurecer a CSP, afinar WAF/Bot Fight Mode, strip de EXIF. Política e invariantes em [`SECURITY.md`](./SECURITY.md).
-
-**Operação**: marcar releases com tag (hoje o repo não tem nenhuma — ver [Rollback](#rollback)); destino persistente para o beacon de `/api/perf` (binding `PERF` do Analytics Engine).
-
-**Recursos**: senha por evento, migração das imagens para R2 (resolve preview no WhatsApp e cache das capas de uma vez), portfólio `/portfolio`, lembrete de data de entrega, modelo/"template" de evento (ao lado do "Duplicar" já existente), guardar a proporção da foto na hora de curar o evento para eliminar o reflow residual do grid masonry.
-
-**Ideias não priorizadas**: favoritar fotos via localStorage, livro de visitas, slideshow, stories, `/contato`, depoimentos, status "agendando eventos", i18n EN/PT, links nominados por convidado, download em ZIP, app nativo, mini-gráfico de visualizações no dashboard.
+Item de ação vive nas [Issues do GitHub](https://github.com/lucafchala/fotos/issues), organizado por fases no [roadmap (#204)](https://github.com/lucafchala/fotos/issues/204). Este README não mantém uma cópia do backlog — uma lista escrita em dois lugares é corrigida num só (`TODO.md`, "Regras vivas"). O [`TODO.md`](./TODO.md) guarda o que não é tarefa: o orçamento de cota, as regras vivas, ideias não priorizadas e o que foi decidido não fazer.
 
 ---
 

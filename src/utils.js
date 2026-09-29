@@ -284,6 +284,60 @@ export async function saveCategories(env, cats) {
   await env.FOTOS.put('categories', JSON.stringify(cats));
 }
 
+// Selo de agenda (#211): uma frase curta ("Agendando para janeiro/2027") que
+// o dono edita no painel e aparece no topo da galeria e da /sobre. Custo de
+// cota: uma escrita quando o dono salva, nenhuma por visitante; a leitura tem
+// o mesmo cache de 30 s por isolate da lista de eventos.
+//
+// Nunca lança. O selo é enfeite, e a galeria é o site: uma falha de leitura
+// aqui não pode virar 500 na home. Sem valor lido, o selo some (ou fica o
+// último que este isolate viu), e o resto da página sai igual.
+export const AGENDA_MAX_LEN = 80;
+/** @type {string|null} */
+let _agenda = null;
+let _agendaAt = 0;
+
+/**
+ * Uma linha, sem espaço sobrando, no teto. Vale para o que entra pelo painel
+ * e para o que sai do KV (que pode ter sido editado à mão no painel da
+ * Cloudflare).
+ * @param {unknown} v
+ */
+export function limpaAgenda(v) {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, AGENDA_MAX_LEN) : '';
+}
+
+/**
+ * @param {Env} env
+ * @param {boolean} [fresh] ignora o cache do isolate (o painel)
+ * @returns {Promise<string>}
+ */
+export async function getAgenda(env, fresh = false) {
+  const now = Date.now();
+  if (!fresh && _agenda !== null && now - _agendaAt < CACHE_TTL) return _agenda;
+  try {
+    _agenda = limpaAgenda(await env.FOTOS.get('agenda'));
+    _agendaAt = now;
+    return _agenda;
+  } catch (e) {
+    console.error('agenda: leitura do KV falhou; selo omitido', e);
+    return _agenda ?? '';
+  }
+}
+
+/**
+ * Texto vazio apaga a chave: "sem selo" não ocupa espaço nem precisa de
+ * leitura especial.
+ * @param {Env} env
+ * @param {string} texto já passado por limpaAgenda()
+ */
+export async function saveAgenda(env, texto) {
+  if (texto) await env.FOTOS.put('agenda', texto);
+  else await env.FOTOS.delete('agenda');
+  _agenda = texto;
+  _agendaAt = Date.now();
+}
+
 
 /**
  * @param {string} hex
@@ -416,8 +470,11 @@ export function sessionCookie(token, { clear = false } = {}) {
  */
 export function sessionTokenFromCookie(cookies) {
   if (typeof cookies !== 'string' || !cookies) return null;
-  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/)
-             || cookies.match(/(?:^|;\s*)session=([a-f0-9]{64})/);
+  // Só o `__Host-session` (#197). O `session=` legado era reserva até 2026-08;
+  // toda sessão tem teto de 24 h, então nenhuma legítima nesse formato existe
+  // mais — e ele é justamente o nome que um vizinho de domínio consegue
+  // plantar. O login e o logout ainda o APAGAM (Max-Age=0), mais um release.
+  const match = cookies.match(/(?:^|;\s*)__Host-session=([a-f0-9]{64})/);
   return match ? match[1] : null;
 }
 
@@ -491,10 +548,10 @@ export async function verifySession(env, request) {
   const raw = await env.FOTOS.get(key);
   if (!raw) return false;
 
-  // Sessão criada antes deste deploy: sem metadado. Aceita até expirar pelo
-  // TTL do KV, senão o deploy deslogaria quem estava no meio de um trabalho.
-  if (raw === 'valid') return true;
-
+  // O valor legado `'valid'` (sessão sem metadado, anterior a 2026-08) não
+  // passa mais sem as checagens (#197): cai no parse abaixo, é recusado e
+  // apagado, como qualquer registro ilegível. Com o teto de 24 h, nenhuma
+  // sessão legítima nesse formato existe.
   // createdAt ausente/corrompido, ou qualquer campo de forma inesperada, não
   // pode virar "sessão eterna" nem "sessão sem checagem de inatividade": sem
   // registro confiável, a resposta segura para uma credencial ilegível é
@@ -1125,6 +1182,34 @@ export function formatDatePT(dateStr) {
   return `${d} de ${months[m - 1]} de ${year}`;
 }
 
+// O runtime do Workers roda em UTC, e o dono e os visitantes estão em São
+// Paulo (#192). Data "de hoje" e hora de e-mail calculadas em UTC erravam o
+// dia a partir das 21:00: um trabalho prometido para o dia 25 virava
+// "Atrasado" na noite do próprio dia 25, e o e-mail das 22:30 dizia 01:30 do
+// dia seguinte. O workerd tem ICU completo; o fuso vem do Intl, não de conta.
+export const FUSO_DONO = 'America/Sao_Paulo';
+
+/**
+ * A data de hoje em São Paulo, no formato AAAA-MM-DD (o mesmo de `date` e
+ * `promisedDate`, então comparar como texto é comparar datas). O painel tem
+ * uma cópia no cliente, presa a esta por `describe('pares cliente/servidor')`.
+ * @param {Date} [agora]
+ */
+export function hojeEmSaoPaulo(agora = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_DONO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+}
+
+/**
+ * Data e hora de São Paulo para os e-mails, com o fuso escrito ("BRT").
+ * Vazio para data ilegível, em vez de "Invalid Date".
+ * @param {string|number|Date} [quando]
+ */
+export function dataHoraBR(quando = new Date()) {
+  const d = new Date(quando);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString('pt-BR', { timeZone: FUSO_DONO, timeZoneName: 'short' });
+}
+
 // Canonical event ordering: pinned first, then most recent by date
 // (falling back to createdAt). Shared by the public gallery and the
 // dashboard so the two never drift apart.
@@ -1133,6 +1218,25 @@ export function formatDatePT(dateStr) {
  */
 export function eventTime(e) {
   return e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
+}
+
+// Ano de um projeto, para o rótulo da galeria e a trilha da página. Vazio
+// quando não há data utilizável: `new Date(0).getFullYear()` era 1970, e um
+// evento sem `date` nem `createdAt` (restauração, dado legado) saía com "1970"
+// na galeria, no breadcrumb e no JSON-LD (#196). Um lugar só decide, para a
+// galeria e a página não voltarem a discordar sobre qual campo vem antes.
+/**
+ * @param {Evento} e
+ * @returns {string} 'AAAA' ou ''
+ */
+export function eventYear(e) {
+  if (typeof e.date === 'string' && /^\d{4}-/.test(e.date)) return e.date.slice(0, 4);
+  for (const v of [e.createdAt, e.updatedAt]) {
+    if (!v) continue;
+    const t = new Date(v).getTime();
+    if (Number.isFinite(t) && t > 0) return String(new Date(t).getUTCFullYear());
+  }
+  return '';
 }
 
 /**
@@ -1240,6 +1344,48 @@ export function youtubeIdFrom(v) {
       ? u.searchParams.get('v')
       : ['shorts', 'embed', 'live', 'v'].includes(partes[0]) ? partes[1] : null;
   return id && YT_ID.test(id) ? id : '';
+}
+
+// Os vídeos além da capa (#209), em `youtubeMais`: [{ id, vertical }]. Campo
+// NOVO ao lado de `youtubeId`, e não uma lista no lugar dele, de propósito: o
+// deploy reverte sozinho quando o smoke reprova, e a versão anterior continua
+// lendo `youtubeId` e ignorando o resto — com a capa virando lista, uma
+// reversão apagaria o vídeo de capa de todo projeto que o tivesse.
+//
+// Aceita o que o painel manda (links colados, um por linha, com " vertical"
+// opcional no fim) e o que já está gravado ({ id, vertical }), então serve
+// também ao restore. Link de Shorts é vertical sem precisar dizer: o YouTube
+// não informa a proporção sem a API, mas o formato do link informa.
+export const MAX_VIDEOS_EXTRAS = 5;
+/**
+ * @param {unknown} v
+ * @returns {{ id: string, vertical: boolean }[]}
+ */
+export function youtubeMaisFrom(v) {
+  const itens = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\r?\n/) : [];
+  /** @type {{ id: string, vertical: boolean }[]} */
+  const out = [];
+  const vistos = new Set();
+  for (const item of itens.slice(0, 50)) {
+    if (out.length >= MAX_VIDEOS_EXTRAS) break;
+    let id = '';
+    let vertical = false;
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const o = /** @type {Record<string, unknown>} */ (item);
+      id = typeof o.id === 'string' && YT_ID.test(o.id) ? o.id : '';
+      vertical = o.vertical === true;
+    } else if (typeof item === 'string') {
+      let s = item.trim().slice(0, 2048);
+      const sufixo = s.match(/\s+vertical$/i);
+      if (sufixo) { vertical = true; s = s.slice(0, sufixo.index).trim(); }
+      id = youtubeIdFrom(s);
+      if (/\/shorts\//i.test(s)) vertical = true;
+    }
+    if (!id || vistos.has(id)) continue;
+    vistos.add(id);
+    out.push({ id, vertical });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1798,7 +1944,7 @@ export async function sendRemovalEmail(env, req) {
     ${req.email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0">${esc(req.email)}</td></tr>` : ''}
     ${req.phone ? `<tr><td style="padding:8px 0;color:#666">Telefone</td><td style="padding:8px 0">${esc(req.phone)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date(req.createdAt).toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR(req.createdAt)}</td></tr>
   </table>
   <p style="margin-top:24px;font-size:12px;color:#bbb">Gerencie as solicitações em fotos.lucafchala.com/dashboard</p>
 </div>`;
@@ -1888,7 +2034,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
     ${name ? `<tr><td style="padding:8px 0;color:#666;width:80px">Nome</td><td style="padding:8px 0">${esc(name)}</td></tr>` : ''}
     ${email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0"><a href="mailto:${esc(email)}">${esc(email)}</a></td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0;white-space:pre-wrap">${esc(message)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
 </div>`;
 
@@ -1945,7 +2091,7 @@ export async function sendErrorAlert(env, err, context = {}) {
     ${context.path ? `<tr><td style="padding:8px 0;color:#666;width:80px">Rota</td><td style="padding:8px 0">${esc(context.method || '')} ${esc(context.path)}</td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(message)}</td></tr>
     ${stack ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Stack</td><td style="padding:8px 0;white-space:pre-wrap;font-family:monospace;font-size:11px;color:#555">${esc(stack)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos erros ficam em silêncio por ${Math.round(ERROR_ALERT_COOLDOWN_SECS / 60)} min para não lotar a caixa de entrada.</p>
 </div>`;
@@ -1979,7 +2125,7 @@ const LOGIN_ALERT_COOLDOWN_SECS = 1800;
 
 /**
  * @param {Env} env
- * @param {{ ip: string, attempts: number, windowMins: number, userAgent?: string }} info
+ * @param {{ ip: string, attempts: number|string, windowMins: number, userAgent?: string }} info
  */
 export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent }) {
   const apiKey = env.RESEND_API_KEY;
@@ -1999,7 +2145,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:120px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
     ${userAgent ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Navegador</td><td style="padding:8px 0;font-size:12px;color:#555">${esc(userAgent)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Se não foi você: troque a senha em <strong>/dashboard → Configurações</strong>. A troca também encerra todas as outras sessões abertas.</p>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas ficam em silêncio por ${Math.round(LOGIN_ALERT_COOLDOWN_SECS / 60)} min.</p>
@@ -2063,7 +2209,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:160px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
     <tr><td style="padding:8px 0;color:#666">Liberações sem verificação</td><td style="padding:8px 0">${esc(total)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Quais projetos, horários e navegador: <strong>/dashboard → Config. → Consentimentos (CSV)</strong>, filtrando por este IP e <code>turnstile_ok = 0</code>. Para bloquear, uma regra de WAF na Cloudflare para o IP.</p>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas deste tipo ficam em silêncio por ${Math.round(NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS / 3600)} h.</p>

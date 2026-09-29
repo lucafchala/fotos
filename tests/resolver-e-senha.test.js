@@ -60,7 +60,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); resetDegraded(); 
 
 describe('resolver pedido de remoção', () => {
   const kvComPedido = () => fakeKV({
-    [`admin_session:${TOKEN}`]: 'valid',
+    [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }),
     removal_requests: JSON.stringify([PEDIDO]),
   });
 
@@ -108,8 +108,8 @@ describe('resolver pedido de remoção', () => {
 describe('troca de senha com o KV recusando a gravação', () => {
   it('responde 503 dizendo que a senha antiga continua valendo, e não derruba sessões', async () => {
     const kv = fakeKV({
-      [`admin_session:${TOKEN}`]: 'valid',
-      'admin_session:outra': 'valid',
+      [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }),
+      'admin_session:outra': JSON.stringify({ createdAt: Date.now() }),
       admin_password: 'hash-antigo',
     });
     const apagadas = /** @type {string[]} */ ([]);

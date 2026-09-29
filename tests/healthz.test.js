@@ -286,3 +286,67 @@ describe('healthz quando a lista vem da cópia de sobrevivência', () => {
     vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
 });
+
+describe('memória do healthz por isolate (#195)', () => {
+  // Cada pedido fazia 2 leituras de KV, 1 consulta ao D1 e um PBKDF2; as
+  // leituras de KV são 100k/dia para a conta inteira. A medição passa a valer
+  // 10 s dentro do isolate — mas só quando deu certo.
+  const pede = env => handleHealthz(new Request(`${SITE}/api/healthz`), env);
+  function kvContado(initial) {
+    const kv = fakeKV(initial);
+    let leituras = 0;
+    const get = kv.get;
+    kv.get = k => { leituras++; return get(k); };
+    return { kv, leituras: () => leituras };
+  }
+
+  it('uma rajada custa uma medição, e hora/colo continuam sendo do pedido', async () => {
+    const { kv, leituras } = kvContado({ events: '[]' });
+    const env = { FOTOS: kv };
+    const primeiro = await pede(env);
+    expect(primeiro.headers.get('X-Healthz-Cache')).toBe('miss');
+    const depoisDaPrimeira = leituras();
+    expect(depoisDaPrimeira).toBeGreaterThan(0);
+    for (let i = 0; i < 20; i++) {
+      const res = await pede(env);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Healthz-Cache')).toBe('hit');
+    }
+    expect(leituras(), 'rajada não pode reler o KV').toBe(depoisDaPrimeira);
+    const hs = vi.spyOn(crypto.subtle, 'deriveBits');
+    const reaproveitado = await (await pede(env)).json();
+    expect(hs, 'nem refazer o PBKDF2').not.toHaveBeenCalled();
+    expect(Date.parse(reaproveitado.now)).toBeGreaterThan(Date.now() - 2000);
+  });
+
+  it('vencidos os 10 s, mede de novo', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { kv, leituras } = kvContado({ events: '[]' });
+    const env = { FOTOS: kv };
+    await pede(env);
+    const antes = leituras();
+    vi.advanceTimersByTime(10_001);
+    const res = await pede(env);
+    expect(res.headers.get('X-Healthz-Cache')).toBe('miss');
+    expect(leituras()).toBeGreaterThan(antes);
+  });
+
+  it('resposta degradada nunca é guardada: o conserto aparece no pedido seguinte', async () => {
+    let fora = true;
+    const kv = fakeKV({ events: '[]' });
+    const get = kv.get;
+    kv.get = k => (fora ? Promise.reject(new Error('kv down')) : get(k));
+    const env = { FOTOS: kv };
+    expect((await pede(env)).status).toBe(503);
+    expect((await pede(env)).headers.get('X-Healthz-Cache')).toBe('miss');
+    fora = false;
+    expect((await pede(env)).status).toBe(200);
+  });
+
+  it('a medição de um env não vaza para outro', async () => {
+    await pede({ FOTOS: fakeKV({ events: '[]' }) });
+    const outro = await pede({ FOTOS: fakeKV({ events: JSON.stringify([{ id: '1', slug: 'a', title: 'A' }]) }) });
+    expect(outro.headers.get('X-Healthz-Cache')).toBe('miss');
+    expect((await outro.json()).events).toBe(1);
+  });
+});

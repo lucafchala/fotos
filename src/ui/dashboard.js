@@ -1,4 +1,4 @@
-import { sortEvents, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
+import { sortEvents, hojeEmSaoPaulo, AGENDA_MAX_LEN, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -115,8 +115,9 @@ const STATUS_LABELS_SSR = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revis�
  * @param {import('../utils.js').Evento[]} events
  * @param {string[]} [categories]
  * @param {string} [nonce]
+ * @param {string} [agenda] selo de agenda (#211)
  */
-export function dashboardHTML(events, categories = [], nonce = '') {
+export function dashboardHTML(events, categories = [], nonce = '', agenda = '') {
   const eventsJSON = jsonParaScript(events);
   const categoriesJSON = jsonParaScript(categories);
 
@@ -131,7 +132,9 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   const ssrCount = `${active.length} ${noun(active.length)} ativos`;
   // "Atrasado": data prometida já passou e o evento ainda não foi entregue
   // (arquivado não conta — já saiu do fluxo de produção).
-  const todayISO = new Date().toISOString().slice(0, 10);
+  // Hoje em São Paulo, não em UTC (#192) — senão "Atrasado" às 21:00 do
+  // próprio dia prometido.
+  const todayISO = hojeEmSaoPaulo();
   /** @param {import('../utils.js').Evento} e */
   const isOverdue = e => !!e.promisedDate && e.promisedDate < todayISO
     && (e.status || 'entregue') !== 'entregue' && (e.status || 'entregue') !== 'arquivado';
@@ -469,6 +472,14 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   <!-- SETTINGS TAB -->
   <div id="tab-settings" class="panel">
     <div class="settings-card">
+      <h3>Selo de agenda</h3>
+      <p>Uma frase curta no topo da galeria e da página Sobre — por exemplo "Agendando para janeiro/2027" ou "Agenda fechada até março". Vazio, o selo some.</p>
+      <div class="cat-add">
+        <input type="text" id="agenda-texto" value="${esc(agenda)}" placeholder="Aceitando novos projetos" maxlength="${AGENDA_MAX_LEN}" data-keydown="saveAgenda">
+        <button class="btn-sm" data-onclick="saveAgenda">Salvar</button>
+      </div>
+    </div>
+    <div class="settings-card">
       <h3>Categorias</h3>
       <p>Usadas para filtrar a galeria. Para aplicar uma categoria a vários eventos de uma vez, use o botão "Selecionar" na aba Eventos.</p>
       <div id="cat-list" class="cat-list"></div>
@@ -581,6 +592,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
           <label>Vídeo do YouTube na página <span style="color:#555">(opcional)</span></label>
           <div class="field-hint" style="margin-bottom:.625rem">Toca no topo da página do projeto, no lugar das fotos de capa. Suba no YouTube como <strong>Não listado</strong> e cole o link aqui. O player só carrega quando o visitante clica em play.</div>
           <input type="url" id="f-youtube" placeholder="https://youtu.be/...">
+        </div>
+        <div class="field">
+          <label>Mais vídeos do YouTube <span style="color:#555">(opcional, até 5)</span></label>
+          <div class="field-hint" style="margin-bottom:.625rem">Um link por linha. Aparecem abaixo da descrição, cada um com play. Link de <strong>Shorts</strong> já sai vertical; para outro vídeo vertical, escreva <code>vertical</code> no fim da linha.</div>
+          <textarea id="f-youtube-mais" rows="3" placeholder="https://youtu.be/...&#10;https://youtube.com/shorts/..."></textarea>
         </div>
         <div class="field-row">
           <div class="field">
@@ -710,7 +726,13 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     function isOverdue(e) {
       const st = e.status || 'entregue';
       if (!e.promisedDate || st === 'entregue' || st === 'arquivado') return false;
-      return e.promisedDate < new Date().toISOString().slice(0, 10);
+      return e.promisedDate < hojeEmSaoPaulo();
+    }
+    // Cópia de hojeEmSaoPaulo() de utils.js (#192): o navegador do dono pode
+    // estar em qualquer fuso, e o prazo é o de São Paulo. Presa à do servidor
+    // por describe('pares cliente/servidor') em tests/security.test.js.
+    function hojeEmSaoPaulo(agora = new Date()) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
     }
     // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
@@ -785,6 +807,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         case 'applyMassAccess': applyMassAccess(); break;
         case 'exportMetricsCSV': exportMetricsCSV(); break;
         case 'createCategory': createCategory(); break;
+        case 'saveAgenda': saveAgenda(); break;
         case 'downloadBackup': downloadBackup(); break;
         case 'exportConsentCSV': exportConsentCSV(); break;
         case 'exportRemovalCSV': exportRemovalCSV(); break;
@@ -812,6 +835,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     });
     document.addEventListener('keydown', function(ev) {
       if (ev.key === 'Enter' && ev.target.closest('[data-keydown="createCategory"]')) createCategory();
+      if (ev.key === 'Enter' && ev.target.closest('[data-keydown="saveAgenda"]')) saveAgenda();
     });
 
     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
@@ -921,6 +945,11 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';
+      // Vertical volta como link de Shorts: o servidor o reconhece como
+      // vertical, então editar e salvar sem mexer não perde a proporção.
+      document.getElementById('f-youtube-mais').value = e && Array.isArray(e.youtubeMais)
+        ? e.youtubeMais.map(v => v.vertical ? 'https://www.youtube.com/shorts/' + v.id : 'https://youtu.be/' + v.id).join('\\n')
+        : '';
       document.getElementById('f-date').value = e ? (e.date || '') : '';
       document.getElementById('f-credits').value = e ? (e.eventCredits || '') : '';
       document.getElementById('f-purl').value = e ? (e.projectUrl || '') : '';
@@ -958,7 +987,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const chk = id => document.getElementById(id)?.checked ?? false;
       return JSON.stringify({
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1007,7 +1036,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -1194,6 +1223,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
         youtubeId: document.getElementById('f-youtube').value.trim(),
+        youtubeMais: document.getElementById('f-youtube-mais').value.split('\\n').map(s => s.trim()).filter(Boolean),
         date: document.getElementById('f-date').value,
         eventCredits: document.getElementById('f-credits').value.trim(),
         projectUrl: document.getElementById('f-purl').value.trim(),
@@ -1239,6 +1269,8 @@ export function dashboardHTML(events, categories = [], nonce = '') {
         // está na página.
         if (body.youtubeId && saved && !saved.youtubeId) {
           toast('Salvo, mas o link do YouTube não foi reconhecido — o vídeo não vai aparecer. Confira o link.', 'err');
+        } else if (saved && Array.isArray(body.youtubeMais) && (saved.youtubeMais || []).length < Math.min(body.youtubeMais.length, 5)) {
+          toast('Salvo, mas algum link em "Mais vídeos" não foi reconhecido (ou repetiu). Confira a lista.', 'err');
         }
       } catch(err) {
         toast(err.message || 'Erro ao salvar.', 'err');
@@ -1613,7 +1645,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       return '\\uFEFF' + [cols.map(cell).join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
     }
     function downloadCSV(name, cols, rows){ var b=new Blob([toCSV(cols,rows)],{type:'text/csv;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
-    function csvDate(){ return new Date().toISOString().slice(0,10); }
+    function csvDate(){ return hojeEmSaoPaulo(); }
 
     // ---- Exports ----
     async function exportMetricsCSV() {
@@ -1708,6 +1740,16 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       const btn = ev.target.closest('[data-cat-del]');
       if (btn) deleteCategory(btn.dataset.catDel);
     });
+    async function saveAgenda() {
+      const input = document.getElementById('agenda-texto');
+      try {
+        const res = await api('PUT', '/api/settings/agenda', { texto: input.value || '' });
+        input.value = res.texto;
+        toast(res.texto ? 'Selo salvo. A galeria mostra em até 30 s.' : 'Selo removido.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao salvar o selo.', 'err');
+      }
+    }
     async function createCategory() {
       const input = document.getElementById('cat-new');
       const name = (input.value || '').trim();

@@ -12,16 +12,17 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
+  getAgenda, saveAgenda, limpaAgenda,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, safeUrl, isLikelyImage, sortEvents, csvResponse, stripImageMetadata,
+  toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
-  youtubeIdFrom,
+  youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -268,6 +269,7 @@ const worker = {
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
+      if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
@@ -308,7 +310,7 @@ const worker = {
       }
 
       // About page
-      if (path === '/sobre' && method === 'GET') return html(aboutHTML(), 200, nonce);
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML(await getAgenda(env)), 200, nonce);
 
       // Gear list
       if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);
@@ -378,8 +380,10 @@ export default worker;
  * @param {string} nonce
  */
 async function handleGallery(env, nonce) {
-  const events = await getEvents(env);
-  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce), 200, nonce);
+  // getAgenda nunca lança (o selo é enfeite): quem decide se a home cai é só
+  // o getEvents, como antes.
+  const [events, agenda] = await Promise.all([getEvents(env), getAgenda(env)]);
+  const res = html(galleryHTML(events, env.CF_ANALYTICS_TOKEN ?? null, nonce, agenda), 200, nonce);
   // Agent/crawler discovery hints (RFC 8288)
   res.headers.set('Link', `<${SITE_URL}/>; rel="canonical", <${SITE_URL}/sitemap.xml>; rel="sitemap"`);
   return res;
@@ -570,7 +574,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // do sitemap (link compartilhado, backlink).
   const restricted = isRestrictedAccess(event);
 
-  const year = event.date ? event.date.slice(0, 4) : String(new Date(event.createdAt || event.updatedAt || 0).getFullYear());
+  const year = eventYear(event);
 
   // Cookie de 1h evita contar a mesma pessoa duas vezes. O incremento em si é
   // exato (Durable Object, ver bumpCounter); o que é aproximado é a noção de
@@ -656,7 +660,10 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   const [events, categories] = dados;
-  return adminHtml(dashboardHTML(events, categories, nonce), 200, nonce);
+  // Fora do `try` acima de propósito: getAgenda não lança, e o selo não pode
+  // ser motivo de "painel indisponível".
+  const agenda = await getAgenda(env, true);
+  return adminHtml(dashboardHTML(events, categories, nonce, agenda), 200, nonce);
 }
 
 // Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
@@ -687,8 +694,8 @@ export async function handleLogin(request, env, ctx) {
   // de escola/operadora) trancaria o painel por 24h com um minuto de tráfego.
   const burstOk = await checkRateLimit(env, ip, 'login', 10, 600);
   if (!burstOk) {
-    // Sem noteFailedLogin aqui (faz leitura+escrita em KV): tentativa já
-    // barrada não pode custar da cota de 1000 escritas/dia da conta inteira.
+    // Sem noteFailedLogin aqui: tentativa já barrada pelo limite não conta
+    // de novo como falha (o alerta já saiu, ou sairá, pelas que passaram).
     return redirect('/dashboard?error=1');
   }
   if (!await checkRateLimit(env, ip, 'login-day', 60, 86400)) {
@@ -730,7 +737,7 @@ export async function handleLogin(request, env, ctx) {
   // checar o token antes faria esse canário parar de medir. E a resposta de
   // quem não passou na verificação é a MESMA com senha certa ou errada — o
   // resultado do hash só aparece para quem passou. Sem noteFailedLogin aqui:
-  // é escrita em KV, e tentativa sem token não pode gastar a cota.
+  // tentativa sem token não conta para o alerta de força bruta.
   // 'indisponivel' segue só com senha e rate limit (ver checkTurnstile).
   const verificacao = await checkTurnstile(body['cf-turnstile-response'] || '', env);
   if (verificacao === 'recusado') return redirect('/dashboard?error=ts');
@@ -784,19 +791,23 @@ const LOGIN_ALERT_WINDOW_SECS = 900;
  * @param {string} ip
  */
 async function noteFailedLogin(env, request, ip) {
-  const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
-  const key = `login-fail:${ip}:${window}`;
-  const attempts = toCount(await env.FOTOS.get(key)) + 1;
-  // Isolada: com a cota de escrita estourada, uma exceção aqui pularia
-  // justamente o alerta de força bruta. A contagem já está em `attempts`.
-  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
-    .catch(e => noteKvFailure('escrita', e, 'login-fail counter'));
-  // `>=`, não `==`: o contador é KV, consistência eventual, então uma força
-  // bruta paralela pode pular de 4 direto para 6 sem nunca passar por 5.
-  if (attempts >= LOGIN_ALERT_THRESHOLD) {
+  // Contado no Durable Object `RateLimiter`, não no KV (#193): cada senha
+  // errada era um get+put no KV, e o KV tem 1000 escritas/dia para a conta
+  // inteira — com o Turnstile indisponível, uma força bruta queimava a cota do
+  // painel e do status junto. `check(limite)` deixa passar as primeiras
+  // `limite` chamadas da janela e recusa a seguinte: recusou = esta é a
+  // falha de número THRESHOLD (ou uma depois dela), e o alerta dispara. O
+  // cooldown dentro de sendLoginAlert segura o flood, como antes.
+  //
+  // Com o objeto fora do ar, checkRateLimit deixa passar (fail-open) e
+  // registra a degradação no healthz: perde-se o alerta, nunca o login.
+  const abaixoDoPiso = await checkRateLimit(env, ip, 'login-fail', LOGIN_ALERT_THRESHOLD - 1, LOGIN_ALERT_WINDOW_SECS);
+  if (!abaixoDoPiso) {
     await sendLoginAlert(env, {
       ip,
-      attempts,
+      // O objeto não conta além do piso (recusar não incrementa), então o
+      // número exato não existe mais — "5 ou mais" é o que se sabe.
+      attempts: `${LOGIN_ALERT_THRESHOLD} ou mais`,
       windowMins: Math.round(LOGIN_ALERT_WINDOW_SECS / 60),
       userAgent: (request.headers.get('User-Agent') || '').slice(0, 200),
     });
@@ -950,6 +961,8 @@ export function normalizeEventFields(body, base, cats) {
     // Vídeo que toca na página do projeto, no lugar das fotos de capa. O
     // painel manda o link colado; grava-se só o ID (ver youtubeIdFrom).
     youtubeId: pick('youtubeId', v => youtubeIdFrom(String(v).slice(0, MAX_URL_LENGTH))),
+    // Os demais vídeos (#209), abaixo da descrição. Ver youtubeMaisFrom.
+    youtubeMais: pick('youtubeMais', v => youtubeMaisFrom(v)),
     date: pick('date', v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '')),
     eventCredits: pick('eventCredits', v => String(v).slice(0, 200)),
     projectUrl: pick('projectUrl', v => (v ? toHttps(String(v).slice(0, MAX_URL_LENGTH)) : '')),
@@ -1100,6 +1113,29 @@ async function handleDeleteEvent(request, env, path) {
   // slug.
   await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`]);
   return jsonOk({ deleted: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: selo de agenda (#211)
+// ---------------------------------------------------------------------------
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleSaveAgenda(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  if (body.texto !== undefined && typeof body.texto !== 'string') return jsonErr('Texto inválido.', 400);
+  const texto = limpaAgenda(body.texto ?? '');
+  try {
+    await saveAgenda(env, texto);
+  } catch (e) {
+    noteKvFailure('escrita', e, 'selo de agenda');
+    return jsonErr('Não foi possível salvar agora (banco de dados). Tente de novo mais tarde.', 503);
+  }
+  return jsonOk({ texto });
 }
 
 // ---------------------------------------------------------------------------
@@ -2204,6 +2240,38 @@ export async function handleHealthz(request, env) {
   // de escrita do KV, que o rate limit gastava quando morava lá; hoje ele é um
   // Durable Object, mas limitar o monitor continua sem proteger nada.
   //
+  // O que o limita é a memória abaixo (#195): cada pedido fazia duas leituras
+  // de KV sem cache, uma consulta ao D1 e um PBKDF2 de 100k. As leituras de KV
+  // são 100k/dia para a conta inteira (dividida com o status), então ~50k
+  // pedidos anônimos esgotavam a cota da qual a galeria depende. Com a medição
+  // reaproveitada por HEALTHZ_MEMO_MS dentro do isolate, uma rajada custa uma
+  // medição por isolate a cada 10 s — e o monitor (a cada 10 min) e o smoke
+  // (isolate novo a cada deploy) nunca veem a diferença.
+  const agora = Date.now();
+  const memo = healthzMemo;
+  if (memo && memo.env === env && agora - memo.em < HEALTHZ_MEMO_MS) {
+    return healthzResposta(request, env, memo.medicao, 'hit');
+  }
+  const medicao = await medirSaude(env);
+  // Só o que deu certo fica guardado. Uma resposta degradada é a que alguém
+  // está olhando no meio de um incidente: ela é sempre medida de novo, e o
+  // pedido seguinte ao conserto já vê o estado novo.
+  healthzMemo = medicao.ok ? { env, em: agora, medicao } : null;
+  return healthzResposta(request, env, medicao, 'miss');
+}
+
+// Memória do /api/healthz por isolate (#195). A chave inclui o `env`: um
+// isolate atende um Worker só, mas a suíte chama o handler com envs
+// diferentes no mesmo módulo, e uma medição não pode vazar de um para outro.
+const HEALTHZ_MEMO_MS = 10_000;
+/** @type {{ env: Env, em: number, medicao: Awaited<ReturnType<typeof medirSaude>> } | null} */
+let healthzMemo = null;
+
+/**
+ * A parte cara do healthz — KV, D1, PBKDF2, cron e o self-test.
+ * @param {Env} env
+ */
+async function medirSaude(env) {
   // KV é o binding do qual tudo depende; falha de leitura aqui é a única
   // condição que vira ok:false.
   let kv = false;
@@ -2269,10 +2337,23 @@ export async function handleHealthz(request, env) {
   // formulário não configurado.
   const selftest = auditSite(eventsList, env, degradedHealth());
 
+  const ok = kv && events !== null;
+  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest };
+}
+
+/**
+ * Monta a resposta: a medição (talvez reaproveitada) mais o que é deste
+ * pedido — colo, país e hora — e o que vem de bindings de env, sem I/O.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {Awaited<ReturnType<typeof medirSaude>>} medicao
+ * @param {'hit'|'miss'} cache
+ */
+function healthzResposta(request, env, medicao, cache) {
+  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest } = medicao;
   // Resto do payload vem de dados já carregados + bindings de env — zero
   // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
-  const ok = kv && events !== null;
-  return jsonOk({
+  const res = jsonOk({
     // Contrato estável (smoke test + painel já fazem parsing destes nomes),
     // escrito em docs/healthz-contrato.json e conferido pelos dois lados.
     // `hashMs` fica de fora de propósito — ver o comentário do PBKDF2 acima.
@@ -2295,6 +2376,10 @@ export async function handleHealthz(request, env) {
     country: request.cf?.country || null,
     now: new Date().toISOString(),
   }, ok ? 200 : 503);
+  // Cabeçalho, não campo: o corpo é contrato (docs/healthz-contrato.json), e
+  // quem precisa saber se a medição é deste pedido lê aqui.
+  res.headers.set('X-Healthz-Cache', cache);
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -2585,17 +2670,45 @@ async function checkNoscriptSweep(env, ip) {
   if (!env.CONSENT_DB) return;
   try {
     const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    const rede = ipParaLimite(ip);
     /** @type {{ slugs: number, total: number, restritos: number } | null} */
-    const linha = await env.CONSENT_DB.prepare(
-      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
-              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
-         FROM image_use_consent
-        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
-    ).bind(ip.slice(0, 64), desde).first();
+    let linha;
+    if (rede.endsWith('::/64')) {
+      // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
+      // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
+      // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
+      // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
+      // consegue agrupar por prefixo: ele traz as concessões noscript da
+      // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
+      // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
+      // completo continua na coluna para auditoria. Concessão sem Turnstile é
+      // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
+      // pior caso.
+      const { results } = await env.CONSENT_DB.prepare(
+        `SELECT ip, event_slug, access_type FROM image_use_consent
+          WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
+          LIMIT 5000`
+      ).bind(desde, `${ip.split(':')[0]}:%`).all();
+      const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
+        .filter(r => ipParaLimite(r.ip) === rede);
+      linha = {
+        slugs: new Set(daRede.map(r => r.event_slug)).size,
+        total: daRede.length,
+        restritos: new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug)).size,
+      };
+    } else {
+      linha = await env.CONSENT_DB.prepare(
+        `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+                COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+           FROM image_use_consent
+          WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+      ).bind(ip.slice(0, 64), desde).first();
+    }
     const slugs = Number(linha?.slugs) || 0;
     if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
     await sendNoscriptSweepAlert(env, {
-      ip,
+      // O /64 junto, quando for IPv6: é ele que vai numa regra de WAF.
+      ip: rede.endsWith('::/64') ? `${ip} (rede ${rede})` : ip,
       slugs,
       restritos: Number(linha?.restritos) || 0,
       total: Number(linha?.total) || 0,
@@ -2894,6 +3007,7 @@ function sanitizeRestoredEvent(ev) {
   if (out.photosAlert !== undefined) out.photosAlert = normalizePhotosAlert(out.photosAlert, { ...DEFAULT_EVENT.photosAlert });
   // Vira pedaço de URL (src do iframe e da miniatura): só um ID válido passa.
   if (out.youtubeId !== undefined) out.youtubeId = youtubeIdFrom(out.youtubeId);
+  if (out.youtubeMais !== undefined) out.youtubeMais = youtubeMaisFrom(out.youtubeMais);
   return out;
 }
 

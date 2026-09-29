@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -34,8 +34,9 @@ const SOON_FEATURED_WIDTHS = [640];
  * @param {import('../utils.js').Evento[]} events
  * @param {string|null} analyticsToken
  * @param {string} [nonce]
+ * @param {string} [agenda] selo de agenda (#211); vazio, nada aparece
  */
-export function galleryHTML(events, analyticsToken, nonce = '') {
+export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   // Second guard beyond getEvents(): a null/non-object entry here would throw
   // on e.visible and 500 the whole homepage instead of just skipping it.
   const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
@@ -47,7 +48,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   for (const e of visible) (e.pinned === true ? pinned : rest).push(e);
 
   /** @param {import('../utils.js').Evento} e */
-  const yearOf = e => e.date ? e.date.slice(0, 4) : String(new Date(eventTime(e)).getFullYear());
+  const yearOf = eventYear;
 
   // Uma <picture> em vez de uma <img> solta: o `<source type="image/webp">`
   // faz o WebP ser escolhido pelo BROWSER, antes de a requisição sair. Quem não
@@ -143,7 +144,8 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     if (y !== lastYear) {
       lastYear = y;
       const headHidden = idx >= INITIAL;
-      restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${escape(y)}</h2>`);
+      // Sem ano utilizável (#196) o grupo ganha um rótulo em vez de "1970".
+      restNodes.push(`<h2 class="year-head${headHidden ? ' hidden' : ''}" data-year-head="${escape(y)}">${y ? escape(y) : 'Sem data'}</h2>`);
     }
     restNodes.push(cardHTML(e, { hidden: idx >= INITIAL, year: y, priority: e === lcpCard }));
     idx++;
@@ -183,7 +185,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
 
   // O cartão da home mostra o tamanho e o alcance do acervo em vez de repetir
   // o título: quantos projetos, de que tipo e de que período.
-  const ogYears = [...new Set(visible.map(yearOf))].sort();
+  const ogYears = [...new Set(visible.map(yearOf).filter(Boolean))].sort();
   const ogPeriod = ogYears.length > 1 ? `${ogYears[0]}–${ogYears[ogYears.length - 1]}` : (ogYears[0] || '');
   const ogDescription = previewDescription([
     visible.length > 0 ? `${visible.length} ${visible.length === 1 ? 'projeto' : 'projetos'}` : '',
@@ -252,6 +254,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
+    .agenda-selo{display:inline-block;margin:.9rem 0 0;padding:.3rem .8rem;border:1px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.75rem;letter-spacing:.03em}
     .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
     .logo strong{font-weight:600;color:var(--text)}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
@@ -388,6 +391,7 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
 <body>
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
+    ${agenda ? `<p class="agenda-selo">${escape(agenda)}</p>` : ''}
   </header>
   <main>
     <h1 class="sr-only">Galeria de fotos</h1>
@@ -550,10 +554,31 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
           if (saved && typeof saved.y === 'number') savedY = saved.y;
         }
       } catch(_) {}
+      // ?year=AAAA vem da trilha da página de projeto (breadcrumb e JSON-LD).
+      // Sem isto o link largava o visitante no topo da home, como se o ano
+      // não existisse. Revela os cartões até o último daquele ano e rola até
+      // o título dele; ano sem projeto na galeria cai no comportamento normal.
+      var yearHead = null;
+      try {
+        var yearVal = new URLSearchParams(location.search).get('year');
+        if (yearVal && /^\\d{4}$/.test(yearVal)) {
+          var ultimoDoAno = -1;
+          for (var yi = 0; yi < batchCards.length; yi++) {
+            if (batchCards[yi].getAttribute('data-year') === yearVal) ultimoDoAno = yi;
+          }
+          if (ultimoDoAno >= 0) {
+            if (ultimoDoAno + 1 > shown) shown = ultimoDoAno + 1;
+            yearHead = document.querySelector('[data-year-head="' + yearVal + '"]');
+            savedY = null;
+          }
+        }
+      } catch(_) {}
       updateFiltersBtn();
       apply();
       if (savedY !== null) {
         requestAnimationFrame(function(){ requestAnimationFrame(function(){ scrollTo(0, savedY); }); });
+      } else if (yearHead) {
+        requestAnimationFrame(function(){ yearHead.scrollIntoView({ block: 'start' }); });
       }
 
       function saveGalleryState() {

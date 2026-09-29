@@ -123,7 +123,7 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | Contadores de rate limit por IP (Durable Object `RateLimiter`, um por rota e IP), contador de falhas de login por IP (`login-fail:*`), e a contagem de projetos abertos sem Turnstile por IP, lida do registro de consentimento (seção 2) para o alerta de varredura. |
+| **Dados** | Contadores de rate limit por IP (Durable Object `RateLimiter`, um por rota e IP), contador de falhas de login por IP (o mesmo `RateLimiter`, chave `login-fail`), e a contagem de projetos abertos sem Turnstile por IP, lida do registro de consentimento (seção 2) para o alerta de varredura. |
 | **Finalidade** | Conter força bruta e abuso; alertar o controlador. |
 | **Base legal** | **Art. 7º, IX** + **art. 16, I** (guarda para exercício regular de direito). |
 | **Retenção** | TTL curto: de 10 min a 24 h, conforme a janela. Nenhum registro de segurança sobrevive além disso. |

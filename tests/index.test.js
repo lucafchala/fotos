@@ -546,7 +546,7 @@ describe('slugs reservados pelas rotas fixas', () => {
 
   it('criar um projeto com slug reservado é recusado com uma mensagem que diz por quê', async () => {
     const TOKEN = 'd'.repeat(64);
-    const store = new Map([[`admin_session:${TOKEN}`, 'valid'], ['events', '[]']]);
+    const store = new Map([[`admin_session:${TOKEN}`, JSON.stringify({ createdAt: Date.now() })], ['events', '[]']]);
     const env = withDurableObjects({
       FOTOS: {
         async get(k) { return store.get(k) ?? null; },

@@ -143,6 +143,21 @@ describe('alerta de varredura pelo caminho noscript (#147)', () => {
     expect(emails).toHaveLength(1);
   });
 
+  it('IPv6: cinco endereços do mesmo /64 somam como um cliente só (#200)', async () => {
+    const ips = ['2001:db8:abcd:12::1', '2001:DB8:ABCD:12:ffff::2', '2001:db8:abcd:12:0:0:0:3', '2001:db8:abcd:12::4', '2001:0db8:abcd:0012::5'];
+    for (const [i, l] of ['a', 'b', 'c', 'd'].entries()) await libera(`projeto-${l}`, { ip: ips[i] });
+    expect(emails).toEqual([]);
+    await libera('projeto-e', { ip: ips[4] });
+    expect(emails).toHaveLength(1);
+    expect(emails[0]).toContain('5 projetos diferentes');
+    expect(emails[0]).toContain('2001:db8:abcd:12::/64');
+  });
+
+  it('IPv6: /64 vizinhos não se somam', async () => {
+    for (const [i, l] of ['a', 'b', 'c', 'd', 'e'].entries()) await libera(`projeto-${l}`, { ip: `2001:db8:abcd:${i + 1}::1` });
+    expect(emails).toEqual([]);
+  });
+
   it('D1 falhando na contagem não toca a resposta nem vira 500', async () => {
     const real = env.CONSENT_DB;
     env.CONSENT_DB = {

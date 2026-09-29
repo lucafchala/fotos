@@ -24,8 +24,8 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | **Mensagens de suporte** | **Não armazenadas** | — | Nunca gravadas em KV nem D1 | Minimização (art. 6º, III) |
 | **Hash de deduplicação de suporte** | 1 hora | Envio | TTL do KV | Não é dado pessoal (hash truncado irreversível) |
 | **Sessão administrativa** | **24 h absolutas / 2 h de inatividade** | Login / último uso | TTL do KV + verificação em `verifySession()` | Segurança |
-| **Contadores de rate limit** | 10 min a 24 h | Início da janela | TTL do KV | Segurança |
-| **Contador de falhas de login** | 15 min | Início da janela | TTL do KV | Segurança |
+| **Contadores de rate limit** | Duas janelas: 20 min a 48 h (janelas de 10 min a 24 h) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
+| **Contador de falhas de login** | 30 min (duas janelas de 15 min) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
 | **Contadores de acesso** (`views`, `drive_clicks`) | Indefinido | — | Apagados junto com o projeto | Não é dado pessoal (agregado) |
 | **Cookie de contagem de visualização** (`fv_*`) | 1 hora | Visita | `Max-Age` no browser | Não identifica |
 | **Telemetria de desempenho** | Retenção do Cloudflare Logs | Envio | Fora do nosso controle | Não é dado pessoal |
