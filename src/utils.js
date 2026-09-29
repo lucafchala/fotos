@@ -1125,6 +1125,34 @@ export function formatDatePT(dateStr) {
   return `${d} de ${months[m - 1]} de ${year}`;
 }
 
+// O runtime do Workers roda em UTC, e o dono e os visitantes estão em São
+// Paulo (#192). Data "de hoje" e hora de e-mail calculadas em UTC erravam o
+// dia a partir das 21:00: um trabalho prometido para o dia 25 virava
+// "Atrasado" na noite do próprio dia 25, e o e-mail das 22:30 dizia 01:30 do
+// dia seguinte. O workerd tem ICU completo; o fuso vem do Intl, não de conta.
+export const FUSO_DONO = 'America/Sao_Paulo';
+
+/**
+ * A data de hoje em São Paulo, no formato AAAA-MM-DD (o mesmo de `date` e
+ * `promisedDate`, então comparar como texto é comparar datas). O painel tem
+ * uma cópia no cliente, presa a esta por `describe('pares cliente/servidor')`.
+ * @param {Date} [agora]
+ */
+export function hojeEmSaoPaulo(agora = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_DONO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+}
+
+/**
+ * Data e hora de São Paulo para os e-mails, com o fuso escrito ("BRT").
+ * Vazio para data ilegível, em vez de "Invalid Date".
+ * @param {string|number|Date} [quando]
+ */
+export function dataHoraBR(quando = new Date()) {
+  const d = new Date(quando);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString('pt-BR', { timeZone: FUSO_DONO, timeZoneName: 'short' });
+}
+
 // Canonical event ordering: pinned first, then most recent by date
 // (falling back to createdAt). Shared by the public gallery and the
 // dashboard so the two never drift apart.
@@ -1817,7 +1845,7 @@ export async function sendRemovalEmail(env, req) {
     ${req.email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0">${esc(req.email)}</td></tr>` : ''}
     ${req.phone ? `<tr><td style="padding:8px 0;color:#666">Telefone</td><td style="padding:8px 0">${esc(req.phone)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date(req.createdAt).toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR(req.createdAt)}</td></tr>
   </table>
   <p style="margin-top:24px;font-size:12px;color:#bbb">Gerencie as solicitações em fotos.lucafchala.com/dashboard</p>
 </div>`;
@@ -1907,7 +1935,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
     ${name ? `<tr><td style="padding:8px 0;color:#666;width:80px">Nome</td><td style="padding:8px 0">${esc(name)}</td></tr>` : ''}
     ${email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0"><a href="mailto:${esc(email)}">${esc(email)}</a></td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0;white-space:pre-wrap">${esc(message)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
 </div>`;
 
@@ -1964,7 +1992,7 @@ export async function sendErrorAlert(env, err, context = {}) {
     ${context.path ? `<tr><td style="padding:8px 0;color:#666;width:80px">Rota</td><td style="padding:8px 0">${esc(context.method || '')} ${esc(context.path)}</td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(message)}</td></tr>
     ${stack ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Stack</td><td style="padding:8px 0;white-space:pre-wrap;font-family:monospace;font-size:11px;color:#555">${esc(stack)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos erros ficam em silêncio por ${Math.round(ERROR_ALERT_COOLDOWN_SECS / 60)} min para não lotar a caixa de entrada.</p>
 </div>`;
@@ -2018,7 +2046,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:120px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
     ${userAgent ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Navegador</td><td style="padding:8px 0;font-size:12px;color:#555">${esc(userAgent)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Se não foi você: troque a senha em <strong>/dashboard → Configurações</strong>. A troca também encerra todas as outras sessões abertas.</p>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas ficam em silêncio por ${Math.round(LOGIN_ALERT_COOLDOWN_SECS / 60)} min.</p>
@@ -2082,7 +2110,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:160px">Origem (IP)</td><td style="padding:8px 0">${esc(ip)}</td></tr>
     <tr><td style="padding:8px 0;color:#666">Liberações sem verificação</td><td style="padding:8px 0">${esc(total)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${new Date().toLocaleString('pt-BR')}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Data</td><td style="padding:8px 0;color:#888;font-size:12px">${dataHoraBR()}</td></tr>
   </table>
   <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#444">Quais projetos, horários e navegador: <strong>/dashboard → Config. → Consentimentos (CSV)</strong>, filtrando por este IP e <code>turnstile_ok = 0</code>. Para bloquear, uma regra de WAF na Cloudflare para o IP.</p>
   <p style="margin-top:20px;font-size:12px;color:#bbb">Próximos alertas deste tipo ficam em silêncio por ${Math.round(NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS / 3600)} h.</p>

@@ -13,7 +13,7 @@ import {
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
   dataSecurityHeaders, honeypotTripped, honeypotFieldHTML, HONEYPOT_FIELD,
 } from '../src/security.js';
-import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, consoleGreetingScript } from '../src/utils.js';
+import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, hojeEmSaoPaulo, consoleGreetingScript } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
@@ -2457,6 +2457,18 @@ describe('pares cliente/servidor: as duas cópias têm de concordar', () => {
       'https:/uma-barra.example', null, undefined, 42,
     ];
     for (const v of entradas) expect(safeUrlPainel(v), `entrada ${JSON.stringify(v)}`).toBe(toHttps(v));
+  });
+
+  it('hojeEmSaoPaulo() do painel devolve o mesmo dia que a de utils.js (#192)', () => {
+    const doCliente = doPainel('hojeEmSaoPaulo', /function hojeEmSaoPaulo\(agora = new Date\(\)\) \{[\s\S]*?\n {4}\}/);
+    const instantes = [
+      '2026-09-25T23:59:59Z', '2026-09-26T00:00:00Z', '2026-09-26T02:59:59Z', '2026-09-26T03:00:00Z',
+      '2026-12-31T23:30:00Z', '2027-01-01T02:59:00Z', '2026-02-28T12:00:00Z', '2028-02-29T01:00:00Z',
+    ];
+    for (const t of instantes) {
+      const d = new Date(t);
+      expect(doCliente(d), t).toBe(hojeEmSaoPaulo(d));
+    }
   });
 
   it('byDate() do painel ordena igual a eventTime() de utils.js', () => {

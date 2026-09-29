@@ -1,4 +1,4 @@
-import { sortEvents, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
+import { sortEvents, hojeEmSaoPaulo, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -131,7 +131,9 @@ export function dashboardHTML(events, categories = [], nonce = '') {
   const ssrCount = `${active.length} ${noun(active.length)} ativos`;
   // "Atrasado": data prometida já passou e o evento ainda não foi entregue
   // (arquivado não conta — já saiu do fluxo de produção).
-  const todayISO = new Date().toISOString().slice(0, 10);
+  // Hoje em São Paulo, não em UTC (#192) — senão "Atrasado" às 21:00 do
+  // próprio dia prometido.
+  const todayISO = hojeEmSaoPaulo();
   /** @param {import('../utils.js').Evento} e */
   const isOverdue = e => !!e.promisedDate && e.promisedDate < todayISO
     && (e.status || 'entregue') !== 'entregue' && (e.status || 'entregue') !== 'arquivado';
@@ -710,7 +712,13 @@ export function dashboardHTML(events, categories = [], nonce = '') {
     function isOverdue(e) {
       const st = e.status || 'entregue';
       if (!e.promisedDate || st === 'entregue' || st === 'arquivado') return false;
-      return e.promisedDate < new Date().toISOString().slice(0, 10);
+      return e.promisedDate < hojeEmSaoPaulo();
+    }
+    // Cópia de hojeEmSaoPaulo() de utils.js (#192): o navegador do dono pode
+    // estar em qualquer fuso, e o prazo é o de São Paulo. Presa à do servidor
+    // por describe('pares cliente/servidor') em tests/security.test.js.
+    function hojeEmSaoPaulo(agora = new Date()) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
     }
     // Same ordering criterion as utils.sortEvents (pinned first, then date desc).
     const byDate = e => e.date ? new Date(e.date).getTime() : new Date(e.createdAt || 0).getTime();
@@ -1613,7 +1621,7 @@ export function dashboardHTML(events, categories = [], nonce = '') {
       return '\\uFEFF' + [cols.map(cell).join(',')].concat(rows.map(function(r){ return cols.map(function(c){ return cell(r[c]); }).join(','); })).join('\\r\\n') + '\\r\\n';
     }
     function downloadCSV(name, cols, rows){ var b=new Blob([toCSV(cols,rows)],{type:'text/csv;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
-    function csvDate(){ return new Date().toISOString().slice(0,10); }
+    function csvDate(){ return hojeEmSaoPaulo(); }
 
     // ---- Exports ----
     async function exportMetricsCSV() {

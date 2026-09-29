@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, formatDatePT, hojeEmSaoPaulo, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -19,8 +19,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
   // "Em breve" sem data = evento futuro ainda sem data marcada, então cai no
   // caso "fotos não ficaram prontas" — não dá pra dizer "adiantando" sem data.
-  const eventDateMs = event.date ? new Date(event.date).getTime() : NaN;
-  const eventIsFuture = !Number.isNaN(eventDateMs) && eventDateMs > Date.now();
+  // Comparação de texto contra o "hoje" de São Paulo (#192): `new Date(date)`
+  // lê AAAA-MM-DD como meia-noite UTC, que é 21:00 da véspera em São Paulo —
+  // na noite anterior a página já pedia desculpas pela demora. No próprio dia
+  // do evento as fotos também não existem, então hoje ainda é "adiantando".
+  const eventIsFuture = typeof event.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(event.date)
+    && event.date >= hojeEmSaoPaulo();
   // safeUrl aplicado aqui na origem, não na interpolação: photos.length decide
   // o layout (bolinhas, contador "1/N") e displayPhotos fornece as URLs —
   // filtrar só a segunda faria as duas divergirem em tamanho. escape() fecha o
