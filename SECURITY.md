@@ -84,8 +84,10 @@ issue before any public disclosure.
   all IPs together, so IP rotation can't turn it into an e-mail flood or burn
   the KV write quota. Volume on a single project is deliberately *not*
   alerted: a school or event behind one NAT, everyone with an ad-blocker,
-  looks exactly like that. Known limits: IP rotation (and IPv6, where one
-  client can hold a whole /64) splits a sweep below the threshold; while the
+  looks exactly like that. IPv6 is counted per /64, like the rate limits
+  (#200): one client holds a whole /64, so rotating the interface part no
+  longer splits a sweep. Known limits: rotation across networks still splits
+  a sweep below the threshold; while the
   cooldown holds, a second sweeper only shows up in the consent export; and a
   D1 outage silences the check (reported in `/api/healthz`, never in the
   response that delivers the photos). Thresholds live in `src/config.js`.

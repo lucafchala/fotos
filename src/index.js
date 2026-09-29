@@ -17,7 +17,7 @@ import {
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
-  toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, stripImageMetadata,
+  toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
@@ -2638,17 +2638,45 @@ async function checkNoscriptSweep(env, ip) {
   if (!env.CONSENT_DB) return;
   try {
     const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+    const rede = ipParaLimite(ip);
     /** @type {{ slugs: number, total: number, restritos: number } | null} */
-    const linha = await env.CONSENT_DB.prepare(
-      `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
-              COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
-         FROM image_use_consent
-        WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
-    ).bind(ip.slice(0, 64), desde).first();
+    let linha;
+    if (rede.endsWith('::/64')) {
+      // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
+      // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
+      // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
+      // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
+      // consegue agrupar por prefixo: ele traz as concessões noscript da
+      // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
+      // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
+      // completo continua na coluna para auditoria. Concessão sem Turnstile é
+      // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
+      // pior caso.
+      const { results } = await env.CONSENT_DB.prepare(
+        `SELECT ip, event_slug, access_type FROM image_use_consent
+          WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
+          LIMIT 5000`
+      ).bind(desde, `${ip.split(':')[0]}:%`).all();
+      const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
+        .filter(r => ipParaLimite(r.ip) === rede);
+      linha = {
+        slugs: new Set(daRede.map(r => r.event_slug)).size,
+        total: daRede.length,
+        restritos: new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug)).size,
+      };
+    } else {
+      linha = await env.CONSENT_DB.prepare(
+        `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+                COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
+           FROM image_use_consent
+          WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+      ).bind(ip.slice(0, 64), desde).first();
+    }
     const slugs = Number(linha?.slugs) || 0;
     if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
     await sendNoscriptSweepAlert(env, {
-      ip,
+      // O /64 junto, quando for IPv6: é ele que vai numa regra de WAF.
+      ip: rede.endsWith('::/64') ? `${ip} (rede ${rede})` : ip,
       slugs,
       restritos: Number(linha?.restritos) || 0,
       total: Number(linha?.total) || 0,
