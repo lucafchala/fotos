@@ -102,6 +102,17 @@ describe('fonte do smoke', () => {
   });
 });
 
+describe('/api/recentes do smoke (#199)', () => {
+  it('o Worker entrega o status, os cabeçalhos e o corpo que o smoke exige', async () => {
+    const res = await chama({}, new Request(`${ALVO}/api/recentes`));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(doSmoke('RECENTES_CORS'));
+    expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe(doSmoke('RECENTES_CORP'));
+    // Com a lista vazia também: o wrangler dev local não tem projeto nenhum.
+    expect(await res.text()).toContain(doSmoke('RECENTES_CORPO'));
+  });
+});
+
 describe('fonteDoPreload', () => {
   it.each([
     ['a marcação do fontPreloadHTML()', '<link rel="preload" href="/fonts/a.1.woff2" as="font" type="font/woff2" crossorigin>', '/fonts/a.1.woff2'],

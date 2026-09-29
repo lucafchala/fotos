@@ -164,6 +164,32 @@ case "$FONTE" in
     registra "home pré-carrega a fonte" FALHA "caminho relativo inesperado: $FONTE" ;;
 esac
 
+# --- /api/recentes ---------------------------------------------------------
+# Contrato entre sites (#199): a home lucafchala.com lê esta lista para o
+# widget "Galerias recentes". Uma regressão de rota ou de cabeçalho não quebra
+# nada AQUI — a home só mantém em silêncio a lista estática dela. Os três
+# valores abaixo são conferidos contra o Worker em tests/smoke.test.js.
+echo
+echo "Contrato com lucafchala.com"
+RECENTES_CORS='*'
+RECENTES_CORP='cross-origin'
+RECENTES_CORPO='"galerias":['
+RECENTES_HDRS=$(mktemp)
+RECENTES_BODY=$(mktemp)
+RECENTES_CODE=$(curl -s -D "$RECENTES_HDRS" -o "$RECENTES_BODY" -w '%{http_code}' --max-time 20 "$BASE/api/recentes" || true)
+RECENTES_ACAO=$(cabecalho access-control-allow-origin "$RECENTES_HDRS")
+RECENTES_CORP_OBTIDO=$(cabecalho cross-origin-resource-policy "$RECENTES_HDRS")
+[ "$RECENTES_CODE" = 200 ] && registra "/api/recentes responde" OK "200" \
+                           || registra "/api/recentes responde" FALHA "esperado 200, veio ${RECENTES_CODE:-nada}"
+[ "$RECENTES_ACAO" = "$RECENTES_CORS" ] && registra "/api/recentes com CORS" OK "allow-origin $RECENTES_CORS" \
+                                         || registra "/api/recentes com CORS" FALHA "allow-origin: ${RECENTES_ACAO:-ausente}"
+[ "$RECENTES_CORP_OBTIDO" = "$RECENTES_CORP" ] && registra "/api/recentes com CORP" OK "$RECENTES_CORP" \
+                                                || registra "/api/recentes com CORP" FALHA "cross-origin-resource-policy: ${RECENTES_CORP_OBTIDO:-ausente}"
+grep -qF "$RECENTES_CORPO" "$RECENTES_BODY" \
+  && registra "/api/recentes lista galerias" OK "$(wc -c < "$RECENTES_BODY" | tr -d ' ') bytes" \
+  || registra "/api/recentes lista galerias" FALHA "corpo sem $RECENTES_CORPO"
+rm -f "$RECENTES_HDRS" "$RECENTES_BODY"
+
 # --- healthz ----------------------------------------------------------------
 echo
 echo "Saúde"
