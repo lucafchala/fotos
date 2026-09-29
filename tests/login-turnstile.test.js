@@ -99,14 +99,45 @@ describe('login com Turnstile', () => {
     const env = envCom({ FOTOS });
     for (let i = 0; i < 5; i++) await handleLogin(loginReq('errada'), /** @type {any} */ (env), /** @type {any} */ (ctx()));
     expect(FOTOS.escritas).toBe(0);
+    expect(env.RATELIMIT._instances.get('login-fail:9.9.9.9'), 'sem token não conta como falha').toBeUndefined();
     // E o contraponto: com token aprovado, a senha errada É contabilizada
-    // (noteFailedLogin) — o teste acima não passa por o KV estar mudo.
+    // (noteFailedLogin) — no Durable Object, sem escrita de KV (#193). Sem
+    // isto, o teste acima passaria com a contagem simplesmente desligada.
     siteverify(() => Response.json({ success: true }));
     /** @type {Promise<unknown>[]} */
     const pendentes = [];
     await handleLogin(loginReq('errada', 'tok-bom'), /** @type {any} */ (env), /** @type {any} */ ({ waitUntil: (/** @type {Promise<unknown>} */ p) => pendentes.push(p) }));
     await Promise.all(pendentes);
-    expect(FOTOS.escritas).toBeGreaterThan(0);
+    expect(FOTOS.escritas).toBe(0);
+    expect(env.RATELIMIT._instances.get('login-fail:9.9.9.9').ctx.storage._map.get('w').contagem).toBe(1);
+  });
+
+  it('a 5ª senha errada na janela dispara o alerta, sem uma escrita de KV por tentativa (#193)', async () => {
+    const FOTOS = fakeKV();
+    FOTOS._store.set('admin_password', await hashPassword(SENHA));
+    const env = envCom({ FOTOS, RESEND_API_KEY: 're_x', ADMIN_EMAIL: 'dono@example.com' });
+    /** @type {string[]} */
+    const emails = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      if (String(url).includes('resend.com')) { emails.push(String(init.body)); return new Response('{}'); }
+      return Response.json({ success: true });
+    }));
+    const tenta = async () => {
+      /** @type {Promise<unknown>[]} */
+      const pendentes = [];
+      await handleLogin(loginReq('errada', 'tok'), /** @type {any} */ (env), /** @type {any} */ ({ waitUntil: (/** @type {Promise<unknown>} */ p) => pendentes.push(p) }));
+      await Promise.all(pendentes);
+    };
+    for (let i = 0; i < 4; i++) await tenta();
+    expect(emails, 'abaixo do piso, nenhum alerta').toHaveLength(0);
+    expect(FOTOS.escritas, 'contar falha não escreve no KV').toBe(0);
+    await tenta();
+    expect(emails).toHaveLength(1);
+    expect(emails[0]).toContain('5 ou mais');
+    // Depois do alerta, o cooldown (uma escrita, uma vez) segura o flood.
+    for (let i = 0; i < 3; i++) await tenta();
+    expect(emails).toHaveLength(1);
+    expect(FOTOS.escritas).toBe(1);
   });
 
   it('o PBKDF2 roda mesmo sem token — é o canário de CPU do smoke', async () => {

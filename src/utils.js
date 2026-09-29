@@ -1998,7 +1998,7 @@ const LOGIN_ALERT_COOLDOWN_SECS = 1800;
 
 /**
  * @param {Env} env
- * @param {{ ip: string, attempts: number, windowMins: number, userAgent?: string }} info
+ * @param {{ ip: string, attempts: number|string, windowMins: number, userAgent?: string }} info
  */
 export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent }) {
   const apiKey = env.RESEND_API_KEY;

@@ -632,7 +632,6 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
 | `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
-| `login-fail:<ip>:<janela>` | Contagem de logins falhos, TTL 15 min — só alimenta o alerta | `noteFailedLogin` |
 | `error-alert:cooldown`, `login-alert:cooldown`, `noscript-sweep-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert`, `sendNoscriptSweepAlert` |
 | `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
 
@@ -1552,7 +1551,9 @@ senha algumas vezes de manhã e volta à tarde.
 
 Independente do bloqueio, falhas de login são **contadas e alertadas**: a partir
 de 5 em 15 min, o dono recebe e-mail (`sendLoginAlert`, com cooldown próprio de
-30 min para não virar flood). Antes desta revisão, uma força bruta era
+30 min para não virar flood). A contagem mora no Durable Object `RateLimiter`
+(chave `login-fail`), não no KV: uma força bruta não gasta a cota de escrita
+(#193). Antes desta revisão, uma força bruta era
 completamente silenciosa — o rate limit segurava o volume, mas ninguém ficava
 sabendo que houve tentativa.
 

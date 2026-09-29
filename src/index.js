@@ -687,8 +687,8 @@ export async function handleLogin(request, env, ctx) {
   // de escola/operadora) trancaria o painel por 24h com um minuto de tráfego.
   const burstOk = await checkRateLimit(env, ip, 'login', 10, 600);
   if (!burstOk) {
-    // Sem noteFailedLogin aqui (faz leitura+escrita em KV): tentativa já
-    // barrada não pode custar da cota de 1000 escritas/dia da conta inteira.
+    // Sem noteFailedLogin aqui: tentativa já barrada pelo limite não conta
+    // de novo como falha (o alerta já saiu, ou sairá, pelas que passaram).
     return redirect('/dashboard?error=1');
   }
   if (!await checkRateLimit(env, ip, 'login-day', 60, 86400)) {
@@ -730,7 +730,7 @@ export async function handleLogin(request, env, ctx) {
   // checar o token antes faria esse canário parar de medir. E a resposta de
   // quem não passou na verificação é a MESMA com senha certa ou errada — o
   // resultado do hash só aparece para quem passou. Sem noteFailedLogin aqui:
-  // é escrita em KV, e tentativa sem token não pode gastar a cota.
+  // tentativa sem token não conta para o alerta de força bruta.
   // 'indisponivel' segue só com senha e rate limit (ver checkTurnstile).
   const verificacao = await checkTurnstile(body['cf-turnstile-response'] || '', env);
   if (verificacao === 'recusado') return redirect('/dashboard?error=ts');
@@ -784,19 +784,23 @@ const LOGIN_ALERT_WINDOW_SECS = 900;
  * @param {string} ip
  */
 async function noteFailedLogin(env, request, ip) {
-  const window = Math.floor(Date.now() / (LOGIN_ALERT_WINDOW_SECS * 1000));
-  const key = `login-fail:${ip}:${window}`;
-  const attempts = toCount(await env.FOTOS.get(key)) + 1;
-  // Isolada: com a cota de escrita estourada, uma exceção aqui pularia
-  // justamente o alerta de força bruta. A contagem já está em `attempts`.
-  await env.FOTOS.put(key, String(attempts), { expirationTtl: LOGIN_ALERT_WINDOW_SECS })
-    .catch(e => noteKvFailure('escrita', e, 'login-fail counter'));
-  // `>=`, não `==`: o contador é KV, consistência eventual, então uma força
-  // bruta paralela pode pular de 4 direto para 6 sem nunca passar por 5.
-  if (attempts >= LOGIN_ALERT_THRESHOLD) {
+  // Contado no Durable Object `RateLimiter`, não no KV (#193): cada senha
+  // errada era um get+put no KV, e o KV tem 1000 escritas/dia para a conta
+  // inteira — com o Turnstile indisponível, uma força bruta queimava a cota do
+  // painel e do status junto. `check(limite)` deixa passar as primeiras
+  // `limite` chamadas da janela e recusa a seguinte: recusou = esta é a
+  // falha de número THRESHOLD (ou uma depois dela), e o alerta dispara. O
+  // cooldown dentro de sendLoginAlert segura o flood, como antes.
+  //
+  // Com o objeto fora do ar, checkRateLimit deixa passar (fail-open) e
+  // registra a degradação no healthz: perde-se o alerta, nunca o login.
+  const abaixoDoPiso = await checkRateLimit(env, ip, 'login-fail', LOGIN_ALERT_THRESHOLD - 1, LOGIN_ALERT_WINDOW_SECS);
+  if (!abaixoDoPiso) {
     await sendLoginAlert(env, {
       ip,
-      attempts,
+      // O objeto não conta além do piso (recusar não incrementa), então o
+      // número exato não existe mais — "5 ou mais" é o que se sabe.
+      attempts: `${LOGIN_ALERT_THRESHOLD} ou mais`,
       windowMins: Math.round(LOGIN_ALERT_WINDOW_SECS / 60),
       userAgent: (request.headers.get('User-Agent') || '').slice(0, 200),
     });
