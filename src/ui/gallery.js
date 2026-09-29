@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, updateBannerHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, formatDatePT, sortEvents, eventTime, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -238,7 +238,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
       --cta-bg:#c0a060;--cta-text:#0a0a0a;
       --shimmer-a:#181818;--shimmer-b:#222;
-      --banner-bg:#151208;--banner-border:#3a3320;--banner-text:#d8c89a;--banner-text-dim:#8a7a50;
     }
     @media (prefers-color-scheme: light) {
       :root{
@@ -247,7 +246,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
         --cta-bg:#8a6428;--cta-text:#faf7f3;
         --shimmer-a:#ececec;--shimmer-b:#f5f5f5;
-        --banner-bg:#fdf3dc;--banner-border:#e8d1a0;--banner-text:#5c4310;--banner-text-dim:#a08a55;
       }
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
@@ -358,11 +356,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
     .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
     .legal-link:hover{color:var(--text)}
     .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;order:99;margin-top:.75rem}
-    .update-banner{background:var(--banner-bg);border-bottom:1px solid var(--banner-border);padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:var(--banner-text);text-align:center}
-    .update-banner a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-    .update-banner a:hover{color:var(--accent-hover)}
-    .update-banner .ub-close{background:none;border:none;color:var(--banner-text-dim);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
-    .update-banner .ub-close:hover{color:var(--banner-text)}
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
@@ -393,7 +386,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
   </script>
 </head>
 <body>
-  ${updateBannerHTML()}
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
   </header>
@@ -583,20 +575,6 @@ export function galleryHTML(events, analyticsToken, nonce = '') {
         try { localStorage.setItem('fotos:cookie_notice', '1'); } catch(_) {}
         var cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
-      });
-
-      // New-interface banner (dismiss remembered per visitor)
-      try {
-        if (localStorage.getItem('fotos:update_banner_dismissed')) {
-          var ub0 = document.getElementById('update-banner');
-          if (ub0) ub0.style.display = 'none';
-        }
-      } catch(_) {}
-      var ubClose = document.getElementById('update-banner-close');
-      if (ubClose) ubClose.addEventListener('click', function(){
-        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
-        var ub = document.getElementById('update-banner');
-        if (ub) ub.style.display = 'none';
       });
 
       // Colapsa a busca ao rolar pra baixo (reabre ao rolar pra cima ou perto

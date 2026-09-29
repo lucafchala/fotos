@@ -887,21 +887,6 @@ export function igCreditButtonHTML(idSuffix, label = 'Marque-me') {
     </a>`;
 }
 
-// Dismissible "new interface" notice shown on the gallery and every project
-// page while the redesign is fresh. Dismissal is remembered client-side
-// (localStorage, same pattern as the cookie notice already on these pages) —
-// each page wires its own show/hide script since inline <script> blocks
-// aren't shared across pages, only this markup is.
-export function updateBannerHTML() {
-  return `
-    <div class="update-banner" id="update-banner">
-      <span>✨ Nova interface, melhorada!</span>
-      <a href="/suporte?tema=bug">Encontrou um problema? Reportar</a>
-      <a href="/suporte?tema=sugestao">💡 Tem uma sugestão?</a>
-      <button type="button" class="ub-close" id="update-banner-close" aria-label="Fechar aviso">×</button>
-    </div>`;
-}
-
 // ---------------------------------------------------------------------------
 // Inter servido pela própria origem (#131)
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, updateBannerHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, formatDatePT, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -410,11 +410,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
     /* new-interface banner */
-    .update-banner{background:var(--warn-bg);border-bottom:1px solid var(--warn-border);padding:.7rem 1.25rem;display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap;font-size:.82rem;color:var(--warn-text);text-align:center}
-    .update-banner a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-    .update-banner a:hover{color:var(--accent-hover)}
-    .update-banner .ub-close{background:none;border:none;color:var(--text-dim-2);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 .25rem;flex-shrink:0}
-    .update-banner .ub-close:hover{color:var(--warn-text)}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -444,7 +439,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       Para acessar as fotos, ative o <strong>JavaScript</strong> e desative o bloqueador de anúncios para este site; depois recarregue a página. Precisa de ajuda? <a href="/suporte">Suporte</a>.
     </div>
   </noscript>
-  ${updateBannerHTML()}
   ${showBanner ? `<div class="photos-banner" id="photos-banner">
     <div class="banner-inner">
       <span class="banner-dot"></span>
@@ -882,22 +876,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         const cn = document.getElementById('cookie-notice');
         if (cn) cn.classList.remove('show');
         updateStickyCta();
-      });
-    })();
-
-    // ---- New-interface banner (dismiss remembered per visitor) ----
-    try {
-      if (localStorage.getItem('fotos:update_banner_dismissed')) {
-        const ub0 = document.getElementById('update-banner');
-        if (ub0) ub0.style.display = 'none';
-      }
-    } catch(_) {}
-    (function(){
-      const ubClose = document.getElementById('update-banner-close');
-      if (ubClose) ubClose.addEventListener('click', function(){
-        try { localStorage.setItem('fotos:update_banner_dismissed', '1'); } catch(_) {}
-        const ub = document.getElementById('update-banner');
-        if (ub) ub.style.display = 'none';
       });
     })();
 
