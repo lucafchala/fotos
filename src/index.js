@@ -2208,6 +2208,38 @@ export async function handleHealthz(request, env) {
   // de escrita do KV, que o rate limit gastava quando morava lá; hoje ele é um
   // Durable Object, mas limitar o monitor continua sem proteger nada.
   //
+  // O que o limita é a memória abaixo (#195): cada pedido fazia duas leituras
+  // de KV sem cache, uma consulta ao D1 e um PBKDF2 de 100k. As leituras de KV
+  // são 100k/dia para a conta inteira (dividida com o status), então ~50k
+  // pedidos anônimos esgotavam a cota da qual a galeria depende. Com a medição
+  // reaproveitada por HEALTHZ_MEMO_MS dentro do isolate, uma rajada custa uma
+  // medição por isolate a cada 10 s — e o monitor (a cada 10 min) e o smoke
+  // (isolate novo a cada deploy) nunca veem a diferença.
+  const agora = Date.now();
+  const memo = healthzMemo;
+  if (memo && memo.env === env && agora - memo.em < HEALTHZ_MEMO_MS) {
+    return healthzResposta(request, env, memo.medicao, 'hit');
+  }
+  const medicao = await medirSaude(env);
+  // Só o que deu certo fica guardado. Uma resposta degradada é a que alguém
+  // está olhando no meio de um incidente: ela é sempre medida de novo, e o
+  // pedido seguinte ao conserto já vê o estado novo.
+  healthzMemo = medicao.ok ? { env, em: agora, medicao } : null;
+  return healthzResposta(request, env, medicao, 'miss');
+}
+
+// Memória do /api/healthz por isolate (#195). A chave inclui o `env`: um
+// isolate atende um Worker só, mas a suíte chama o handler com envs
+// diferentes no mesmo módulo, e uma medição não pode vazar de um para outro.
+const HEALTHZ_MEMO_MS = 10_000;
+/** @type {{ env: Env, em: number, medicao: Awaited<ReturnType<typeof medirSaude>> } | null} */
+let healthzMemo = null;
+
+/**
+ * A parte cara do healthz — KV, D1, PBKDF2, cron e o self-test.
+ * @param {Env} env
+ */
+async function medirSaude(env) {
   // KV é o binding do qual tudo depende; falha de leitura aqui é a única
   // condição que vira ok:false.
   let kv = false;
@@ -2273,10 +2305,23 @@ export async function handleHealthz(request, env) {
   // formulário não configurado.
   const selftest = auditSite(eventsList, env, degradedHealth());
 
+  const ok = kv && events !== null;
+  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest };
+}
+
+/**
+ * Monta a resposta: a medição (talvez reaproveitada) mais o que é deste
+ * pedido — colo, país e hora — e o que vem de bindings de env, sem I/O.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {Awaited<ReturnType<typeof medirSaude>>} medicao
+ * @param {'hit'|'miss'} cache
+ */
+function healthzResposta(request, env, medicao, cache) {
+  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest } = medicao;
   // Resto do payload vem de dados já carregados + bindings de env — zero
   // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
-  const ok = kv && events !== null;
-  return jsonOk({
+  const res = jsonOk({
     // Contrato estável (smoke test + painel já fazem parsing destes nomes),
     // escrito em docs/healthz-contrato.json e conferido pelos dois lados.
     // `hashMs` fica de fora de propósito — ver o comentário do PBKDF2 acima.
@@ -2299,6 +2344,10 @@ export async function handleHealthz(request, env) {
     country: request.cf?.country || null,
     now: new Date().toISOString(),
   }, ok ? 200 : 503);
+  // Cabeçalho, não campo: o corpo é contrato (docs/healthz-contrato.json), e
+  // quem precisa saber se a medição é deste pedido lê aqui.
+  res.headers.set('X-Healthz-Cache', cache);
+  return res;
 }
 
 // ---------------------------------------------------------------------------

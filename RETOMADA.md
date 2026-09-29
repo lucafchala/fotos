@@ -129,7 +129,10 @@ Só se descobre isso abrindo o site num navegador de verdade.
 
 30 s, por isolate. Em produção é o desejado. **Entre testes do mesmo arquivo,
 vaza**: um teste vê a lista de eventos de outro e você recebe um 404 confuso.
-`/api/healthz` é o único caminho que força releitura — use como primer.
+`/api/healthz` é o único caminho que força releitura — use como primer. Mas
+ele guarda a própria medição por 10 s por `env` quando responde `ok` (#195):
+com o **mesmo** `env` no mesmo arquivo, o segundo healthz não relê nada
+(cabeçalho `X-Healthz-Cache: hit`).
 
 ### 5.3. Cota de KV é 1000 escritas/dia — mas os contadores saíram do KV
 
