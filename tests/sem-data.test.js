@@ -47,7 +47,10 @@ describe('evento sem data nas páginas (#196)', () => {
     const html = await res.text();
     expect(html).not.toContain('1970');
     expect(html).not.toContain('?year=');
-    const ld = JSON.parse(html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/)[1]);
+    // Fatiado por indexOf, não por regex de tag: o bloco é o primeiro JSON-LD
+    // da página, e o serializador neutraliza `<` dentro dele.
+    const abre = html.indexOf('>', html.indexOf('<script type="application/ld+json"')) + 1;
+    const ld = JSON.parse(html.slice(abre, html.indexOf('</' + 'script>', abre)));
     const trilha = ld.find(n => n['@type'] === 'BreadcrumbList').itemListElement;
     expect(trilha.map(i => i.position)).toEqual([1, 2]);
     expect(trilha[1].name).toBe('Sem data');
