@@ -119,7 +119,7 @@ describe('login com Turnstile', () => {
     /** @type {string[]} */
     const emails = [];
     vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
-      if (String(url).includes('resend.com')) { emails.push(String(init.body)); return new Response('{}'); }
+      if (new URL(String(url)).host === 'api.resend.com') { emails.push(String(init.body)); return new Response('{}'); }
       return Response.json({ success: true });
     }));
     const tenta = async () => {
