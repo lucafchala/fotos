@@ -209,6 +209,17 @@ no #178.
 5. Confirme o estado real do PR pela API (seção 2), não por suposição.
 6. Se o TODO.md tinha um item fechado pela mudança, **apague o item** — não o
    transforme em relato do que foi feito (regra do próprio arquivo).
+7. **Documente tudo, no mesmo PR.** Toda mudança deixa rastro nos documentos
+   que os agentes leem — nunca "depois": o doc de arquitetura/endpoint/arquivo
+   que a mudança toca (README, `RETOMADA.md`, `docs/`), uma regra neste
+   arquivo ou no `RETOMADA.md` se criou uma armadilha que falha em silêncio, e
+   um comentário de *porquê* no código. Se a mudança mexe num contrato que
+   outro repositório lê (healthz, `/api/resumo` do status, cookies
+   `lf_theme`/`lf_lang`), diga no PR e no doc **qual repositório irmão precisa
+   da mudança correspondente** — não suponha que ela foi feita. O corpo do PR
+   lista o que foi e o que não foi verificado (testes, navegador de verdade, o
+   que só rodou com dado simulado). O `TODO.md` segue a sua regra própria
+   (item fechado se apaga); esta regra é sobre os demais documentos.
 
 Documentação e código do site nunca devem ficar em commits misturados só por
 conveniência — mas duas mudanças pequenas e relacionadas no mesmo branch/PR
