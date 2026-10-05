@@ -1029,6 +1029,20 @@ export function analyticsBeaconHTML(token, nonce = '') {
 //     dois só criava a chance de um envelhecer sem o outro.
 export const SITE_NAME = 'fotos · Luca F. Chala';
 
+// A MESMA pessoa em todos os subdomínios: o `@id` é o que o buscador usa para
+// juntar o JSON-LD daqui com o da home (lucafchala.com declara este Person,
+// com as redes em `sameAs`). Sem o `@id`, cada página falava de "um Luca F.
+// Chala" sem nome de entidade e o Google tratava como autores diferentes — é
+// o que impede a busca pelo nome de ligar o site de fotos ao resto.
+// Mudar o `@id` aqui exige mudar em lucafchala.com e keys.lucafchala.com.
+export const PERSON_ID = 'https://lucafchala.com/#person';
+export const PERSON_LD = {
+  '@type': 'Person',
+  '@id': PERSON_ID,
+  name: 'Luca F. Chala',
+  url: 'https://lucafchala.com/',
+};
+
 // 1200×630 (proporção 1.91:1) é o formato que Facebook, WhatsApp, LinkedIn e
 // Telegram esperam do cartão grande. Também é o tamanho exato do PNG servido
 // em /og-coming-soon.png, então a mesma constante serve aos dois casos.

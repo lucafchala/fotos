@@ -1,4 +1,4 @@
-import { escape, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, PERSON_LD, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -205,6 +205,8 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         '@type': 'CollectionPage',
         name: 'fotos · Luca F. Chala',
         url: `${SITE_URL}/`,
+        inLanguage: 'pt-BR',
+        author: PERSON_LD,
         mainEntity: { '@type': 'ItemList', numberOfItems: ldItems.length, itemListElement: ldItems },
       }).replace(/</g, '\\u003c')
     : '';

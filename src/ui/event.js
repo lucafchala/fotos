@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -198,7 +198,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       url: `${SITE_URL}/${event.slug}`,
       inLanguage: 'pt-BR',
       description: ogDescription,
-      author: { '@type': 'Person', name: 'Luca F. Chala', url: `${SITE_URL}/sobre` },
+      author: PERSON_LD,
       ...(ogImage.url ? { image: ogImage.url } : {}),
       ...(event.date ? { datePublished: event.date } : {}),
       ...(event.eventCredits ? { creditText: event.eventCredits } : {}),

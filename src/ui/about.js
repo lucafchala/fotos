@@ -1,11 +1,14 @@
-import { footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML, escape } from '../utils.js';
+import { PERSON_LD, jsonParaScript, footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML, escape } from '../utils.js';
 
 // "Sobre" (About) page — mirrors privacy.js structure (same head, dark
 // theme, back link, footer). The only dynamic content is the agenda badge
 // (#211), escaped like every interpolation. The copy below is a placeholder
 // the owner can edit freely.
-/** @param {string} [agenda] selo de agenda; vazio, nada aparece */
-export function aboutHTML(agenda = '') {
+/**
+ * @param {string} [agenda] selo de agenda; vazio, nada aparece
+ * @param {string} [nonce] nonce do CSP, para o bloco JSON-LD
+ */
+export function aboutHTML(agenda = '', nonce = '') {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -25,6 +28,18 @@ export function aboutHTML(agenda = '') {
   <meta property="profile:first_name" content="Luca">
   <meta property="profile:last_name" content="F. Chala">
   <meta property="profile:username" content="lucafchala">
+  ${nonce ? `<script type="application/ld+json" nonce="${escape(nonce)}">${jsonParaScript({
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    url: 'https://fotos.lucafchala.com/sobre',
+    inLanguage: 'pt-BR',
+    mainEntity: {
+      ...PERSON_LD,
+      jobTitle: 'Photographer',
+      knowsAbout: ['Photography', 'Event photography'],
+      sameAs: ['https://lucafchala.com/', 'https://www.instagram.com/lucafchala', 'https://github.com/lucafchala'],
+    },
+  })}</script>` : ''}
   ${fontPreloadHTML()}
   <style>
     ${fontFaceCSS()}
