@@ -37,7 +37,7 @@ export function aboutHTML(agenda = '', nonce = '') {
       ...PERSON_LD,
       jobTitle: 'Photographer',
       knowsAbout: ['Photography', 'Event photography'],
-      sameAs: ['https://lucafchala.com/', 'https://www.instagram.com/lucafchala', 'https://github.com/lucafchala'],
+      sameAs: ['https://lucafchala.com/', 'https://www.instagram.com/lucafchala'],
     },
   })}</script>` : ''}
   ${fontPreloadHTML()}
