@@ -993,6 +993,14 @@ existia e um **`PhotoGallery`** com os mesmos fatos do cartão — `datePublishe
 fotógrafo colaborador ou projeto: declarar `Organization` onde pode haver
 `Person` seria afirmar o que não se sabe.
 
+**Uma pessoa, um `@id`.** O `author` da galeria, o da página de projeto e o
+`ProfilePage` de `/sobre` usam `PERSON_LD` (`src/utils.js`), cujo `@id` é
+`https://lucafchala.com/#person` — o mesmo `Person` que a home declara com as
+redes em `sameAs`. É isso que faz o buscador juntar fotos, home e chaves numa
+entidade só quando alguém pesquisa o nome. Mudar o `@id` exige mudar
+lucafchala.com e keys.lucafchala.com juntos. `/sobre` só emite o bloco quando
+recebe o nonce do CSP (`aboutHTML(agenda, nonce)`).
+
 A suíte `tests/rendered-pages.test.js` renderiza cada página pública e parseia o
 `<head>` que saiu — uma página que esqueça de chamar `socialMetaHTML()` volta a
 ser um link sem cartão, e nada mais no projeto acusaria.

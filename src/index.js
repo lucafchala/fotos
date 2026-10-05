@@ -310,7 +310,7 @@ const worker = {
       }
 
       // About page
-      if (path === '/sobre' && method === 'GET') return html(aboutHTML(await getAgenda(env)), 200, nonce);
+      if (path === '/sobre' && method === 'GET') return html(aboutHTML(await getAgenda(env), nonce), 200, nonce);
 
       // Gear list
       if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);

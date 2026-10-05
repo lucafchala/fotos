@@ -23,6 +23,7 @@ import vm from 'node:vm';
 import { dashboardHTML, loginHTML } from '../src/ui/dashboard.js';
 import { galleryHTML } from '../src/ui/gallery.js';
 import { eventHTML } from '../src/ui/event.js';
+import { aboutHTML } from '../src/ui/about.js';
 import { supportHTML } from '../src/ui/support.js';
 import { docHTML } from '../src/ui/doc.js';
 import { LEGAL_DOCS } from '../src/content/legal-docs.js';
@@ -601,6 +602,19 @@ describe('JSON-LD da página de projeto', () => {
     expect(item, 'entidade HTML não é URL').not.toContain('&amp;');
     // Trilha e galeria descrevem o MESMO recurso: divergir é o defeito.
     expect(item).toBe(gallery.url);
+  });
+
+  it('o autor é a mesma entidade da home (@id), em todas as páginas', () => {
+    // Sem o @id o buscador trata cada subdomínio como um autor diferente e a
+    // busca pelo nome não liga as fotos ao resto do ecossistema.
+    const [, gallery] = ld(EVENTO);
+    expect(gallery.author['@id']).toBe('https://lucafchala.com/#person');
+    expect(gallery.author.url).toBe('https://lucafchala.com/');
+    const sobre = aboutHTML('', 'NONCE').match(/<script type="application\/ld\+json" nonce="NONCE">([\s\S]*?)<\/script>/);
+    expect(sobre, '/sobre precisa de JSON-LD').not.toBeNull();
+    const perfil = JSON.parse(sobre[1]);
+    expect(perfil['@type']).toBe('ProfilePage');
+    expect(perfil.mainEntity['@id']).toBe('https://lucafchala.com/#person');
   });
 
   it('continua sendo JSON parseável com título hostil', () => {
