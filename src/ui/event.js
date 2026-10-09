@@ -1,6 +1,11 @@
-import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
+
+// Larguras das fotos do carrossel/hero, da menor para a maior. A última é a
+// que o servidor emite no src (e o fallback de quem não entende srcset); o
+// script da página troca o sufixo da maior pela largura da tela.
+const PHOTO_WIDTHS = [800, 1200, 1600];
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -35,7 +40,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     : (safeUrl(event.thumbnailUrl) ? [safeUrl(event.thumbnailUrl)] : []);
 
   // Teasers, not downloads — request right-sized Drive thumbnails so the page loads fast.
-  const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, 1600));
+  const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, PHOTO_WIDTHS[PHOTO_WIDTHS.length - 1]));
+
+  // A 1ª foto sai com srcset: o browser escolhe a largura pela tela ANTES de
+  // qualquer JS rodar. As seguintes são escolhidas pelo carrossel (PHOTO_W, no
+  // script abaixo) com a mesma escada — num Wi-Fi de evento, centenas de
+  // celulares baixando 1600 px cada um é o que satura o link do local.
+  const firstSrcset = photos.length ? driveSrcset(photos[0], PHOTO_WIDTHS) : '';
+  const firstSrcsetAttr = firstSrcset ? ` srcset="${escape(firstSrcset)}" sizes="100vw"` : '';
 
   const photosJSON  = jsonParaScript(displayPhotos);
   const slugJSON    = JSON.stringify(event.slug || '');
@@ -124,14 +136,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ? videoHeroHTML
     : event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero"><img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0"></div>`
+        ? `<div class="hero"><img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0"></div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(displayPhotos[0])}" alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">
+          <img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">
           <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -782,7 +794,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
     // que chega menos de 3 s depois de a página ser servida é automação.
     const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
-    const PHOTOS         = ${photosJSON};
+    // Largura das fotos para ESTA tela, na mesma escada do srcset da 1ª foto
+    // (PHOTO_WIDTHS): a menor que cobre a largura da janela em pixels físicos.
+    // O servidor manda tudo em =w1600; aqui só troca o sufixo, e só em URL do
+    // lh3 — qualquer outra passa intacta, como em sizedDriveThumb().
+    const PHOTO_WS = ${JSON.stringify(PHOTO_WIDTHS)};
+    const PHOTO_W = (function() {
+      const need = innerWidth * (window.devicePixelRatio || 1);
+      for (let i = 0; i < PHOTO_WS.length; i++) if (need <= PHOTO_WS[i]) return PHOTO_WS[i];
+      return PHOTO_WS[PHOTO_WS.length - 1];
+    })();
+    const PHOTO_MAX_SUFFIX = '=w' + PHOTO_WS[PHOTO_WS.length - 1];
+    const PHOTOS = (${photosJSON}).map(function(u) {
+      return u.indexOf('https://lh3.googleusercontent.com/d/') === 0 && u.slice(-PHOTO_MAX_SUFFIX.length) === PHOTO_MAX_SUFFIX
+        ? u.slice(0, -PHOTO_MAX_SUFFIX.length) + '=w' + PHOTO_W
+        : u;
+    });
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
 
@@ -947,6 +974,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     let driveLinkState = 'idle'; // idle | loading | ready | error
     let driveLinkResult = null;  // { driveUrl, driveUrlInstagram, driveUrlVideos } cached after a successful fetch
     let driveAttnTimer = null;
+    // Depois de um erro, no máximo UMA tentativa sozinha; a seguinte só pelo
+    // botão "Tentar novamente". Sem esse teto o laço era infinito: erro →
+    // Turnstile renova a ficha → o callback refaz o pedido → erro de novo. Com
+    // um 429 (público de evento no mesmo Wi-Fi) cada celular barrado virava um
+    // pedido a cada ~2 s pela hora inteira — o bastante para esgotar as 100 mil
+    // requisições/dia do plano gratuito e derrubar o site para todo mundo.
+    let driveAutoRetry   = false; // a próxima ficha pode refazer o pedido sozinha?
+    let driveAutoRetried = false; // a tentativa automática já foi gasta desde o último gesto?
     let remWidgetId   = null;
     let remTsToken    = '';
 
@@ -1038,6 +1073,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // (+ declaration, when required) are all satisfied — no click needed.
     function maybeFetchDriveLink() {
       if (driveLinkState === 'loading' || driveLinkState === 'ready') return;
+      if (driveLinkState === 'error' && !driveAutoRetry) return; // ver driveAutoRetry
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
       const consentOk = c && c.checked && (!decl || decl.checked);
@@ -1050,6 +1086,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       }
     }
     function fetchDriveLink() {
+      driveAutoRetry = false; // consumida: só um erro novo pode rearmar
+      let status = 0;
       driveLinkState = 'loading';
       setDriveLinkUI('loading');
       const nameEl = document.getElementById('drive-name');
@@ -1070,11 +1108,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           // 410 = nonce da página venceu (aba aberta há horas), não erro do
           // visitante — reloadForFreshNonce() recarrega e o fluxo recomeça.
           if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
+          status = r.status;
           return r.ok ? r.json() : Promise.reject();
         })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
+          driveAutoRetried = false;
           // Solta a trava anti-laço: uma expiração futura na mesma aba ainda
           // pode se recuperar com uma recarga.
           try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
@@ -1086,8 +1126,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         .catch(function() {
           driveLinkState = 'error';
           setDriveLinkUI('error');
+          // 429 não se resolve em segundos — repetir sozinho só alimenta o
+          // limite. Os demais erros (ficha recusada, rede) ganham uma
+          // tentativa automática; daí em diante, só pelo botão.
+          driveAutoRetry = status !== 429 && !driveAutoRetried;
+          driveAutoRetried = true;
           // Turnstile tokens are single-use — this attempt already spent it.
-          // Fetch a fresh one in the background; its callback retries automatically.
+          // Fetch a fresh one in the background, so the retry (automatic or
+          // from the button) finds it ready.
           if (driveTsToken !== 'noscript') {
             driveTsToken = '';
             if (driveWidgetId !== null && !tsUnavailable()) turnstile.execute(driveWidgetId);
@@ -1146,6 +1192,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
     function retryDriveLink() {
       driveLinkState = 'idle';
+      driveAutoRetried = false; // gesto da pessoa: devolve a tentativa automática
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
     }
@@ -1298,6 +1345,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       const car = document.getElementById('carousel');
       if (img) {
         img.style.opacity = '0';
+        // O srcset só serve à 1ª foto; com ele presente o browser ignoraria
+        // a troca de src.
+        img.removeAttribute('srcset');
         img.src = PHOTOS[cur];
         // Imagem já em cache decodifica antes do próximo frame: só marcamos
         // como "carregando" se ela realmente não estiver pronta, senão o

@@ -326,6 +326,29 @@ smoke em produção e **reverte sozinho** se reprovar. Três consequências:
   Mudou um destino do login, a marcação do preload ou o cache da fonte? A
   suíte reprova, e o smoke muda no mesmo PR.
 
+### 5.12. Um evento inteiro é UM IP — e o cliente não pode repetir sozinho sem teto
+
+O público de um evento abre o link junto, no Wi-Fi do local, e um Wi-Fi de
+local é um IPv4 público (NAT) para todos. Com o portão do Drive em 60/h por
+IP, 750 pessoas viravam 60 com fotos e 690 com 429 até virar a hora. Hoje os
+limites moram em `src/config.js` (`DRIVE_LINK_LIMIT_PER_HOUR` e afins) e o
+teste "cabe o público de um evento grande atrás de um NAT só" prende o piso.
+**Limite por IP tem de caber o maior público que divide um IP**; quem barra
+robô é o Turnstile + nonce, não o número.
+
+O 429 era só metade. O portão do Drive repetia o pedido **sozinho e sem
+teto** a cada erro (erro → Turnstile renova a ficha → o callback pede de
+novo): no Chromium, 27 pedidos em 8 s por celular. Centenas de celulares
+barrados nesse laço esgotariam as 100 mil requisições/dia do plano gratuito
+em minutos e derrubariam o site para todo mundo. Hoje: uma tentativa
+automática (nenhuma em 429), o resto pelo botão. **Qualquer repetição
+automática no cliente precisa de teto** — no pico, ela multiplica a carga
+justamente quando o servidor já está recusando.
+
+Mesma família no servidor: a trava do alerta de erro por e-mail era só no
+KV, e a leitura que deu `null` fica em cache no colo — numa onda de 500 cada
+requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate antes.
+
 ---
 
 ## 6. Como fazer uma mudança

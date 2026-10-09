@@ -49,6 +49,8 @@ const EMAIL_TIMEOUT_MS = 10_000;
 // cooldown (not per-error-type) so an incident that throws repeatedly can't
 // flood the inbox; still frequent enough that a real outage is noticed fast.
 const ERROR_ALERT_COOLDOWN_SECS = 900;
+/** @type {{ env: Env, em: number } | null} */
+let ultimoAlertaDeErro = null;
 
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
@@ -2084,6 +2086,17 @@ export async function sendSupportEmail(env, { name, email, message }) {
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
+  // Trava do próprio isolate ANTES da do KV. A do KV sozinha não segura uma
+  // rajada: a leitura que deu `null` fica em cache no colo por até 60 s, então
+  // numa onda de 500 (o público de um evento chegando junto) cada requisição
+  // via "sem cooldown", gravava no KV e mandava e-mail — centenas de escritas
+  // contra as 1000/dia da conta e de e-mails contra a franquia do Resend, que
+  // é a mesma do suporte e da remoção. Marcada antes do primeiro await, como
+  // a do Kuma. Por `env`, como a memória do healthz, para não vazar entre testes.
+  const agora = Date.now();
+  if (ultimoAlertaDeErro && ultimoAlertaDeErro.env === env
+      && agora - ultimoAlertaDeErro.em < ERROR_ALERT_COOLDOWN_SECS * 1000) return false;
+  ultimoAlertaDeErro = { env, em: agora };
   try {
     const cooldownKey = 'error-alert:cooldown';
     if (await env.FOTOS.get(cooldownKey)) return false;

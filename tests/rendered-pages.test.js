@@ -809,3 +809,25 @@ describe('dado de projeto não fecha o <script> da página', () => {
   });
 });
 
+
+// Num Wi-Fi de evento, centenas de celulares baixando a 1ª foto a 1600 px
+// saturavam o link do local. A 1ª foto sai com srcset (o browser escolhe pela
+// tela antes do JS) e o carrossel troca a largura das seguintes — conferido no
+// Chromium: 390@3 → w1200, 360@2 → w800, desktop → w1600, sem baixar a 1ª duas vezes.
+describe('página de projeto: fotos do tamanho da tela', () => {
+  const fotos = ['https://lh3.googleusercontent.com/d/AAA', 'https://lh3.googleusercontent.com/d/BBB'];
+  const html = eventHTML({ ...EVENTO, photos: fotos }, 2026, '', 'n', 'dn', 'ft');
+
+  it('a 1ª foto do carrossel tem srcset com a escada inteira e src de fallback na maior', () => {
+    const img = html.match(/<img id="c-img"[^>]*>/)?.[0] ?? '';
+    expect(img).toContain('src="https://lh3.googleusercontent.com/d/AAA=w1600"');
+    for (const w of [800, 1200, 1600]) expect(img).toContain(`AAA=w${w} ${w}w`);
+    expect(img).toContain('sizes="100vw"');
+  });
+
+  it('o carrossel tira o srcset antes de trocar a foto — senão o browser ignora o src novo', () => {
+    const i = html.indexOf("img.removeAttribute('srcset');");
+    expect(i).toBeGreaterThan(-1);
+    expect(html.indexOf('img.src = PHOTOS[cur];', i)).toBeGreaterThan(i);
+  });
+});

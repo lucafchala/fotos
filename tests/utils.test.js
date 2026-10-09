@@ -148,6 +148,29 @@ describe('sendErrorAlert', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  // Numa onda de 500 a trava do KV não segura: a leitura que deu null fica em
+  // cache no colo, então cada requisição via "sem cooldown". Aqui o KV NUNCA
+  // devolve a trava (o pior caso do cache), e mesmo assim só um e-mail sai e
+  // só uma escrita é gasta — a trava do isolate decide antes do KV.
+  it('uma rajada de erros no mesmo isolate manda um e-mail e grava no KV uma vez', async () => {
+    const originalFetch = globalThis.fetch;
+    let emails = 0;
+    globalThis.fetch = async () => { emails++; return new Response('{}', { status: 200 }); };
+    let puts = 0;
+    const env = {
+      RESEND_API_KEY: 'k', ADMIN_EMAIL: 'a@b.com',
+      FOTOS: { get: async () => null, put: async () => { puts++; } },
+    };
+    try {
+      const r = await Promise.all(Array.from({ length: 50 }, () => sendErrorAlert(env, new Error('boom'), { path: '/x' })));
+      expect(r.filter(Boolean)).toHaveLength(1);
+      expect(emails).toBe(1);
+      expect(puts).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 // The four other Resend senders share the same shape: no-op (return false,

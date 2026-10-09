@@ -37,6 +37,22 @@ export const DEFAULT_EVENT = {
 // com a velha recusaria todo envio.
 export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
 
+// Rate limit por IP do portão do Drive, por hora. Dimensionado para o caso
+// real de pico: o público de um evento abrindo o link AO MESMO TEMPO, no
+// Wi-Fi do local — e um Wi-Fi de local é UM IPv4 público (NAT) para todos.
+// Com 60/h, 750 pessoas no mesmo Wi-Fi viravam 60 com fotos e 690 com
+// "Muitas tentativas" até virar a hora. O limite é a segunda camada: quem
+// barra robô é o Turnstile + o nonce assinado por slug; este número só tem de
+// ficar acima do maior público que divide um IP. O noscript é mais apertado
+// porque não tem Turnstile, mas também precisa caber a fração de um público
+// com bloqueador de anúncios — a varredura por esse caminho tem alerta
+// próprio (abaixo), que olha projetos distintos, não volume.
+export const DRIVE_LINK_LIMIT_PER_HOUR = 1000;
+export const DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR = 100;
+// Formulários de suporte e de remoção (LGPD): baixo volume, mas no mesmo IP
+// de um evento. 5/h deixava a sexta pessoa do local sem poder pedir remoção.
+export const FORM_LIMIT_PER_HOUR = 20;
+
 // Varredura pelo caminho noscript do portão do Drive (#147). O fallback para
 // quem tem o Turnstile bloqueado entrega o link sem desafio, e um script que já
 // carregou a página consegue percorrer o catálogo por ele. Quem usa bloqueador

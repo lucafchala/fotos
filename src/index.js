@@ -33,6 +33,7 @@ import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
+  DRIVE_LINK_LIMIT_PER_HOUR, DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR, FORM_LIMIT_PER_HOUR,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -1438,7 +1439,7 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
       nonce
     );
 
-  const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
+  const allowed = await checkRateLimit(env, ip, 'support', FORM_LIMIT_PER_HOUR, 3600);
   if (!allowed) {
     return page(false, 'Muitas mensagens enviadas. Tente mais tarde.', {}, 429);
   }
@@ -1654,7 +1655,7 @@ export async function handleChangePassword(request, env, ctx) {
  */
 export async function handleRemovalRequest(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
+  const allowed = await checkRateLimit(env, ip, 'removal', FORM_LIMIT_PER_HOUR, 3600);
   if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
 
   const body = await readJsonBody(request);
@@ -2535,8 +2536,8 @@ export async function handleDriveLink(request, env, ctx) {
 
   const isNoscript = body.turnstileToken === 'noscript';
   const allowed = isNoscript
-    ? await checkRateLimit(env, ip, 'drive-link-noscript', 10, 3600)
-    : await checkRateLimit(env, ip, 'drive-link', 60, 3600);
+    ? await checkRateLimit(env, ip, 'drive-link-noscript', DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR, 3600)
+    : await checkRateLimit(env, ip, 'drive-link', DRIVE_LINK_LIMIT_PER_HOUR, 3600);
   if (!allowed) return jsonErr('Muitas tentativas. Tente novamente mais tarde.', 429);
 
   const events = await getEvents(env);
@@ -2912,7 +2913,13 @@ function handleFont(path) {
   let bytes = fontBytes.get(path);
   if (!bytes) {
     const font = /** @type {typeof FONTS[number]} */ (FONT_BY_PATH.get(path));
-    bytes = Uint8Array.from(atob(font.b64), c => c.charCodeAt(0));
+    // Laço simples, não `Uint8Array.from(str, fn)`: o callback por byte custava
+    // ~6–8 ms de CPU por fonte (medido em node, set/2026) — quase todo o
+    // orçamento de 10 ms do plano gratuito, pago na 1ª fonte de cada isolate
+    // novo. Numa rajada de público a Cloudflare abre muitos isolates de uma vez.
+    const bin = atob(font.b64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     fontBytes.set(path, bytes);
   }
   return new Response(bytes, {

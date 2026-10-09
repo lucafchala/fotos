@@ -3,6 +3,7 @@ import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDrive
 import { signToken } from '../src/security.js';
 import { saveEvents, ACCESS_DECLARATIONS, readCounter, degradedHealth, resetDegraded } from '../src/utils.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
+import { DRIVE_LINK_LIMIT_PER_HOUR, DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR } from '../src/config.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -144,16 +145,27 @@ describe('handleDriveLink — refusals', () => {
     stubTurnstile(true);
     const body = { slug: 'casamento-ana', turnstileToken: 't', consent: true };
     let last;
-    for (let i = 0; i < 62; i++) last = await handleDriveLink(req(body), env, fakeCtx());
+    for (let i = 0; i < DRIVE_LINK_LIMIT_PER_HOUR + 2; i++) last = await handleDriveLink(req(body), env, fakeCtx());
     expect(last.status).toBe(429);
   });
 
   it('rate-limits the noscript path far tighter than the verified one', async () => {
     const body = { slug: 'casamento-ana', turnstileToken: 'noscript', consent: true };
     const codes = [];
-    for (let i = 0; i < 12; i++) codes.push((await handleDriveLink(req(body), env, fakeCtx())).status);
-    expect(codes.filter(c => c === 200)).toHaveLength(10);
+    for (let i = 0; i < DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR + 2; i++) codes.push((await handleDriveLink(req(body), env, fakeCtx())).status);
+    expect(codes.filter(c => c === 200)).toHaveLength(DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR);
     expect(codes.at(-1)).toBe(429);
+    expect(DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR).toBeLessThan(DRIVE_LINK_LIMIT_PER_HOUR);
+  });
+
+  // Um Wi-Fi de evento é UM IPv4 para o público inteiro. Com 60/h, 750
+  // pessoas no mesmo local viravam 60 com fotos e 690 com 429 até virar a hora.
+  it('cabe o público de um evento grande atrás de um NAT só', async () => {
+    stubTurnstile(true);
+    const body = { slug: 'casamento-ana', turnstileToken: 't', consent: true };
+    const codes = [];
+    for (let i = 0; i < 750; i++) codes.push((await handleDriveLink(req(body, { ip: '200.1.2.3' }), env, fakeCtx())).status);
+    expect(codes.filter(c => c !== 200)).toEqual([]);
   });
 });
 
