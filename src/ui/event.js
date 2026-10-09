@@ -640,7 +640,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <p class="dv-contact">Se continuar, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-link-error" class="drive-verifying" style="display:none">
-          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" data-action="retryDriveLink" class="dv-retry">Tentar novamente</button> ou <button type="button" data-action="showDriveEmail" class="dv-retry">receber um código por e-mail</button>.</p>
+          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" data-action="retryDriveLink" class="dv-retry">Tentar novamente</button><span id="drive-email-offer"> ou <button type="button" data-action="showDriveEmail" class="dv-retry">receber um código por e-mail</button></span>.</p>
           <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-wait" class="drive-verifying" style="display:none" role="status" aria-live="polite">
@@ -1243,6 +1243,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           }
           driveLinkState = 'error';
           setDriveLinkUI('error');
+          // O código por e-mail só aparece quando ELE resolve: verificação
+          // recusada (403), limite (429), servidor fora (5xx) ou rede (0).
+          // Projeto inexistente, aceite faltando etc. o código não conserta —
+          // oferecer seria mandar a pessoa por um caminho que também recusa.
+          const offer = document.getElementById('drive-email-offer');
+          if (offer) offer.style.display = (status === 0 || status === 403 || status === 429 || status >= 500) ? '' : 'none';
           // 429 não se resolve em segundos — repetir sozinho só alimenta o
           // limite. Os demais erros (ficha recusada, rede) ganham uma
           // tentativa automática; daí em diante, só pelo botão.
@@ -1276,6 +1282,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         } catch(_) {}
         driveLinkState = 'error';
         setDriveLinkUI('error');
+        // O código por e-mail exige o mesmo nonce que acabou de falhar.
+        const offer = document.getElementById('drive-email-offer');
+        if (offer) offer.style.display = 'none';
         return;
       }
       try {

@@ -2326,6 +2326,33 @@ export async function sendConfirmationEmail(env, req) {
   return true;
 }
 
+// Apelidos de e-mail no código do portão do Drive. Um apelido entrega na MESMA
+// caixa que o endereço base, então, sem isto, `ana+1@`, `ana+2@`… multiplicavam
+// o limite por endereço (EMAIL_CODE_PER_ADDRESS_PER_HOUR) e permitiam encher a
+// caixa de alguém pelo site.
+//
+// - `+etiqueta` (Gmail, Outlook, iCloud, Proton, Fastmail…): RECUSADO, com
+//   mensagem dizendo como seguir — quem usa apelido sabe o endereço base.
+// - Pontos no Gmail (`a.n.a@` = `ana@`): NÃO recusados (muita gente tem ponto
+//   no endereço de verdade), mas contam como um endereço só no limite.
+//   googlemail.com é o mesmo serviço que gmail.com.
+//
+// `chave` é o que vai (como hash) para o limite por endereço; o e-mail enviado
+// continua sendo o digitado.
+/**
+ * @param {string} email já validado por EMAIL_RE e em minúsculas
+ * @returns {{ ok: true, chave: string } | { ok: false, motivo: 'apelido' }}
+ */
+export function emailCanonico(email) {
+  const at = email.lastIndexOf('@');
+  const local = email.slice(0, at);
+  let dominio = email.slice(at + 1);
+  if (local.includes('+')) return { ok: false, motivo: 'apelido' };
+  if (dominio === 'googlemail.com') dominio = 'gmail.com';
+  const base = dominio === 'gmail.com' ? local.replace(/\./g, '') : local;
+  return { ok: true, chave: `${base}@${dominio}` };
+}
+
 // Código do último recurso do portão do Drive (ver EMAIL_CODE_* em
 // config.js). Só o código e o título do projeto — nada de link do Drive no
 // e-mail: o link continua saindo só pelo portão, depois do aceite dos Termos.

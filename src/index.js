@@ -17,7 +17,7 @@ import {
   verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
-  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
@@ -2720,6 +2720,10 @@ export async function handleDriveCode(request, env, ctx) {
 
   const email = String(body.email || '').trim().toLowerCase().slice(0, 254);
   if (!EMAIL_RE.test(email)) return jsonErr('E-mail inválido.', 400);
+  // Apelido (+etiqueta) recusado; pontos do Gmail contam como um endereço só
+  // (emailCanonico). Antes de qualquer limite: recusar aqui não gasta ficha.
+  const canonico = emailCanonico(email);
+  if (!canonico.ok) return jsonErr('Use o seu e-mail sem o "+…" (apelido): o código vai para o mesmo lugar.', 400);
 
   // O mesmo nonce da página que o portão exige: o código só sai para quem
   // carregou ESTA página, não para um script chamando a API direto.
@@ -2739,7 +2743,7 @@ export async function handleDriveCode(request, env, ctx) {
   // Do mais barato ao mais caro de gastar: IP, endereço, teto do dia.
   const porIp = await takeToken(env, ip, 'drive-code', EMAIL_CODE_SEND_BUCKET);
   if (!porIp.ok) return tooManyRequests(porIp.retryAfter);
-  if (!await checkRateLimit(env, await sha256Hex(email), 'drive-code-to', EMAIL_CODE_PER_ADDRESS_PER_HOUR, 3600)) {
+  if (!await checkRateLimit(env, await sha256Hex(canonico.chave), 'drive-code-to', EMAIL_CODE_PER_ADDRESS_PER_HOUR, 3600)) {
     return jsonErr('Já enviamos códigos para este e-mail há pouco. Confira a caixa de entrada e o spam.', 429);
   }
   if (!await checkRateLimit(env, 'conta', 'drive-code-dia', EMAIL_CODE_DAILY_CAP, 86400)) {

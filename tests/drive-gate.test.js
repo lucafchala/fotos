@@ -763,6 +763,28 @@ describe('código por e-mail', () => {
     expect(enviados).toHaveLength(EMAIL_CODE_PER_ADDRESS_PER_HOUR);
   });
 
+  it('apelido com +etiqueta é recusado com a saída, sem gastar envio', async () => {
+    for (const apelido of ['ana+fotos@gmail.com', 'ana+1@outlook.com', 'x+y@icloud.com']) {
+      const { res, data } = await pedeCodigo('casamento-ana', apelido);
+      expect(res.status, apelido).toBe(400);
+      expect(data.error).toMatch(/sem o "\+…"/);
+    }
+    expect(enviados).toHaveLength(0);
+  });
+
+  it('pontos do Gmail e googlemail contam como o MESMO endereço no limite', async () => {
+    // Todas entregam na caixa de ana@gmail.com: sem canonizar, cada variante
+    // ganhava o próprio limite e a caixa enchia do mesmo jeito.
+    const variantes = ['ana@gmail.com', 'a.na@gmail.com', 'a.n.a@googlemail.com', 'an.a@gmail.com'];
+    const codes = [];
+    for (let i = 0; i < variantes.length; i++) {
+      codes.push((await pedeCodigo('casamento-ana', variantes[i], { ip: `10.2.0.${i}` })).res.status);
+    }
+    expect(codes).toEqual([...Array(EMAIL_CODE_PER_ADDRESS_PER_HOUR).fill(200), 429]);
+    // Ponto fora do Gmail é endereço diferente de verdade — não junta.
+    expect((await pedeCodigo('casamento-ana', 'a.na@outlook.com', { ip: '10.2.1.1' })).res.status).toBe(200);
+  });
+
   it('o teto do dia protege a franquia de e-mail dividida com suporte e remoção', async () => {
     for (let i = 0; i < EMAIL_CODE_DAILY_CAP; i++) {
       expect((await pedeCodigo('casamento-ana', `p${i}@exemplo.com`, { ip: `10.1.${i >> 8}.${i & 255}` })).res.status).toBe(200);

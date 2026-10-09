@@ -167,7 +167,8 @@ for (const [nome, viewport, dpr, w] of /** @type {const} */ ([
   await aceita(page);
   await page.waitForTimeout(25000);
   registra(estado.driveLink === 6, '429 sem fim: 1 + 5 esperas, depois para (sem martelar)', { pedidos: estado.driveLink });
-  registra(await page.locator('#drive-link-error').isVisible(), '429 sem fim: oferece botão e código por e-mail');
+  registra(await page.locator('#drive-link-error').isVisible() && await page.locator('#drive-email-offer').isVisible(),
+    '429 sem fim: oferece botão e código por e-mail');
   await ctx.close();
 }
 
@@ -177,6 +178,17 @@ for (const [nome, viewport, dpr, w] of /** @type {const} */ ([
   await aceita(page);
   await page.waitForTimeout(6000);
   registra(estado.driveLink === 2, '403: uma tentativa automática e para', { pedidos: estado.driveLink });
+  await ctx.close();
+}
+
+// O código por e-mail só aparece quando ele resolve: um 404 (projeto apagado
+// no meio da visita) não é bloqueio, e o código também seria recusado.
+{
+  const { ctx, page } = await abre({ driveLink: () => ({ status: 404, json: { error: 'Projeto não encontrado.' } }) });
+  await aceita(page);
+  await page.waitForTimeout(3000);
+  registra(await page.locator('#drive-link-error').isVisible() && !(await page.locator('#drive-email-offer').isVisible()),
+    '404: erro sem oferta de código por e-mail (não é bloqueio)');
   await ctx.close();
 }
 

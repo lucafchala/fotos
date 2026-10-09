@@ -177,7 +177,8 @@ registrando a largura/formato pedidos). Cobre:
   a foto, zoom pede `w2400`; economia de dados não pré-carrega vizinhas;
 - **429** — mostra a contagem, espera o `retryAfter` e libera sozinho; num 429
   sem fim, 1 + 5 esperas e para (sem martelar);
-- **erro comum** — uma tentativa automática e para;
+- **erro comum** — uma tentativa automática e para; num 404 a caixa de erro
+  **não** oferece o código por e-mail (não é bloqueio);
 - **VPN/bloqueador** — Turnstile no `error-callback` → o modal já abre com a
   opção do código por e-mail; código errado mostra a mensagem do servidor,
   código certo libera.

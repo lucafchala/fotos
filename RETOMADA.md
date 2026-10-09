@@ -354,7 +354,11 @@ o servidor já está recusando.
 
 O último recurso é o **código por e-mail** (`/api/drive-code`), para quem tem
 o Turnstile carregado mas falhando (VPN, bloqueador). Sem estado: o token é
-HMAC sobre (slug, código, prazo) e não contém o código. Duas armadilhas dele:
+HMAC sobre (slug, código, prazo) e não contém o código. A página só o
+oferece num bloqueio de verdade (Turnstile falhou/travou; 403/429/5xx/rede
+depois das tentativas) — nunca num 404 ou num nonce que não se renova, que o
+código também não resolveria. Apelido `+etiqueta` é recusado e pontos do
+Gmail contam como um endereço só (`emailCanonico()`). Duas armadilhas dele:
 o **teto do dia** (`EMAIL_CODE_DAILY_CAP`) existe porque a franquia do Resend é
 a MESMA do suporte e da remoção — subir o teto pode calar os outros e-mails; e
 sem `SIGNING_SECRET` ou `RESEND_API_KEY` o caminho responde 503 (indisponível,

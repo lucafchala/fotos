@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   driveSrcset, timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
-  sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
+  sendErrorAlert, emailCanonico, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
   errMessage, truncateText, previewDescription, ogImageFor, socialMetaHTML,
   OG_IMAGE_W, OG_IMAGE_H,
 } from '../src/utils.js';
@@ -131,6 +131,19 @@ describe('driveSrcset', () => {
     expect(driveSrcset('https://example.com/x.jpg', [300, 600])).toBe('');
     expect(driveSrcset('', [300])).toBe('');
     expect(driveSrcset(null, [300])).toBe('');
+  });
+});
+
+describe('emailCanonico', () => {
+  it('recusa +etiqueta em qualquer provedor', () => {
+    expect(emailCanonico('ana+x@gmail.com')).toEqual({ ok: false, motivo: 'apelido' });
+    expect(emailCanonico('ana+@exemplo.com.br')).toEqual({ ok: false, motivo: 'apelido' });
+  });
+  it('junta pontos e googlemail no Gmail; fora do Gmail, o endereço é o que é', () => {
+    expect(emailCanonico('a.n.a@gmail.com')).toEqual({ ok: true, chave: 'ana@gmail.com' });
+    expect(emailCanonico('a.na@googlemail.com')).toEqual({ ok: true, chave: 'ana@gmail.com' });
+    expect(emailCanonico('a.na@outlook.com')).toEqual({ ok: true, chave: 'a.na@outlook.com' });
+    expect(emailCanonico('ana@sub.gmail.com.br')).toEqual({ ok: true, chave: 'ana@sub.gmail.com.br' });
   });
 });
 

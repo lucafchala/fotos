@@ -147,7 +147,8 @@ que quebra o desafio) ou esgotou as tentativas num pico de acesso. Handler
 | **Armazenamento** | **O e-mail não é gravado** em KV, D1 nem no registro de consentimento. O código também não: o servidor devolve um token HMAC sobre (projeto, código, prazo de 15 min) que não contém o código. O registro de consentimento da liberação marca `turnstile_ok = 2`. |
 | **Retenção** | Hash do e-mail: até 2 h (janela de 1 h + alarme). Cópia do e-mail enviado: retenção de logs do Resend. |
 | **Compartilhamento** | Resend (entrega do e-mail). |
-| **Limites** | Por IP, por endereço (3/h) e teto diário da conta (40) — este protege a franquia de e-mail dividida com remoção e suporte. Valores em `src/config.js`. |
+| **Limites** | Por IP, por endereço (3/h) e teto diário da conta (40) — este protege a franquia de e-mail dividida com remoção e suporte. Apelido `+etiqueta` é recusado e os pontos do Gmail contam como um endereço só, para ninguém multiplicar envios para a mesma caixa. Valores em `src/config.js`. |
+| **Quando aparece** | Só quando o acesso está bloqueado: verificação anti-robô falhou/travou, ou o gate recusou por verificação, limite, servidor ou rede depois das tentativas automáticas. |
 
 ---
 

@@ -105,9 +105,15 @@ issue before any public disclosure.
   with `turnstileToken: "email"` + token + code then grants exactly like the
   Turnstile path (same nonce, same consent), logged with `turnstile_ok = 2`.
   Its strength is above the noscript path's (it needs a mailbox), so it opens
-  nothing new. What it can be abused for is mailing a third party: capped per
+  nothing new. The page offers it only when access is actually blocked
+  (Turnstile error/timeout, or a 403/429/5xx/network failure after the
+  retries) — the endpoint itself doesn't know that, and doesn't need to.
+  What it can be abused for is mailing a third party: capped per
   IP (token bucket), per address (3/h, keyed by the SHA-256 of the address,
-  never the address) and per day for the whole account (40 —
+  never the address — and of its *canonical* form: `+tag` aliases are
+  refused outright, and Gmail dots / `googlemail.com` collapse into one key,
+  so `ana+1@`, `a.n.a@` and `ana@googlemail.com` can't each get their own
+  quota against the same inbox; `emailCanonico()` in `src/utils.js`) and per day for the whole account (40 —
   `EMAIL_CODE_DAILY_CAP`), which protects the Resend quota shared with the
   removal and support forms. When the daily cap is hit, the path answers 503
   with the WhatsApp fallback and `/api/healthz` reports it in `problems`.
