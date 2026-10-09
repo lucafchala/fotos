@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # ~780 testes em duas suítes (node + workerd), ~20 s — set/2026
+npm test          # ~880 testes em duas suítes (node + workerd), ~25 s — out/2026
 npm run lint
 ```
 
@@ -54,6 +54,7 @@ Depois suba o site localmente e clique nele:
 npx wrangler dev
 npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
+npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -75,6 +76,7 @@ src/
                   index.js porque o módulo de entrada só pode exportar função ou classe — um
                   `export const` lá derruba o workerd na inicialização.
   counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
+                  (janela fixa `check()` e balde de fichas `take()`)
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
   content/
@@ -88,6 +90,7 @@ scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
+scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
@@ -326,6 +329,48 @@ smoke em produção e **reverte sozinho** se reprovar. Três consequências:
   Mudou um destino do login, a marcação do preload ou o cache da fonte? A
   suíte reprova, e o smoke muda no mesmo PR.
 
+### 5.12. Um evento inteiro é UM IP — e o cliente não pode repetir sozinho sem teto
+
+O público de um evento abre o link junto, no Wi-Fi do local, e um Wi-Fi de
+local é um IPv4 público (NAT) para todos. Com o portão do Drive em 60/h por
+IP (janela fixa), 750 pessoas viravam 60 com fotos e 690 com 429 até virar a
+hora. Desde out/2026 o portão é um **balde de fichas** (`RateLimiter.take()`,
+números em `src/config.js`): aguenta a rajada e, quando esvazia, o 429 diz
+em quantos **segundos** tentar (`Retry-After`). O teste "cabe o público de um
+evento grande atrás de um NAT só" prende o piso. **Limite por IP tem de caber
+o maior público que divide um IP**; quem barra robô é o Turnstile + nonce,
+não o número. Login e formulários continuam em janela fixa — lá o corte seco
+é o objetivo.
+
+O 429 era só metade. O portão repetia o pedido **sozinho e sem teto** a cada
+erro (erro → Turnstile renova a ficha → o callback pede de novo): no
+Chromium, 27 pedidos em 8 s por celular. Centenas de celulares barrados nesse
+laço esgotariam as 100 mil requisições/dia do plano gratuito em minutos e
+derrubariam o site para todo mundo. Hoje: num erro comum, **uma** tentativa
+automática; num 429, espera o `Retry-After` com contagem na tela, no máximo 5
+vezes; depois, botão e código por e-mail. **Qualquer repetição automática no
+cliente precisa de teto** — no pico, ela multiplica a carga justamente quando
+o servidor já está recusando.
+
+O último recurso é o **código por e-mail** (`/api/drive-code`), para quem tem
+o Turnstile carregado mas falhando (VPN, bloqueador). Sem estado: o token é
+HMAC sobre (slug, código, prazo) e não contém o código. A página só o
+oferece num bloqueio de verdade (Turnstile falhou/travou; 403/429/5xx/rede
+depois das tentativas) — nunca num 404 ou num nonce que não se renova, que o
+código também não resolveria. Apelido `+etiqueta` é recusado e pontos do
+Gmail contam como um endereço só (`emailCanonico()`). Duas armadilhas dele:
+o **teto do dia** (`EMAIL_CODE_DAILY_CAP`) existe porque a franquia do Resend é
+a MESMA do suporte e da remoção — subir o teto pode calar os outros e-mails; e
+sem `SIGNING_SECRET` ou `RESEND_API_KEY` o caminho responde 503 (indisponível,
+nunca aberto).
+
+Mesma família no servidor: a trava do alerta de erro por e-mail era só no
+KV, e a leitura que deu `null` fica em cache no colo — numa onda de 500 cada
+requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate antes.
+
+Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
+roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -380,6 +425,8 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Resumo do deploy: "Portão de preview ⚠️ indisponível" | Normal hoje (#179). O smoke rodou depois da promoção |
 | Deploy com o job `deploy` **pulado** e "Deploy pulado: este commit já foi publicado" no resumo | O GitHub entregou o mesmo push duas vezes; a primeira execução publicou, e o resumo aponta qual (#186). Nada a fazer. Para republicar de propósito: **Run workflow** |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
+| Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
+| Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -410,6 +457,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   entregues (#177); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
   rollback manual (#178); e decidir o portão de preview (#179).
+- **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
+  e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
+  confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
+  pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
+  (#233).
 
 ---
 

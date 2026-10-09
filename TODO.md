@@ -63,6 +63,22 @@ requisições por visitante contra 100 mil/dia. **As fotos não passam pelo
 Worker** (saem do `lh3.googleusercontent.com` direto para o browser), e é isso
 que mantém a conta de requisições irrelevante.
 
+**A conta que mudaria isso é repetição automática no cliente.** Um celular
+que repete sozinho sem teto vale centenas de visitantes: o portão do Drive já
+fez 27 pedidos em 8 s por celular num laço de erro (out/2026). Toda repetição
+automática tem teto e, quando o servidor diz quanto esperar (`Retry-After`),
+espera — ver `RETOMADA.md` §5.12.
+
+**Escrita de Durable Object por visitante** (100 mil linhas/dia, plano
+gratuito): ~1 da visualização, ~1 do balde do portão (+1 do alarme quando o
+balde nasce), ~1–2 do clique. Um evento de 750 pessoas gasta poucos milhares.
+
+**E-mail (Resend)** é a franquia mais apertada depois do KV, e é UMA para
+tudo: confirmação e aviso de remoção, suporte, alertas ao dono e o código de
+acesso por e-mail do portão. O código tem teto próprio
+(`EMAIL_CODE_DAILY_CAP` = 40/dia em `src/config.js`) para nunca calar os
+outros; subir esse número é decisão de orçamento de e-mail, não de UX.
+
 ### O que acontece se estourar
 
 Nada de catastrófico, e isso é resultado de trabalho, não sorte:

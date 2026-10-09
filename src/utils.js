@@ -49,6 +49,8 @@ const EMAIL_TIMEOUT_MS = 10_000;
 // cooldown (not per-error-type) so an incident that throws repeatedly can't
 // flood the inbox; still frequent enough that a real outage is noticed fast.
 const ERROR_ALERT_COOLDOWN_SECS = 900;
+/** @type {{ env: Env, em: number } | null} */
+let ultimoAlertaDeErro = null;
 
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
@@ -845,6 +847,27 @@ export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   } catch (e) {
     noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return true;
+  }
+}
+
+// O mesmo, em balde de fichas (RateLimiter.take): absorve a rajada e devolve
+// fichas continuamente, e a recusa diz em quantos segundos tentar de novo.
+// Usado onde o público chega junto pelo mesmo IP (o portão do Drive). Mesma
+// política de falha: ABERTO, com registro no healthz.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} key
+ * @param {{ capacity: number, perHour: number }} bucket
+ * @returns {Promise<{ ok: boolean, retryAfter: number }>}
+ */
+export async function takeToken(env, ip, key, bucket) {
+  try {
+    const id = env.RATELIMIT.idFromName(`${key}:${ipParaLimite(ip)}`);
+    return await env.RATELIMIT.get(id).take(bucket.capacity, bucket.perHour);
+  } catch (e) {
+    noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return { ok: true, retryAfter: 0 };
   }
 }
 
@@ -2084,6 +2107,17 @@ export async function sendSupportEmail(env, { name, email, message }) {
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
+  // Trava do próprio isolate ANTES da do KV. A do KV sozinha não segura uma
+  // rajada: a leitura que deu `null` fica em cache no colo por até 60 s, então
+  // numa onda de 500 (o público de um evento chegando junto) cada requisição
+  // via "sem cooldown", gravava no KV e mandava e-mail — centenas de escritas
+  // contra as 1000/dia da conta e de e-mails contra a franquia do Resend, que
+  // é a mesma do suporte e da remoção. Marcada antes do primeiro await, como
+  // a do Kuma. Por `env`, como a memória do healthz, para não vazar entre testes.
+  const agora = Date.now();
+  if (ultimoAlertaDeErro && ultimoAlertaDeErro.env === env
+      && agora - ultimoAlertaDeErro.em < ERROR_ALERT_COOLDOWN_SECS * 1000) return false;
+  ultimoAlertaDeErro = { env, em: agora };
   try {
     const cooldownKey = 'error-alert:cooldown';
     if (await env.FOTOS.get(cooldownKey)) return false;
@@ -2282,6 +2316,73 @@ export async function sendConfirmationEmail(env, req) {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação recebida — ${req.eventTitle}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+// Apelidos de e-mail no código do portão do Drive. Um apelido entrega na MESMA
+// caixa que o endereço base, então, sem isto, `ana+1@`, `ana+2@`… multiplicavam
+// o limite por endereço (EMAIL_CODE_PER_ADDRESS_PER_HOUR) e permitiam encher a
+// caixa de alguém pelo site.
+//
+// - `+etiqueta` (Gmail, Outlook, iCloud, Proton, Fastmail…): RECUSADO, com
+//   mensagem dizendo como seguir — quem usa apelido sabe o endereço base.
+// - Pontos no Gmail (`a.n.a@` = `ana@`): NÃO recusados (muita gente tem ponto
+//   no endereço de verdade), mas contam como um endereço só no limite.
+//   googlemail.com é o mesmo serviço que gmail.com.
+//
+// `chave` é o que vai (como hash) para o limite por endereço; o e-mail enviado
+// continua sendo o digitado.
+/**
+ * @param {string} email já validado por EMAIL_RE e em minúsculas
+ * @returns {{ ok: true, chave: string } | { ok: false, motivo: 'apelido' }}
+ */
+export function emailCanonico(email) {
+  const at = email.lastIndexOf('@');
+  const local = email.slice(0, at);
+  let dominio = email.slice(at + 1);
+  if (local.includes('+')) return { ok: false, motivo: 'apelido' };
+  if (dominio === 'googlemail.com') dominio = 'gmail.com';
+  const base = dominio === 'gmail.com' ? local.replace(/\./g, '') : local;
+  return { ok: true, chave: `${base}@${dominio}` };
+}
+
+// Código do último recurso do portão do Drive (ver EMAIL_CODE_* em
+// config.js). Só o código e o título do projeto — nada de link do Drive no
+// e-mail: o link continua saindo só pelo portão, depois do aceite dos Termos.
+// Devolve true ou LANÇA, como sendConfirmationEmail: quem chama precisa
+// distinguir "Resend recusou" para avisar a pessoa na hora.
+/**
+ * @param {Env} env
+ * @param {{ to: string, code: string, eventTitle: string, ttlMin: number }} m
+ */
+export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY ausente');
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">Seu código de acesso</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — ${esc(eventTitle)}</p>
+  <p style="font-size:32px;letter-spacing:6px;font-weight:700;margin:16px 0">${esc(code)}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444">Digite este código na página do projeto para liberar as fotos. Ele vale por ${esc(ttlMin)} minutos.</p>
+  <p style="font-size:13px;line-height:1.6;color:#666">Não pediu este código? Pode ignorar este e-mail — sem o código, nada acontece. Seu e-mail não é guardado pelo site.</p>
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [to],
+      subject: `${code} é o seu código — ${eventTitle}`,
       html,
     }),
   });

@@ -6,7 +6,7 @@ tratamento que realizar.
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV e Cloudflare D1.
-- **Última revisão:** 2026-09-29
+- **Última revisão:** 2026-10-09
 - **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `migrations/` (esquema do D1).
 
 ---
@@ -37,7 +37,7 @@ esquema em `migrations/0001_consent.sql` e `0002_access_type.sql`; escrita em
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | `created_at`, `event_slug`, `event_title`, `drive_target`, `access_type`, `terms_version`, `terms_hash`, `consent_text`, `declaration_text`, `consenter_name` (opcional, informado pelo titular), `turnstile_ok`, `ip`, `country`, `region`, `city`, `timezone`, `asn`, `as_org`, `colo`, `user_agent`, `accept_language`, `referrer`, `page_url`. |
+| **Dados** | `created_at`, `event_slug`, `event_title`, `drive_target`, `access_type`, `terms_version`, `terms_hash`, `consent_text`, `declaration_text`, `consenter_name` (opcional, informado pelo titular), `turnstile_ok` (como a pessoa foi verificada: `0` nenhuma — caminho sem Turnstile; `1` Turnstile; `2` código por e-mail, seção 9), `ip`, `country`, `region`, `city`, `timezone`, `asn`, `as_org`, `colo`, `user_agent`, `accept_language`, `referrer`, `page_url`. |
 | **Titulares** | Quem acessa as fotos de um evento. |
 | **Origem** | Formulário do gate (nome) + cabeçalhos e metadados da requisição (o resto). |
 | **Finalidade** | Comprovar **quando, por quem e sob qual texto exato** a autorização de uso de imagem foi dada. É a prova de não-repúdio: cada registro guarda a versão dos Termos **e o hash SHA-256 do HTML exibido**, então o texto aceito é reconstituível mesmo depois de os Termos mudarem. |
@@ -126,8 +126,29 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 | **Dados** | Contadores de rate limit por IP (Durable Object `RateLimiter`, um por rota e IP), contador de falhas de login por IP (o mesmo `RateLimiter`, chave `login-fail`), e a contagem de projetos abertos sem Turnstile por IP, lida do registro de consentimento (seção 2) para o alerta de varredura. |
 | **Finalidade** | Conter força bruta e abuso; alertar o controlador. |
 | **Base legal** | **Art. 7º, IX** + **art. 16, I** (guarda para exercício regular de direito). |
-| **Retenção** | TTL curto: de 10 min a 24 h, conforme a janela. Nenhum registro de segurança sobrevive além disso. |
+| **Retenção** | Curta. Janela fixa: de 10 min a 24 h, apagada pelo alarme do objeto. Balde de fichas (portão do Drive, código por e-mail): apagado assim que enche de novo — minutos a poucas horas. Nenhum registro de segurança sobrevive além disso. O limite por endereço do código por e-mail usa o **hash SHA-256** do e-mail como nome do objeto, nunca o e-mail. |
 | **Nota** | O alerta de login e o de varredura pelo caminho sem Turnstile incluem, por e-mail ao controlador, o IP de origem — é o que permite agir (bloqueio no firewall, consulta ao registro). Os alertas de erro (`sendErrorAlert`) **nunca** incluem IP, cabeçalhos ou corpo de requisição — só mensagem, stack truncada e rota. |
+
+---
+
+## 9. Código de acesso por e-mail (último recurso do gate do Drive)
+
+Para quem não passa pela verificação anti-robô (VPN, bloqueador de anúncios
+que quebra o desafio) ou esgotou as tentativas num pico de acesso. Handler
+`handleDriveCode()` (`src/index.js`); confirmação em `handleDriveLink()`.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | E-mail informado pelo titular. Hash SHA-256 do e-mail (nome do objeto de limite por endereço). |
+| **Titulares** | Quem acessa as fotos e escolhe esse caminho. |
+| **Origem** | Digitado pelo titular no modal do gate. |
+| **Finalidade** | Enviar um código de 6 dígitos que libera o mesmo gate (com o mesmo aceite dos Termos). O objetivo é ninguém de verdade ficar sem as fotos. |
+| **Base legal** | **Art. 7º, V** (procedimentos a pedido do titular) — a pessoa pede o código. |
+| **Armazenamento** | **O e-mail não é gravado** em KV, D1 nem no registro de consentimento. O código também não: o servidor devolve um token HMAC sobre (projeto, código, prazo de 15 min) que não contém o código. O registro de consentimento da liberação marca `turnstile_ok = 2`. |
+| **Retenção** | Hash do e-mail: até 2 h (janela de 1 h + alarme). Cópia do e-mail enviado: retenção de logs do Resend. |
+| **Compartilhamento** | Resend (entrega do e-mail). |
+| **Limites** | Por IP, por endereço (3/h) e teto diário da conta (40) — este protege a franquia de e-mail dividida com remoção e suporte. Apelido `+etiqueta` é recusado e os pontos do Gmail contam como um endereço só, para ninguém multiplicar envios para a mesma caixa. Valores em `src/config.js`. |
+| **Quando aparece** | Só quando o acesso está bloqueado: verificação anti-robô falhou/travou, ou o gate recusou por verificação, limite, servidor ou rede depois das tentativas automáticas. |
 
 ---
 
@@ -137,7 +158,7 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 | --- | --- | --- | --- |
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
 | Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
-| Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa) | EUA | idem |
+| Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 
 ---
@@ -147,5 +168,5 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 **Não há.** Nenhum tratamento produz efeito jurídico ou afeta significativamente
 o titular de forma automatizada (art. 20). O Turnstile classifica requisições
 como humano/robô, mas o efeito é operacional (liberar um formulário) e há
-caminho alternativo humano em todos os casos — WhatsApp e e-mail, divulgados na
-própria tela de erro.
+caminho alternativo em todos os casos — código de acesso por e-mail (seção 9) e
+o caminho humano, WhatsApp e e-mail, divulgados na própria tela de erro.

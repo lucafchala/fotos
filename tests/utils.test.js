@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
   driveSrcset, timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
-  sendErrorAlert, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
+  sendErrorAlert, emailCanonico, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
   errMessage, truncateText, previewDescription, ogImageFor, socialMetaHTML,
   OG_IMAGE_W, OG_IMAGE_H,
 } from '../src/utils.js';
@@ -134,6 +134,19 @@ describe('driveSrcset', () => {
   });
 });
 
+describe('emailCanonico', () => {
+  it('recusa +etiqueta em qualquer provedor', () => {
+    expect(emailCanonico('ana+x@gmail.com')).toEqual({ ok: false, motivo: 'apelido' });
+    expect(emailCanonico('ana+@exemplo.com.br')).toEqual({ ok: false, motivo: 'apelido' });
+  });
+  it('junta pontos e googlemail no Gmail; fora do Gmail, o endereço é o que é', () => {
+    expect(emailCanonico('a.n.a@gmail.com')).toEqual({ ok: true, chave: 'ana@gmail.com' });
+    expect(emailCanonico('a.na@googlemail.com')).toEqual({ ok: true, chave: 'ana@gmail.com' });
+    expect(emailCanonico('a.na@outlook.com')).toEqual({ ok: true, chave: 'a.na@outlook.com' });
+    expect(emailCanonico('ana@sub.gmail.com.br')).toEqual({ ok: true, chave: 'ana@sub.gmail.com.br' });
+  });
+});
+
 describe('sendErrorAlert', () => {
   it('no-ops (never throws, never calls fetch) without RESEND_API_KEY or ADMIN_EMAIL', async () => {
     const originalFetch = globalThis.fetch;
@@ -144,6 +157,29 @@ describe('sendErrorAlert', () => {
       expect(await sendErrorAlert({ RESEND_API_KEY: 'k' }, new Error('boom'), { path: '/x' })).toBe(false);
       expect(await sendErrorAlert({ ADMIN_EMAIL: 'a@b.com' }, new Error('boom'), { path: '/x' })).toBe(false);
       expect(fetchCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  // Numa onda de 500 a trava do KV não segura: a leitura que deu null fica em
+  // cache no colo, então cada requisição via "sem cooldown". Aqui o KV NUNCA
+  // devolve a trava (o pior caso do cache), e mesmo assim só um e-mail sai e
+  // só uma escrita é gasta — a trava do isolate decide antes do KV.
+  it('uma rajada de erros no mesmo isolate manda um e-mail e grava no KV uma vez', async () => {
+    const originalFetch = globalThis.fetch;
+    let emails = 0;
+    globalThis.fetch = async () => { emails++; return new Response('{}', { status: 200 }); };
+    let puts = 0;
+    const env = {
+      RESEND_API_KEY: 'k', ADMIN_EMAIL: 'a@b.com',
+      FOTOS: { get: async () => null, put: async () => { puts++; } },
+    };
+    try {
+      const r = await Promise.all(Array.from({ length: 50 }, () => sendErrorAlert(env, new Error('boom'), { path: '/x' })));
+      expect(r.filter(Boolean)).toHaveLength(1);
+      expect(emails).toBe(1);
+      expect(puts).toBe(1);
     } finally {
       globalThis.fetch = originalFetch;
     }

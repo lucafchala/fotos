@@ -35,6 +35,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · ⚖️ depende de parecer
 | Log de consentimento | Art. 7º, II + VI | ✅ |
 | Pedidos de remoção | Art. 7º, II + I | ✅ |
 | Suporte | Art. 7º, I + V | ✅ |
+| Código de acesso por e-mail (último recurso do gate) | Art. 7º, V | ✅ [ROPA §9](./ROPA.md) — e-mail não armazenado ⚖️ incluir no parecer (#125) |
 | Métricas | Art. 7º, IX | ✅ |
 | Projetos familiares | Art. 4º, I (fora do escopo) | ✅ |
 | Dados sensíveis (art. 11) | — | ✅ Não há: sem tratamento biométrico ⚖️ confirmar |

@@ -16,7 +16,7 @@ import {
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, hojeEmSaoPaulo, consoleGreetingScript } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
-import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH } from '../src/config.js';
+import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH, EMAIL_RE } from '../src/config.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
 import { eventHTML } from '../src/ui/event.js';
 import { degradedHealth, resetDegraded } from '../src/utils.js';
@@ -2533,11 +2533,12 @@ describe('pares cliente/servidor: as duas cópias têm de concordar', () => {
     // atrito: o formulário aceita e o servidor recusa, ou o contrário, sem
     // mensagem que explique.
     const emailCliente = eventSource.match(/\/(\^\[\^\\\\s@\]\+@\[\^\\\\s@\]\+\\\\\.\[\^\\\\s@\]\{2,\}\$)\//);
-    const emailServidor = indexSource.match(/\/(\^\[\^\\s@\]\+@\[\^\\s@\]\+\\\.\[\^\\s@\]\{2,\}\$)\//);
     expect(emailCliente, 'regex de e-mail do cliente não encontrada').not.toBeNull();
-    expect(emailServidor, 'regex de e-mail do servidor não encontrada').not.toBeNull();
+    // O servidor tem UMA regex (EMAIL_RE, config.js), usada por suporte,
+    // remoção e código por e-mail — e nenhuma cópia solta no index.js.
+    expect(indexSource).not.toContain('[^\\s@]+@');
     // Desdobra o escape do template literal e compara os padrões.
-    expect(emailCliente[1].replace(/\\\\/g, '\\')).toBe(emailServidor[1]);
+    expect(emailCliente[1].replace(/\\\\/g, '\\')).toBe(EMAIL_RE.source);
 
     // Telefone: mesma faixa de dígitos dos dois lados.
     expect(eventSource).toContain('phoneDigits.length < 10 || phoneDigits.length > 13');

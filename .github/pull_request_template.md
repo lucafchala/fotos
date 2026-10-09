@@ -58,6 +58,7 @@ Fixes #
 - [ ] Galeria lista os eventos visíveis e respeita `pinned` / `comingSoon` / `visible`
 - [ ] Carrossel de fotos de capa funciona
 - [ ] Gate de acesso: Turnstile carrega, aceite dos Termos é exigido, link do Drive só libera depois de passar pelo gate
+- [ ] Mexeu no gate, nas fotos da página de projeto ou em limite por IP: `npm run verifica:evento` (429, código por e-mail, fotos por aparelho)
 - [ ] "Acessar fotos" registra a métrica de visita; abrir o Drive registra o clique
 - [ ] Banner de "novas fotos" aparece e expira conforme configurado
 - [ ] Formulário de solicitação de remoção envia

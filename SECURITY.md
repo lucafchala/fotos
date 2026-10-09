@@ -62,10 +62,15 @@ issue before any public disclosure.
   version of this document: an external assessment (2026-09) showed the
   `driveNonce` this path also accepts is minted server-side but shipped in the
   page's plain HTML, not held secret by a real browser, so a scripted client
-  that has loaded the event page once can walk this path at 10 req/hr/IP with
-  **zero** CAPTCHA interaction — enough to enumerate this site's whole public
-  catalog from one IP in a few hours, and IP rotation removes even that
-  ceiling. Calling that "not a bypass anyone can silently rely on for bulk
+  that has loaded the event page once can walk this path with **zero**
+  CAPTCHA interaction — at 10 req/hr/IP when that was written, and since
+  2026-10 at a token-bucket rate of 300 burst / 300 per hour per IP
+  (`DRIVE_GATE_NOSCRIPT_BUCKET` in `src/config.js`). The raise was deliberate:
+  an event audience shares ONE public IP (the venue's NAT), and the ad-blocker
+  fraction of 750 people did not fit in 10/hr. The cost, stated plainly: one
+  IP can now enumerate this site's whole public catalog in minutes instead of
+  hours — and IP rotation removed even the old ceiling anyway. The sweep alert
+  below is what watches this path, not the rate. Calling that "not a bypass anyone can silently rely on for bulk
   scraping" overstated what the rate limit and the `turnstile_ok=0` audit row
   actually stop: they slow and log the harvesting, they don't prevent it.
   `private`/`family` events are additionally excluded from `sitemap.xml` and
@@ -91,6 +96,28 @@ issue before any public disclosure.
   cooldown holds, a second sweeper only shows up in the consent export; and a
   D1 outage silences the check (reported in `/api/healthz`, never in the
   response that delivers the photos). Thresholds live in `src/config.js`.
+- **The Drive gate has a last-resort e-mail code (`POST /api/drive-code`).**
+  For people whose Turnstile *loads but fails* (a flagged VPN, a blocker that
+  breaks the challenge without blocking the script) or who ran out of retries
+  at a peak. The visitor types an e-mail; the Worker sends a 6-digit code and
+  returns an HMAC token over `(slug, code, expiry 15 min)` that does **not**
+  contain the code — nothing is stored, no KV write. `POST /api/drive-link`
+  with `turnstileToken: "email"` + token + code then grants exactly like the
+  Turnstile path (same nonce, same consent), logged with `turnstile_ok = 2`.
+  Its strength is above the noscript path's (it needs a mailbox), so it opens
+  nothing new. The page offers it only when access is actually blocked
+  (Turnstile error/timeout, or a 403/429/5xx/network failure after the
+  retries) — the endpoint itself doesn't know that, and doesn't need to.
+  What it can be abused for is mailing a third party: capped per
+  IP (token bucket), per address (3/h, keyed by the SHA-256 of the address,
+  never the address — and of its *canonical* form: `+tag` aliases are
+  refused outright, and Gmail dots / `googlemail.com` collapse into one key,
+  so `ana+1@`, `a.n.a@` and `ana@googlemail.com` can't each get their own
+  quota against the same inbox; `emailCanonico()` in `src/utils.js`) and per day for the whole account (40 —
+  `EMAIL_CODE_DAILY_CAP`), which protects the Resend quota shared with the
+  removal and support forms. When the daily cap is hit, the path answers 503
+  with the WhatsApp fallback and `/api/healthz` reports it in `problems`.
+  Guessing a code: 1 in a million per try, 120 tries/hour/IP.
 - **Unlisted ≠ private.** A project toggled off ("Ocultar") leaves the gallery,
   the sitemap and the self-test, and is served with `X-Robots-Tag: noindex`,
   but **still opens on a direct link** — that is what keeps a preview link sent
@@ -109,6 +136,12 @@ issue before any public disclosure.
   Durable Objects: one object holds every counter, and the runtime serializes
   calls to it. The undercounting-under-load caveat that used to live here no
   longer applies.
+- The public, crowd-facing limits (Drive gate, noscript, Drive click, e-mail
+  code sends) are **token buckets** (`RateLimiter.take()` in
+  `src/counters.js`): they absorb a burst up to the bucket's capacity and
+  refill continuously, and a refusal is a 429 with `Retry-After` in *seconds*
+  that the page honours (bounded: at most 5 automatic waits). The login and
+  form limits stay fixed-window (`check()`), where a hard stop is the point.
 - Rate limits are abuse-mitigation, not a hard guarantee. In particular they
   **stop counting when the store refuses a write** — see "Rate limits fail open
   when they cannot be recorded" below. They are not, however, optional: see the
@@ -129,6 +162,8 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | --- | --- | --- |
 | Same-origin gate on every write, **before routing** | `src/index.js` dispatcher | CSRF, including the same-site case a `SameSite=Strict` cookie still allows |
 | Signed page nonce (HMAC, slug-bound, 2 h) | `/api/drive-link` | Sweeping every slug with one valid Turnstile token |
+| Token-bucket limits with `Retry-After` | `RateLimiter.take()`, `takeToken()` | A flood on the crowd-facing endpoints — without locking out an event audience that shares one venue IP |
+| Stateless e-mail code (HMAC over slug + code + expiry) + per-IP/address/day caps | `/api/drive-code`, `handleDriveCode()` | A Turnstile failure (VPN, blocker) locking a real person out of the photos; the code path being used to mail-bomb a third party |
 | Signed form token + honeypot | `/suporte`, removal form | Bots posting straight at the endpoints |
 | `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
 | Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
@@ -256,7 +291,10 @@ move. Three changes take that out:
   per-IP limit the public endpoint is still the cheapest way to drain it, and
   leaves
   `drive_clicks` forgeable by curl, since the CSRF gate deliberately passes
-  clients that send no browser headers.
+  clients that send no browser headers. Since 2026-10 the limit is a token
+  bucket (`DRIVE_CLICK_BUCKET`: 1,000 burst, 200/hour): a whole event behind
+  one venue IP fits the burst, while the sustained rate an attacker controls
+  stays low.
 - **Validation that costs nothing runs first.** `/api/track-drive` used to call
   `checkRateLimit()` before parsing the body, so junk POSTs burned quota while
   counting nothing. That reorder is the real saving, and it is intact: junk
@@ -642,7 +680,12 @@ and to `/suporte`, never a stack trace), and fires a best-effort email to
 so an outage or regression is noticed without watching logs. The alert
 contains only the error message, a truncated stack, and the route — never
 request bodies, headers, or visitor IP — and is throttled by a single global
-15-minute KV cooldown so a repeating failure can't flood the inbox. Alerting
+15-minute cooldown so a repeating failure can't flood the inbox. The cooldown
+has two layers since 2026-10: an in-isolate timestamp checked first, then the
+KV key. The KV key alone did not hold under a burst — a `get` that returned
+`null` is cached at the colo for up to 60 s, so during a wave of 500s every
+request saw "no cooldown", wrote to KV (1,000 writes/day for the account) and
+sent an e-mail (the Resend quota the forms share). Alerting
 itself is fully isolated: `sendErrorAlert()` never throws, and the response
 already sent to the visitor never waits on it (`ctx.waitUntil`, best-effort).
 No `RESEND_API_KEY`/`ADMIN_EMAIL` configured means alerting silently no-ops —

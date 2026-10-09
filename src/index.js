@@ -14,10 +14,10 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda,
   hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit,
+  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters,
-  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
@@ -33,6 +33,9 @@ import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
+  DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
+  EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -320,6 +323,7 @@ const worker = {
       if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env, ctx);
       if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
       if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
+      if (path === '/api/drive-code' && method === 'POST') return handleDriveCode(request, env, ctx);
       if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
 
       // Admin API — removal requests
@@ -1335,7 +1339,7 @@ export async function handleTrackDrive(request, env, ctx) {
   // gastaria a franquia de escrita do Durable Object com um clique falso por
   // requisição.
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip, 'drive', 60, 3600)) return jsonOk({ ok: true });
+  if (!(await takeToken(env, ip, 'drive-click', DRIVE_CLICK_BUCKET)).ok) return jsonOk({ ok: true });
 
   // ctx vem do roteador — sem ele, o incremento em voo podia ser descartado
   // junto com a requisição; quem chama sem ctx (teste) aguarda aqui mesmo.
@@ -1438,7 +1442,7 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
       nonce
     );
 
-  const allowed = await checkRateLimit(env, ip, 'support', 5, 3600);
+  const allowed = await checkRateLimit(env, ip, 'support', FORM_LIMIT_PER_HOUR, 3600);
   if (!allowed) {
     return page(false, 'Muitas mensagens enviadas. Tente mais tarde.', {}, 429);
   }
@@ -1504,7 +1508,7 @@ export async function handleSupportRequest(request, env, nonce, ctx) {
     return page(false, 'A mensagem não pode estar vazia.', values, 400);
   }
 
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+  if (email && !EMAIL_RE.test(email)) {
     return page(false, 'E-mail inválido.', values, 400);
   }
 
@@ -1654,7 +1658,7 @@ export async function handleChangePassword(request, env, ctx) {
  */
 export async function handleRemovalRequest(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const allowed = await checkRateLimit(env, ip, 'removal', 5, 3600);
+  const allowed = await checkRateLimit(env, ip, 'removal', FORM_LIMIT_PER_HOUR, 3600);
   if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
 
   const body = await readJsonBody(request);
@@ -1743,7 +1747,7 @@ export async function handleRemovalRequest(request, env) {
   }
 
   const emailTrimmed = String(email || '').trim().toLowerCase();
-  if (!emailTrimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailTrimmed)) {
+  if (!emailTrimmed || !EMAIL_RE.test(emailTrimmed)) {
     return jsonErr('E-mail inválido.', 400);
   }
   const phoneTrimmed = String(phone || '').trim();
@@ -2533,11 +2537,17 @@ export async function handleDriveLink(request, env, ctx) {
   const slug = String(body.slug || '').slice(0, 60);
   if (!slug || !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
 
+  // Três caminhos, cada um com o seu balde: Turnstile (o normal), noscript
+  // (Turnstile bloqueado no cliente — sem desafio, balde menor) e código por
+  // e-mail (o último recurso, ver handleDriveCode).
   const isNoscript = body.turnstileToken === 'noscript';
-  const allowed = isNoscript
-    ? await checkRateLimit(env, ip, 'drive-link-noscript', 10, 3600)
-    : await checkRateLimit(env, ip, 'drive-link', 60, 3600);
-  if (!allowed) return jsonErr('Muitas tentativas. Tente novamente mais tarde.', 429);
+  const isEmail = body.turnstileToken === 'email';
+  const limite = isNoscript
+    ? await takeToken(env, ip, 'drive-gate-noscript', DRIVE_GATE_NOSCRIPT_BUCKET)
+    : isEmail
+      ? await takeToken(env, ip, 'drive-gate-email', EMAIL_CODE_VERIFY_BUCKET)
+      : await takeToken(env, ip, 'drive-gate', DRIVE_GATE_BUCKET);
+  if (!limite.ok) return tooManyRequests(limite.retryAfter);
 
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
@@ -2563,12 +2573,29 @@ export async function handleDriveLink(request, env, ctx) {
     }
   }
 
-  let turnstileOk;
+  // Como a pessoa provou ser gente — vai para a coluna `turnstile_ok` do
+  // registro de consentimento: 0 = nada (noscript), 1 = Turnstile,
+  // 2 = código por e-mail. A varredura noscript (#147) conta só o 0.
+  /** @type {0|1|2} */
+  let verificacao;
   if (isNoscript) {
-    turnstileOk = false; // recorded as unverified, but still lets access through (conscious bypass)
+    verificacao = 0; // recorded as unverified, but still lets access through (conscious bypass)
+  } else if (isEmail) {
+    if (!secret) return jsonErr('Verificação por e-mail indisponível no momento.', 503);
+    const code = String(body.emailCode || '').replace(/[^0-9]/g, '').slice(0, 6);
+    const chk = await verifyToken(secret, String(body.emailToken || ''), {
+      purpose: 'drive-email',
+      scope: `${slug}|${code}`,
+    });
+    if (!chk.ok) {
+      return chk.reason === 'expired'
+        ? jsonErr('O código expirou. Peça um novo.', 403)
+        : jsonErr('Código incorreto. Confira o e-mail e tente de novo.', 403);
+    }
+    verificacao = 2;
   } else {
-    turnstileOk = await verifyTurnstile(body.turnstileToken, env);
-    if (!turnstileOk) return jsonErr('Verificação de segurança falhou. Recarregue a página e tente novamente.', 403);
+    if (!await verifyTurnstile(body.turnstileToken, env)) return jsonErr('Verificação de segurança falhou. Recarregue a página e tente novamente.', 403);
+    verificacao = 1;
   }
 
   if (body.consent !== true) return jsonErr('É necessário aceitar os Termos de Uso.', 400);
@@ -2594,7 +2621,7 @@ export async function handleDriveLink(request, env, ctx) {
       CONSENT_LABEL,
       declarationText || null,
       String(body.name || '').trim().slice(0, 120) || null,
-      turnstileOk ? 1 : 0,
+      verificacao,
       ip.slice(0, 64),
       String(request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
       String(cf.region || '').slice(0, 80),
@@ -2644,6 +2671,120 @@ export async function handleDriveLink(request, env, ctx) {
     driveUrlInstagram: safeUrl(event.driveUrlInstagram),
     driveUrlVideos: safeUrl(event.driveUrlVideos),
   });
+}
+
+// 429 com o tempo de espera: no cabeçalho padrão (Retry-After) e no corpo,
+// que é o que o script da página lê para mostrar a contagem e tentar de novo
+// sozinho — uma vez, na hora certa, em vez de martelar.
+/**
+ * @param {number} retryAfter segundos
+ */
+function tooManyRequests(retryAfter) {
+  const res = jsonOk({ error: 'Muita gente acessando agora. Tentando de novo em instantes.', retryAfter }, 429);
+  res.headers.set('Retry-After', String(retryAfter));
+  return res;
+}
+
+/** @param {string} s */
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// O último recurso do portão do Drive: um código de 6 dígitos por e-mail, para
+// quem não passa pelo Turnstile (VPN, bloqueador que quebra o desafio) ou
+// esgotou as tentativas. O objetivo do site é a foto chegar — este caminho
+// existe para que nenhuma pessoa de verdade fique sem.
+//
+// Nada é guardado: a resposta é um token HMAC sobre (slug, código, prazo) que
+// NÃO contém o código — só quem recebeu o e-mail fecha a assinatura. O e-mail
+// em si não vai para o KV nem para o D1; só o hash dele vira nome do objeto do
+// limite por endereço. Os limites (por IP, por endereço e o teto do dia, que
+// protege a franquia do Resend dividida com suporte e remoção) estão em
+// config.js.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
+export async function handleDriveCode(request, env, ctx) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+
+  const slug = String(body.slug || '').slice(0, 60);
+  if (!slug || !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+
+  const secret = signingSecret(env);
+  if (!secret || !env.RESEND_API_KEY) return jsonErr('Verificação por e-mail indisponível no momento.', 503);
+
+  const email = String(body.email || '').trim().toLowerCase().slice(0, 254);
+  if (!EMAIL_RE.test(email)) return jsonErr('E-mail inválido.', 400);
+  // Apelido (+etiqueta) recusado; pontos do Gmail contam como um endereço só
+  // (emailCanonico). Antes de qualquer limite: recusar aqui não gasta ficha.
+  const canonico = emailCanonico(email);
+  if (!canonico.ok) return jsonErr('Use o seu e-mail sem o "+…" (apelido): o código vai para o mesmo lugar.', 400);
+
+  // O mesmo nonce da página que o portão exige: o código só sai para quem
+  // carregou ESTA página, não para um script chamando a API direto.
+  const nonceCheck = await verifyToken(secret, String(body.driveNonce || ''), {
+    purpose: 'drive', scope: slug, ttlSecs: DRIVE_NONCE_TTL_SECS,
+  });
+  if (!nonceCheck.ok) {
+    return nonceCheck.reason === 'expired'
+      ? jsonErr('Esta página expirou. Recarregue para continuar.', 410)
+      : jsonErr('Requisição inválida. Recarregue a página e tente novamente.', 403);
+  }
+
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return jsonErr('Projeto não encontrado.', 404);
+  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+
+  // Do mais barato ao mais caro de gastar: IP, endereço, teto do dia.
+  const porIp = await takeToken(env, ip, 'drive-code', EMAIL_CODE_SEND_BUCKET);
+  if (!porIp.ok) return tooManyRequests(porIp.retryAfter);
+  if (!await checkRateLimit(env, await sha256Hex(canonico.chave), 'drive-code-to', EMAIL_CODE_PER_ADDRESS_PER_HOUR, 3600)) {
+    return jsonErr('Já enviamos códigos para este e-mail há pouco. Confira a caixa de entrada e o spam.', 429);
+  }
+  if (!await checkRateLimit(env, 'conta', 'drive-code-dia', EMAIL_CODE_DAILY_CAP, 86400)) {
+    noteDegraded('código por e-mail esgotado hoje', `teto de ${EMAIL_CODE_DAILY_CAP}/dia atingido — volta na virada UTC`);
+    return jsonErr('A verificação por e-mail atingiu o limite de hoje. Me chame no WhatsApp que eu libero.', 503);
+  }
+
+  const code = codigoAleatorio();
+  const token = await signToken(secret, { purpose: 'drive-email', scope: `${slug}|${code}`, ttlSecs: EMAIL_CODE_TTL_SECS });
+
+  try {
+    await sendDriveCodeEmail(env, { to: email, code, eventTitle: event.title || slug, ttlMin: Math.round(EMAIL_CODE_TTL_SECS / 60) });
+  } catch (e) {
+    noteDegraded('código por e-mail não saiu', umaLinhaErro(e));
+    ctx?.waitUntil(sendErrorAlert(env, e, { path: 'POST /api/drive-code' }).catch(() => {}));
+    return jsonErr('Não foi possível enviar o e-mail agora. Tente de novo em instantes ou me chame no WhatsApp.', 502);
+  }
+  return jsonOk({ ok: true, token, ttl: EMAIL_CODE_TTL_SECS });
+}
+
+// Seis dígitos uniformes. Nada de `x % 1e6`: 2^32 não é múltiplo de 1e6 e o
+// resto puxaria para os menores valores (CodeQL js/biased-cryptographic-random).
+// Cada dígito sai de 4 bits (0–15, máscara de potência de 2 — sem viés) e
+// valores ≥ 10 são descartados.
+function codigoAleatorio() {
+  let code = '';
+  const buf = new Uint8Array(16);
+  while (code.length < 6) {
+    crypto.getRandomValues(buf);
+    for (const b of buf) {
+      for (const d of [b & 0x0f, b >> 4]) {
+        if (d < 10 && code.length < 6) code += String(d);
+      }
+    }
+  }
+  return code;
+}
+
+/** @param {unknown} e */
+function umaLinhaErro(e) {
+  return String(e instanceof Error ? e.message : e).replace(/\s+/g, ' ').slice(0, 160);
 }
 
 // O que o aceite liberou, para o registro de consentimento. 'full' e 'both'
@@ -2912,7 +3053,13 @@ function handleFont(path) {
   let bytes = fontBytes.get(path);
   if (!bytes) {
     const font = /** @type {typeof FONTS[number]} */ (FONT_BY_PATH.get(path));
-    bytes = Uint8Array.from(atob(font.b64), c => c.charCodeAt(0));
+    // Laço simples, não `Uint8Array.from(str, fn)`: o callback por byte custava
+    // ~6–8 ms de CPU por fonte (medido em node, set/2026) — quase todo o
+    // orçamento de 10 ms do plano gratuito, pago na 1ª fonte de cada isolate
+    // novo. Numa rajada de público a Cloudflare abre muitos isolates de uma vez.
+    const bin = atob(font.b64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     fontBytes.set(path, bytes);
   }
   return new Response(bytes, {

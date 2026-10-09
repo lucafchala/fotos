@@ -28,6 +28,7 @@ O incidente chega por um destes caminhos:
 | --- | --- |
 | Alerta automático de erro | E-mail de `sendErrorAlert()` (`ADMIN_EMAIL`), disparado por qualquer exceção não tratada |
 | Alerta de login | E-mail após 5 tentativas falhas em 15 min |
+| Teto do código por e-mail | `/api/healthz` → `problems` quando os 40 códigos/dia (`EMAIL_CODE_DAILY_CAP`) acabam — pode ser pico real de público com VPN ou abuso; o atendimento segue pelo WhatsApp |
 | Alerta de varredura | E-mail quando um mesmo IP (em IPv6, a mesma rede /64 — é o que o provedor entrega a um cliente) libera 5 ou mais projetos distintos sem Turnstile em 24 h — possível coleta automatizada das fotos |
 | Relatório de CSP | `csp-violation` nos logs do Worker — possível tentativa de XSS |
 | Denúncia externa | `security@lucafchala.com` (RFC 9116, `/.well-known/security.txt`) |

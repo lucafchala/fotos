@@ -58,6 +58,8 @@ foco é a conformidade.
 | **Upload malicioso** | Verificação de magic bytes (`isLikelyImage`), teto de 2 MB, nome de arquivo higienizado |
 | **Enumeração de projetos** | Nonce de página assinado (HMAC), amarrado ao slug, validade de 2 h |
 | **Bots** | Turnstile fail-closed + honeypot + token de formulário com idade mínima |
+| **Abuso de volume no portão do Drive** | Balde de fichas por IP (`RateLimiter.take`): absorve o público de um evento atrás de um único IP (NAT do local) e responde 429 com `Retry-After` em segundos, em vez de um corte de uma hora |
+| **Código por e-mail usado para encher caixa alheia** | Limite por IP, por endereço (hash) e teto diário da conta; o código só sai para quem carregou a página (nonce assinado por projeto) |
 | **Vazamento por cache** | `no-store` em toda resposta de dado; `noindex` e `no-referrer` no painel |
 | **Poluição de dados via restore** | Backup restaurado é higienizado por chave, tipo e tamanho |
 
@@ -68,6 +70,9 @@ uma vez.
 
 - Mensagem de suporte **nunca é armazenada** — vai por e-mail e acabou.
 - Foto de pedido de remoção **não vai para banco** — trafega só no e-mail.
+- E-mail do código de acesso ao gate **não vai para banco** — só o hash, até
+  2 h, como nome do objeto de limite; o código não é guardado em lugar nenhum
+  (token HMAC sem o código dentro).
 - **EXIF/GPS removido no servidor** antes de a foto virar anexo
   (`stripImageMetadata()`): quem pede para sumir de uma foto não está oferecendo
   onde ela foi tirada.
@@ -95,7 +100,8 @@ seção 1 e a retenção curta.
 
 | Sinal | Como chega |
 | --- | --- |
-| Exceção não tratada | E-mail (`sendErrorAlert`), com cooldown global de 15 min |
+| Exceção não tratada | E-mail (`sendErrorAlert`), com cooldown global de 15 min — trava no isolate antes da do KV, para uma onda de erros não virar centenas de e-mails e escritas |
+| Teto diário do código por e-mail atingido | `/api/healthz` → `problems` ("código por e-mail esgotado hoje") |
 | Força bruta no login | E-mail a partir de 5 falhas em 15 min |
 | Tentativa de XSS | Relatório de CSP em `/api/csp-report` → log estruturado |
 | Cron morto em silêncio | `cron:last` + `cron.stale` em `/api/healthz` |
@@ -140,8 +146,11 @@ fragilidades conhecidas, com o motivo de cada uma:
    zerarem.
 3. **Caminho sem JavaScript é mais fraco.** Com o Turnstile bloqueado por
    ad-blocker, o cliente usa `turnstileToken: "noscript"`. Continua sendo um
-   POST por evento, com rate limit mais apertado e auditado com
-   `turnstile_ok=0`. É uma escolha de acessibilidade, documentada. Uma
+   POST por evento, com balde de fichas mais apertado e auditado com
+   `turnstile_ok=0`. Quem tem o Turnstile **carregado mas falhando** (VPN,
+   bloqueador que quebra o desafio) recebe a opção de um código de 6 dígitos
+   por e-mail (`handleDriveCode()`), auditado com `turnstile_ok=2`; o e-mail
+   não é guardado. É uma escolha de acessibilidade, documentada. Uma
    varredura por esse caminho gera alerta, mas não é bloqueada: 5 ou mais
    projetos distintos do mesmo IP em 24 h mandam e-mail ao controlador
    (`checkNoscriptSweep()` em `src/index.js`, `sendNoscriptSweepAlert()` em

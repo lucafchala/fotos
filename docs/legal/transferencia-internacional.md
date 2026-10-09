@@ -60,7 +60,7 @@ perfil de anúncios — a Cloudflare declara isso no adendo acima.
 | --- | --- |
 | **Sede** | Estados Unidos (Resend, Inc.) |
 | **Papel** | Operador |
-| **Dados** | E-mail, telefone, mensagem e **a foto anexada** nos pedidos de remoção; nome/e-mail/mensagem no suporte; alertas ao controlador |
+| **Dados** | E-mail, telefone, mensagem e **a foto anexada** nos pedidos de remoção; nome/e-mail/mensagem no suporte; o e-mail de quem pede o código de acesso ao gate do Drive; alertas ao controlador |
 | **Fundamento (art. 33)** | **III** — DPA do Resend |
 | **Salvaguardas** | SOC 2 Type II; DPA disponível |
 | **Referência** | <https://resend.com/legal/dpa> |
