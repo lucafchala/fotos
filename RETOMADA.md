@@ -425,6 +425,8 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Resumo do deploy: "Portão de preview ⚠️ indisponível" | Normal hoje (#179). O smoke rodou depois da promoção |
 | Deploy com o job `deploy` **pulado** e "Deploy pulado: este commit já foi publicado" no resumo | O GitHub entregou o mesmo push duas vezes; a primeira execução publicou, e o resumo aponta qual (#186). Nada a fazer. Para republicar de propósito: **Run workflow** |
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
+| Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
+| Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -455,6 +457,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   entregues (#177); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
   rollback manual (#178); e decidir o portão de preview (#179).
+- **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
+  e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
+  confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
+  pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
+  (#233).
 
 ---
 

@@ -52,7 +52,7 @@ URL de produção: <https://fotos.lucafchala.com>
 
 O site tem três audiências:
 
-1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal com o gate de acesso: verificação Turnstile (pré-carregada assim que a página abre) + aceite dos Termos. Só depois de passar por esse gate — validado no servidor, não no cliente — o link real do Drive é liberado (`POST /api/drive-link`); o botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
+1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal com o gate de acesso: verificação Turnstile (pré-carregada assim que a página abre) + aceite dos Termos. Só depois de passar por esse gate — validado no servidor, não no cliente — o link real do Drive é liberado (`POST /api/drive-link`). Se o gate travar de verdade (VPN ou bloqueador quebrando a verificação, ou recusa depois das tentativas automáticas), a modal oferece **um código por e-mail** como último recurso (`POST /api/drive-code`); o botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
 2. **Cliente / contato** — abre `/suporte` para entrar em contato por WhatsApp, e-mail direto ou formulário (que envia e-mail via Resend para o admin).
 3. **Admin (Luca)** — entra em `/dashboard`, autentica com senha (PBKDF2, sessão de 24h em cookie HTTP-only), gerencia eventos (CRUD), ordena, destaca um como featured, marca como "em breve", oculta da galeria, define status de produção, vê métricas de views e cliques no Drive, baixa/restaura backup JSON, troca senha e responde solicitações de remoção (cada "resolver" dispara um e-mail de confirmação ao solicitante).
 
@@ -176,12 +176,12 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 
 | Nome | Obrigatório? | Para que serve |
 | --- | --- | --- |
-| `RESEND_API_KEY` | Não (sem ela, e-mails são pulados silenciosamente) | API key do Resend para enviar notificações de remoção, confirmações e formulário de suporte |
+| `RESEND_API_KEY` | Não (sem ela, e-mails são pulados silenciosamente) | API key do Resend para enviar notificações de remoção, confirmações, formulário de suporte e o **código de acesso por e-mail** do gate do Drive — sem ela, `/api/drive-code` responde 503 e o código não é oferecido como saída |
 | `ADMIN_EMAIL` | Necessário se `RESEND_API_KEY` definido | Destinatário das notificações de admin (remoções, suporte) |
 | `CF_ANALYTICS_TOKEN` | Não | Token do Cloudflare Web Analytics. Quando presente, o script `beacon.min.js` é injetado nas páginas públicas |
 | `ADMIN_PASSWORD` | Apenas em deploy novo / KV zerado | Semeia a senha do dashboard quando `admin_password` não existe no KV. **Não há mais setup público de primeira execução** — sem KV e sem este secret, o login fica bloqueado |
 | `TURNSTILE_SECRET_KEY` | Sim (fail-closed) | Verificação Turnstile do formulário de suporte e remoção de fotos. Se ausente, esses formulários são bloqueados |
-| `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link` e o token dos formulários públicos (HMAC-SHA256, sem estado). Ver o aviso abaixo |
+| `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link`, o token dos formulários públicos e o token do código por e-mail (HMAC-SHA256, sem estado). Sem ele, o código por e-mail fica indisponível (503) — nunca aberto. Ver o aviso abaixo |
 | `KUMA_PUSH_URL` | Não | URL de push do Uptime Kuma (`https://<host>/api/push/<token>`), para o heartbeat de disponibilidade. Sem ela o heartbeat não acontece e nada mais muda. **É uma credencial**: o token do monitor está embutido na URL, e quem o tem consegue manter um monitor verde sobre um serviço caído — por isso ela não mora no código, que é público |
 
 > ### ⚠️ `SIGNING_SECRET` falha **aberto**, não fechado
@@ -1652,6 +1652,8 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 - **Upload de remoção limitado a 2 MB**: maior que isso e o request vira 413. Solicitantes com fotos grandes podem usar a opção "link direto" em vez de upload.
 - **Storage de solicitações capado em 500**: solicitações resolvidas mais antigas são apagadas quando passa. Backup manual recomendado antes de atingir esse volume. (O array único no KV também tem uma janela de escrita concorrente — #198.)
 - **Registro de consentimento fora do caminho da resposta**: a gravação no D1 roda em `ctx.waitUntil`, então o visitante recebe o link mesmo se o insert falhar. A falha **não** é silenciosa: entra no `/api/healthz` (`noteDegraded`) e dispara o e-mail de alerta (`sendErrorAlert`). Sem o binding `CONSENT_DB`, o aceite continua barrando o acesso normalmente, porém sem registro — e o autoteste do healthz acusa.
+- **Código por e-mail tem teto diário (40) e depende do Resend**: é o último recurso do gate, e a franquia de e-mail é a mesma da remoção e do suporte. Esgotado o teto, a modal manda para o WhatsApp até a virada UTC. Endereços descartáveis (temp-mail) **não** são barrados — só apelidos `+etiqueta`; o limite por endereço e o teto do dia contêm o abuso.
+- **Rate limit é por IP, e um evento inteiro pode ser um IP só** (o Wi-Fi do local): os baldes do gate foram dimensionados para ~750 pessoas de uma vez (ver "Rate limiting"); um público bem maior num único NAT pode esbarrar na rajada — aí a página espera segundos e tenta sozinha. Calibrar com dados reais: #230.
 - **Formulários exigem JavaScript + Turnstile; o portão do Drive não**: ad-blockers que barram o script do Turnstile (ou JS desativado) impedem o envio dos formulários de remoção/suporte — o site **detecta e avisa** e oferece WhatsApp/e-mail como alternativa. O portão do Drive tem o caminho noscript (grava a concessão com `turnstile_ok = 0` e alerta varredura — ver `SECURITY.md`).
 
 ---
