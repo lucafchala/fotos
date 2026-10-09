@@ -2747,8 +2747,7 @@ export async function handleDriveCode(request, env, ctx) {
     return jsonErr('A verificação por e-mail atingiu o limite de hoje. Me chame no WhatsApp que eu libero.', 503);
   }
 
-  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000;
-  const code = String(n).padStart(6, '0');
+  const code = codigoAleatorio();
   const token = await signToken(secret, { purpose: 'drive-email', scope: `${slug}|${code}`, ttlSecs: EMAIL_CODE_TTL_SECS });
 
   try {
@@ -2759,6 +2758,24 @@ export async function handleDriveCode(request, env, ctx) {
     return jsonErr('Não foi possível enviar o e-mail agora. Tente de novo em instantes ou me chame no WhatsApp.', 502);
   }
   return jsonOk({ ok: true, token, ttl: EMAIL_CODE_TTL_SECS });
+}
+
+// Seis dígitos uniformes. Nada de `x % 1e6`: 2^32 não é múltiplo de 1e6 e o
+// resto puxaria para os menores valores (CodeQL js/biased-cryptographic-random).
+// Cada dígito sai de 4 bits (0–15, máscara de potência de 2 — sem viés) e
+// valores ≥ 10 são descartados.
+function codigoAleatorio() {
+  let code = '';
+  const buf = new Uint8Array(16);
+  while (code.length < 6) {
+    crypto.getRandomValues(buf);
+    for (const b of buf) {
+      for (const d of [b & 0x0f, b >> 4]) {
+        if (d < 10 && code.length < 6) code += String(d);
+      }
+    }
+  }
+  return code;
 }
 
 /** @param {unknown} e */

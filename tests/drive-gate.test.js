@@ -673,7 +673,7 @@ describe('código por e-mail', () => {
     enviados = [];
     resendStatus = 200;
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-      if (String(url).includes('resend.com')) {
+      if (new URL(String(url)).host === 'api.resend.com') {
         enviados.push(JSON.parse(init.body));
         return new Response('{}', { status: resendStatus });
       }
