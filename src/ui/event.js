@@ -48,6 +48,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // celulares baixando 1600 px cada um é o que satura o link do local.
   const firstSrcset = photos.length ? driveSrcset(photos[0], PHOTO_WIDTHS) : '';
   const firstSrcsetAttr = firstSrcset ? ` srcset="${escape(firstSrcset)}" sizes="100vw"` : '';
+  // WebP (~30% menor que o JPEG na mesma largura) para todo navegador que o
+  // decodifica — Chrome/Android e Safari/iOS 14+ igualmente; quem não decodifica
+  // pula o <source> e fica no JPEG. O <picture> tem display:contents (CSS),
+  // então o layout do hero/carrossel continua vendo só a <img>.
+  const firstWebp = photos.length ? driveSrcset(photos[0], PHOTO_WIDTHS, { webp: true }) : '';
+  /** @param {string} img */
+  const comWebp = img => firstWebp
+    ? `<picture><source type="image/webp" srcset="${escape(firstWebp)}" sizes="100vw">${img}</picture>`
+    : img;
 
   const photosJSON  = jsonParaScript(displayPhotos);
   const slugJSON    = JSON.stringify(event.slug || '');
@@ -136,14 +145,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ? videoHeroHTML
     : event.comingSoon
     ? photos.length > 0
-      ? `<div class="hero"><img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError"><div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
+      ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" class="hero-blur-img" fetchpriority="high" decoding="async" data-onerror="heroImgError">`)}<div class="hero-soon-ov">${clockIcon(56)}<span>Em breve</span></div></div>`
       : `<div class="hero"><div class="hero-ph hero-soon">${clockIcon(56)}<span>Em breve</span></div></div>`
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero"><img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0"></div>`
+        ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
         : `<div class="carousel" id="carousel">
-          <img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">
+          ${comWebp(`<img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">`)}
           <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -286,6 +295,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
     .carousel img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
+    .hero picture,.carousel picture{display:contents}
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
     .c-prev{left:.75rem}.c-next{right:.75rem}
@@ -395,6 +405,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .dv-retry{background:none;border:none;color:var(--err-text-strong);text-decoration:underline;text-underline-offset:2px;cursor:pointer;font:inherit;padding:0}
     .dv-contact{color:var(--err-text);font-size:.85rem;line-height:1.6;margin-top:.625rem;padding-top:.625rem;border-top:1px solid var(--err-border)}
     .dv-contact a{color:var(--err-text-strong);text-decoration:underline;text-underline-offset:2px;font-weight:600}
+    .dv-wait{color:var(--text-muted,var(--text));font-size:.85rem;line-height:1.6}
+    .drive-email{margin-top:1rem}
+    .drive-email .de-note{font-size:.85rem;line-height:1.6;color:var(--text)}
+    .drive-email .de-row{display:flex;gap:.5rem;margin-top:.5rem;align-items:stretch}
+    .drive-email .de-row input{flex:1;min-width:0}
+    .drive-email .de-btn{flex:none;padding:.6rem .9rem;border-radius:8px;border:1px solid var(--border-dim);background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;cursor:pointer}
+    .drive-email .de-btn:disabled{opacity:.5;cursor:default}
+    .drive-email #drive-email-code{letter-spacing:.3em;font-variant-numeric:tabular-nums}
+    .drive-email .de-msg{font-size:.8rem;line-height:1.5;margin-top:.5rem;color:var(--text)}
     .spin{width:14px;height:14px;border:2px solid var(--border-dim);border-top-color:var(--text-muted);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
     .drive-consent{display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;margin-top:1.25rem;font-size:.85rem;color:var(--text-2);line-height:1.5;border-radius:8px}
@@ -617,12 +636,32 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         </label>
         <p id="drive-gate-hint" style="display:none"></p>
         <div id="drive-verify-error" class="drive-verifying" style="display:none">
-          <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios para este site (e ative o JavaScript, caso esteja desativado) e recarregue a página.</p>
+          <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios ou a VPN para este site e recarregue a página — ou <button type="button" data-action="showDriveEmail" class="dv-retry">receba um código por e-mail</button>.</p>
           <p class="dv-contact">Se continuar, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
         </div>
         <div id="drive-link-error" class="drive-verifying" style="display:none">
-          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" data-action="retryDriveLink" class="dv-retry">Tentar novamente</button></p>
+          <p class="dv-msg">Não foi possível liberar o acesso. <button type="button" data-action="retryDriveLink" class="dv-retry">Tentar novamente</button> ou <button type="button" data-action="showDriveEmail" class="dv-retry">receber um código por e-mail</button>.</p>
           <p class="dv-contact">Se persistir, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
+        </div>
+        <div id="drive-wait" class="drive-verifying" style="display:none" role="status" aria-live="polite">
+          <p class="dv-wait">Muita gente acessando agora — liberando em <span id="drive-wait-s">5</span> s…</p>
+        </div>
+        <!--
+          Último recurso (handleDriveCode): para quem não passa pelo Turnstile
+          (VPN, bloqueador) ou esgotou as tentativas. O objetivo é a foto
+          chegar; este caminho existe para ninguém de verdade ficar sem.
+        -->
+        <div id="drive-email" class="drive-email" style="display:none">
+          <p class="de-note">Mandamos um código de 6 dígitos para o seu e-mail. Seu e-mail não é guardado pelo site.</p>
+          <div class="de-row rem-field" style="margin-top:.5rem">
+            <input type="email" id="drive-email-addr" placeholder="seu@email.com" autocomplete="email" inputmode="email" maxlength="254" aria-label="Seu e-mail">
+            <button type="button" class="de-btn" id="drive-email-send" data-action="sendDriveCode">Enviar código</button>
+          </div>
+          <div class="de-row rem-field" id="drive-email-step2" style="display:none;margin-top:.5rem">
+            <input type="text" id="drive-email-code" placeholder="000000" autocomplete="one-time-code" inputmode="numeric" maxlength="6" aria-label="Código recebido por e-mail">
+            <button type="button" class="de-btn" id="drive-email-ok" data-action="confirmDriveCode">Liberar fotos</button>
+          </div>
+          <p id="drive-email-msg" class="de-msg" aria-live="polite"></p>
         </div>
         <div id="drive-refreshed-note" class="drive-verifying" style="display:none">
           <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
@@ -805,11 +844,41 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       return PHOTO_WS[PHOTO_WS.length - 1];
     })();
     const PHOTO_MAX_SUFFIX = '=w' + PHOTO_WS[PHOTO_WS.length - 1];
+    const LH3 = 'https://lh3.googleusercontent.com/d/';
+    // Ampliar (duplo toque/clique no lightbox) troca por esta largura — igual
+    // para todo aparelho: o zoom de 2,2× pede mais pixels que a tela.
+    const PHOTO_ZOOM_W = 2400;
     const PHOTOS = (${photosJSON}).map(function(u) {
-      return u.indexOf('https://lh3.googleusercontent.com/d/') === 0 && u.slice(-PHOTO_MAX_SUFFIX.length) === PHOTO_MAX_SUFFIX
+      return u.indexOf(LH3) === 0 && u.slice(-PHOTO_MAX_SUFFIX.length) === PHOTO_MAX_SUFFIX
         ? u.slice(0, -PHOTO_MAX_SUFFIX.length) + '=w' + PHOTO_W
         : u;
     });
+    // WebP: decide uma vez, por decodificação de verdade (não por user-agent —
+    // Android e iPhone recebem o mesmo tratamento pelo que o navegador faz).
+    // Até decidir, nada é pré-carregado; decidido, as URLs do lh3 ganham -rw
+    // e a vizinhança do carrossel é aquecida já no formato certo.
+    let PHOTO_WEBP_READY = false;
+    (function() {
+      const t = new Image();
+      function pronto(ok) {
+        if (PHOTO_WEBP_READY) return;
+        PHOTO_WEBP_READY = true;
+        if (ok) {
+          for (let i = 0; i < PHOTOS.length; i++) {
+            if (PHOTOS[i].indexOf(LH3) === 0 && /=w[0-9]+$/.test(PHOTOS[i])) PHOTOS[i] += '-rw';
+          }
+        }
+        if (document.getElementById('carousel')) preloadAround();
+      }
+      t.onload = function() { pronto(t.width === 1); };
+      t.onerror = function() { pronto(false); };
+      t.src = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA';
+    })();
+    // URL ampliada da foto i: mesma foto, PHOTO_ZOOM_W de largura.
+    function photoZoomUrl(u) {
+      if (u.indexOf(LH3) !== 0) return u;
+      return u.replace(/=w[0-9]+(-rw)?$/, function(_m, rw) { return '=w' + PHOTO_ZOOM_W + (rw || ''); });
+    }
     const ALERT_ADDED_AT = ${alertAddedAtJSON};
     const ALERT_EXPIRES  = ${alertExpiresJSON};
 
@@ -878,6 +947,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         case 'closeLightbox': closeLightbox(); break;
         case 'toggleDriveName': toggleDriveName(); break;
         case 'retryDriveLink': retryDriveLink(); break;
+        case 'showDriveEmail': showDriveEmail(); break;
+        case 'sendDriveCode': sendDriveCode(); break;
+        case 'confirmDriveCode': confirmDriveCode(); break;
         case 'reload': location.reload(); break;
         case 'cGoPrev': pauseSlideshow(); cGo(-1); break;
         case 'cGoNext': pauseSlideshow(); cGo(1); break;
@@ -982,6 +1054,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // requisições/dia do plano gratuito e derrubar o site para todo mundo.
     let driveAutoRetry   = false; // a próxima ficha pode refazer o pedido sozinha?
     let driveAutoRetried = false; // a tentativa automática já foi gasta desde o último gesto?
+    // 429 é diferente: o servidor diz QUANDO tentar (retryAfter, do balde de
+    // fichas). A página espera esse tempo — com contagem na tela — e tenta de
+    // novo sozinha, até DRIVE_MAX_WAITS vezes; daí em diante, botão e e-mail.
+    // O ritmo é o do servidor, então a espera não vira martelada.
+    const DRIVE_MAX_WAITS = 5;
+    let driveWaits = 0;
+    let driveWaitTimer = null;
+    // Caminho do código por e-mail (driveTsToken === 'email').
+    let driveEmailToken = '';
+    let driveTsFailed = false; // o Turnstile já chamou o error-callback nesta página
+    let driveEmailCode = '';
     let remWidgetId   = null;
     let remTsToken    = '';
 
@@ -997,12 +1080,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         execution: 'execute', // don't fire on render — we control the timing below
         callback: function(t) {
           driveTsToken = t;
+          driveTsFailed = false;
           // Terms/button are already visible — this just clears the stuck-check
           // note (if it had fired) and lets the gate fetch the real link.
           revealDriveGate();
           maybeFetchDriveLink();
         },
-        'error-callback': function() { driveTsToken = ''; driveVerifyError(); },
+        // VPN/bloqueador que quebra o desafio: lembra, para o modal já abrir
+        // com a saída (código por e-mail) em vez de esperar os 9 s do timeout.
+        'error-callback': function() { driveTsToken = ''; driveTsFailed = true; driveVerifyError(); },
         'expired-callback': function() { driveTsToken = ''; turnstile.execute(driveWidgetId); }, // silent refresh
       });
       turnstile.execute(driveWidgetId);
@@ -1046,6 +1132,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       // it never hides the terms or button.
       clearTimeout(driveTimeout);
       driveTimeout = setTimeout(function() { if (!driveTsToken) driveVerifyError(); }, 9000);
+      if (driveTsFailed && !driveTsToken) driveVerifyError();
       // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
       // that must not brick delivery, so the server has its own (weaker,
       // rate-limited) path for this token value.
@@ -1072,7 +1159,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Fires the real gate: only requests the link once Turnstile + consent
     // (+ declaration, when required) are all satisfied — no click needed.
     function maybeFetchDriveLink() {
-      if (driveLinkState === 'loading' || driveLinkState === 'ready') return;
+      if (driveLinkState === 'loading' || driveLinkState === 'ready' || driveLinkState === 'waiting') return;
       if (driveLinkState === 'error' && !driveAutoRetry) return; // ver driveAutoRetry
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
@@ -1088,6 +1175,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     function fetchDriveLink() {
       driveAutoRetry = false; // consumida: só um erro novo pode rearmar
       let status = 0;
+      let errData = {};
+      // Capturado agora: um callback atrasado do Turnstile pode trocar
+      // driveTsToken enquanto o pedido está em voo.
+      const viaEmail = driveTsToken === 'email';
       driveLinkState = 'loading';
       setDriveLinkUI('loading');
       const nameEl = document.getElementById('drive-name');
@@ -1098,6 +1189,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         body: JSON.stringify({
           slug: EVENT_SLUG,
           turnstileToken: driveTsToken,
+          emailToken: driveTsToken === 'email' ? driveEmailToken : undefined,
+          emailCode: driveTsToken === 'email' ? driveEmailCode : undefined,
           driveNonce: DRIVE_NONCE,
           consent: true,
           declaration: decl ? decl.checked : undefined,
@@ -1109,12 +1202,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           // visitante — reloadForFreshNonce() recarrega e o fluxo recomeça.
           if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
           status = r.status;
-          return r.ok ? r.json() : Promise.reject();
+          if (r.ok) return r.json();
+          return r.json().catch(function() { return {}; }).then(function(d) { errData = d || {}; return Promise.reject(); });
         })
         .then(function(data) {
           driveLinkResult = data;
           driveLinkState = 'ready';
           driveAutoRetried = false;
+          driveWaits = 0;
+          hideDriveEmail();
           // Solta a trava anti-laço: uma expiração futura na mesma aba ainda
           // pode se recuperar com uma recarga.
           try { sessionStorage.removeItem('fotos:drive_reloaded'); } catch(_) {}
@@ -1124,6 +1220,27 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           setDriveLinkUI('ready', data);
         })
         .catch(function() {
+          // Código por e-mail: o erro é da pessoa (código errado, vencido) e
+          // a mensagem do servidor diz qual — nada de repetir sozinho.
+          if (viaEmail) {
+            driveLinkState = 'idle';
+            if (driveTsToken === 'email') driveTsToken = '';
+            setDriveLinkUI('idle');
+            setDriveEmailBusy(false);
+            driveEmailMsg(errData.error || 'Não foi possível confirmar o código. Tente de novo.');
+            return;
+          }
+          // 429: espera o tempo que o servidor mandou e tenta de novo, com
+          // contagem na tela. A ficha do Turnstile não foi gasta (o limite vem
+          // antes do siteverify), mas é renovada abaixo de qualquer jeito.
+          if (status === 429 && driveWaits < DRIVE_MAX_WAITS) {
+            driveWaits++;
+            const espera = Math.max(1, Math.min(120, Number(errData.retryAfter) || 5)) + Math.random() * 3;
+            driveLinkState = 'waiting';
+            setDriveLinkUI('loading');
+            driveWaitCountdown(espera);
+            return;
+          }
           driveLinkState = 'error';
           setDriveLinkUI('error');
           // 429 não se resolve em segundos — repetir sozinho só alimenta o
@@ -1190,8 +1307,100 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       openModal();
     }
 
+    // Contagem do 429. Termina pondo o estado em 'idle' e pedindo de novo:
+    // com ficha do Turnstile já na mão, sai na hora; sem, o callback dela pede.
+    function driveWaitCountdown(segundos) {
+      clearInterval(driveWaitTimer);
+      const box = document.getElementById('drive-wait');
+      const num = document.getElementById('drive-wait-s');
+      const fim = Date.now() + segundos * 1000;
+      function tick() {
+        const falta = Math.max(0, Math.ceil((fim - Date.now()) / 1000));
+        if (num) num.textContent = String(falta);
+        if (falta > 0) return;
+        clearInterval(driveWaitTimer);
+        if (box) box.style.display = 'none';
+        if (driveLinkState !== 'waiting') return;
+        driveLinkState = 'idle';
+        maybeFetchDriveLink();
+      }
+      if (box) box.style.display = '';
+      tick();
+      driveWaitTimer = setInterval(tick, 500);
+    }
+
+    // ---- Código por e-mail (último recurso) ----
+    function driveEmailMsg(t) { const m = document.getElementById('drive-email-msg'); if (m) m.textContent = t; }
+    function setDriveEmailBusy(busy) {
+      ['drive-email-send', 'drive-email-ok'].forEach(function(id) {
+        const b = document.getElementById(id); if (b) b.disabled = busy;
+      });
+    }
+    function hideDriveEmail() { const box = document.getElementById('drive-email'); if (box) box.style.display = 'none'; }
+    function showDriveEmail() {
+      ['drive-verify-error', 'drive-link-error', 'drive-wait'].forEach(function(id) {
+        const el = document.getElementById(id); if (el) el.style.display = 'none';
+      });
+      clearInterval(driveWaitTimer);
+      if (driveLinkState === 'waiting') driveLinkState = 'error';
+      clearTimeout(driveTimeout);
+      const box = document.getElementById('drive-email');
+      if (box) box.style.display = '';
+      const addr = document.getElementById('drive-email-addr');
+      if (addr) addr.focus();
+    }
+    function sendDriveCode() {
+      const addrEl = document.getElementById('drive-email-addr');
+      const addr = addrEl ? String(addrEl.value || '').trim() : '';
+      if (!addr || addr.indexOf('@') < 1) { driveEmailMsg('Digite um e-mail válido.'); if (addrEl) addrEl.focus(); return; }
+      setDriveEmailBusy(true);
+      driveEmailMsg('Enviando…');
+      fetch('/api/drive-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: EVENT_SLUG, email: addr, driveNonce: DRIVE_NONCE }),
+      })
+        .then(function(r) {
+          if (r.status === 410) { reloadForFreshNonce(); return new Promise(function(){}); }
+          return r.json().catch(function() { return {}; }).then(function(d) { return { r: r, d: d || {} }; });
+        })
+        .then(function(x) {
+          setDriveEmailBusy(false);
+          if (!x.r.ok || !x.d.token) {
+            driveEmailMsg(x.d.error || 'Não foi possível enviar o código. Tente de novo.');
+            return;
+          }
+          driveEmailToken = x.d.token;
+          const step2 = document.getElementById('drive-email-step2');
+          if (step2) step2.style.display = '';
+          driveEmailMsg('Código enviado para ' + addr + '. Confira também o spam. Vale por ' + Math.round((x.d.ttl || 900) / 60) + ' minutos.');
+          const codeEl = document.getElementById('drive-email-code');
+          if (codeEl) codeEl.focus();
+        })
+        .catch(function() { setDriveEmailBusy(false); driveEmailMsg('Sem conexão. Tente de novo.'); });
+    }
+    function confirmDriveCode() {
+      const c = document.getElementById('drive-consent');
+      const decl = document.getElementById('drive-declaration');
+      if (!(c && c.checked) || (decl && !decl.checked)) {
+        driveEmailMsg('Marque o aceite dos Termos acima e confirme de novo.');
+        handleBlockedDriveClick();
+        return;
+      }
+      const codeEl = document.getElementById('drive-email-code');
+      const code = codeEl ? String(codeEl.value || '').replace(/[^0-9]/g, '') : '';
+      if (code.length !== 6 || !driveEmailToken) { driveEmailMsg('O código tem 6 dígitos.'); if (codeEl) codeEl.focus(); return; }
+      driveEmailCode = code;
+      driveTsToken = 'email';
+      setDriveEmailBusy(true);
+      driveEmailMsg('Confirmando…');
+      driveLinkState = 'idle';
+      fetchDriveLink();
+    }
+
     function retryDriveLink() {
       driveLinkState = 'idle';
+      driveWaits = 0;
       driveAutoRetried = false; // gesto da pessoa: devolve a tentativa automática
       if (driveTsToken) maybeFetchDriveLink();
       else setDriveLinkUI('loading'); // waiting on a fresh token; retries itself once it lands
@@ -1321,7 +1530,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // do único vizinho pré-carregado e caía numa imagem fria. No mobile fica em
     // ±1 de propósito — lá a conta é de dados do usuário, não de latência.
     function preloadAround() {
-      if (PHOTOS.length < 2) return;
+      if (PHOTOS.length < 2 || !PHOTO_WEBP_READY) return;
+      // Economia de dados ligada (ou rede 2G): nada de pré-carregar vizinhas —
+      // a foto da vez continua na MESMA qualidade, só não se baixa o que talvez
+      // nem seja visto. Hoje só o Chrome expõe isto (o Safari não tem a API).
+      const conn = navigator['connection'];
+      if (conn && (conn.saveData || /2g/.test(String(conn.effectiveType || '')))) return;
       const reach = Math.min(innerWidth < 768 ? 1 : 3, Math.floor(PHOTOS.length / 2));
       for (let off = -reach; off <= reach; off++) {
         if (off === 0) continue;
@@ -1345,9 +1559,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       const car = document.getElementById('carousel');
       if (img) {
         img.style.opacity = '0';
-        // O srcset só serve à 1ª foto; com ele presente o browser ignoraria
-        // a troca de src.
+        // O srcset (e o <source> WebP do <picture>) só servem à 1ª foto; com
+        // eles presentes o browser ignoraria a troca de src.
         img.removeAttribute('srcset');
+        if (img.parentNode && img.parentNode.nodeName === 'PICTURE') {
+          img.parentNode.querySelectorAll('source').forEach(function(so) { so.remove(); });
+        }
         img.src = PHOTOS[cur];
         // Imagem já em cache decodifica antes do próximo frame: só marcamos
         // como "carregando" se ela realmente não estiver pronta, senão o
@@ -1396,6 +1613,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (!img) return;
       lbZoomed = !lbZoomed;
       if (lbZoomed) {
+        // Mais pixels para o zoom, em qualquer aparelho. Navegar volta ao
+        // tamanho de tela (cGoto troca o src).
+        const alta = photoZoomUrl(PHOTOS[cur]);
+        if (img.src !== alta) img.src = alta;
         const r = img.getBoundingClientRect();
         img.style.transformOrigin = ((x - r.left) / r.width * 100) + '% ' + ((y - r.top) / r.height * 100) + '%';
         img.style.transform = 'scale(2.2)';

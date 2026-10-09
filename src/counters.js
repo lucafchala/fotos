@@ -188,10 +188,65 @@ export class RateLimiter extends DurableObject {
     return true;
   }
 
+  /**
+   * Balde de fichas (token bucket) — o limite "moderno" do portão do Drive.
+   *
+   * A janela fixa de `check()` é um corte seco: estourou, só na hora cheia
+   * seguinte. Num evento, o público inteiro chega junto pelo MESMO IP (o
+   * Wi-Fi do local), e um corte seco vira uma hora sem fotos para quem chegou
+   * depois. O balde aguenta a rajada até `capacity` e devolve fichas
+   * continuamente (`perHour` por hora): quem esvazia espera SEGUNDOS, e a
+   * resposta diz quantos (`retryAfter`), para o cliente tentar de novo na
+   * hora certa em vez de martelar.
+   *
+   * Mesmas regras de atomicidade de `check()`: nenhum `await` entre a leitura
+   * e a gravação. Recusa não grava nada (não gasta linha escrita do DO).
+   *
+   * @param {number} capacity fichas no balde cheio (a rajada que cabe)
+   * @param {number} perHour fichas devolvidas por hora (o ritmo sustentado)
+   * @returns {Promise<{ ok: boolean, retryAfter: number }>} retryAfter em segundos (0 quando ok)
+   */
+  async take(capacity, perHour) {
+    const agora = Date.now();
+    const porMs = perHour / 3_600_000;
+    /** @type {{ fichas: number, t: number, cap: number, porMs: number } | undefined} */
+    const rec = await this.ctx.storage.get('b');
+
+    // Registro inválido (NaN, negativo, do futuro) vira balde cheio — o mesmo
+    // que "registro novo", e a próxima gravação o substitui por um válido. O
+    // limite volta a valer na hora; nada fica envenenado para sempre.
+    let fichas = capacity;
+    if (rec && Number.isFinite(rec.fichas) && rec.fichas >= 0 && Number.isFinite(rec.t) && rec.t <= agora) {
+      fichas = Math.min(capacity, rec.fichas + (agora - rec.t) * porMs);
+    }
+    if (fichas < 1) {
+      return { ok: false, retryAfter: Math.max(1, Math.ceil((1 - fichas) / porMs / 1000)) };
+    }
+
+    await this.ctx.storage.put('b', { fichas: fichas - 1, t: agora, cap: capacity, porMs });
+    // Alarme só quando o balde nasce: `setAlarm()` custa uma escrita. O
+    // alarme se reagenda sozinho enquanto o balde não encher (ver alarm()).
+    if (!rec) await this.ctx.storage.setAlarm(agora + Math.ceil(1 / porMs));
+    return { ok: true, retryAfter: 0 };
+  }
+
   // Sem registro, o runtime recolhe o Durable Object sozinho — a limpeza
   // automática que o `expirationTtl` do KV fazia; um IP de passagem não
   // custa armazenamento eterno.
+  //
+  // Balde (take) só é apagado CHEIO: balde cheio é indistinguível de balde
+  // novo, então apagar não devolve fichas a ninguém. Antes disso, o alarme
+  // se reagenda para o instante em que ele enche.
   async alarm() {
+    /** @type {{ fichas: number, t: number, cap: number, porMs: number } | undefined} */
+    const b = await this.ctx.storage.get('b');
+    if (b && Number.isFinite(b.fichas) && Number.isFinite(b.t) && Number.isFinite(b.cap) && b.porMs > 0) {
+      const cheioEm = b.t + Math.max(0, b.cap - b.fichas) / b.porMs;
+      if (cheioEm > Date.now()) {
+        await this.ctx.storage.setAlarm(Math.ceil(cheioEm) + 1000);
+        return;
+      }
+    }
     await this.ctx.storage.deleteAll();
   }
 }

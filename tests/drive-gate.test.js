@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleDriveLink, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
+import { handleDriveLink, handleDriveCode, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
 import { saveEvents, ACCESS_DECLARATIONS, readCounter, degradedHealth, resetDegraded } from '../src/utils.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
-import { DRIVE_LINK_LIMIT_PER_HOUR, DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR } from '../src/config.js';
+import { DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, EMAIL_CODE_DAILY_CAP, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_TTL_SECS } from '../src/config.js';
 
 // The Drive gate is the one endpoint that hands out the real Drive URLs. Every
 // refusal below is a security control, not a UX nicety: a regression that turns
@@ -141,21 +141,26 @@ describe('handleDriveLink — refusals', () => {
     expect(await res.text()).not.toContain('drive.google.com');
   });
 
-  it('429s once the per-IP rate limit is spent', async () => {
+  it('429s once the per-IP bucket is empty — and says how long to wait', async () => {
     stubTurnstile(true);
     const body = { slug: 'casamento-ana', turnstileToken: 't', consent: true };
     let last;
-    for (let i = 0; i < DRIVE_LINK_LIMIT_PER_HOUR + 2; i++) last = await handleDriveLink(req(body), env, fakeCtx());
+    for (let i = 0; i < DRIVE_GATE_BUCKET.capacity + 2; i++) last = await handleDriveLink(req(body), env, fakeCtx());
     expect(last.status).toBe(429);
+    // Espera em SEGUNDOS, não "até a hora cheia": é o que o balde muda.
+    const espera = Number(last.headers.get('Retry-After'));
+    expect(espera).toBeGreaterThanOrEqual(1);
+    expect(espera).toBeLessThanOrEqual(Math.ceil(3600 / DRIVE_GATE_BUCKET.perHour));
+    expect((await last.json()).retryAfter).toBe(espera);
   });
 
   it('rate-limits the noscript path far tighter than the verified one', async () => {
     const body = { slug: 'casamento-ana', turnstileToken: 'noscript', consent: true };
     const codes = [];
-    for (let i = 0; i < DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR + 2; i++) codes.push((await handleDriveLink(req(body), env, fakeCtx())).status);
-    expect(codes.filter(c => c === 200)).toHaveLength(DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR);
+    for (let i = 0; i < DRIVE_GATE_NOSCRIPT_BUCKET.capacity + 2; i++) codes.push((await handleDriveLink(req(body), env, fakeCtx())).status);
+    expect(codes.filter(c => c === 200)).toHaveLength(DRIVE_GATE_NOSCRIPT_BUCKET.capacity);
     expect(codes.at(-1)).toBe(429);
-    expect(DRIVE_LINK_NOSCRIPT_LIMIT_PER_HOUR).toBeLessThan(DRIVE_LINK_LIMIT_PER_HOUR);
+    expect(DRIVE_GATE_NOSCRIPT_BUCKET.capacity).toBeLessThan(DRIVE_GATE_BUCKET.capacity);
   });
 
   // Um Wi-Fi de evento é UM IPv4 para o público inteiro. Com 60/h, 750
@@ -166,6 +171,21 @@ describe('handleDriveLink — refusals', () => {
     const codes = [];
     for (let i = 0; i < 750; i++) codes.push((await handleDriveLink(req(body, { ip: '200.1.2.3' }), env, fakeCtx())).status);
     expect(codes.filter(c => c !== 200)).toEqual([]);
+  });
+
+  it('o balde devolve fichas com o tempo — esvaziar não tranca por uma hora', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      stubTurnstile(true);
+      const body = { slug: 'casamento-ana', turnstileToken: 'noscript', consent: true };
+      for (let i = 0; i < DRIVE_GATE_NOSCRIPT_BUCKET.capacity; i++) await handleDriveLink(req(body), env, fakeCtx());
+      const vazio = await handleDriveLink(req(body), env, fakeCtx());
+      expect(vazio.status).toBe(429);
+      vi.setSystemTime(Date.now() + Number(vazio.headers.get('Retry-After')) * 1000);
+      expect((await handleDriveLink(req(body), env, fakeCtx())).status, 'passado o Retry-After, entra').toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -420,13 +440,15 @@ describe('handleTrackDrive — nada é contado antes de haver clique real', () =
   });
 
   it('o rate limit por IP continua barrando um flood', async () => {
-    // 60/hora por IP é o teto, e ele fica. O contador atômico tirou o custo por
-    // requisição, não o teto por hora — e é o custo por hora que um atacante
-    // controla.
+    // Balde (DRIVE_CLICK_BUCKET): a rajada de um evento inteiro no mesmo
+    // Wi-Fi cabe, mas o ritmo sustentado é baixo. O contador atômico tirou o
+    // custo por requisição, não o teto — e é o volume sustentado que um
+    // atacante controla, contra a franquia de escrita do Durable Object.
     const ctx = fakeCtx();
-    for (let i = 0; i < 65; i++) await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
+    for (let i = 0; i < DRIVE_CLICK_BUCKET.capacity + 5; i++) await handleTrackDrive(post({ slug: 'casamento-ana' }), env, ctx);
     await ctx.settle();
-    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(60);
+    expect(await readCounter(env, 'drive_clicks:casamento-ana')).toBe(DRIVE_CLICK_BUCKET.capacity);
+    expect(DRIVE_CLICK_BUCKET.perHour, 'o ritmo sustentado fica bem abaixo da rajada').toBeLessThan(DRIVE_CLICK_BUCKET.capacity);
   });
 
   it('adota a contagem que já estava no KV, sem perder o histórico', async () => {
@@ -630,5 +652,131 @@ describe('handleDriveLink — nonce de página', () => {
       req({ slug: 'casamento-ana', turnstileToken: 'ruim', consent: true, driveNonce: nonce }), env, ctx);
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain('drive.google.com');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Código por e-mail — o último recurso do portão do Drive
+// ---------------------------------------------------------------------------
+// Quem não passa pelo Turnstile (VPN, bloqueador que quebra o desafio) ou
+// esgotou as fichas recebe um código de 6 dígitos. Nada é guardado: o token
+// devolvido é um HMAC sobre (slug, código, prazo) que não contém o código.
+describe('código por e-mail', () => {
+  const SECRET = 'assinatura-de-teste-longa-o-suficiente';
+  /** @type {{ to: string[], subject: string, html: string }[]} */
+  let enviados;
+  let resendStatus;
+
+  beforeEach(async () => {
+    env = withDurableObjects({ FOTOS: fakeKV(), TURNSTILE_SECRET_KEY: 'secret', SIGNING_SECRET: SECRET, RESEND_API_KEY: 'k' });
+    await saveEvents(env, structuredClone(EVENTS));
+    enviados = [];
+    resendStatus = 200;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).includes('resend.com')) {
+        enviados.push(JSON.parse(init.body));
+        return new Response('{}', { status: resendStatus });
+      }
+      return new Response(JSON.stringify({ success: false }), { status: 200 }); // Turnstile sempre recusando
+    }));
+  });
+
+  function codeReq(body, { ip = '1.2.3.4' } = {}) {
+    return new Request(`${SITE}/api/drive-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
+      body: JSON.stringify(body),
+    });
+  }
+  async function pedeCodigo(slug = 'casamento-ana', email = 'ana@exemplo.com', opts) {
+    const driveNonce = await mintDriveNonce(env, slug);
+    const res = await handleDriveCode(codeReq({ slug, email, driveNonce }, opts), env, fakeCtx());
+    const data = await res.json();
+    const codigo = enviados.at(-1)?.subject.slice(0, 6);
+    return { res, data, codigo, driveNonce };
+  }
+
+  it('manda o código e o link sai com ele, mesmo com o Turnstile recusando', async () => {
+    const { res, data, codigo, driveNonce } = await pedeCodigo();
+    expect(res.status).toBe(200);
+    expect(codigo).toMatch(/^\d{6}$/);
+    expect(enviados[0].to).toEqual(['ana@exemplo.com']);
+    expect(enviados[0].html).not.toContain('drive.google.com'); // o link só sai pelo portão
+    expect(data.token).not.toContain(codigo); // o token não carrega o código
+
+    const db = fakeD1();
+    const ctx = fakeCtx();
+    const ok = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'email', emailToken: data.token, emailCode: codigo, driveNonce, consent: true }), { ...env, CONSENT_DB: db }, ctx);
+    await ctx.settle();
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).driveUrl).toContain('drive.google.com');
+    expect(db.rows[0].vals).toContain(2); // turnstile_ok = 2: verificado por e-mail
+    expect(db.rows[0].vals).not.toContain('ana@exemplo.com'); // o e-mail não vai para o registro
+  });
+
+  it('código errado, token de outro projeto ou sem aceite: nada de link', async () => {
+    const { data, codigo, driveNonce } = await pedeCodigo();
+    const errado = String((Number(codigo) + 1) % 1_000_000).padStart(6, '0');
+    const base = { slug: 'casamento-ana', turnstileToken: 'email', emailToken: data.token, driveNonce, consent: true };
+    expect((await handleDriveLink(req({ ...base, emailCode: errado }), env, fakeCtx())).status).toBe(403);
+    expect((await handleDriveLink(req({ ...base, emailCode: codigo, consent: false }), env, fakeCtx())).status).toBe(400);
+    const outroNonce = await mintDriveNonce(env, 'familia-silva');
+    const outro = await handleDriveLink(req({ ...base, slug: 'familia-silva', driveNonce: outroNonce, emailCode: codigo, declaration: true }), env, fakeCtx());
+    expect(outro.status, 'o código vale para o projeto em que foi pedido').toBe(403);
+  });
+
+  it('código vencido pede um novo', async () => {
+    const { data, codigo } = await pedeCodigo();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + (EMAIL_CODE_TTL_SECS + 5) * 1000);
+      const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'email', emailToken: data.token, emailCode: codigo, driveNonce: await mintDriveNonce(env, 'casamento-ana'), consent: true }), env, fakeCtx());
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/expirou/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('recusa e-mail inválido, página sem nonce e projeto em breve — sem mandar nada', async () => {
+    expect((await pedeCodigo('casamento-ana', 'nao-e-email')).res.status).toBe(400);
+    expect((await handleDriveCode(codeReq({ slug: 'casamento-ana', email: 'a@b.com', driveNonce: 'x.y' }), env, fakeCtx())).status).toBe(403);
+    expect((await pedeCodigo('em-breve')).res.status).toBe(403);
+    expect(enviados).toHaveLength(0);
+  });
+
+  it('sem SIGNING_SECRET ou sem Resend, o caminho fica indisponível (503), não aberto', async () => {
+    const semSegredo = withDurableObjects({ ...env, SIGNING_SECRET: '' });
+    expect((await handleDriveCode(codeReq({ slug: 'casamento-ana', email: 'a@b.com' }), semSegredo, fakeCtx())).status).toBe(503);
+    const semResend = withDurableObjects({ ...env, RESEND_API_KEY: '' });
+    expect((await handleDriveCode(codeReq({ slug: 'casamento-ana', email: 'a@b.com' }), semResend, fakeCtx())).status).toBe(503);
+    const link = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'email', emailToken: 'x.y', emailCode: '123456', consent: true }), semSegredo, fakeCtx());
+    expect(link.status).toBe(503);
+  });
+
+  it('o mesmo endereço não vira alvo de enxurrada', async () => {
+    const codes = [];
+    for (let i = 0; i < EMAIL_CODE_PER_ADDRESS_PER_HOUR + 1; i++) {
+      codes.push((await pedeCodigo('casamento-ana', 'alvo@exemplo.com', { ip: `10.0.0.${i}` })).res.status);
+    }
+    expect(codes.at(-1)).toBe(429);
+    expect(enviados).toHaveLength(EMAIL_CODE_PER_ADDRESS_PER_HOUR);
+  });
+
+  it('o teto do dia protege a franquia de e-mail dividida com suporte e remoção', async () => {
+    for (let i = 0; i < EMAIL_CODE_DAILY_CAP; i++) {
+      expect((await pedeCodigo('casamento-ana', `p${i}@exemplo.com`, { ip: `10.1.${i >> 8}.${i & 255}` })).res.status).toBe(200);
+    }
+    const depois = await pedeCodigo('casamento-ana', 'mais-um@exemplo.com', { ip: '10.9.9.9' });
+    expect(depois.res.status).toBe(503);
+    expect(depois.data.error).toMatch(/WhatsApp/);
+    expect(enviados).toHaveLength(EMAIL_CODE_DAILY_CAP);
+  });
+
+  it('Resend recusando vira 502 com mensagem para a pessoa, não 500', async () => {
+    resendStatus = 500;
+    const { res, data } = await pedeCodigo();
+    expect(res.status).toBe(502);
+    expect(data.token).toBeUndefined();
   });
 });

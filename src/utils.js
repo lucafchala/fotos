@@ -850,6 +850,27 @@ export async function checkRateLimit(env, ip, key, limit, windowSecs) {
   }
 }
 
+// O mesmo, em balde de fichas (RateLimiter.take): absorve a rajada e devolve
+// fichas continuamente, e a recusa diz em quantos segundos tentar de novo.
+// Usado onde o público chega junto pelo mesmo IP (o portão do Drive). Mesma
+// política de falha: ABERTO, com registro no healthz.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} key
+ * @param {{ capacity: number, perHour: number }} bucket
+ * @returns {Promise<{ ok: boolean, retryAfter: number }>}
+ */
+export async function takeToken(env, ip, key, bucket) {
+  try {
+    const id = env.RATELIMIT.idFromName(`${key}:${ipParaLimite(ip)}`);
+    return await env.RATELIMIT.get(id).take(bucket.capacity, bucket.perHour);
+  } catch (e) {
+    noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return { ok: true, retryAfter: 0 };
+  }
+}
+
 /**
  * A chave de limite por IP. Um cliente IPv6 recebe um /64 inteiro do
  * provedor, então contar por endereço completo dava a qualquer um 2^64
@@ -2295,6 +2316,46 @@ export async function sendConfirmationEmail(env, req) {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação recebida — ${req.eventTitle}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+// Código do último recurso do portão do Drive (ver EMAIL_CODE_* em
+// config.js). Só o código e o título do projeto — nada de link do Drive no
+// e-mail: o link continua saindo só pelo portão, depois do aceite dos Termos.
+// Devolve true ou LANÇA, como sendConfirmationEmail: quem chama precisa
+// distinguir "Resend recusou" para avisar a pessoa na hora.
+/**
+ * @param {Env} env
+ * @param {{ to: string, code: string, eventTitle: string, ttlMin: number }} m
+ */
+export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY ausente');
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">Seu código de acesso</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — ${esc(eventTitle)}</p>
+  <p style="font-size:32px;letter-spacing:6px;font-weight:700;margin:16px 0">${esc(code)}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444">Digite este código na página do projeto para liberar as fotos. Ele vale por ${esc(ttlMin)} minutos.</p>
+  <p style="font-size:13px;line-height:1.6;color:#666">Não pediu este código? Pode ignorar este e-mail — sem o código, nada acontece. Seu e-mail não é guardado pelo site.</p>
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [to],
+      subject: `${code} é o seu código — ${eventTitle}`,
       html,
     }),
   });

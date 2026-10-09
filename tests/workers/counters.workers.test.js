@@ -265,3 +265,75 @@ describe('RateLimiter — limpeza automática', () => {
     expect(await stub.check(1, 3600), 'e o limite volta a valer').toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Balde de fichas (take) — o limite do portão do Drive
+// ---------------------------------------------------------------------------
+// Mesmas exigências do `check()`, no runtime de verdade: atômico sob rajada,
+// e o objeto some quando não guarda mais nada — mas o balde só pode sumir
+// CHEIO, senão apagar devolveria fichas a quem acabou de esvaziá-lo.
+describe('RateLimiter.take — balde de fichas no runtime de verdade', () => {
+  it('deixa passar a capacidade e barra depois, dizendo em quantos segundos', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde')));
+    const out = [];
+    for (let i = 0; i < 4; i++) out.push(await stub.take(3, 3600));
+    expect(out.map(r => r.ok)).toEqual([true, true, true, false]);
+    // 3600/h = 1 ficha por segundo: a espera é de ~1 s, não de uma hora.
+    expect(out[3].retryAfter).toBeGreaterThanOrEqual(1);
+    expect(out[3].retryAfter).toBeLessThanOrEqual(2);
+  });
+
+  it('atômico sob concorrência — nunca passa mais que a capacidade', async () => {
+    // Cem objetos novos, como no check(): um `await` entre a leitura e a
+    // gravação deixaria passar a mais em uma fração deles.
+    const passaram = [];
+    for (let i = 0; i < 100; i++) {
+      const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-rajada')));
+      const out = await Promise.all(Array.from({ length: 50 }, () => stub.take(10, 1)));
+      passaram.push(out.filter(r => r.ok).length);
+    }
+    expect(passaram.filter(n => n !== 10)).toEqual([]);
+  }, 60000);
+
+  it('devolve fichas com o tempo', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-volta')));
+    // 36000/h = 10 fichas/s: em ~250 ms volta pelo menos uma.
+    expect((await stub.take(1, 36000)).ok).toBe(true);
+    expect((await stub.take(1, 36000)).ok).toBe(false);
+    await new Promise(r => setTimeout(r, 250));
+    expect((await stub.take(1, 36000)).ok, 'ficha devolvida').toBe(true);
+  });
+
+  it('recusa não grava nada — não gasta linha escrita do Durable Object', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-recusa')));
+    await stub.take(1, 1);
+    let antes;
+    await runInDurableObject(stub, async (_inst, state) => { antes = await state.storage.get('b'); });
+    expect((await stub.take(1, 1)).ok).toBe(false);
+    await runInDurableObject(stub, async (_inst, state) => {
+      expect(await state.storage.get('b')).toEqual(antes);
+    });
+  });
+
+  it('o alarme NÃO apaga balde que ainda não encheu — reagenda para quando encher', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-alarme')));
+    await stub.take(5, 1); // 1 ficha/hora: leva horas para encher de novo
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_inst, state) => {
+      expect(await state.storage.get('b'), 'apagar agora devolveria a ficha gasta').toBeTruthy();
+      expect(await state.storage.getAlarm()).toBeGreaterThan(Date.now() + 30 * 60 * 1000);
+    });
+  });
+
+  it('balde cheio: o alarme esvazia o objeto e ele pode ser recolhido', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-cheio')));
+    await stub.take(1, 36000); // enche de novo em ~100 ms
+    await new Promise(r => setTimeout(r, 200));
+    await runDurableObjectAlarm(stub);
+    await runInDurableObject(stub, async (_inst, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+    });
+    expect((await stub.take(1, 36000)).ok, 'depois da limpeza o controle continua').toBe(true);
+    expect((await stub.take(1, 36000)).ok).toBe(false);
+  });
+});
