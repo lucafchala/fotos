@@ -40,7 +40,7 @@ do portão:
 | Pergunta | Resposta |
 | --- | --- |
 | A finalidade é legítima, específica e explícita? | Sim — entrega do trabalho contratado, divulgação do portfólio e publicação editorial. Declaradas em `/termos` e `/privacidade`. |
-| Os dados são os mínimos necessários? | Sim, com uma ressalva examinada no risco **R3**. A fotografia é o produto — não há como minimizá-la sem destruir a finalidade. Os demais dados são justificados: e-mail/telefone para confirmar identidade em pedido de remoção; IP/UA para provar o consentimento. Suporte não é armazenado. Foto de remoção tem EXIF removido. |
+| Os dados são os mínimos necessários? | Sim, com uma ressalva examinada no risco **R3**. A fotografia é o produto — não há como minimizá-la sem destruir a finalidade. Os demais dados são justificados: e-mail/telefone para confirmar identidade em pedido de remoção; IP/UA para provar o consentimento. Suporte não é armazenado. Foto de remoção tem EXIF removido. O e-mail do código de acesso (último recurso do portão) não é armazenado — só o hash, por até 2 h, para limitar envios. |
 | Há forma menos invasiva de atingir o mesmo fim? | Não para a entrega (a foto é o objeto). Para o portfólio, sim em parte — ver mitigação de **R2**. |
 | Os titulares esperam este tratamento? | Sim para a entrega (contrataram ou participaram de evento fotografado, geralmente com aviso). **Parcialmente** para o portfólio e a publicação editorial — ver **R2** e **R4**. |
 
@@ -61,7 +61,12 @@ a qualquer pessoa, e nada no site alcança isso.
   HTML da página** — só sai numa resposta de API após Turnstile + consentimento.
 - Nonce de página assinado (HMAC), amarrado ao slug e com validade de 2 h:
   impede varrer os projetos do site com um único token válido em mãos.
-- Rate limit por IP, com limite mais apertado no caminho sem JavaScript.
+- Rate limit por IP em balde de fichas, com limite mais apertado no caminho
+  sem JavaScript. Dimensionado para caber o público de um evento atrás de um
+  único IP (o Wi-Fi do local), sem afrouxar o Turnstile.
+- Quem não passa pelo Turnstile pode receber um código por e-mail: o portão
+  continua exigindo o aceite dos Termos, e o código vale só para aquele
+  projeto, por 15 min.
 - Cada liberação vira um registro auditável (quem, quando, de onde).
 
 **Risco residual: MÉDIO.** Inerente ao modelo de entrega por Drive. Reduzi-lo de

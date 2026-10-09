@@ -23,7 +23,7 @@
 Google Drive (hospedagem/entrega das fotos) · Cloudflare (hospedagem, medição anônima, **Turnstile**, a verificação anti-robô: automática na maior parte dos acessos, pode pedir uma confirmação simples — ver [Adendo de Privacidade do Turnstile](https://www.cloudflare.com/turnstile-privacy-policy/)) · Resend (e-mails). As fontes tipográficas saem do próprio site — nenhum terceiro recebe o IP do visitante por causa delas.
 
 ## Segurança (resumo técnico)
-PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameSite=Strict (24 h); CSP/HSTS/COOP/CORP; Turnstile; rate-limit por IP (inclui login); escaping de saída; validação de entrada + sniff de upload por magic bytes; cron de retenção; `security.txt` (RFC 9116) e procedimento de incidente (art. 48 LGPD).
+PBKDF2-SHA256 100k + comparação tempo-constante; sessão HttpOnly/Secure/SameSite=Strict (24 h); CSP/HSTS/COOP/CORP; Turnstile (com código por e-mail como último recurso do gate, sem guardar o e-mail); rate-limit por IP — balde de fichas no gate, janela fixa no login e formulários; escaping de saída; validação de entrada + sniff de upload por magic bytes; cron de retenção; `security.txt` (RFC 9116) e procedimento de incidente (art. 48 LGPD).
 
 ## ⚠️ Pontos que PRECISAM de decisão/parecer jurídico
 1. **Menores de idade (prioridade).** Eventos escolares envolvem crianças/adolescentes (art. 14 LGPD). Hoje o site declara que o aceite, quando se refere a menor, é dado por responsável e que o consentimento também é coletado junto à instituição contratante. **Confirmar:** isso é feito de fato no contrato com a escola/organização? Há **termo de autorização de uso de imagem** assinado pelos responsáveis? O aceite no site é suficiente como apoio ou é preciso coleta formal no evento?

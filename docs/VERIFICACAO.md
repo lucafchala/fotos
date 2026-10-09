@@ -163,6 +163,34 @@ report-only é o sistema funcionando como projetado.
 - **`networkidle` é lento** nestas páginas (~1 min por documento). Para uma
   varredura rápida use `load`.
 
+### Véspera de evento — `npm run verifica:evento`
+
+Roteiro versionado para o que só aparece com público: **não precisa do
+`wrangler dev`** — renderiza a página com o `eventHTML()` de verdade e
+intercepta a rede (Turnstile simulado, `/api/drive-link` e `/api/drive-code`
+respondendo o que cada cenário pede, `lh3` devolvendo um PNG de 1 px e
+registrando a largura/formato pedidos). Cobre:
+
+- **fotos por aparelho** — iPhone 390@3, três Androids (360@2, Pixel 412@2,625,
+  Galaxy 384@3,75) e desktop: a largura é a menor da escada 800/1200/1600 que
+  cobre a tela em pixels físicos, WebP, a 1ª foto baixada uma vez só, ›› troca
+  a foto, zoom pede `w2400`; economia de dados não pré-carrega vizinhas;
+- **429** — mostra a contagem, espera o `retryAfter` e libera sozinho; num 429
+  sem fim, 1 + 5 esperas e para (sem martelar);
+- **erro comum** — uma tentativa automática e para;
+- **VPN/bloqueador** — Turnstile no `error-callback` → o modal já abre com a
+  opção do código por e-mail; código errado mostra a mensagem do servidor,
+  código certo libera.
+
+Prova o comportamento do **script da página**. O do servidor (balde de fichas,
+código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
+atomicidade do balde, `tests/workers/counters.workers.test.js`.
+
+Dois tropeços do roteiro: o PNG de 1 px deixa a `<img>` pequena demais para o
+`click()` do Playwright (use `dispatchEvent`), e `navigator.connection` só
+existe no Chromium — para simular economia de dados, `addInitScript` com
+`Object.defineProperty`.
+
 ### Sem JavaScript
 
 ```js
@@ -243,6 +271,8 @@ Duas coisas que confundem na primeira vez:
       volta, ele não testa o que você acha
 - [ ] Mexeu em UI, CSP ou rota → `npm run verifica:navegador` e a verificação
       específica da mudança num navegador, console limpo
+- [ ] Mexeu no portão do Drive, no carrossel/fotos da página de projeto ou em
+      limite por IP → `npm run verifica:evento`
 - [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local

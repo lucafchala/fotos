@@ -24,7 +24,9 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | **Mensagens de suporte** | **Não armazenadas** | — | Nunca gravadas em KV nem D1 | Minimização (art. 6º, III) |
 | **Hash de deduplicação de suporte** | 1 hora | Envio | TTL do KV | Não é dado pessoal (hash truncado irreversível) |
 | **Sessão administrativa** | **24 h absolutas / 2 h de inatividade** | Login / último uso | TTL do KV + verificação em `verifySession()` | Segurança |
-| **Contadores de rate limit** | Duas janelas: 20 min a 48 h (janelas de 10 min a 24 h) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
+| **Contadores de rate limit** (janela fixa) | Duas janelas: 20 min a 48 h (janelas de 10 min a 24 h) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
+| **Baldes de fichas** (portão do Drive, código por e-mail) | Até o balde encher de novo — minutos a poucas horas | Último uso | Alarme do `RateLimiter`, que se reagenda até o balde encher e então apaga | Segurança |
+| **E-mail do código de acesso** | **Não armazenado** — só o hash SHA-256, até 2 h, como nome do objeto de limite por endereço | Pedido do código | Alarme do `RateLimiter` | Minimização (art. 6º, III) |
 | **Contador de falhas de login** | 30 min (duas janelas de 15 min) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
 | **Contadores de acesso** (`views`, `drive_clicks`) | Indefinido | — | Apagados junto com o projeto | Não é dado pessoal (agregado) |
 | **Cookie de contagem de visualização** (`fv_*`) | 1 hora | Visita | `Max-Age` no browser | Não identifica |

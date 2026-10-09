@@ -75,7 +75,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter servi
 | CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
 | Fontes | Inter variável (SIL OFL 1.1), servido pela própria origem em `/fonts/` — nenhuma fonte de terceiro |
-| Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>` (thumbnails da galeria pedem variante `=w600`/`=w1600`) |
+| Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>`. A galeria e a página de projeto pedem a largura da tela (`=w800`/`=w1200`/`=w1600`, srcset + script) e WebP (`-rw`) para quem decodifica; o zoom do lightbox pede `=w2400` |
 | Analytics | Cloudflare Web Analytics beacon (opcional, controlado por `CF_ANALYTICS_TOKEN`) |
 | Anti-bot | Cloudflare Turnstile (modo *managed*) protege os formulários e a liberação do link do Drive |
 | Consentimento | Aceite dos Termos antes do acesso ao Drive, registrado em D1 (`image_use_consent`), retenção ~5 anos |
@@ -568,6 +568,7 @@ fotos/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 │   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
+│   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
 │   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
 │   ├── deploy-duplicado.mjs ← o deploy.yml pula um push repetido do mesmo commit (#186)
@@ -777,8 +778,9 @@ compatibilidade sem comprar segurança.
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | GET | `/api/recentes` | `handleRecentes` | As 5 galerias mais recentes em JSON (`{galerias:[{slug, titulo, data, url, destaque, emBreve}]}`), na ordem da galeria (fixados primeiro) e com o filtro do sitemap (sem ocultos nem `private`/`family`). **Único endpoint com CORS aberto** (`Access-Control-Allow-Origin: *`, CORP `cross-origin`, `max-age=300`): quem lê é o widget "Galerias recentes" da home lucafchala.com, que assim mostra projeto novo sem ninguém editar o HTML de lá. Só leitura, nenhum campo além do que o widget desenha (nada de Drive, capa ou tipo de acesso) — mudar o formato quebra a home, então mude os dois juntos |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`), envia e-mails, persiste |
-| POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (rate-limit: 60/h por IP) |
-| POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), rate-limit 1000/h por IP (100/h no caminho `noscript` p/ ad-blocker) — dimensionado para o público de um evento atrás do mesmo Wi-Fi/NAT, ver `DRIVE_LINK_LIMIT_PER_HOUR` em `src/config.js` — e grava o aceite em D1 (best-effort, no-op sem D1). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147) |
+| POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (balde por IP: 1000 de rajada, 200/h — ver "Rate limiting") |
+| POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), balde de fichas por IP (429 com `Retry-After` em segundos — dimensionado para o público de um evento atrás do mesmo Wi-Fi/NAT, ver "Rate limiting") — e grava o aceite em D1 (best-effort, no-op sem D1), com `turnstile_ok` = 1 (Turnstile), 0 (`noscript`) ou 2 (código por e-mail). Três caminhos: token do Turnstile, `noscript` (Turnstile bloqueado) e `email` (+ `emailToken`/`emailCode` de `/api/drive-code`). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147) |
+| POST | `/api/drive-code` | `handleDriveCode` | **Último recurso do gate:** manda um código de 6 dígitos para o e-mail informado e devolve um token HMAC sobre (slug, código, 15 min) que não contém o código — nada é guardado. Exige o nonce da página. Limites: balde por IP, 3/h por endereço (hash), 40/dia na conta (503 + WhatsApp quando acaba). 503 sem `SIGNING_SECRET` ou `RESEND_API_KEY` |
 | POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
 | POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP estrita (que roda em Report-Only). Serve a dois fins: medir quantos handlers inline faltam para a virada da política, e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`) |
@@ -902,9 +904,10 @@ Todas as páginas públicas respeitam **`prefers-color-scheme`** automaticamente
 Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
+- **Fotos de capa por aparelho**: a 1ª foto vem num `<picture>` com `srcset` 800/1200/1600 (`sizes="100vw"`) em WebP e JPEG; o navegador escolhe a menor largura que cobre a tela em **pixels físicos** antes de qualquer JS rodar. O carrossel usa a mesma escada para as seguintes (`PHOTO_W`), WebP decidido por decodificação de verdade (não por user-agent — Android e iPhone pelo mesmo critério). Duplo toque no lightbox pede `=w2400` para todos. Com economia de dados (`navigator.connection.saveData`) ou 2G, as vizinhas não são pré-carregadas — a foto da vez continua na mesma qualidade. Medido em out/2026: celular baixava 3 × `=w1600` (~756 KiB cada) só para abrir a página. `npm run verifica:evento` confere tudo isso por aparelho.
 - **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/` (carregando o filtro da galeria de onde veio, se aplicável — ver seção da galeria), legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px). Tocar/clicar em qualquer foto de preview abre um **lightbox** em tela cheia (setas/swipe para navegar, double-tap ou duplo clique para zoom 2.2×, Escape/fundo/botão fecha) — é só visualização das fotos de prévia já embutidas na página, não tem download nem substitui o fluxo do Drive.
 - **Conteúdo**: data, título grande, descrição longa opcional (`white-space: pre-wrap`, sem espaço morto quando ausente), botão "Acessar fotos" (pulso sutil de atenção se ficar ~11s sem clique).
-- **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; o ícone vira um spinner assim que os termos/declaração são aceitos — não só durante a requisição, mas também no intervalo em que só falta o Turnstile liberar um token (`maybeFetchDriveLink()` acende o spinner nos dois casos). O botão continua clicável nesse intervalo (não trava por CSS); clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s, e clicar depois de aceitar mas antes do link estar pronto mostra "só um instante, o acesso ainda está carregando" pelo mesmo período (mensagens só aparecem reagindo ao clique, nunca ficam fixas). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, um aviso permanente para **não compartilhar o link do Drive diretamente** (usar o botão Compartilhar do rodapé, que manda a página do projeto com o mesmo controle de acesso), o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
+- **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; o ícone vira um spinner assim que os termos/declaração são aceitos — não só durante a requisição, mas também no intervalo em que só falta o Turnstile liberar um token (`maybeFetchDriveLink()` acende o spinner nos dois casos). O botão continua clicável nesse intervalo (não trava por CSS); clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s, e clicar depois de aceitar mas antes do link estar pronto mostra "só um instante, o acesso ainda está carregando" pelo mesmo período (mensagens só aparecem reagindo ao clique, nunca ficam fixas). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo **ou receber um código por e-mail** (último recurso, `/api/drive-code`) — a página repete sozinha **uma** vez num erro comum e nunca num 429; no 429 (público inteiro no mesmo Wi-Fi), mostra "Muita gente acessando agora — liberando em N s" e tenta de novo no tempo que o servidor mandou (`Retry-After`), no máximo 5 vezes. Se o Turnstile já falhou antes de o modal abrir (VPN), o modal abre com a opção do código à vista — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, um aviso permanente para **não compartilhar o link do Drive diretamente** (usar o botão Compartilhar do rodapé, que manda a página do projeto com o mesmo controle de acesso), o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
 - **Créditos**: link com a logo real do Instagram levando para @lucafchala ("Marque-me"), (opcional) `eventCredits` como "Em colaboração com: <valor>" — cobre instituição, fotógrafo colaborador ou projeto parceiro, não só outro fotógrafo — e link extra do projeto. Nesta seção o Instagram entra como mais uma linha da lista de créditos (mesmo alinhamento/espaçamento, sem o cartão/pill isolado); no modal de acesso ("Antes de acessar") ele continua com o visual de botão de destaque, contexto onde faz sentido chamar mais atenção.
 - **Footer**: duas camadas visuais — ações em destaque (Compartilhar/WhatsApp, Copiar link, "Solicitar remoção de foto", texto/contraste mais fortes, sem aparência de botão pill) e os links legais de baixo contraste (Sobre/Equipamento/Suporte/Legal/Código-fonte, via `footerLegalLinksHTML()`) + copyright, via o bloco de rodapé compartilhado.
 - **Breadcrumbs**: `Início · <ano> · <título>` no topo do `<main>` (fora do hero, tematizado com as vars normais da página — diferente do `.back-pill`, que fica sempre escuro por sobrepor a foto). O link do ano aponta pra `/?year=<ano>`. Acompanhado de um `<script type="application/ld+json">` `BreadcrumbList` (Schema.org) no `<head>` pra rich results de busca. `year` vem de `event.date` (ou `createdAt`/`updatedAt` como fallback) calculado em `handleEventPage()`.
@@ -1092,7 +1095,7 @@ A política de privacidade no modal explicita que e-mail/telefone são usados **
 A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície de **conformidade LGPD**:
 
 - **`/termos`** (`src/ui/terms.js`) traz os Termos de Uso com a **autorização de uso de imagem** (entrega às pessoas do evento + divulgação do trabalho em portfólio/redes, creditando @lucafchala; sem venda a terceiros), fundamentada no art. 20 do Código Civil e no consentimento da LGPD. O responsável é identificado por nome + e-mail (sem CPF/RG públicos); foro de São Paulo/SP.
-- **Gate antes do Drive, verificado no servidor**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem. O link real do Drive só é liberado depois que `POST /api/drive-link` valida o token do Turnstile **no servidor** (fail-closed — token inválido/ausente = 403, sem link) + o aceite — não é mais um gate cosmético: os links não existem em lugar nenhum do HTML/JS público antes disso. Opcionalmente informa o nome. Se um bloqueador de anúncios impede o Turnstile (ou o JS está desativado), um aviso pede para desativá-lo; o acesso ainda é possível por um caminho intencionalmente mais fraco (sem captcha, rate-limit próprio mais restritivo, aceite gravado com `turnstile_ok=0`) — decisão consciente para não travar a entrega a esse público, documentada em `SECURITY.md`. Uma vez que um visitante legítimo recebe o link, ele continua compartilhável (isso é inerente ao compartilhamento do Drive, não uma falha).
+- **Gate antes do Drive, verificado no servidor**: ao clicar em "Acessar fotos", o visitante passa por uma verificação Turnstile (managed, sem atrito) e marca **uma caixa** aceitando os Termos / autorizando o uso da imagem. O link real do Drive só é liberado depois que `POST /api/drive-link` valida o token do Turnstile **no servidor** (fail-closed — token inválido/ausente = 403, sem link) + o aceite — não é mais um gate cosmético: os links não existem em lugar nenhum do HTML/JS público antes disso. Opcionalmente informa o nome. Se um bloqueador de anúncios impede o Turnstile (ou o JS está desativado), um aviso pede para desativá-lo; o acesso ainda é possível por um caminho intencionalmente mais fraco (sem captcha, rate-limit próprio mais restritivo, aceite gravado com `turnstile_ok=0`) — decisão consciente para não travar a entrega a esse público, documentada em `SECURITY.md`. Quem tem o Turnstile **carregado mas falhando** (VPN, bloqueador que quebra o desafio) ou esgotou as tentativas num pico vê a opção de **receber um código por e-mail** (`/api/drive-code`): mesmo aceite, código de 6 dígitos válido por 15 min só para aquele projeto, e-mail não guardado, aceite gravado com `turnstile_ok=2`. Uma vez que um visitante legítimo recebe o link, ele continua compartilhável (isso é inerente ao compartilhamento do Drive, não uma falha).
 - **Registro do aceite** (`POST /api/drive-link` → D1, no mesmo request que libera o link): o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. Non-blocking (`ctx.waitUntil`); sem D1 provisionado, é no-op (o gate continua funcionando normalmente).
 - **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
@@ -1386,6 +1389,7 @@ Quatro templates inline em `utils.js`, todos com `<div style="...">` (CSS inline
 | `sendConfirmationEmail` | Mesma solicitação, confirmação automática | `req.email` (do requerente) | `Solicitação recebida — <título>` |
 | `sendResolvedEmail` | Admin marca como resolvido | `req.email` (do requerente) | `Solicitação atendida — <título>` |
 | `sendSupportEmail` | Formulário de `/suporte` enviado | `env.ADMIN_EMAIL` (com `reply_to` do remetente) | `📬 Suporte[ — <nome>]` |
+| `sendDriveCodeEmail` | Visitante pede o código de acesso (`/api/drive-code`) | o e-mail digitado | `<código> é o seu código — <título>` (sem link do Drive: ele só sai pelo gate) |
 
 Todos enviam via `POST https://api.resend.com/emails` com `Authorization: Bearer <RESEND_API_KEY>`. Erros são re-lançados como `throw new Error('Resend <status>: <body>')` para o handler capturar e registrar em `emailStatus`. Sem API key, retornam `false` silenciosamente.
 
@@ -1398,7 +1402,7 @@ Todos enviam via `POST https://api.resend.com/emails` com `Authorization: Bearer
 Dois contadores por evento, num **Durable Object** (`Counter`, `src/counters.js`) — não no KV:
 
 - `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. HEAD, prefetch do navegador (`Sec-Purpose: prefetch`) e quem já tem o cookie `fv_<slug>` da última hora não contam.
-- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive". Rate-limit: 60/h por IP.
+- `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive". Rate-limit: balde por IP, 1000 de rajada e 200/h (um evento inteiro no mesmo Wi-Fi cabe na rajada).
 
 Os dois passam por `bumpCounter()` (`src/utils.js`), que chama `increment()` no objeto. O runtime serializa as chamadas de um mesmo objeto, então a contagem é **exata** em qualquer formato de tráfego — espalhado ou em rajada — sem nada acumulado em memória. Todos os contadores moram no MESMO objeto: chamada de Durable Object é subrequisição (50 por invocação no plano gratuito), e o painel lê tudo de uma vez. O porquê completo, e as três armadilhas que a migração ensinou, estão em `src/counters.js` e no RETOMADA §5.3.
 
@@ -1539,21 +1543,43 @@ O orçamento de CPU do hashing é vigiado pelo sinal real, não por um número: 
 
 ## Rate limiting
 
-`checkRateLimit(env, ip, key, limit, windowSecs)`:
+Dois formatos, os dois no Durable Object `RateLimiter` (`src/counters.js`), um
+objeto por (chave, IP — IPv4 inteiro ou IPv6 por /64, `ipParaLimite()`). Os
+dois falham **aberto** (contabilidade não derruba a entrega de fotos) e
+registram no `/api/healthz`.
 
-- Calcula `window = floor(Date.now() / (windowSecs * 1000))` — bucket de tempo fixo.
-- Chave KV: `ratelimit:<key>:<ip>:<window>`.
-- Lê contador. Se `>= limit`, retorna `false`. Senão, incrementa com `expirationTtl = windowSecs`.
+**Balde de fichas** — `takeToken(env, ip, key, { capacity, perHour })` →
+`RateLimiter.take()`. Para os endpoints que o **público** usa, e onde o público
+de um evento chega junto pelo MESMO IP (o Wi-Fi do local é um IPv4 só). O balde
+aguenta a rajada até `capacity` e devolve fichas continuamente; esvaziou, a
+resposta é **429 com `Retry-After` em segundos** (e `retryAfter` no corpo), e a
+página espera esse tempo com contagem na tela e tenta de novo sozinha — no
+máximo 5 vezes. Recusa não grava; o alarme do objeto só o apaga **cheio** (balde
+cheio = balde novo, apagar não devolve ficha a ninguém).
 
-| Endpoint | key | limit | janela |
+| Endpoint | key | rajada (`capacity`) | ritmo (`perHour`) | espera quando vazio |
+| --- | --- | --- | --- | --- |
+| `/api/drive-link` (Turnstile) | `drive-gate` | 1500 | 1500/h | ~2,4 s |
+| `/api/drive-link` (`noscript`, ad-blocker) | `drive-gate-noscript` | 300 | 300/h | ~12 s |
+| `/api/drive-link` (código por e-mail) | `drive-gate-email` | 120 | 120/h | ~30 s |
+| `/api/drive-code` (envio do código) | `drive-code` | 60 | 60/h | ~60 s |
+| `/api/track-drive` (métrica) | `drive-click` | 1000 | 200/h | ~18 s |
+
+**Janela fixa** — `checkRateLimit(env, ip, key, limit, windowSecs)` →
+`RateLimiter.check()`. Para o que é corte seco de propósito: login, formulários
+e os tetos do código por e-mail.
+
+| Endpoint | key | limite | janela |
 | --- | --- | --- | --- |
-| `/api/removal-request` | `removal` | 5 | 1 h |
-| `/api/track-drive` | `drive` | 60 | 1 h |
-| `/api/suporte` | `support` | 5 | 1 h |
-| `/api/drive-link` (caminho verificado, com Turnstile) | `drive-link` | 60 | 1 h |
-| `/api/drive-link` (caminho `noscript`, sem Turnstile — ad-blocker) | `drive-link-noscript` | 10 | 1 h |
+| `/api/removal-request` | `removal` | 20 | 1 h |
+| `/api/suporte` | `support` | 20 | 1 h |
+| `/api/drive-code` (por endereço — hash SHA-256 do e-mail, nunca o e-mail) | `drive-code-to` | 3 | 1 h |
+| `/api/drive-code` (teto da conta, protege a franquia do Resend) | `drive-code-dia` | 40 | 24 h (virada UTC) |
 | `/dashboard/login` (rajada) | `login` | 10 | 10 min |
 | `/dashboard/login` (sustentado) | `login-day` | 60 | 24 h |
+
+Todos os números moram em `src/config.js` (exceto os do login, em
+`handleLogin()`), com o porquê de cada um.
 
 O login tem **dois** limites porque um só não fechava a conta: 10 por 10 min
 segura a rajada, mas deixa passar ~1400 tentativas por dia do mesmo IP — folgado

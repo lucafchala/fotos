@@ -72,7 +72,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 29 de setembro de 2026</p>
+    <p class="updated">Atualizada em 9 de outubro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -85,6 +85,7 @@ export function privacyHTML() {
     <ul>
       <li><strong>Solicitação de remoção de foto:</strong> e-mail, telefone, mensagem (opcional) e, se você escolher enviar, a própria foto identificada.</li>
       <li><strong>Formulário de suporte:</strong> nome (opcional), e-mail (opcional) e a mensagem.</li>
+      <li><strong>Código de acesso por e-mail</strong> (só se a verificação anti-robô falhar no seu aparelho e você escolher esse caminho): o e-mail que você digitar, usado <strong>apenas para enviar o código</strong>. O site não guarda o seu e-mail — guarda só, por até 1 hora, um resumo irreversível dele (hash), para impedir que alguém use o site para encher a caixa de entrada de outra pessoa.</li>
       <li><strong>Registro de autorização de uso de imagem:</strong> ao acessar as fotos de um evento, registramos o seu aceite dos <a href="/termos">Termos de Uso</a> com data e hora, o evento, a versão dos Termos aceita, a <strong>categoria de acesso do projeto</strong> (público, privado ou familiar) e a <strong>autodeclaração</strong> eventualmente aceita (de participação ou de vínculo familiar), além de dados técnicos do acesso (endereço IP, localização aproximada, provedor, navegador/dispositivo, idioma e verificação anti-robô) — e o seu nome, caso você opte por informá-lo. Esses dados servem como <strong>comprovação do consentimento</strong> e não são usados para outra finalidade.</li>
     </ul>
     <p>Além disso, são usados cookies e medição estritamente funcionais:</p>
@@ -107,7 +108,7 @@ export function privacyHTML() {
     <p>Para funcionar, o site utiliza serviços de terceiros que podem processar dados:</p>
     <ul>
       <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos dos eventos.</li>
-      <li><strong>Resend</strong> — envio dos e-mails das solicitações e do suporte.</li>
+      <li><strong>Resend</strong> — envio dos e-mails das solicitações, do suporte e dos códigos de acesso.</li>
       <li><strong>YouTube (Google)</strong> — só em projetos que têm um vídeo na página. A imagem de capa do vídeo vem do YouTube junto com a página; o player em si só é carregado quando você clica em reproduzir, no modo de privacidade aprimorada (<code>youtube-nocookie.com</code>). A partir daí vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
       <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
     </ul>
@@ -119,12 +120,13 @@ export function privacyHTML() {
     <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
 
     <h2>4.2. Decisões automatizadas</h2>
-    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você sempre tem o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
+    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você pode receber um código por e-mail e seguir, ou usar o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
 
     <h2>5. Por quanto tempo guardamos</h2>
     <ul>
       <li><strong>Solicitações de remoção:</strong> mantidas enquanto necessárias para atender ao pedido e <strong>apagadas automaticamente em até 6 meses após a resolução</strong>.</li>
       <li><strong>Mensagens de suporte:</strong> não ficam armazenadas no sistema do site — são entregues por e-mail para mim.</li>
+      <li><strong>E-mail do código de acesso:</strong> não fica armazenado no site; o resumo (hash) usado para limitar envios some em até 2 horas.</li>
       <li><strong>Registros de autorização de uso de imagem:</strong> mantidos como comprovação do consentimento durante o prazo em que a autorização pode ser questionada e <strong>apagados automaticamente após 5 anos</strong>.</li>
     </ul>
 
