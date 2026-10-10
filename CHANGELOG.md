@@ -52,6 +52,17 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   de 44 px, e um bloco de Ajustes 25 px largo demais que fazia o celular
   afastar a página inteira.
 - **Avisos do painel** quebram linha em vez de sair pelas bordas da tela.
+- **Pedidos de remoção, um por chave** (#198). Eram um array único, regravado
+  inteiro por cinco caminhos: dois pedidos no mesmo instante, ou um pedido
+  chegando durante um "resolver", e um deles sumia do painel (o e-mail ao dono
+  sempre saiu). Agora cada pedido tem a sua chave e nada regrava o que não é
+  seu. O array antigo é migrado pelo cron diário, sem perda — até lá o painel
+  lê os dois. A lista lê em lotes de 100 (uma operação do KV por lote).
+- **O "e-mail enviado" do pedido de remoção** chega ao registro do painel. O
+  envio grava o pedido e, depois dos e-mails, grava de novo a mesma chave com
+  o resultado — mas o KV recusa a segunda escrita na mesma chave dentro de um
+  segundo, e os e-mails costumam voltar antes disso. O carimbo agora espera a
+  janela (a resposta do formulário demora até ~1 s a mais).
 - **Um defeito que só existia no bundle de produção**: o deploy empacota com
   esbuild + `keepNames`, que embrulha função nomeada em `__name()` — e o card
   do painel, levado ao navegador por `toString()`, quebraria no primeiro

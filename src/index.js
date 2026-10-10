@@ -14,6 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
 import { ehPrevia, fetchDaPrevia } from './previa.js';
+import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda,
@@ -1909,29 +1910,20 @@ export async function handleRemovalRequest(request, env) {
   // direito da LGPD via "algo deu errado" e nada mais. Perder pedido de titular
   // por indisponibilidade de banco é negar o direito por motivo nosso.
   //
-  // `requests === null` daqui para baixo quer dizer "não está gravado": o
+  // `gravado === false` daqui para baixo quer dizer "não está gravado": o
   // e-mail passa a ser o único registro, e a resposta ao titular diz a verdade
   // sobre isso em vez de fingir 500 ou fingir sucesso.
-  /** @type {Record<string, any>[]|null} */
-  let requests = null;
+  //
+  // Uma chave só deste pedido (#198, src/pedidos.js): gravar não lê nem
+  // regrava a lista, então dois pedidos ao mesmo tempo não se apagam. A poda
+  // dos resolvidos antigos fica com o cron — antes ela vinha de carona aqui
+  // porque a lista inteira era regravada de qualquer jeito.
+  let gravado = false;
+  let gravadoEm = 0;
   try {
-    const stored = await getRemovalRequests(env);
-    // Defensive retention: drop resolved requests past the window even if the
-    // daily cron has not run yet.
-    const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-    /** @type {Record<string, any>[]} */
-    const lista = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
-      ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
-      : true);
-    lista.push(newReq);
-
-    const MAX_REQUESTS = 500;
-    trimRequests(lista, MAX_REQUESTS);
-
-    await env.FOTOS.put('removal_requests', JSON.stringify(lista));
-    // Só depois da escrita: `requests` deixar de ser null é exatamente o que
-    // significa "este pedido está gravado", e é o que o resto da função lê.
-    requests = lista;
+    await gravaPedido(env, newReq);
+    gravado = true;
+    gravadoEm = Date.now();
   } catch (err) {
     noteDegraded(
       'pedido de remoção não gravado no painel',
@@ -1961,7 +1953,7 @@ export async function handleRemovalRequest(request, env) {
     if (!sent) {
       noteDegraded(
         'pedido de remoção sem aviso por e-mail',
-        requests
+        gravado
           ? 'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
           : 'RESEND_API_KEY não configurada E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
       );
@@ -1973,7 +1965,7 @@ export async function handleRemovalRequest(request, env) {
     newReq.emailStatus = 'error: ' + errMessage(adminMail.reason).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
-      requests
+      gravado
         ? 'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
         : 'o envio falhou E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
     );
@@ -1987,9 +1979,14 @@ export async function handleRemovalRequest(request, env) {
   // Se ela falhar, o pedido em si continua gravado pela primeira — o que se
   // perde é a explicação de por que um pedido não gerou aviso, e isso não vale
   // um erro na cara de quem pediu a remoção.
-  if (requests) {
+  //
+  // É a MESMA chave da primeira, e o KV recusa (429) a segunda escrita dentro
+  // de um segundo — os e-mails costumam voltar antes disso. `regravaPedido`
+  // espera o resto da janela: a resposta demora até ~1 s a mais, e em troca o
+  // "enviado" que a pessoa vê vale também para o registro do painel.
+  if (gravado) {
     try {
-      await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+      await regravaPedido(env, newReq, gravadoEm);
     } catch (err) {
       noteDegraded(
         'status de e-mail do pedido de remoção não gravado',
@@ -1999,7 +1996,7 @@ export async function handleRemovalRequest(request, env) {
     }
   }
 
-  if (requests) return jsonOk({ ok: true });
+  if (gravado) return jsonOk({ ok: true });
 
   // KV fora: o e-mail é o único registro que existe deste pedido. Se ele saiu,
   // o pedido chegou a quem tem de agir e o titular recebeu confirmação — o
@@ -2047,26 +2044,6 @@ export function trimRequests(requests, max) {
   return requests;
 }
 
-// Mesmo portão de forma que `parseEvents()` (utils.js) faz para a lista de
-// eventos, e pelo mesmo motivo: o valor pode vir de um restore de backup ou de
-// uma escrita truncada, e um `JSON.parse` cru devolvia o que estivesse lá.
-// Um objeto no lugar do array quebrava com `.filter is not a function` DENTRO
-// do POST público /api/removal-request — o canal de direito do titular virando
-// 500 por causa de um valor corrompido em KV.
-/**
- * @param {Env} env
- * @returns {Promise<Pedido[]>}
- */
-async function getRemovalRequests(env) {
-  const data = await env.FOTOS.get('removal_requests');
-  if (!data) return [];
-  try {
-    const parsed = JSON.parse(data);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(r => r && typeof r === 'object' && !Array.isArray(r));
-  } catch { return []; }
-}
-
 // Ordenação por data de criação, mais novo primeiro, à prova de registro sem
 // `createdAt`. `sanitizeRestoredRequest()` só copia o campo quando ele vem como
 // string, então um backup sem ele produz um registro válido e sem data — e o
@@ -2081,22 +2058,29 @@ function porCriacaoDesc(a, b) {
   return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 }
 
-// Drop resolved requests whose resolvedAt is older than the retention window.
-// Unresolved requests are always kept. Returns true if anything was removed.
+// Cron diário: primeiro termina a migração do array antigo para uma chave por
+// pedido (#198 — ver src/pedidos.js), depois apaga os RESOLVIDOS há mais que o
+// prazo de retenção. Pendente nunca sai. Devolve true se algo foi apagado ou
+// migrado. Falha do KV sobe: o cron registra e alerta (scheduled()).
+//
+// A poda roda mesmo que a migração falhe: são chaves diferentes, e um dia de
+// migração recusada (cota de escrita, KV fora) não pode virar um dia sem o
+// prazo de retenção cumprido. O erro da migração sobe depois da poda.
 /**
  * @param {Env} env
  */
-async function pruneResolvedRemovalRequests(env) {
-  const requests = await getRemovalRequests(env);
-  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const kept = requests.filter(/** @param {Record<string, any>} r */ r => {
-    if (!r.resolved) return true;
-    const t = new Date(r.resolvedAt || r.createdAt || 0).getTime();
-    return t >= cutoff;
-  });
-  if (kept.length === requests.length) return false;
-  await env.FOTOS.put('removal_requests', JSON.stringify(kept));
-  return true;
+export async function pruneResolvedRemovalRequests(env) {
+  let migrados = 0;
+  /** @type {unknown} */
+  let erroDaMigracao = null;
+  try {
+    ({ migrados } = await migraLegado(env));
+  } catch (e) {
+    erroDaMigracao = e;
+  }
+  const apagados = await podaResolvidos(env, Date.now() - REMOVAL_RETENTION_DAYS * 86400_000);
+  if (erroDaMigracao) throw erroDaMigracao;
+  return migrados > 0 || apagados > 0;
 }
 
 /**
@@ -2106,8 +2090,8 @@ async function pruneResolvedRemovalRequests(env) {
 async function handleGetRemovalRequests(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  return jsonOk([...requests].sort(porCriacaoDesc));
+  const requests = await listaPedidos(env);
+  return jsonOk(requests.sort(porCriacaoDesc));
 }
 
 /**
@@ -2118,11 +2102,10 @@ async function handleGetRemovalRequests(request, env) {
 async function handleResolveRequest(request, env, id) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  const idx = requests.findIndex(/** @param {Record<string, any>} r */ r => r.id === id);
-  if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
-
-  const req = requests[idx];
+  // Só o registro deste pedido (#198): resolver não regrava a lista e não
+  // apaga um pedido que chegou enquanto o e-mail saía.
+  const req = await lePedido(env, id);
+  if (!req) return jsonErr('Solicitação não encontrada.', 404);
 
   // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
   // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
@@ -2138,7 +2121,7 @@ async function handleResolveRequest(request, env, id) {
     resolvedEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
   }
 
-  requests[idx] = {
+  const resolvido = {
     ...req,
     resolved: true,
     resolvedAt: new Date().toISOString(),
@@ -2148,7 +2131,7 @@ async function handleResolveRequest(request, env, id) {
   // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
   // antes e atualizar depois falharia justamente em produção.
   try {
-    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+    await gravaPedido(env, resolvido);
   } catch (e) {
     // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
     // novo às cegas mandaria um segundo aviso à pessoa.
@@ -2158,7 +2141,7 @@ async function handleResolveRequest(request, env, id) {
       : 'Nenhum e-mail de confirmação foi enviado.';
     return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
   }
-  return jsonOk(requests[idx]);
+  return jsonOk(resolvido);
 }
 
 // ---------------------------------------------------------------------------
@@ -3539,7 +3522,7 @@ async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const [events, categories, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), getRemovalRequests(env),
+    getEvents(env, true), getCategories(env), listaPedidos(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
   return new Response(buildBackup({ events, categories, removalRequests }), {
@@ -3599,19 +3582,26 @@ async function handleRestoreBackup(request, env) {
   if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
     result.removalRequestsSkipped = body.removalRequests.length;
   } else if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await getRemovalRequests(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
-    let rAdded = 0;
+    const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
+    /** @type {Record<string, any>[]} */
+    const novos = [];
     for (const r of body.removalRequests) {
       const clean = sanitizeRestoredRequest(r);
-      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); rAdded++; }
+      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
     }
-    // Teto no total: o corpo vem de um arquivo escolhido à mão e nada impedia
-    // um restore de inflar `removal_requests` além do limite de valor do KV,
-    // que falha a escrita e derruba a lista inteira, não só o excedente.
-    const merged = [...byId.values()];
-    trimRequests(merged, 500);
-    await env.FOTOS.put('removal_requests', JSON.stringify(merged));
-    result.removalRequestsAdded = rAdded;
+    // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
+    // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
+    // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
+    // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
+    // restaurar o mesmo arquivo de novo continua de onde parou (id que já
+    // existe é pulado).
+    trimRequests(novos, 500);
+    let gravados = 0;
+    try {
+      for (const r of novos) { await gravaPedido(env, r); gravados++; }
+    } finally {
+      result.removalRequestsAdded = gravados;
+    }
   }
 
   return jsonOk(result);

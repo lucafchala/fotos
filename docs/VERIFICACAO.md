@@ -220,7 +220,10 @@ No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
 computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 44 px, campo de 16 px (o iPhone não dá zoom), nenhum erro de JS, nenhuma
 violação da CSP aplicada, e que o fluxo só gravou no KV as chaves esperadas
-(`events`, `removal_requests`, `admin_password`, sessão).
+(`events`, `removal_request:<id>` do pedido resolvido, `admin_password`,
+sessão). Os pedidos semeados vêm nos dois formatos que produção tem logo
+depois do deploy da v2.0: um no array antigo `removal_requests`, outro na
+chave própria.
 `VERIFICA_PRINTS=/caminho` salva as capturas de cada seção, do formulário e
 do menu.
 

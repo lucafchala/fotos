@@ -4,6 +4,7 @@ import { ehPrevia, comFaixa, MODOS_TURNSTILE } from '../src/previa.js';
 import { saveEvents, corpoResend } from '../src/utils.js';
 import { TURNSTILE_SITE_KEY } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
+import { pedidosGravados } from './helpers/pedidos.js';
 
 // Prévia de PR (Worker Previews, v2.0). A camada de src/previa.js só existe
 // quando AMBIENTE = "previa" — variável que só o bloco [previews] do
@@ -288,13 +289,13 @@ describe('prévia: restaurar backup sem dados pessoais de terceiros', () => {
     expect(corpo.added).toBe(1);
     expect(corpo.removalRequestsSkipped).toBe(1);
     expect(corpo.removalRequestsAdded).toBeUndefined();
-    expect(env.FOTOS._store.get('removal_requests') || '').not.toContain('real@exemplo.com');
+    expect(pedidosGravados(env.FOTOS._store).some(p => p.email === 'real@exemplo.com')).toBe(false);
   });
 
   it('em produção o restore continua trazendo os pedidos', async () => {
     const env = await montaEnv();
     const corpo = await (await restaura(env, backup)).json();
     expect(corpo.removalRequestsAdded).toBe(1);
-    expect(env.FOTOS._store.get('removal_requests')).toContain('real@exemplo.com');
+    expect(pedidosGravados(env.FOTOS._store).map(p => p.email)).toEqual(['real@exemplo.com']);
   });
 });

@@ -50,8 +50,10 @@ esquema em `migrations/0001_consent.sql` e `0002_access_type.sql`; escrita em
 
 ## 3. Solicitações de remoção de foto
 
-Formulário no rodapé de cada evento. Gravado em KV (`removal_requests`);
-handler `handleRemovalRequest()`.
+Formulário no rodapé de cada evento. Gravado em KV, um registro por pedido
+(`removal_request:<id>`, desde a v2.0; antes, uma lista única
+`removal_requests`, migrada pelo cron diário e então apagada); handler
+`handleRemovalRequest()`, armazenamento em `src/pedidos.js`.
 
 | Campo | Conteúdo |
 | --- | --- |
@@ -60,7 +62,7 @@ handler `handleRemovalRequest()`.
 | **Origem** | Preenchimento direto pelo titular. |
 | **Finalidade** | Localizar a foto, atender ao pedido e comunicar o resultado. E-mail e telefone servem para **confirmar identidade** e responder. |
 | **Base legal** | **Art. 7º, II** (cumprimento de obrigação legal: atender ao direito de eliminação/oposição, art. 18) e **art. 7º, I** (consentimento marcado no formulário). |
-| **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests`) e defensivamente a cada nova solicitação. Pedidos **não resolvidos nunca são apagados** automaticamente. |
+| **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests` → `podaResolvidos`). Desde a v2.0 o cron é o único caminho de poda (a verificação que vinha de carona em cada nova solicitação dependia de regravar a lista inteira, e saiu com ela); se o cron parar, o `/api/healthz` acusa em até 26 h (`cron:last`). Pedidos **não resolvidos nunca são apagados** automaticamente. |
 | **Compartilhamento** | Resend (entrega do e-mail ao controlador e do aviso ao titular). |
 | **Nota de minimização** | A foto enviada **não é gravada** no banco — trafega só no e-mail. E os **metadados EXIF são removidos no servidor antes disso** (`stripImageMetadata()`): quem envia uma foto pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi tirada, e não precisamos delas. Ver `politica-seguranca-informacao.md`. |
 

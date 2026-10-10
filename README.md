@@ -700,7 +700,8 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
 | `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (o valor legado `"valid"` é recusado e apagado desde o #197) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
-| `removal_requests` | JSON: array com até 500 solicitações de remoção (rotação FIFO de resolvidas) | `handleRemovalRequest`, `handleResolveRequest` |
+| `removal_request:<id>` | JSON: **uma** solicitação de remoção por chave (desde a v2.0, #198 — schema abaixo) | `handleRemovalRequest` (o pedido e, depois dos e-mails, o carimbo do status deles), `handleResolveRequest`, `handleRestoreBackup`; a poda e a migração do cron (`src/pedidos.js`) |
+| `removal_requests` | **Legado, some sozinho.** O array único de antes da v2.0. Lido junto com as chaves próprias até o cron diário copiar cada pedido para a sua chave — só então é apagado | ninguém (desde a v2.0); apagado por `migraLegado()` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
 | `agenda` | Texto do selo de agenda (até 80 caracteres, uma linha); ausente = sem selo. Lido com cache de 30 s por isolate, e uma falha de leitura só omite o selo. **Fora do backup** — é uma frase, redigitada em segundos | `handleSaveAgenda` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
@@ -768,7 +769,30 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 }
 ```
 
-Quando `removal_requests` passa de 500 itens, mantém **todos** os não-resolvidos e descarta os resolvidos mais antigos (FIFO).
+**Uma chave por pedido (v2.0, #198).** Até a v2.0 os pedidos moravam num array
+único, regravado inteiro por cinco caminhos (envio, carimbo dos e-mails,
+resolver, poda, restore) — e o KV é *last-write-wins*: dois pedidos no mesmo
+instante, ou um pedido chegando durante um "resolver", e a gravação de depois
+apagava do painel o registro de antes. Hoje criar não lê nada, resolver mexe só
+no próprio registro, e nada regrava o que não é seu. Detalhes que valem saber:
+
+- **A lista** (`listaPedidos()` em `src/pedidos.js`) lista as chaves por prefixo
+  e lê os registros em **lotes de até 100** (`get(chaves[])` — uma operação do
+  KV por lote; o plano gratuito permite 1000 por invocação).
+- **O carimbo dos e-mails** é a segunda escrita na mesma chave, e o KV só aceita
+  **uma escrita por segundo na mesma chave** (a segunda volta 429). O envio
+  espera o resto dessa janela antes de carimbar — a resposta do formulário
+  demora até ~1 s a mais, e o registro do painel diz se o aviso saiu.
+- **Poda**: o cron diário apaga os **resolvidos** há mais de 180 dias. Pendente
+  nunca sai, e registro ilegível também não (não se apaga dado de titular que
+  não se conseguiu ler).
+- **Restore**: até 500 pedidos novos por arquivo (uma escrita cada, contra a
+  cota de 1000/dia da conta), pendentes primeiro; id que já existe é pulado, e
+  restaurar o mesmo arquivo de novo continua de onde parou.
+- **A migração do array antigo** roda no cron diário: copia o que falta (sem
+  sobrescrever registro próprio, que é mais novo), e só apaga o array depois de
+  todo pedido dele ter a sua chave. Até lá o painel lê os dois juntos. Nenhuma
+  rota GET escreve no KV.
 
 ### Tabela D1 `image_use_consent`
 

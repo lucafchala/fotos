@@ -7,7 +7,7 @@
 // de um teste próprio afirmando o comportamento negativo ("isto tem que ser
 // recusado"), não só o positivo.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isCrossSiteRequest, signToken, verifyToken, sanitizeFilename, validatePassword,
   generateNonce, contentSecurityPolicy, htmlSecurityHeaders, adminHtmlSecurityHeaders,
@@ -15,6 +15,7 @@ import {
 } from '../src/security.js';
 import { csvCell, stripImageMetadata, bytesFromBase64, base64FromBytes, sessionCookie, sessionTokenFromCookie, clientFingerprint, TERMS_VERSION, verifySession, readCounter, verifyPassword, hashPassword, escape, toHttps, eventTime, hojeEmSaoPaulo, consoleGreetingScript } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
+import { pedidosGravados, relogioAdiantavel } from './helpers/pedidos.js';
 import worker, { sanitizeRestoredRequest, signingSecretProblem, mintFormToken, trimRequests, handleLogout, handleChangePassword } from '../src/index.js';
 import { FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, SIGNING_SECRET_MIN_LENGTH, EMAIL_RE } from '../src/config.js';
 import { renderMarkdown, resolveDocHref } from '../src/ui/markdown.js';
@@ -1183,6 +1184,9 @@ describe('envio completo dos formulários públicos', () => {
     return { async get(k) { return store.has(k) ? store.get(k) : null; }, async put(k, v) { store.set(k, v); },
       async delete(k) { store.delete(k); }, async list() { return { keys: [], list_complete: true }; }, _store: store };
   }
+  // O carimbo dos e-mails espera a janela de 1 s do KV (tests/helpers/pedidos.js).
+  beforeEach(() => { relogioAdiantavel(); });
+  afterEach(() => { vi.restoreAllMocks(); });
   const ctx = { waitUntil: () => {} };
   const EVENTS = JSON.stringify([{
     id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public',
@@ -1222,7 +1226,7 @@ describe('envio completo dos formulários públicos', () => {
     });
     expect(res.status, await res.text()).toBe(200);   // o titular não é punido pelo nosso problema
     // e o pedido está salvo, que é o que impede a perda
-    expect(JSON.parse(e.FOTOS._store.get('removal_requests') || '[]')).toHaveLength(1);
+    expect(pedidosGravados(e.FOTOS._store)).toHaveLength(1);
     const aviso = degradedHealth().find(d => /pedido de remoção/.test(d.label));
     expect(aviso, 'o dono precisa ser avisado').toBeTruthy();
     // E o aviso NÃO pode carregar o detalhe do erro: ele vem do corpo cru da
@@ -1251,7 +1255,7 @@ describe('envio completo dos formulários públicos', () => {
     expect(res.status, await res.text()).toBe(200);
 
     // E o pedido foi mesmo gravado, não só aceito.
-    const stored = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    const stored = pedidosGravados(e.FOTOS._store);
     expect(stored).toHaveLength(1);
     expect(stored[0].email).toBe('pessoa@example.com');
   });
@@ -1284,7 +1288,7 @@ describe('envio completo dos formulários públicos', () => {
     });
     expect(res.status, await res.text()).toBe(200);
 
-    const [saved] = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    const [saved] = pedidosGravados(e.FOTOS._store);
     expect(saved.emailStatus).toMatch(/^error: /);
     expect(saved.confirmEmailStatus).toMatch(/^error: /);
     resetDegraded();
@@ -1305,7 +1309,7 @@ describe('envio completo dos formulários públicos', () => {
     });
     expect(res.status, await res.text()).toBe(200);
 
-    const [saved] = JSON.parse(e.FOTOS._store.get('removal_requests') || '[]');
+    const [saved] = pedidosGravados(e.FOTOS._store);
     expect(saved.emailStatus).toBe('skipped: RESEND_API_KEY não configurada');
     expect(saved.confirmEmailStatus).toBeNull();
     resetDegraded();
@@ -1716,7 +1720,9 @@ describe('anexo de remoção: o portão é a capacidade de limpar', () => {
   // teste de contador — não aguardar mediria o nada).
   /** @type {Promise<unknown>[]} */
   let pendentes = [];
-  beforeEach(() => { pendentes = []; });
+  // O carimbo dos e-mails espera a janela de 1 s do KV (tests/helpers/pedidos.js).
+  beforeEach(() => { pendentes = []; relogioAdiantavel(); });
+  afterEach(() => { vi.restoreAllMocks(); });
   const post = body => worker.fetch(new Request('https://fotos.lucafchala.com/api/removal-request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'CF-Connecting-IP': '7.7.7.7' },
@@ -2076,7 +2082,7 @@ describe('auditoria: invariantes e entradas não confiáveis', () => {
     }), env, ctx);
     expect(res.status).toBe(400);
     // E nada foi gravado — o ponto do controle é não deixar o valor crescer.
-    expect(env.FOTOS._store.get('removal_requests')).toBeUndefined();
+    expect(pedidosGravados(env.FOTOS._store)).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

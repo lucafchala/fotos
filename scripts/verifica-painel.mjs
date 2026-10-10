@@ -84,11 +84,16 @@ const PEDIDOS = [
   { id: 'a'.repeat(32), eventSlug: 'formatura-medicina-2026', eventTitle: 'Formatura Medicina 2026', method: 'number', value: 'Foto nº 12', email: 'pessoa@example.com', phone: '', message: 'Estou de olhos fechados.', fileName: null, fileBase64: null, resolved: false, createdAt: new Date(agora - 3600e3).toISOString(), emailStatus: 'sent', confirmEmailStatus: 'sent' },
   { id: 'b'.repeat(32), eventSlug: 'piauifut-2026', eventTitle: 'PiauiFut+ 2026', method: 'url', value: 'https://drive.google.com/file/d/XYZ/view', email: 'outra@example.com', phone: '', message: '', fileName: null, fileBase64: null, resolved: false, createdAt: new Date(agora - 86400e3).toISOString(), emailStatus: 'sent', confirmEmailStatus: 'sent' },
 ];
+// Os dois formatos de pedido que produção tem logo depois do deploy da v2.0
+// (#198): um ainda no array antigo `removal_requests` (até o primeiro cron
+// migrar) e um já na chave própria `removal_request:<id>`. O painel lista os
+// dois juntos, e resolver grava só a chave do pedido resolvido.
 const SEMENTE = {
   events: JSON.stringify(EVENTOS),
   categories: JSON.stringify(['Formatura', 'Casamento', 'Esporte', 'Ensaio']),
   agenda: 'Agenda aberta para 2027',
-  removal_requests: JSON.stringify(PEDIDOS),
+  removal_requests: JSON.stringify([PEDIDOS[0]]),
+  [`removal_request:${PEDIDOS[1].id}`]: JSON.stringify(PEDIDOS[1]),
 };
 const SENHA_NOVA = 'Outra-Senha-Forte-2027!';
 
@@ -464,8 +469,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       // ---- 9. Limpeza do console e da cota -----------------------------------
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);
       registra(estado.csp.length === 0, `${rotulo}: nenhuma violação da CSP aplicada`, estado.csp);
-      const chaves = [...new Set(w.escritas.map(k => k.replace(/^admin_session:.*/, 'admin_session:*')))].sort();
-      registra(chaves.every(k => ['admin_password', 'admin_session:*', 'events', 'removal_requests'].includes(k)),
+      const chaves = [...new Set(w.escritas.map(k => k.replace(/^admin_session:.*/, 'admin_session:*').replace(/^removal_request:.*/, 'removal_request:*')))].sort();
+      registra(chaves.every(k => ['admin_password', 'admin_session:*', 'events', 'removal_request:*'].includes(k)),
         `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, chaves);
     } finally {
       await ctx.close();

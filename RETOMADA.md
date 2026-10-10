@@ -460,6 +460,37 @@ Duas do celular, que o `npm run verifica:painel` prende:
 - **Campo com letra menor que 16 px faz o iPhone dar zoom ao tocar.** Por isso
   os campos do painel têm 16 px abaixo de 900 px de largura.
 
+### 5.15. Pedidos de remoção: uma chave por pedido — e o KV aceita UMA escrita por segundo na mesma chave
+
+Até a v2.0 os pedidos de remoção eram UM array no KV (`removal_requests`),
+regravado inteiro por cinco caminhos. O KV é *last-write-wins*: dois pedidos no
+mesmo instante, ou um pedido chegando durante um "resolver", e a gravação de
+depois apagava do painel o registro de antes (#198). Hoje cada pedido mora em
+`removal_request:<id>` e tudo passa por `src/pedidos.js`. Três regras que os
+testes prendem (`tests/pedidos.test.js`, com um KV de teste que cobra os
+limites do de verdade):
+
+- **Nada regrava o que não é seu.** Criar não lê a lista; resolver lê e grava
+  só o próprio registro; restore grava um por um, e id que já existe é pulado.
+- **Uma escrita por segundo NA MESMA CHAVE** — a segunda, dentro da janela,
+  volta `429`. O envio grava o pedido ANTES dos e-mails (se o cliente fechar a
+  aba no meio, o registro existe) e carimba o status deles DEPOIS, na mesma
+  chave; os e-mails costumam voltar em menos de um segundo, então
+  `regravaPedido()` espera o resto da janela. Sem a espera o carimbo falhava
+  justamente no caso normal — e falhava desde antes da v2.0, quando a chave
+  era o array. Nos testes a espera vira relógio adiantado
+  (`relogioAdiantavel()` em `tests/helpers/pedidos.js`).
+- **Leitura em lote.** A lista lê os registros com `get(chaves[])`, até 100 por
+  operação: o plano gratuito permite 1000 operações de KV por invocação, e um
+  `get` por pedido quebraria o painel no milésimo.
+
+A migração do array antigo roda **no cron**, não em rota GET (abrir o painel
+não gasta escrita): copia o que falta, nunca sobrescreve registro próprio (que
+é mais novo), e só apaga o array depois de todo pedido ter a sua chave. Até lá
+a lista lê os dois juntos. A poda dos resolvidos (180 dias) também é só do
+cron — a verificação que vinha de carona em cada envio dependia de regravar a
+lista inteira e saiu com ela.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -519,6 +550,8 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Painel: a lista some ou não redesenha depois de uma ação; console com `__name is not defined` ou `X is not defined` | O card de evento ganhou uma função nomeada ou uma variável de fora (§5.14). `npx vitest run tests/painel.test.js` aponta qual |
 | Painel no celular "afastado" (página pequena, barra de baixo fora do lugar) | Algum bloco mais largo que a tela (§5.14). `npm run verifica:painel` diz em qual seção |
 | Galeria própria: "Falta conectar o site ao Google Drive" | Falta o secret `GOOGLE_DRIVE_API_KEY` — a própria página mostra o passo a passo (§5.13) |
+| `healthz` → "status de e-mail do pedido de remoção não gravado" | O pedido está salvo; o carimbo dos e-mails não. Se for frequente, alguém regravou a mesma chave sem esperar a janela de 1 s do KV (§5.15) |
+| O array `removal_requests` ainda no KV dias depois do deploy da v2.0 (o painel lê os dois juntos, então nada some — mas a migração parou) | O cron não está migrando: `healthz` → `cron:last` (§5.15) |
 | Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
 | Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |

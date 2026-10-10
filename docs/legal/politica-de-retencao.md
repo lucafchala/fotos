@@ -19,7 +19,7 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | Categoria | Prazo | Contado a partir de | Mecanismo | Fundamento |
 | --- | --- | --- | --- | --- |
 | **Log de consentimento** (D1) | **1825 dias (~5 anos)** | `created_at` | `pruneOldConsent()`, cron diário 03:00 UTC | Art. 16, I — exercício regular de direito. Prazo alinhado à prescrição da reparação civil (CC art. 206, §3º, V) |
-| **Pedidos de remoção resolvidos** (KV) | **180 dias** | `resolvedAt` | `pruneResolvedRemovalRequests()`, cron diário + verificação defensiva a cada novo pedido | Art. 16, I — comprovar o atendimento ao direito exercido |
+| **Pedidos de remoção resolvidos** (KV, um registro por pedido) | **180 dias** | `resolvedAt` | `pruneResolvedRemovalRequests()` → `podaResolvidos()` (`src/pedidos.js`), cron diário; parada do cron é acusada pelo `/api/healthz` em até 26 h | Art. 16, I — comprovar o atendimento ao direito exercido |
 | **Pedidos de remoção não resolvidos** | Indefinido | — | Nenhum. **Nunca apagados automaticamente** | A finalidade não terminou: o pedido está pendente |
 | **Mensagens de suporte** | **Não armazenadas** | — | Nunca gravadas em KV nem D1 | Minimização (art. 6º, III) |
 | **Hash de deduplicação de suporte** | 1 hora | Envio | TTL do KV | Não é dado pessoal (hash truncado irreversível) |

@@ -61,10 +61,20 @@ export async function sobeWorker(o = {}) {
   /** @type {string[]} */
   const escritas = [];
   const FOTOS = {
-    /** @param {string} k @param {string} [tipo] */
+    /**
+     * Uma chave, ou um LOTE de até 100 (`get(chaves[])` devolve um `Map`, como
+     * o KV de verdade — a lista de pedidos de remoção lê assim, #198).
+     * @param {string | string[]} k @param {string} [tipo]
+     */
     async get(k, tipo) {
-      const v = kv.has(k) ? /** @type {string} */ (kv.get(k)) : null;
-      return v !== null && tipo === 'json' ? JSON.parse(v) : v;
+      /** @param {string} n */
+      const um = n => {
+        const v = kv.has(n) ? /** @type {string} */ (kv.get(n)) : null;
+        return v !== null && tipo === 'json' ? JSON.parse(v) : v;
+      };
+      if (!Array.isArray(k)) return um(k);
+      if (k.length > 100) throw new Error('KV GET_BULK failed: more than 100 keys');
+      return new Map(k.map(n => [n, um(n)]));
     },
     /** @param {string} k @param {string} v */
     async put(k, v) { escritas.push(k); kv.set(k, String(v)); },

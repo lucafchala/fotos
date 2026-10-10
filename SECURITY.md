@@ -383,7 +383,8 @@ notified, and the person was told nothing more than "something went wrong".
 The request is now recorded by **two independent channels**, and only the first
 depends on KV:
 
-1. **KV** (`removal_requests`) — what the dashboard lists.
+1. **KV** (`removal_request:<id>`, one key per request since v2.0 — #198) —
+   what the dashboard lists.
 2. **Email** — the admin notification and the requester's confirmation, which is
    what actually makes someone act inside the deadline.
 
