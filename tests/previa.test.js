@@ -36,6 +36,11 @@ const EVENTOS = [{
 
 /** @type {{ url: string, body: string }[]} */
 let saidas;
+// Para onde uma saída foi: o host exato, não um prefixo da URL — o CodeQL
+// aponta (com razão, em código de produção) `startsWith('https://host')`,
+// que também aceitaria `https://host.outro-dominio`.
+/** @param {{ url: string }} s */
+const hostDe = s => new URL(s.url).hostname;
 /** @param {Record<string, unknown>} extra */
 async function montaEnv(extra = {}) {
   const env = withDurableObjects({
@@ -190,14 +195,14 @@ describe('prévia: o controle do Turnstile', () => {
     });
 
     const ok = await entra('previa_ts=passa');
-    const segredos = saidas.filter(s => s.url.startsWith('https://challenges')).map(s => new URLSearchParams(s.body).get('secret'));
+    const segredos = saidas.filter(s => hostDe(s) === 'challenges.cloudflare.com').map(s => new URLSearchParams(s.body).get('secret'));
     expect(segredos).toEqual([MODOS_TURNSTILE.passa.segredo]);
     expect(ok.status).toBe(302);
     expect(ok.headers.getSetCookie().some(c => c.startsWith('__Host-session='))).toBe(true);
 
     saidas.length = 0;
     const recusado = await entra('previa_ts=recusa');
-    expect(saidas.filter(s => s.url.startsWith('https://challenges')).map(s => new URLSearchParams(s.body).get('secret')))
+    expect(saidas.filter(s => hostDe(s) === 'challenges.cloudflare.com').map(s => new URLSearchParams(s.body).get('secret')))
       .toEqual([MODOS_TURNSTILE.recusa.segredo]);
     expect(recusado.headers.get('Location')).toBe('/dashboard?error=ts');
   });
@@ -209,7 +214,7 @@ describe('prévia: o controle do Turnstile', () => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: SITE },
       body: new URLSearchParams({ password: SENHA, 'cf-turnstile-response': 't' }).toString(),
     });
-    const segredos = saidas.filter(s => s.url.startsWith('https://challenges')).map(s => new URLSearchParams(s.body).get('secret'));
+    const segredos = saidas.filter(s => hostDe(s) === 'challenges.cloudflare.com').map(s => new URLSearchParams(s.body).get('secret'));
     expect(segredos).toEqual(['segredo-de-producao']);
   });
 });
@@ -231,14 +236,14 @@ describe('prévia: e-mail e telemetria', () => {
       body: JSON.stringify({ slug: 'formatura', email: 'pessoa@exemplo.com', driveNonce }),
     });
     expect(res.status).toBe(200);
-    const email = saidas.find(s => s.url.startsWith('https://api.resend.com/'));
+    const email = saidas.find(s => hostDe(s) === 'api.resend.com');
     expect(email && JSON.parse(email.body).subject).toMatch(/^\[PRÉVIA\] /);
   });
 
   it('heartbeat do Kuma desligado na prévia, mesmo com o segredo copiado', async () => {
     const env = await montaEnv({ AMBIENTE: 'previa', KUMA_PUSH_URL: 'https://kuma.exemplo/api/push/TOKEN' });
     await pede(env, '/');
-    expect(saidas.some(s => s.url.startsWith('https://kuma.exemplo'))).toBe(false);
+    expect(saidas.some(s => hostDe(s) === 'kuma.exemplo')).toBe(false);
   });
 });
 
