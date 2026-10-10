@@ -392,6 +392,29 @@ describe('galeriaHTML — nomes vindos do Drive são dado, não marcação', () 
   });
 });
 
+describe('galeriaHTML — sem contagem de fotos', () => {
+  // TODO.md, "Decidido não fazer": a contagem de fotos (inclusive a automática
+  // pela Drive API) foi removida do site por completo, a pedido do dono — as
+  // fotos já vêm numeradas. A galeria lê a pasta inteira e teria o número à
+  // mão; não o mostra.
+  it('o cabeçalho diz de quando é a lista, não quantas fotos há', () => {
+    const fotos = Array.from({ length: 37 }, (_, i) => [`FOTO_${String(i).padStart(10, '0')}`, 6000, 4000, `${i + 1}.jpg`, 1]);
+    const html = galeriaHTML({
+      event: { ...EVENTOS[0] },
+      listagem: {
+        v: 1, pasta: RAIZ, em: '2026-10-10T12:00:00.000Z', truncada: true, total: 37, videos: 0, outros: 0, rk: {},
+        secoes: [{ nome: '', caminho: '', fotos }, { nome: 'Festa', caminho: 'Festa', fotos: [] }],
+      },
+      erro: null,
+      nonce: 'N',
+    });
+    const semScripts = html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+    expect(semScripts).toMatch(/Lista do Drive de 10\/10, 09:00/);
+    expect(semScripts).not.toMatch(/\b37\b/);
+    expect(semScripts).not.toMatch(/\d+\s+fotos\b/);
+  });
+});
+
 describe('nomes e tamanhos do download', () => {
   it('larguraRedes: lado maior no teto, nunca acima do original', () => {
     expect(larguraRedes(6000, 4000)).toBe(GALERIA_LADO_REDES);

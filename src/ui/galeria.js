@@ -98,7 +98,6 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
   const total = listagem ? listagem.total : 0;
-  const nSecoes = listagem ? listagem.secoes.length : 0;
   const quando = listagem
     ? new Date(listagem.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     : '';
@@ -106,7 +105,7 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
-    avisos.push(`Lista parcial: mostrando ${total.toLocaleString('pt-BR')} fotos. Pastas muito grandes ou subpastas além de dois níveis ficam de fora — o Drive continua com tudo.`);
+    avisos.push('Lista parcial: pastas muito grandes ou subpastas além de dois níveis ficam de fora — o Drive continua com tudo.');
   }
   if (listagem && (listagem.videos || listagem.outros)) {
     const partes = [];
@@ -183,7 +182,6 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
     main{padding:1.25rem 0 6rem}
     .g-sec{margin-bottom:2rem;content-visibility:auto;contain-intrinsic-size:auto 900px}
     .g-sec h2{padding:0 var(--pad);margin-bottom:.7rem;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
-    .g-sec h2 span{color:var(--text-dim);font-weight:500;letter-spacing:.04em;margin-left:.4rem}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--bg-card);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent}
@@ -231,7 +229,7 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
     <nav class="g-nav" aria-label="Voltar"><a href="/dashboard">← Painel</a><span aria-hidden="true">·</span><a href="/${escape(slug)}">Página do projeto</a></nav>
     <div class="g-tit">
       <h1>${escape(titulo)}</h1>
-      <p class="g-meta">${listagem ? `${total.toLocaleString('pt-BR')} foto${total === 1 ? '' : 's'}${nSecoes > 1 ? ` · ${nSecoes} seções` : ''} · lista de ${escape(quando)}` : 'Galeria'}</p>
+      <p class="g-meta">${listagem ? `Lista do Drive de ${escape(quando)}` : 'Galeria'}</p>
     </div>
     <div class="g-acoes">
       ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
@@ -322,10 +320,10 @@ const SCRIPT = `
       secEl.className = 'g-sec';
       if (varias) {
         const h2 = document.createElement('h2');
+        // Sem número de fotos, de propósito: a contagem foi removida do site a
+        // pedido do dono (TODO.md, Decidido não fazer) — as fotos já vêm
+        // numeradas. O "N de M" do visualizador é posição, não contagem.
         h2.textContent = sec.nome || 'Fotos';
-        const n = document.createElement('span');
-        n.textContent = String(sec.fotos.length);
-        h2.appendChild(n);
         secEl.appendChild(h2);
       }
       const grade = document.createElement('div');

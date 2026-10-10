@@ -288,6 +288,9 @@ await cenario('Tema escuro', async () => {
     return { fundo: lum(fundo), titulo: lum(titulo) };
   });
   registra(cores.fundo < 0.2 && cores.titulo > 0.7, 'Tema escuro: fundo escuro, texto claro', cores);
+  // TODO.md, "Decidido não fazer": nada de contagem de fotos na página.
+  const titulos = await page.locator('.g-sec h2').allTextContents();
+  registra(titulos.join('|') === 'Fotos|Festa', 'Seções sem contagem de fotos (decisão do dono)', titulos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Tema escuro: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'grade-escuro-iphone.png') });
   await ctx.close();
