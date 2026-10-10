@@ -13,6 +13,7 @@ import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
+import { ehPrevia, fetchDaPrevia } from './previa.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda,
@@ -391,7 +392,29 @@ const worker = {
   },
 };
 
-export default worker;
+// O que a Cloudflare chama. Em produção é `worker.fetch` direto; numa Prévia de
+// PR (Worker Previews, `AMBIENTE = "previa"` — só no bloco [previews] do
+// wrangler.toml) a camada de src/previa.js vem por fora: faixa, noindex,
+// Turnstile de teste. Ver o comentário no topo de lá.
+export default {
+  /**
+   * @param {Request} request
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  fetch(request, env, ctx) {
+    if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
+    return fetchDaPrevia(request, env, ctx, (r, e, c) => worker.fetch(r, e, c));
+  },
+  /**
+   * @param {ScheduledController} event
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  scheduled(event, env, ctx) {
+    return worker.scheduled(event, env, ctx);
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Gallery
@@ -3569,7 +3592,13 @@ async function handleRestoreBackup(request, env) {
     if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
-  if (Array.isArray(body.removalRequests)) {
+  // Na PRÉVIA de PR, os pedidos de remoção do backup ficam de fora: são dados
+  // pessoais de terceiros (e-mail, telefone), e a prévia manda e-mail de
+  // verdade — "resolver" um pedido lá escreveria para uma pessoa real sobre
+  // um teste. Para testar o fluxo, faça um pedido novo pela própria prévia.
+  if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
+    result.removalRequestsSkipped = body.removalRequests.length;
+  } else if (Array.isArray(body.removalRequests)) {
     const byId = new Map((await getRemovalRequests(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
     let rAdded = 0;
     for (const r of body.removalRequests) {

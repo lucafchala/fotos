@@ -1,6 +1,7 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
 import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS } from './config.js';
 import { FONTS } from './content/fonts.js';
+import { ehPrevia } from './previa.js';
 
 /**
  * Um projeto como ele vive no KV. Índice aberto de propósito: a forma real é
@@ -29,6 +30,7 @@ import { FONTS } from './content/fonts.js';
  *   KUMA_PUSH_URL?: string,
  *   GOOGLE_DRIVE_API_KEY?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
+ *   AMBIENTE?: string,
  * }} Env
  */
 
@@ -1996,7 +1998,21 @@ export function csvResponse(filename, cols, rows) {
   });
 }
 
-
+// Corpo de toda chamada ao Resend. Numa PRÉVIA de PR (`AMBIENTE = "previa"`,
+// só no bloco [previews] do wrangler.toml — ver src/previa.js) o assunto ganha
+// "[PRÉVIA] " na frente: o e-mail sai de verdade, para dar para testar o
+// fluxo inteiro, mas ninguém o confunde com um do site real. Em produção a
+// variável não existe e o corpo sai idêntico ao JSON.stringify de antes.
+/**
+ * @param {{ AMBIENTE?: string } | null | undefined} env
+ * @param {Record<string, unknown>} dados
+ */
+export function corpoResend(env, dados) {
+  if (ehPrevia(env) && typeof dados.subject === 'string' && !dados.subject.startsWith('[PRÉVIA]')) {
+    return JSON.stringify({ ...dados, subject: `[PRÉVIA] ${dados.subject}` });
+  }
+  return JSON.stringify(dados);
+}
 /**
  * @param {Env} env
  * @param {Pedido} req
@@ -2044,7 +2060,7 @@ export async function sendRemovalEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: corpoResend(env, body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.status);
@@ -2078,7 +2094,7 @@ export async function sendResolvedEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação atendida — ${req.eventTitle}`,
@@ -2118,7 +2134,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [env.ADMIN_EMAIL],
       reply_to: email || undefined,
@@ -2188,7 +2204,7 @@ export async function sendErrorAlert(env, err, context = {}) {
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: `🔴 Erro no site${context.path ? ` — ${context.path}` : ''}`,
@@ -2243,7 +2259,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔐 Tentativas de login no painel — fotos.lucafchala.com',
@@ -2307,7 +2323,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔎 Possível varredura de projetos — fotos.lucafchala.com',
@@ -2351,7 +2367,7 @@ export async function sendConfirmationEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação recebida — ${req.eventTitle}`,
@@ -2418,7 +2434,7 @@ export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) 
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [to],
       subject: `${code} é o seu código — ${eventTitle}`,

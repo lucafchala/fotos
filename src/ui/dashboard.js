@@ -575,7 +575,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .btn-danger{background:none;border:1px solid var(--red);color:var(--red);padding:.75rem 1.25rem;border-radius:8px;font-size:.8rem;font-weight:500;transition:background .2s}
     .btn-danger:hover{background:rgba(192,57,43,.1)}
     /* toast */
-    .toast{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(20px);background:#1e1e1e;border:1px solid #2e2e2e;color:var(--text);padding:.7rem 1.25rem;border-radius:8px;font-size:.82rem;opacity:0;transition:opacity .25s,transform .25s;z-index:200;pointer-events:none;white-space:nowrap}
+    .toast{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(20px);background:#1e1e1e;border:1px solid #2e2e2e;color:var(--text);padding:.7rem 1.25rem;border-radius:8px;font-size:.82rem;opacity:0;transition:opacity .25s,transform .25s;z-index:200;pointer-events:none;width:max-content;max-width:calc(100vw - 2rem);text-align:center;line-height:1.45}
     .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
     @media(min-width:900px){.toast{bottom:1.5rem}}
     /* a tabela de métricas rola de lado dentro do bloco, em vez de vazar */
@@ -2799,7 +2799,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         // Ignorados = sem id ou sem URL válida no backup. Dizer quantos é o que
         // separa "restaurei tudo" de "restaurei tudo o que dava".
         const ignorados = res.skipped ? ', ' + res.skipped + ' ignorado' + (res.skipped !== 1 ? 's' : '') + ' (sem id ou URL válida)' : '';
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.', 'ok');
+        // Na prévia de PR os pedidos de remoção do backup ficam de fora (dados
+        // pessoais de terceiros) — e o aviso diz isso, em vez de sumirem calados.
+        const semPedidos = res.removalRequestsSkipped ? ' Pedidos de remoção não entram na prévia (dados pessoais).' : '';
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos, 'ok');
         setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
         toast(err.message || 'Erro ao restaurar.', 'err');

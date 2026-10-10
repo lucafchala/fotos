@@ -24,6 +24,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Configuração (KV, secrets, env vars)](#configuração-kv-secrets-env-vars)
 - [Deploy](#deploy)
   - [Migrações do D1](#migrações-do-d1)
+- [Prévia de PR (testar antes do merge)](#prévia-de-pr-testar-antes-do-merge)
 - [Estrutura de arquivos](#estrutura-de-arquivos)
 - [Modelo de dados (KV)](#modelo-de-dados-kv)
 - [Rotas HTTP](#rotas-http)
@@ -171,7 +172,9 @@ migrations_dir = "migrations"
 crons = ["0 3 * * *"]
 ```
 
-Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). Preview de verdade é a versão que o deploy sobe sem tráfego, no próprio Worker `fotos` (seção de deploy abaixo).
+Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). A versão que o deploy sobe sem tráfego é o portão do deploy (seção abaixo) — e roda com os dados de produção.
+
+Desde a v2.0 há um bloco **`[previews]`**: a configuração das [prévias de PR](#prévia-de-pr-testar-antes-do-merge), com KV e D1 **próprios** (`fotos-previa`, `fotos-consent-previa`) e a variável `AMBIENTE = "previa"`. `tests/wrangler-ambientes.test.js` recusa qualquer `[env.*]` ou `[previews]` que aponte para o KV ou o D1 de produção, e recusa `AMBIENTE` fora do bloco de prévias.
 
 O binding `FOTOS` é referenciado em todo o código como `env.FOTOS`. Para fork pessoal: crie um KV namespace novo (`npx wrangler kv namespace create FOTOS`) e troque o `id`.
 
@@ -543,12 +546,55 @@ Duas coisas que o revert de código **não** desfaz:
 
 ---
 
+## Prévia de PR (testar antes do merge)
+
+Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma configuração e o mesmo runtime de produção (Cloudflare **Worker Previews**), com **dados próprios**. É ali que se testa uma mudança como o público vai vê-la — antes do merge, que é o deploy. O endereço sai num comentário do Workers Builds no próprio PR e é fixo por branch (cada push atualiza a mesma URL).
+
+**O que muda na prévia** (só nela — tudo ligado por `AMBIENTE = "previa"`, que existe apenas no bloco `[previews]` do `wrangler.toml`; o código está em `src/previa.js`):
+
+- **Dados próprios:** KV `fotos-previa`, D1 `fotos-consent-previa` (mesmo esquema de produção) e Durable Objects que a Cloudflare cria **por prévia** (contadores e rate limit começam do zero). Nada do que se faz na prévia toca o site real.
+- **Faixa amarela "PRÉVIA"** no topo de toda página e `X-Robots-Tag: noindex` em toda resposta (e um `robots.txt` que fecha tudo). A prévia é **pública para quem tiver o link** — não compartilhe o endereço com participantes: quem passasse pelo portão do Drive ali teria o aceite registrado só no D1 da prévia.
+- **Turnstile de teste, com controle na faixa:** "Turnstile: passa ▾" abre a lista — *passa*, *pede a caixa de seleção*, *bloqueia no navegador*, *passa no navegador e o servidor recusa*, *script bloqueado (bloqueador de anúncio)*. São as chaves de teste da Cloudflare, e o servidor verifica com o segredo de teste correspondente — dá para ver cada salvaguarda funcionando: o código por e-mail, o caminho sem JavaScript, as mensagens de recusa, o login recusado. A escolha fica num cookie por 30 dias.
+- **E-mail sai de verdade, com "[PRÉVIA]" no assunto** — dá para testar os fluxos inteiros. Heartbeat do Kuma e Web Analytics ficam **desligados** na prévia mesmo que esses segredos sejam copiados (uma prévia batendo o monitor manteria verde um site de produção caído).
+- **Restaurar backup na prévia não traz os pedidos de remoção** (dados pessoais de terceiros — e resolver um ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
+- **Cron não roda** em prévia (é regra da plataforma).
+
+### Ligar (uma vez, no painel da Cloudflare)
+
+O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 já está aplicado). Faltam três passos que só o dono faz:
+
+1. **Trocar o Workers Builds para Worker Previews.** *Workers & Pages → fotos → Settings → Builds*: no aviso **"Set up Worker Previews"**, *Set up*. O comando de prévia passa a ser `npx wrangler preview`. A troca é de mão única e vale só para os builds de PR — produção continua saindo pelo `deploy.yml`, sem mudança nenhuma.
+2. **Segredos das prévias** — na mesma tela, ou por `npx wrangler preview base-config secret put <NOME>` (vale para toda prévia NOVA; uma que já exista recebe com `npx wrangler preview secret put <NOME> --name <prévia>`):
+
+   | Segredo | Na prévia? | Por quê |
+   | --- | --- | --- |
+   | `ADMIN_PASSWORD` | **sim** — pode ser uma senha só da prévia | o KV da prévia começa vazio; é com ela que se entra no painel da prévia pela primeira vez |
+   | `SIGNING_SECRET` | **sim — um valor NOVO**, nunca o de produção | nonce de página e token de formulário da prévia não podem valer em produção. Gere com `openssl rand -base64 48` |
+   | `RESEND_API_KEY` | sim, a mesma | para testar os e-mails (saem com "[PRÉVIA]") |
+   | `ADMIN_EMAIL` | sim, o mesmo | alertas da prévia chegam a você, marcados |
+   | `GOOGLE_DRIVE_API_KEY` | sim, a mesma | para testar a galeria própria |
+   | `TURNSTILE_SECRET_KEY` | **não** | a prévia usa as chaves de teste (ver acima) |
+   | `KUMA_PUSH_URL`, `CF_ANALYTICS_TOKEN` | **não** | a prévia os ignora de qualquer jeito |
+
+3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
+
+### No dia a dia
+
+- Abra a URL do comentário do Workers Builds no PR. Cada push atualiza a mesma prévia.
+- Migração nova de D1 num PR: aplique também no banco da prévia antes de testar — `node scripts/d1-migrate.mjs fotos-consent-previa migrations` (com `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` no ambiente).
+- **Cota:** a escrita no KV da prévia conta nas **mesmas 1000 escritas/dia da conta** que produção usa. Testar à vontade num dia de evento não é boa ideia.
+- Prévias antigas: `npx wrangler preview delete --name <prévia>` (ou pelo painel). O plano gratuito permite 100 prévias por Worker.
+- A versão sem tráfego que o `deploy.yml` sobe no merge (o portão do deploy) continua existindo e continua com os dados de produção — ela não é a prévia de PR.
+
+---
+
 ## Estrutura de arquivos
 
 ```
 fotos/
 ├── README.md               ← este arquivo
 ├── TODO.md                 ← pendências em aberto (entregue sai de lá; histórico no git)
+├── CHANGELOG.md            ← o que mudou em cada versão (a v2.0.0 é a primeira com número)
 ├── SECURITY.md             ← política de segurança, escopo, invariantes p/ contribuir
 ├── LEGAL.md                ← termos, licença de uso das fotos
 ├── package.json            ← scripts dev/deploy/lint/test; engines.node >= 22
@@ -558,6 +604,7 @@ fotos/
 │   ├── 0001_consent.sql    ← tabela D1 image_use_consent (log de consentimento)
 │   └── 0002_access_type.sql← coluna access_type + declaração por tipo de acesso
 ├── docs/
+│   ├── PAINEL.md           ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, o card de evento, o formulário, como verificar
 │   └── legal/              ← pacote de conformidade LGPD (fonte da verdade dos textos)
 │       ├── README.md       ← índice + aviso "não é parecer jurídico" + porte do agente
 │       ├── ROPA.md         ← registro das operações (art. 37)
@@ -577,6 +624,9 @@ fotos/
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
 │   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
+│   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, trocar a senha, excluir, layout e escritas no KV (npm run verifica:painel)
+│   ├── worker-local.mjs     ← o `src/index.js` de verdade num servidor HTTP local: KV e Durable Objects em memória, Turnstile e Resend interceptados, outros hosts recebem 599 (o harness de docs/VERIFICACAO.md §2)
+│   ├── node-com-workers.mjs ← gancho do Node (`--import`) que troca `cloudflare:workers` pelo dublê de tests/stubs/, para rodar o `src/index.js` fora do workerd
 │   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
 │   ├── deploy-duplicado.mjs ← o deploy.yml pula um push repetido do mesmo commit (#186)
@@ -603,6 +653,10 @@ fotos/
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
 │   ├── galeria.test.js     ← galeria própria: portão só do dono, Drive API, cache, proxy de download que não é aberto
+│   ├── painel.test.js      ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle do deploy), a estrutura do painel, os selos e o formulário em blocos
+│   ├── metricas.test.js    ← série por dia no Counter (balde, poda, remove), GET /api/metrics/diario e a contagem do modo de entrada no portão
+│   ├── metricas-painel.test.js ← as contas dos gráficos de Métricas, tiradas do script da página e executadas no node
+│   ├── previa.test.js      ← a camada da prévia: produção intocada, faixa, noindex, Turnstile de teste até o siteverify, [PRÉVIA] no e-mail
 │   ├── vendor.test.js      ← módulo vendorizado gerado × arquivos em vendor/, hash no nome, licença
 │   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)
 │   ├── deploy-duplicado.test.js ← a regra do push repetido, o script contra uma API falsa e o deploy.yml
@@ -612,6 +666,8 @@ fotos/
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── drive.js            ← cliente da Drive API da galeria própria: lista a pasta, mapeia erros, URLs do lh3 e do original
+    ├── counters.js         ← Durable Objects: Counter (totais + série por dia, poda) e RateLimiter (janela fixa e balde de fichas)
+    ├── previa.js           ← a camada da prévia de PR (faixa, noindex, Turnstile de teste) — só com AMBIENTE = "previa"
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
     │   ├── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
@@ -815,6 +871,7 @@ compatibilidade sem comprar segurança.
 | POST | `/api/events/bulk-category` | Aplica uma categoria a vários eventos de uma vez (`{ids, category}`) — dashboard exige confirmação digitada antes de chamar |
 | POST | `/api/events/bulk-access` | Aplica um `accessType` a vários eventos de uma vez (`{ids, accessType}`) — mesma confirmação digitada |
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
+| GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria-prévia-só-o-dono) do projeto (prévia). **Sem sessão: o mesmo 404 de rota inexistente**, sem ler o KV nem chamar o Google. `?atualizar=1` relê a pasta e redireciona para o endereço limpo |
 | GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Sem sessão: 404 |
@@ -1030,59 +1087,72 @@ ser um link sem cartão, e nada mais no projeto acusaria.
 
 ## Painel administrativo `/dashboard`
 
-Renderizado por `src/ui/dashboard.js`. Mesma página tem login e dashboard:
+Renderizado por `src/ui/dashboard.js` — `loginHTML()` e `dashboardHTML()`; a mesma URL serve uma ou outra conforme a sessão. Desde out/2026 o painel é **em blocos** (#220), pensado para o celular, que é onde o dono mais o usa. Continua template string servida pelo Worker, sem build, sem handler inline (a CSP estrita depende disso: tudo por `data-onclick`/`data-action` delegados) e sem escrita a mais no KV.
 
-### Login / setup
+> **A referência completa é [`docs/PAINEL.md`](./docs/PAINEL.md)**: o mapa de cada seção e bloco, o endpoint de cada ação, como o card de evento é montado (e as duas regras dele), o passo a passo para acrescentar um campo ao formulário, as decisões de acessibilidade e de celular, as armadilhas e como verificar. O que segue é o resumo.
 
-- Se KV não tem `admin_password`: tela de setup com campos "Nova senha" + "Confirmar senha". Mínimo 6 chars. Submete em POST para `/dashboard/login` com `setup=1`.
-- Se já tem: tela com 1 campo de senha. Erro mostra aviso vermelho "Senha incorreta".
-- POST `/dashboard/login` define cookie `session=<64 hex>; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`.
+### Login
 
-### Dashboard
+- Sem credencial no KV (`admin_password`) **e** sem o secret `ADMIN_PASSWORD`, `GET /dashboard` responde 503 "Painel não configurado": **não existe** tela de "criar senha" nem cadastro no primeiro acesso (ver "Configuração").
+- Com credencial, a tela tem um campo de senha e o widget Turnstile; o botão "Entrar" habilita quando o widget devolve o token (se ele não carregar em 5 s — bloqueador de anúncios —, habilita com um aviso). Três avisos possíveis: "Senha incorreta" (`?error=1`; é também o que aparece quando o limite por IP estoura: 10 tentativas a cada 10 min e 60 por dia), verificação anti-robô recusada (`?error=ts`) e banco indisponível (`?error=kv` — a senha pode estar certa).
+- `POST /dashboard/login` grava a sessão em KV e define o cookie `__Host-session` (HttpOnly, Secure, SameSite=Strict, 24 h; 2 h sem uso derrubam). Detalhes em [Autenticação e segurança](#autenticação-e-segurança).
 
-Layout fixo no topo + abas:
+### Estrutura
 
-- **Topbar**: logo + links "Ver site" (abre `/` em nova aba) e "Sair" (POST logout).
-- **Tabs**: `Eventos`, `Métricas`, `Config.`, `Solicitações` (badge vermelho com contador de não-resolvidas).
+Uma `<nav>` só, com quatro seções — **Eventos**, **Pedidos** (com o selo de pendentes), **Métricas** e **Ajustes** —, cada uma numa `<section>`. No computador (≥ 900 px) ela é a barra lateral, com a marca no topo e "Ver site"/"Sair" no pé; no celular a *mesma* nav vira a barra de baixo (ao alcance do polegar) e a marca com "Ver site"/"Sair" ficam numa barra de cima — só o CSS muda de lugar, nada é desenhado duas vezes. A seção aberta é lembrada em `sessionStorage` (`painel:secao`): recarregar a página volta para ela. Dentro de cada seção tudo é **bloco** (`.bloco`): título, uma frase do que faz e os controles.
 
-#### Aba Eventos
+#### Seção Eventos
 
-- Header: contador ("N eventos ativos") + botão "+ Adicionar".
-- **Busca** (título / URL / categoria) + filtro de status `<select>` (`Todos / Ativos (sem arquivados) / Em edição / Em revisão / Entregue / Arquivado`) + **filtro de categoria** `<select>` — os três combinam, tudo client-side sobre os eventos já carregados.
-- No formulário: `Esc` fecha, `Ctrl/⌘+Enter` salva, foco preso (focus trap) no overlay e rodapé de ações fixo (sticky). Fechar com alterações não salvas (Esc, clique fora ou "Cancelar") pede confirmação ("Descartar alterações?"); fechar após salvar com sucesso não pede. Fechar a aba/navegador com o formulário aberto e sujo dispara o aviso nativo do navegador (`beforeunload`).
-- **Colar vários links**: botão ao lado de "Adicionar foto" abre uma caixa de texto — um link do Drive por linha — que popula a lista de fotos de uma vez (respeita o limite de 6).
-- Lista de eventos (cards horizontais) com: thumb, título + badge de status colorida, slug em monospace, botões de ação à direita:
-  - **Pin** (estrela) — toggle. Ao pinar, despina todos os outros (server-side garante max 1).
-  - **Eye** — toggle `visible`.
-  - **Edit** — abre overlay com formulário pré-preenchido.
-  - **Duplicar** — abre o formulário de "novo evento" pré-preenchido com os dados do evento (drive links, categoria, tipo de acesso, créditos, fotos), título com sufixo " (cópia)", `slug` em branco (precisa ser único) e nunca marcado como fixado (evita despinar o original ao salvar).
-  - **Delete** (lixeira vermelha) — pede confirmação **digitando o título exato do evento**, não só um clique em "Confirmar" (ver "Confirmações" abaixo).
-- **Overlay/formulário de evento** com todos os campos: slug, título, descrição longa, fotos (até 6, com colagem em lote — ver acima — e pré-visualização miniatura inline; campo "blur" converte links de Drive para `lh3.googleusercontent.com`), link do Drive, link do Drive para Instagram, data, "Em colaboração com" (institição/fotógrafo colaborador/projeto), link extra, status, tipo de acesso, **categoria** (lista gerenciável — ver aba Config; alimenta os filtros da galeria e do dashboard), notas privadas, toggles "Visível" e "Em breve", e bloco "Aviso de novas fotos" (toggle + select de expiração: nunca / 1h / 6h / 24h / 48h / 168h).
-- **Edição em massa:** botão "Selecionar" mostra checkboxes nos eventos; escolha uma categoria (ou tipo de acesso) e clique "Aplicar" para atribuí-la a todos os selecionados de uma vez (`POST /api/events/bulk-category` ou `/api/events/bulk-access`) — pede confirmação **digitando a quantidade de eventos afetados** antes de aplicar.
-- A lista usa renderização híbrida: a primeira página vem **SSR** (renderizada no Worker) e o JS substitui via `renderEventList()` ao mudar filtro. Os botões funcionam via event delegation (`data-action`/`data-id`), então tanto o SSR quanto o re-render funcionam com o mesmo handler.
+- **Cabeçalho**: título, contagem, "Selecionar vários" e "+ Novo evento".
+- **Filtros** num bloco só: busca (título, URL ou categoria), categoria (`<select>`) e **chips de status** de um toque — Todos, Ativos (sem arquivados), Em edição, Em revisão, Entregues, Arquivados (botões com `aria-pressed`). Os três combinam, tudo no navegador sobre os eventos já carregados.
+- **Card** de cada evento: miniatura, título, uma linha `/slug · dd/mm/aaaa · categoria · prazo dd/mm` (o prazo só enquanto não entregue nem arquivado) e **selos escritos** — status, Atrasado, Destaque, Oculto, Em breve, Privado/Familiar — no lugar da cor de ícones. Dois botões com rótulo, **Editar** e **Galeria** (a [galeria própria](#galeria-própria-prévia-só-o-dono), prévia só do dono), e o menu **"⋯"**: Destacar/Remover destaque, Ocultar/Mostrar na galeria, Abrir a página do projeto, Duplicar e, separado, Excluir… (pede digitar o título). O menu é lista suspensa no computador e folha de baixo, com fundo escuro, no celular; no teclado o foco vai ao primeiro item, as setas andam e Esc fecha devolvendo o foco. *Ocultar* é "não listado": a página segue abrindo por link direto.
+- **Uma função, dois lados**: `cardProjetoPainel()` desenha o card na primeira pintura (SSR) *e* no navegador — o script da página recebe o código dela por `Function.prototype.toString()`. Por isso ela não pode usar nada de fora (tudo vem pelo parâmetro `h`) nem ter função com nome lá dentro: o esbuild do deploy, com `keepNames`, a embrulharia em `__name(...)`, que existe só no topo do bundle e não no navegador. `tests/painel.test.js` roda o texto injetado isolado e depois da mesma transformação do deploy. Os botões funcionam por delegação (`data-action`/`data-id`), então a lista redesenhada pelo JS usa o mesmo tratador da primeira pintura.
+- **Selecionar vários**: caixa de seleção em cada card; escolha uma categoria ou um tipo de acesso e aplique (`POST /api/events/bulk-category` ou `/api/events/bulk-access`) — pede **digitar a quantidade** de eventos afetados.
 
-#### Aba Métricas
+#### Formulário de evento (criar e editar)
 
-Tabela com colunas: projeto, views, cliques no Drive. **Colunas ordenáveis** (clique no cabeçalho), com uma barra proporcional atrás do número de views e botão **Exportar CSV**. Dados carregados sob demanda (na primeira vez que o usuário clica na aba).
+Uma folha por cima da página (`#overlay`/`#sheet`) com os campos em **seis blocos recolhíveis** (`<details class="bloco-form">`): **Básico** e **Fotos e Drive** abertos; **Vídeo**, **Acesso e LGPD**, **Prazo e status** e **Página do projeto** recolhidos, cada um mostrando um resumo ao vivo ("Público", "Em edição · prazo 20/11", "2 vídeos"). Atalhos no topo abrem e levam ao bloco; um erro de validação abre o bloco do campo e põe o foco nele. Todo rótulo está ligado ao seu campo (`for=`) e "Salvar" fica fixo no rodapé.
 
-#### Aba Config
+- `Esc` fecha, `Ctrl/⌘+Enter` salva, foco preso na folha. Fechar com alterações não salvas (Esc, clique fora ou "Cancelar") pede confirmação ("Descartar alterações?"); fechar após salvar com sucesso não pede. Fechar a aba/navegador com o formulário aberto e sujo dispara o aviso nativo (`beforeunload`). Se a sessão expirar no meio da edição, o rascunho vai para o `sessionStorage` (`fotos:draft`) e volta depois do login.
+- **Fotos**: até 6 capas, com pré-visualização; "Colar vários links" aceita um link do Drive por linha (respeita o limite de 6); links do Drive viram `lh3.googleusercontent.com` ao sair do campo.
+- **Duplicar** abre o "novo evento" preenchido com os dados do original — título com sufixo " (cópia)", slug em branco (precisa ser único) e sem destaque nem prazo.
+- Acrescentar um campo mexe em quatro funções do script (`openForm`, `snapshotForm`, `submitForm`, `restoreDraft`) **e** no servidor (`DEFAULT_EVENT`, `normalizeEventFields`): o passo a passo está em `docs/PAINEL.md` §6.4.
 
-- **Categorias**: lista gerenciável de categorias (alimenta os filtros da galeria e do dashboard, e o select do formulário). Criar via `POST /api/categories` (`{name}`), excluir via `POST /api/categories/delete` (`{name}`, pede confirmação digitando o nome da categoria) — ao excluir, a categoria é removida de todos os eventos que a usavam. Guardadas na chave KV `categories`; até a primeira alteração valem os padrões (Formatura / Casamento / Ensaio / Evento / Outro).
-- **Backup**: botão "Baixar backup JSON" — GET `/api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações). Não-destrutivo, fica fora da zona de perigo.
-- **Exportar dados** (CSV): consentimentos (do D1, via `/api/consent/export`), solicitações de remoção e métricas.
-- **⚠️ Zona de perigo**: card com borda vermelha, separado visualmente do resto da aba, agrupando as duas ações que mutam dados globais/credenciais e agora exigem confirmação digitada:
-  - **Alterar senha**: campos "Nova senha" + "Confirmar senha", botão "Salvar" → confirma digitando `TROCAR` antes do PUT para `/api/settings/password`.
-  - **Restaurar backup**: input file + botão "Restaurar backup" → confirma digitando `RESTAURAR` antes do POST para `/api/backup/restore`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado.
+#### Seção Pedidos
 
-**Confirmações**: `confirmDialog()` (o diálogo temático do painel, não o `confirm()` nativo) ganhou um modo "digite para confirmar" (`opts.typeToConfirm`) — o botão de confirmar fica desabilitado até o texto digitado bater exatamente (case-insensitive) com o esperado. Para exclusões (evento/categoria), digita-se o nome exato do item; para ações sem um "nome" natural (restaurar backup, trocar senha, aplicar em massa), digita-se uma palavra fixa ou a quantidade de itens afetados.
+Pedidos de remoção (LGPD) **agrupados por evento**: cada grupo é um bloco, com os pendentes em cima e os resolvidos recolhidos ("▶ N resolvidas"). Cada pedido mostra tipo (número, link ou arquivo), identificação, e-mail, telefone, mensagem, data e o estado dos três e-mails (aviso ao dono, confirmação e resolução). **"Marcar como resolvido"** (`PUT /api/removal-requests/<id>/resolve`) envia o e-mail de resolução ao solicitante — depois de a foto ter sido removida do Drive — e o selo da navegação atualiza sozinho (a contagem é carregada na abertura da página).
 
-#### Aba Solicitações
+#### Seção Métricas
 
-Lista de solicitações de remoção agrupadas por evento. Cada grupo mostra título + slug + badge com contador de pendentes. Solicitações pendentes ficam no topo; resolvidas ficam num bloco colapsável "Mostrar resolvidas". Cada item mostra: tipo (número/link/upload), valor identificador, e-mail, telefone, mensagem, data, e botão "Marcar como resolvido" se pendente. Resolver envia e-mail de confirmação ao requerente via Resend.
+Métricas v2 (#215), de cima para baixo: o **filtro** numa linha só (7, 30 ou 90 dias; um projeto ou todos — o período escolhido volta ao recarregar); os **números do período** (Visitas, Abriram o Drive, Taxa de abertura, Hoje), cada um comparado ao período anterior de mesmo tamanho — só quando aquele período inteiro já tinha contagem por dia; o **gráfico de acessos por dia** (Visitas × Abriram o Drive, uma escala só, o pico rotulado, legenda com os totais) com a cruz que mostra o dia no mouse, no toque e no teclado (setas, Home, End, Esc — e cada passo anunciado ao leitor de tela), **"Ver como tabela"** e o CSV da série; a **média por dia da semana**; os **modos do portão** (verificação automática, código por e-mail, sem JavaScript) em barras com %; e a **lista de projetos do período**, com a curva das visitas de cada um, que foca os gráficos no projeto ao toque. No fim, o **Total desde o início** (a tabela de antes, ordenável, com o histórico inteiro e o CSV dos totais). Dia de antes do começo da contagem por dia aparece em branco, não como zero. Tudo vem de duas leituras feitas ao abrir a seção (ou em "Atualizar"): `GET /api/metrics` e `GET /api/metrics/diario?dias=180` — trocar o filtro não pede nada ao servidor. Detalhes e decisões em [`docs/PAINEL.md`](./docs/PAINEL.md) §8.
+
+#### Seção Ajustes
+
+Três grupos de blocos:
+
+| Grupo | Bloco | O que faz |
+| --- | --- | --- |
+| **Site** | Selo de agenda | `PUT /api/settings/agenda` (`{texto}`) — frase curta, até 80 caracteres, no topo da galeria e da /sobre; vazio, o selo some |
+| | Categorias | `POST /api/categories` (`{name}`) e `POST /api/categories/delete` (`{name}`; pede digitar o nome da categoria, que é removida de todos os eventos que a usavam). Alimentam os filtros da galeria e do painel e o select do formulário; guardadas na chave KV `categories` — até a primeira alteração valem Formatura / Casamento / Ensaio / Evento / Outro |
+| **Dados** | Backup dos dados | `GET /api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações). Não-destrutivo |
+| | Exportar planilhas | CSV de consentimentos (do D1, via `/api/consent/export`), de pedidos de remoção e de métricas |
+| | **Restaurar backup** *(sensível)* | `POST /api/backup/restore` — pede digitar `RESTAURAR`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado |
+| **Conta** | **Trocar a senha do painel** *(sensível)* | `PUT /api/settings/password` — campos "Nova senha" + "Confirmar senha"; pede digitar `TROCAR`; as outras sessões são revogadas |
+
+Os blocos que mudam dados globais ou a credencial têm borda vermelha e o selo "Pede confirmação digitada" — o que antes era a "zona de perigo", agora no lugar de cada ação.
+
+### Confirmações digitadas
+
+`confirmDialog()` (o diálogo temático do painel — não existe mais `alert()`/`confirm()` nativo) tem o modo "digite para confirmar" (`opts.typeToConfirm`): o botão de confirmar fica desabilitado até o texto digitado bater com o esperado (sem diferenciar maiúsculas, ignorando espaços nas pontas). Exclusões (evento, categoria) pedem o nome exato do item; ações sem um "nome" natural pedem uma palavra fixa (`RESTAURAR`, `TROCAR`) ou a quantidade de itens afetados (aplicar em massa).
 
 ### Toast
 
-`<div class="toast">` no rodapé. Funções globais `toast(msg, 'ok'|'err')` mostram por ~2s.
+`toast(msg, 'ok'|'err')` mostra uma caixa no rodapé (acima da barra de baixo no celular) por ~3 s. O resto do retorno de ação: spinner e "Salvando…" no botão do formulário, botões desabilitados enquanto a requisição corre e "Carregando…" nas seções que buscam dados.
+
+### Verificar o painel
+
+- **`tests/painel.test.js`** — o card idêntico no servidor e no navegador (inclusive depois da transformação do deploy), a estrutura (uma nav, quatro seções, seis blocos, todo `for=` apontando para um campo que existe), os selos e o dado hostil virando texto. O resto do painel é prendido por `tests/rendered-pages.test.js`, `tests/scripts-embutidos.test.js` (lint e tsc do script emitido) e os pares cliente/servidor de `tests/security.test.js`.
+- **`npm run verifica:painel`** — o `src/index.js` de verdade num servidor local (`scripts/worker-local.mjs`: KV e Durable Objects em memória, Turnstile e Resend interceptados, qualquer outro host recebe 599; `scripts/node-com-workers.mjs` troca `cloudflare:workers` pelo dublê da suíte), dirigido por um Chromium logado no iPhone (390@3), no Android (360@2) e no computador (1440@1): entrar pelo formulário, criar, editar e marcar entregue, ocultar pelo menu, resolver um pedido, trocar a senha e entrar com ela, excluir — mais o layout (nada vaza para o lado em nenhuma seção, alvos de toque, campo de 16 px), nenhum erro de JS nem violação da CSP, e as chaves que o fluxo gravou no KV. `VERIFICA_PRINTS=<pasta>` salva as capturas. Não roda na CI; detalhes em `docs/PAINEL.md` §15 e `docs/VERIFICACAO.md`.
 
 ---
 
@@ -1422,11 +1492,23 @@ Dois contadores por evento, num **Durable Object** (`Counter`, `src/counters.js`
 - `views:<slug>`: incrementado em cada `GET /<slug>` via `ctx.waitUntil`. HEAD, prefetch do navegador (`Sec-Purpose: prefetch`) e quem já tem o cookie `fv_<slug>` da última hora não contam.
 - `drive_clicks:<slug>`: incrementado em `POST /api/track-drive`, chamado pelo botão "Ir para o Drive". Rate-limit: balde por IP, 1000 de rajada e 200/h (um evento inteiro no mesmo Wi-Fi cabe na rajada).
 
-Os dois passam por `bumpCounter()` (`src/utils.js`), que chama `increment()` no objeto. O runtime serializa as chamadas de um mesmo objeto, então a contagem é **exata** em qualquer formato de tráfego — espalhado ou em rajada — sem nada acumulado em memória. Todos os contadores moram no MESMO objeto: chamada de Durable Object é subrequisição (50 por invocação no plano gratuito), e o painel lê tudo de uma vez. O porquê completo, e as três armadilhas que a migração ensinou, estão em `src/counters.js` e no RETOMADA §5.3.
+Desde a v2.0 há um terceiro: `gate:<modo>` — quantos acessos ao Drive o portão liberou por **modo de verificação** (`turnstile`, `email`, `noscript`; só o número, sem projeto nem IP).
+
+Os três passam por `bumpCounter()` (`src/utils.js`), que chama `increment()` no objeto. O runtime serializa as chamadas de um mesmo objeto, então a contagem é **exata** em qualquer formato de tráfego — espalhado ou em rajada — sem nada acumulado em memória. Todos os contadores moram no MESMO objeto: chamada de Durable Object é subrequisição (50 por invocação no plano gratuito), e o painel lê tudo de uma vez. O porquê completo, e as três armadilhas que a migração ensinou, estão em `src/counters.js` e no RETOMADA §5.3.
 
 O rate-limit do `/api/track-drive` roda depois das validações de graça (corpo, formato do slug, evento existir e não estar "em breve"), para que POST de lixo não custe escrita nenhuma; sem ele, um flood sustentado inflaria a métrica e gastaria a franquia de escrita do Durable Object.
 
 Endpoint `/api/metrics` (auth) retorna array `[{slug, title, views, driveClicks}]` ordenado por views desc. Lê todos os contadores numa chamada só (`readCounters` → `snapshot()`), e assenta do KV, uma única vez, as chaves que o objeto ainda não conhecia (valores da era do KV).
+
+### Série por dia (v2.0, #215)
+
+Cada incremento soma também no **balde do dia de São Paulo** — `d:<AAAA-MM-DD>:<chave do total>`, por exemplo `d:2026-10-10:views:formatura` — na **mesma** gravação do total (um `put` com as duas chaves: ou gravam juntas, ou nenhuma). Custo, dito sem rodeio: a mesma chamada ao objeto (nenhuma subrequisição a mais por visita) e uma linha escrita a mais por contagem — no plano gratuito são 100 mil linhas/dia; um evento de 750 pessoas gasta uns 1,5 mil a mais.
+
+- **Leitura:** `GET /api/metrics/diario?dias=N` (auth; N de 1 a 180, padrão 90) faz UMA chamada (`serie()`) e devolve os dias em ordem e, por projeto, vetores densos de visitas e de cliques alinhados a eles; projeto excluído não entra. O painel pede 180 de uma vez: o maior período (90) e os 90 anteriores, para a comparação.
+- **Poda:** no primeiro incremento de cada dia, os baldes com mais de **400 dias** (`METRICAS_RETENCAO_DIAS`) são apagados — um ano inteiro e a comparação com o mesmo mês do ano anterior, sem a série crescer para sempre. Excluir um projeto apaga a série dele junto.
+- **Antes da v2.0 não há série:** o histórico da era do KV existe só no total. O painel diz "a contagem por dia começou em …" e desenha esses dias em branco, não como zero.
+- **Dado pessoal:** nenhum. É contagem por dia — sem IP, sem cookie, sem identificador (ver `docs/legal/ROPA.md`).
+- **Testes:** `tests/metricas.test.js` (balde, poda, remove, rota, modo do portão) e, no workerd de verdade, 100 incrementos simultâneos somando +100 no total **e** no balde do dia (`tests/workers/counters.workers.test.js`).
 
 Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYTICS_TOKEN`). Quando definido, o beacon é injetado nas páginas públicas e o painel da Cloudflare mostra agregados (pageviews, dispositivos, países, referrers) sem cookies e sem tracking individual.
 
@@ -1468,7 +1550,9 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 
 Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?}`. O painel diz quantos foram ignorados na confirmação.
+Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?, removalRequestsSkipped?}`. O painel diz quantos foram ignorados na confirmação.
+
+Numa [prévia de PR](#prévia-de-pr-testar-antes-do-merge), os **pedidos de remoção do backup ficam de fora** (`removalRequestsSkipped`): são dados pessoais de terceiros, e a prévia manda e-mail de verdade — resolver um pedido lá escreveria para uma pessoa real sobre um teste.
 
 ---
 
