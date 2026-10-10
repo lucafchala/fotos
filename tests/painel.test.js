@@ -17,11 +17,17 @@
 // scripts/verifica-painel.mjs, que roda o Worker de verdade num Chromium.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { transformSync } from 'esbuild';
+import { createRequire } from 'node:module';
 import { dashboardHTML, cardProjetoPainel, ICONES } from '../src/ui/dashboard.js';
 import { escape, toHttps } from '../src/utils.js';
 
 afterEach(() => { vi.useRealTimers(); });
+
+// O MESMO esbuild que o wrangler usa no deploy, resolvido a partir do próprio
+// wrangler: se um dia ele trouxer outra versão (aninhada), o teste acompanha
+// em vez de testar a transformação de um esbuild que o deploy não usa.
+const requireDoWrangler = createRequire(createRequire(import.meta.url).resolve('wrangler'));
+const { transformSync } = /** @type {typeof import('esbuild')} */ (requireDoWrangler('esbuild'));
 
 const BASE = {
   id: 'abc123', slug: 'formatura-2026', title: 'Formatura 2026', status: 'entregue',

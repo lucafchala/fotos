@@ -189,7 +189,9 @@ no #178.
    Drive, as fotos da página de projeto ou um limite por IP? Rode
    `npm run verifica:evento` (não precisa do wrangler). Mudou a galeria
    própria (`/galeria/<slug>`)? Rode `npm run verifica:galeria` com
-   `VERIFICA_PRINTS` e olhe as capturas. Mudou login,
+   `VERIFICA_PRINTS` e olhe as capturas. Mudou o painel? Rode
+   `npm run verifica:painel` (o fluxo logado inteiro, no celular e no
+   computador, contra o Worker de verdade). Mudou login,
    healthz ou algo que o smoke do deploy olha? Rode também
    `npm run smoke:local` contra o mesmo `wrangler dev`: é o que vai decidir a
    reversão automática em produção. `npm test` verde já conviveu com a interface inteira quebrada (CSP

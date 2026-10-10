@@ -61,8 +61,14 @@ O harness roda **o `src/index.js` de verdade** com:
 É a montagem que pegou a catástrofe da CSP, o loop de recarregamento do portão
 do Drive e o colapso da galeria sem JavaScript.
 
-Ele **não está versionado** — é um arquivo de ~120 linhas que se reescreve
-rápido. O essencial:
+Desde out/2026 ele **está versionado**: `scripts/worker-local.mjs` exporta
+`sobeWorker()` (sobe o Worker num servidor HTTP local, devolve a URL, o KV e a
+lista de `escritas`) e `entraNoPainel()` (faz o login pelo formulário de
+verdade, com o campo do Turnstile). Ele precisa do gancho que troca
+`cloudflare:workers` pelo dublê da suíte — rode com
+`node --import ./scripts/node-com-workers.mjs seu-roteiro.mjs`. É o que o
+`npm run verifica:painel` usa (§3). O esqueleto abaixo continua valendo para
+entender o que ele faz:
 
 ```js
 // serve.mjs
@@ -192,6 +198,43 @@ Dois tropeços do roteiro: o PNG de 1 px deixa a `<img>` pequena demais para o
 existe no Chromium — para simular economia de dados, `addInitScript` com
 `Object.defineProperty`.
 
+### Painel — `npm run verifica:painel`
+
+Roteiro versionado do painel **logado**, contra o `src/index.js` de verdade
+(o harness do §2, `scripts/worker-local.mjs`), semeado com eventos, categorias
+e pedidos de remoção. Faz o "pronto quando" do #220 em três aparelhos —
+iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
+
+1. entrar pelo formulário de login;
+2. criar um evento (com o atalho que abre o bloco "Prazo e status");
+3. editar e marcar entregue (o bloco recolhido mostra o resumo);
+4. ocultar pelo menu "⋯" (no celular, folha embaixo; no computador, teclado:
+   foco no 1º item, seta, Esc devolve o foco);
+5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1);
+6. ver os blocos de resumo das métricas;
+7. trocar a senha, recarregar (volta para a mesma seção), sair e entrar com a
+   senha nova;
+8. excluir o evento de teste (confirmação digitada).
+
+No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
+computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
+44 px, campo de 16 px (o iPhone não dá zoom), nenhum erro de JS, nenhuma
+violação da CSP aplicada, e que o fluxo só gravou no KV as chaves esperadas
+(`events`, `removal_requests`, `admin_password`, sessão).
+`VERIFICA_PRINTS=/caminho` salva as capturas de cada seção, do formulário e
+do menu.
+
+Dois tropeços que o roteiro ensinou:
+
+- **No celular emulado, `window.innerWidth` cresce junto com o vazamento.** O
+  navegador alarga a janela de layout e afasta a página, e
+  `scrollWidth - innerWidth` dá zero com a página quebrada. O roteiro compara
+  com a largura do APARELHO e olha `visualViewport.scale`. Um bloco de
+  Ajustes 25 px largo demais passou da primeira vez por causa disso.
+- **`waitForSelector('#overlay:not(.open)')` nunca resolve**: espera o
+  elemento ficar VISÍVEL, e o overlay fechado é `display:none`. Use
+  `waitForSelector('#overlay.open', { state: 'hidden' })`.
+
 ### Galeria própria — `npm run verifica:galeria`
 
 Roteiro versionado da galeria própria (`/galeria/<slug>`, prévia só do dono).
@@ -318,6 +361,9 @@ Duas coisas que confundem na primeira vez:
       limite por IP → `npm run verifica:evento`
 - [ ] Mexeu na galeria própria (`src/ui/galeria.js`, `src/drive.js`, `vendor/`)
       → `npm run verifica:galeria`, e olhe as capturas (`VERIFICA_PRINTS`)
+- [ ] Mexeu no painel (`src/ui/dashboard.js`) → `npm run verifica:painel`, e
+      olhe as capturas no celular; mexeu no card de evento → também
+      `tests/painel.test.js` (ele aplica a transformação do deploy)
 - [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local

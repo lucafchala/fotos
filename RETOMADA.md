@@ -56,6 +56,7 @@ npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wra
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
+npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -99,14 +100,19 @@ scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
 scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
+scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
+scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
+scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
   smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
   scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas EMITEM (#127)
   helpers/scripts-embutidos.d.ts ← o que o tsc não sabe desses scripts, em listas fechadas
+  painel.test.js ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle)
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
+docs/PAINEL.md    ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, como verificar
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode
@@ -423,6 +429,37 @@ O que já mordeu, ou morderia:
   navegação vira download antes da rota. O `verifica:galeria` confere a URL do
   download; o nome do arquivo (o `Content-Disposition`) está na suíte.
 
+### 5.14. Painel: o card de evento vai ao navegador por `toString()` — e o bundle mexe nele
+
+Desde out/2026 o painel é em blocos (#220; tudo em `docs/PAINEL.md`). O card
+de cada evento é UMA função, `cardProjetoPainel()` em `src/ui/dashboard.js`:
+o servidor a chama na primeira pintura, e o script da página recebe o código
+dela por `Function.prototype.toString()` para redesenhar depois de cada ação.
+Acabou a duplicação servidor × cliente que fazia o card ser consertado "só no
+CSS". Mas a função tem duas regras, e as duas já foram testadas de verdade:
+
+- **Nada de fora dela.** No navegador não existe o escopo do módulo: tudo o
+  que ela usa chega pelo parâmetro `h` (escape, safeUrl, rótulos, ícones).
+  `tests/painel.test.js` executa o texto injetado isolado.
+- **Nenhuma função NOMEADA dentro dela.** O deploy empacota com esbuild e
+  `keepNames`, que embrulha toda função nomeada num `__name(fn, "nome")` —
+  e `__name` é definido no topo do BUNDLE, não no navegador. Com um
+  `const item = (...) => ...` lá dentro, a suíte inteira passava (ela roda o
+  fonte cru) e o painel em produção quebraria no primeiro redesenho com
+  `__name is not defined`. Foi pego montando o bundle de verdade
+  (`npx wrangler deploy --dry-run --outdir …`) e rodando a função de lá; hoje
+  o teste aplica a mesma transformação (`transformSync` com `keepNames`).
+
+Duas do celular, que o `npm run verifica:painel` prende:
+
+- **Algo 25 px largo demais afasta a página inteira.** No celular, conteúdo
+  mais largo que a tela faz o navegador alargar a "janela de layout" e dar
+  zoom para fora — e a barra de baixo sai do lugar. Grade com coluna `1fr` e
+  campo de texto numa linha flex é a receita (o campo não encolhe abaixo da
+  largura natural); `minmax(0,1fr)` e `min-width:0` desfazem.
+- **Campo com letra menor que 16 px faz o iPhone dar zoom ao tocar.** Por isso
+  os campos do painel têm 16 px abaixo de 900 px de largura.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -479,6 +516,8 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
 | Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
+| Painel: a lista some ou não redesenha depois de uma ação; console com `__name is not defined` ou `X is not defined` | O card de evento ganhou uma função nomeada ou uma variável de fora (§5.14). `npx vitest run tests/painel.test.js` aponta qual |
+| Painel no celular "afastado" (página pequena, barra de baixo fora do lugar) | Algum bloco mais largo que a tela (§5.14). `npm run verifica:painel` diz em qual seção |
 | Galeria própria: "Falta conectar o site ao Google Drive" | Falta o secret `GOOGLE_DRIVE_API_KEY` — a própria página mostra o passo a passo (§5.13) |
 | Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
 | Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
@@ -517,6 +556,9 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
   pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
   (#233).
+- **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
+  inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
+  usar no celular dele e, gostando, fechar o #220.
 - **Galeria própria** (#235): **prévia só do dono**. Falta o dono
   configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
   depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
@@ -535,6 +577,7 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 | [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |
 | [Issues](https://github.com/lucafchala/fotos/issues) | O que falta fazer — cada item de ação vive aqui, não em TODO.md |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
+| [docs/PAINEL.md](./docs/PAINEL.md) | O painel por dentro: seções, blocos, ações, endpoints, como verificar |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |

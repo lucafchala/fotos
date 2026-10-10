@@ -69,6 +69,8 @@ Fixes #
 - [ ] A chave da Drive API não aparece na página nem em mensagem de erro
 
 **Painel administrativo** (`/dashboard`)
+- [ ] Mexeu no painel: `npm run verifica:painel` (entrar, criar, editar e marcar entregue, menu "⋯", pedido de remoção, trocar senha, excluir — no iPhone, no Android e no computador) e as capturas olhadas
+- [ ] Mexeu no card de evento (`cardProjetoPainel`): `tests/painel.test.js` verde — ele roda o card como o navegador recebe, inclusive depois do bundle
 - [ ] Login e logout
 - [ ] CRUD de evento (criar, editar, excluir), reordenar, marcar featured / em breve / oculto
 - [ ] Aba de Métricas abre sem erro, inclusive com projeto que tem `views > 0`

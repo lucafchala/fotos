@@ -431,6 +431,18 @@ suíte inteira já passou verde sobre a CSP matando ~68 handlers inline e sobre 
 galeria ilegível sem JS. Mudança em página pública ou no painel se verifica com
 browser.
 
+### O que roda em produção é o bundle, não o fonte
+
+A suíte roda `src/` cru; o deploy roda o que o esbuild do wrangler fez dele.
+Quase sempre é a mesma coisa — até o código virar TEXTO: o card de evento do
+painel vai ao navegador por `toString()` (`docs/PAINEL.md`), e o esbuild, com
+`keepNames`, embrulha toda função nomeada num `__name(...)` que só existe no
+topo do bundle. A suíte passava inteira; o painel em produção quebraria no
+primeiro redesenho. Código que sai como texto se testa **depois** da mesma
+transformação do deploy (`tests/painel.test.js` faz isso), e quando houver
+dúvida sobre o que o bundle faz, monte-o: `npx wrangler deploy --dry-run
+--outdir <pasta>` não publica nada.
+
 ---
 
 ## Ideias não priorizadas
