@@ -125,7 +125,7 @@ jobs:
   # Roteiros de navegador (#232)
   # -------------------------------------------------------------------------
   # O que só um navegador de verdade mostra: layout por aparelho, CSP aplicada,
-  # erro de JavaScript, toque, teclado, download. Os três roteiros sobem o
+  # erro de JavaScript, toque, teclado, download. Os roteiros sobem o
   # `src/index.js` DE VERDADE num servidor local (scripts/worker-local.mjs —
   # KV e Durable Objects em memória; Turnstile, Resend e Google interceptados:
   # nada sai da máquina) e o dirigem num Chromium, em iPhone, Android e
@@ -163,3 +163,8 @@ jobs:
 
       - name: Véspera de evento (portão do Drive, fotos por aparelho)
         run: npm run verifica:evento
+
+      # A camada da prévia de PR (src/previa.js) com AMBIENTE = "previa": a
+      # faixa, o menu "Testes" e as simulações contra o servidor de verdade.
+      - name: Prévia de PR (faixa e menu "Testes")
+        run: npm run verifica:previa
