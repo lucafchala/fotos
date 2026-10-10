@@ -10,6 +10,9 @@ import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
+import { VENDOR } from './content/vendor.js';
+import { galeriaHTML } from './ui/galeria.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda,
@@ -35,7 +38,7 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -182,6 +185,8 @@ function stripBody(res) {
 const LEGAL_DOC_PATH_RE = /^\/legal\/([a-z0-9-]+)$/;
 const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/;
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -239,6 +244,9 @@ const worker = {
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
       if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
+      // Bibliotecas vendorizadas (PhotoSwipe da galeria, #235). Mesmo
+      // esquema das fontes: busca exata, nome com hash, cache imutável.
+      if (method === 'GET' && VENDOR_BY_PATH.has(path)) return handleVendor(path);
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
@@ -330,6 +338,13 @@ const worker = {
       if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
       if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
+
+      // Galeria própria — PRÉVIA, só para o dono logado (#235). Para qualquer
+      // outra pessoa é o mesmo 404 de uma rota que não existe.
+      const galeriaMatch = path.match(GALERIA_PATH_RE);
+      if (galeriaMatch && method === 'GET') return handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      const baixarMatch = path.match(GALERIA_BAIXAR_RE);
+      if (baixarMatch && method === 'GET') return handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
 
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
@@ -3066,6 +3081,218 @@ function handleFont(path) {
     status: 200,
     headers: { ...dataSecurityHeaders('font/woff2', { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
   });
+}
+
+const VENDOR_BY_PATH = new Map(VENDOR.map(v => [v.path, v]));
+
+/** @param {string} path */
+function handleVendor(path) {
+  const v = /** @type {typeof VENDOR[number]} */ (VENDOR_BY_PATH.get(path));
+  return new Response(v.texto, {
+    status: 200,
+    headers: { ...dataSecurityHeaders(v.contentType, { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Galeria própria — PRÉVIA (#234/#235)
+// ---------------------------------------------------------------------------
+// Fotos da pasta do Drive dentro do site, com visualizador e downloads
+// próprios. Por enquanto SÓ o dono logado no painel vê: para qualquer outra
+// pessoa as duas rotas devolvem o mesmo 404 de uma rota inexistente — nem a
+// existência da página vaza. A liberação gradual (testadores → porcentagem →
+// todos, #235) entra trocando só esta função, depois da aprovação do dono.
+//
+// Sem cookie de sessão, verifySession() responde sem tocar no KV: um robô
+// batendo em /galeria/… não custa leitura nenhuma.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function podeVerGaleria(request, env) {
+  return verifySession(env, request);
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {URL} url
+ * @param {string} nonce
+ */
+export async function handleGaleriaPagina(request, env, slug, url, nonce) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+
+  const pasta = pastaDoDrive(event.driveUrl);
+  /** @type {import('./drive.js').ListagemDrive | null} */
+  let listagem = null;
+  /** @type {{ codigo: string, mensagem: string } | null} */
+  let erro = null;
+  const atualizar = url.searchParams.has('atualizar');
+  if (!pasta) {
+    erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
+  } else {
+    try {
+      listagem = await listaPasta(env, pasta, { atualizar });
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      erro = { codigo: e.codigo, mensagem: e.message };
+    }
+  }
+  // Depois de reler, volta para o endereço limpo: recarregar a página não
+  // pode virar uma nova leitura forçada a cada F5.
+  if (atualizar && listagem) return redirect(`/galeria/${slug}`);
+  return adminHtml(galeriaHTML({ event, listagem, erro, nonce }), 200, nonce);
+}
+
+/**
+ * Download de uma foto da galeria. Proxy de propósito, e não link direto:
+ * (1) o original sai pela Drive API, que leva a chave — ela não pode ir para a
+ * página; (2) o nome do arquivo e o `Content-Disposition` são nossos; (3) sendo
+ * da mesma origem, o celular consegue montar o arquivo e oferecer "Salvar na
+ * galeria" (Web Share). Só entrega arquivo que ESTÁ na pasta do projeto —
+ * sem essa checagem, o Worker viraria um proxy aberto para qualquer arquivo
+ * público do Drive.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {URL} url
+ */
+export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  if (!idDriveValido(fileId)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  const pasta = event ? pastaDoDrive(event.driveUrl) : null;
+  if (!event || !pasta) return notFound();
+
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  try {
+    listagem = await listaPasta(env, pasta);
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return erroDownload(request, e.message, 502);
+  }
+  const foto = achaFoto(listagem, fileId);
+  if (!foto) return notFound();
+
+  const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
+  /** @type {Record<string, string>} */
+  const headers = {};
+  let alvo;
+  if (variante === 'max') {
+    alvo = urlOriginal(fileId, (env.GOOGLE_DRIVE_API_KEY || '').trim());
+    const rk = listagem.rk && listagem.rk[fileId];
+    if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${rk}`;
+  } else {
+    alvo = urlLh3(fileId, larguraRedes(foto[1], foto[2]));
+    // JPEG explícito: é o formato que toda rede aceita sem reconverter.
+    headers.Accept = 'image/jpeg,image/*;q=0.8';
+  }
+
+  // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
+  // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
+  // entregaria arquivo truncado.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let up;
+  try {
+    up = await fetch(alvo, { headers, signal: ctrl.signal });
+  } catch {
+    return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!up.ok) {
+    if (variante === 'max') {
+      const e = await erroDaApi(up);
+      // O caso mais provável num pico: a cota de download do arquivo (#233).
+      const msg = e.codigo === 'limite'
+        ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
+        : e.message;
+      return erroDownload(request, msg, up.status === 404 ? 404 : 502);
+    }
+    return erroDownload(request, `O Google recusou a foto (${up.status}).`, 502);
+  }
+
+  const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
+  const nome = nomeDownload(slug, foto[3], variante, tipo);
+  const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
+  h.set('Cache-Control', 'private, max-age=3600');
+  h.set('Content-Disposition', contentDisposition(nome));
+  // Lido pelo script da página para nomear o arquivo do "Salvar na galeria".
+  h.set('X-Nome-Arquivo', encodeURIComponent(nome));
+  const tamanho = up.headers.get('Content-Length');
+  if (tamanho) h.set('Content-Length', tamanho);
+  return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * Largura a pedir ao lh3 para a versão "para redes": o LADO MAIOR fica em
+ * GALERIA_LADO_REDES (o lh3 só aceita largura; numa foto em pé, a largura sai
+ * proporcional). Nunca acima do original.
+ * @param {number} w
+ * @param {number} h
+ */
+export function larguraRedes(w, h) {
+  if (!(w > 0 && h > 0)) return GALERIA_LADO_REDES;
+  if (w >= h) return Math.min(w, GALERIA_LADO_REDES);
+  return Math.min(w, Math.round(GALERIA_LADO_REDES * w / h));
+}
+
+/**
+ * Nome do arquivo baixado: <slug>-<nome original>[-redes].<ext>. O slug na
+ * frente evita que "001.jpg" de dois projetos se sobrescrevam na pasta de
+ * downloads.
+ * @param {string} slug
+ * @param {string} original
+ * @param {'redes'|'max'} variante
+ * @param {string} tipo
+ */
+export function nomeDownload(slug, original, variante, tipo) {
+  const ponto = original.lastIndexOf('.');
+  const extOriginal = ponto > 0 ? original.slice(ponto + 1).toLowerCase() : '';
+  const base = (ponto > 0 ? original.slice(0, ponto) : original)
+    .normalize('NFC')
+    .replace(/[\p{Cc}"\\/:*?<>|]+/gu, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'foto';
+  /** @type {Record<string, string>} */
+  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif', 'image/tiff': 'tif' };
+  const ext = variante === 'redes'
+    ? (EXT[tipo] || 'jpg')
+    : (/^[a-z0-9]{1,5}$/.test(extOriginal) ? extOriginal : (EXT[tipo] || 'jpg'));
+  const prefixo = base.toLowerCase().startsWith(slug) ? '' : `${slug}-`;
+  return `${prefixo}${base}${variante === 'redes' ? '-redes' : ''}.${ext}`;
+}
+
+/**
+ * `attachment` com o nome em UTF-8 (RFC 6266/5987) e um ASCII de reserva para
+ * quem não lê o `filename*`. O nome já chega sem aspas, barras nem controle.
+ * @param {string} nome
+ */
+export function contentDisposition(nome) {
+  const ascii = nome.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '') || 'foto.jpg';
+  const utf8 = encodeURIComponent(nome).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+}
+
+/**
+ * Erro de download: página para quem abriu o link (navegação), JSON para o
+ * script que montava o "Salvar na galeria".
+ * @param {Request} request
+ * @param {string} mensagem
+ * @param {number} status
+ */
+function erroDownload(request, mensagem, status) {
+  if ((request.headers.get('Accept') || '').includes('text/html')) {
+    return errorPage('Ops', escape(mensagem), status);
+  }
+  return jsonErr(mensagem, status);
 }
 
 // ---------------------------------------------------------------------------

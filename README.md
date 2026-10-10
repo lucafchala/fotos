@@ -43,6 +43,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Rate limiting](#rate-limiting)
 - [Convenções e detalhes do código](#convenções-e-detalhes-do-código)
 - [Como o Drive vira foto na página](#como-o-drive-vira-foto-na-página)
+- [Galeria própria (prévia, só o dono)](#galeria-própria-prévia-só-o-dono)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Pendências e roadmap](#pendências-e-roadmap)
 
@@ -119,6 +120,10 @@ npm run build:legal
 #    A suíte reprova se o módulo divergir dos arquivos.
 npm run build:fonts
 
+#    (Só se você trocou um arquivo em vendor/) Regerar o módulo das
+#    bibliotecas vendorizadas — mesmo contrato das fontes.
+npm run build:vendor
+
 # 4. Subir o dev server
 npm run dev
 ```
@@ -182,6 +187,7 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 | `ADMIN_PASSWORD` | Apenas em deploy novo / KV zerado | Semeia a senha do dashboard quando `admin_password` não existe no KV. **Não há mais setup público de primeira execução** — sem KV e sem este secret, o login fica bloqueado |
 | `TURNSTILE_SECRET_KEY` | Sim (fail-closed) | Verificação Turnstile do formulário de suporte e remoção de fotos. Se ausente, esses formulários são bloqueados |
 | `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link`, o token dos formulários públicos e o token do código por e-mail (HMAC-SHA256, sem estado). Sem ele, o código por e-mail fica indisponível (503) — nunca aberto. Ver o aviso abaixo |
+| `GOOGLE_DRIVE_API_KEY` | Não | Chave de API do Google Cloud, **restrita à Drive API**, para a [galeria própria](#galeria-própria-prévia-só-o-dono) (prévia, só o dono): lista a pasta do projeto e busca o original no download "tamanho máximo". Sem ela, `/galeria/<slug>` mostra o passo a passo para criar, e nada mais muda. Só é usada no servidor — nunca sai na página nem no download |
 | `KUMA_PUSH_URL` | Não | URL de push do Uptime Kuma (`https://<host>/api/push/<token>`), para o heartbeat de disponibilidade. Sem ela o heartbeat não acontece e nada mais muda. **É uma credencial**: o token do monitor está embutido na URL, e quem o tem consegue manter um monitor verde sobre um serviço caído — por isso ela não mora no código, que é público |
 
 > ### ⚠️ `SIGNING_SECRET` falha **aberto**, não fechado
@@ -567,8 +573,10 @@ fotos/
 ├── scripts/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 │   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
+│   ├── build-vendor.mjs     ← empacota vendor/ em src/content/vendor.js, com o hash no nome publicado (npm run build:vendor)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
+│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
 │   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
 │   ├── fonte-do-preload.mjs ← acha no HTML a fonte pré-carregada; o smoke e o tests/smoke.test.js usam o mesmo
 │   ├── deploy-duplicado.mjs ← o deploy.yml pula um push repetido do mesmo commit (#186)
@@ -580,6 +588,8 @@ fotos/
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
 ├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto
+├── vendor/
+│   └── photoswipe/         ← PhotoSwipe 5.4.4 (MIT) byte a byte do npm + LICENSE; versão e integridade no README.md de lá
 ├── tests/                  ← Vitest: suíte `unit` (node) e `workers` (workerd)
 │   ├── index.test.js       ← backup/restore, normalizeEventFields, cronStale, auditSite
 │   ├── drive-gate.test.js  ← handleDriveLink (cada recusa do gate + nonce de página), handlePerfBeacon, toCount
@@ -592,6 +602,8 @@ fotos/
 │   ├── scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas emitem (tipos em helpers/scripts-embutidos.d.ts)
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
+│   ├── galeria.test.js     ← galeria própria: portão só do dono, Drive API, cache, proxy de download que não é aberto
+│   ├── vendor.test.js      ← módulo vendorizado gerado × arquivos em vendor/, hash no nome, licença
 │   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)
 │   ├── deploy-duplicado.test.js ← a regra do push repetido, o script contra uma API falsa e o deploy.yml
 │   └── workers/            ← suíte no workerd de verdade (Durable Objects, KV e D1 reais)
@@ -599,13 +611,16 @@ fotos/
     ├── index.js            ← roteador + todos os handlers HTTP (Worker entry)
     ├── utils.js            ← getEvents/saveEvents, hash, sessão, rate-limit, e-mails, TERMS_VERSION
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
+    ├── drive.js            ← cliente da Drive API da galeria própria: lista a pasta, mapeia erros, URLs do lh3 e do original
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
-    │   └── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
+    │   ├── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
+    │   └── vendor.js       ← GERADO por scripts/build-vendor.mjs — não editar à mão
     └── ui/
         ├── gallery.js      ← HTML da galeria pública /
         ├── event.js        ← HTML da página de projeto /<slug>
         ├── dashboard.js    ← HTML do login e do painel admin /dashboard
+        ├── galeria.js      ← HTML + script da galeria própria /galeria/<slug> (prévia, só o dono)
         ├── support.js      ← HTML da página de suporte /suporte
         ├── privacy.js      ← HTML da Política de Privacidade /privacidade
         ├── terms.js        ← HTML dos Termos de Uso /termos
@@ -775,6 +790,7 @@ compatibilidade sem comprar segurança.
 | GET | `/sobre` | `aboutHTML()` | Bio curta, como funciona o trabalho, contato |
 | GET | `/equipamentos` | `gearHTML()` | Lista de equipamento fotográfico |
 | GET | `/manifest.json` | `handleManifest` | Manifest PWA |
+| GET | `/vendor/<nome>.<hash>.(js\|css)` | `handleVendor` | Bibliotecas vendorizadas (hoje, o PhotoSwipe da galeria própria). Busca **exata** no mapa de `src/content/vendor.js`; cache `immutable` de um ano, seguro porque o nome leva o hash do conteúdo |
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | GET | `/api/recentes` | `handleRecentes` | As 5 galerias mais recentes em JSON (`{galerias:[{slug, titulo, data, url, destaque, emBreve}]}`), na ordem da galeria (fixados primeiro) e com o filtro do sitemap (sem ocultos nem `private`/`family`). **Único endpoint com CORS aberto** (`Access-Control-Allow-Origin: *`, CORP `cross-origin`, `max-age=300`): quem lê é o widget "Galerias recentes" da home lucafchala.com, que assim mostra projeto novo sem ninguém editar o HTML de lá. Só leitura, nenhum campo além do que o widget desenha (nada de Drive, capa ou tipo de acesso) — mudar o formato quebra a home, então mude os dois juntos |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`), envia e-mails, persiste |
@@ -800,6 +816,8 @@ compatibilidade sem comprar segurança.
 | POST | `/api/events/bulk-access` | Aplica um `accessType` a vários eventos de uma vez (`{ids, accessType}`) — mesma confirmação digitada |
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
+| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria-prévia-só-o-dono) do projeto (prévia). **Sem sessão: o mesmo 404 de rota inexistente**, sem ler o KV nem chamar o Google. `?atualizar=1` relê a pasta e redireciona para o endereço limpo |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Sem sessão: 404 |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
@@ -1642,8 +1660,83 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 ---
 
+## Galeria própria (prévia, só o dono)
+
+As fotos da pasta do Drive **dentro do site**, com visualizador e downloads
+próprios (#234, #235). O upload continua sendo o Drive: a página lê a pasta que
+o projeto já aponta.
+
+**Prévia.** Só quem está logado no painel vê. Para qualquer outra pessoa,
+`/galeria/<slug>` e o download devolvem o mesmo 404 de uma rota inexistente —
+nem a existência da página vaza. A página pública do projeto continua levando
+ao Drive como sempre. A liberação (testadores → porcentagem → todos) vem depois
+da aprovação do dono e troca **uma função só**: `podeVerGaleria()`, em
+`src/index.js`.
+
+### Como ligar (uma vez)
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → um projeto →
+   *APIs e serviços* → *Biblioteca* → **Google Drive API** → *Ativar*.
+2. *Credenciais* → *Criar credenciais* → **Chave de API**. Em *Restrições de
+   API*, restrinja à Drive API. Restrição de aplicativo: nenhuma — quem chama é
+   o Worker, que não tem referenciador nem IP fixo.
+3. `npx wrangler secret put GOOGLE_DRIVE_API_KEY` (ou painel da Cloudflare →
+   Workers → fotos → *Settings* → *Variables and Secrets*).
+4. A pasta do projeto tem de estar compartilhada como **"Qualquer pessoa com o
+   link"** — uma chave de API só enxerga o que é público por link, que é o que
+   o público já abre hoje.
+5. No painel, o ícone de grade de cada projeto abre `/galeria/<slug>`.
+
+Sem a chave, a página mostra esse passo a passo, e nada mais muda.
+
+### O que a página faz
+
+- **Grade justificada**: cada foto na proporção real, sem recorte; uma seção por
+  subpasta (até 2 níveis), em ordem natural (`2.jpg` antes de `10.jpg`).
+  Miniaturas do `lh3` na largura × DPR do aparelho, WebP decidido por
+  decodificação de verdade, carga preguiçosa.
+- **Visualizador** (PhotoSwipe 5, MIT, vendorizado em `vendor/photoswipe/` e
+  servido em `/vendor/` — nenhum CDN de terceiro): abre na resolução da tela
+  **em pixels físicos**, e o zoom pede a próxima largura da escada
+  (`GALERIA_LARGURAS`) até o original. Gestos, teclado (setas, Esc) e
+  `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
+  camada de cima (a folha de download, depois a foto) em vez de sair da
+  galeria — como num app.
+- **Downloads em duas variantes**: *para redes* — JPEG com 2048 px no lado maior
+  (`GALERIA_LADO_REDES`), redimensionado pelo `lh3` — e *tamanho máximo* — o
+  arquivo original, pela Drive API. No celular, a foto é preparada e o toque em
+  **"Salvar na galeria"** abre a folha de compartilhamento já com o arquivo (no
+  iPhone, *Salvar imagem* põe direto no Fotos — o Drive exige três passos); no
+  computador, download direto.
+- **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
+  baixadas uma a uma — nada de zip, que no celular não abre na galeria.
+
+### Por que o download passa pelo Worker
+
+`/galeria/<slug>/baixar/<id>?v=redes|max`: o original só sai com a chave, que
+nunca vai ao navegador; e o nome do arquivo (`<slug>-<nome>[-redes].<ext>`, via
+`Content-Disposition`) só o servidor controla. O proxy **não é aberto**: o id
+tem de estar na listagem da pasta daquele projeto, senão 404 sem buscar nada.
+
+### Custo
+
+A listagem fica 10 min (`GALERIA_LISTA_TTL_S`) na memória do isolate e na Cache
+API do data center — **nenhuma escrita em KV**. Uma pasta enorme sai parcial,
+com aviso na página, em vez de estourar o teto de 50 subrequests do plano
+gratuito (`GALERIA_MAX_FOTOS`, `GALERIA_MAX_PASTAS`, `GALERIA_MAX_CHAMADAS`).
+*Atualizar lista* relê na hora.
+
+### Verificação
+
+`tests/galeria.test.js` (servidor: portão, Drive API, cache, proxy) e
+`npm run verifica:galeria` (a página num Chromium de verdade, por aparelho —
+ver `docs/VERIFICACAO.md`).
+
+---
+
 ## Limitações conhecidas
 
+- **Galeria própria depende do Google em dois pontos**: miniaturas e a variante *para redes* vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); o *tamanho máximo* vem da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive). Por enquanto é prévia, só o dono vê.
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
 - **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
 - **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.

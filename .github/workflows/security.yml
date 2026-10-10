@@ -121,8 +121,16 @@ jobs:
           set -e
           # Segredo tem que vir de env/binding. O padrão pega atribuição
           # literal; `env.X` e comparações continuam válidas.
-          if grep -rnE "(SIGNING_SECRET|TURNSTILE_SECRET_KEY|RESEND_API_KEY|ADMIN_PASSWORD|CLOUDFLARE_API_TOKEN)\s*[:=]\s*['\"][^'\"]{8,}" src/ migrations/ wrangler.toml; then
+          if grep -rnE "(SIGNING_SECRET|TURNSTILE_SECRET_KEY|RESEND_API_KEY|ADMIN_PASSWORD|CLOUDFLARE_API_TOKEN|GOOGLE_DRIVE_API_KEY)\s*[:=]\s*['\"][^'\"]{8,}" src/ migrations/ wrangler.toml; then
             echo "FALHA: possível segredo embutido"
+            exit 1
+          fi
+          # Chave de API do Google tem formato fixo (AIza + 35). Pega a chave
+          # colada em QUALQUER lugar — numa URL, num objeto —, não só numa
+          # atribuição ao nome do secret. A da galeria própria só vale no
+          # servidor, vinda de env.GOOGLE_DRIVE_API_KEY.
+          if grep -rnE "AIza[0-9A-Za-z_-]{35}" src/ migrations/ wrangler.toml; then
+            echo "FALHA: chave de API do Google embutida no código"
             exit 1
           fi
           echo "OK: nenhum segredo literal."

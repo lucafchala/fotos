@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # ~880 testes em duas suítes (node + workerd), ~25 s — out/2026
+npm test          # ~950 testes em duas suítes (node + workerd), ~50 s — out/2026
 npm run lint
 ```
 
@@ -55,6 +55,7 @@ npx wrangler dev
 npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
+npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -77,20 +78,27 @@ src/
                   `export const` lá derruba o workerd na inicialização.
   counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
                   (janela fixa `check()` e balde de fichas `take()`)
+  drive.js      ← galeria própria (prévia): Drive API (lista a pasta, mapeia erros), URLs do
+                  lh3 e do original. A chave só existe aqui e no proxy de download.
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
+    galeria.js  ← galeria própria /galeria/<slug> (prévia, só o dono): grade + PhotoSwipe + downloads
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
     fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
+    vendor.js      ← GERADO de vendor/ (npm run build:vendor). Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
 fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
+vendor/         ← bibliotecas de terceiros servidas em /vendor/ (hoje, o PhotoSwipe 5, MIT) + licença
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+scripts/build-vendor.mjs      ← vendor/ → vendor.js, com o hash do conteúdo no nome publicado
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
+scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
@@ -371,6 +379,50 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
+### 5.13. Galeria própria: prévia só do dono, e o portão é UMA função
+
+Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
+Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
+"tamanho máximo". **Ainda é prévia**: só quem está logado no painel vê; para
+qualquer outra pessoa, a página e o download são o 404 de rota inexistente. A
+liberação (testadores → porcentagem → todos) espera a aprovação do dono e troca
+**só** `podeVerGaleria()` em `src/index.js` — nada de espalhar `if` de acesso
+pelas rotas. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
+"Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link".
+
+O que já mordeu, ou morderia:
+
+- **A chave nunca vai à página.** A lista que a página recebe não tem nem a
+  chave nem as resource keys; o original sai pelo proxy
+  `/galeria/<slug>/baixar/<id>`. O teste "sem a chave na página" prende isso.
+- **O proxy só serve o que está na pasta do projeto.** Sem a checagem de
+  pertencimento (`achaFoto`), ele seria um proxy aberto para qualquer arquivo
+  público do Drive com a nossa cota. Há teste que falha se ela sumir.
+- **A lista não grava em KV.** Fica na memória do isolate e na Cache API
+  (chave `https://fotos.invalid/__galeria/<id>`, o mesmo truque da cópia de
+  sobrevivência da lista de eventos), 10 min. A cota de 1000 escritas/dia (§5.3)
+  não é tocada.
+- **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
+  subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
+  (30) e a página avisa que a lista é parcial.
+- **"Salvar na galeria" no iPhone precisa de DOIS toques.** O
+  `navigator.share()` exige um toque recente, e baixar 20 MB demora mais que
+  isso: o primeiro toque prepara o arquivo, o segundo compartilha.
+- **O zoom só sobe a resolução porque o `srcset` vai até o original.** O
+  PhotoSwipe nunca baixa o `sizes` de um slide (guarda o maior já usado); se a
+  escada parar antes do original, o zoom estica pixel.
+- **O voltar fecha a foto, não a galeria.** Abrir o visualizador (e a folha
+  de download) EMPILHA uma entrada no histórico; trocar de foto só a
+  reescreve. Com `replaceState` puro, o voltar do Android com uma foto aberta
+  levava de volta ao painel. O roteiro confere voltar no desktop, no link
+  direto, no iPhone e no Android.
+- **O script da página mora numa template string** (`SCRIPT` em
+  `src/ui/galeria.js`): crase num comentário dele fecha a string e derruba o
+  módulo inteiro na importação.
+- **No Playwright, `page.route` não intercepta o `<a download>`** — a
+  navegação vira download antes da rota. O `verifica:galeria` confere a URL do
+  download; o nome do arquivo (o `Content-Disposition`) está na suíte.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -427,6 +479,9 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
 | Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
+| Galeria própria: "Falta conectar o site ao Google Drive" | Falta o secret `GOOGLE_DRIVE_API_KEY` — a própria página mostra o passo a passo (§5.13) |
+| Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
+| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -462,6 +517,9 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
   pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
   (#233).
+- **Galeria própria** (#235): **prévia só do dono**. Falta o dono
+  configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
+  depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
 
 ---
 

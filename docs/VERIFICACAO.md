@@ -192,6 +192,48 @@ Dois tropeços do roteiro: o PNG de 1 px deixa a `<img>` pequena demais para o
 existe no Chromium — para simular economia de dados, `addInitScript` com
 `Object.defineProperty`.
 
+### Galeria própria — `npm run verifica:galeria`
+
+Roteiro versionado da galeria própria (`/galeria/<slug>`, prévia só do dono).
+Também **não precisa do `wrangler dev` nem da Drive API**: renderiza a página
+com o `galeriaHTML()` de verdade, servida com os cabeçalhos reais do painel
+(CSP inclusive), e intercepta a rede — o `lh3` devolve uma imagem gerada **na
+largura pedida** (com o `sharp`; sem ele, 1 px, e a largura é conferida pela
+URL), e o proxy de download devolve um arquivo com os cabeçalhos do servidor.
+Cobre:
+
+- **grade por aparelho** — desktop 1440@1, Retina 1440@2, iPhone 390@3,
+  Android 360@2 e Pixel 412@2,625: linhas justificadas (cada uma fecha na
+  largura, ±2 px), miniatura com pixels suficientes (largura × DPR), carga
+  preguiçosa, WebP, sem rolagem lateral; tema escuro;
+- **visualizador** — abre na menor largura da escada que cobre a foto exibida
+  em pixels físicos; o zoom sobe a resolução por degraus até o original
+  (desktop: roda; iPhone: duplo toque); setas, Esc, link direto `#foto=`;
+  o **voltar** fecha a camada de cima (folha, depois foto) e fica na galeria;
+- **downloads** — a folha oferece "para redes" e "tamanho máximo" (com
+  dimensões e peso); no computador, um download por variante pelo proxy; no
+  celular (iPhone e Android pelo mesmo caminho), a foto é preparada e
+  "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
+- **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
+  de tela ouve "selecionada";
+- **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP.
+
+`VERIFICA_PRINTS=/caminho npm run verifica:galeria` salva as capturas (grade
+por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-as:
+o roteiro prova o comportamento, não a aparência.
+
+Prova o comportamento da **página**. O do servidor (portão só do dono, Drive
+API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
+o workerd garante (bundle byte a byte, Cache API de verdade) em
+`tests/workers/galeria.workers.test.js`.
+
+Um tropeço: **`page.route` não intercepta o `<a download>`** — a navegação vira
+download antes de passar pela rota, e o Chromium sugere o nome pela URL. Por
+isso o roteiro confere a URL do download (foto e variante), e o nome do arquivo
+(`Content-Disposition`) fica com a suíte. Para ver o nome de verdade no
+navegador, sirva o `src/index.js` num servidor HTTP local (§2) — com o
+`fetch` do Node interceptando `www.googleapis.com` e o `lh3`.
+
 ### Sem JavaScript
 
 ```js
@@ -274,6 +316,8 @@ Duas coisas que confundem na primeira vez:
       específica da mudança num navegador, console limpo
 - [ ] Mexeu no portão do Drive, no carrossel/fotos da página de projeto ou em
       limite por IP → `npm run verifica:evento`
+- [ ] Mexeu na galeria própria (`src/ui/galeria.js`, `src/drive.js`, `vendor/`)
+      → `npm run verifica:galeria`, e olhe as capturas (`VERIFICA_PRINTS`)
 - [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local

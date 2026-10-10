@@ -63,6 +63,11 @@ Fixes #
 - [ ] Banner de "novas fotos" aparece e expira conforme configurado
 - [ ] Formulário de solicitação de remoção envia
 
+**Galeria própria** (`/galeria/<slug>` — prévia, só o dono)
+- [ ] Sem sessão, página e download são o 404 de rota inexistente
+- [ ] Mexeu na galeria, em `src/drive.js` ou em `vendor/`: `npm run verifica:galeria` (grade por aparelho, zoom, downloads, "Salvar na galeria") e as capturas olhadas
+- [ ] A chave da Drive API não aparece na página nem em mensagem de erro
+
 **Painel administrativo** (`/dashboard`)
 - [ ] Login e logout
 - [ ] CRUD de evento (criar, editar, excluir), reordenar, marcar featured / em breve / oculto

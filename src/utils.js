@@ -27,6 +27,7 @@ import { FONTS } from './content/fonts.js';
  *   SIGNING_SECRET?: string,
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
+ *   GOOGLE_DRIVE_API_KEY?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  * }} Env
  */
@@ -1179,6 +1180,10 @@ export function socialMetaHTML({
 export const RESERVED_SLUGS = new Set([
   'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
+  // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
+  // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
+  // que é da estrutura do site.
+  'galeria', 'vendor', 'fonts',
 ]);
 
 /**

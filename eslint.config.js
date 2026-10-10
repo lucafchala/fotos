@@ -26,6 +26,7 @@ export default [
         btoa: 'readonly',
         atob: 'readonly',
         AbortSignal: 'readonly',
+        AbortController: 'readonly',
       },
     },
     rules: {

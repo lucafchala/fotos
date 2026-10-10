@@ -187,7 +187,9 @@ no #178.
    disto — comece por `npm run verifica:navegador` (ver `docs/VERIFICACAO.md`
    §3) e acrescente o que a sua mudança específica pede. Mudou o portão do
    Drive, as fotos da página de projeto ou um limite por IP? Rode
-   `npm run verifica:evento` (não precisa do wrangler). Mudou login,
+   `npm run verifica:evento` (não precisa do wrangler). Mudou a galeria
+   própria (`/galeria/<slug>`)? Rode `npm run verifica:galeria` com
+   `VERIFICA_PRINTS` e olhe as capturas. Mudou login,
    healthz ou algo que o smoke do deploy olha? Rode também
    `npm run smoke:local` contra o mesmo `wrangler dev`: é o que vai decidir a
    reversão automática em produção. `npm test` verde já conviveu com a interface inteira quebrada (CSP

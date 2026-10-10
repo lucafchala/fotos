@@ -39,10 +39,10 @@ export default defineConfig({
       // `node:inspector`, que não existe no workerd, então `--coverage` com a
       // suíte `workers` junto quebra. Ver o script `test:coverage`.
       thresholds: {
-        statements: 76,
-        branches: 74,
-        functions: 76,
-        lines: 81,
+        statements: 81,
+        branches: 78,
+        functions: 80,
+        lines: 86,
       },
     },
     projects: [

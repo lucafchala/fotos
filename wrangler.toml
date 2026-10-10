@@ -23,6 +23,12 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 #                         consegue manter um monitor verde sobre um serviço
 #                         caído. Por isso não mora no código — este repositório
 #                         é público.
+#   GOOGLE_DRIVE_API_KEY  chave de API do Google Cloud, restrita à Drive API,
+#                         para a GALERIA PRÓPRIA (prévia, só o dono — #235):
+#                         lista a pasta do projeto e busca o original no
+#                         "tamanho máximo". OPCIONAL: sem ela, /galeria/<slug>
+#                         mostra o passo a passo de como criar, e nada mais
+#                         muda. Só é usada no servidor — nunca sai na página.
 #
 # ATENÇÃO ao SIGNING_SECRET: diferente dos outros, a ausência dele NÃO quebra
 # nada — os dois controles simplesmente não são exigidos, e o site segue

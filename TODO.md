@@ -79,6 +79,20 @@ acesso por e-mail do portão. O código tem teto próprio
 (`EMAIL_CODE_DAILY_CAP` = 40/dia em `src/config.js`) para nunca calar os
 outros; subir esse número é decisão de orçamento de e-mail, não de UX.
 
+**Galeria própria** (`/galeria/<slug>`, hoje prévia só do dono — #235). A
+grade e o visualizador continuam saindo do `lh3` direto para o navegador (0
+requisição de Worker por foto vista). O que muda é o **download**: cada um
+passa pelo Worker (o proxy que esconde a chave e põe o nome do arquivo) — 1
+requisição de Worker + 1 subrequest por foto, só repassando o corpo, sem
+processar imagem (a CPU não cresce com o tamanho do arquivo). Um "baixar 30
+para redes" são 30 requisições; 750 pessoas × 20 downloads = 15 mil, que cabe
+nas 100 mil/dia mas deixa de ser irrelevante — é a conta a refazer antes de a
+distribuição abrir para o público. A página custa 1 requisição + até 30
+subrequests à Drive API a cada 10 min por pasta e data center (Cache API), e
+**nenhuma escrita de KV**. O limite que aparece primeiro num pico é o do
+Google, não o nosso: a Drive API recusa o original de um arquivo muito baixado
+(`downloadQuotaExceeded`, #233) — o *para redes* (lh3) segue funcionando.
+
 ### O que acontece se estourar
 
 Nada de catastrófico, e isso é resultado de trabalho, não sorte:

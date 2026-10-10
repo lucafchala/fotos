@@ -6,6 +6,7 @@ import {
   bumpCounter, readCounter, readCounters, deleteCounters,
 } from '../src/utils.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
+import { fakeCaches } from './helpers/caches.js';
 
 // Minimal in-memory stand-in for a Workers KV namespace. Ignores expirationTtl
 // (the tests run inside a single rate-limit window, so TTL is irrelevant).
@@ -270,23 +271,9 @@ describe('readCounters — leitura em lote', () => {
   });
 });
 
-// Cache API de mentira: um Map com a mesma superfície que o `caches.default` do
-// Workers. Existe para que a CÓPIA DE SOBREVIVÊNCIA seja exercitada de verdade
-// — em vitest `caches` não existe, e sem isto o caminho que salva um isolate
-// frio nunca rodaria em teste nenhum.
-function fakeCaches() {
-  const store = new Map();
-  return {
-    _store: store,
-    default: {
-      async put(key, res) { store.set(String(key), await res.text()); },
-      async match(key) {
-        const v = store.get(String(key));
-        return v === undefined ? undefined : new Response(v);
-      },
-    },
-  };
-}
+// A Cache API de mentira (tests/helpers/caches.js) existe para que a CÓPIA DE
+// SOBREVIVÊNCIA seja exercitada de verdade — sem ela o caminho que salva um
+// isolate frio nunca rodaria em teste nenhum.
 
 // Isolate novo: `_cache` e o espelho são estado de módulo, e é justamente ele
 // que decide o resultado destes casos.

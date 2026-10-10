@@ -15,6 +15,7 @@ import { gearHTML } from '../../src/ui/gear.js';
 import { legalHTML } from '../../src/ui/legal.js';
 import { docHTML } from '../../src/ui/doc.js';
 import { LEGAL_DOCS } from '../../src/content/legal-docs.js';
+import { galeriaHTML } from '../../src/ui/galeria.js';
 
 export const EVENTO = {
   id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
@@ -42,6 +43,16 @@ export function paginas() {
     // Doze páginas de documento saem desta mesma função; uma basta para
     // cobrir o cabeçalho, que não depende de qual documento é.
     doc: docHTML(LEGAL_DOCS[0]),
+    // Galeria própria (prévia, #235): com lista, para os scripts saírem.
+    galeria: galeriaHTML({
+      event: EVENTO,
+      listagem: {
+        v: 1, pasta: 'PASTA_RAIZ_123', em: '2026-10-10T12:00:00.000Z', truncada: false, total: 2, videos: 0, outros: 0, rk: {},
+        secoes: [{ nome: '', caminho: '', fotos: [['FOTO_AAAAAAAAAA', 6000, 4000, '001.jpg', 18000000], ['FOTO_BBBBBBBBBB', 0, 0, '002.heic', 0]] }],
+      },
+      erro: null,
+      nonce: 'NONCE',
+    }),
   };
 }
 
@@ -88,8 +99,13 @@ const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
 // bloco ser validado como JSON em vez de não ser validado por ninguém.
 const RE_SPEC_RULES = /type\s*=\s*["']speculationrules["']/i;
 
+// `application/json`: a ilha de dados da galeria própria (#235) — a lista de
+// fotos que o script da página lê com JSON.parse. Também é dado, e também
+// passa a ser validada como JSON.
+const RE_JSON_DADOS = /type\s*=\s*["']application\/json["']/i;
+
 /** Tipos cujo corpo é DADO, não programa. */
-const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs);
+const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs) || RE_JSON_DADOS.test(attrs);
 
 /** @param {string} html */
 export function blocos(html) {

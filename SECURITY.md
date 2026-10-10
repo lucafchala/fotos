@@ -32,8 +32,8 @@ issue before any public disclosure.
 - The production site `https://fotos.lucafchala.com` and its `*.workers.dev`
   deployment.
 - The Worker code in this repository (`src/`): the admin dashboard
-  (`/dashboard`), the public APIs (`/api/*`), and the LGPD removal/consent
-  flows.
+  (`/dashboard`), the public APIs (`/api/*`), the LGPD removal/consent
+  flows, and the owner-only gallery preview (`/galeria/*`).
 
 **Out of scope / known by design:**
 
@@ -177,6 +177,10 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
+| Owner-only gallery preview: the **same 404** as an unknown route, decided before any KV read when there is no cookie | `podeVerGaleria()`, `/galeria/*` | The preview (or its download proxy, which spends our Google API quota) being reachable — or even detectable — by anyone but the logged-in owner |
+| Download proxy serves only files listed in **that project's** folder | `handleGaleriaBaixar()`, `achaFoto()` | The proxy turning into an open relay for any public Drive file, on our API key and quota |
+| Drive API key used only server-side | `src/drive.js` | The key reaching a browser: the page's data island carries neither the key nor resource keys, originals go through the proxy, and error messages never include the request URL (which carries the key) |
+| Third-party code vendored, byte-exact and hash-named | `vendor/`, `src/content/vendor.js`, `/vendor/*` | A CDN or package swap changing the code that runs on our origin: PhotoSwipe is the npm tarball verified against its registry integrity, served from our origin under its content hash, and the suite fails if a byte differs |
 
 ### CSP: two policies at once
 
@@ -642,6 +646,12 @@ encoder output for HEIC and GIF alongside the hand-built ones.
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
 **`SIGNING_SECRET`** — see `wrangler.toml` for what each does.
 
+`GOOGLE_DRIVE_API_KEY` is optional: it only powers the owner-only gallery
+preview. Restrict it to the Drive API in Google Cloud. An API key can only read
+what is already shared as "anyone with the link", so a leaked key exposes
+nothing private — its cost would be quota, which is why it never leaves the
+server.
+
 `SIGNING_SECRET` deserves a note: unlike the others, its absence **breaks
 nothing**. The Drive page nonce and the form tokens simply stop being required,
 and the site keeps serving as if it were protected. That is a deliberate
@@ -656,8 +666,8 @@ npx wrangler secret put SIGNING_SECRET
 
 ## Invariants for contributors / Invariantes ao mexer no código
 
-Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.test.js`,
-`tests/utils.test.js`) — if you change either, expect a red suite.
+Three guards are easy to half-apply. All are pinned by tests (`tests/drive-gate.test.js`,
+`tests/utils.test.js`, `tests/galeria.test.js`) — if you change one, expect a red suite.
 
 - **`safeUrl()` is a scheme allowlist, not an HTML escaper.** It strips
   `javascript:`/`data:` and upgrades `http:` — it does *not* escape quotes, so
@@ -665,6 +675,9 @@ Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.t
   attribute needs both: `escape(safeUrl(v))`. Assigning to a DOM property in the
   client (`el.href = v`) needs only `safeUrl()`, because no HTML is parsed.
   Neither function alone covers both attacks.
+- **The gallery proxy checks membership before fetching.** Any new route that
+  fetches a Drive file by id must first find that id in the project's own
+  listing (`achaFoto()`); `tests/galeria.test.js` fails if the check is removed.
 - **KV counters go through `toCount()`.** Counters are stored as plain strings;
   a corrupted value read back with a bare `parseInt` yields `NaN`, and
   `String(NaN)` written back poisons the counter permanently. `toCount()`
