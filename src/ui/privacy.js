@@ -72,7 +72,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 9 de outubro de 2026</p>
+    <p class="updated">Atualizada em 10 de outubro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -91,7 +91,7 @@ export function privacyHTML() {
     <p>Além disso, são usados cookies e medição estritamente funcionais:</p>
     <ul>
       <li><strong>Cookie de sessão</strong> (apenas no painel administrativo, restrito a mim).</li>
-      <li><strong>Cookie de contagem de visualização</strong> (<code>fv_…</code>, expira em 1 hora) para não contar a mesma visita várias vezes.</li>
+      <li><strong>Cookie de contagem de visualização</strong> (<code>fv_…</code>, expira em 1 hora) para não contar a mesma visita várias vezes. A contagem em si é só um número por projeto e por dia — quantas visitas e quantos acessos às fotos —, sem identificar quem visitou; a contagem por dia é apagada depois de 400 dias.</li>
       <li><strong>Medição de acesso anônima e sem cookies</strong> (Cloudflare Web Analytics), que não identifica visitantes individualmente.</li>
     </ul>
 

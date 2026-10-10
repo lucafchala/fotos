@@ -418,7 +418,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
       await page.waitForSelector('#tab-settings.active');
       const grupos = await page.locator('.grupo-titulo').allTextContents();
-      registra(grupos.join('|') === 'Site|Dados|Conta', `${rotulo}: ajustes em três grupos`, grupos);
+      registra(grupos.join('|') === 'Site|Dados|Conta|Sobre', `${rotulo}: ajustes em quatro grupos (o último diz a versão)`, grupos);
       await print(page, `${id}-ajustes`);
       await page.fill('#new-pass', SENHA_NOVA);
       await page.fill('#new-pass2', SENHA_NOVA);

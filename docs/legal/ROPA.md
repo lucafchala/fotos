@@ -5,7 +5,7 @@ tratamento que realizar.
 
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
-- **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV e Cloudflare D1.
+- **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV, Cloudflare D1 e Durable Objects (contadores e limites). Desde a v2.0 há também um **ambiente de prévia** com armazenamento próprio (seção 10).
 - **Última revisão:** 2026-10-10
 - **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `migrations/` (esquema do D1).
 
@@ -85,11 +85,11 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. |
-| **Dado pessoal?** | **Não.** É contagem agregada, sem identificador, sem sessão, sem perfil. |
+| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. Desde a v2.0: a mesma contagem **por dia** (`d:<AAAA-MM-DD>:<chave>`), e quantos acessos ao Drive o portão liberou por **modo de verificação** (`gate:turnstile`, `gate:email`, `gate:noscript`, também por dia). |
+| **Dado pessoal?** | **Não.** É contagem agregada, sem identificador, sem sessão, sem perfil. A contagem por dia e por modo continua sendo só número: não leva IP, projeto (no caso do modo), cookie nem horário — o dia é o menor recorte. |
 | **Cookie associado** | `fv_<slug>=1`, expira em 1 h, `SameSite=Lax`, escopo do próprio projeto. Serve só para não contar a mesma visita duas vezes na mesma hora. Não identifica, não persiste, não é lido por terceiro. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse — métrica própria). |
-| **Retenção** | Indefinida (agregado, sem titular). Apagado junto com o projeto. |
+| **Retenção** | Totais: indefinida (agregado, sem titular), apagados junto com o projeto. Série por dia: **400 dias**, podada automaticamente no primeiro incremento de cada dia (`Counter`, `src/counters.js`) e apagada junto com o projeto. |
 
 ---
 
@@ -149,6 +149,24 @@ que quebra o desafio) ou esgotou as tentativas num pico de acesso. Handler
 | **Compartilhamento** | Resend (entrega do e-mail). |
 | **Limites** | Por IP, por endereço (3/h) e teto diário da conta (40) — este protege a franquia de e-mail dividida com remoção e suporte. Apelido `+etiqueta` é recusado e os pontos do Gmail contam como um endereço só, para ninguém multiplicar envios para a mesma caixa. Valores em `src/config.js`. |
 | **Quando aparece** | Só quando o acesso está bloqueado: verificação anti-robô falhou/travou, ou o gate recusou por verificação, limite, servidor ou rede depois das tentativas automáticas. |
+
+---
+
+## 10. Ambiente de prévia (teste de mudanças antes da publicação)
+
+Desde a v2.0, cada mudança no código ganha uma **prévia**: o mesmo sistema, num
+endereço próprio, com armazenamento **separado** do de produção (KV
+`fotos-previa`, D1 `fotos-consent-previa`, Durable Objects próprios). Serve
+para o controlador testar a mudança antes de publicá-la. Código: `src/previa.js`.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | Os projetos que o controlador copia para lá (restaurando um backup do painel — título, descrição, links das pastas do Drive, capas); o registro de consentimento, as sessões e os contadores gerados **pelos testes do próprio controlador**. |
+| **Minimização** | Restaurar backup na prévia **não traz os pedidos de remoção** (e-mail, telefone e mensagem de terceiros) — o código os recusa e diz isso na tela. A prévia não envia heartbeat nem medição de acesso. |
+| **Titulares** | O próprio controlador, em teste. **Não é para participantes:** o endereço não é divulgado, toda página tem a faixa "PRÉVIA" e a resposta `noindex` (não aparece em busca). Se um terceiro, mesmo assim, usar a prévia, o aceite dele fica só no D1 da prévia. |
+| **Base legal** | Art. 7º, IX (legítimo interesse — testar a segurança e o funcionamento do serviço antes de publicá-lo). Para dados do próprio controlador, não há titular terceiro. |
+| **Retenção** | A limpeza automática diária **não roda** em prévia (cron não alcança prévias — regra da plataforma). Os dados de teste são apagados manualmente: a prévia inteira com `npx wrangler preview delete`; o KV e o D1 de prévia, pelo painel da Cloudflare. Registro honesto do limite: nada aqui é podado sozinho. |
+| **Compartilhamento** | Os mesmos operadores de produção (Cloudflare; Resend, nos e-mails de teste, que saem com "[PRÉVIA]" no assunto). |
 
 ---
 

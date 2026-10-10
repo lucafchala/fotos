@@ -29,6 +29,8 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | **E-mail do código de acesso** | **Não armazenado** — só o hash SHA-256, até 2 h, como nome do objeto de limite por endereço | Pedido do código | Alarme do `RateLimiter` | Minimização (art. 6º, III) |
 | **Contador de falhas de login** | 30 min (duas janelas de 15 min) | Início da janela | Alarme do Durable Object `RateLimiter`, que apaga o registro | Segurança |
 | **Contadores de acesso** (`views`, `drive_clicks`) | Indefinido | — | Apagados junto com o projeto | Não é dado pessoal (agregado) |
+| **Série por dia dos contadores** (`d:<dia>:…`, v2.0) — inclui a contagem por modo do portão (`gate:*`) | **400 dias** | O dia do balde | Poda no primeiro incremento de cada dia (`Counter`, `src/counters.js`); apagada também junto com o projeto | Não é dado pessoal (agregado por dia). O prazo existe para o armazenamento não crescer para sempre |
+| **Ambiente de prévia** (KV e D1 de teste, v2.0) | **Sem prazo automático** — limpeza manual | — | `npx wrangler preview delete` (a prévia); KV e D1 de prévia pelo painel da Cloudflare | Dados de teste do próprio controlador; pedidos de remoção nunca entram (ROPA §10). Exceção registrada: o cron não alcança prévias |
 | **Cookie de contagem de visualização** (`fv_*`) | 1 hora | Visita | `Max-Age` no browser | Não identifica |
 | **Telemetria de desempenho** | Retenção do Cloudflare Logs | Envio | Fora do nosso controle | Não é dado pessoal |
 | **Fotografias dos eventos** (Drive) | **Sem prazo automático** | — | Remoção manual, a pedido ou por decisão do controlador | Ver observação abaixo |

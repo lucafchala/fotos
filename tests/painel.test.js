@@ -18,8 +18,10 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { dashboardHTML, cardProjetoPainel, ICONES } from '../src/ui/dashboard.js';
 import { escape, toHttps } from '../src/utils.js';
+import { VERSAO } from '../src/config.js';
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -221,12 +223,39 @@ describe('estrutura do painel', () => {
     expect(chips.filter(m => m[1] === 'true').map(m => m[2])).toEqual(['todos']);
   });
 
-  it('ajustes em três grupos — Site, Dados, Conta — e as ações sensíveis marcadas', () => {
+  it('ajustes em quatro grupos — Site, Dados, Conta, Sobre — e as ações sensíveis marcadas', () => {
     const grupos = [...html.matchAll(/<h2 class="grupo-titulo">([^<]+)<\/h2>/g)].map(m => m[1]);
-    expect(grupos).toEqual(['Site', 'Dados', 'Conta']);
+    expect(grupos).toEqual(['Site', 'Dados', 'Conta', 'Sobre']);
     expect((html.match(/class="bloco sensivel"/g) || []).length).toBe(2);
     expect(html).toMatch(/class="bloco sensivel">[\s\S]*?Restaurar backup/);
     expect(html).toMatch(/class="bloco sensivel">[\s\S]*?Trocar a senha do painel/);
+  });
+
+  it('mostra a versão do site — a mesma do package.json (há um número só)', () => {
+    const pacote = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(VERSAO, 'src/config.js VERSAO e package.json "version" andam juntos').toBe(pacote.version);
+    expect(html).toContain(`<span class="versao" title="Versão do site">v${VERSAO}</span>`);
+    expect(html).toContain(`<h3>Versão ${VERSAO}</h3>`);
+  });
+
+  it('todo texto do painel tem contraste AA (4,5:1) sobre todo fundo do painel', () => {
+    // v2.0: o cinza "apagado" (--text3) era #555 — 2,5:1 sobre os blocos, e é
+    // a cor de datas, dicas e rótulos lidos no celular, na rua. Calculado das
+    // próprias variáveis da página, para uma troca de cor não passar calada.
+    const raiz = html.match(/:root\{([^}]*)\}/)[1];
+    const cor = nome => raiz.match(new RegExp(`--${nome}:(#[0-9a-f]{3,6})`, 'i'))[1];
+    const lum = hex => {
+      const h = hex.length === 4 ? hex.slice(1).split('').map(c => c + c).join('') : hex.slice(1);
+      const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255)
+        .map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contraste = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    for (const texto of ['text', 'text2', 'text3']) {
+      for (const fundo of ['bg', 'bg2', 'bg3']) {
+        expect(contraste(cor(texto), cor(fundo)), `--${texto} sobre --${fundo}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 
   it('lista vazia convida a criar o primeiro evento', () => {

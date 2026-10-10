@@ -1,11 +1,11 @@
 import { sortEvents, hojeEmSaoPaulo, AGENDA_MAX_LEN, escape, jsonParaScript, safeUrl, fontPreloadHTML, fontFaceCSS } from '../utils.js';
 import { PASSWORD_MIN_LENGTH } from '../security.js';
-import { TURNSTILE_SITE_KEY } from '../config.js';
+import { TURNSTILE_SITE_KEY, VERSAO } from '../config.js';
 
 const BASE = `
 ${fontFaceCSS()}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#555;--accent:#f0ebe5;--red:#c0392b;--green:#27ae60;--radius:10px}
+:root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#8a8a8a;--accent:#f0ebe5;--red:#c0392b;--green:#27ae60;--radius:10px}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
 input,textarea,select,button{font-family:inherit;font-size:inherit}
 button{cursor:pointer}
@@ -304,6 +304,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .marca strong{font-weight:600;color:var(--text)}
     .lateral-pe{display:flex;align-items:center;gap:.5rem}
     .lateral-pe form{margin:0}
+    .versao{display:none;font-size:.7rem;color:var(--text3);text-align:center;font-variant-numeric:tabular-nums}
+    .novidades{margin:.75rem 0 0 1.1rem;display:flex;flex-direction:column;gap:.5rem;font-size:.82rem;color:var(--text2);line-height:1.5;max-width:70ch}
+    .novidades strong{color:var(--text);font-weight:600}
     .btn-sm{display:inline-flex;align-items:center;gap:.35rem;background:none;border:1px solid var(--border);color:var(--text2);padding:.45rem .875rem;border-radius:8px;font-size:.75rem;font-weight:500;text-decoration:none;transition:border-color .2s,color .2s}
     .btn-sm:hover{border-color:#444;color:var(--text)}
     /* navegação: barra de baixo no celular */
@@ -325,6 +328,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       .tab.active{background:var(--bg3)}
       .tab-badge{position:static;margin-left:auto}
       .lateral-pe{margin-top:auto;flex-direction:column;align-items:stretch}
+      .versao{display:block;order:3}
       .lateral-pe .btn-sm{justify-content:center;width:100%}
       .conteudo{padding:2rem 2.5rem 3rem}
     }
@@ -696,6 +700,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       <button class="tab" data-onclick="switchTab" data-tab="settings">${ICONES.ajustes}<span>Ajustes</span></button>
     </nav>
     <div class="lateral-pe">
+      <span class="versao" title="Versão do site">v${escape(VERSAO)}</span>
       <a href="/" target="_blank" rel="noopener" class="btn-sm">Ver site</a>
       <form method="POST" action="/dashboard/logout">
         <button type="submit" class="btn-sm">Sair</button>
@@ -937,6 +942,22 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           </div>
           <button class="btn-danger" data-onclick="changePassword">Salvar nova senha</button>
         </div>
+      </div>
+    </div>
+
+    <!-- A versão e o que ela trouxe, para quem testa saber o que olhar. O
+         detalhe de cada mudança está no CHANGELOG.md do repositório. -->
+    <div class="grupo">
+      <h2 class="grupo-titulo">Sobre</h2>
+      <div class="bloco" id="bloco-versao">
+        <h3>Versão ${escape(VERSAO)}</h3>
+        <p class="bloco-desc">O que esta versão trouxe:</p>
+        <ul class="novidades">
+          <li><strong>Painel em blocos</strong> — navegação de app (barra de baixo no celular), card com estado escrito e menu "⋯", formulário em seis blocos.</li>
+          <li><strong>Métricas com gráfico</strong> — visitas e aberturas do Drive por dia, comparação com o período anterior, dia da semana, modos do portão e cada projeto com a sua curva.</li>
+          <li><strong>Galeria própria</strong> (prévia, só você) — as fotos na resolução da tela, zoom que busca mais pixels e download "para redes" ou "tamanho máximo".</li>
+          <li><strong>Prévia de cada PR</strong> — um site de teste com dados próprios, faixa "PRÉVIA" e controle do Turnstile para testar as salvaguardas.</li>
+        </ul>
       </div>
     </div>
   </section>
