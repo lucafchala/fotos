@@ -27,9 +27,23 @@ import { FONTS } from './content/fonts.js';
  *   SIGNING_SECRET?: string,
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
+ *   GOOGLE_DRIVE_API_KEY?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
+ *   AMBIENTE?: string,
+ *   PREVIA_EMAIL?: string,
  * }} Env
  */
+
+/**
+ * Esta requisição está numa PRÉVIA de PR? (`AMBIENTE = "previa"`, que só o
+ * bloco [previews] do wrangler.toml declara — produção não tem a variável.)
+ * A camada da prévia inteira está em src/previa.js; mora aqui só esta
+ * pergunta, que o e-mail (corpoResend) também faz.
+ * @param {{ AMBIENTE?: string } | null | undefined} env
+ */
+export function ehPrevia(env) {
+  return !!env && env.AMBIENTE === 'previa';
+}
 
 /**
  * Um pedido de remoção / mensagem de suporte, como lido do KV. Índice aberto
@@ -716,6 +730,7 @@ const COUNTER_OBJ = 'contadores';
  *   snapshot: (keys: string[]) => Promise<{ counts: Record<string, number>, missing: string[] }>,
  *   seed: (map: Record<string, unknown>) => Promise<void>,
  *   remove: (keys: string[]) => Promise<void>,
+ *   serie: (desde: string, totais?: string[]) => Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>,
  * }} CounterRPC
  */
 
@@ -723,7 +738,7 @@ const COUNTER_OBJ = 'contadores';
  * @param {Env} env
  * @returns {CounterRPC}
  */
-function counterStub(env) {
+export function counterStub(env) {
   return /** @type {any} */ (env.COUNTER.get(env.COUNTER.idFromName(COUNTER_OBJ)));
 }
 
@@ -789,6 +804,24 @@ export async function readCounters(env, keys) {
   } catch (e) {
     noteDegraded('contadores não lidos', `lote de ${keys.length} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return {};
+  }
+}
+
+// A série diária inteira desde `desde`, mais os totais pedidos, numa chamada
+// só ao objeto (#215). Nunca lança: o painel mostra "sem dados" em vez de 500.
+/**
+ * @param {Env} env
+ * @param {string} desde
+ * @param {string[]} [totais]
+ * @returns {Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>}
+ */
+export async function readSerie(env, desde, totais = []) {
+  try {
+    const r = await counterStub(env).serie(desde, totais);
+    return { serie: r.serie || {}, primeiroDia: r.primeiroDia || '', totais: r.totais || {} };
+  } catch (e) {
+    noteDegraded('série diária não lida', umaLinha(errMessage(e)).slice(0, 120), e);
+    return { serie: {}, primeiroDia: '', totais: {} };
   }
 }
 
@@ -1179,6 +1212,10 @@ export function socialMetaHTML({
 export const RESERVED_SLUGS = new Set([
   'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
+  // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
+  // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
+  // que é da estrutura do site.
+  'galeria', 'vendor', 'fonts',
 ]);
 
 /**
@@ -1234,6 +1271,21 @@ export const FUSO_DONO = 'America/Sao_Paulo';
  */
 export function hojeEmSaoPaulo(agora = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_DONO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+}
+
+/**
+ * O dia `n` dias antes de `dia` ('AAAA-MM-DD' → 'AAAA-MM-DD'; n negativo vai
+ * para a frente). Conta em dias de CALENDÁRIO, por texto, sem fuso: a série de
+ * métricas é indexada pelo dia de São Paulo já calculado, e misturar Date com
+ * fuso aqui faria um dia "pular" na virada do horário de verão de outro país.
+ * Meio-dia UTC como âncora: longe de qualquer meia-noite.
+ * @param {string} dia
+ * @param {number} n
+ */
+export function diaMenos(dia, n) {
+  const t = Date.parse(dia + 'T12:00:00Z');
+  if (!Number.isFinite(t)) return '';
+  return new Date(t - n * 86400000).toISOString().slice(0, 10);
 }
 
 /**
@@ -1957,7 +2009,36 @@ export function csvResponse(filename, cols, rows) {
   });
 }
 
-
+// Corpo de toda chamada ao Resend. Numa PRÉVIA de PR (`AMBIENTE = "previa"`,
+// só no bloco [previews] do wrangler.toml — ver src/previa.js) o assunto ganha
+// "[PRÉVIA] " na frente: o e-mail sai de verdade, para dar para testar o
+// fluxo inteiro, mas ninguém o confunde com um do site real. Em produção a
+// variável não existe e o corpo sai idêntico ao JSON.stringify de antes.
+//
+// Com a ferramenta "E-mail → tudo para o dono" da prévia (`PREVIA_EMAIL =
+// "dono"`, que só src/previa.js põe no env), todo e-mail vai para ADMIN_EMAIL
+// e o assunto diz para quem ele iria: dá para testar a confirmação de um
+// pedido ou o código por e-mail com qualquer endereço inventado sem escrever
+// para ninguém de fora.
+/**
+ * @param {{ AMBIENTE?: string, PREVIA_EMAIL?: string, ADMIN_EMAIL?: string } | null | undefined} env
+ * @param {Record<string, unknown>} dados
+ */
+export function corpoResend(env, dados) {
+  if (!env || !ehPrevia(env)) return JSON.stringify(dados);
+  /** @type {Record<string, unknown>} */
+  const corpo = { ...dados };
+  let marca = '[PRÉVIA] ';
+  if (env.PREVIA_EMAIL === 'dono' && env.ADMIN_EMAIL) {
+    const para = /** @type {unknown[]} */ ([]).concat(dados.to ?? []).map(String).join(', ');
+    corpo.to = env.ADMIN_EMAIL;
+    delete corpo.cc;
+    delete corpo.bcc;
+    if (para.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) marca = `[PRÉVIA → ${para}] `;
+  }
+  if (typeof dados.subject === 'string' && !dados.subject.startsWith('[PRÉVIA')) corpo.subject = marca + dados.subject;
+  return JSON.stringify(corpo);
+}
 /**
  * @param {Env} env
  * @param {Pedido} req
@@ -2005,7 +2086,7 @@ export async function sendRemovalEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: corpoResend(env, body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.status);
@@ -2039,7 +2120,7 @@ export async function sendResolvedEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação atendida — ${req.eventTitle}`,
@@ -2079,7 +2160,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [env.ADMIN_EMAIL],
       reply_to: email || undefined,
@@ -2149,7 +2230,7 @@ export async function sendErrorAlert(env, err, context = {}) {
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: `🔴 Erro no site${context.path ? ` — ${context.path}` : ''}`,
@@ -2204,7 +2285,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔐 Tentativas de login no painel — fotos.lucafchala.com',
@@ -2268,7 +2349,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔎 Possível varredura de projetos — fotos.lucafchala.com',
@@ -2312,7 +2393,7 @@ export async function sendConfirmationEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação recebida — ${req.eventTitle}`,
@@ -2379,7 +2460,7 @@ export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) 
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [to],
       subject: `${code} é o seu código — ${eventTitle}`,

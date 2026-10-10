@@ -79,6 +79,20 @@ acesso por e-mail do portão. O código tem teto próprio
 (`EMAIL_CODE_DAILY_CAP` = 40/dia em `src/config.js`) para nunca calar os
 outros; subir esse número é decisão de orçamento de e-mail, não de UX.
 
+**Galeria própria** (`/galeria/<slug>`, hoje prévia só do dono — #235). A
+grade e o visualizador continuam saindo do `lh3` direto para o navegador (0
+requisição de Worker por foto vista). O que muda é o **download**: cada um
+passa pelo Worker (o proxy que esconde a chave e põe o nome do arquivo) — 1
+requisição de Worker + 1 subrequest por foto, só repassando o corpo, sem
+processar imagem (a CPU não cresce com o tamanho do arquivo). Um "baixar 30
+para redes" são 30 requisições; 750 pessoas × 20 downloads = 15 mil, que cabe
+nas 100 mil/dia mas deixa de ser irrelevante — é a conta a refazer antes de a
+distribuição abrir para o público. A página custa 1 requisição + até 30
+subrequests à Drive API a cada 10 min por pasta e data center (Cache API), e
+**nenhuma escrita de KV**. O limite que aparece primeiro num pico é o do
+Google, não o nosso: a Drive API recusa o original de um arquivo muito baixado
+(`downloadQuotaExceeded`, #233) — o *para redes* (lh3) segue funcionando.
+
 ### O que acontece se estourar
 
 Nada de catastrófico, e isso é resultado de trabalho, não sorte:
@@ -416,6 +430,18 @@ funciona — ver [`docs/VERIFICACAO.md`](./docs/VERIFICACAO.md). Nesta base a
 suíte inteira já passou verde sobre a CSP matando ~68 handlers inline e sobre a
 galeria ilegível sem JS. Mudança em página pública ou no painel se verifica com
 browser.
+
+### O que roda em produção é o bundle, não o fonte
+
+A suíte roda `src/` cru; o deploy roda o que o esbuild do wrangler fez dele.
+Quase sempre é a mesma coisa — até o código virar TEXTO: o card de evento do
+painel vai ao navegador por `toString()` (`docs/PAINEL.md`), e o esbuild, com
+`keepNames`, embrulha toda função nomeada num `__name(...)` que só existe no
+topo do bundle. A suíte passava inteira; o painel em produção quebraria no
+primeiro redesenho. Código que sai como texto se testa **depois** da mesma
+transformação do deploy (`tests/painel.test.js` faz isso), e quando houver
+dúvida sobre o que o bundle faz, monte-o: `npx wrangler deploy --dry-run
+--outdir <pasta>` não publica nada.
 
 ---
 

@@ -15,6 +15,7 @@ import { gearHTML } from '../../src/ui/gear.js';
 import { legalHTML } from '../../src/ui/legal.js';
 import { docHTML } from '../../src/ui/doc.js';
 import { LEGAL_DOCS } from '../../src/content/legal-docs.js';
+import { galeriaHTML } from '../../src/ui/galeria.js';
 
 export const EVENTO = {
   id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
@@ -42,6 +43,16 @@ export function paginas() {
     // Doze páginas de documento saem desta mesma função; uma basta para
     // cobrir o cabeçalho, que não depende de qual documento é.
     doc: docHTML(LEGAL_DOCS[0]),
+    // Galeria própria (prévia, #235): com lista, para os scripts saírem.
+    galeria: galeriaHTML({
+      event: EVENTO,
+      listagem: {
+        v: 1, pasta: 'PASTA_RAIZ_123', em: '2026-10-10T12:00:00.000Z', truncada: false, total: 2, videos: 0, outros: 0, rk: {},
+        secoes: [{ nome: '', caminho: '', fotos: [['FOTO_AAAAAAAAAA', 6000, 4000, '001.jpg', 18000000], ['FOTO_BBBBBBBBBB', 0, 0, '002.heic', 0]] }],
+      },
+      erro: null,
+      nonce: 'NONCE',
+    }),
   };
 }
 
@@ -88,8 +99,13 @@ const RE_JSON_LD = /type\s*=\s*["']application\/ld\+json["']/i;
 // bloco ser validado como JSON em vez de não ser validado por ninguém.
 const RE_SPEC_RULES = /type\s*=\s*["']speculationrules["']/i;
 
+// `application/json`: a ilha de dados da galeria própria (#235) — a lista de
+// fotos que o script da página lê com JSON.parse. Também é dado, e também
+// passa a ser validada como JSON.
+const RE_JSON_DADOS = /type\s*=\s*["']application\/json["']/i;
+
 /** Tipos cujo corpo é DADO, não programa. */
-const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs);
+const ehDados = attrs => RE_JSON_LD.test(attrs) || RE_SPEC_RULES.test(attrs) || RE_JSON_DADOS.test(attrs);
 
 /** @param {string} html */
 export function blocos(html) {
@@ -99,6 +115,38 @@ export function blocos(html) {
     jsonld: todos.filter(m => RE_JSON_LD.test(m[1])).map(m => m[2]),
     dados: todos.filter(m => ehDados(m[1])).map(m => m[2]),
   };
+}
+
+// O HTML com os blocos <script> tirados — para afirmar sobre o que a página
+// MOSTRA, sem tropeçar no que o script ou a ilha de dados carrega.
+//
+// Sem regex de propósito. Era `html.replace(/<script\b[\s\S]*?<\/script>/gi,
+// '')`, e o CodeQL do #236 acusou com razão as duas falhas dela: não fecha em
+// `</script >` (o tokenizador fecha — a mesma lição de RE_SCRIPT_BLOCO acima)
+// e "tirar uma vez" deixa sobrar `<script` quando os pedaços se recompõem. Aqui
+// a varredura anda como o tokenizador: abre em `<script`, fecha no primeiro
+// `</script` seguido de espaço, `/` ou `>`, e um bloco sem fechamento leva o
+// resto da página — que é o que o navegador faria com ele.
+/** @param {string} html */
+export function foraDosScripts(html) {
+  const baixo = html.toLowerCase();
+  const fechaAqui = (/** @type {number} */ i) => {
+    const c = baixo.charAt(i + 8);
+    return c === '>' || c === '/' || c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+  };
+  let saida = '';
+  let i = 0;
+  for (;;) {
+    const abre = baixo.indexOf('<script', i);
+    if (abre < 0) return saida + html.slice(i);
+    saida += html.slice(i, abre);
+    let fecha = baixo.indexOf('</script', abre);
+    while (fecha >= 0 && !fechaAqui(fecha)) fecha = baixo.indexOf('</script', fecha + 1);
+    if (fecha < 0) return saida;
+    const fim = baixo.indexOf('>', fecha);
+    if (fim < 0) return saida;
+    i = fim + 1;
+  }
 }
 
 /** Abre/fecha, para o teste de fechamento precoce. */

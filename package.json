@@ -1,6 +1,6 @@
 {
   "name": "fotos",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
     "lint": "eslint src tests scripts eslint.config.js",
     "build:legal": "node scripts/build-legal-docs.mjs",
     "build:fonts": "node scripts/build-fonts.mjs",
+    "build:vendor": "node scripts/build-vendor.mjs",
     "smoke": "bash scripts/smoke.sh",
     "smoke:local": "bash scripts/smoke.sh http://127.0.0.1:8787",
     "predeploy:check": "wrangler versions upload --env= --dry-run --outdir /tmp/bundle-check",
@@ -21,7 +22,10 @@
     "test:coverage": "vitest run --project unit --coverage",
     "typecheck": "tsc -p tsconfig.json",
     "verifica:navegador": "node scripts/verifica-navegador.mjs",
-    "verifica:evento": "node scripts/verifica-evento.mjs"
+    "verifica:evento": "node scripts/verifica-evento.mjs",
+    "verifica:galeria": "node scripts/verifica-galeria.mjs",
+    "verifica:painel": "node --import ./scripts/node-com-workers.mjs scripts/verifica-painel.mjs",
+    "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

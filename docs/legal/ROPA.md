@@ -5,9 +5,9 @@ tratamento que realizar.
 
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
-- **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV e Cloudflare D1.
-- **Última revisão:** 2026-10-09
-- **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `migrations/` (esquema do D1).
+- **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV, Cloudflare D1 e Durable Objects (contadores e limites). Desde a v2.0 há também um **ambiente de prévia** com armazenamento próprio (seção 10).
+- **Última revisão:** 2026-10-10
+- **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `migrations/` (esquema do D1).
 
 ---
 
@@ -21,7 +21,7 @@ tratamento que realizar.
 | **Finalidade** | (a) entrega do material aos contratantes/participantes; (b) divulgação do trabalho do fotógrafo (portfólio, site, redes); (c) publicação editorial, jornalística, cultural e educacional. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse) para entrega e portfólio — ver [`LIA.md`](./LIA.md). **Art. 7º, I** (consentimento) / **art. 14, §1º** (consentimento do responsável, para menores) quando há aceite dos Termos no gate do Drive. **Art. 4º, I** (fora do escopo da LGPD) para projetos estritamente familiares e não econômicos. |
 | **Categoria especial?** | **Não.** Imagem de rosto só é dado sensível (biométrico, art. 5º, II) quando tratada **para fins de identificação biométrica**. Aqui não há reconhecimento facial, indexação por face nem qualquer processamento biométrico — as fotos são armazenadas e entregues como imagem. |
-| **Armazenamento** | Google Drive (pastas por evento). O site **não hospeda** as fotos: guarda só a URL do Drive e as URLs das capas. |
+| **Armazenamento** | Google Drive (pastas por evento). O site **não hospeda** as fotos: guarda só a URL do Drive e as URLs das capas. A **galeria própria** (`/galeria/<slug>`, hoje uma prévia visível **só ao controlador**) lê a lista da pasta pela API do Drive e repassa os downloads pelo Worker **sem gravar a foto**; o que fica em cache, por 10 minutos e na Cache API da Cloudflare, é só a lista de arquivos (identificador, nome, dimensões e tamanho). Antes de abrir a galeria própria a participantes, este registro deve ser revisto: a partir daí a foto baixada passa pela Cloudflare a caminho do participante. |
 | **Compartilhamento** | Google (operador de hospedagem). Terceiros a quem o link do Drive for repassado pelo próprio titular. Veículos editoriais, nos casos do item (c). |
 | **Retenção** | Enquanto publicado / útil ao contratante. Removível a pedido, a qualquer tempo. Sem prazo automático. |
 | **Transferência internacional** | Sim — EUA. Ver [`transferencia-internacional.md`](./transferencia-internacional.md). |
@@ -50,8 +50,10 @@ esquema em `migrations/0001_consent.sql` e `0002_access_type.sql`; escrita em
 
 ## 3. Solicitações de remoção de foto
 
-Formulário no rodapé de cada evento. Gravado em KV (`removal_requests`);
-handler `handleRemovalRequest()`.
+Formulário no rodapé de cada evento. Gravado em KV, um registro por pedido
+(`removal_request:<id>`, desde a v2.0; antes, uma lista única
+`removal_requests`, migrada pelo cron diário e então apagada); handler
+`handleRemovalRequest()`, armazenamento em `src/pedidos.js`.
 
 | Campo | Conteúdo |
 | --- | --- |
@@ -60,7 +62,7 @@ handler `handleRemovalRequest()`.
 | **Origem** | Preenchimento direto pelo titular. |
 | **Finalidade** | Localizar a foto, atender ao pedido e comunicar o resultado. E-mail e telefone servem para **confirmar identidade** e responder. |
 | **Base legal** | **Art. 7º, II** (cumprimento de obrigação legal: atender ao direito de eliminação/oposição, art. 18) e **art. 7º, I** (consentimento marcado no formulário). |
-| **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests`) e defensivamente a cada nova solicitação. Pedidos **não resolvidos nunca são apagados** automaticamente. |
+| **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests` → `podaResolvidos`). Desde a v2.0 o cron é o único caminho de poda (a verificação que vinha de carona em cada nova solicitação dependia de regravar a lista inteira, e saiu com ela); se o cron parar, o `/api/healthz` acusa em até 26 h (`cron:last`). Pedidos **não resolvidos nunca são apagados** automaticamente. |
 | **Compartilhamento** | Resend (entrega do e-mail ao controlador e do aviso ao titular). |
 | **Nota de minimização** | A foto enviada **não é gravada** no banco — trafega só no e-mail. E os **metadados EXIF são removidos no servidor antes disso** (`stripImageMetadata()`): quem envia uma foto pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi tirada, e não precisamos delas. Ver `politica-seguranca-informacao.md`. |
 
@@ -85,11 +87,11 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. |
-| **Dado pessoal?** | **Não.** É contagem agregada, sem identificador, sem sessão, sem perfil. |
+| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. Desde a v2.0: a mesma contagem **por dia** (`d:<AAAA-MM-DD>:<chave>`), e quantos acessos ao Drive o portão liberou por **modo de verificação** (`gate:turnstile`, `gate:email`, `gate:noscript`, também por dia). |
+| **Dado pessoal?** | **Não.** É contagem agregada, sem identificador, sem sessão, sem perfil. A contagem por dia e por modo continua sendo só número: não leva IP, projeto (no caso do modo), cookie nem horário — o dia é o menor recorte. |
 | **Cookie associado** | `fv_<slug>=1`, expira em 1 h, `SameSite=Lax`, escopo do próprio projeto. Serve só para não contar a mesma visita duas vezes na mesma hora. Não identifica, não persiste, não é lido por terceiro. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse — métrica própria). |
-| **Retenção** | Indefinida (agregado, sem titular). Apagado junto com o projeto. |
+| **Retenção** | Totais: indefinida (agregado, sem titular), apagados junto com o projeto. Série por dia: **400 dias**, podada automaticamente no primeiro incremento de cada dia (`Counter`, `src/counters.js`) e apagada junto com o projeto. |
 
 ---
 
@@ -149,6 +151,25 @@ que quebra o desafio) ou esgotou as tentativas num pico de acesso. Handler
 | **Compartilhamento** | Resend (entrega do e-mail). |
 | **Limites** | Por IP, por endereço (3/h) e teto diário da conta (40) — este protege a franquia de e-mail dividida com remoção e suporte. Apelido `+etiqueta` é recusado e os pontos do Gmail contam como um endereço só, para ninguém multiplicar envios para a mesma caixa. Valores em `src/config.js`. |
 | **Quando aparece** | Só quando o acesso está bloqueado: verificação anti-robô falhou/travou, ou o gate recusou por verificação, limite, servidor ou rede depois das tentativas automáticas. |
+
+---
+
+## 10. Ambiente de prévia (teste de mudanças antes da publicação)
+
+Desde a v2.0, cada mudança no código ganha uma **prévia**: o mesmo sistema, num
+endereço próprio, com armazenamento **separado** do de produção (KV
+`fotos-previa`, D1 `fotos-consent-previa`, Durable Objects próprios). Serve
+para o controlador testar a mudança antes de publicá-la. Código: `src/previa.js`.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | Os projetos que o controlador copia para lá (restaurando um backup do painel — título, descrição, links das pastas do Drive, capas); o registro de consentimento, as sessões e os contadores gerados **pelos testes do próprio controlador**. |
+| **Minimização** | Restaurar backup na prévia **não traz os pedidos de remoção** (e-mail, telefone e mensagem de terceiros) — o código os recusa e diz isso na tela. A prévia não envia heartbeat nem medição de acesso. O menu "Testes" da prévia tem **"E-mail → tudo para o dono"**: todo e-mail da prévia vai ao controlador, com o destinatário original só no assunto — para testar com endereço inventado sem escrever a terceiros. As "métricas de exemplo" são números inventados, sem dado pessoal. |
+| **Cookies da prévia** | Só existem na prévia: `previa_ts`, `previa_email`, `previa_portao`, `previa_banco`, `previa_drive`, `previa_rede` (a simulação escolhida — um valor de uma lista fixa, 30 dias, `HttpOnly`) e `previa_aviso` (o aviso de uma ação, 60 s). Preferência técnica de quem testa; nenhum identifica ninguém. |
+| **Titulares** | O próprio controlador, em teste. **Não é para participantes:** o endereço não é divulgado, toda página tem a faixa "PRÉVIA" e a resposta `noindex` (não aparece em busca). Se um terceiro, mesmo assim, usar a prévia, o aceite dele fica só no D1 da prévia. |
+| **Base legal** | Art. 7º, IX (legítimo interesse — testar a segurança e o funcionamento do serviço antes de publicá-lo). Para dados do próprio controlador, não há titular terceiro. |
+| **Retenção** | A limpeza automática diária **não roda** em prévia (cron não alcança prévias — regra da plataforma). Os dados de teste são apagados manualmente: a prévia inteira com `npx wrangler preview delete`; o KV e o D1 de prévia, pelo painel da Cloudflare. Registro honesto do limite: nada aqui é podado sozinho. |
+| **Compartilhamento** | Os mesmos operadores de produção (Cloudflare; Resend, nos e-mails de teste, que saem com "[PRÉVIA]" no assunto). |
 
 ---
 

@@ -10,13 +10,18 @@ import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
+import { VENDOR } from './content/vendor.js';
+import { galeriaHTML } from './ui/galeria.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
+import { ehPrevia, fetchDaPrevia } from './previa.js';
+import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda,
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
-  bumpCounter, readCounters, deleteCounters,
+  bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
@@ -35,7 +40,8 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
+  METRICAS_DIAS_MAX, GATE_METODOS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -182,6 +188,8 @@ function stripBody(res) {
 const LEGAL_DOC_PATH_RE = /^\/legal\/([a-z0-9-]+)$/;
 const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/;
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -239,6 +247,9 @@ const worker = {
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
       if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
+      // Bibliotecas vendorizadas (PhotoSwipe da galeria, #235). Mesmo
+      // esquema das fontes: busca exata, nome com hash, cache imutável.
+      if (method === 'GET' && VENDOR_BY_PATH.has(path)) return handleVendor(path);
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
@@ -271,6 +282,7 @@ const worker = {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
+      if (path === '/api/metrics/diario' && method === 'GET') return handleMetricsDiario(request, env, url);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
       if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
@@ -331,6 +343,13 @@ const worker = {
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
       if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
 
+      // Galeria própria — PRÉVIA, só para o dono logado (#235). Para qualquer
+      // outra pessoa é o mesmo 404 de uma rota que não existe.
+      const galeriaMatch = path.match(GALERIA_PATH_RE);
+      if (galeriaMatch && method === 'GET') return handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      const baixarMatch = path.match(GALERIA_BAIXAR_RE);
+      if (baixarMatch && method === 'GET') return handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
+
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
       if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
@@ -374,7 +393,34 @@ const worker = {
   },
 };
 
-export default worker;
+// O que a Cloudflare chama. Em produção é `worker.fetch` direto; numa Prévia de
+// PR (Worker Previews, `AMBIENTE = "previa"` — só no bloco [previews] do
+// wrangler.toml) a camada de src/previa.js vem por fora: faixa, noindex,
+// Turnstile de teste. Ver o comentário no topo de lá.
+export default {
+  /**
+   * @param {Request} request
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  fetch(request, env, ctx) {
+    if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
+    return fetchDaPrevia(request, env, ctx, {
+      rotear: (r, e, c) => worker.fetch(r, e, c),
+      // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
+      // painel — a mesma checagem das rotas /api/ de admin.
+      autenticado: async (r, e) => (await checkAuth(r, e)) === null,
+    });
+  },
+  /**
+   * @param {ScheduledController} event
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  scheduled(event, env, ctx) {
+    return worker.scheduled(event, env, ctx);
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Gallery
@@ -654,7 +700,7 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   if (!stored) {
-    return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
+    return adminHtml(paginaDeAviso('Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.'), 503, nonce);
   }
   if (!authed || !dados) {
     // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
@@ -676,8 +722,19 @@ async function handleDashboardPage(request, env, url, nonce) {
 const PAINEL_INDISPONIVEL_MSG =
   'O painel está temporariamente indisponível: o banco de dados do site (KV) não respondeu. ' +
   'Nada foi alterado e o site público segue no ar. Tente de novo em alguns minutos.';
-const PAINEL_INDISPONIVEL_HTML =
-  `<p style="font-family:monospace;padding:40px;max-width:640px;line-height:1.6">${PAINEL_INDISPONIVEL_MSG}</p>`;
+const PAINEL_INDISPONIVEL_HTML = paginaDeAviso(PAINEL_INDISPONIVEL_MSG);
+
+// As páginas curtas do painel (KV fora, painel não configurado) eram um <p>
+// solto: sem `<meta name="viewport">`, o celular as desenhava numa largura de
+// 980 px e o texto saía minúsculo — justamente na hora em que o dono abre o
+// painel pelo celular para entender o que caiu. Agora são um documento
+// mínimo, com a mesma aparência.
+/** @param {string} conteudo HTML já pronto (texto fixo do código, nunca dado de fora) */
+function paginaDeAviso(conteudo) {
+  return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Painel</title></head>'
+    + `<body><p style="font-family:monospace;padding:40px 24px;max-width:640px;line-height:1.6">${conteudo}</p></body></html>`;
+}
 
 // ---------------------------------------------------------------------------
 // Login
@@ -1302,6 +1359,64 @@ async function handleMetrics(request, env) {
 }
 
 // ---------------------------------------------------------------------------
+// API: Métricas por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// A série diária dos contadores para o gráfico do painel: uma chamada ao
+// Durable Object, não uma por dia nem por projeto (#215 — chamada de DO é
+// subrequisição, 50 por invocação no gratuito). Devolve os dias em ordem e,
+// para cada projeto, os vetores de visitas e de cliques no Drive alinhados a
+// eles — o navegador só desenha. Projeto sem nenhum acesso no período não vem
+// (o painel trata ausente como zeros). `primeiroDia` é o dia mais antigo que a
+// série tem: antes dele, só o total existe.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleMetricsDiario(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  const pedido = parseInt(url.searchParams.get('dias') || '', 10);
+  const n = Number.isInteger(pedido) ? Math.min(METRICAS_DIAS_MAX, Math.max(1, pedido)) : 90;
+  const hoje = hojeEmSaoPaulo();
+  const dias = [];
+  for (let i = n - 1; i >= 0; i--) dias.push(diaMenos(hoje, i));
+  const indice = new Map(dias.map((d, i) => [d, i]));
+
+  const chavesGate = GATE_METODOS.map(m => `gate:${m}`);
+  const [events, { serie, primeiroDia, totais }] = await Promise.all([
+    getEvents(env, true),
+    readSerie(env, dias[0], chavesGate),
+  ]);
+  const conhecidos = new Set(events.map(e => e.slug));
+
+  const zeros = () => new Array(n).fill(0);
+  /** @type {Record<string, { views: number[], driveClicks: number[] }>} */
+  const projetos = {};
+  /** @type {Record<string, number[]>} */
+  const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
+  for (const [k, v] of Object.entries(serie)) {
+    // `d:AAAA-MM-DD:<chave>` — ver src/counters.js.
+    const i = indice.get(k.slice(2, 12));
+    if (i === undefined) continue;
+    const chave = k.slice(13);
+    const sep = chave.indexOf(':');
+    const tipo = chave.slice(0, sep);
+    const resto = chave.slice(sep + 1);
+    if (tipo === 'views' || tipo === 'drive_clicks') {
+      if (!conhecidos.has(resto)) continue;
+      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros() });
+      (tipo === 'views' ? p.views : p.driveClicks)[i] += v;
+    } else if (tipo === 'gate' && gate[resto]) {
+      gate[resto][i] += v;
+    }
+  }
+  const gateTotal = Object.fromEntries(GATE_METODOS.map(m => [m, totais[`gate:${m}`] || 0]));
+  return jsonOk({ hoje, dias, primeiroDia, projetos, gate, gateTotal });
+}
+
+// ---------------------------------------------------------------------------
 // API: Track Drive click (public)
 // ---------------------------------------------------------------------------
 /**
@@ -1811,29 +1926,20 @@ export async function handleRemovalRequest(request, env) {
   // direito da LGPD via "algo deu errado" e nada mais. Perder pedido de titular
   // por indisponibilidade de banco é negar o direito por motivo nosso.
   //
-  // `requests === null` daqui para baixo quer dizer "não está gravado": o
+  // `gravado === false` daqui para baixo quer dizer "não está gravado": o
   // e-mail passa a ser o único registro, e a resposta ao titular diz a verdade
   // sobre isso em vez de fingir 500 ou fingir sucesso.
-  /** @type {Record<string, any>[]|null} */
-  let requests = null;
+  //
+  // Uma chave só deste pedido (#198, src/pedidos.js): gravar não lê nem
+  // regrava a lista, então dois pedidos ao mesmo tempo não se apagam. A poda
+  // dos resolvidos antigos fica com o cron — antes ela vinha de carona aqui
+  // porque a lista inteira era regravada de qualquer jeito.
+  let gravado = false;
+  let gravadoEm = 0;
   try {
-    const stored = await getRemovalRequests(env);
-    // Defensive retention: drop resolved requests past the window even if the
-    // daily cron has not run yet.
-    const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-    /** @type {Record<string, any>[]} */
-    const lista = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
-      ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
-      : true);
-    lista.push(newReq);
-
-    const MAX_REQUESTS = 500;
-    trimRequests(lista, MAX_REQUESTS);
-
-    await env.FOTOS.put('removal_requests', JSON.stringify(lista));
-    // Só depois da escrita: `requests` deixar de ser null é exatamente o que
-    // significa "este pedido está gravado", e é o que o resto da função lê.
-    requests = lista;
+    await gravaPedido(env, newReq);
+    gravado = true;
+    gravadoEm = Date.now();
   } catch (err) {
     noteDegraded(
       'pedido de remoção não gravado no painel',
@@ -1863,7 +1969,7 @@ export async function handleRemovalRequest(request, env) {
     if (!sent) {
       noteDegraded(
         'pedido de remoção sem aviso por e-mail',
-        requests
+        gravado
           ? 'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
           : 'RESEND_API_KEY não configurada E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
       );
@@ -1875,7 +1981,7 @@ export async function handleRemovalRequest(request, env) {
     newReq.emailStatus = 'error: ' + errMessage(adminMail.reason).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
-      requests
+      gravado
         ? 'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
         : 'o envio falhou E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
     );
@@ -1889,9 +1995,14 @@ export async function handleRemovalRequest(request, env) {
   // Se ela falhar, o pedido em si continua gravado pela primeira — o que se
   // perde é a explicação de por que um pedido não gerou aviso, e isso não vale
   // um erro na cara de quem pediu a remoção.
-  if (requests) {
+  //
+  // É a MESMA chave da primeira, e o KV recusa (429) a segunda escrita dentro
+  // de um segundo — os e-mails costumam voltar antes disso. `regravaPedido`
+  // espera o resto da janela: a resposta demora até ~1 s a mais, e em troca o
+  // "enviado" que a pessoa vê vale também para o registro do painel.
+  if (gravado) {
     try {
-      await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+      await regravaPedido(env, newReq, gravadoEm);
     } catch (err) {
       noteDegraded(
         'status de e-mail do pedido de remoção não gravado',
@@ -1901,7 +2012,7 @@ export async function handleRemovalRequest(request, env) {
     }
   }
 
-  if (requests) return jsonOk({ ok: true });
+  if (gravado) return jsonOk({ ok: true });
 
   // KV fora: o e-mail é o único registro que existe deste pedido. Se ele saiu,
   // o pedido chegou a quem tem de agir e o titular recebeu confirmação — o
@@ -1949,26 +2060,6 @@ export function trimRequests(requests, max) {
   return requests;
 }
 
-// Mesmo portão de forma que `parseEvents()` (utils.js) faz para a lista de
-// eventos, e pelo mesmo motivo: o valor pode vir de um restore de backup ou de
-// uma escrita truncada, e um `JSON.parse` cru devolvia o que estivesse lá.
-// Um objeto no lugar do array quebrava com `.filter is not a function` DENTRO
-// do POST público /api/removal-request — o canal de direito do titular virando
-// 500 por causa de um valor corrompido em KV.
-/**
- * @param {Env} env
- * @returns {Promise<Pedido[]>}
- */
-async function getRemovalRequests(env) {
-  const data = await env.FOTOS.get('removal_requests');
-  if (!data) return [];
-  try {
-    const parsed = JSON.parse(data);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(r => r && typeof r === 'object' && !Array.isArray(r));
-  } catch { return []; }
-}
-
 // Ordenação por data de criação, mais novo primeiro, à prova de registro sem
 // `createdAt`. `sanitizeRestoredRequest()` só copia o campo quando ele vem como
 // string, então um backup sem ele produz um registro válido e sem data — e o
@@ -1983,22 +2074,29 @@ function porCriacaoDesc(a, b) {
   return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 }
 
-// Drop resolved requests whose resolvedAt is older than the retention window.
-// Unresolved requests are always kept. Returns true if anything was removed.
+// Cron diário: primeiro termina a migração do array antigo para uma chave por
+// pedido (#198 — ver src/pedidos.js), depois apaga os RESOLVIDOS há mais que o
+// prazo de retenção. Pendente nunca sai. Devolve true se algo foi apagado ou
+// migrado. Falha do KV sobe: o cron registra e alerta (scheduled()).
+//
+// A poda roda mesmo que a migração falhe: são chaves diferentes, e um dia de
+// migração recusada (cota de escrita, KV fora) não pode virar um dia sem o
+// prazo de retenção cumprido. O erro da migração sobe depois da poda.
 /**
  * @param {Env} env
  */
-async function pruneResolvedRemovalRequests(env) {
-  const requests = await getRemovalRequests(env);
-  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const kept = requests.filter(/** @param {Record<string, any>} r */ r => {
-    if (!r.resolved) return true;
-    const t = new Date(r.resolvedAt || r.createdAt || 0).getTime();
-    return t >= cutoff;
-  });
-  if (kept.length === requests.length) return false;
-  await env.FOTOS.put('removal_requests', JSON.stringify(kept));
-  return true;
+export async function pruneResolvedRemovalRequests(env) {
+  let migrados = 0;
+  /** @type {unknown} */
+  let erroDaMigracao = null;
+  try {
+    ({ migrados } = await migraLegado(env));
+  } catch (e) {
+    erroDaMigracao = e;
+  }
+  const apagados = await podaResolvidos(env, Date.now() - REMOVAL_RETENTION_DAYS * 86400_000);
+  if (erroDaMigracao) throw erroDaMigracao;
+  return migrados > 0 || apagados > 0;
 }
 
 /**
@@ -2008,8 +2106,8 @@ async function pruneResolvedRemovalRequests(env) {
 async function handleGetRemovalRequests(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  return jsonOk([...requests].sort(porCriacaoDesc));
+  const requests = await listaPedidos(env);
+  return jsonOk(requests.sort(porCriacaoDesc));
 }
 
 /**
@@ -2020,11 +2118,10 @@ async function handleGetRemovalRequests(request, env) {
 async function handleResolveRequest(request, env, id) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  const idx = requests.findIndex(/** @param {Record<string, any>} r */ r => r.id === id);
-  if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
-
-  const req = requests[idx];
+  // Só o registro deste pedido (#198): resolver não regrava a lista e não
+  // apaga um pedido que chegou enquanto o e-mail saía.
+  const req = await lePedido(env, id);
+  if (!req) return jsonErr('Solicitação não encontrada.', 404);
 
   // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
   // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
@@ -2040,7 +2137,7 @@ async function handleResolveRequest(request, env, id) {
     resolvedEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
   }
 
-  requests[idx] = {
+  const resolvido = {
     ...req,
     resolved: true,
     resolvedAt: new Date().toISOString(),
@@ -2050,7 +2147,7 @@ async function handleResolveRequest(request, env, id) {
   // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
   // antes e atualizar depois falharia justamente em produção.
   try {
-    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+    await gravaPedido(env, resolvido);
   } catch (e) {
     // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
     // novo às cegas mandaria um segundo aviso à pessoa.
@@ -2060,7 +2157,7 @@ async function handleResolveRequest(request, env, id) {
       : 'Nenhum e-mail de confirmação foi enviado.';
     return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
   }
-  return jsonOk(requests[idx]);
+  return jsonOk(resolvido);
 }
 
 // ---------------------------------------------------------------------------
@@ -2662,6 +2759,13 @@ export async function handleDriveLink(request, env, ctx) {
     ));
   }
 
+  // Métrica anônima de COMO a pessoa passou pelo portão (v2): só a contagem
+  // por modo — sem slug, sem IP. Mostra no painel quantos precisam do caminho
+  // sem script (bloqueador) ou do código por e-mail, e é o número que faltava
+  // para calibrar os baldes depois de um evento (#230). Fora do caminho da
+  // resposta, como os outros contadores.
+  bumpCounter(env, ctx, `gate:${GATE_METODOS[verificacao]}`);
+
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
@@ -3068,6 +3172,218 @@ function handleFont(path) {
   });
 }
 
+const VENDOR_BY_PATH = new Map(VENDOR.map(v => [v.path, v]));
+
+/** @param {string} path */
+function handleVendor(path) {
+  const v = /** @type {typeof VENDOR[number]} */ (VENDOR_BY_PATH.get(path));
+  return new Response(v.texto, {
+    status: 200,
+    headers: { ...dataSecurityHeaders(v.contentType, { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Galeria própria — PRÉVIA (#234/#235)
+// ---------------------------------------------------------------------------
+// Fotos da pasta do Drive dentro do site, com visualizador e downloads
+// próprios. Por enquanto SÓ o dono logado no painel vê: para qualquer outra
+// pessoa as duas rotas devolvem o mesmo 404 de uma rota inexistente — nem a
+// existência da página vaza. A liberação gradual (testadores → porcentagem →
+// todos, #235) entra trocando só esta função, depois da aprovação do dono.
+//
+// Sem cookie de sessão, verifySession() responde sem tocar no KV: um robô
+// batendo em /galeria/… não custa leitura nenhuma.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function podeVerGaleria(request, env) {
+  return verifySession(env, request);
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {URL} url
+ * @param {string} nonce
+ */
+export async function handleGaleriaPagina(request, env, slug, url, nonce) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+
+  const pasta = pastaDoDrive(event.driveUrl);
+  /** @type {import('./drive.js').ListagemDrive | null} */
+  let listagem = null;
+  /** @type {{ codigo: string, mensagem: string } | null} */
+  let erro = null;
+  const atualizar = url.searchParams.has('atualizar');
+  if (!pasta) {
+    erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
+  } else {
+    try {
+      listagem = await listaPasta(env, pasta, { atualizar });
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      erro = { codigo: e.codigo, mensagem: e.message };
+    }
+  }
+  // Depois de reler, volta para o endereço limpo: recarregar a página não
+  // pode virar uma nova leitura forçada a cada F5.
+  if (atualizar && listagem) return redirect(`/galeria/${slug}`);
+  return adminHtml(galeriaHTML({ event, listagem, erro, nonce }), 200, nonce);
+}
+
+/**
+ * Download de uma foto da galeria. Proxy de propósito, e não link direto:
+ * (1) o original sai pela Drive API, que leva a chave — ela não pode ir para a
+ * página; (2) o nome do arquivo e o `Content-Disposition` são nossos; (3) sendo
+ * da mesma origem, o celular consegue montar o arquivo e oferecer "Salvar na
+ * galeria" (Web Share). Só entrega arquivo que ESTÁ na pasta do projeto —
+ * sem essa checagem, o Worker viraria um proxy aberto para qualquer arquivo
+ * público do Drive.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {URL} url
+ */
+export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  if (!idDriveValido(fileId)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  const pasta = event ? pastaDoDrive(event.driveUrl) : null;
+  if (!event || !pasta) return notFound();
+
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  try {
+    listagem = await listaPasta(env, pasta);
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return erroDownload(request, e.message, 502);
+  }
+  const foto = achaFoto(listagem, fileId);
+  if (!foto) return notFound();
+
+  const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
+  /** @type {Record<string, string>} */
+  const headers = {};
+  let alvo;
+  if (variante === 'max') {
+    alvo = urlOriginal(fileId, (env.GOOGLE_DRIVE_API_KEY || '').trim());
+    const rk = listagem.rk && listagem.rk[fileId];
+    if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${rk}`;
+  } else {
+    alvo = urlLh3(fileId, larguraRedes(foto[1], foto[2]));
+    // JPEG explícito: é o formato que toda rede aceita sem reconverter.
+    headers.Accept = 'image/jpeg,image/*;q=0.8';
+  }
+
+  // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
+  // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
+  // entregaria arquivo truncado.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let up;
+  try {
+    up = await fetch(alvo, { headers, signal: ctrl.signal });
+  } catch {
+    return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!up.ok) {
+    if (variante === 'max') {
+      const e = await erroDaApi(up);
+      // O caso mais provável num pico: a cota de download do arquivo (#233).
+      const msg = e.codigo === 'limite'
+        ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
+        : e.message;
+      return erroDownload(request, msg, up.status === 404 ? 404 : 502);
+    }
+    return erroDownload(request, `O Google recusou a foto (${up.status}).`, 502);
+  }
+
+  const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
+  const nome = nomeDownload(slug, foto[3], variante, tipo);
+  const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
+  h.set('Cache-Control', 'private, max-age=3600');
+  h.set('Content-Disposition', contentDisposition(nome));
+  // Lido pelo script da página para nomear o arquivo do "Salvar na galeria".
+  h.set('X-Nome-Arquivo', encodeURIComponent(nome));
+  const tamanho = up.headers.get('Content-Length');
+  if (tamanho) h.set('Content-Length', tamanho);
+  return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * Largura a pedir ao lh3 para a versão "para redes": o LADO MAIOR fica em
+ * GALERIA_LADO_REDES (o lh3 só aceita largura; numa foto em pé, a largura sai
+ * proporcional). Nunca acima do original.
+ * @param {number} w
+ * @param {number} h
+ */
+export function larguraRedes(w, h) {
+  if (!(w > 0 && h > 0)) return GALERIA_LADO_REDES;
+  if (w >= h) return Math.min(w, GALERIA_LADO_REDES);
+  return Math.min(w, Math.round(GALERIA_LADO_REDES * w / h));
+}
+
+/**
+ * Nome do arquivo baixado: <slug>-<nome original>[-redes].<ext>. O slug na
+ * frente evita que "001.jpg" de dois projetos se sobrescrevam na pasta de
+ * downloads.
+ * @param {string} slug
+ * @param {string} original
+ * @param {'redes'|'max'} variante
+ * @param {string} tipo
+ */
+export function nomeDownload(slug, original, variante, tipo) {
+  const ponto = original.lastIndexOf('.');
+  const extOriginal = ponto > 0 ? original.slice(ponto + 1).toLowerCase() : '';
+  const base = (ponto > 0 ? original.slice(0, ponto) : original)
+    .normalize('NFC')
+    .replace(/[\p{Cc}"\\/:*?<>|]+/gu, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'foto';
+  /** @type {Record<string, string>} */
+  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif', 'image/tiff': 'tif' };
+  const ext = variante === 'redes'
+    ? (EXT[tipo] || 'jpg')
+    : (/^[a-z0-9]{1,5}$/.test(extOriginal) ? extOriginal : (EXT[tipo] || 'jpg'));
+  const prefixo = base.toLowerCase().startsWith(slug) ? '' : `${slug}-`;
+  return `${prefixo}${base}${variante === 'redes' ? '-redes' : ''}.${ext}`;
+}
+
+/**
+ * `attachment` com o nome em UTF-8 (RFC 6266/5987) e um ASCII de reserva para
+ * quem não lê o `filename*`. O nome já chega sem aspas, barras nem controle.
+ * @param {string} nome
+ */
+export function contentDisposition(nome) {
+  const ascii = nome.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '') || 'foto.jpg';
+  const utf8 = encodeURIComponent(nome).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+}
+
+/**
+ * Erro de download: página para quem abriu o link (navegação), JSON para o
+ * script que montava o "Salvar na galeria".
+ * @param {Request} request
+ * @param {string} mensagem
+ * @param {number} status
+ */
+function erroDownload(request, mensagem, status) {
+  if ((request.headers.get('Accept') || '').includes('text/html')) {
+    return errorPage('Ops', escape(mensagem), status);
+  }
+  return jsonErr(mensagem, status);
+}
+
 // ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
@@ -3222,7 +3538,7 @@ async function handleGetBackup(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const [events, categories, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), getRemovalRequests(env),
+    getEvents(env, true), getCategories(env), listaPedidos(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
   return new Response(buildBackup({ events, categories, removalRequests }), {
@@ -3275,20 +3591,33 @@ async function handleRestoreBackup(request, env) {
     if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
-  if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await getRemovalRequests(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
-    let rAdded = 0;
+  // Na PRÉVIA de PR, os pedidos de remoção do backup ficam de fora: são dados
+  // pessoais de terceiros (e-mail, telefone), e a prévia manda e-mail de
+  // verdade — "resolver" um pedido lá escreveria para uma pessoa real sobre
+  // um teste. Para testar o fluxo, faça um pedido novo pela própria prévia.
+  if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
+    result.removalRequestsSkipped = body.removalRequests.length;
+  } else if (Array.isArray(body.removalRequests)) {
+    const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
+    /** @type {Record<string, any>[]} */
+    const novos = [];
     for (const r of body.removalRequests) {
       const clean = sanitizeRestoredRequest(r);
-      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); rAdded++; }
+      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
     }
-    // Teto no total: o corpo vem de um arquivo escolhido à mão e nada impedia
-    // um restore de inflar `removal_requests` além do limite de valor do KV,
-    // que falha a escrita e derruba a lista inteira, não só o excedente.
-    const merged = [...byId.values()];
-    trimRequests(merged, 500);
-    await env.FOTOS.put('removal_requests', JSON.stringify(merged));
-    result.removalRequestsAdded = rAdded;
+    // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
+    // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
+    // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
+    // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
+    // restaurar o mesmo arquivo de novo continua de onde parou (id que já
+    // existe é pulado).
+    trimRequests(novos, 500);
+    let gravados = 0;
+    try {
+      for (const r of novos) { await gravaPedido(env, r); gravados++; }
+    } finally {
+      result.removalRequestsAdded = gravados;
+    }
   }
 
   return jsonOk(result);

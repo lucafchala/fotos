@@ -108,3 +108,51 @@ export const NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS = 6 * 3600;
 // Suba o número só quando um campo MUDAR de sentido ou sair — acrescentar
 // campo não quebra quem lê, e o arquivo já registra o acréscimo.
 export const HEALTHZ_CONTRATO = 1;
+
+// ---------------------------------------------------------------------------
+// Galeria própria (#234/#235) — PRÉVIA, só para o dono logado no painel
+// ---------------------------------------------------------------------------
+// A lista da pasta do Drive fica guardada por 10 min (memória do isolate +
+// Cache API, sem escrita de KV). "Atualizar lista" na página força a releitura.
+export const GALERIA_LISTA_TTL_S = 600;
+// Tetos que mantêm UMA requisição dentro do plano gratuito: cada página da
+// Drive API (até 1000 arquivos) é uma subrequisição, e o plano gratuito dá 50
+// por invocação. Passou de algum teto, a lista sai PARCIAL e a página avisa —
+// nunca um erro.
+export const GALERIA_MAX_FOTOS = 6000;
+export const GALERIA_MAX_PASTAS = 25;
+// Raiz = 0. Duas camadas de subpasta cobrem "Cerimônia / Festa" e
+// "Dia 1 / Manhã"; mais fundo que isso é arquivo de trabalho, não galeria.
+export const GALERIA_MAX_PROFUNDIDADE = 2;
+export const GALERIA_MAX_CHAMADAS = 30;
+// Download "para redes": lado MAIOR em pixels. Instagram publica até 1080 de
+// largura (1440 de altura no 4:5) e o WhatsApp recomprime; 2048 dá folga para
+// recorte sem virar arquivo pesado (~0,5–1 MB em JPEG).
+export const GALERIA_LADO_REDES = 2048;
+// Escada de larguras do visualizador, do menor ao maior. O navegador escolhe a
+// menor que cobre a foto NA TELA em pixels físicos (srcset + sizes), e o zoom
+// sobe o `sizes` — então ampliar busca o próximo degrau, até o original.
+// Degraus acima do tamanho real da foto são cortados na hora de montar.
+export const GALERIA_LARGURAS = [480, 800, 1200, 1600, 2048, 2560, 3200, 4096, 5120, 6400];
+// Miniaturas da grade: a menor que cobre o quadradinho em pixels físicos.
+export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 600, 800, 1000];
+
+// ---------------------------------------------------------------------------
+// Métricas por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// Cada contador do Durable Object `Counter` (visitas, cliques no Drive, modo
+// de entrada no portão) ganha também um balde por DIA de São Paulo, gravado
+// na mesma chamada e na mesma gravação do total. Os baldes mais velhos que
+// isto são podados uma vez por dia: 400 dias cobrem um ano inteiro e a
+// comparação com o mesmo mês do ano anterior, sem a série crescer para sempre.
+export const METRICAS_RETENCAO_DIAS = 400;
+// O máximo que /api/metrics/diario devolve de uma vez. O painel pede 180 para
+// comparar o maior período (90 dias) com os 90 anteriores.
+export const METRICAS_DIAS_MAX = 180;
+// Os modos de passar pelo portão do Drive, na ordem do `turnstile_ok` do
+// registro de consentimento (0, 1, 2). Só a contagem — sem slug, sem IP.
+export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'email']);
+
+// Versão do site. Sobe junto com a do package.json (há teste que confere) e
+// aparece no rodapé do painel; o CHANGELOG.md diz o que mudou em cada uma.
+export const VERSAO = '2.0.0';

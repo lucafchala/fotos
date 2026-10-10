@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # ~880 testes em duas suítes (node + workerd), ~25 s — out/2026
+npm test          # ~950 testes em duas suítes (node + workerd), ~50 s — out/2026
 npm run lint
 ```
 
@@ -55,6 +55,9 @@ npx wrangler dev
 npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
+npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
+npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
+npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -77,28 +80,46 @@ src/
                   `export const` lá derruba o workerd na inicialização.
   counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
                   (janela fixa `check()` e balde de fichas `take()`)
+  drive.js      ← galeria própria (prévia): Drive API (lista a pasta, mapeia erros), URLs do
+                  lh3 e do original. A chave só existe aqui e no proxy de download.
+  pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
+                  que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
+  previa.js     ← a camada da PRÉVIA DE PR, por fora do roteador: faixa, noindex, menu
+                  "Testes" (simulações por cookie, ações com sessão). Só com AMBIENTE =
+                  "previa"; em produção nenhuma linha dela roda (§5.16)
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
+    galeria.js  ← galeria própria /galeria/<slug> (prévia, só o dono): grade + PhotoSwipe + downloads
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
     fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
+    vendor.js      ← GERADO de vendor/ (npm run build:vendor). Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
 fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
+vendor/         ← bibliotecas de terceiros servidas em /vendor/ (hoje, o PhotoSwipe 5, MIT) + licença
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+scripts/build-vendor.mjs      ← vendor/ → vendor.js, com o hash do conteúdo no nome publicado
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
+scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
+scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
+scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
+scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
+scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
   smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
   scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas EMITEM (#127)
   helpers/scripts-embutidos.d.ts ← o que o tsc não sabe desses scripts, em listas fechadas
+  painel.test.js ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle)
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
+docs/PAINEL.md    ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, como verificar
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode
@@ -371,6 +392,142 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
+### 5.13. Galeria própria: prévia só do dono, e o portão é UMA função
+
+Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
+Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
+"tamanho máximo". **Ainda é prévia**: só quem está logado no painel vê; para
+qualquer outra pessoa, a página e o download são o 404 de rota inexistente. A
+liberação (testadores → porcentagem → todos) espera a aprovação do dono e troca
+**só** `podeVerGaleria()` em `src/index.js` — nada de espalhar `if` de acesso
+pelas rotas. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
+"Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link".
+
+O que já mordeu, ou morderia:
+
+- **A chave nunca vai à página.** A lista que a página recebe não tem nem a
+  chave nem as resource keys; o original sai pelo proxy
+  `/galeria/<slug>/baixar/<id>`. O teste "sem a chave na página" prende isso.
+- **O proxy só serve o que está na pasta do projeto.** Sem a checagem de
+  pertencimento (`achaFoto`), ele seria um proxy aberto para qualquer arquivo
+  público do Drive com a nossa cota. Há teste que falha se ela sumir.
+- **A lista não grava em KV.** Fica na memória do isolate e na Cache API
+  (chave `https://fotos.invalid/__galeria/<id>`, o mesmo truque da cópia de
+  sobrevivência da lista de eventos), 10 min. A cota de 1000 escritas/dia (§5.3)
+  não é tocada.
+- **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
+  subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
+  (30) e a página avisa que a lista é parcial.
+- **"Salvar na galeria" no iPhone precisa de DOIS toques.** O
+  `navigator.share()` exige um toque recente, e baixar 20 MB demora mais que
+  isso: o primeiro toque prepara o arquivo, o segundo compartilha.
+- **O zoom só sobe a resolução porque o `srcset` vai até o original.** O
+  PhotoSwipe nunca baixa o `sizes` de um slide (guarda o maior já usado); se a
+  escada parar antes do original, o zoom estica pixel.
+- **O voltar fecha a foto, não a galeria.** Abrir o visualizador (e a folha
+  de download) EMPILHA uma entrada no histórico; trocar de foto só a
+  reescreve. Com `replaceState` puro, o voltar do Android com uma foto aberta
+  levava de volta ao painel. O roteiro confere voltar no desktop, no link
+  direto, no iPhone e no Android.
+- **O script da página mora numa template string** (`SCRIPT` em
+  `src/ui/galeria.js`): crase num comentário dele fecha a string e derruba o
+  módulo inteiro na importação.
+- **No Playwright, `page.route` não intercepta o `<a download>`** — a
+  navegação vira download antes da rota. O `verifica:galeria` confere a URL do
+  download; o nome do arquivo (o `Content-Disposition`) está na suíte.
+
+### 5.14. Painel: o card de evento vai ao navegador por `toString()` — e o bundle mexe nele
+
+Desde out/2026 o painel é em blocos (#220; tudo em `docs/PAINEL.md`). O card
+de cada evento é UMA função, `cardProjetoPainel()` em `src/ui/dashboard.js`:
+o servidor a chama na primeira pintura, e o script da página recebe o código
+dela por `Function.prototype.toString()` para redesenhar depois de cada ação.
+Acabou a duplicação servidor × cliente que fazia o card ser consertado "só no
+CSS". Mas a função tem duas regras, e as duas já foram testadas de verdade:
+
+- **Nada de fora dela.** No navegador não existe o escopo do módulo: tudo o
+  que ela usa chega pelo parâmetro `h` (escape, safeUrl, rótulos, ícones).
+  `tests/painel.test.js` executa o texto injetado isolado.
+- **Nenhuma função NOMEADA dentro dela.** O deploy empacota com esbuild e
+  `keepNames`, que embrulha toda função nomeada num `__name(fn, "nome")` —
+  e `__name` é definido no topo do BUNDLE, não no navegador. Com um
+  `const item = (...) => ...` lá dentro, a suíte inteira passava (ela roda o
+  fonte cru) e o painel em produção quebraria no primeiro redesenho com
+  `__name is not defined`. Foi pego montando o bundle de verdade
+  (`npx wrangler deploy --dry-run --outdir …`) e rodando a função de lá; hoje
+  o teste aplica a mesma transformação (`transformSync` com `keepNames`).
+
+Duas do celular, que o `npm run verifica:painel` prende:
+
+- **Algo 25 px largo demais afasta a página inteira.** No celular, conteúdo
+  mais largo que a tela faz o navegador alargar a "janela de layout" e dar
+  zoom para fora — e a barra de baixo sai do lugar. Grade com coluna `1fr` e
+  campo de texto numa linha flex é a receita (o campo não encolhe abaixo da
+  largura natural); `minmax(0,1fr)` e `min-width:0` desfazem.
+- **Campo com letra menor que 16 px faz o iPhone dar zoom ao tocar.** Por isso
+  os campos do painel têm 16 px abaixo de 900 px de largura.
+
+### 5.15. Pedidos de remoção: uma chave por pedido — e o KV aceita UMA escrita por segundo na mesma chave
+
+Até a v2.0 os pedidos de remoção eram UM array no KV (`removal_requests`),
+regravado inteiro por cinco caminhos. O KV é *last-write-wins*: dois pedidos no
+mesmo instante, ou um pedido chegando durante um "resolver", e a gravação de
+depois apagava do painel o registro de antes (#198). Hoje cada pedido mora em
+`removal_request:<id>` e tudo passa por `src/pedidos.js`. Três regras que os
+testes prendem (`tests/pedidos.test.js`, com um KV de teste que cobra os
+limites do de verdade):
+
+- **Nada regrava o que não é seu.** Criar não lê a lista; resolver lê e grava
+  só o próprio registro; restore grava um por um, e id que já existe é pulado.
+- **Uma escrita por segundo NA MESMA CHAVE** — a segunda, dentro da janela,
+  volta `429`. O envio grava o pedido ANTES dos e-mails (se o cliente fechar a
+  aba no meio, o registro existe) e carimba o status deles DEPOIS, na mesma
+  chave; os e-mails costumam voltar em menos de um segundo, então
+  `regravaPedido()` espera o resto da janela. Sem a espera o carimbo falhava
+  justamente no caso normal — e falhava desde antes da v2.0, quando a chave
+  era o array. Nos testes a espera vira relógio adiantado
+  (`relogioAdiantavel()` em `tests/helpers/pedidos.js`).
+- **Leitura em lote.** A lista lê os registros com `get(chaves[])`, até 100 por
+  operação: o plano gratuito permite 1000 operações de KV por invocação, e um
+  `get` por pedido quebraria o painel no milésimo.
+
+A migração do array antigo roda **no cron**, não em rota GET (abrir o painel
+não gasta escrita): copia o que falta, nunca sobrescreve registro próprio (que
+é mais novo), e só apaga o array depois de todo pedido ter a sua chave. Até lá
+a lista lê os dois juntos. A poda dos resolvidos (180 dias) também é só do
+cron — a verificação que vinha de carona em cada envio dependia de regravar a
+lista inteira e saiu com ela.
+
+### 5.16. Prévia de PR: a faixa vem antes da página — e as simulações trocam o `env`, não o código
+
+A prévia de cada PR (Cloudflare Worker Previews; README, "Prévia de PR") roda
+o código de produção com uma camada por fora do roteador, `src/previa.js`,
+ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
+`wrangler.toml` declara). Quatro coisas que valem saber antes de mexer nela:
+
+- **As simulações do menu "Testes" trocam o `env` daquela requisição**, não o
+  código: a chave do Turnstile, a do Resend, um KV que recusa, um RateLimiter
+  cujo portão diz "lotado". Do roteador para dentro roda o caminho de
+  produção. Se uma simulação nova precisar de um `if` dentro do roteador, ela
+  está no lugar errado — o que se testa deixa de ser o que produção faz. A
+  única exceção é o e-mail "tudo para o dono", que mora em `corpoResend()`
+  (utils.js), o ponto único por onde passa todo envio.
+- **As ferramentas leem o `env` VERDADEIRO.** Com "KV não lê" ligado, "Voltar
+  tudo ao normal" e "Zerar os limites" continuam funcionando — senão a
+  simulação trancaria quem a ligou.
+- **A faixa entra antes do conteúdo da página, com formulários próprios.**
+  Script que pega "o primeiro `<form>`" (ou o primeiro `<details>`, botão…)
+  pega o da faixa — só na prévia. Os do site usam id, classe e `data-action`;
+  a faixa usa `previa-*` e `data-acao` para não esbarrar. E ela entra também
+  em página sem `<body>` (as de erro curtas): a de "KV fora" ficava sem a
+  saída.
+- **Menu aberto por cima de tudo, faixa fechada embaixo do que é tela
+  cheia.** Fechada, z-index 40: o visualizador de fotos e a folha do portão
+  passam por cima e o botão de fechar deles continua alcançável. Aberta
+  (`:has(details[open])`), por cima de tudo — senão o aviso de cookies cobria
+  metade do menu no celular. O `verifica:previa` confere com
+  `elementFromPoint` em cada opção.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -427,6 +584,13 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
 | Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
+| Painel: a lista some ou não redesenha depois de uma ação; console com `__name is not defined` ou `X is not defined` | O card de evento ganhou uma função nomeada ou uma variável de fora (§5.14). `npx vitest run tests/painel.test.js` aponta qual |
+| Painel no celular "afastado" (página pequena, barra de baixo fora do lugar) | Algum bloco mais largo que a tela (§5.14). `npm run verifica:painel` diz em qual seção |
+| Galeria própria: "Falta conectar o site ao Google Drive" | Falta o secret `GOOGLE_DRIVE_API_KEY` — a própria página mostra o passo a passo (§5.13) |
+| `healthz` → "status de e-mail do pedido de remoção não gravado" | O pedido está salvo; o carimbo dos e-mails não. Se for frequente, alguém regravou a mesma chave sem esperar a janela de 1 s do KV (§5.15) |
+| O array `removal_requests` ainda no KV dias depois do deploy da v2.0 (o painel lê os dois juntos, então nada some — mas a migração parou) | O cron não está migrando: `healthz` → `cron:last` (§5.15) |
+| Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
+| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -459,9 +623,19 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   rollback manual (#178); e decidir o portão de preview (#179).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
-  confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
-  pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
-  (#233).
+  confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
+  e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
+  (#232) entrou no PR #236, junto com os outros roteiros de navegador.
+- **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
+  blocos, pedidos de remoção por chave): o dono liga as prévias (três passos
+  no painel da Cloudflare — README, "Prévia de PR"), testa no celular com o
+  menu "Testes" e só então mergeia. Merge é deploy.
+- **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
+  inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
+  usar no celular dele e, gostando, fechar o #220.
+- **Galeria própria** (#235): **prévia só do dono**. Falta o dono
+  configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
+  depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
 
 ---
 
@@ -477,6 +651,7 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 | [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |
 | [Issues](https://github.com/lucafchala/fotos/issues) | O que falta fazer — cada item de ação vive aqui, não em TODO.md |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
+| [docs/PAINEL.md](./docs/PAINEL.md) | O painel por dentro: seções, blocos, ações, endpoints, como verificar |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |

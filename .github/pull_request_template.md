@@ -63,7 +63,14 @@ Fixes #
 - [ ] Banner de "novas fotos" aparece e expira conforme configurado
 - [ ] Formulário de solicitação de remoção envia
 
+**Galeria própria** (`/galeria/<slug>` — prévia, só o dono)
+- [ ] Sem sessão, página e download são o 404 de rota inexistente
+- [ ] Mexeu na galeria, em `src/drive.js` ou em `vendor/`: `npm run verifica:galeria` (grade por aparelho, zoom, downloads, "Salvar na galeria") e as capturas olhadas
+- [ ] A chave da Drive API não aparece na página nem em mensagem de erro
+
 **Painel administrativo** (`/dashboard`)
+- [ ] Mexeu no painel: `npm run verifica:painel` (entrar, criar, editar e marcar entregue, menu "⋯", pedido de remoção, trocar senha, excluir — no iPhone, no Android e no computador) e as capturas olhadas
+- [ ] Mexeu no card de evento (`cardProjetoPainel`): `tests/painel.test.js` verde — ele roda o card como o navegador recebe, inclusive depois do bundle
 - [ ] Login e logout
 - [ ] CRUD de evento (criar, editar, excluir), reordenar, marcar featured / em breve / oculto
 - [ ] Aba de Métricas abre sem erro, inclusive com projeto que tem `views > 0`
