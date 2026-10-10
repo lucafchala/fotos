@@ -117,6 +117,38 @@ export function blocos(html) {
   };
 }
 
+// O HTML com os blocos <script> tirados — para afirmar sobre o que a página
+// MOSTRA, sem tropeçar no que o script ou a ilha de dados carrega.
+//
+// Sem regex de propósito. Era `html.replace(/<script\b[\s\S]*?<\/script>/gi,
+// '')`, e o CodeQL do #236 acusou com razão as duas falhas dela: não fecha em
+// `</script >` (o tokenizador fecha — a mesma lição de RE_SCRIPT_BLOCO acima)
+// e "tirar uma vez" deixa sobrar `<script` quando os pedaços se recompõem. Aqui
+// a varredura anda como o tokenizador: abre em `<script`, fecha no primeiro
+// `</script` seguido de espaço, `/` ou `>`, e um bloco sem fechamento leva o
+// resto da página — que é o que o navegador faria com ele.
+/** @param {string} html */
+export function foraDosScripts(html) {
+  const baixo = html.toLowerCase();
+  const fechaAqui = (/** @type {number} */ i) => {
+    const c = baixo.charAt(i + 8);
+    return c === '>' || c === '/' || c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+  };
+  let saida = '';
+  let i = 0;
+  for (;;) {
+    const abre = baixo.indexOf('<script', i);
+    if (abre < 0) return saida + html.slice(i);
+    saida += html.slice(i, abre);
+    let fecha = baixo.indexOf('</script', abre);
+    while (fecha >= 0 && !fechaAqui(fecha)) fecha = baixo.indexOf('</script', fecha + 1);
+    if (fecha < 0) return saida;
+    const fim = baixo.indexOf('>', fecha);
+    if (fim < 0) return saida;
+    i = fim + 1;
+  }
+}
+
 /** Abre/fecha, para o teste de fechamento precoce. */
 export function contaScriptTags(html) {
   return {

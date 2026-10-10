@@ -19,7 +19,7 @@ import { dashboardHTML } from '../src/ui/dashboard.js';
 import { GALERIA_MAX_PASTAS, GALERIA_LADO_REDES } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
-import { contaScriptTags } from './helpers/paginas.js';
+import { contaScriptTags, foraDosScripts } from './helpers/paginas.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 
 const SITE = 'https://fotos.lucafchala.com';
@@ -392,6 +392,29 @@ describe('galeriaHTML — nomes vindos do Drive são dado, não marcação', () 
   });
 });
 
+describe('foraDosScripts — fecha o bloco onde o navegador fecha', () => {
+  it('tira o script em todas as formas de fechamento que o tokenizador aceita', () => {
+    for (const fecho of ['</script>', '</script >', '</SCRIPT>', '</script\n>', '</script/>', '</script\tfoo>']) {
+      expect(foraDosScripts(`a<script>x = 37${fecho}b`), JSON.stringify(fecho)).toBe('ab');
+    }
+  });
+
+  it('não fecha em `</scripts>`', () => {
+    expect(foraDosScripts('a<script>"</scripts>" 37</script>b')).toBe('ab');
+  });
+
+  it('devolve o texto de fora como o navegador o mostra — não é sanitizador', () => {
+    // `a<scr` e `ipt>b` são TEXTO dos dois lados do bloco, e lado a lado a
+    // página mostra "a<script>b". O resultado serve para afirmar sobre o que
+    // a página exibe; nunca volta a ser renderizado como HTML.
+    expect(foraDosScripts('a<scr<script>x</script>ipt>b')).toBe('a<scr' + 'ipt>b');
+  });
+
+  it('bloco sem fechamento leva o resto da página, como no navegador', () => {
+    expect(foraDosScripts('a<script>37 e nunca fecha')).toBe('a');
+  });
+});
+
 describe('galeriaHTML — sem contagem de fotos', () => {
   // TODO.md, "Decidido não fazer": a contagem de fotos (inclusive a automática
   // pela Drive API) foi removida do site por completo, a pedido do dono — as
@@ -408,7 +431,7 @@ describe('galeriaHTML — sem contagem de fotos', () => {
       erro: null,
       nonce: 'N',
     });
-    const semScripts = html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+    const semScripts = foraDosScripts(html);
     expect(semScripts).toMatch(/Lista do Drive de 10\/10, 09:00/);
     expect(semScripts).not.toMatch(/\b37\b/);
     expect(semScripts).not.toMatch(/\d+\s+fotos\b/);
