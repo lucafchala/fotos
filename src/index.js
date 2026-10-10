@@ -405,7 +405,12 @@ export default {
    */
   fetch(request, env, ctx) {
     if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
-    return fetchDaPrevia(request, env, ctx, (r, e, c) => worker.fetch(r, e, c));
+    return fetchDaPrevia(request, env, ctx, {
+      rotear: (r, e, c) => worker.fetch(r, e, c),
+      // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
+      // painel — a mesma checagem das rotas /api/ de admin.
+      autenticado: async (r, e) => (await checkAuth(r, e)) === null,
+    });
   },
   /**
    * @param {ScheduledController} event
@@ -695,7 +700,7 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   if (!stored) {
-    return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
+    return adminHtml(paginaDeAviso('Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.'), 503, nonce);
   }
   if (!authed || !dados) {
     // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
@@ -717,8 +722,19 @@ async function handleDashboardPage(request, env, url, nonce) {
 const PAINEL_INDISPONIVEL_MSG =
   'O painel está temporariamente indisponível: o banco de dados do site (KV) não respondeu. ' +
   'Nada foi alterado e o site público segue no ar. Tente de novo em alguns minutos.';
-const PAINEL_INDISPONIVEL_HTML =
-  `<p style="font-family:monospace;padding:40px;max-width:640px;line-height:1.6">${PAINEL_INDISPONIVEL_MSG}</p>`;
+const PAINEL_INDISPONIVEL_HTML = paginaDeAviso(PAINEL_INDISPONIVEL_MSG);
+
+// As páginas curtas do painel (KV fora, painel não configurado) eram um <p>
+// solto: sem `<meta name="viewport">`, o celular as desenhava numa largura de
+// 980 px e o texto saía minúsculo — justamente na hora em que o dono abre o
+// painel pelo celular para entender o que caiu. Agora são um documento
+// mínimo, com a mesma aparência.
+/** @param {string} conteudo HTML já pronto (texto fixo do código, nunca dado de fora) */
+function paginaDeAviso(conteudo) {
+  return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Painel</title></head>'
+    + `<body><p style="font-family:monospace;padding:40px 24px;max-width:640px;line-height:1.6">${conteudo}</p></body></html>`;
+}
 
 // ---------------------------------------------------------------------------
 // Login

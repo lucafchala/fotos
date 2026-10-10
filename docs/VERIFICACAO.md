@@ -130,6 +130,12 @@ CSP aplicada, fonte que não carregou, galeria sem JavaScript, lightbox, login.
 Sai com 1 se algo falhar. O que segue aqui é para a verificação específica da
 sua mudança, que nenhum roteiro genérico cobre.
 
+**Na CI:** os roteiros que não precisam do `wrangler dev` — `verifica:painel`,
+`verifica:galeria`, `verifica:evento` e `verifica:previa` — rodam em todo push
+e PR, no job *Roteiros no navegador (Chromium)* do `checks.yml` (#232). O
+`verifica:navegador` não: ele precisa de um Worker de pé com projetos
+semeados.
+
 Chromium está pré-instalado em `/opt/pw-browsers`:
 
 ```js
@@ -280,6 +286,42 @@ isso o roteiro confere a URL do download (foto e variante), e o nome do arquivo
 navegador, sirva o `src/index.js` num servidor HTTP local (§2) — com o
 `fetch` do Node interceptando `www.googleapis.com` e o `lh3`.
 
+### Prévia de PR — `npm run verifica:previa`
+
+Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o
+`src/index.js` de verdade com `AMBIENTE = "previa"` — o harness do §2, com o
+Turnstile de mentira do `verifica:evento` (entrega ficha) e o Resend
+interceptado anotando cada envio (a chave recusada da prévia leva 401, como
+no Resend de verdade). No iPhone 390@3 e no computador 1440@1:
+
+- a faixa no topo, 44 px, de ponta a ponta, sem nada vazando para o lado; o
+  menu cabe na tela (rola por dentro), toda opção tem 44 px, e **nada da
+  página cobre o menu aberto** — o roteiro pergunta ao navegador o que está no
+  centro de cada opção (`elementFromPoint`); foi assim que o aviso de cookies
+  por cima do menu apareceu;
+- **portão lotado** de verdade no servidor: a página mostra "muita gente
+  acessando agora" com a contagem; "Voltar tudo ao normal" e o mesmo portão
+  libera o link;
+- **KV fora**: o painel cai no "temporariamente indisponível" e a faixa segue
+  lá, com a saída — a página não tinha `<body>` e a faixa não entrava (o
+  roteiro pegou; hoje ela é documento de verdade, e a faixa entra mesmo em
+  página sem `<body>`);
+- no painel: **tudo para o dono** + resolver um pedido = o e-mail vai para o
+  dono com o destinatário no assunto; **gerar métricas de exemplo** volta
+  com o menu aberto e o aviso, e o gráfico de acessos enche; apagar e zerar
+  avisam; no computador, o menu abre pelo teclado;
+- nenhum erro de JS, nenhuma violação da CSP aplicada.
+
+`VERIFICA_PRINTS=/caminho npm run verifica:previa` salva as capturas (menu,
+lotado, KV fora, painel, aviso, métricas).
+
+Um tropeço que o roteiro ensinou: **a faixa vem antes do conteúdo da página**,
+com formulários próprios (as ações). Um `document.querySelector('form')` pega
+o dela, não o da página — o `entraNoPainel()` do harness fazia isso e o login
+falhava só na prévia. Seletor pelo que se quer (`form[action="/dashboard/login"]`).
+Os scripts do site usam id, classe ou `data-action` (a faixa usa `previa-*` e
+`data-acao`, de propósito), então não esbarram nela.
+
 ### Sem JavaScript
 
 ```js
@@ -367,6 +409,8 @@ Duas coisas que confundem na primeira vez:
 - [ ] Mexeu no painel (`src/ui/dashboard.js`) → `npm run verifica:painel`, e
       olhe as capturas no celular; mexeu no card de evento → também
       `tests/painel.test.js` (ele aplica a transformação do deploy)
+- [ ] Mexeu na prévia (`src/previa.js`) ou numa página que ela marca → `npm
+      run verifica:previa`, e olhe as capturas do menu no celular
 - [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local

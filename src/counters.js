@@ -309,6 +309,15 @@ export class RateLimiter extends DurableObject {
     return { ok: true, retryAfter: 0 };
   }
 
+  // Zera o objeto: janela, balde e alarme. Só a PRÉVIA chama (a ação "Zerar
+  // os limites deste aparelho", src/previa.js), e cada prévia tem os Durable
+  // Objects dela — em produção nenhuma rota chega aqui. Objeto vazio é
+  // recolhido pelo runtime, como depois do alarme.
+  async zera() {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
   // Sem registro, o runtime recolhe o Durable Object sozinho — a limpeza
   // automática que o `expirationTtl` do KV fazia; um IP de passagem não
   // custa armazenamento eterno.

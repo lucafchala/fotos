@@ -554,7 +554,8 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 
 - **Dados próprios:** KV `fotos-previa`, D1 `fotos-consent-previa` (mesmo esquema de produção) e Durable Objects que a Cloudflare cria **por prévia** (contadores e rate limit começam do zero). Nada do que se faz na prévia toca o site real.
 - **Faixa amarela "PRÉVIA"** no topo de toda página e `X-Robots-Tag: noindex` em toda resposta (e um `robots.txt` que fecha tudo). A prévia é **pública para quem tiver o link** — não compartilhe o endereço com participantes: quem passasse pelo portão do Drive ali teria o aceite registrado só no D1 da prévia.
-- **Turnstile de teste, com controle na faixa:** "Turnstile: passa ▾" abre a lista — *passa*, *pede a caixa de seleção*, *bloqueia no navegador*, *passa no navegador e o servidor recusa*, *script bloqueado (bloqueador de anúncio)*. São as chaves de teste da Cloudflare, e o servidor verifica com o segredo de teste correspondente — dá para ver cada salvaguarda funcionando: o código por e-mail, o caminho sem JavaScript, as mensagens de recusa, o login recusado. A escolha fica num cookie por 30 dias.
+- **Turnstile de teste.** As chaves de teste da Cloudflare, e o servidor verifica com o segredo de teste correspondente; o comportamento (passa, pede a caixa, bloqueia…) se escolhe no menu **Testes** da faixa — ver [abaixo](#o-menu-testes-da-faixa).
+- **Menu "Testes" na faixa:** simulações (e-mail, portão lotado, banco fora, Drive, rede lenta) e ações (métricas de exemplo, zerar limites) para testar cada salvaguarda sem esperar ela acontecer — ver [O menu "Testes" da faixa](#o-menu-testes-da-faixa).
 - **E-mail sai de verdade, com "[PRÉVIA]" no assunto** — dá para testar os fluxos inteiros. Heartbeat do Kuma e Web Analytics ficam **desligados** na prévia mesmo que esses segredos sejam copiados (uma prévia batendo o monitor manteria verde um site de produção caído).
 - **Restaurar backup na prévia não traz os pedidos de remoção** (dados pessoais de terceiros — e resolver um ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
 - **Cron não roda** em prévia (é regra da plataforma).
@@ -577,6 +578,34 @@ O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 
    | `KUMA_PUSH_URL`, `CF_ANALYTICS_TOKEN` | **não** | a prévia os ignora de qualquer jeito |
 
 3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
+
+### O menu "Testes" da faixa
+
+A faixa amarela tem um botão **Testes ▾**. Ele abre duas coisas diferentes — e a diferença importa:
+
+**Simulações** valem **só neste navegador** (um cookie por simulação, 30 dias) e não mexem em dado nenhum. Elas trocam, só naquela requisição, a peça que se quer ver falhando — a chave do Turnstile, a do Resend, um KV que recusa, um portão que diz "lotado". Do roteador para dentro o código é o de produção, inteiro: o que aparece na tela é o que o site faz quando aquilo acontece de verdade. Com alguma ligada, a faixa mostra quantas (no celular, um número; no computador, a lista) e o menu ganha **Voltar tudo ao normal**.
+
+| Simulação | Opções | Para testar |
+| --- | --- | --- |
+| **Turnstile** | passa · pede a caixa · bloqueia no navegador · passa no navegador e o servidor recusa · script bloqueado (bloqueador de anúncio) | o código por e-mail, o caminho sem JavaScript, as mensagens de recusa, o login recusado |
+| **E-mail** | sai de verdade · **tudo para o dono** · o envio falha · sem e-mail configurado | *Tudo para o dono*: todo e-mail vai para o `ADMIN_EMAIL`, com o destinatário original no assunto (`[PRÉVIA → fulano@…]`) — dá para testar a confirmação de um pedido ou o código por e-mail com **qualquer endereço inventado**, sem escrever para ninguém de fora (e sem esbarrar no limite de 3 códigos/hora por endereço). *O envio falha*: o Resend recebe uma chave que ele recusa (401) — os avisos de "e-mail não saiu". *Sem e-mail*: os caminhos de "não configurado" |
+| **Portão do Drive** | normal · **lotado** | toda tentativa pelo Turnstile (ou sem JavaScript) ouve "muita gente acessando agora": a contagem na tela, as 5 novas tentativas sozinhas e, no fim, a oferta do código por e-mail — que continua funcionando, como num evento de verdade |
+| **Banco de dados** | normal · KV: leitura falha · KV: gravação falha · D1: o registro de consentimento falha | as degradações: página de projeto servida da última cópia boa, painel "temporariamente indisponível", pedido de remoção que segue só por e-mail, foto liberada mesmo sem o registro de aceite (com alerta ao dono) |
+| **Google Drive (galeria própria)** | normal · a API recusa a chave · sem chave | as telas de erro e de "falta conectar" da galeria |
+| **Velocidade** | normal · lenta | cada ação do site (`/api/…`) demora 3 s a mais: os "carregando", os botões travados contra o duplo toque |
+
+Um limite honesto do *KV: leitura falha*: a página de projeto tem dois degraus de cópia (RETOMADA §5.8) — a do isolate e a da Cache API. A documentação da Cloudflare só garante a Cache API em **domínio próprio**; numa prévia no `workers.dev` conte só com o primeiro. Com o isolate frio, a prévia pode mostrar a página de erro onde produção mostraria a cópia.
+
+**Ações** mudam o estado **desta prévia** e pedem o **painel aberto** (sessão de admin) — o link da prévia vale para qualquer pessoa, e estas mexem em dados. Voltam para a mesma página com o menu aberto e um aviso do que aconteceu.
+
+- **Contar minhas visitas de novo** — apaga o cookie de visita (`fv_<slug>`) de cada projeto: a próxima visita conta (esta não pede o painel; só mexe no seu navegador).
+- **Gerar 90 dias de métricas de exemplo** — troca as métricas da prévia por uma série inventada e determinística (ritmo semanal, pico na semana depois de cada projeto, os três modos do portão), para ver os gráficos sem esperar meses. É a mesma série do `npm run verifica:painel`.
+- **Apagar as métricas desta prévia** — zera contadores e série.
+- **Zerar os limites deste aparelho** — os limites por IP (login, formulários, portão do Drive, código por e-mail), para repetir um teste sem esperar a janela. O **teto diário de códigos por e-mail** (40) continua valendo: ele protege a franquia de e-mail, que a prévia divide com produção quando a chave do Resend é a mesma.
+
+E **Esta prévia**: a versão do site, a etiqueta ou o id da versão publicada e a hora, mais o atalho para o `/api/healthz` dela.
+
+Tudo isto existe **só** com `AMBIENTE = "previa"`: em produção as rotas `/__previa/…` são o 404 de sempre, e nenhuma linha de `src/previa.js` roda (`tests/previa.test.js`, primeira seção). O roteiro `npm run verifica:previa` passa por cada parte no celular e no computador.
 
 ### No dia a dia
 
@@ -625,6 +654,7 @@ fotos/
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
 │   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, trocar a senha, excluir, layout e escritas no KV (npm run verifica:painel)
+│   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
 │   ├── worker-local.mjs     ← o `src/index.js` de verdade num servidor HTTP local: KV e Durable Objects em memória, Turnstile e Resend interceptados, outros hosts recebem 599 (o harness de docs/VERIFICACAO.md §2)
 │   ├── node-com-workers.mjs ← gancho do Node (`--import`) que troca `cloudflare:workers` pelo dublê de tests/stubs/, para rodar o `src/index.js` fora do workerd
 │   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
@@ -656,7 +686,7 @@ fotos/
 │   ├── painel.test.js      ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle do deploy), a estrutura do painel, os selos e o formulário em blocos
 │   ├── metricas.test.js    ← série por dia no Counter (balde, poda, remove), GET /api/metrics/diario e a contagem do modo de entrada no portão
 │   ├── metricas-painel.test.js ← as contas dos gráficos de Métricas, tiradas do script da página e executadas no node
-│   ├── previa.test.js      ← a camada da prévia: produção intocada, faixa, noindex, Turnstile de teste até o siteverify, [PRÉVIA] no e-mail
+│   ├── previa.test.js      ← a camada da prévia: produção intocada, faixa, noindex, Turnstile de teste até o siteverify, [PRÉVIA] no e-mail, cada simulação e ação do menu "Testes"
 │   ├── vendor.test.js      ← módulo vendorizado gerado × arquivos em vendor/, hash no nome, licença
 │   ├── smoke.test.js       ← cada valor que o scripts/smoke.sh exige, conferido contra o Worker (#181)
 │   ├── deploy-duplicado.test.js ← a regra do push repetido, o script contra uma API falsa e o deploy.yml
@@ -667,7 +697,7 @@ fotos/
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── drive.js            ← cliente da Drive API da galeria própria: lista a pasta, mapeia erros, URLs do lh3 e do original
     ├── counters.js         ← Durable Objects: Counter (totais + série por dia, poda) e RateLimiter (janela fixa e balde de fichas)
-    ├── previa.js           ← a camada da prévia de PR (faixa, noindex, Turnstile de teste) — só com AMBIENTE = "previa"
+    ├── previa.js           ← a camada da prévia de PR (faixa, noindex, menu "Testes": simulações e ações) — só com AMBIENTE = "previa"
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
     │   ├── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
@@ -1176,7 +1206,8 @@ Os blocos que mudam dados globais ou a credencial têm borda vermelha e o selo "
 ### Verificar o painel
 
 - **`tests/painel.test.js`** — o card idêntico no servidor e no navegador (inclusive depois da transformação do deploy), a estrutura (uma nav, quatro seções, seis blocos, todo `for=` apontando para um campo que existe), os selos e o dado hostil virando texto. O resto do painel é prendido por `tests/rendered-pages.test.js`, `tests/scripts-embutidos.test.js` (lint e tsc do script emitido) e os pares cliente/servidor de `tests/security.test.js`.
-- **`npm run verifica:painel`** — o `src/index.js` de verdade num servidor local (`scripts/worker-local.mjs`: KV e Durable Objects em memória, Turnstile e Resend interceptados, qualquer outro host recebe 599; `scripts/node-com-workers.mjs` troca `cloudflare:workers` pelo dublê da suíte), dirigido por um Chromium logado no iPhone (390@3), no Android (360@2) e no computador (1440@1): entrar pelo formulário, criar, editar e marcar entregue, ocultar pelo menu, resolver um pedido, trocar a senha e entrar com ela, excluir — mais o layout (nada vaza para o lado em nenhuma seção, alvos de toque, campo de 16 px), nenhum erro de JS nem violação da CSP, e as chaves que o fluxo gravou no KV. `VERIFICA_PRINTS=<pasta>` salva as capturas. Não roda na CI; detalhes em `docs/PAINEL.md` §15 e `docs/VERIFICACAO.md`.
+- **`npm run verifica:painel`** — o `src/index.js` de verdade num servidor local (`scripts/worker-local.mjs`: KV e Durable Objects em memória, Turnstile e Resend interceptados, qualquer outro host recebe 599; `scripts/node-com-workers.mjs` troca `cloudflare:workers` pelo dublê da suíte), dirigido por um Chromium logado no iPhone (390@3), no Android (360@2) e no computador (1440@1): entrar pelo formulário, criar, editar e marcar entregue, ocultar pelo menu, resolver um pedido, trocar a senha e entrar com ela, excluir — mais o layout (nada vaza para o lado em nenhuma seção, alvos de toque, campo de 16 px), nenhum erro de JS nem violação da CSP, e as chaves que o fluxo gravou no KV. `VERIFICA_PRINTS=<pasta>` salva as capturas. Roda na CI (job *Roteiros no navegador (Chromium)*, desde o #232); detalhes em `docs/PAINEL.md` §15 e `docs/VERIFICACAO.md`.
+- **`npm run verifica:previa`** — o mesmo servidor local com `AMBIENTE = "previa"`: a faixa e o menu **Testes** no celular e no computador (cabe na tela, alvos de 44 px, nada da página cobre o menu aberto), o portão lotado de verdade no servidor, a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o dono e as métricas de exemplo enchendo o gráfico. Também na CI.
 
 ---
 

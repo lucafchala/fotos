@@ -57,6 +57,7 @@ npm run smoke:local          # o mesmo smoke que decide a reversão em produçã
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
+npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -81,6 +82,11 @@ src/
                   (janela fixa `check()` e balde de fichas `take()`)
   drive.js      ← galeria própria (prévia): Drive API (lista a pasta, mapeia erros), URLs do
                   lh3 e do original. A chave só existe aqui e no proxy de download.
+  pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
+                  que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
+  previa.js     ← a camada da PRÉVIA DE PR, por fora do roteador: faixa, noindex, menu
+                  "Testes" (simulações por cookie, ações com sessão). Só com AMBIENTE =
+                  "previa"; em produção nenhuma linha dela roda (§5.16)
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
     galeria.js  ← galeria própria /galeria/<slug> (prévia, só o dono): grade + PhotoSwipe + downloads
@@ -101,6 +107,7 @@ scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:naveg
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
 scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
 scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
+scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
 scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
 scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
@@ -491,6 +498,36 @@ a lista lê os dois juntos. A poda dos resolvidos (180 dias) também é só do
 cron — a verificação que vinha de carona em cada envio dependia de regravar a
 lista inteira e saiu com ela.
 
+### 5.16. Prévia de PR: a faixa vem antes da página — e as simulações trocam o `env`, não o código
+
+A prévia de cada PR (Cloudflare Worker Previews; README, "Prévia de PR") roda
+o código de produção com uma camada por fora do roteador, `src/previa.js`,
+ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
+`wrangler.toml` declara). Quatro coisas que valem saber antes de mexer nela:
+
+- **As simulações do menu "Testes" trocam o `env` daquela requisição**, não o
+  código: a chave do Turnstile, a do Resend, um KV que recusa, um RateLimiter
+  cujo portão diz "lotado". Do roteador para dentro roda o caminho de
+  produção. Se uma simulação nova precisar de um `if` dentro do roteador, ela
+  está no lugar errado — o que se testa deixa de ser o que produção faz. A
+  única exceção é o e-mail "tudo para o dono", que mora em `corpoResend()`
+  (utils.js), o ponto único por onde passa todo envio.
+- **As ferramentas leem o `env` VERDADEIRO.** Com "KV não lê" ligado, "Voltar
+  tudo ao normal" e "Zerar os limites" continuam funcionando — senão a
+  simulação trancaria quem a ligou.
+- **A faixa entra antes do conteúdo da página, com formulários próprios.**
+  Script que pega "o primeiro `<form>`" (ou o primeiro `<details>`, botão…)
+  pega o da faixa — só na prévia. Os do site usam id, classe e `data-action`;
+  a faixa usa `previa-*` e `data-acao` para não esbarrar. E ela entra também
+  em página sem `<body>` (as de erro curtas): a de "KV fora" ficava sem a
+  saída.
+- **Menu aberto por cima de tudo, faixa fechada embaixo do que é tela
+  cheia.** Fechada, z-index 40: o visualizador de fotos e a folha do portão
+  passam por cima e o botão de fechar deles continua alcançável. Aberta
+  (`:has(details[open])`), por cima de tudo — senão o aviso de cookies cobria
+  metade do menu no celular. O `verifica:previa` confere com
+  `elementFromPoint` em cada opção.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -586,9 +623,13 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   rollback manual (#178); e decidir o portão de preview (#179).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
-  confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
-  pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
-  (#233).
+  confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
+  e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
+  (#232) entrou no PR #236, junto com os outros roteiros de navegador.
+- **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
+  blocos, pedidos de remoção por chave): o dono liga as prévias (três passos
+  no painel da Cloudflare — README, "Prévia de PR"), testa no celular com o
+  menu "Testes" e só então mergeia. Merge é deploy.
 - **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
   inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
   usar no celular dele e, gostando, fechar o #220.

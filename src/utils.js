@@ -1,7 +1,6 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
 import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS } from './config.js';
 import { FONTS } from './content/fonts.js';
-import { ehPrevia } from './previa.js';
 
 /**
  * Um projeto como ele vive no KV. Índice aberto de propósito: a forma real é
@@ -31,8 +30,20 @@ import { ehPrevia } from './previa.js';
  *   GOOGLE_DRIVE_API_KEY?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
+ *   PREVIA_EMAIL?: string,
  * }} Env
  */
+
+/**
+ * Esta requisição está numa PRÉVIA de PR? (`AMBIENTE = "previa"`, que só o
+ * bloco [previews] do wrangler.toml declara — produção não tem a variável.)
+ * A camada da prévia inteira está em src/previa.js; mora aqui só esta
+ * pergunta, que o e-mail (corpoResend) também faz.
+ * @param {{ AMBIENTE?: string } | null | undefined} env
+ */
+export function ehPrevia(env) {
+  return !!env && env.AMBIENTE === 'previa';
+}
 
 /**
  * Um pedido de remoção / mensagem de suporte, como lido do KV. Índice aberto
@@ -727,7 +738,7 @@ const COUNTER_OBJ = 'contadores';
  * @param {Env} env
  * @returns {CounterRPC}
  */
-function counterStub(env) {
+export function counterStub(env) {
   return /** @type {any} */ (env.COUNTER.get(env.COUNTER.idFromName(COUNTER_OBJ)));
 }
 
@@ -2003,15 +2014,30 @@ export function csvResponse(filename, cols, rows) {
 // "[PRÉVIA] " na frente: o e-mail sai de verdade, para dar para testar o
 // fluxo inteiro, mas ninguém o confunde com um do site real. Em produção a
 // variável não existe e o corpo sai idêntico ao JSON.stringify de antes.
+//
+// Com a ferramenta "E-mail → tudo para o dono" da prévia (`PREVIA_EMAIL =
+// "dono"`, que só src/previa.js põe no env), todo e-mail vai para ADMIN_EMAIL
+// e o assunto diz para quem ele iria: dá para testar a confirmação de um
+// pedido ou o código por e-mail com qualquer endereço inventado sem escrever
+// para ninguém de fora.
 /**
- * @param {{ AMBIENTE?: string } | null | undefined} env
+ * @param {{ AMBIENTE?: string, PREVIA_EMAIL?: string, ADMIN_EMAIL?: string } | null | undefined} env
  * @param {Record<string, unknown>} dados
  */
 export function corpoResend(env, dados) {
-  if (ehPrevia(env) && typeof dados.subject === 'string' && !dados.subject.startsWith('[PRÉVIA]')) {
-    return JSON.stringify({ ...dados, subject: `[PRÉVIA] ${dados.subject}` });
+  if (!env || !ehPrevia(env)) return JSON.stringify(dados);
+  /** @type {Record<string, unknown>} */
+  const corpo = { ...dados };
+  let marca = '[PRÉVIA] ';
+  if (env.PREVIA_EMAIL === 'dono' && env.ADMIN_EMAIL) {
+    const para = /** @type {unknown[]} */ ([]).concat(dados.to ?? []).map(String).join(', ');
+    corpo.to = env.ADMIN_EMAIL;
+    delete corpo.cc;
+    delete corpo.bcc;
+    if (para.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) marca = `[PRÉVIA → ${para}] `;
   }
-  return JSON.stringify(dados);
+  if (typeof dados.subject === 'string' && !dados.subject.startsWith('[PRÉVIA')) corpo.subject = marca + dados.subject;
+  return JSON.stringify(corpo);
 }
 /**
  * @param {Env} env

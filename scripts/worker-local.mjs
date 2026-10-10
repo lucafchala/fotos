@@ -6,9 +6,11 @@
 //     o roteiro provar que uma tela não gasta a cota de 1000/dia — TODO.md);
 //   - Durable Objects de verdade (as classes de src/counters.js) sobre
 //     armazenamento em memória — os mesmos de tests/helpers/do.js;
-//   - o mundo externo INTERCEPTADO: Turnstile aprova, Resend aceita, e
-//     qualquer outro host recebe 599. Nada sai da máquina, e um fetch novo
-//     esquecido aparece como erro em vez de ir à internet.
+//   - o mundo externo INTERCEPTADO: Turnstile aprova, Resend aceita (e
+//     anota cada envio em `emails`; a chave recusada da prévia leva 401, como
+//     no Resend de verdade), e qualquer outro host recebe 599. Nada sai da
+//     máquina, e um fetch novo esquecido aparece como erro em vez de ir à
+//     internet.
 //
 // Precisa do gancho de `cloudflare:workers`:
 //   node --import ./scripts/node-com-workers.mjs <roteiro>.mjs
@@ -22,6 +24,7 @@
 import http from 'node:http';
 import worker from '../src/index.js';
 import { hashPassword } from '../src/utils.js';
+import { CHAVE_RESEND_RECUSADA } from '../src/previa.js';
 import { withDurableObjects } from '../tests/helpers/do.js';
 
 /** Senha do painel nos roteiros (passa na política de senha do site). */
@@ -32,6 +35,7 @@ export const SENHA_DE_TESTE = 'Senha-De-Teste-2026!';
  *   url: string,
  *   kv: Map<string, string>,
  *   escritas: string[],
+ *   emails: { para: unknown, assunto: unknown }[],
  *   fecha: () => Promise<void>,
  * }} WorkerLocal
  */
@@ -60,6 +64,8 @@ export async function sobeWorker(o = {}) {
   kv.set('admin_password', await hashPassword(SENHA_DE_TESTE));
   /** @type {string[]} */
   const escritas = [];
+  /** @type {{ para: unknown, assunto: unknown }[]} */
+  const emails = [];
   const FOTOS = {
     /**
      * Uma chave, ou um LOTE de até 100 (`get(chaves[])` devolve um `Map`, como
@@ -111,7 +117,20 @@ export async function sobeWorker(o = {}) {
     const url = new URL(typeof entrada === 'string' || entrada instanceof URL ? String(entrada) : entrada.url);
     if (url.hostname === '127.0.0.1') return fetchOriginal(entrada, init);
     if (url.host === 'challenges.cloudflare.com') return Response.json({ success: true });
-    if (url.host === 'api.resend.com') return Response.json({ id: 'teste' });
+    if (url.host === 'api.resend.com') {
+      // Como o Resend de verdade: chave que ele não conhece leva 401 — a
+      // simulação "o envio falha" da prévia depende disso. Cada envio aceito
+      // fica em `emails`, para o roteiro conferir destinatário e assunto.
+      const cab = new Headers(init && init.headers ? init.headers : (entrada instanceof Request ? entrada.headers : {}));
+      if (cab.get('Authorization') === `Bearer ${CHAVE_RESEND_RECUSADA}`) {
+        return Response.json({ statusCode: 401, message: 'API key is invalid' }, { status: 401 });
+      }
+      try {
+        const corpo = JSON.parse(String(init && init.body ? init.body : '{}'));
+        emails.push({ para: corpo.to, assunto: corpo.subject });
+      } catch { /* corpo que não é JSON: não é um envio de verdade */ }
+      return Response.json({ id: 'teste' });
+    }
     const resposta = o.externo ? await o.externo(url) : null;
     if (resposta) return resposta;
     return new Response(`bloqueado no roteiro local: ${url.host}`, { status: 599 });
@@ -164,6 +183,7 @@ export async function sobeWorker(o = {}) {
     url: base,
     kv,
     escritas,
+    emails,
     async fecha() {
       await Promise.all(pendentes);
       await new Promise(ok => servidor.close(() => ok(undefined)));
@@ -184,8 +204,10 @@ export async function entraNoPainel(page, base) {
   await page.route(/challenges\.cloudflare\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await page.goto(base + '/dashboard');
   await page.fill('input[type="password"]', SENHA_DE_TESTE);
+  // O formulário DO LOGIN, não "o primeiro da página": numa prévia, a faixa
+  // vem antes e tem formulários próprios (as ações do menu "Testes").
   await page.evaluate(() => {
-    const f = /** @type {HTMLFormElement} */ (document.querySelector('form'));
+    const f = /** @type {HTMLFormElement} */ (document.querySelector('form[action="/dashboard/login"]'));
     const i = document.createElement('input');
     i.type = 'hidden';
     i.name = 'cf-turnstile-response';
@@ -200,7 +222,7 @@ export async function entraNoPainel(page, base) {
   // o roteiro seguia com o login ainda em voo.
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load', timeout: 10000 }),
-    page.evaluate(() => /** @type {HTMLFormElement} */ (document.querySelector('form')).submit()),
+    page.evaluate(() => /** @type {HTMLFormElement} */ (document.querySelector('form[action="/dashboard/login"]')).submit()),
   ]);
   const recusado = new URL(page.url()).searchParams.get('error');
   const aindaNoLogin = await page.locator('form[action="/dashboard/login"]').count();

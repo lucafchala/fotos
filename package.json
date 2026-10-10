@@ -24,7 +24,8 @@
     "verifica:navegador": "node scripts/verifica-navegador.mjs",
     "verifica:evento": "node scripts/verifica-evento.mjs",
     "verifica:galeria": "node scripts/verifica-galeria.mjs",
-    "verifica:painel": "node --import ./scripts/node-com-workers.mjs scripts/verifica-painel.mjs"
+    "verifica:painel": "node --import ./scripts/node-com-workers.mjs scripts/verifica-painel.mjs",
+    "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

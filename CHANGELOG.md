@@ -37,10 +37,18 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   ou 90 dias e por projeto.
 - **Prévia de cada PR** (Cloudflare Worker Previews). Um site de teste por PR,
   com o mesmo código e configuração de produção e **dados próprios**, faixa
-  "PRÉVIA", e-mails com "[PRÉVIA]" no assunto e um controle do Turnstile para
-  testar cada salvaguarda (passa, caixa, bloqueia, servidor recusa, script
-  bloqueado). Ligar exige três passos no painel da Cloudflare — README,
-  "Prévia de PR".
+  "PRÉVIA" e e-mails com "[PRÉVIA]" no assunto. Ligar exige três passos no
+  painel da Cloudflare — README, "Prévia de PR".
+- **Menu "Testes" na faixa da prévia**, para ver cada salvaguarda funcionar
+  sem esperar ela acontecer. *Simulações*, só no navegador de quem liga: o
+  Turnstile (passa, caixa, bloqueia, servidor recusa, script bloqueado), o
+  e-mail (**tudo para o dono** — testar com endereço inventado sem escrever
+  para ninguém —, envio que falha, sem e-mail), o **portão do Drive lotado**
+  (a espera "muita gente acessando agora" e o código por e-mail no fim), o
+  banco fora (KV que não lê ou não grava, D1 do consentimento), a chave do
+  Drive da galeria e a rede lenta. *Ações*, com o painel aberto: gerar 90 dias
+  de **métricas de exemplo**, apagá-las, zerar os limites do aparelho. Do
+  roteador para dentro, o código é o de produção.
 - **Versão do site** à vista no painel, com o resumo do que esta versão trouxe.
 
 ### Melhorado e corrigido
@@ -52,6 +60,11 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   de 44 px, e um bloco de Ajustes 25 px largo demais que fazia o celular
   afastar a página inteira.
 - **Avisos do painel** quebram linha em vez de sair pelas bordas da tela.
+- **"Painel temporariamente indisponível" legível no celular.** As duas
+  páginas curtas do painel (KV fora, painel não configurado) eram um parágrafo
+  solto, sem `viewport`: o celular as desenhava em 980 px e o texto saía
+  minúsculo — justo quando o dono abre o painel pelo celular para entender o
+  que caiu. O `verifica:previa` pegou.
 - **Pedidos de remoção, um por chave** (#198). Eram um array único, regravado
   inteiro por cinco caminhos: dois pedidos no mesmo instante, ou um pedido
   chegando durante um "resolver", e um deles sumia do painel (o e-mail ao dono
@@ -91,8 +104,14 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
   Android e no computador — 125 checagens, das Métricas com série sintética à
   troca de senha. Ver `docs/VERIFICACAO.md`.
+- `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
+  verdade, no celular e no computador — portão lotado de verdade no servidor,
+  a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o
+  dono, as métricas de exemplo enchendo o gráfico. Os quatro roteiros de
+  navegador rodam na CI.
 - Testes novos: `tests/metricas.test.js`, `tests/metricas-painel.test.js`,
-  `tests/previa.test.js`, `tests/painel.test.js`, `tests/galeria.test.js`, e a
-  atomicidade da série por dia na suíte `workers`.
+  `tests/previa.test.js`, `tests/pedidos.test.js`, `tests/painel.test.js`,
+  `tests/galeria.test.js`, e a atomicidade da série por dia na suíte
+  `workers`.
 - **Nenhuma migração** de Durable Object nem de D1 nesta versão: o deploy
   segue o caminho normal (versão sem tráfego → smoke → promoção).

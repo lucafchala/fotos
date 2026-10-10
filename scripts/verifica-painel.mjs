@@ -31,6 +31,8 @@ import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
+import { metricasDeExemplo } from '../src/previa.js';
+import { hojeEmSaoPaulo } from '../src/utils.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -100,36 +102,12 @@ const SENHA_NOVA = 'Outra-Senha-Forte-2027!';
 // A série por dia das Métricas (v2, #215), sintética e DETERMINÍSTICA (o mesmo
 // sorteio a cada execução, para as capturas compararem): 100 dias até hoje, um
 // ritmo semanal (fim de semana movimenta mais) e um pico depois da data de
-// cada evento. O total `views:<slug>` leva também um histórico anterior à
-// série (o que o KV contava antes do Durable Object), para o "Total desde o
-// início" ser maior que a soma dos dias — como em produção.
+// cada evento. É a MESMA função da ação "Gerar métricas de exemplo" da prévia
+// (src/previa.js) — uma regra, um lugar. O total `views:<slug>` leva também um
+// histórico anterior à série (o que o KV contava antes do Durable Object), para
+// o "Total desde o início" ser maior que a soma dos dias — como em produção.
 function contadoresSinteticos() {
-  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  const base = Date.parse(hoje + 'T12:00:00Z');
-  let semente = 42;
-  const sorteio = () => { semente = (semente * 1103515245 + 12345) % 2147483648; return semente / 2147483648; };
-  /** @type {Record<string, number>} */
-  const out = {};
-  const soma = (/** @type {string} */ k, /** @type {number} */ v) => { if (v > 0) out[k] = (out[k] || 0) + v; };
-  const projetos = EVENTOS.filter(e => !e.comingSoon).map(e => ({ slug: e.slug, data: Date.parse(e.date + 'T12:00:00Z'), peso: e.visible ? 1 : 0.15 }));
-  for (let i = 99; i >= 0; i--) {
-    const t = base - i * 86400000;
-    const dia = new Date(t).toISOString().slice(0, 10);
-    const semana = new Date(t).getUTCDay();
-    const ritmo = semana === 0 || semana === 6 ? 1.6 : 1;
-    for (const p of projetos) {
-      const depois = (t - p.data) / 86400000;
-      const pico = depois >= 0 && depois < 7 ? 5 - depois * 0.6 : 1;
-      const v = Math.round((3 + sorteio() * 9) * p.peso * ritmo * pico);
-      const c = Math.round(v * (0.2 + sorteio() * 0.25));
-      soma(`d:${dia}:views:${p.slug}`, v); soma(`views:${p.slug}`, v);
-      soma(`d:${dia}:drive_clicks:${p.slug}`, c); soma(`drive_clicks:${p.slug}`, c);
-    }
-    for (const [modo, f] of /** @type {const} */ ([['turnstile', 1.2], ['email', 0.18], ['noscript', 0.07]])) {
-      const g = Math.round((2 + sorteio() * 6) * f * ritmo);
-      soma(`d:${dia}:gate:${modo}`, g); soma(`gate:${modo}`, g);
-    }
-  }
+  const out = metricasDeExemplo(EVENTOS, hojeEmSaoPaulo(), 100);
   out['views:formatura-medicina-2026'] = (out['views:formatura-medicina-2026'] || 0) + 742;
   return out;
 }
