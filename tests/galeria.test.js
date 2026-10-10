@@ -459,10 +459,9 @@ describe('bibliotecas vendorizadas', () => {
 // O painel desenha a lista de projetos em DOIS lugares (no servidor e no
 // script). A regra "regra escrita duas vezes é corrigida uma vez só"
 // (TODO.md) vale para o botão novo: os dois têm de levar à galeria.
-describe('painel: o atalho para a galeria nos dois desenhos da lista', () => {
-  it('a lista do servidor e o modelo do script apontam para /galeria/<slug>', () => {
+describe('painel: o atalho para a galeria no card de cada evento', () => {
+  it('o card (o mesmo no servidor e no script, ver tests/painel.test.js) aponta para /galeria/<slug>', () => {
     const html = dashboardHTML([{ ...EVENTOS[0], status: 'entregue' }], [], 'NONCE');
     expect(html).toContain('href="/galeria/formatura"');
-    expect(html).toContain('href="/galeria/${esc(e.slug)}"');
   });
 });
