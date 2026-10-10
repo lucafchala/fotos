@@ -120,3 +120,46 @@ jobs:
               }
             })();
           ' $(find src -name "*.js")
+
+  # -------------------------------------------------------------------------
+  # Roteiros de navegador (#232)
+  # -------------------------------------------------------------------------
+  # O que só um navegador de verdade mostra: layout por aparelho, CSP aplicada,
+  # erro de JavaScript, toque, teclado, download. Os três roteiros sobem o
+  # `src/index.js` DE VERDADE num servidor local (scripts/worker-local.mjs —
+  # KV e Durable Objects em memória; Turnstile, Resend e Google interceptados:
+  # nada sai da máquina) e o dirigem num Chromium, em iPhone, Android e
+  # computador. Antes, rodavam só quando alguém lembrava (docs/VERIFICACAO.md);
+  # foi assim que o bloco de Ajustes 25 px largo demais quase passou.
+  #
+  # Job à parte, e não um passo do `checks`: o Chromium e as dependências de
+  # sistema dele levam um minuto ou dois para instalar, e uma falha aqui fica
+  # com nome próprio na lista de checagens do PR.
+  navegador:
+    name: Roteiros no navegador (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # A revisão do Chromium que o playwright-core do package-lock.json
+      # espera, com as bibliotecas de sistema que ela pede.
+      - name: Chromium do Playwright
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Painel (/dashboard) — iPhone, Android e computador
+        run: npm run verifica:painel
+
+      - name: Galeria própria (/galeria/<slug>)
+        run: npm run verifica:galeria
+
+      - name: Véspera de evento (portão do Drive, fotos por aparelho)
+        run: npm run verifica:evento
