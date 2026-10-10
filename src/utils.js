@@ -717,6 +717,7 @@ const COUNTER_OBJ = 'contadores';
  *   snapshot: (keys: string[]) => Promise<{ counts: Record<string, number>, missing: string[] }>,
  *   seed: (map: Record<string, unknown>) => Promise<void>,
  *   remove: (keys: string[]) => Promise<void>,
+ *   serie: (desde: string, totais?: string[]) => Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>,
  * }} CounterRPC
  */
 
@@ -790,6 +791,24 @@ export async function readCounters(env, keys) {
   } catch (e) {
     noteDegraded('contadores não lidos', `lote de ${keys.length} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return {};
+  }
+}
+
+// A série diária inteira desde `desde`, mais os totais pedidos, numa chamada
+// só ao objeto (#215). Nunca lança: o painel mostra "sem dados" em vez de 500.
+/**
+ * @param {Env} env
+ * @param {string} desde
+ * @param {string[]} [totais]
+ * @returns {Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>}
+ */
+export async function readSerie(env, desde, totais = []) {
+  try {
+    const r = await counterStub(env).serie(desde, totais);
+    return { serie: r.serie || {}, primeiroDia: r.primeiroDia || '', totais: r.totais || {} };
+  } catch (e) {
+    noteDegraded('série diária não lida', umaLinha(errMessage(e)).slice(0, 120), e);
+    return { serie: {}, primeiroDia: '', totais: {} };
   }
 }
 
@@ -1239,6 +1258,21 @@ export const FUSO_DONO = 'America/Sao_Paulo';
  */
 export function hojeEmSaoPaulo(agora = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_DONO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+}
+
+/**
+ * O dia `n` dias antes de `dia` ('AAAA-MM-DD' → 'AAAA-MM-DD'; n negativo vai
+ * para a frente). Conta em dias de CALENDÁRIO, por texto, sem fuso: a série de
+ * métricas é indexada pelo dia de São Paulo já calculado, e misturar Date com
+ * fuso aqui faria um dia "pular" na virada do horário de verão de outro país.
+ * Meio-dia UTC como âncora: longe de qualquer meia-noite.
+ * @param {string} dia
+ * @param {number} n
+ */
+export function diaMenos(dia, n) {
+  const t = Date.parse(dia + 'T12:00:00Z');
+  if (!Number.isFinite(t)) return '';
+  return new Date(t - n * 86400000).toISOString().slice(0, 10);
 }
 
 /**

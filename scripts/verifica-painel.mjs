@@ -27,7 +27,7 @@
 // passa): node --import ./scripts/node-com-workers.mjs scripts/verifica-painel.mjs
 
 /* global document, window, getComputedStyle */
-import { existsSync, readdirSync, mkdirSync } from 'node:fs';
+import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
@@ -92,6 +92,44 @@ const SEMENTE = {
 };
 const SENHA_NOVA = 'Outra-Senha-Forte-2027!';
 
+// A série por dia das Métricas (v2, #215), sintética e DETERMINÍSTICA (o mesmo
+// sorteio a cada execução, para as capturas compararem): 100 dias até hoje, um
+// ritmo semanal (fim de semana movimenta mais) e um pico depois da data de
+// cada evento. O total `views:<slug>` leva também um histórico anterior à
+// série (o que o KV contava antes do Durable Object), para o "Total desde o
+// início" ser maior que a soma dos dias — como em produção.
+function contadoresSinteticos() {
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const base = Date.parse(hoje + 'T12:00:00Z');
+  let semente = 42;
+  const sorteio = () => { semente = (semente * 1103515245 + 12345) % 2147483648; return semente / 2147483648; };
+  /** @type {Record<string, number>} */
+  const out = {};
+  const soma = (/** @type {string} */ k, /** @type {number} */ v) => { if (v > 0) out[k] = (out[k] || 0) + v; };
+  const projetos = EVENTOS.filter(e => !e.comingSoon).map(e => ({ slug: e.slug, data: Date.parse(e.date + 'T12:00:00Z'), peso: e.visible ? 1 : 0.15 }));
+  for (let i = 99; i >= 0; i--) {
+    const t = base - i * 86400000;
+    const dia = new Date(t).toISOString().slice(0, 10);
+    const semana = new Date(t).getUTCDay();
+    const ritmo = semana === 0 || semana === 6 ? 1.6 : 1;
+    for (const p of projetos) {
+      const depois = (t - p.data) / 86400000;
+      const pico = depois >= 0 && depois < 7 ? 5 - depois * 0.6 : 1;
+      const v = Math.round((3 + sorteio() * 9) * p.peso * ritmo * pico);
+      const c = Math.round(v * (0.2 + sorteio() * 0.25));
+      soma(`d:${dia}:views:${p.slug}`, v); soma(`views:${p.slug}`, v);
+      soma(`d:${dia}:drive_clicks:${p.slug}`, c); soma(`drive_clicks:${p.slug}`, c);
+    }
+    for (const [modo, f] of /** @type {const} */ ([['turnstile', 1.2], ['email', 0.18], ['noscript', 0.07]])) {
+      const g = Math.round((2 + sorteio() * 6) * f * ritmo);
+      soma(`d:${dia}:gate:${modo}`, g); soma(`gate:${modo}`, g);
+    }
+  }
+  out['views:formatura-medicina-2026'] = (out['views:formatura-medicina-2026'] || 0) + 742;
+  return out;
+}
+const CONTADORES = contadoresSinteticos();
+
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
 
 /**
@@ -100,7 +138,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
  * @param {{ width: number, height: number }} viewport @param {number} dpr @param {boolean} toque
  */
 async function abre(viewport, dpr, toque) {
-  const w = await sobeWorker({ kv: SEMENTE });
+  const w = await sobeWorker({ kv: SEMENTE, contadores: CONTADORES });
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: dpr, hasTouch: toque, isMobile: toque });
   const page = await ctx.newPage();
   const estado = { erros: /** @type {string[]} */ ([]), csp: /** @type {string[]} */ ([]) };
@@ -254,14 +292,127 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(/resolvida/i.test(msgResolveu) && (await page.locator('#requests-badge').textContent()) === '1',
         `${rotulo}: resolver um pedido (e o aviso da navegação cai para 1)`, msgResolveu);
 
-      // ---- 6. Métricas ----------------------------------------------------
+      // ---- 6. Métricas (v2, #215) -------------------------------------------
+      // Uma leitura da série por dia, e o resto é desenhado no navegador:
+      // números do período comparados com o anterior, o gráfico de linhas com
+      // a cruz (toque, mouse e teclado), a tabela, a semana, o portão, a lista
+      // de projetos que foca o gráfico, e o CSV da série.
       await espera(page, 3200);
       await aciona(page.locator('nav.nav [data-tab="metrics"]'), toque);
       await page.waitForSelector('#tab-metrics.active');
-      await espera(page, 800);
-      const resumos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
-      registra(resumos.slice(0, 3).join('|') === 'Visitantes|Abriram o Drive|Taxa geral', `${rotulo}: métricas abrem com os blocos de resumo`, resumos);
+      await page.waitForSelector('#grafico-acessos svg', { timeout: 6000 });
+      const rotulos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
+      registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período`, rotulos);
+      const delta = ((await page.locator('#metrics-resumo .resumo-delta').first().textContent()) || '').trim();
+      registra(/vs\. 30 dias antes/.test(delta), `${rotulo}: o número vem comparado com o período anterior ("${delta}")`, delta);
+      const desenho = page.locator('#grafico-acessos svg');
+      const pontos = await desenho.getAttribute('data-pontos');
+      const linhas = await desenho.locator('path[fill="none"]').count();
+      const itensLegenda = await page.locator('#acessos-legenda span').count();
+      registra(pontos === '30' && linhas === 2 && itensLegenda === 2, `${rotulo}: gráfico de 30 dias, duas linhas e a legenda`, { pontos, linhas, itensLegenda });
+
+      await aciona(page.locator('#metrics-periodo [data-dias="7"]'), toque);
+      await espera(page, 250);
+      registra((await desenho.getAttribute('data-pontos')) === '7' && (await page.locator('#metrics-periodo [data-dias="7"]').getAttribute('aria-pressed')) === 'true',
+        `${rotulo}: "7 dias" redesenha o gráfico com 7 pontos`, await desenho.getAttribute('data-pontos'));
+
+      // No celular o gráfico fica abaixo da dobra (os números vêm antes), e
+      // `touchscreen.tap(x, y)` não rola a página como o `locator.tap()`.
+      await desenho.scrollIntoViewIfNeeded();
+      const caixaGrafico = await desenho.boundingBox();
+      if (caixaGrafico) {
+        const meio = { x: caixaGrafico.x + caixaGrafico.width * 0.55, y: caixaGrafico.y + caixaGrafico.height * 0.5 };
+        if (toque) await page.touchscreen.tap(meio.x, meio.y);
+        else await page.mouse.move(meio.x, meio.y);
+      }
+      await espera(page, 200);
+      const dica = page.locator('#dica-acessos');
+      const textoDica = ((await dica.textContent()) || '').trim();
+      registra(await dica.isVisible() && /Visitas/.test(textoDica) && /Abriram o Drive/.test(textoDica),
+        `${rotulo}: ${toque ? 'tocar' : 'passar o mouse'} no gráfico mostra o dia e os dois números`, textoDica);
+      const caixaDica = await dica.boundingBox();
+      registra(!!caixaDica && caixaDica.x >= 0 && caixaDica.x + caixaDica.width <= viewport.width + 1, `${rotulo}: a dica cabe na tela`, caixaDica);
+      if (PRINTS) await print(page, `${id}-metricas-dica`);
+      // A dica nunca cobre o ponto que descreve — em vários lugares do gráfico
+      // (no celular ela não cabe ao lado da cruz no meio, e foi assim que o
+      // primeiro desenho escondia o próprio ponto).
+      /** @type {string[]} */
+      const cobertos = [];
+      if (caixaGrafico) {
+        for (const fracao of [0.08, 0.3, 0.5, 0.7, 0.95]) {
+          const ponto = { x: caixaGrafico.x + caixaGrafico.width * fracao, y: caixaGrafico.y + caixaGrafico.height * 0.5 };
+          if (toque) await page.touchscreen.tap(ponto.x, ponto.y);
+          else await page.mouse.move(ponto.x, ponto.y);
+          await espera(page, 120);
+          const cobre = await page.evaluate(() => {
+            const d = /** @type {HTMLElement} */ (document.getElementById('dica-acessos'));
+            if (d.hidden) return 'dica escondida';
+            const caixa = d.getBoundingClientRect();
+            const ruins = [...document.querySelectorAll('#grafico-acessos .cruz circle')]
+              .filter(c => c.getAttribute('visibility') !== 'hidden')
+              .filter(c => {
+                const r = c.getBoundingClientRect();
+                const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+                return cx >= caixa.left && cx <= caixa.right && cy >= caixa.top && cy <= caixa.bottom;
+              });
+            return ruins.length ? 'cobre ' + ruins.length + ' ponto(s)' : '';
+          });
+          if (cobre) cobertos.push(`${Math.round(fracao * 100)}%: ${cobre}`);
+        }
+      }
+      registra(cobertos.length === 0, `${rotulo}: a dica não cobre o ponto que descreve (5 posições)`, cobertos);
+      if (!toque) {
+        await page.locator('#grafico-acessos').focus();
+        const antes = await page.locator('#dica-acessos .dica-dia').textContent();
+        await page.keyboard.press('ArrowLeft');
+        const depois = await page.locator('#dica-acessos .dica-dia').textContent();
+        const anuncio = (await page.locator('#acessos-anuncio').textContent()) || '';
+        registra(antes !== depois && /visitas/.test(anuncio), `${rotulo}: no teclado, a seta anda um dia e o leitor de tela ouve`, { antes, depois, anuncio });
+        await page.keyboard.press('Escape');
+        registra(await dica.isHidden(), `${rotulo}: Esc esconde a dica`, '');
+      } else {
+        await page.touchscreen.tap(5, Math.round(viewport.height * 0.3));
+        await espera(page, 150);
+        registra(await dica.isHidden(), `${rotulo}: tocar fora do gráfico esconde a dica`, '');
+      }
+
+      await aciona(page.locator('#acessos-ver-tabela'), toque);
+      const linhasTabela = await page.locator('#acessos-tabela tbody tr').count();
+      registra(linhasTabela === 7 && (await page.locator('#acessos-ver-tabela').getAttribute('aria-expanded')) === 'true',
+        `${rotulo}: "Ver como tabela" abre os 7 dias`, linhasTabela);
+      await aciona(page.locator('#acessos-ver-tabela'), toque);
+      await aciona(page.locator('#metrics-periodo [data-dias="30"]'), toque);
+      await espera(page, 250);
+
+      registra((await page.locator('#grafico-semana [data-coluna]').count()) === 7, `${rotulo}: dia da semana com 7 colunas`, '');
+      const portao = await page.locator('#grafico-portao .barra-rot').allTextContents();
+      registra(portao.length === 3 && portao.every(t => /\d+%/.test(t)), `${rotulo}: modos do portão com contagem e %`, portao);
+
+      const numeroAntes = await page.locator('#metrics-resumo .resumo-num').first().textContent();
+      await aciona(page.locator('#metrics-ranking .rank-item').first(), toque);
+      await espera(page, 500);
+      const escolhido = await page.locator('#metrics-projeto').inputValue();
+      const numeroDepois = await page.locator('#metrics-resumo .resumo-num').first().textContent();
+      registra((await page.locator('#metrics-ranking .rank-item[aria-pressed="true"]').count()) === 1 && escolhido !== '' && numeroAntes !== numeroDepois,
+        `${rotulo}: tocar num projeto foca os gráficos nele`, { escolhido, numeroAntes, numeroDepois });
+      await aciona(page.locator('#metrics-ranking .rank-item[aria-pressed="true"]'), toque);
+      await espera(page, 300);
+      registra((await page.locator('#metrics-projeto').inputValue()) === '', `${rotulo}: tocar de novo volta a todos os projetos`, '');
+
+      const [baixado] = await Promise.all([
+        page.waitForEvent('download', { timeout: 6000 }),
+        aciona(page.locator('#bloco-acessos [data-onclick="exportSerieCSV"]'), toque),
+      ]);
+      const caminhoCsv = await baixado.path();
+      const csv = caminhoCsv ? readFileSync(caminhoCsv, 'utf8').replace(/^\uFEFF/, '') : '';
+      registra(/^metricas-por-dia-\d{4}-\d{2}-\d{2}\.csv$/.test(baixado.suggestedFilename()) && csv.startsWith('dia,slug,titulo,visitas,abriram_drive'),
+        `${rotulo}: CSV da série por dia`, baixado.suggestedFilename());
+
+      const medida = await page.evaluate(() => ({ sw: document.scrollingElement ? document.scrollingElement.scrollWidth : 0, escala: window.visualViewport ? window.visualViewport.scale : 1 }));
+      registra(medida.sw <= viewport.width && medida.escala >= 0.99, `${rotulo}: as métricas desenhadas não vazam para o lado`, medida);
+      await page.evaluate(() => window.scrollTo(0, 0));
       await print(page, `${id}-metricas`);
+      if (PRINTS) await page.screenshot({ path: join(PRINTS, `painel-${id}-metricas-inteira.png`), fullPage: true });
 
       // ---- 7. Trocar a senha (e entrar de novo com ela) --------------------
       await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);

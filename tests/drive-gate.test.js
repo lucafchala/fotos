@@ -307,6 +307,47 @@ describe('handleDriveLink — consent audit', () => {
   });
 });
 
+// Métricas v2: o painel mostra COMO as pessoas passam pelo portão — quantas
+// precisam do caminho sem script (bloqueador) ou do código por e-mail. É o
+// número que faltava para calibrar os baldes depois de um evento (#230). Só a
+// contagem por modo: a chave não leva slug, IP nem nada da pessoa.
+describe('handleDriveLink — contagem do modo de entrada', () => {
+  const chavesDoContador = () => [...env.COUNTER._instances.get('contadores').ctx.storage._map.keys()];
+
+  it('cada acesso liberado soma 1 no modo dele', async () => {
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(200);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(200);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'noscript', consent: true }, { ip: '5.6.7.8' }), env, ctx)).status).toBe(200);
+    await ctx.settle();
+    expect(await readCounter(env, 'gate:turnstile')).toBe(2);
+    expect(await readCounter(env, 'gate:noscript')).toBe(1);
+    expect(await readCounter(env, 'gate:email')).toBe(0);
+  });
+
+  it('a chave não leva slug nem nada da pessoa — só o modo (e o dia, na série)', async () => {
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    await handleDriveLink(req({ slug: 'familia-silva', turnstileToken: 't', consent: true, declaration: true, name: 'Ana' }), env, ctx);
+    await ctx.settle();
+    const chaves = chavesDoContador();
+    expect(chaves.length).toBeGreaterThan(0);
+    for (const k of chaves) expect(k).toMatch(/^(d:\d{4}-\d{2}-\d{2}:)?gate:(noscript|turnstile|email)$/);
+  });
+
+  it('recusa não conta: sem aceite, Turnstile recusado, projeto em breve', async () => {
+    const ctx = fakeCtx();
+    stubTurnstile(true);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), env, ctx)).status).toBe(400);
+    expect((await handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(403);
+    stubTurnstile(false);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'ruim', consent: true }), env, ctx)).status).toBe(403);
+    await ctx.settle();
+    expect(env.COUNTER._instances.size, 'o contador nem foi endereçado').toBe(0);
+  });
+});
+
 describe('toCount', () => {
   it('reads back a well-formed counter', () => {
     expect(toCount('42')).toBe(42);
@@ -712,6 +753,7 @@ describe('código por e-mail', () => {
     expect((await ok.json()).driveUrl).toContain('drive.google.com');
     expect(db.rows[0].vals).toContain(2); // turnstile_ok = 2: verificado por e-mail
     expect(db.rows[0].vals).not.toContain('ana@exemplo.com'); // o e-mail não vai para o registro
+    expect(await readCounter(env, 'gate:email'), 'o painel conta o modo de entrada').toBe(1);
   });
 
   it('código errado, token de outro projeto ou sem aceite: nada de link', async () => {

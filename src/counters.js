@@ -1,5 +1,25 @@
 import { DurableObject } from 'cloudflare:workers';
-import { toCount } from './utils.js';
+import { toCount, hojeEmSaoPaulo, diaMenos } from './utils.js';
+import { METRICAS_RETENCAO_DIAS } from './config.js';
+
+// ---------------------------------------------------------------------------
+// Série por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// Além do total (`views:<slug>`), cada incremento soma no balde do DIA de São
+// Paulo: `d:<AAAA-MM-DD>:<chave do total>` — por exemplo
+// `d:2026-10-10:views:formatura`. O dia vem PRIMEIRO na chave de propósito:
+// podar "tudo antes de tal dia" e ler "tudo desde tal dia" viram comparações
+// de texto, sem índice nenhum.
+//
+// Custo, dito sem rodeio: a mesma chamada ao objeto (nenhuma subrequisição a
+// mais por visita) e uma linha escrita a mais (o `put` grava as duas chaves
+// juntas). No plano gratuito são 100 mil linhas/dia; um evento de 750 pessoas
+// gasta uns 1,5 mil a mais. O que a série NÃO tem é dado pessoal: é contagem.
+const DIARIO = 'd:';
+/** Tamanho de `d:AAAA-MM-DD:` — o que vem depois é a chave do total. */
+const PREFIXO_DIA = DIARIO.length + 11;
+/** @param {string} dia @param {string} key */
+const chaveDia = (dia, key) => `${DIARIO}${dia}:${key}`;
 
 // ---------------------------------------------------------------------------
 // Contadores e rate limit em Durable Objects
@@ -33,6 +53,8 @@ export class Counter extends DurableObject {
   // gravação começa, a soma já aconteceu — nenhuma intercalação a perde.
   /** @type {Map<string, any>} */
   #counts = new Map();
+  /** Último dia em que a poda da série rodou (uma vez por dia, ver #poda). */
+  #podadoEm = '';
 
   /**
    * @param {DurableObjectState} ctx
@@ -74,12 +96,64 @@ export class Counter extends DurableObject {
       });
     }
 
-    // Síncrono até a gravação: quando o `put` começa, a soma já aconteceu.
+    // Síncrono até a gravação: quando o `put` começa, as duas somas (total e
+    // balde do dia) já aconteceram — nenhuma intercalação perde contagem. As
+    // duas chaves vão no MESMO `put`: ou gravam juntas ou nenhuma grava.
+    const dia = hojeEmSaoPaulo();
+    const dk = chaveDia(dia, key);
     const atual = Counter.#valido(this.#counts.get(key)) ? this.#counts.get(key) : 0;
+    const atualDia = Counter.#valido(this.#counts.get(dk)) ? this.#counts.get(dk) : 0;
     const next = atual + by;
     this.#counts.set(key, next);
-    await this.ctx.storage.put(key, next);
+    this.#counts.set(dk, atualDia + by);
+    await this.ctx.storage.put({ [key]: next, [dk]: atualDia + by });
+    if (dia !== this.#podadoEm) await this.#poda(dia);
     return next;
+  }
+
+  // Poda da série: no primeiro incremento de cada dia, apaga os baldes mais
+  // velhos que METRICAS_RETENCAO_DIAS. Sem isto, storage de Durable Object não
+  // expira nunca (ver RateLimiter) e a série cresceria para sempre. `#podadoEm`
+  // é marcado ANTES do primeiro `await`, então duas visitas simultâneas na
+  // virada do dia não podam duas vezes. Se o objeto reiniciar, a poda roda de
+  // novo uma vez — idempotente.
+  /** @param {string} hoje */
+  async #poda(hoje) {
+    this.#podadoEm = hoje;
+    const corte = diaMenos(hoje, METRICAS_RETENCAO_DIAS);
+    /** @type {string[]} */
+    const velhas = [];
+    for (const k of this.#counts.keys()) {
+      if (k.startsWith(DIARIO) && k.slice(DIARIO.length, DIARIO.length + 10) < corte) velhas.push(k);
+    }
+    for (const k of velhas) this.#counts.delete(k);
+    // A API apaga até 128 chaves por chamada.
+    for (let i = 0; i < velhas.length; i += 128) await this.ctx.storage.delete(velhas.slice(i, i + 128));
+  }
+
+  // A série inteira desde `desde` numa chamada só (#215: chamada de DO é
+  // subrequisição — o painel não pode pedir um dia ou um projeto por vez).
+  // `totais` traz junto o total de chaves que o painel também quer (os modos
+  // do portão), para continuar sendo UMA chamada. `primeiroDia` é o dia mais
+  // antigo que a série tem: o painel diz "contagem diária desde…".
+  /**
+   * @param {string} desde 'AAAA-MM-DD'
+   * @param {string[]} [totais]
+   */
+  async serie(desde, totais = []) {
+    /** @type {Record<string, number>} */
+    const serie = {};
+    let primeiroDia = '';
+    for (const [k, v] of this.#counts) {
+      if (!k.startsWith(DIARIO) || !Counter.#valido(v)) continue;
+      const dia = k.slice(DIARIO.length, DIARIO.length + 10);
+      if (!primeiroDia || dia < primeiroDia) primeiroDia = dia;
+      if (dia >= desde) serie[k] = v;
+    }
+    /** @type {Record<string, number>} */
+    const tot = {};
+    for (const k of totais) tot[k] = Counter.#valido(this.#counts.get(k)) ? this.#counts.get(k) : 0;
+    return { serie, primeiroDia, totais: tot };
   }
 
   // Best-effort: se o KV não responder, começa do zero em vez de recusar a
@@ -130,12 +204,17 @@ export class Counter extends DurableObject {
     }
   }
 
+  // Apaga os totais E a série diária deles: um projeto excluído não pode
+  // deixar baldes órfãos ocupando o objeto até a poda (400 dias).
   /** @param {string[]} keys */
   async remove(keys) {
-    for (const k of keys) {
-      this.#counts.delete(k);
-      await this.ctx.storage.delete(k);
+    const alvo = new Set(keys);
+    const apagar = [...keys];
+    for (const k of this.#counts.keys()) {
+      if (k.startsWith(DIARIO) && alvo.has(k.slice(PREFIXO_DIA))) apagar.push(k);
     }
+    for (const k of apagar) this.#counts.delete(k);
+    for (let i = 0; i < apagar.length; i += 128) await this.ctx.storage.delete(apagar.slice(i, i + 128));
   }
 }
 

@@ -136,3 +136,23 @@ export const GALERIA_LADO_REDES = 2048;
 export const GALERIA_LARGURAS = [480, 800, 1200, 1600, 2048, 2560, 3200, 4096, 5120, 6400];
 // Miniaturas da grade: a menor que cobre o quadradinho em pixels físicos.
 export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 600, 800, 1000];
+
+// ---------------------------------------------------------------------------
+// Métricas por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// Cada contador do Durable Object `Counter` (visitas, cliques no Drive, modo
+// de entrada no portão) ganha também um balde por DIA de São Paulo, gravado
+// na mesma chamada e na mesma gravação do total. Os baldes mais velhos que
+// isto são podados uma vez por dia: 400 dias cobrem um ano inteiro e a
+// comparação com o mesmo mês do ano anterior, sem a série crescer para sempre.
+export const METRICAS_RETENCAO_DIAS = 400;
+// O máximo que /api/metrics/diario devolve de uma vez. O painel pede 180 para
+// comparar o maior período (90 dias) com os 90 anteriores.
+export const METRICAS_DIAS_MAX = 180;
+// Os modos de passar pelo portão do Drive, na ordem do `turnstile_ok` do
+// registro de consentimento (0, 1, 2). Só a contagem — sem slug, sem IP.
+export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'email']);
+
+// Versão do site. Sobe junto com a do package.json (há teste que confere) e
+// aparece no rodapé do painel; o CHANGELOG.md diz o que mudou em cada uma.
+export const VERSAO = '2.0.0';

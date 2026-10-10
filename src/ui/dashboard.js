@@ -418,6 +418,69 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .resumo-num{font-size:1.5rem;font-weight:600;line-height:1.1}
     .resumo-lab{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-top:.3rem}
     .resumo-det{font-size:.75rem;color:var(--text2);margin-top:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    /* ---- Métricas v2 (#215) ----------------------------------------------
+       Cores dos gráficos: a paleta validada para o fundo dos blocos (#141414)
+       — azul = Visitas, laranja = Abriram o Drive, verde-água = modos do
+       portão. Contraste e separação para daltonismo conferidos com o
+       validador da skill de dataviz (docs/PAINEL.md, "Métricas"). Texto NUNCA
+       usa a cor da série: números e rótulos ficam na tinta do texto, e a
+       marca colorida ao lado é que identifica a série. */
+    .filtros-metricas{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.75rem}
+    .filtros-metricas .chips{flex:0 1 auto}
+    .filtros-metricas select{flex:1 1 200px;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.6rem .8rem;border-radius:9px;font-size:.85rem;outline:none;-webkit-appearance:none}
+    .filtros-metricas select:focus{border-color:#3a3a3a}
+    .metrics-atualizado{align-self:center;font-size:.72rem;color:var(--text3)}
+    .resumo-delta{font-size:.72rem;color:var(--text2);margin-top:.35rem;line-height:1.4;font-variant-numeric:tabular-nums}
+    .resumo-num{font-variant-numeric:tabular-nums}
+    .bloco-acoes{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end}
+    .legenda{display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;margin:0 0 .6rem;font-size:.78rem;color:var(--text2)}
+    .legenda span{display:inline-flex;align-items:center;gap:.45rem}
+    .legenda i{display:inline-block;width:18px;height:3px;border-radius:2px}
+    .legenda b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+    /* pan-y: no celular, arrastar na vertical ainda rola a página; na
+       horizontal, percorre os dias. */
+    .grafico{position:relative;width:100%;min-width:0;touch-action:pan-y;-webkit-tap-highlight-color:transparent;outline:none;border-radius:8px}
+    .grafico:focus-visible{box-shadow:0 0 0 2px #4a4a4a}
+    .grafico svg{display:block;max-width:100%;height:auto}
+    .grafico-vazio{display:flex;align-items:center;justify-content:center;min-height:180px;padding:1rem;text-align:center;font-size:.82rem;color:var(--text2);line-height:1.55;border:1px dashed #2c2c2a;border-radius:10px}
+    .dica{position:absolute;top:0;left:0;z-index:5;pointer-events:none;background:#1f1f1e;border:1px solid #383835;border-radius:10px;padding:.5rem .7rem;font-size:.76rem;color:var(--text);box-shadow:0 10px 24px rgba(0,0,0,.5);white-space:nowrap}
+    .dica[hidden]{display:none}
+    .dica-dia{color:var(--text2);margin-bottom:.3rem}
+    .dica-linha{display:flex;align-items:center;gap:.45rem;line-height:1.6}
+    .dica-linha i{display:inline-block;width:10px;height:10px;border-radius:3px;flex-shrink:0}
+    .dica-linha b{margin-left:auto;padding-left:1rem;font-weight:600;font-variant-numeric:tabular-nums}
+    .barras{display:flex;flex-direction:column;gap:.85rem;margin-top:1rem}
+    .barra-rot{display:flex;justify-content:space-between;gap:.75rem;font-size:.8rem;color:var(--text2);margin-bottom:.35rem}
+    .barra-rot b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .barra-trilho{height:10px;background:var(--bg3);border-radius:4px;overflow:hidden}
+    .barra-trilho i{display:block;height:100%;min-width:2px;border-radius:0 4px 4px 0}
+    .chips + .ranking{margin-top:.75rem}
+    .ranking{display:flex;flex-direction:column;gap:.35rem}
+    .rank-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.4rem .75rem;align-items:center;width:100%;min-height:44px;text-align:left;background:none;border:1px solid transparent;border-radius:10px;padding:.6rem .65rem;color:var(--text);transition:background .2s,border-color .2s}
+    .rank-item:hover{background:var(--bg3)}
+    .rank-item[aria-pressed="true"]{border-color:#3987e5;background:rgba(57,135,229,.08)}
+    .rank-nome{min-width:0;font-size:.86rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .rank-num{font-size:.75rem;color:var(--text2);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .rank-barra{grid-column:1 / -1;display:flex;align-items:center;gap:.75rem;min-width:0}
+    .rank-barra .barra-trilho{flex:1;height:6px}
+    .rank-barra svg{flex-shrink:0}
+    .rank-resto{font-size:.75rem;color:var(--text3);margin:.5rem .65rem 0}
+    .tabela-rolavel{max-height:360px;overflow:auto;-webkit-overflow-scrolling:touch;margin-top:.75rem;border:1px solid var(--border);border-radius:10px}
+    .tabela-rolavel .metrics-table td,.tabela-rolavel .metrics-table th{padding:.5rem .75rem;font-variant-numeric:tabular-nums}
+    .tabela-rolavel .metrics-table th{position:sticky;top:0;background:var(--bg2)}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    /* Métricas no celular: os botões de um bloco descem para baixo do texto
+       em vez de espremê-lo numa coluna; o número de cada projeto vai para a
+       linha de baixo do nome (o nome inteiro importa mais); a tabela do total
+       perde o endereço do projeto, que já está no nome. */
+    #tab-metrics .bloco-cabeca{flex-wrap:wrap}
+    #tab-metrics .bloco-cabeca > div:first-child{flex:1 1 240px;min-width:0}
+    @media(max-width:599px){
+      .rank-item{grid-template-columns:minmax(0,1fr)}
+      .metrics-table .slug-mini{display:none}
+      #metrics-body .metrics-table td,#metrics-body .metrics-table th{padding-left:.5rem;padding-right:.5rem}
+      #metrics-body .views-bar{left:.5rem}
+    }
     /* status badge */
     .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
     .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}
@@ -578,7 +641,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .metrics-table th.sortable:hover{color:var(--text2)}
     .sort-ind{font-size:.6rem;margin-left:.25rem;color:var(--text2)}
     .views-cell{position:relative}
-    .views-bar{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);height:60%;background:#c0a060;opacity:.16;border-radius:3px;z-index:0;pointer-events:none}
+    .views-bar{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);height:60%;background:#3987e5;opacity:.22;border-radius:3px;z-index:0;pointer-events:none}
     .views-cell .views-badge{position:relative;z-index:1}
     /* export buttons group */
     .export-grid{display:flex;flex-wrap:wrap;gap:.5rem}
@@ -698,26 +761,100 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     <div id="requests-body"><p class="empty">Carregando…</p></div>
   </section>
 
-  <!-- MÉTRICAS -->
+  <!-- MÉTRICAS (v2, #215) -->
+  <!-- Ordem de leitura, de cima para baixo: o filtro (período e projeto,
+       numa linha só, acima de tudo que ele muda) → os números do período, com
+       a comparação → o gráfico por dia → quando (dia da semana) e como (modo
+       de entrada no portão) → cada projeto → o total desde sempre. Os
+       gráficos são desenhados no navegador a partir de UMA leitura da série
+       (GET /api/metrics/diario) — trocar o filtro não pede nada ao servidor. -->
   <section id="tab-metrics" class="panel" aria-labelledby="h-metricas">
     <div class="secao-cabeca">
       <div>
         <h1 id="h-metricas">Métricas</h1>
-        <p class="secao-sub">Quem visitou cada projeto e quantos abriram o Drive.</p>
+        <p class="secao-sub">Visitas e aberturas do Drive por dia, por projeto, e como as pessoas passaram pelo portão.</p>
       </div>
       <div class="secao-acoes">
-        <button class="btn-sm" id="metrics-export" data-onclick="exportMetricsCSV" style="display:none">⬇ Exportar CSV</button>
+        <span class="metrics-atualizado" id="metrics-atualizado"></span>
+        <button class="btn-sm" data-onclick="loadMetrics" aria-describedby="metrics-atualizado">↻ Atualizar</button>
       </div>
     </div>
+    <div class="bloco filtros-metricas" role="group" aria-label="Filtros das métricas">
+      <div class="chips" id="metrics-periodo" role="group" aria-label="Período">
+        <button type="button" class="chip" aria-pressed="false" data-onclick="escolhePeriodo" data-dias="7">7 dias</button>
+        <button type="button" class="chip" aria-pressed="true" data-onclick="escolhePeriodo" data-dias="30">30 dias</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="escolhePeriodo" data-dias="90">90 dias</button>
+      </div>
+      <select id="metrics-projeto" data-onchange="escolheProjeto" aria-label="Projeto">
+        <option value="">Todos os projetos</option>
+      </select>
+    </div>
     <div id="metrics-resumo" class="metrics-resumo" hidden></div>
+
+    <div class="bloco" id="bloco-acessos">
+      <div class="bloco-cabeca">
+        <div>
+          <h2>Acessos por dia</h2>
+          <p class="bloco-desc" id="acessos-desc">Carregando…</p>
+        </div>
+        <div class="bloco-acoes">
+          <button class="btn-sm" id="acessos-ver-tabela" data-onclick="alternaTabelaAcessos" aria-expanded="false" aria-controls="acessos-tabela">Ver como tabela</button>
+          <button class="btn-sm" data-onclick="exportSerieCSV">⬇ CSV</button>
+        </div>
+      </div>
+      <div class="legenda" id="acessos-legenda"></div>
+      <div class="grafico" id="grafico-acessos" tabindex="0" role="group" aria-roledescription="gráfico" aria-label="Acessos por dia">
+        <div class="dica" id="dica-acessos" hidden></div>
+      </div>
+      <p class="sr-only" id="acessos-anuncio" aria-live="polite"></p>
+      <div id="acessos-tabela" class="tabela-rolavel" hidden></div>
+      <p class="metrics-nota" id="acessos-nota"></p>
+    </div>
+
+    <div class="grade-blocos">
+      <div class="bloco">
+        <h2>Dia da semana</h2>
+        <p class="bloco-desc" id="semana-desc">Média de visitas em cada dia da semana, no período.</p>
+        <div class="grafico" id="grafico-semana"></div>
+        <p class="metrics-nota" id="semana-leitura" aria-live="polite"></p>
+      </div>
+      <div class="bloco">
+        <h2>Como passaram pelo portão</h2>
+        <p class="bloco-desc">Cada acesso liberado ao Drive, pelo modo de verificação. Muito "código por e-mail" ou "sem JavaScript" costuma ser bloqueador de anúncio ou rede que atrapalha a verificação automática. Vale para todos os projetos: o portão não guarda qual foi.</p>
+        <div id="grafico-portao" class="barras"></div>
+      </div>
+    </div>
+
     <div class="bloco">
+      <div class="bloco-cabeca">
+        <div>
+          <h2>Projetos no período</h2>
+          <p class="bloco-desc">Toque num projeto para ver só ele nos gráficos; toque de novo para voltar a todos.</p>
+        </div>
+      </div>
+      <div class="chips" id="metrics-ordem" role="group" aria-label="Ordenar projetos por">
+        <button type="button" class="chip" aria-pressed="true" data-onclick="ordenaRanking" data-ordem="views">Visitas</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="driveClicks">Abriram o Drive</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="taxa">Taxa</button>
+      </div>
+      <div id="metrics-ranking" class="ranking"><p class="empty">Carregando…</p></div>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-cabeca">
+        <div>
+          <h2>Total desde o início</h2>
+          <p class="bloco-desc">Tudo o que já foi contado, inclusive antes de existir a contagem por dia.</p>
+        </div>
+        <button class="btn-sm" id="metrics-export" data-onclick="exportMetricsCSV" style="display:none">⬇ CSV</button>
+      </div>
       <p class="metrics-nota">
         Conta <strong>visitante único por hora</strong>, não recarregamento: abrir a
         mesma página de novo no mesmo navegador não soma. Por isso o número não se
         mexe quando você testa recarregando — é assim de propósito.
       </p>
+      <div class="bloco-tabela"><div id="metrics-body"><p class="empty">Carregando…</p></div></div>
     </div>
-    <div class="bloco bloco-tabela"><div id="metrics-body"><p class="empty">Carregando…</p></div></div>
   </section>
 
   <!-- AJUSTES -->
@@ -766,7 +903,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <div class="export-grid" style="margin-top:1rem">
             <button class="btn-sm" data-onclick="exportConsentCSV">⬇ Consentimentos (CSV)</button>
             <button class="btn-sm" data-onclick="exportRemovalCSV">⬇ Pedidos de remoção (CSV)</button>
-            <button class="btn-sm" data-onclick="exportMetricsCSV">⬇ Métricas (CSV)</button>
+            <button class="btn-sm" data-onclick="exportMetricsCSV">⬇ Métricas: totais (CSV)</button>
+            <button class="btn-sm" data-onclick="exportSerieCSV">⬇ Métricas por dia (CSV)</button>
           </div>
         </div>
         <div class="bloco sensivel">
@@ -1027,6 +1165,26 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     let metricsLoaded = false;
     let metricsData = [];
     let metricsSort = { key: 'views', dir: 'desc' };
+    // Métricas v2 (#215): a série por dia (UMA leitura de 180 dias — o maior
+    // período, 90, mais os 90 de antes para a comparação) e o que o dono
+    // escolheu nos filtros. Trocar filtro redesenha daqui, sem pedir nada ao
+    // servidor. O período escolhido volta ao recarregar (sessionStorage).
+    let serieDiaria = null;
+    let metricsPeriodo = (function () {
+      try { const n = Number(sessionStorage.getItem('painel:periodo')); return [7, 30, 90].includes(n) ? n : 30; } catch (e) { return 30; }
+    })();
+    let metricsProjeto = '';
+    let metricsOrdem = 'views';
+    let recorteAtual = null;
+    let geoAcessos = null;
+    let cruzIdx = -1;
+    let tabelaAcessosAberta = false;
+    let dicasSemana = [];
+    // Paleta dos gráficos, validada sobre o fundo dos blocos (#141414): ver o
+    // comentário "Métricas v2" no CSS. Uma cor por COISA, sempre a mesma.
+    const COR_VISITAS = '#3987e5';
+    const COR_DRIVE = '#d95926';
+    const COR_PORTAO = '#199e70';
     let photoList = [];
     // Declared here (not down by stashDraft()) because restoreDraft() runs
     // during init, before that point — a const isn't hoisted like a function,
@@ -1108,6 +1266,68 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       const th = ev.target.closest('[data-action="sortMetrics"]');
       if (th) sortMetrics(th.dataset.sort);
     });
+    // Métricas v2: a lista de projetos e as colunas da semana são refeitas a
+    // cada filtro (innerHTML); os ouvintes ficam nos contêineres, que não.
+    document.getElementById('metrics-ranking').addEventListener('click', function(ev) {
+      const item = ev.target.closest('[data-action="focaProjeto"]');
+      if (item) focaProjeto(item.dataset.slug);
+    });
+    document.getElementById('grafico-semana').addEventListener('click', function(ev) {
+      const col = ev.target.closest('[data-coluna]');
+      const leitura = document.getElementById('semana-leitura');
+      if (col && leitura && dicasSemana[Number(col.dataset.coluna)]) leitura.textContent = dicasSemana[Number(col.dataset.coluna)] + '.';
+    });
+    // A cruz do gráfico de acessos. Ponteiro (mouse, dedo, caneta): o dia mais
+    // perto do x. Teclado, com o gráfico em foco: setas andam um dia, Home e
+    // End vão às pontas, Esc esconde — e cada passo é anunciado ao leitor de
+    // tela. No toque a dica fica até tocar fora do gráfico.
+    (function ligaGraficoAcessos() {
+      const box = document.getElementById('grafico-acessos');
+      const doPonteiro = ev => {
+        const svg = box.querySelector('svg');
+        const g = geoAcessos;
+        if (!svg || !g) return -1;
+        const rect = svg.getBoundingClientRect();
+        const x = (ev.clientX - rect.left) * (g.largura / (rect.width || g.largura));
+        return g.n <= 1 ? 0 : Math.round((x - g.esq) / g.w * (g.n - 1));
+      };
+      box.addEventListener('pointermove', ev => { const i = doPonteiro(ev); if (i >= 0) mostraCruz(i, false); });
+      box.addEventListener('pointerdown', ev => { const i = doPonteiro(ev); if (i >= 0) mostraCruz(i, false); });
+      box.addEventListener('pointerleave', ev => { if (ev.pointerType === 'mouse') escondeCruz(); });
+      document.addEventListener('pointerdown', ev => { if (!box.contains(/** @type {Node} */ (ev.target))) escondeCruz(); });
+      box.addEventListener('focus', () => { if (geoAcessos) mostraCruz(cruzIdx >= 0 ? cruzIdx : geoAcessos.n - 1, true); });
+      box.addEventListener('blur', () => escondeCruz());
+      box.addEventListener('keydown', ev => {
+        const g = geoAcessos;
+        if (!g) return;
+        let i = cruzIdx < 0 ? g.n - 1 : cruzIdx;
+        if (ev.key === 'ArrowLeft') i--;
+        else if (ev.key === 'ArrowRight') i++;
+        else if (ev.key === 'Home') i = 0;
+        else if (ev.key === 'End') i = g.n - 1;
+        else if (ev.key === 'Escape') { escondeCruz(); return; }
+        else return;
+        ev.preventDefault();
+        mostraCruz(i, true);
+      });
+      // Redesenha quando a LARGURA muda (girar o celular, abrir a lateral):
+      // o SVG é desenhado na medida, em pixels, para o texto não esticar.
+      // requestAnimationFrame: redesenhar dentro do próprio aviso do
+      // ResizeObserver dispara o erro de "loop" no console.
+      if (typeof ResizeObserver === 'function') {
+        const larguras = new Map();
+        const ro = new ResizeObserver(entradas => {
+          let mudou = false;
+          for (const en of entradas) {
+            const w = Math.round(en.contentRect.width);
+            if (w > 0 && Math.abs((larguras.get(en.target) || 0) - w) > 2) { larguras.set(en.target, w); mudou = true; }
+          }
+          if (mudou && serieDiaria) requestAnimationFrame(() => { renderGraficoAcessos(); renderSemana(); });
+        });
+        ro.observe(box);
+        ro.observe(document.getElementById('grafico-semana'));
+      }
+    })();
     // 'load'/'error' don't bubble, but a capture-phase listener on document
     // still sees them on the way down — this script runs synchronously before
     // the event loop can fire any queued load/error task for images already
@@ -1132,6 +1352,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         case 'applyMassCategory': applyMassCategory(); break;
         case 'applyMassAccess': applyMassAccess(); break;
         case 'exportMetricsCSV': exportMetricsCSV(); break;
+        case 'exportSerieCSV': exportSerieCSV(); break;
+        case 'loadMetrics': loadMetrics(el); break;
+        case 'escolhePeriodo': escolhePeriodo(el); break;
+        case 'ordenaRanking': ordenaRanking(el); break;
+        case 'alternaTabelaAcessos': alternaTabelaAcessos(); break;
         case 'createCategory': createCategory(); break;
         case 'saveAgenda': saveAgenda(); break;
         case 'downloadBackup': downloadBackup(); break;
@@ -1154,6 +1379,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         case 'renderEventList': renderEventList(); break;
         case 'toggleSelectAll': toggleSelectAll(el.checked); break;
         case 'toggleAlertOpts': toggleAlertOpts(el.checked); break;
+        case 'escolheProjeto': escolheProjeto(el); break;
       }
     });
     document.addEventListener('input', function(ev) {
@@ -1916,45 +2142,574 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       }
     }
 
-    // ---- Metrics ----
-    async function loadMetrics() {
+    // ---- Métricas ----
+    // Duas leituras em paralelo, cada uma com o seu erro: o total desde
+    // sempre (/api/metrics, como antes) e a série por dia (/api/metrics/diario,
+    // v2). Uma falhar não apaga a outra da tela.
+    //
+    // Por que não atualiza sozinho de minuto em minuto: cada leitura passa
+    // pela sessão, e uma sessão que se renova sozinha nunca cai por
+    // inatividade — o painel aberto e esquecido num computador ficaria logado
+    // para sempre. O botão "Atualizar" faz a mesma leitura quando o dono quer.
+    async function loadMetrics(btn) {
       const body = document.getElementById('metrics-body');
       const exportBtn = document.getElementById('metrics-export');
-      try {
-        const data = await api('GET', '/api/metrics');
+      if (btn) btn.disabled = true;
+      const lido = p => p.then(d => ({ ok: true, d: d }), () => ({ ok: false, d: null }));
+      const [totais, serie] = await Promise.all([
+        lido(api('GET', '/api/metrics')),
+        lido(api('GET', '/api/metrics/diario?dias=180')),
+      ]);
+      if (btn) btn.disabled = false;
+      if (totais.ok) {
         metricsLoaded = true;
-        metricsData = Array.isArray(data) ? data : [];
+        metricsData = Array.isArray(totais.d) ? totais.d : [];
         if (exportBtn) exportBtn.style.display = metricsData.length ? 'inline-flex' : 'none';
-        if (!metricsData.length) {
-          body.innerHTML = '<p class="empty">Nenhuma visualização ainda.</p>';
-          return;
-        }
-        renderMetrics();
-      } catch(err) {
+        if (!metricsData.length) body.innerHTML = '<p class="empty">Nenhuma visualização ainda.</p>';
+        else renderMetrics();
+      } else {
         if (exportBtn) exportBtn.style.display = 'none';
         body.innerHTML = '<p class="empty">Erro ao carregar métricas.</p>';
       }
+      serieDiaria = serie.ok && serie.d && Array.isArray(serie.d.dias) ? serie.d : null;
+      const quando = document.getElementById('metrics-atualizado');
+      if (quando) quando.textContent = totais.ok || serie.ok ? 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+      renderOpcoesProjeto();
+      renderMetricas();
     }
 
-    // Os números do topo da seção: totais e o evento mais visitado. Recalculados
-    // do que /api/metrics já devolveu — nenhuma chamada a mais.
+    function renderOpcoesProjeto() {
+      const sel = document.getElementById('metrics-projeto');
+      if (!sel) return;
+      const lista = [...events].sort((a, b) => String(a.title || a.slug).localeCompare(String(b.title || b.slug), 'pt-BR'));
+      if (metricsProjeto && !lista.some(e => e.slug === metricsProjeto)) metricsProjeto = '';
+      sel.innerHTML = '<option value="">Todos os projetos</option>'
+        + lista.map(e => '<option value="' + esc(e.slug) + '">' + esc(e.title || e.slug) + '</option>').join('');
+      sel.value = metricsProjeto;
+    }
+
+    function tituloDoProjeto(slug) {
+      const e = events.find(x => x.slug === slug);
+      return e && e.title ? e.title : slug;
+    }
+
+    function fmtN(n) { return Math.round(n || 0).toLocaleString('pt-BR'); }
+
+    // Tudo o que depende do filtro, de uma vez.
+    function renderMetricas() {
+      document.querySelectorAll('#metrics-periodo .chip').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.dias) === metricsPeriodo)));
+      document.querySelectorAll('#metrics-ordem .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ordem === metricsOrdem)));
+      recorteAtual = serieDiaria ? recorteMetricas(serieDiaria, metricsPeriodo, metricsProjeto) : null;
+      renderResumoMetricas();
+      renderGraficoAcessos();
+      renderSemana();
+      renderPortao();
+      renderRanking();
+    }
+
+    function escolhePeriodo(el) {
+      const n = Number(el.dataset.dias);
+      if (![7, 30, 90].includes(n)) return;
+      metricsPeriodo = n;
+      try { sessionStorage.setItem('painel:periodo', String(n)); } catch (e) {}
+      renderMetricas();
+    }
+    function escolheProjeto(el) {
+      metricsProjeto = el.value || '';
+      renderMetricas();
+    }
+    // Tocar num projeto da lista foca os gráficos nele; tocar de novo volta a
+    // todos. Leva a tela até o gráfico, que é o que mudou.
+    function focaProjeto(slug) {
+      metricsProjeto = metricsProjeto === slug ? '' : slug;
+      const sel = document.getElementById('metrics-projeto');
+      if (sel) sel.value = metricsProjeto;
+      renderMetricas();
+      const bloco = document.getElementById('bloco-acessos');
+      const calmo = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (bloco && metricsProjeto) bloco.scrollIntoView({ behavior: calmo ? 'auto' : 'smooth', block: 'start' });
+    }
+    function ordenaRanking(el) {
+      if (!['views', 'driveClicks', 'taxa'].includes(el.dataset.ordem)) return;
+      metricsOrdem = el.dataset.ordem;
+      renderMetricas();
+    }
+    function alternaTabelaAcessos() {
+      tabelaAcessosAberta = !tabelaAcessosAberta;
+      renderTabelaAcessos();
+    }
+
+    // Os números do topo: o período escolhido, comparado com o período
+    // anterior de mesmo tamanho. Sem série por dia ainda (logo depois da
+    // atualização), mostra os totais desde o início, como antes.
     function renderResumoMetricas() {
       const el = document.getElementById('metrics-resumo');
       if (!el) return;
-      if (!metricsData.length) { el.hidden = true; return; }
-      const totV = metricsData.reduce((t, m) => t + (m.views || 0), 0);
-      const totD = metricsData.reduce((t, m) => t + (m.driveClicks || 0), 0);
-      const topo = [...metricsData].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
-      const card = (num, lab, det) => '<div class="resumo-card"><div class="resumo-num">' + num + '</div><div class="resumo-lab">' + lab + '</div>' + (det ? '<div class="resumo-det">' + det + '</div>' : '') + '</div>';
-      el.innerHTML = card(totV.toLocaleString('pt-BR'), 'Visitantes')
-        + card(totD.toLocaleString('pt-BR'), 'Abriram o Drive')
-        + card(totV ? Math.round(totD / totV * 100) + '%' : '—', 'Taxa geral')
-        + (topo && topo.views ? card((topo.views || 0).toLocaleString('pt-BR'), 'Mais visitado', esc(topo.title)) : '');
+      const card = (num, lab, det) => '<div class="resumo-card"><div class="resumo-num">' + num + '</div><div class="resumo-lab">' + lab + '</div>' + (det ? '<div class="resumo-delta">' + det + '</div>' : '') + '</div>';
+      const r = recorteAtual;
+      if (!r || !serieDiaria.primeiroDia) {
+        if (!metricsData.length) { el.hidden = true; return; }
+        const totV = metricsData.reduce((t, m) => t + (m.views || 0), 0);
+        const totD = metricsData.reduce((t, m) => t + (m.driveClicks || 0), 0);
+        el.innerHTML = card(fmtN(totV), 'Visitas', 'desde o início')
+          + card(fmtN(totD), 'Abriram o Drive', 'desde o início')
+          + card(totV ? Math.round(totD / totV * 100) + '%' : '—', 'Taxa de abertura', 'desde o início');
+        el.hidden = false;
+        return;
+      }
+      const periodo = 'nos últimos ' + metricsPeriodo + ' dias';
+      const taxa = r.totV ? Math.round(r.totD / r.totV * 100) : null;
+      const taxaAnt = r.antV ? Math.round(r.antD / r.antV * 100) : null;
+      const dV = r.temAnterior ? htmlVariacao(variacao(r.totV, r.antV), '%') : '';
+      const dD = r.temAnterior ? htmlVariacao(variacao(r.totD, r.antD), '%') : '';
+      const dT = r.temAnterior && taxa !== null && taxaAnt !== null ? htmlVariacao({ dir: Math.sign(taxa - taxaAnt), valor: Math.abs(taxa - taxaAnt) }, ' p.p.') : '';
+      const hojeV = r.views[r.views.length - 1] || 0;
+      const hojeD = r.drive[r.drive.length - 1] || 0;
+      el.innerHTML = card(fmtN(r.totV), 'Visitas', dV || periodo)
+        + card(fmtN(r.totD), 'Abriram o Drive', dD || periodo)
+        + card(taxa === null ? '—' : taxa + '%', 'Taxa de abertura', dT || 'abriram o Drive ÷ visitas')
+        + card(fmtN(hojeV), 'Hoje', fmtN(hojeD) + ' abriram o Drive');
       el.hidden = false;
     }
 
+    function htmlVariacao(v, unidade) {
+      if (!v) return '';
+      const base = ' vs. ' + metricsPeriodo + ' dias antes';
+      if (!v.dir) return 'igual' + base;
+      return '<span aria-hidden="true">' + (v.dir > 0 ? '▲' : '▼') + '</span><span class="sr-only">' + (v.dir > 0 ? 'alta de' : 'queda de') + '</span> '
+        + v.valor.toLocaleString('pt-BR') + unidade + base;
+    }
+
+    function renderGraficoAcessos() {
+      const box = document.getElementById('grafico-acessos');
+      if (!box) return;
+      const desc = document.getElementById('acessos-desc');
+      const leg = document.getElementById('acessos-legenda');
+      const nota = document.getElementById('acessos-nota');
+      escondeCruz();
+      box.querySelectorAll('svg, .grafico-vazio').forEach(n => n.remove());
+      geoAcessos = null;
+      const vazio = texto => { leg.innerHTML = ''; nota.textContent = ''; box.insertAdjacentHTML('afterbegin', '<div class="grafico-vazio">' + texto + '</div>'); };
+      const r = recorteAtual;
+      const quem = metricsProjeto ? tituloDoProjeto(metricsProjeto) : 'todos os projetos';
+      if (!serieDiaria) {
+        desc.textContent = 'Não deu para carregar a contagem por dia.';
+        vazio('Não deu para carregar a contagem por dia. Toque em “Atualizar” para tentar de novo.');
+      } else if (!serieDiaria.primeiroDia) {
+        desc.textContent = 'Visitas e aberturas do Drive por dia — ' + quem + '.';
+        vazio('A contagem por dia começa com a versão 2.0 e ainda não há nenhum dia contado. A próxima visita já aparece aqui; os totais desde o início estão no fim da página.');
+      } else {
+        const largura = Math.max(240, Math.round(box.clientWidth || 0));
+        const res = svgLinhas({
+          largura: largura,
+          altura: largura < 560 ? 220 : 260,
+          dias: r.dias,
+          rotulosFim: largura >= 560,
+          series: [
+            { nome: 'Visitas', curto: 'Visitas', cor: COR_VISITAS, valores: r.views },
+            { nome: 'Abriram o Drive', curto: 'Drive', cor: COR_DRIVE, valores: r.drive },
+          ],
+        });
+        box.insertAdjacentHTML('afterbegin', res.svg);
+        geoAcessos = res.geo;
+        const item = (cor, nome, total) => '<span><i style="background:' + cor + '"></i>' + nome + ' <b>' + fmtN(total) + '</b></span>';
+        leg.innerHTML = item(COR_VISITAS, 'Visitas', r.totV) + item(COR_DRIVE, 'Abriram o Drive', r.totD);
+        const pico = indicePico(r.views);
+        desc.textContent = 'Últimos ' + metricsPeriodo + ' dias, ' + quem + '.'
+          + (pico >= 0 ? ' Pico: ' + fmtN(r.views[pico]) + ' visitas em ' + diaLongo(r.dias[pico]) + '.' : '');
+        nota.textContent = serieDiaria.primeiroDia > r.dias[0]
+          ? 'A contagem por dia começou em ' + diaLongo(serieDiaria.primeiroDia) + ' (versão 2.0). Antes disso a linha fica em branco: não é zero, é que não havia contagem por dia. Os totais desde o início estão no fim da página.'
+          : '';
+      }
+      box.setAttribute('aria-label', 'Gráfico de linhas. ' + desc.textContent + (geoAcessos ? ' Use as setas para percorrer os dias, ou abra a tabela.' : ''));
+      renderTabelaAcessos();
+    }
+
+    function renderTabelaAcessos() {
+      const t = document.getElementById('acessos-tabela');
+      const btn = document.getElementById('acessos-ver-tabela');
+      if (!t) return;
+      t.hidden = !tabelaAcessosAberta;
+      if (btn) {
+        btn.setAttribute('aria-expanded', String(tabelaAcessosAberta));
+        btn.textContent = tabelaAcessosAberta ? 'Ocultar tabela' : 'Ver como tabela';
+      }
+      if (!tabelaAcessosAberta) return;
+      const r = recorteAtual;
+      if (!r || !serieDiaria.primeiroDia) { t.innerHTML = '<p class="empty">Ainda não há contagem por dia.</p>'; return; }
+      let linhas = '';
+      for (let i = r.dias.length - 1; i >= 0; i--) {
+        const sem = r.views[i] === null;
+        linhas += '<tr><td>' + diaLongo(r.dias[i]) + '</td><td>' + (sem ? '—' : fmtN(r.views[i])) + '</td><td>' + (sem ? '—' : fmtN(r.drive[i])) + '</td></tr>';
+      }
+      t.innerHTML = '<table class="metrics-table"><caption class="sr-only">Acessos por dia, do mais recente ao mais antigo</caption>'
+        + '<thead><tr><th scope="col">Dia</th><th scope="col">Visitas</th><th scope="col">Abriram o Drive</th></tr></thead><tbody>' + linhas + '</tbody></table>';
+    }
+
+    // ---- A cruz do gráfico: ponteiro, toque e teclado ----
+    function escondeCruz() {
+      const box = document.getElementById('grafico-acessos');
+      const dica = document.getElementById('dica-acessos');
+      if (dica) dica.hidden = true;
+      const cruz = box && box.querySelector('.cruz');
+      if (cruz) cruz.setAttribute('visibility', 'hidden');
+    }
+    function mostraCruz(i, anunciar) {
+      const box = document.getElementById('grafico-acessos');
+      const r = recorteAtual, g = geoAcessos;
+      const svg = box && box.querySelector('svg');
+      if (!r || !g || !svg) return;
+      let ini = 0;
+      while (ini < g.n - 1 && r.views[ini] === null) ini++;
+      i = Math.max(ini, Math.min(g.n - 1, i));
+      cruzIdx = i;
+      const x = geoX(g, i);
+      const cruz = svg.querySelector('.cruz');
+      cruz.setAttribute('visibility', 'visible');
+      const linha = cruz.querySelector('line');
+      linha.setAttribute('x1', String(x));
+      linha.setAttribute('x2', String(x));
+      const pontos = cruz.querySelectorAll('circle');
+      [r.views, r.drive].forEach((vals, k) => {
+        const v = vals[i];
+        pontos[k].setAttribute('cx', String(x));
+        pontos[k].setAttribute('cy', String(geoY(g, v || 0)));
+        pontos[k].setAttribute('visibility', v === null ? 'hidden' : 'visible');
+      });
+      const linhaDica = (cor, nome, v) => '<div class="dica-linha"><i style="background:' + cor + '"></i>' + nome + '<b>' + (v === null ? '—' : fmtN(v)) + '</b></div>';
+      const dica = document.getElementById('dica-acessos');
+      dica.innerHTML = '<div class="dica-dia">' + diaLongo(r.dias[i]) + (i === g.n - 1 ? ' (hoje)' : '') + '</div>'
+        + linhaDica(COR_VISITAS, 'Visitas', r.views[i]) + linhaDica(COR_DRIVE, 'Abriram o Drive', r.drive[i]);
+      dica.hidden = false;
+      // Onde a dica fica: nunca em cima do ponto que ela descreve. Primeiro
+      // tenta o alto, AO LADO da cruz (do lado com mais espaço). No celular a
+      // dica pode não caber de lado nenhum; aí ela vai, nesta ordem, para cima
+      // do ponto mais alto, para baixo do mais baixo, para o vão entre os dois
+      // — e, se nada disso couber, para cima do gráfico (sobre a legenda, que
+      // ela repete), onde não cobre dado nenhum.
+      const escala = svg.getBoundingClientRect().width / g.largura || 1;
+      const xPx = x * escala;
+      const larg = box.clientWidth, alt = box.clientHeight;
+      const dw = dica.offsetWidth, dh = dica.offsetHeight;
+      let esq, topo = 0;
+      if (xPx - dw - 12 >= 0 && (xPx > larg / 2 || xPx + 12 + dw > larg)) esq = xPx - dw - 12;
+      else if (xPx + 12 + dw <= larg) esq = xPx + 12;
+      else {
+        esq = Math.max(0, Math.min(larg - dw, xPx - dw / 2));
+        const ys = [r.views[i], r.drive[i]].filter(v => v !== null).map(v => geoY(g, v) * escala);
+        const alto = ys.length ? Math.min(...ys) : 0, baixo = ys.length ? Math.max(...ys) : 0;
+        if (alto - dh - 10 >= 0) topo = alto - dh - 10;
+        else if (baixo + 10 + dh <= alt) topo = baixo + 10;
+        else if (baixo - alto >= dh + 20) topo = alto + 10;
+        else topo = -dh - 8;
+      }
+      dica.style.transform = 'translate(' + Math.round(esq) + 'px,' + Math.round(topo) + 'px)';
+      if (anunciar) {
+        const an = document.getElementById('acessos-anuncio');
+        if (an) an.textContent = diaLongo(r.dias[i]) + ': ' + (r.views[i] === null ? 'sem contagem' : fmtN(r.views[i]) + ' visitas, ' + fmtN(r.drive[i]) + ' abriram o Drive');
+      }
+    }
+
+    // A semana: média por dia da semana no período.
+    const NOMES_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const PLURAL_SEMANA = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'];
+    function renderSemana() {
+      const box = document.getElementById('grafico-semana');
+      const leitura = document.getElementById('semana-leitura');
+      if (!box) return;
+      const r = recorteAtual;
+      if (!r || !serieDiaria.primeiroDia) {
+        box.innerHTML = '<div class="grafico-vazio">Ainda não há contagem por dia.</div>';
+        dicasSemana = [];
+        if (leitura) leitura.textContent = '';
+        return;
+      }
+      const sem = mediaPorSemana(r.dias, r.views);
+      const fmtMedia = v => v.toLocaleString('pt-BR', { maximumFractionDigits: v < 10 ? 1 : 0 });
+      dicasSemana = sem.map((x, w) => NOMES_SEMANA[w] + ': média de ' + fmtMedia(x.media) + ' visitas'
+        + (x.dias ? ' (' + x.dias + ' ' + (x.dias === 1 ? NOMES_SEMANA[w].toLowerCase() : PLURAL_SEMANA[w]) + ' no período)' : ' (nenhum no período)'));
+      const largura = Math.max(220, Math.round(box.clientWidth || 0));
+      box.innerHTML = svgColunas({
+        largura: largura, altura: 190, cor: COR_VISITAS,
+        rotulos: ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'],
+        valores: sem.map(x => x.media), dicas: dicasSemana, formata: fmtMedia,
+      }) + '<ul class="sr-only">' + dicasSemana.map(t => '<li>' + t + '</li>').join('') + '</ul>';
+      let top = -1;
+      sem.forEach((x, w) => { if (x.media > 0 && (top < 0 || x.media > sem[top].media)) top = w; });
+      if (leitura) leitura.textContent = top >= 0 ? 'Dia mais movimentado: ' + NOMES_SEMANA[top].toLowerCase() + ', com média de ' + fmtMedia(sem[top].media) + ' visitas. Toque numa coluna para ver o número.' : 'Nenhuma visita no período.';
+    }
+
+    // O portão: quantos acessos ao Drive foram liberados por cada modo.
+    function renderPortao() {
+      const el = document.getElementById('grafico-portao');
+      if (!el) return;
+      const d = serieDiaria;
+      if (!d || !d.gate) { el.innerHTML = '<p class="metrics-nota">Sem dados do portão.</p>'; return; }
+      const ini = Math.max(0, d.dias.length - metricsPeriodo);
+      const modos = [['turnstile', 'Verificação automática'], ['email', 'Código por e-mail'], ['noscript', 'Sem JavaScript']];
+      const vals = modos.map(m => (d.gate[m[0]] || []).slice(ini).reduce((t, v) => t + (v || 0), 0));
+      const tot = vals.reduce((a, b) => a + b, 0);
+      const sempre = Object.values(d.gateTotal || {}).reduce((a, b) => a + (b || 0), 0);
+      const rodape = '<p class="metrics-nota">' + fmtN(tot) + ' acesso' + (tot === 1 ? '' : 's') + ' liberado' + (tot === 1 ? '' : 's') + ' nos últimos ' + metricsPeriodo + ' dias'
+        + (sempre ? '; ' + fmtN(sempre) + ' desde que esta contagem existe (versão 2.0).' : '.') + '</p>';
+      if (!tot) { el.innerHTML = rodape; return; }
+      const max = Math.max(...vals);
+      el.innerHTML = modos.map((m, i) => '<div><div class="barra-rot"><span>' + m[1] + '</span><b>' + fmtN(vals[i]) + ' · ' + Math.round(vals[i] / tot * 100) + '%</b></div>'
+        + '<div class="barra-trilho"><i style="width:' + (vals[i] ? Math.max(1, vals[i] / max * 100) : 0).toFixed(1) + '%;background:' + COR_PORTAO + '"></i></div></div>').join('') + rodape;
+    }
+
+    // Cada projeto no período, com a barra da ordem escolhida e a curva das
+    // visitas por dia (sparkline).
+    function renderRanking() {
+      const el = document.getElementById('metrics-ranking');
+      if (!el) return;
+      const d = serieDiaria;
+      if (!d || !d.primeiroDia) { el.innerHTML = '<p class="empty">Ainda não há contagem por dia — os totais estão logo abaixo.</p>'; return; }
+      const ini = Math.max(0, d.dias.length - metricsPeriodo);
+      const linhas = [];
+      for (const slug of Object.keys(d.projetos)) {
+        const p = d.projetos[slug];
+        const v = p.views.slice(ini), c = p.driveClicks.slice(ini);
+        const tv = v.reduce((a, b) => a + b, 0), tc = c.reduce((a, b) => a + b, 0);
+        if (!tv && !tc) continue;
+        linhas.push({ slug: slug, titulo: tituloDoProjeto(slug), views: tv, driveClicks: tc, taxa: tv ? tc / tv : 0,
+          serie: v.map((x, i) => d.dias[ini + i] < d.primeiroDia ? null : x) });
+      }
+      if (!linhas.length) { el.innerHTML = '<p class="empty">Nenhuma visita nos últimos ' + metricsPeriodo + ' dias.</p>'; return; }
+      const k = metricsOrdem;
+      linhas.sort((a, b) => (b[k] - a[k]) || (b.views - a.views) || a.titulo.localeCompare(b.titulo, 'pt-BR'));
+      const maxV = Math.max(1, ...linhas.map(l => l.views));
+      const maxD = Math.max(1, ...linhas.map(l => l.driveClicks));
+      const barra = l => k === 'views' ? { pct: l.views / maxV * 100, cor: COR_VISITAS }
+        : k === 'driveClicks' ? { pct: l.driveClicks / maxD * 100, cor: COR_DRIVE } : { pct: Math.min(100, l.taxa * 100), cor: COR_DRIVE };
+      const semVisita = Math.max(0, events.length - linhas.length);
+      el.innerHTML = linhas.map(l => {
+        const b = barra(l);
+        return '<button type="button" class="rank-item" data-action="focaProjeto" data-slug="' + esc(l.slug) + '" aria-pressed="' + (l.slug === metricsProjeto) + '">'
+          + '<span class="rank-nome">' + esc(l.titulo) + '</span>'
+          + '<span class="rank-num">' + fmtN(l.views) + ' visitas · ' + fmtN(l.driveClicks) + ' Drive · ' + (l.views ? Math.round(l.taxa * 100) + '%' : '—') + '</span>'
+          + '<span class="rank-barra"><span class="barra-trilho"><i style="width:' + Math.max(1, b.pct).toFixed(1) + '%;background:' + b.cor + '"></i></span>'
+          + sparkline(l.serie, 72, 20, COR_VISITAS) + '</span></button>';
+      }).join('') + (semVisita ? '<p class="rank-resto">' + semVisita + (semVisita === 1 ? ' projeto sem visita' : ' projetos sem visita') + ' no período.</p>' : '');
+    }
+
+    // ---- Métricas: contas puras ----
+    // Sem DOM e sem estado de fora: tests/painel.test.js tira cada uma deste
+    // arquivo e a executa no node (a mesma técnica dos pares cliente/servidor
+    // de tests/security.test.js). Se mudar o nome ou a assinatura, o teste
+    // avisa que precisa ser reapontado.
+
+    // Escala do eixo y: topo "redondo" e de 3 a 6 linhas de grade, em passos
+    // inteiros (contagem de gente não tem meia pessoa).
+    function escalaMetricas(max) {
+      const alvo = Math.max(4, Math.ceil(max));
+      const bruto = alvo / 4;
+      const pot = Math.pow(10, Math.floor(Math.log10(bruto)));
+      const mult = pot >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+      let passo = 10 * pot;
+      for (const m of mult) { if (m * pot >= bruto) { passo = m * pot; break; } }
+      const topo = Math.ceil(alvo / passo) * passo;
+      const marcas = [];
+      for (let v = 0; v <= topo; v += passo) marcas.push(v);
+      return { topo: topo, marcas: marcas };
+    }
+
+    // O recorte do período: os N dias até hoje, somados em todos os projetos
+    // (ou só no escolhido), e a soma dos N dias ANTERIORES para a comparação.
+    // Dia anterior ao primeiro dia da série vale null — "sem dado", não zero:
+    // antes dele a contagem por dia não existia. Comparação só quando o
+    // período anterior inteiro já tinha contagem; senão a "queda" seria só o
+    // começo da série.
+    function recorteMetricas(d, n, slug) {
+      const total = d.dias.length;
+      const ini = Math.max(0, total - n);
+      const projs = slug ? (d.projetos[slug] ? [d.projetos[slug]] : []) : Object.values(d.projetos);
+      const soma = (campo, i) => projs.reduce((t, p) => t + (p[campo][i] || 0), 0);
+      const views = [], drive = [];
+      for (let i = ini; i < total; i++) {
+        const semDado = !d.primeiroDia || d.dias[i] < d.primeiroDia;
+        views.push(semDado ? null : soma('views', i));
+        drive.push(semDado ? null : soma('driveClicks', i));
+      }
+      const antIni = ini - n;
+      const temAnterior = antIni >= 0 && !!d.primeiroDia && d.dias[antIni] >= d.primeiroDia;
+      let antV = 0, antD = 0;
+      if (temAnterior) for (let i = antIni; i < ini; i++) { antV += soma('views', i); antD += soma('driveClicks', i); }
+      const tot = arr => arr.reduce((t, v) => t + (v || 0), 0);
+      return { dias: d.dias.slice(ini), views: views, drive: drive, totV: tot(views), totD: tot(drive), antV: antV, antD: antD, temAnterior: temAnterior };
+    }
+
+    // Variação de um período para o outro, em % inteiro. null quando não há
+    // base (o anterior foi zero): "+∞%" não informa nada.
+    function variacao(atual, antes) {
+      if (!antes) return null;
+      const pct = Math.round((atual - antes) / antes * 100);
+      return { dir: Math.sign(pct), valor: Math.abs(pct) };
+    }
+
+    // O dia de maior valor (o mais recente, no empate); -1 se nenhum passa de 0.
+    function indicePico(valores) {
+      let k = -1;
+      valores.forEach((v, i) => { if (v !== null && v > 0 && (k < 0 || v >= valores[k])) k = i; });
+      return k;
+    }
+
+    // Média por dia da semana (0 = domingo). Dia sem dado (null) não entra —
+    // senão os dias de antes da contagem puxariam a média para baixo.
+    function mediaPorSemana(dias, valores) {
+      const soma = [0, 0, 0, 0, 0, 0, 0], qtd = [0, 0, 0, 0, 0, 0, 0];
+      dias.forEach((dia, i) => {
+        if (valores[i] === null) return;
+        const w = new Date(dia + 'T12:00:00Z').getUTCDay();
+        soma[w] += valores[i];
+        qtd[w]++;
+      });
+      return soma.map((s, w) => ({ media: qtd[w] ? s / qtd[w] : 0, dias: qtd[w] }));
+    }
+
+    function diaCurto(dia) { return dia.slice(8, 10) + '/' + dia.slice(5, 7); }
+    function diaLongo(dia) {
+      return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(dia + 'T12:00:00Z').getUTCDay()] + ', ' + diaCurto(dia);
+    }
+
+    // Quais dias ganham rótulo no eixo x: todos até 8; acima disso, uns cinco,
+    // contados de HOJE para trás (o último rótulo é sempre hoje) e espaçados
+    // por igual — o primeiro só entra se não encostar no segundo.
+    function marcasX(n) {
+      if (n <= 0) return [];
+      if (n <= 8) return Array.from({ length: n }, (_, i) => i);
+      const passo = Math.ceil((n - 1) / 4);
+      const out = [];
+      for (let i = n - 1; i >= 0; i -= passo) out.unshift(i);
+      if (out[0] !== 0 && out[0] >= passo * 0.75) out.unshift(0);
+      return out;
+    }
+
+    // Onde fica o dia i e o valor v, na geometria que svgLinhas devolveu.
+    function geoX(g, i) { return g.esq + (g.n <= 1 ? g.w / 2 : i * g.w / (g.n - 1)); }
+    function geoY(g, v) { return g.cima + g.h - v / g.topo * g.h; }
+
+    // Gráfico de linhas em SVG, como texto (entra por innerHTML). Um eixo y
+    // só — nunca dois. Dia sem dado (null) interrompe a linha em vez de
+    // desenhá-la no zero. Grade e eixos recessivos; rótulos na tinta do texto;
+    // só o pico das visitas leva número. Com espaço (rotulosFim), cada linha
+    // leva o nome na ponta — a legenda acima existe sempre.
+    function svgLinhas(o) {
+      const n = o.dias.length;
+      let max = 0;
+      o.series.forEach(se => se.valores.forEach(v => { if (v !== null && v > max) max = v; }));
+      const escala = escalaMetricas(max);
+      const rotY = escala.marcas.map(m => m.toLocaleString('pt-BR'));
+      const esq = 10 + 7 * Math.max(...rotY.map(t => t.length));
+      const dir = o.rotulosFim ? 62 : 12;
+      const cima = 18, baixo = 26;
+      const g = { largura: o.largura, altura: o.altura, esq: esq, cima: cima, w: Math.max(10, o.largura - esq - dir), h: Math.max(10, o.altura - cima - baixo), n: n, topo: escala.topo };
+      const r1 = v => Math.round(v * 10) / 10;
+      const x = i => r1(geoX(g, i));
+      const y = v => r1(geoY(g, v));
+      let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + o.largura + ' ' + o.altura + '" width="' + o.largura + '" height="' + o.altura + '" aria-hidden="true" focusable="false" data-pontos="' + n + '">';
+      escala.marcas.forEach((m, k) => {
+        s += '<line x1="' + esq + '" x2="' + r1(esq + g.w) + '" y1="' + y(m) + '" y2="' + y(m) + '" stroke="' + (m === 0 ? '#383835' : '#2c2c2a') + '" stroke-width="1"/>'
+          + '<text x="' + (esq - 6) + '" y="' + y(m) + '" dy="0.32em" text-anchor="end" fill="#898781" font-size="11">' + rotY[k] + '</text>';
+      });
+      marcasX(n).forEach(i => {
+        const ancora = n > 1 && i === 0 ? 'start' : n > 1 && i === n - 1 ? 'end' : 'middle';
+        s += '<text x="' + x(i) + '" y="' + (cima + g.h + 18) + '" text-anchor="' + ancora + '" fill="#898781" font-size="11">' + diaCurto(o.dias[i]) + '</text>';
+      });
+      const pontas = [];
+      o.series.forEach(se => {
+        let d = '', novo = true, ultimo = -1;
+        se.valores.forEach((v, i) => {
+          if (v === null) { novo = true; return; }
+          d += (novo ? 'M' : 'L') + x(i) + ' ' + y(v);
+          novo = false;
+          ultimo = i;
+        });
+        if (d) s += '<path d="' + d + '" fill="none" stroke="' + se.cor + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+        if (ultimo >= 0) pontas.push({ x: x(ultimo), y: y(se.valores[ultimo]), cor: se.cor, nome: se.curto || se.nome });
+      });
+      // Ponta de cada linha: um ponto com anel da cor do fundo (separa as
+      // duas quando se encostam) e, com espaço, o nome — afastados se colidem.
+      if (o.rotulosFim && pontas.length === 2 && Math.abs(pontas[0].y - pontas[1].y) < 13) {
+        const meio = (pontas[0].y + pontas[1].y) / 2, cima0 = pontas[0].y <= pontas[1].y;
+        pontas[0].ty = meio + (cima0 ? -6.5 : 6.5);
+        pontas[1].ty = meio + (cima0 ? 6.5 : -6.5);
+      }
+      pontas.forEach(p => {
+        s += '<circle cx="' + p.x + '" cy="' + p.y + '" r="3" fill="' + p.cor + '" stroke="#141414" stroke-width="2"/>';
+        if (o.rotulosFim) s += '<text x="' + r1(p.x + 8) + '" y="' + r1(p.ty === undefined ? p.y : p.ty) + '" dy="0.32em" fill="#c9c4be" font-size="11">' + p.nome + '</text>';
+      });
+      // O pico da primeira série (visitas): o único número dentro do gráfico.
+      const pico = o.series.length ? indicePico(o.series[0].valores) : -1;
+      if (pico >= 0) {
+        const px = x(pico), py = y(o.series[0].valores[pico]);
+        const ancora = px < esq + 24 ? 'start' : px > esq + g.w - 24 ? 'end' : 'middle';
+        s += '<circle cx="' + px + '" cy="' + py + '" r="4" fill="' + o.series[0].cor + '" stroke="#141414" stroke-width="2"/>'
+          + '<text x="' + px + '" y="' + r1(py - 9 < cima ? py + 17 : py - 9) + '" text-anchor="' + ancora + '" fill="#f0ebe5" font-size="11" font-weight="600">' + o.series[0].valores[pico].toLocaleString('pt-BR') + '</text>';
+      }
+      // A cruz do ponteiro: escondida até alguém passar o dedo ou o mouse.
+      s += '<g class="cruz" visibility="hidden"><line x1="0" x2="0" y1="' + cima + '" y2="' + r1(cima + g.h) + '" stroke="#6b6a66" stroke-width="1"/>';
+      o.series.forEach(se => { s += '<circle r="4" cx="0" cy="0" fill="' + se.cor + '" stroke="#141414" stroke-width="2"/>'; });
+      return { svg: s + '</g></svg>', geo: g };
+    }
+
+    // Colunas (dia da semana), com a ponta de dado arredondada em 4 px e
+    // presa à linha de base; a área de toque é a faixa inteira da coluna,
+    // maior que a marca. Só a maior leva o número.
+    function svgColunas(o) {
+      const n = o.valores.length;
+      const max = Math.max(0, ...o.valores);
+      const escala = escalaMetricas(max);
+      const rotY = escala.marcas.map(m => m.toLocaleString('pt-BR'));
+      const esq = 10 + 7 * Math.max(...rotY.map(t => t.length));
+      const cima = 18, baixo = 24, dir = 4;
+      const w = Math.max(10, o.largura - esq - dir), h = Math.max(10, o.altura - cima - baixo);
+      const banda = w / n;
+      const larg = Math.max(4, Math.min(44, banda * 0.72));
+      const r1 = v => Math.round(v * 10) / 10;
+      const y = v => cima + h - v / escala.topo * h;
+      const base = cima + h;
+      let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + o.largura + ' ' + o.altura + '" width="' + o.largura + '" height="' + o.altura + '" aria-hidden="true" focusable="false" data-colunas="' + n + '">';
+      escala.marcas.forEach((m, k) => {
+        s += '<line x1="' + esq + '" x2="' + r1(esq + w) + '" y1="' + r1(y(m)) + '" y2="' + r1(y(m)) + '" stroke="' + (m === 0 ? '#383835' : '#2c2c2a') + '" stroke-width="1"/>'
+          + '<text x="' + (esq - 6) + '" y="' + r1(y(m)) + '" dy="0.32em" text-anchor="end" fill="#898781" font-size="11">' + rotY[k] + '</text>';
+      });
+      let maior = -1;
+      o.valores.forEach((v, i) => { if (v > 0 && (maior < 0 || v > o.valores[maior])) maior = i; });
+      o.valores.forEach((v, i) => {
+        const cx = esq + banda * i + banda / 2, x0 = cx - larg / 2, ty = y(v), alt = base - ty;
+        if (alt >= 0.5) {
+          const r = Math.min(4, alt, larg / 2);
+          s += '<path d="M' + r1(x0) + ' ' + r1(base) + 'V' + r1(ty + r) + 'Q' + r1(x0) + ' ' + r1(ty) + ' ' + r1(x0 + r) + ' ' + r1(ty)
+            + 'H' + r1(x0 + larg - r) + 'Q' + r1(x0 + larg) + ' ' + r1(ty) + ' ' + r1(x0 + larg) + ' ' + r1(ty + r) + 'V' + r1(base) + 'Z" fill="' + o.cor + '"/>';
+        }
+        s += '<text x="' + r1(cx) + '" y="' + (base + 17) + '" text-anchor="middle" fill="#898781" font-size="11">' + o.rotulos[i] + '</text>';
+        if (i === maior) s += '<text x="' + r1(cx) + '" y="' + r1(ty - 6) + '" text-anchor="middle" fill="#f0ebe5" font-size="11" font-weight="600">' + o.formata(v) + '</text>';
+        s += '<rect x="' + r1(esq + banda * i) + '" y="' + cima + '" width="' + r1(banda) + '" height="' + r1(h + baixo) + '" fill="transparent" data-coluna="' + i + '"><title>' + o.dicas[i] + '</title></rect>';
+      });
+      return s + '</svg>';
+    }
+
+    // Linha pequena (sparkline): só a forma, sem eixo; null interrompe.
+    function sparkline(valores, largura, altura, cor) {
+      const n = valores.length;
+      let max = 0;
+      valores.forEach(v => { if (v !== null && v > max) max = v; });
+      const r1 = v => Math.round(v * 10) / 10;
+      let d = '', novo = true;
+      valores.forEach((v, i) => {
+        if (v === null) { novo = true; return; }
+        const px = n <= 1 ? largura / 2 : 1 + i * (largura - 2) / (n - 1);
+        const py = altura - 2 - (max ? v / max * (altura - 4) : 0);
+        d += (novo ? 'M' : 'L') + r1(px) + ' ' + r1(py);
+        novo = false;
+      });
+      return '<svg width="' + largura + '" height="' + altura + '" viewBox="0 0 ' + largura + ' ' + altura + '" aria-hidden="true" focusable="false">'
+        + (d ? '<path d="' + d + '" fill="none" stroke="' + cor + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' : '') + '</svg>';
+    }
+
+    // ---- Total desde o início (a tabela de antes) ----
     function renderMetrics() {
-      renderResumoMetricas();
       const body = document.getElementById('metrics-body');
       const key = metricsSort.key;
       const dir = metricsSort.dir === 'asc' ? 1 : -1;
@@ -1962,22 +2717,23 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : (m.views || 0);
       const rowsData = [...metricsData].sort((a, b) => (num(a, key) - num(b, key)) * dir);
       const maxViews = metricsData.reduce((mx, m) => Math.max(mx, m.views || 0), 0) || 1;
-      const ind = k => k === metricsSort.key ? \`<span class="sort-ind">\${metricsSort.dir === 'asc' ? '▲' : '▼'}</span>\` : '';
+      const ind = k => k === metricsSort.key ? '<span class="sort-ind">' + (metricsSort.dir === 'asc' ? '▲' : '▼') + '</span>' : '';
+      const sortAttr = k => k === metricsSort.key ? ' aria-sort="' + (metricsSort.dir === 'asc' ? 'ascending' : 'descending') + '"' : '';
       const rows = rowsData.map(m => {
         const pct = Math.max(2, Math.round((m.views || 0) / maxViews * 100));
-        return \`<tr>
-          <td>\${esc(m.title)}<br><span style="font-size:.7rem;color:var(--text3)">/\${esc(m.slug)}</span></td>
-          <td class="views-cell"><span class="views-bar" style="width:\${pct}%"></span><span class="views-badge">\${m.views || 0}</span></td>
-          <td><span class="views-badge" style="color:#4a7a4a">\${m.driveClicks || 0}</span></td>
-          <td><span class="views-badge" style="color:var(--text3)">\${(m.views || 0) ? Math.round(taxa(m) * 100) + '%' : '—'}</span></td>
-        </tr>\`;
+        return '<tr>'
+          + '<td>' + esc(m.title) + '<span class="slug-mini"><br><span style="font-size:.7rem;color:var(--text3)">/' + esc(m.slug) + '</span></span></td>'
+          + '<td class="views-cell"><span class="views-bar" style="width:' + pct + '%"></span><span class="views-badge">' + fmtN(m.views) + '</span></td>'
+          + '<td><span class="views-badge">' + fmtN(m.driveClicks) + '</span></td>'
+          + '<td><span class="views-badge">' + ((m.views || 0) ? Math.round(taxa(m) * 100) + '%' : '—') + '</span></td>'
+          + '</tr>';
       }).join('');
-      body.innerHTML = \`<table class="metrics-table"><thead><tr>
-        <th>Projeto</th>
-        <th class="sortable" data-action="sortMetrics" data-sort="views" title="Visitantes únicos por hora">Visitantes\${ind('views')}</th>
-        <th class="sortable" data-action="sortMetrics" data-sort="driveClicks" title="Quantos abriram o link do Drive">Abriu Drive\${ind('driveClicks')}</th>
-        <th class="sortable" data-action="sortMetrics" data-sort="taxa" title="Abriu Drive ÷ visitantes">Taxa\${ind('taxa')}</th>
-      </tr></thead><tbody>\${rows}</tbody></table>\`;
+      body.innerHTML = '<table class="metrics-table"><thead><tr>'
+        + '<th scope="col">Projeto</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="views" title="Visitantes únicos por hora"' + sortAttr('views') + '>Visitas' + ind('views') + '</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="driveClicks" title="Quantos abriram o link do Drive"' + sortAttr('driveClicks') + '>Drive' + ind('driveClicks') + '</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="taxa" title="Abriram o Drive ÷ visitas"' + sortAttr('taxa') + '>Taxa' + ind('taxa') + '</th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
     function sortMetrics(key) {
@@ -2088,6 +2844,28 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks'], rows);
       } catch(err) {
         toast(err.message || 'Erro ao exportar métricas.', 'err');
+      }
+    }
+
+    // A série por dia inteira que o painel tem (até 180 dias, a partir do
+    // primeiro dia contado), um projeto por linha e dia: abre direto numa
+    // tabela dinâmica. Projeto sem nenhuma visita na janela não entra.
+    async function exportSerieCSV() {
+      try {
+        const d = serieDiaria || await api('GET', '/api/metrics/diario?dias=180');
+        if (!d || !d.primeiroDia) return toast('Ainda não há contagem por dia para exportar.', 'err');
+        const ini = Math.max(0, d.dias.findIndex(x => x >= d.primeiroDia));
+        const rows = [];
+        for (const slug of Object.keys(d.projetos).sort()) {
+          const p = d.projetos[slug];
+          for (let i = ini; i < d.dias.length; i++) {
+            rows.push({ dia: d.dias[i], slug: slug, titulo: tituloDoProjeto(slug), visitas: p.views[i] || 0, abriram_drive: p.driveClicks[i] || 0 });
+          }
+        }
+        if (!rows.length) return toast('Nenhuma visita contada por dia ainda.', 'err');
+        downloadCSV('metricas-por-dia-' + csvDate() + '.csv', ['dia', 'slug', 'titulo', 'visitas', 'abriram_drive'], rows);
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar métricas por dia.', 'err');
       }
     }
 

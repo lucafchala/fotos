@@ -19,7 +19,7 @@ import {
   hashPassword, verifyPassword, generateToken,
   verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
-  bumpCounter, readCounters, deleteCounters,
+  bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
@@ -39,6 +39,7 @@ import {
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
+  METRICAS_DIAS_MAX, GATE_METODOS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -279,6 +280,7 @@ const worker = {
       if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
       if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
+      if (path === '/api/metrics/diario' && method === 'GET') return handleMetricsDiario(request, env, url);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
       if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
       if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
@@ -1314,6 +1316,64 @@ async function handleMetrics(request, env) {
   }));
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
+}
+
+// ---------------------------------------------------------------------------
+// API: Métricas por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// A série diária dos contadores para o gráfico do painel: uma chamada ao
+// Durable Object, não uma por dia nem por projeto (#215 — chamada de DO é
+// subrequisição, 50 por invocação no gratuito). Devolve os dias em ordem e,
+// para cada projeto, os vetores de visitas e de cliques no Drive alinhados a
+// eles — o navegador só desenha. Projeto sem nenhum acesso no período não vem
+// (o painel trata ausente como zeros). `primeiroDia` é o dia mais antigo que a
+// série tem: antes dele, só o total existe.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleMetricsDiario(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  const pedido = parseInt(url.searchParams.get('dias') || '', 10);
+  const n = Number.isInteger(pedido) ? Math.min(METRICAS_DIAS_MAX, Math.max(1, pedido)) : 90;
+  const hoje = hojeEmSaoPaulo();
+  const dias = [];
+  for (let i = n - 1; i >= 0; i--) dias.push(diaMenos(hoje, i));
+  const indice = new Map(dias.map((d, i) => [d, i]));
+
+  const chavesGate = GATE_METODOS.map(m => `gate:${m}`);
+  const [events, { serie, primeiroDia, totais }] = await Promise.all([
+    getEvents(env, true),
+    readSerie(env, dias[0], chavesGate),
+  ]);
+  const conhecidos = new Set(events.map(e => e.slug));
+
+  const zeros = () => new Array(n).fill(0);
+  /** @type {Record<string, { views: number[], driveClicks: number[] }>} */
+  const projetos = {};
+  /** @type {Record<string, number[]>} */
+  const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
+  for (const [k, v] of Object.entries(serie)) {
+    // `d:AAAA-MM-DD:<chave>` — ver src/counters.js.
+    const i = indice.get(k.slice(2, 12));
+    if (i === undefined) continue;
+    const chave = k.slice(13);
+    const sep = chave.indexOf(':');
+    const tipo = chave.slice(0, sep);
+    const resto = chave.slice(sep + 1);
+    if (tipo === 'views' || tipo === 'drive_clicks') {
+      if (!conhecidos.has(resto)) continue;
+      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros() });
+      (tipo === 'views' ? p.views : p.driveClicks)[i] += v;
+    } else if (tipo === 'gate' && gate[resto]) {
+      gate[resto][i] += v;
+    }
+  }
+  const gateTotal = Object.fromEntries(GATE_METODOS.map(m => [m, totais[`gate:${m}`] || 0]));
+  return jsonOk({ hoje, dias, primeiroDia, projetos, gate, gateTotal });
 }
 
 // ---------------------------------------------------------------------------
@@ -2676,6 +2736,13 @@ export async function handleDriveLink(request, env, ctx) {
       },
     ));
   }
+
+  // Métrica anônima de COMO a pessoa passou pelo portão (v2): só a contagem
+  // por modo — sem slug, sem IP. Mostra no painel quantos precisam do caminho
+  // sem script (bloqueador) ou do código por e-mail, e é o número que faltava
+  // para calibrar os baldes depois de um evento (#230). Fora do caminho da
+  // resposta, como os outros contadores.
+  bumpCounter(env, ctx, `gate:${GATE_METODOS[verificacao]}`);
 
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged

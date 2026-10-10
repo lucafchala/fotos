@@ -41,9 +41,14 @@ export const SENHA_DE_TESTE = 'Senha-De-Teste-2026!';
  * KV guarda); a senha do painel é semeada sempre, com SENHA_DE_TESTE.
  * `externo` responde a hosts de fora antes do bloqueio padrão (devolva `null`
  * para cair nele).
+ * `contadores` semeia o armazenamento do Durable Object dos contadores (as
+ * chaves cruas, como `views:<slug>` e `d:<AAAA-MM-DD>:views:<slug>` — ver
+ * src/counters.js), para o roteiro de Métricas ter série por dia sem esperar
+ * meses de visitas.
  * @param {{
  *   porta?: number,
  *   kv?: Record<string, string>,
+ *   contadores?: Record<string, number>,
  *   env?: Record<string, unknown>,
  *   externo?: (url: URL) => Response | Promise<Response> | null,
  * }} [o]
@@ -79,6 +84,14 @@ export async function sobeWorker(o = {}) {
     SIGNING_SECRET: 'x'.repeat(40),
     ...(o.env || {}),
   });
+  if (o.contadores) {
+    // Escreve direto no armazenamento do objeto e o "reinicia": o construtor
+    // relê tudo, como o runtime faz depois de uma evicção.
+    env.COUNTER.get('contadores');
+    const armazenamento = env.COUNTER._instances.get('contadores').ctx.storage;
+    for (const [k, v] of Object.entries(o.contadores)) armazenamento._map.set(k, v);
+    env.COUNTER._evict('contadores');
+  }
 
   // Troca o fetch GLOBAL: é o que o Worker usa para Turnstile, Resend, Drive…
   // O roteiro roda num processo só para isto, então não há quem mais dependa
