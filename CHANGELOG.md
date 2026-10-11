@@ -67,8 +67,9 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   estava). O gráfico de acessos em foco também (o anel cinza tinha 2,1:1).
 - **Celular**: campos de 16 px (o iPhone não dá zoom ao tocar), alvos de toque
   de 44 px — agora também a busca, os filtros e o seletor de projeto das
-  Métricas, que tinham 41–43 px —, e um bloco de Ajustes 25 px largo demais
-  que fazia o celular afastar a página inteira.
+  Métricas, que tinham 41–43 px —, os itens do menu "⋯" com 48 px na folha de
+  baixo (uma regra de toque posterior os baixava para 44), e um bloco de
+  Ajustes 25 px largo demais que fazia o celular afastar a página inteira.
 - **Leitor de tela**: os avisos do painel são anunciados (o toast virou região
   viva) e quebram linha em vez de sair pelas bordas; com uma folha ou uma
   confirmação aberta, a página atrás fica inerte (nem o foco nem o leitor

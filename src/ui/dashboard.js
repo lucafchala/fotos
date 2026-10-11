@@ -696,6 +696,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       .icon-btn{width:44px;height:44px}
       .btn-sm{padding:0 1rem}
     }
+    /* No celular o menu é uma folha, com itens de 48 px (a regra de
+       max-width:699px lá em cima); o bloco de toque acima, que vem depois no
+       CSS, os baixava para 44. */
+    @media(pointer:coarse) and (max-width:699px){
+      .menu-item{min-height:48px}
+    }
     /* reduced motion */
     @media (prefers-reduced-motion: reduce){
       *,*::before,*::after{transition:none!important;animation-duration:.001ms!important;animation-iteration-count:1!important}

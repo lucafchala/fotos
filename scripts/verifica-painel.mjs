@@ -366,7 +366,11 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(await menu.isVisible() && (await mais.getAttribute('aria-expanded')) === 'true', `${rotulo}: "⋯" abre o menu`, '');
       if (toque) {
         const caixa = await menu.boundingBox();
-        registra(!!caixa && caixa.y + caixa.height > viewport.height * 0.6, `${rotulo}: no celular o menu é uma folha embaixo, ao alcance do polegar`, caixa);
+        // Itens de 48 px na folha (a regra de toque, que vem depois no CSS, os
+        // baixava para 44).
+        const itens = await menu.locator('.menu-item').evaluateAll(es => es.map(e => Math.round(e.getBoundingClientRect().height)));
+        registra(!!caixa && caixa.y + caixa.height > viewport.height * 0.6 && itens.length > 0 && itens.every(h => h >= 48),
+          `${rotulo}: no celular o menu é uma folha embaixo, ao alcance do polegar, com itens de 48 px`, { caixa, itens });
         if (PRINTS) await print(page, `${id}-menu`);
       } else {
         // Teclado: o foco entra no primeiro item; seta desce; Esc fecha e devolve.
