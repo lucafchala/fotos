@@ -1125,16 +1125,23 @@ async function handleUpdateEvent(request, env, path) {
   const existing = events[idx];
   const cats = await getCategories(env);
 
-  const newPhotos = body.photos !== undefined && Array.isArray(body.photos)
-    ? normalizePhotos(body.photos)
-    : (existing.photos || []);
+  // Veio a lista de fotos (o formulário manda a lista inteira): a capa segue a
+  // lista. Esvaziar a lista TIRA a capa — antes a antiga ficava, e uma foto
+  // retirada (num pedido de remoção, por exemplo) seguia no card da galeria e
+  // no topo da página do projeto. A exceção é o registro antigo que só tem
+  // `thumbnailUrl`, sem `photos`: quem devolve o evento inteiro (o "Ocultar"
+  // do painel) devolve a capa dele junto, e ela fica.
+  const fotosVieram = body.photos !== undefined && Array.isArray(body.photos);
+  const newPhotos = fotosVieram ? normalizePhotos(body.photos) : (existing.photos || []);
+  const capaEnviada = typeof body.thumbnailUrl === 'string' ? (normalizePhotos([body.thumbnailUrl])[0] || '') : '';
+  const capa = newPhotos[0] || (fotosVieram ? capaEnviada : (existing.thumbnailUrl || ''));
 
   /** @type {Record<string, any>} */
   const updated = {
     ...existing,
     ...normalizeEventFields(body, existing, cats),
     photos: newPhotos,
-    thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
+    thumbnailUrl: capa,
     updatedAt: new Date().toISOString(),
   };
 
