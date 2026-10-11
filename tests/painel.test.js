@@ -244,8 +244,14 @@ describe('estrutura do painel', () => {
 
   // Contraste WCAG, calculado das próprias cores da página — uma troca de cor
   // não passa calada.
+  // As variáveis do :root lidas uma vez, para um mapa — sem montar RegExp com
+  // texto tirado da página (o CodeQL acusa: o HTML do painel viraria padrão).
   const raiz = html.match(/:root\{([^}]*)\}/)[1];
-  const cor = nome => raiz.match(new RegExp(`--${nome}:(#[0-9a-f]{3,6})`, 'i'))[1];
+  const tokens = Object.fromEntries([...raiz.matchAll(/--([\w-]+):(#[0-9a-f]{3,6})\b/gi)].map(m => [m[1], m[2]]));
+  const cor = nome => {
+    if (!tokens[nome]) throw new Error(`--${nome} não está no :root`);
+    return tokens[nome];
+  };
   const rgb = hex => {
     const h = hex.length === 4 ? hex.slice(1).split('').map(c => c + c).join('') : hex.slice(1);
     return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
