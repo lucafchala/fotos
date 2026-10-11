@@ -159,6 +159,69 @@ const someAviso = page => page.evaluate(() => {
   clearTimeout(t._t);
   t.classList.remove('show');
 });
+/**
+ * Percorre pelo Tab, como quem usa teclado, tudo que recebe foco dentro de
+ * `escopo`, a partir de `inicio`, e devolve as paradas sem contorno de foco à
+ * vista ou com o contorno cortado por alguma caixa em volta (overflow).
+ * @param {import('playwright-core').Page} page @param {string} escopo @param {string} inicio
+ */
+async function varreFoco(page, escopo, inicio) {
+  await page.focus(inicio);
+  /** @type {string[]} */
+  const semAnel = [];
+  /** @type {Set<string>} */
+  const vistos = new Set();
+  let anterior = '';
+  for (let n = 0; n < 160; n++) {
+    const r = await page.evaluate(sel => {
+      const el = /** @type {HTMLInputElement} */ (document.activeElement);
+      if (!el || !el.closest(sel)) return { fim: true };
+      // A posição no escopo identifica a parada (botões sem id se repetem).
+      const chave = String([...document.querySelectorAll(sel + ' *')].indexOf(el));
+      const nome = el.id || el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 24) || el.tagName;
+      // Quem desenha o contorno, e à vista: o próprio elemento; o trilho ao
+      // lado (o toggle, cujo checkbox é invisível); ou a caixa em volta
+      // (:focus-within — o campo da URL).
+      const aVista = (/** @type {Element} */ e) => { const q = e.getBoundingClientRect(); return q.width > 0 && q.height > 0 && getComputedStyle(e).opacity !== '0'; };
+      const anelDe = (/** @type {Element} */ e) => {
+        const ee = getComputedStyle(e);
+        if (ee.outlineStyle !== 'none') return parseFloat(ee.outlineOffset) + parseFloat(ee.outlineWidth);
+        const sombra = ee.boxShadow.match(/0px 0px 0px (\d+(?:\.\d+)?)px/);
+        return sombra ? parseFloat(sombra[1]) : -1;
+      };
+      /** @type {Element | null} */
+      let dono = aVista(el) && anelDe(el) >= 0 ? el : null;
+      for (let i = el.nextElementSibling; !dono && i; i = i.nextElementSibling) if (aVista(i) && anelDe(i) >= 0) dono = i;
+      for (let a = el.parentElement; !dono && a; a = a.parentElement) if (anelDe(a) >= 0) dono = a;
+      if (!dono) return { chave, erro: nome + ': sem contorno à vista' };
+      const folga = anelDe(dono);
+      const c = dono.getBoundingClientRect();
+      const anel = { l: c.left - folga, t: c.top - folga, r: c.right + folga, b: c.bottom + folga };
+      for (let a = dono.parentElement; a && a !== document.body; a = a.parentElement) {
+        const ea = getComputedStyle(a);
+        if (ea.overflowX === 'visible' && ea.overflowY === 'visible') continue;
+        const ca = a.getBoundingClientRect();
+        const x0 = ca.left + parseFloat(ea.borderLeftWidth), y0 = ca.top + parseFloat(ea.borderTopWidth);
+        // Rolagem vertical traz o anel de cima e de baixo para a vista; o
+        // corte de lado, e o de cima e de baixo numa caixa que não rola na
+        // vertical, ficam.
+        const rolaY = ea.overflowY === 'auto' || ea.overflowY === 'scroll';
+        const corta = anel.l < x0 - 0.5 || anel.r > x0 + a.clientWidth + 0.5
+          || ((!rolaY || a.scrollHeight <= a.clientHeight + 1) && (anel.t < y0 - 0.5 || anel.b > y0 + a.clientHeight + 0.5));
+        if (corta) return { chave, erro: nome + ': contorno cortado por .' + (a.className || a.tagName) };
+      }
+      return { chave };
+    }, escopo);
+    // A data tem várias paradas (dia, mês, ano, calendário) no mesmo campo;
+    // só voltar a uma parada já vista, depois de outra, é a volta.
+    if (r.fim || (r.chave && r.chave !== anterior && vistos.has(r.chave))) break;
+    if (r.chave && r.chave !== anterior) { vistos.add(r.chave); if (r.erro) semAnel.push(r.erro); }
+    anterior = r.chave || '';
+    await page.keyboard.press('Tab');
+  }
+  await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
+  return { semAnel, paradas: vistos.size };
+}
 /** @param {import('playwright-core').Page} page @param {string} nome */
 const print = async (page, nome) => { if (PRINTS) await page.screenshot({ path: join(PRINTS, `painel-${nome}.png`), fullPage: false }); };
 
@@ -237,6 +300,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
         registra(naBusca === 'solid 2px rgb(192, 160, 96)' && naCategoria === 'solid 2px rgb(192, 160, 96)',
           `${rotulo}: campo em foco ganha o contorno de 2 px (busca e categoria)`, { naBusca, naCategoria });
+        const lista = await varreFoco(page, '#tab-events', '#evt-search');
+        registra(lista.semAnel.length === 0 && lista.paradas > 15, `${rotulo}: no Tab, toda parada da lista mostra o contorno de foco, sem corte (${lista.paradas} paradas)`, lista.semAnel);
       }
       const selos = await page.locator('#evt-ev3 .status-badge').allTextContents();
       registra(selos.join('|') === 'Em edição|Atrasado', `${rotulo}: o card escreve o estado (status, atrasado)`, selos);
@@ -249,6 +314,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('button.btn-add'), toque);
       await page.waitForSelector('#overlay.open');
       registra(await inerte(), `${rotulo}: com a folha do formulário aberta, a página atrás fica inert`, '');
+      // A URL ganha o foco 100 ms depois de a folha abrir — mas não pode
+      // tirá-lo de quem já está num campo (o roteiro, rápido, perdia o texto
+      // do Drive para a URL de vez em quando: "URL inválida").
+      await page.focus('#f-title');
+      await espera(page, 250);
+      const focoFicou = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      registra(focoFicou === 'f-title', `${rotulo}: a folha nova não tira o foco de quem já está num campo`, focoFicou);
       await page.fill('#f-slug', 'teste-do-roteiro');
       await page.fill('#f-title', 'Teste do roteiro');
       await page.fill('#f-drive', 'https://drive.google.com/drive/folders/PASTA_TESTE_0001');
@@ -257,56 +329,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 500);
       registra(await page.locator('#bf-producao').evaluate(d => /** @type {HTMLDetailsElement} */ (d).open), `${rotulo}: o atalho abre o bloco recolhido`, '');
       if (!toque) {
-        // A folha inteira percorrida pelo Tab, como faz quem usa teclado: todo
-        // campo mostra o contorno de foco, e nenhuma caixa em volta o corta (o
-        // da URL do projeto ficava cortado pela caixa do prefixo).
+        // A folha inteira percorrida pelo Tab, como faz quem usa teclado (o da
+        // URL do projeto ficava cortado pela caixa do prefixo; os chips dos
+        // atalhos, pela faixa que rola; os toggles não mostravam nada).
         const blocos = await page.$$eval('#overlay details.bloco-form', ds => ds.map(d => { const era = /** @type {HTMLDetailsElement} */ (d).open; /** @type {HTMLDetailsElement} */ (d).open = true; return era; }));
-        await page.focus('#f-slug');
-        /** @type {string[]} */
-        const semAnel = [];
-        /** @type {Set<string>} */
-        const vistos = new Set();
-        let anterior = '';
-        for (let n = 0; n < 120; n++) {
-          const r = await page.evaluate(() => {
-            const el = /** @type {HTMLInputElement} */ (document.activeElement);
-            if (!el || !el.closest('#overlay')) return { fim: true };
-            // A posição na folha identifica a parada (botões sem id se repetem).
-            const chave = String([...document.querySelectorAll('#overlay *')].indexOf(el));
-            const nome = el.id || el.getAttribute('aria-label') || el.tagName;
-            if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.type === 'checkbox') return { chave };
-            // Quem desenha o contorno: o campo, ou a caixa em volta (:focus-within).
-            /** @type {Element | null} */
-            let dono = el;
-            if (getComputedStyle(el).outlineStyle === 'none') {
-              dono = null;
-              for (let a = el.parentElement; a; a = a.parentElement) if (getComputedStyle(a).outlineStyle !== 'none') { dono = a; break; }
-            }
-            if (!dono) return { chave, erro: nome + ': sem contorno' };
-            const ed = getComputedStyle(dono);
-            const folga = parseFloat(ed.outlineOffset) + parseFloat(ed.outlineWidth);
-            const c = dono.getBoundingClientRect();
-            const anel = { l: c.left - folga, t: c.top - folga, r: c.right + folga, b: c.bottom + folga };
-            for (let a = dono.parentElement; a && a !== document.body; a = a.parentElement) {
-              const ea = getComputedStyle(a);
-              if (ea.overflowX === 'visible' && ea.overflowY === 'visible') continue;
-              const ca = a.getBoundingClientRect();
-              const x0 = ca.left + parseFloat(ea.borderLeftWidth), y0 = ca.top + parseFloat(ea.borderTopWidth);
-              const corta = anel.l < x0 - 0.5 || anel.r > x0 + a.clientWidth + 0.5
-                || (ea.overflowY === 'hidden' && (anel.t < y0 - 0.5 || anel.b > y0 + a.clientHeight + 0.5));
-              if (corta) return { chave, erro: nome + ': contorno cortado por .' + (a.className || a.tagName) };
-            }
-            return { chave };
-          });
-          // A data tem várias paradas (dia, mês, ano, calendário) no mesmo
-          // campo; só voltar a um campo já visto, depois de outro, é a volta.
-          if (r.fim || (r.chave && r.chave !== anterior && vistos.has(r.chave))) break;
-          if (r.chave && r.chave !== anterior) { vistos.add(r.chave); if (r.erro) semAnel.push(r.erro); }
-          anterior = r.chave || '';
-          await page.keyboard.press('Tab');
-        }
+        const folha = await varreFoco(page, '#overlay', '#f-slug');
         await page.$$eval('#overlay details.bloco-form', (ds, eram) => ds.forEach((d, i) => { /** @type {HTMLDetailsElement} */ (d).open = eram[i]; }), blocos);
-        registra(semAnel.length === 0 && vistos.size > 15, `${rotulo}: no Tab, todo campo da folha mostra o contorno de foco, sem corte (${vistos.size} paradas)`, semAnel);
+        registra(folha.semAnel.length === 0 && folha.paradas > 30, `${rotulo}: no Tab, toda parada da folha (campos, toggles, botões, blocos) mostra o contorno de foco, sem corte (${folha.paradas} paradas)`, folha.semAnel);
       }
       await page.selectOption('#f-status', 'em-edicao');
       if (PRINTS) await print(page, `${id}-formulario`);
@@ -486,6 +515,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         registra(/rgb\(192, 160, 96\) 0px 0px 0px 2px/.test(anelGrafico), `${rotulo}: o gráfico em foco tem o anel dourado (o cinza de antes tinha 2,1:1)`, anelGrafico);
         await page.keyboard.press('Escape');
         registra(await dica.isHidden(), `${rotulo}: Esc esconde a dica`, '');
+        const metricas = await varreFoco(page, '#tab-metrics', '#metrics-periodo [data-dias="7"]');
+        registra(metricas.semAnel.length === 0 && metricas.paradas > 8, `${rotulo}: no Tab, toda parada das Métricas mostra o contorno de foco, sem corte (${metricas.paradas} paradas)`, metricas.semAnel);
       } else {
         await page.touchscreen.tap(5, Math.round(viewport.height * 0.3));
         await espera(page, 150);
@@ -612,6 +643,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(teste.locator('[data-action="del"]'), toque);
       await page.waitForSelector('.confirm-type-input');
       registra(await inerte(), `${rotulo}: com a confirmação aberta, a página atrás fica inert`, '');
+      if (toque) {
+        const botoes = await page.locator('.confirm-foot button').evaluateAll(bs => bs.map(b => Math.round(b.getBoundingClientRect().height * 10) / 10));
+        registra(botoes.length === 2 && botoes.every(h => h >= 44), `${rotulo}: os botões da confirmação têm 44 px (eram 40)`, botoes);
+      }
       await page.fill('.confirm-type-input', 'Teste do roteiro');
       await aciona(page.locator('.confirm-ok'), toque);
       const msgExcluiu = await aviso(page);

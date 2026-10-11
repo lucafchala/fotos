@@ -368,7 +368,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     @media(min-width:700px){.filtros{grid-template-columns:2fr 1fr;align-items:center}}
     .filtros input,.filtros select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.65rem .8rem;border-radius:9px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .filtros input:focus,.filtros select:focus{border-color:#3a3a3a}
-    .chips{grid-column:1 / -1;display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:.1rem}
+    /* Faixa de chips que rola para o lado: a rolagem corta o que passa da
+       caixa, e o contorno de foco passa 4 px do chip — daí os 4 px de recheio,
+       devolvidos por uma margem negativa (nada sai do lugar). */
+    .chips{grid-column:1 / -1;display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px 4px calc(4px + .1rem);margin:-4px}
     .chips::-webkit-scrollbar{display:none}
     .chip{flex-shrink:0;min-height:40px;padding:0 .9rem;border-radius:999px;border:1px solid var(--border);background:none;color:var(--text2);font-size:.8rem;font-weight:500;transition:background .2s,color .2s,border-color .2s}
     .chip:hover{border-color:#3a3a3a;color:var(--text)}
@@ -531,7 +534,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .sheet-body{flex:1;overflow-y:auto;padding:1.25rem;-webkit-overflow-scrolling:touch}
     .sheet-foot{padding:1rem 1.25rem;border-top:1px solid var(--border);display:flex;gap:.75rem;flex-shrink:0;position:sticky;bottom:0;background:var(--bg);z-index:1}
     /* blocos do formulário (#220): cada um recolhível, o essencial primeiro */
-    .bf-atalhos{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;margin:-.25rem 0 1rem;padding-bottom:.1rem}
+    .bf-atalhos{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;margin:calc(-.25rem - 4px) -4px calc(1rem - 4px);padding:4px 4px calc(4px + .1rem)}
     .bf-atalhos::-webkit-scrollbar{display:none}
     .bloco-form{border:1px solid var(--border);border-radius:14px;background:var(--bg2);margin-bottom:.75rem;scroll-margin-top:.5rem}
     .bloco-form>summary{display:flex;align-items:center;gap:.6rem;min-height:52px;padding:0 1rem;cursor:pointer;list-style:none;border-radius:14px}
@@ -572,6 +575,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .toggle-track::after{content:'';position:absolute;width:20px;height:20px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform .2s}
     .toggle input:checked~.toggle-track{background:#4caf50}
     .toggle input:checked~.toggle-track::after{transform:translateX(18px)}
+    /* O checkbox de verdade é invisível (opacity:0) e o contorno de foco some
+       junto com ele: no teclado, o contorno vai no trilho. */
+    .toggle input:focus-visible~.toggle-track{outline:2px solid #c0a060;outline-offset:2px}
     /* photo list */
     .photo-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:.625rem}
     .photo-row-inner{display:flex;align-items:center;gap:.5rem}
@@ -691,7 +697,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       input,select,textarea{font-size:16px!important}
     }
     @media(pointer:coarse){
-      .btn-sm,.act,.chip,.menu-item,.btn-resolve,.btn-danger,.req-resolved-toggle{min-height:44px}
+      .btn-sm,.act,.chip,.menu-item,.btn-resolve,.btn-danger,.req-resolved-toggle,.confirm-foot button{min-height:44px}
       input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
       .icon-btn{width:44px;height:44px}
       .btn-sm{padding:0 1rem}
@@ -1639,7 +1645,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       // segurava o leitor de tela, que navega por outros caminhos.
       document.getElementById('app').inert = true;
       document.body.style.overflow = 'hidden';
-      if (!id) setTimeout(() => slugEl.focus(), 100);
+      // A URL ganha o foco quando a folha termina de abrir — a não ser que
+      // alguém já esteja num campo dela: quem toca rápido (ou um roteiro que
+      // preenche) perdia o foco no meio da digitação, e o texto ia parar na URL.
+      if (!id) setTimeout(() => { if (!document.getElementById('overlay').contains(document.activeElement)) slugEl.focus(); }, 100);
       formSnapshot = snapshotForm();
     }
 

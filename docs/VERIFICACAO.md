@@ -213,10 +213,10 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 
 1. entrar pelo formulário de login; os filtros da lista e a conta ("1 evento
    ativo", "Todos" com uma categoria conta só a categoria, a lista vazia diz a
-   combinação de filtros);
+   combinação de filtros); no computador, a lista percorrida pelo Tab;
 2. criar um evento (com o atalho que abre o bloco "Prazo e status"); a página
-   atrás da folha fica `inert`; no computador, a folha inteira percorrida pelo
-   Tab — todo campo mostra o contorno de foco, e nenhuma caixa em volta o corta;
+   atrás da folha fica `inert`, e a folha nova não tira o foco de quem já está
+   num campo; no computador, a folha inteira percorrida pelo Tab;
 3. editar e marcar entregue (o bloco recolhido mostra o resumo); o "Novas
    fotos": ligar marca a hora, desligar e religar na mesma edição reinicia,
    salvar sem mexer mantém (lido do KV);
@@ -226,15 +226,23 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
    dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
-   semana, portão, foco num projeto e o CSV da série;
+   semana, portão, foco num projeto e o CSV da série; no computador, a seção
+   percorrida pelo Tab;
 7. trocar a senha, recarregar (volta para a mesma seção), sair; a senha antiga
    é recusada e a nova entra;
 8. a sessão cai no meio de uma edição (a chave da sessão é apagada no KV):
    desligar e religar o aviso conta como alteração; salvar leva ao login **sem**
    o "Sair do site?" do navegador; entrar de novo devolve a edição aberta, e
    salvá-la grava a nota e reinicia o contador;
-9. excluir o evento de teste (confirmação digitada; a página atrás fica
-   `inert` e volta a responder).
+9. excluir o evento de teste (confirmação digitada, com botões de 44 px no
+   celular; a página atrás fica `inert` e volta a responder).
+
+"Percorrida pelo Tab" é a função `varreFoco()`: anda pelo Tab como quem usa
+teclado e, em cada parada, exige um contorno de foco à vista (no próprio
+elemento, no trilho do toggle — o checkbox é invisível — ou na caixa em volta,
+como a do campo da URL) e que nenhuma caixa que rola ou corta (`overflow`) o
+esconda. Foi assim que apareceram os toggles sem foco nenhum e os chips com o
+contorno cortado pela faixa que rola.
 
 No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
 computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
@@ -242,7 +250,7 @@ computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 contorno de foco nos campos, nenhum erro de JS, nenhuma violação da CSP
 aplicada, e que o fluxo só gravou no KV as chaves esperadas (`events`,
 `removal_request:<id>` do pedido resolvido, `admin_password`, sessão) — 13
-escritas por aparelho, 160 checagens no total, em ~40 s. Os pedidos semeados vêm nos dois formatos que produção tem logo
+escritas por aparelho, 167 checagens no total, em ~40 s. Os pedidos semeados vêm nos dois formatos que produção tem logo
 depois do deploy da v2.0: um no array antigo `removal_requests`, outro na
 chave própria.
 `VERIFICA_PRINTS=/caminho` salva as capturas de cada seção, do formulário e

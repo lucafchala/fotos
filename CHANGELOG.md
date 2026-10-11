@@ -61,15 +61,24 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   dono precisa ler — a falha de envio de e-mail num pedido de remoção (3,2:1).
   Há teste que calcula o contraste das próprias cores da página, o de cada
   selo sobre o card, e que proíbe cor de texto escrita à mão em linha.
-- **Foco visível em todo campo.** Campo de texto, seletor e caixa de texto
-  ganham o mesmo contorno dourado de 2 px dos botões; antes só a borda
-  escurecia (1,7:1 sobre o fundo — quem navega pelo teclado não via onde
-  estava). O gráfico de acessos em foco também (o anel cinza tinha 2,1:1).
+- **Foco visível em tudo que recebe foco.** Campo de texto, seletor e caixa
+  de texto ganham o mesmo contorno dourado de 2 px dos botões; antes só a
+  borda escurecia (1,7:1 sobre o fundo — quem navega pelo teclado não via onde
+  estava). Os três toggles do formulário não mostravam foco nenhum (o
+  checkbox é invisível; agora o contorno vai no trilho); o contorno dos chips
+  de filtro e dos atalhos do formulário era cortado pela faixa que rola, e o
+  do campo da URL, pela caixa do prefixo. O gráfico de acessos em foco também
+  (o anel cinza tinha 2,1:1).
+- **A folha de "Novo evento" não rouba mais o foco.** Ela põe o cursor na URL
+  100 ms depois de abrir — e, se nesse meio-tempo a pessoa já tinha tocado
+  noutro campo, o que ela digitava ia parar na URL. Agora só põe se ninguém
+  estiver num campo da folha.
 - **Celular**: campos de 16 px (o iPhone não dá zoom ao tocar), alvos de toque
   de 44 px — agora também a busca, os filtros e o seletor de projeto das
-  Métricas, que tinham 41–43 px —, os itens do menu "⋯" com 48 px na folha de
-  baixo (uma regra de toque posterior os baixava para 44), e um bloco de
-  Ajustes 25 px largo demais que fazia o celular afastar a página inteira.
+  Métricas, que tinham 41–43 px, e os botões das confirmações, que tinham 40
+  —, os itens do menu "⋯" com 48 px na folha de baixo (uma regra de toque
+  posterior os baixava para 44), e um bloco de Ajustes 25 px largo demais que
+  fazia o celular afastar a página inteira.
 - **Leitor de tela**: os avisos do painel são anunciados (o toast virou região
   viva) e quebram linha em vez de sair pelas bordas; com uma folha ou uma
   confirmação aberta, a página atrás fica inerte (nem o foco nem o leitor
@@ -135,10 +144,10 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 160 checagens em ~40 s, das Métricas com série
+  Android e no computador — 167 checagens em ~40 s, das Métricas com série
   sintética à troca de senha e à sessão que cai no meio de uma edição, com o
-  foco, os alvos de toque e o que o fluxo grava no KV. Ver
-  `docs/VERIFICACAO.md`.
+  foco (a lista, a folha e as Métricas percorridas pelo Tab), os alvos de
+  toque e o que o fluxo grava no KV. Ver `docs/VERIFICACAO.md`.
 - `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
   verdade, no celular e no computador — portão lotado de verdade no servidor,
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o
