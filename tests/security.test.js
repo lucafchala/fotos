@@ -1349,6 +1349,17 @@ describe('envio completo dos formulários públicos', () => {
 
 // ---------------------------------------------------------------------------
 describe('rate limit do login não se auto-sabota', () => {
+  // Relógio parado no meio de uma janela. A janela da rajada é fixa e
+  // alinhada ao relógio (10 min: xx:00, xx:10…); com o relógio de verdade,
+  // um teste que caía na virada via a contagem zerar no meio das tentativas —
+  // na CI de 11/10/2026, às 12:30:00, passaram 8 antes e 10 depois, e o
+  // "≤ 10" falhou com 18 sem nada de errado no código.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-11T12:25:00Z'));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
   function kv() {
     const store = new Map();
     let writes = 0;
