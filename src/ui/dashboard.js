@@ -5,13 +5,18 @@ import { TURNSTILE_SITE_KEY, VERSAO } from '../config.js';
 const BASE = `
 ${fontFaceCSS()}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#8a8a8a;--accent:#f0ebe5;--red:#c0392b;--green:#27ae60;--radius:10px}
+:root{--bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--border:#222;--text:#f0ebe5;--text2:#999;--text3:#8a8a8a;--accent:#f0ebe5;--red:#c0392b;--red-texto:#e07070;--green:#27ae60;--verde-texto:#4a9a4a;--radius:10px}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
 input,textarea,select,button{font-family:inherit;font-size:inherit}
 button{cursor:pointer}
 /* Sem o retângulo azul do toque (Android): cada botão tem o próprio estado. */
 button,a,summary{-webkit-tap-highlight-color:transparent}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
+/* Campo em foco com o mesmo contorno, por cima dos outline:none de cada
+   campo (só a borda mudava, de #222 para #3a3a3a: 1,7:1 sobre o fundo, menos
+   que os 3:1 que o foco precisa). O !important é o que vence as regras com
+   classe e os estilos em linha. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #c0a060!important;outline-offset:1px}
 `;
 
 // Sem modo "criar senha": o painel NÃO tem trust-on-first-use. Sem credencial
@@ -70,7 +75,7 @@ export function loginHTML(opts = {}, nonce = '') {
     .btn-primary:active:not(:disabled){transform:translateY(0)}
     .btn-primary:disabled{opacity:.45;cursor:not-allowed}
     .cf-turnstile{min-height:65px;margin-bottom:.75rem}
-    .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:#e07070;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
+    .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:var(--red-texto);font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
     .aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
   </style>
 </head>
@@ -345,8 +350,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .bloco h2,.bloco h3{font-size:.95rem;font-weight:600}
     .bloco-desc{font-size:.78rem;color:var(--text3);line-height:1.55;margin-top:.25rem;max-width:68ch}
     .bloco.sensivel{border-color:rgba(192,57,43,.55)}
-    .bloco.sensivel h3{color:#e07070}
-    .sensivel-aviso{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#e07070;border:1px solid rgba(192,57,43,.5);border-radius:4px;padding:.15rem .45rem;margin-bottom:.6rem}
+    .bloco.sensivel h3{color:var(--red-texto)}
+    .sensivel-aviso{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--red-texto);border:1px solid rgba(192,57,43,.5);border-radius:4px;padding:.15rem .45rem;margin-bottom:.6rem}
     .grupo{margin-bottom:2rem}
     .grupo-titulo{font-size:.7rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin:0 0 .75rem .15rem}
     /* minmax(0,1fr), e não 1fr: um campo de texto dentro de uma linha flex
@@ -407,7 +412,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .menu-item{display:flex;align-items:center;gap:.6rem;width:100%;min-height:42px;padding:0 .75rem;background:none;border:none;border-radius:8px;color:var(--text2);font-size:.85rem;text-align:left;text-decoration:none}
     .menu-item:hover,.menu-item:focus-visible{background:var(--bg3);color:var(--text)}
     .menu-item svg{width:16px;height:16px;flex-shrink:0}
-    .menu-item.danger{color:#e07070}
+    .menu-item.danger{color:var(--red-texto)}
     .menu-sep{height:1px;background:#262626;margin:.3rem .25rem}
     @media(max-width:699px){
       .menu{position:fixed;left:.5rem;right:.5rem;top:auto;bottom:calc(.5rem + env(safe-area-inset-bottom));min-width:0;border-radius:16px;padding:.5rem}
@@ -444,7 +449,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     /* pan-y: no celular, arrastar na vertical ainda rola a página; na
        horizontal, percorre os dias. */
     .grafico{position:relative;width:100%;min-width:0;touch-action:pan-y;-webkit-tap-highlight-color:transparent;outline:none;border-radius:8px}
-    .grafico:focus-visible{box-shadow:0 0 0 2px #4a4a4a}
+    .grafico:focus-visible{box-shadow:0 0 0 2px #c0a060}
     .grafico svg{display:block;max-width:100%;height:auto}
     .grafico-vazio{display:flex;align-items:center;justify-content:center;min-height:180px;padding:1rem;text-align:center;font-size:.82rem;color:var(--text2);line-height:1.55;border:1px dashed #2c2c2a;border-radius:10px}
     .dica{position:absolute;top:0;left:0;z-index:5;pointer-events:none;background:#1f1f1e;border:1px solid #383835;border-radius:10px;padding:.5rem .7rem;font-size:.76rem;color:var(--text);box-shadow:0 10px 24px rgba(0,0,0,.5);white-space:nowrap}
@@ -489,12 +494,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .status-badge{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .45rem;border-radius:3px;margin-left:.4rem;vertical-align:middle;border:1px solid currentColor;line-height:1.4}
     .st-em-edicao{color:#c8880a;background:rgba(200,136,10,.08)}
     .st-em-revisao{color:#4a8ac8;background:rgba(74,138,200,.08)}
-    .st-entregue{color:#4a9a4a;background:rgba(74,154,74,.08)}
-    .st-arquivado{color:#666;background:rgba(102,102,102,.08)}
+    .st-entregue{color:var(--verde-texto);background:rgba(74,154,74,.08)}
+    .st-arquivado{color:var(--text3);background:rgba(138,138,138,.08)}
     /* Lembrete de entrega (issue #139): não é um status de produção, é um
        aviso sobre um status — por isso é um badge à parte, não um 5º valor
        de EVENT_STATUSES. */
-    .st-atrasado{color:#c83a3a;background:rgba(200,58,58,.1)}
+    .st-atrasado{color:var(--red-texto);background:rgba(224,112,112,.1)}
     /* Selos do card de projeto: o estado que antes só aparecia na cor de um
        ícone (estrela dourada, olho cortado) agora é escrito. */
     .evt-selos .status-badge{margin-left:0}
@@ -543,6 +548,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     /* form fields */
     .field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
     .field label,.rotulo-campo{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+    /* A dica dentro do rótulo — "(opcional)", "(só você vê)". Na cor do rótulo
+       (era #555 fixo, 2,5:1 sobre o bloco); o que a separa é a caixa baixa. */
+    .dica-rotulo{font-weight:400;text-transform:none;letter-spacing:.02em}
     .field label.toggle-label{font-size:.85rem;font-weight:400;letter-spacing:0;text-transform:none;color:var(--text)}
     .field input,.field textarea,.field select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.8rem .875rem;border-radius:8px;font-size:.9rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .field input:focus,.field textarea:focus{border-color:#3a3a3a}
@@ -551,7 +559,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .slug-prefix{display:flex;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
     .slug-prefix span{padding:.8rem 0 .8rem .875rem;color:var(--text3);font-size:.9rem;white-space:nowrap}
     .slug-prefix input{border:none;border-radius:0;padding-left:.3rem;background:transparent}
-    .slug-prefix:focus-within{border-color:#3a3a3a}
+    /* O campo da URL mora na caixa com o prefixo, que corta o que passa da
+       borda (overflow:hidden): o contorno de foco vai na caixa inteira. */
+    .slug-prefix:focus-within{outline:2px solid #c0a060;outline-offset:1px}
+    .slug-prefix input:focus-visible{outline:none!important}
     /* toggle */
     .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:1rem}
     .toggle-label{font-size:.85rem;color:var(--text)}
@@ -576,7 +587,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .btn-primary:hover{opacity:.88}
     .btn-secondary{flex:1;background:none;border:1px solid var(--border);color:var(--text2);padding:.875rem;border-radius:9px;font-size:.875rem;font-weight:500;transition:border-color .2s}
     .btn-secondary:hover{border-color:#3a3a3a}
-    .btn-danger{background:none;border:1px solid var(--red);color:var(--red);padding:.75rem 1.25rem;border-radius:8px;font-size:.8rem;font-weight:500;transition:background .2s}
+    .btn-danger{background:none;border:1px solid var(--red);color:var(--red-texto);padding:.75rem 1.25rem;border-radius:8px;font-size:.8rem;font-weight:500;transition:background .2s}
     .btn-danger:hover{background:rgba(192,57,43,.1)}
     /* toast */
     .toast{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(20px);background:#1e1e1e;border:1px solid #2e2e2e;color:var(--text);padding:.7rem 1.25rem;border-radius:8px;font-size:.82rem;opacity:0;transition:opacity .25s,transform .25s;z-index:200;pointer-events:none;width:max-content;max-width:calc(100vw - 2rem);text-align:center;line-height:1.45}
@@ -585,7 +596,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     /* a tabela de métricas rola de lado dentro do bloco, em vez de vazar */
     .bloco-tabela{overflow-x:auto;padding:.5rem}
     .toast.ok{border-color:#1e3a1e;background:#0e1e0e;color:#7ecf7e}
-    .toast.err{border-color:#3a1010;background:#180808;color:#e07070}
+    .toast.err{border-color:#3a1010;background:#180808;color:var(--red-texto)}
     /* empty */
     .empty{text-align:center;color:var(--text3);padding:3rem 0;font-size:.85rem}
     /* requests */
@@ -596,6 +607,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .req-body{font-size:.8rem;color:var(--text2);line-height:1.55;display:flex;flex-direction:column;gap:.2rem}
     .req-badge{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .55rem;border-radius:4px;background:var(--bg3);color:var(--text3);margin-bottom:.4rem}
     .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
+    /* Situação dos e-mails de um pedido. A falha era #b04040 em linha (3,2:1)
+       — justo a linha que o dono precisa ler. */
+    .req-mail{font-size:.7rem}
+    .req-mail.ok{color:var(--verde-texto)}
+    .req-mail.falhou{color:var(--red-texto)}
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
     .btn-resolve:disabled{opacity:.5;cursor:wait}
@@ -634,7 +650,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .search-row input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .search-row input:focus{border-color:#3a3a3a}
     /* required marker */
-    .req-star{color:var(--red)}
+    .req-star{color:var(--red-texto)}
     /* bigger cover preview */
     .photo-cover-preview{display:none;width:100%;height:72px;object-fit:cover;border-radius:7px;background:var(--bg3);margin-top:.4rem;margin-left:1.5rem;border:1px solid var(--border);max-width:calc(100% - 1.5rem)}
     /* inline spinner */
@@ -663,7 +679,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .confirm-foot .confirm-cancel:hover{border-color:#3a3a3a;color:var(--text)}
     .confirm-foot .confirm-ok{background:var(--accent);color:#0a0a0a;border-color:var(--accent);font-weight:600}
     .confirm-foot .confirm-ok:hover{opacity:.88}
-    .confirm-foot .confirm-ok.danger{background:none;border-color:var(--red);color:var(--red)}
+    .confirm-foot .confirm-ok.danger{background:none;border-color:var(--red);color:var(--red-texto)}
     .confirm-foot .confirm-ok.danger:hover{background:rgba(192,57,43,.1)}
     .confirm-foot .confirm-ok:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
     /* Celular (#220: "só pelo celular e sem zoom"):
@@ -676,6 +692,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     }
     @media(pointer:coarse){
       .btn-sm,.act,.chip,.menu-item,.btn-resolve,.btn-danger,.req-resolved-toggle{min-height:44px}
+      input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
       .icon-btn{width:44px;height:44px}
       .btn-sm{padding:0 1rem}
     }
@@ -688,7 +705,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
   </style>
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="app">
   <!-- Barra lateral no computador; barra de cima (marca + saída) e de baixo
        (a nav) no celular. Ver o comentário "Estrutura do painel" no CSS. -->
   <aside class="lateral">
@@ -988,7 +1005,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <summary><span class="bf-titulo">Básico</span><span class="bf-resumo" data-resumo="bf-basico"></span></summary>
           <p class="bf-dica">O endereço, o nome e quando foi.</p>
           <div class="field">
-            <label for="f-slug">URL do projeto <span class="req-star">*</span> <span style="color:#555">(só letras minúsculas, números e -)</span></label>
+            <label for="f-slug">URL do projeto <span class="req-star">*</span> <span class="dica-rotulo">(só letras minúsculas, números e -)</span></label>
             <div class="slug-prefix">
               <span>fotos.lucafchala.com/</span>
               <input type="text" id="f-slug" placeholder="meu-evento-2025" pattern="[a-z0-9][a-z0-9\\-]*[a-z0-9]|[a-z0-9]" maxlength="60">
@@ -1004,12 +1021,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
               <input type="date" id="f-date">
             </div>
             <div class="field">
-              <label for="f-category">Categoria <span style="color:#555">(opcional)</span></label>
+              <label for="f-category">Categoria <span class="dica-rotulo">(opcional)</span></label>
               <select id="f-category">${catOptionsSSR}</select>
             </div>
           </div>
           <div class="field">
-            <label for="f-long">Descrição completa <span style="color:#555">(aparece na página do projeto)</span></label>
+            <label for="f-long">Descrição completa <span class="dica-rotulo">(aparece na página do projeto)</span></label>
             <textarea id="f-long" placeholder="Detalhes sobre o evento, contexto, etc."></textarea>
           </div>
         </details>
@@ -1023,7 +1040,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <div class="field">
             <!-- Parágrafo, e não rótulo de campo: titula uma LISTA de campos.
                  A lista se apresenta como grupo com este título. -->
-            <p class="rotulo-campo" id="rot-capas">Fotos de capa <span style="color:#555">(até 6)</span></p>
+            <p class="rotulo-campo" id="rot-capas">Fotos de capa <span class="dica-rotulo">(até 6)</span></p>
             <div class="field-hint" style="margin-bottom:.625rem">A primeira foto aparece como miniatura na galeria. Cole links do Drive ou URLs diretas de imagem — a conversão é automática.</div>
             <div class="photo-list" id="photo-list" role="group" aria-labelledby="rot-capas"></div>
             <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
@@ -1034,7 +1051,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
               <button type="button" class="btn-sm" id="btn-paste-photos" data-onclick="openPastePhotos">📋 Colar vários links</button>
             </div>
             <div id="paste-photos-box" style="display:none;margin-top:.625rem">
-              <textarea id="paste-photos-input" placeholder="Um link por linha" rows="4" style="width:100%"></textarea>
+              <textarea id="paste-photos-input" placeholder="Um link por linha" aria-label="Links das fotos, um por linha" rows="4" style="width:100%"></textarea>
               <div style="display:flex;gap:.5rem;margin-top:.5rem">
                 <button type="button" class="btn-sm" data-onclick="commitPastePhotos">Adicionar</button>
                 <button type="button" class="btn-sm" data-onclick="closePastePhotos">Cancelar</button>
@@ -1042,7 +1059,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
             </div>
           </div>
           <div class="field">
-            <label for="f-drive-ig">Link do Drive para o Instagram <span style="color:#555">(opcional)</span></label>
+            <label for="f-drive-ig">Link do Drive para o Instagram <span class="dica-rotulo">(opcional)</span></label>
             <div class="field-hint" style="margin-bottom:.625rem">Pasta com as fotos já redimensionadas e prontas para o Instagram.</div>
             <input type="url" id="f-drive-ig" placeholder="https://drive.google.com/drive/folders/...">
           </div>
@@ -1051,17 +1068,17 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <summary><span class="bf-titulo">Vídeo</span><span class="bf-resumo" data-resumo="bf-video"></span></summary>
           <p class="bf-dica">Opcional: vídeo no topo da página, mais vídeos abaixo da descrição e a pasta só de vídeos.</p>
           <div class="field">
-            <label for="f-youtube">Vídeo do YouTube na página <span style="color:#555">(opcional)</span></label>
+            <label for="f-youtube">Vídeo do YouTube na página <span class="dica-rotulo">(opcional)</span></label>
             <div class="field-hint" style="margin-bottom:.625rem">Toca no topo da página do projeto, no lugar das fotos de capa. Suba no YouTube como <strong>Não listado</strong> e cole o link aqui. O player só carrega quando o visitante clica em play.</div>
             <input type="url" id="f-youtube" placeholder="https://youtu.be/...">
           </div>
           <div class="field">
-            <label for="f-youtube-mais">Mais vídeos do YouTube <span style="color:#555">(opcional, até 5)</span></label>
+            <label for="f-youtube-mais">Mais vídeos do YouTube <span class="dica-rotulo">(opcional, até 5)</span></label>
             <div class="field-hint" style="margin-bottom:.625rem">Um link por linha. Aparecem abaixo da descrição, cada um com play. Link de <strong>Shorts</strong> já sai vertical; para outro vídeo vertical, escreva <code>vertical</code> no fim da linha.</div>
             <textarea id="f-youtube-mais" rows="3" placeholder="https://youtu.be/...&#10;https://youtube.com/shorts/..."></textarea>
           </div>
           <div class="field">
-            <label for="f-drive-videos">Link do Drive só com os vídeos <span style="color:#555">(opcional)</span></label>
+            <label for="f-drive-videos">Link do Drive só com os vídeos <span class="dica-rotulo">(opcional)</span></label>
             <div class="field-hint" style="margin-bottom:.625rem">Pasta só com os vídeos do evento, para quem já baixou as fotos. Deixe os vídeos também dentro da pasta principal — quem entra por ela deve ver tudo. Preenchido, o projeto ganha o selo "Vídeos" na galeria.</div>
             <input type="url" id="f-drive-videos" placeholder="https://drive.google.com/drive/folders/...">
           </div>
@@ -1111,12 +1128,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
             </select>
           </div>
           <div class="field">
-            <label for="f-promised">Data prometida de entrega <span style="color:#555">(opcional)</span></label>
+            <label for="f-promised">Data prometida de entrega <span class="dica-rotulo">(opcional)</span></label>
             <div class="field-hint" style="margin-bottom:.625rem">Se passar da data e o evento ainda não estiver "Entregue", ele aparece destacado em vermelho na lista.</div>
             <input type="date" id="f-promised">
           </div>
           <div class="field">
-            <label for="f-notes">Notas privadas <span style="color:#555">(só você vê)</span></label>
+            <label for="f-notes">Notas privadas <span class="dica-rotulo">(só você vê)</span></label>
             <textarea id="f-notes" placeholder="Cliente, valor cobrado, observações, links de contrato…" rows="3"></textarea>
           </div>
         </details>
@@ -1124,11 +1141,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <summary><span class="bf-titulo">Página do projeto</span><span class="bf-resumo" data-resumo="bf-pagina"></span></summary>
           <p class="bf-dica">Créditos, link extra e o aviso de fotos novas.</p>
           <div class="field">
-            <label for="f-credits">Em colaboração com <span style="color:#555">(opcional — instituição, fotógrafo colaborador ou projeto)</span></label>
+            <label for="f-credits">Em colaboração com <span class="dica-rotulo">(opcional — instituição, fotógrafo colaborador ou projeto)</span></label>
             <input type="text" id="f-credits" placeholder="Ex: Colégio Santa Cruz">
           </div>
           <div class="field">
-            <label for="f-purl">Link extra do projeto <span style="color:#555">(opcional)</span></label>
+            <label for="f-purl">Link extra do projeto <span class="dica-rotulo">(opcional)</span></label>
             <input type="url" id="f-purl" placeholder="https://...">
           </div>
           <div class="field">
@@ -1142,11 +1159,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
             </div>
             <div id="alert-opts" style="display:none">
               <div class="field-hint" style="margin-bottom:.625rem">Exibe "Novas fotos adicionadas há X" (ou "Novos vídeos") com o horário atual. Ao reativar o aviso, o contador reinicia.</div>
-              <select id="f-alert-kind" aria-label="O que foi adicionado" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;-webkit-appearance:none;margin-bottom:.625rem">
+              <select id="f-alert-kind" aria-label="O que foi adicionado" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;-webkit-appearance:none;margin-bottom:.625rem">
                 <option value="fotos" selected>Novas fotos adicionadas</option>
                 <option value="videos">Novos vídeos adicionados</option>
               </select>
-              <select id="f-alert-expires" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;-webkit-appearance:none">
+              <select id="f-alert-expires" aria-label="Quando o aviso some" style="width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;-webkit-appearance:none">
                 <option value="0">Não expirar automaticamente</option>
                 <option value="1">Sumir em 1 hora</option>
                 <option value="6">Sumir em 6 horas</option>
@@ -1165,7 +1182,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     </div>
   </div>
 
-  <div class="toast" id="toast"></div>
+  <!-- Região viva: o leitor de tela anuncia o aviso ("Evento atualizado!", os
+       erros) sem tirar o foco de onde a pessoa está. -->
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script nonce="${nonce}">
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
@@ -1216,6 +1235,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     let requestsLoaded = false;
     let lastFocused = null;
     let formSnapshot = '';
+    // A caminho do login com o rascunho guardado (api(), no 401): o "Sair do
+    // site? As alterações podem não ser salvas" seria falso — elas estão no
+    // rascunho e voltam ao entrar de novo.
+    let saindoComRascunho = false;
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     // Os ajudantes do lado do NAVEGADOR para o card compartilhado (os do
     // servidor ficam em dashboardHTML, com escape/safeUrl de utils.js).
@@ -1399,7 +1422,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       switch (el.dataset.onchange) {
         case 'renderEventList': renderEventList(); break;
         case 'toggleSelectAll': toggleSelectAll(el.checked); break;
-        case 'toggleAlertOpts': toggleAlertOpts(el.checked); break;
+        case 'toggleAlertOpts':
+          // Desligar nesta edição esquece que o aviso "já estava ativo":
+          // religar reinicia o contador, como a dica do campo promete — sem
+          // precisar salvar o "desligado" no meio.
+          if (!el.checked) el.dataset.wasActive = '0';
+          toggleAlertOpts(el.checked);
+          break;
         case 'escolheProjeto': escolheProjeto(el); break;
       }
     });
@@ -1522,14 +1551,22 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         return byDate(b) - byDate(a);
       });
       const noun = n => n === 1 ? 'evento' : 'eventos';
+      // A conta é sempre a da lista que aparece: com uma categoria escolhida,
+      // "Todos" contava todos os eventos do site, não os da categoria.
       count.textContent = q
         ? \`\${sorted.length} \${noun(sorted.length)} encontrado\${sorted.length !== 1 ? 's' : ''}\`
-        : filter === 'todos' ? \`\${events.length} \${noun(events.length)}\` :
-          filter === 'ativos' ? \`\${sorted.length} \${noun(sorted.length)} ativos\` :
+        : filter === 'todos' ? \`\${sorted.length} \${noun(sorted.length)}\` :
+          filter === 'ativos' ? \`\${sorted.length} \${noun(sorted.length)} ativo\${sorted.length !== 1 ? 's' : ''}\` :
           \`\${sorted.length} \${noun(sorted.length)} (\${STATUS_LABELS[filter]})\`;
       if (sorted.length === 0) {
+        // Com categoria, a frase diz a combinação — "Nenhum evento ainda" era
+        // falso numa categoria vazia de um site cheio de eventos.
+        const naCategoria = 'Nenhum evento' +
+          (filter === 'todos' ? '' : filter === 'ativos' ? ' ativo' : ' com status "' + STATUS_LABELS[filter] + '"') +
+          ' na categoria "' + esc(catFilter) + '".';
         list.innerHTML =
           q ? \`<p class="empty">Nenhum evento encontrado para "\${esc(q)}".</p>\` :
+          catFilter ? '<p class="empty">' + naCategoria + '</p>' :
           filter === 'ativos' && events.length > 0 ? '<p class="empty">Nenhum evento ativo — todos foram arquivados.</p>' :
           (filter === 'todos' || filter === 'ativos') ? '<p class="empty">Nenhum evento ainda. Toque em "Novo evento" para criar o primeiro.</p>' :
           \`<p class="empty">Nenhum evento com status "\${STATUS_LABELS[filter]}".</p>\`;
@@ -1592,6 +1629,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       atualizaResumos();
       lastFocused = document.activeElement;
       document.getElementById('overlay').classList.add('open');
+      // A página atrás da folha fica "inert": o foco preso pelo teclado não
+      // segurava o leitor de tela, que navega por outros caminhos.
+      document.getElementById('app').inert = true;
       document.body.style.overflow = 'hidden';
       if (!id) setTimeout(() => slugEl.focus(), 100);
       formSnapshot = snapshotForm();
@@ -1609,6 +1649,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
         alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'), alertKind: val('f-alert-kind'),
+        // Desligar e religar o aviso nesta edição reinicia o contador ao
+        // salvar (ver toggleAlertOpts no despacho) — muda o que é gravado,
+        // então conta como alteração e vai junto no rascunho.
+        alertWasActive: document.getElementById('f-alert-active')?.dataset.wasActive ?? '',
         photos: photoList,
       });
     }
@@ -1659,6 +1703,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       set('f-alert-kind', f.alertKind || 'fotos');
       setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon);
       setChk('f-alert-active', f.alertActive);
+      // Desligado e religado antes de a sessão cair: o contador ainda recomeça.
+      if (f.alertWasActive === '0') document.getElementById('f-alert-active').dataset.wasActive = '0';
       toggleAlertOpts(!!f.alertActive);
       if (Array.isArray(f.photos)) { photoList = [...f.photos]; renderPhotoList(); }
       atualizaResumos();
@@ -1680,6 +1726,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         if (!ok) return;
       }
       document.getElementById('overlay').classList.remove('open');
+      document.getElementById('app').inert = false;
       document.body.style.overflow = '';
       editingId = null;
       if (lastFocused && typeof lastFocused.focus === 'function') {
@@ -1689,7 +1736,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     }
 
     window.addEventListener('beforeunload', function(e) {
-      if (isFormDirty()) { e.preventDefault(); e.returnValue = ''; }
+      if (!saindoComRascunho && isFormDirty()) { e.preventDefault(); e.returnValue = ''; }
     });
 
     // ---- Form keyboard handling (Esc close, Ctrl/Cmd+Enter submit, focus trap) ----
@@ -1765,9 +1812,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
           <div class="photo-row" id="pr-\${i}">
             <div class="photo-row-inner">
               <span class="photo-num">\${i + 1}</span>
-              <input type="url" value="\${esc(url)}" placeholder="URL da foto"
+              <input type="url" value="\${esc(url)}" placeholder="URL da foto" aria-label="URL da foto \${i + 1}"
                 data-photo-input data-i="\${i}">
-              \${i === 0 ? '' : \`<img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} data-onerror="hide" data-onload="show">\`}
+              \${i === 0 ? '' : \`<img class="photo-mini" id="pm-\${i}" src="\${esc(url)}" \${url ? 'style="display:block"' : ''} alt="" data-onerror="hide" data-onload="show">\`}
               <button type="button" class="icon-btn danger" data-action="removePhoto" data-i="\${i}" title="Remover" aria-label="Remover foto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -1973,11 +2020,18 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
             '</div>' +
           '</div>';
         document.body.appendChild(overlay);
+        // Tudo atrás do diálogo fica "inert" — a página e, se estiver aberta, a
+        // folha do formulário (o "Descartar alterações?" abre por cima dela).
+        // Ao fechar, cada um volta ao que era.
+        const atras = [document.getElementById('app'), document.getElementById('overlay')];
+        const eraInerte = atras.map(el => !!el && el.inert);
+        atras.forEach(el => { if (el) el.inert = true; });
         const okBtn = overlay.querySelector('.confirm-ok');
         const cancelBtn = overlay.querySelector('.confirm-cancel');
         const typeInput = overlay.querySelector('.confirm-type-input');
         function done(val) {
           document.removeEventListener('keydown', onKey, true);
+          atras.forEach((el, i) => { if (el) el.inert = eraInerte[i]; });
           overlay.remove();
           if (prev && typeof prev.focus === 'function') { try { prev.focus(); } catch (e) {} }
           resolve(val);
@@ -2095,9 +2149,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
               \${r.phone ? \`<span><strong>Telefone:</strong> \${esc(r.phone)}</span>\` : ''}
               \${!r.email && !r.phone && r.contact ? \`<span><strong>Contato:</strong> \${esc(r.contact)}</span>\` : ''}
               \${r.message ? \`<span><strong>Mensagem:</strong> \${esc(r.message)}</span>\` : ''}
-              \${r.emailStatus ? \`<span style="font-size:.7rem;margin-top:.25rem;color:\${r.emailStatus === 'sent' ? '#4a9a4a' : '#b04040'}">📧 \${r.emailStatus === 'sent' ? 'aviso enviado ao seu e-mail' : esc(r.emailStatus)}</span>\` : ''}
-              \${r.confirmEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
-              \${r.resolvedEmailStatus === 'sent' ? '<span style="font-size:.7rem;color:#4a9a4a">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span style="font-size:.7rem;color:#b04040">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
+              \${r.emailStatus ? \`<span class="req-mail \${r.emailStatus === 'sent' ? 'ok' : 'falhou'}" style="margin-top:.25rem">📧 \${r.emailStatus === 'sent' ? 'aviso enviado ao seu e-mail' : esc(r.emailStatus)}</span>\` : ''}
+              \${r.confirmEmailStatus === 'sent' ? '<span class="req-mail ok">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span class="req-mail falhou">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
+              \${r.resolvedEmailStatus === 'sent' ? '<span class="req-mail ok">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span class="req-mail falhou">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
             </div>
             \${!r.resolved ? \`<button class="btn-resolve" data-action="resolveRequest" data-id="\${esc(r.id)}">✓ Marcar como resolvido</button>\` : ''}
           </div>\`;
@@ -3098,8 +3152,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
         // Session expired — send back to login instead of a confusing toast on
-        // every action. stashDraft() first so an in-progress edit isn't lost.
-        stashDraft();
+        // every action. stashDraft() first so an in-progress edit isn't lost
+        // (and, once it is stashed, without the browser's "leave site?").
+        saindoComRascunho = stashDraft();
         window.location.href = '/dashboard';
         throw new Error(data.error || 'Sessão expirada.');
       }

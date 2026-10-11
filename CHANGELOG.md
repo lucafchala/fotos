@@ -53,13 +53,43 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 ### Melhorado e corrigido
 
-- **Contraste do texto apagado do painel**: `#555` → `#8a8a8a` (de 2,5:1 para
-  5,3:1 sobre os blocos — AA). Datas, dicas e rótulos ficam legíveis no
-  celular. Há teste que calcula o contraste das próprias cores da página.
+- **Contraste AA em todo texto do painel.** O cinza apagado era `#555` (2,5:1
+  sobre os blocos) e virou `#8a8a8a` (5,3:1): datas, dicas e rótulos ficam
+  legíveis no celular, na rua. Abaixo de 4,5:1 também estavam os selos
+  "Atrasado" (3,4:1) e "Arquivado" (3:1), o texto dos botões de excluir
+  (3,4:1), as dicas "(opcional)" dos rótulos (2,5:1) e — justo a linha que o
+  dono precisa ler — a falha de envio de e-mail num pedido de remoção (3,2:1).
+  Há teste que calcula o contraste das próprias cores da página, o de cada
+  selo sobre o card, e que proíbe cor de texto escrita à mão em linha.
+- **Foco visível em todo campo.** Campo de texto, seletor e caixa de texto
+  ganham o mesmo contorno dourado de 2 px dos botões; antes só a borda
+  escurecia (1,7:1 sobre o fundo — quem navega pelo teclado não via onde
+  estava). O gráfico de acessos em foco também (o anel cinza tinha 2,1:1).
 - **Celular**: campos de 16 px (o iPhone não dá zoom ao tocar), alvos de toque
-  de 44 px, e um bloco de Ajustes 25 px largo demais que fazia o celular
-  afastar a página inteira.
-- **Avisos do painel** quebram linha em vez de sair pelas bordas da tela.
+  de 44 px — agora também a busca, os filtros e o seletor de projeto das
+  Métricas, que tinham 41–43 px —, e um bloco de Ajustes 25 px largo demais
+  que fazia o celular afastar a página inteira.
+- **Leitor de tela**: os avisos do painel são anunciados (o toast virou região
+  viva) e quebram linha em vez de sair pelas bordas; com uma folha ou uma
+  confirmação aberta, a página atrás fica inerte (nem o foco nem o leitor
+  escapam para lá); e todo campo tem nome — o "Quando o aviso some", a caixa de
+  colar links e as linhas de URL das fotos só tinham o texto de exemplo.
+- **A lista de projetos conta certo.** "1 evento ativos" virou "1 evento
+  ativo"; com uma categoria escolhida, "Todos" contava os eventos do site
+  inteiro, não os da lista; e uma categoria sem eventos dizia "Nenhum evento
+  ainda. Toque em Novo evento…" — agora diz a combinação de filtros.
+- **Sessão expirada no meio de uma edição.** O painel já guardava um rascunho
+  e voltava ao login, mas o navegador perguntava "Sair do site? As alterações
+  podem não ser salvas" — falso, e quem respondia "Ficar" seguia numa página
+  sem sessão, onde cada ação perguntava de novo. Agora vai direto, e entrar de
+  novo devolve a edição.
+- **"Novas fotos": religar reinicia o contador**, como a dica do campo
+  promete. Desligar e ligar de novo na mesma edição mantinha a hora antiga (era
+  preciso salvar desligado no meio); agora reinicia — e conta como alteração,
+  então fechar sem salvar pergunta antes de descartar.
+- **Esvaziar as fotos de capa tira a capa.** A primeira foto antiga continuava
+  no card da galeria e no topo da página do projeto — uma foto retirada por um
+  pedido de remoção seguia no ar.
 - **"Painel temporariamente indisponível" legível no celular.** As duas
   páginas curtas do painel (KV fora, painel não configurado) eram um parágrafo
   solto, sem `viewport`: o celular as desenhava em 980 px e o texto saía
@@ -95,6 +125,8 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   identificar ninguém, apagada depois de 400 dias.
 - **Pedidos de remoção nunca entram na prévia** ao restaurar um backup: são
   dados de terceiros, e a prévia manda e-mail de verdade.
+- **Foto retirada sai também da capa**: esvaziar a lista de fotos de capa de um
+  projeto agora apaga a capa gravada (ver "Melhorado e corrigido").
 - A contagem do modo de entrada no portão é só um número — sem projeto, IP ou
   identificador.
 
@@ -102,8 +134,10 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 125 checagens, das Métricas com série sintética à
-  troca de senha. Ver `docs/VERIFICACAO.md`.
+  Android e no computador — 160 checagens em ~40 s, das Métricas com série
+  sintética à troca de senha e à sessão que cai no meio de uma edição, com o
+  foco, os alvos de toque e o que o fluxo grava no KV. Ver
+  `docs/VERIFICACAO.md`.
 - `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
   verdade, no celular e no computador — portão lotado de verdade no servidor,
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o
@@ -113,5 +147,8 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   `tests/previa.test.js`, `tests/pedidos.test.js`, `tests/painel.test.js`,
   `tests/galeria.test.js`, e a atomicidade da série por dia na suíte
   `workers`.
+- Os testes do limite de login rodam com o relógio parado: a janela da rajada
+  é fixa e alinhada ao relógio, e uma execução da CI exatamente às 12:30:00
+  viu a contagem zerar no meio do teste e falhar sem defeito no código.
 - **Nenhuma migração** de Durable Object nem de D1 nesta versão: o deploy
   segue o caminho normal (versão sem tráfego → smoke → promoção).

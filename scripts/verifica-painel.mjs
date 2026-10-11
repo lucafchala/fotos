@@ -13,7 +13,8 @@
 // aparelho (iPhone, Android, computador):
 //   entrar → criar um evento → editar e marcar entregue → ocultar pelo menu
 //   "Mais ações" → resolver um pedido de remoção → trocar a senha (e entrar de
-//   novo com ela) → excluir o evento de teste.
+//   novo com ela) → a sessão cair no meio de uma edição (e o rascunho voltar)
+//   → excluir o evento de teste.
 // E, no caminho, o que só um navegador mostra: a navegação no lugar certo
 // (barra de baixo no celular, lateral no computador), nada vazando para o
 // lado, alvos de toque de 44 px, campo que não dá zoom no iPhone, menu com
@@ -147,6 +148,17 @@ const aviso = async page => {
   await page.waitForSelector('#toast.show', { timeout: 6000 });
   return (await page.locator('#toast').textContent()) || '';
 };
+/**
+ * O aviso da vez sai já, como se os 3 s dele tivessem passado — para o
+ * próximo `aviso()` ler o aviso seguinte, e não este. (Esperar os 3 s a cada
+ * passo era metade do tempo do roteiro.)
+ * @param {import('playwright-core').Page} page
+ */
+const someAviso = page => page.evaluate(() => {
+  const t = /** @type {HTMLElement & { _t?: number }} */ (document.getElementById('toast'));
+  clearTimeout(t._t);
+  t.classList.remove('show');
+});
 /** @param {import('playwright-core').Page} page @param {string} nome */
 const print = async (page, nome) => { if (PRINTS) await page.screenshot({ path: join(PRINTS, `painel-${nome}.png`), fullPage: false }); };
 
@@ -186,7 +198,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       if (toque) {
         const pequenos = await page.evaluate(() => {
           const vis = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-          return [...document.querySelectorAll('#tab-events button, #tab-events a.act, nav.nav .tab')]
+          return [...document.querySelectorAll('#tab-events button, #tab-events a.act, #tab-events input:not([type=checkbox]), #tab-events select, nav.nav .tab')]
             .filter(vis).map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
             .filter(x => x.h < 44);
         });
@@ -196,14 +208,47 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       }
       const cards = await page.locator('#evt-list .evt-item').count();
       registra(cards === EVENTOS.length, `${rotulo}: a lista mostra os ${EVENTOS.length} eventos`, cards);
+      // Os filtros e a conta: a conta é a da lista que aparece (com categoria,
+      // "Todos" contava o site inteiro), no singular quando é um ("1 evento
+      // ativos" era o texto), e a lista vazia diz a combinação de filtros.
+      const conta = async () => ((await page.locator('#evt-count').textContent()) || '').trim();
+      await aciona(page.locator('#status-filter [data-valor="ativos"]'), toque);
+      const ativos = await conta();
+      await page.selectOption('#category-filter', 'Casamento');
+      const umAtivo = await conta();
+      await aciona(page.locator('#status-filter [data-valor="todos"]'), toque);
+      const daCategoria = { conta: await conta(), cards: await page.locator('#evt-list .evt-item').count() };
+      await aciona(page.locator('#status-filter [data-valor="em-edicao"]'), toque);
+      const vazia = ((await page.locator('#evt-list .empty').textContent()) || '').trim();
+      await page.selectOption('#category-filter', '');
+      await aciona(page.locator('#status-filter [data-valor="todos"]'), toque);
+      const deVolta = await conta();
+      registra(ativos === `${EVENTOS.length} eventos ativos` && umAtivo === '1 evento ativo' && daCategoria.conta === '1 evento' && daCategoria.cards === 1
+        && vazia === 'Nenhum evento com status "Em edição" na categoria "Casamento".' && deVolta === `${EVENTOS.length} eventos`,
+      `${rotulo}: filtros: a conta é a da lista, no singular quando é um, e a lista vazia diz a combinação`, { ativos, umAtivo, daCategoria, vazia, deVolta });
+      if (!toque) {
+        // Campo em foco ganha o contorno de 2 px, como botões e links — antes só
+        // a borda escurecia (#222 → #3a3a3a: 1,7:1 sobre o fundo).
+        const anel = (/** @type {string} */ sel) => page.$eval(sel, el => { const e = getComputedStyle(el); return e.outlineStyle + ' ' + e.outlineWidth + ' ' + e.outlineColor; });
+        await page.focus('#evt-search');
+        const naBusca = await anel('#evt-search');
+        await page.keyboard.press('Tab');
+        const naCategoria = await anel('#category-filter');
+        await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
+        registra(naBusca === 'solid 2px rgb(192, 160, 96)' && naCategoria === 'solid 2px rgb(192, 160, 96)',
+          `${rotulo}: campo em foco ganha o contorno de 2 px (busca e categoria)`, { naBusca, naCategoria });
+      }
       const selos = await page.locator('#evt-ev3 .status-badge').allTextContents();
       registra(selos.join('|') === 'Em edição|Atrasado', `${rotulo}: o card escreve o estado (status, atrasado)`, selos);
       registra(/prazo 10\/01/.test((await page.locator('#evt-ev3 .evt-meta').textContent()) || ''), `${rotulo}: o card mostra o prazo de quem não entregou`, '');
       await print(page, `${id}-eventos`);
 
       // ---- 2. Criar um evento ---------------------------------------------
+      /** A página atrás de um diálogo: `inert` (nem foco nem leitor de tela chegam lá). */
+      const inerte = () => page.evaluate(() => /** @type {HTMLElement} */ (document.getElementById('app')).inert);
       await aciona(page.locator('button.btn-add'), toque);
       await page.waitForSelector('#overlay.open');
+      registra(await inerte(), `${rotulo}: com a folha do formulário aberta, a página atrás fica inert`, '');
       await page.fill('#f-slug', 'teste-do-roteiro');
       await page.fill('#f-title', 'Teste do roteiro');
       await page.fill('#f-drive', 'https://drive.google.com/drive/folders/PASTA_TESTE_0001');
@@ -211,17 +256,70 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('.bf-atalhos [data-alvo="bf-producao"]'), toque);
       await espera(page, 500);
       registra(await page.locator('#bf-producao').evaluate(d => /** @type {HTMLDetailsElement} */ (d).open), `${rotulo}: o atalho abre o bloco recolhido`, '');
+      if (!toque) {
+        // A folha inteira percorrida pelo Tab, como faz quem usa teclado: todo
+        // campo mostra o contorno de foco, e nenhuma caixa em volta o corta (o
+        // da URL do projeto ficava cortado pela caixa do prefixo).
+        const blocos = await page.$$eval('#overlay details.bloco-form', ds => ds.map(d => { const era = /** @type {HTMLDetailsElement} */ (d).open; /** @type {HTMLDetailsElement} */ (d).open = true; return era; }));
+        await page.focus('#f-slug');
+        /** @type {string[]} */
+        const semAnel = [];
+        /** @type {Set<string>} */
+        const vistos = new Set();
+        let anterior = '';
+        for (let n = 0; n < 120; n++) {
+          const r = await page.evaluate(() => {
+            const el = /** @type {HTMLInputElement} */ (document.activeElement);
+            if (!el || !el.closest('#overlay')) return { fim: true };
+            // A posição na folha identifica a parada (botões sem id se repetem).
+            const chave = String([...document.querySelectorAll('#overlay *')].indexOf(el));
+            const nome = el.id || el.getAttribute('aria-label') || el.tagName;
+            if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.type === 'checkbox') return { chave };
+            // Quem desenha o contorno: o campo, ou a caixa em volta (:focus-within).
+            /** @type {Element | null} */
+            let dono = el;
+            if (getComputedStyle(el).outlineStyle === 'none') {
+              dono = null;
+              for (let a = el.parentElement; a; a = a.parentElement) if (getComputedStyle(a).outlineStyle !== 'none') { dono = a; break; }
+            }
+            if (!dono) return { chave, erro: nome + ': sem contorno' };
+            const ed = getComputedStyle(dono);
+            const folga = parseFloat(ed.outlineOffset) + parseFloat(ed.outlineWidth);
+            const c = dono.getBoundingClientRect();
+            const anel = { l: c.left - folga, t: c.top - folga, r: c.right + folga, b: c.bottom + folga };
+            for (let a = dono.parentElement; a && a !== document.body; a = a.parentElement) {
+              const ea = getComputedStyle(a);
+              if (ea.overflowX === 'visible' && ea.overflowY === 'visible') continue;
+              const ca = a.getBoundingClientRect();
+              const x0 = ca.left + parseFloat(ea.borderLeftWidth), y0 = ca.top + parseFloat(ea.borderTopWidth);
+              const corta = anel.l < x0 - 0.5 || anel.r > x0 + a.clientWidth + 0.5
+                || (ea.overflowY === 'hidden' && (anel.t < y0 - 0.5 || anel.b > y0 + a.clientHeight + 0.5));
+              if (corta) return { chave, erro: nome + ': contorno cortado por .' + (a.className || a.tagName) };
+            }
+            return { chave };
+          });
+          // A data tem várias paradas (dia, mês, ano, calendário) no mesmo
+          // campo; só voltar a um campo já visto, depois de outro, é a volta.
+          if (r.fim || (r.chave && r.chave !== anterior && vistos.has(r.chave))) break;
+          if (r.chave && r.chave !== anterior) { vistos.add(r.chave); if (r.erro) semAnel.push(r.erro); }
+          anterior = r.chave || '';
+          await page.keyboard.press('Tab');
+        }
+        await page.$$eval('#overlay details.bloco-form', (ds, eram) => ds.forEach((d, i) => { /** @type {HTMLDetailsElement} */ (d).open = eram[i]; }), blocos);
+        registra(semAnel.length === 0 && vistos.size > 15, `${rotulo}: no Tab, todo campo da folha mostra o contorno de foco, sem corte (${vistos.size} paradas)`, semAnel);
+      }
       await page.selectOption('#f-status', 'em-edicao');
       if (PRINTS) await print(page, `${id}-formulario`);
       await aciona(page.locator('#submit-btn'), toque);
       const msgCriou = await aviso(page);
       registra(/adicionado/i.test(msgCriou), `${rotulo}: criar um evento`, msgCriou);
       await page.waitForSelector('#overlay.open', { state: 'hidden' });
+      registra(!(await inerte()), `${rotulo}: fechada a folha, a página volta a responder`, '');
       const novo = page.locator('#evt-list .evt-item', { hasText: 'Teste do roteiro' });
       registra((await novo.count()) === 1 && /Em edição/.test((await novo.locator('.evt-selos').textContent()) || ''), `${rotulo}: o evento novo aparece, "Em edição"`, '');
 
       // ---- 3. Editar e marcar entregue ------------------------------------
-      await espera(page, 3200); // o aviso anterior some
+      await someAviso(page);
       await aciona(novo.locator('[data-action="edit"]'), toque);
       await page.waitForSelector('#overlay.open');
       const resumo = (await page.locator('[data-resumo="bf-producao"]').textContent()) || '';
@@ -235,8 +333,33 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await page.waitForSelector('#overlay.open', { state: 'hidden' });
       registra(/Entregue/.test((await novo.locator('.evt-selos').textContent()) || ''), `${rotulo}: o card passa a dizer "Entregue"`, '');
 
+      // "Novas fotos": ligar marca a hora; religar REINICIA o contador, como a
+      // dica do campo promete (mesmo sem salvar o "desligado" no meio); salvar
+      // sem mexer mantém a hora. Lido do KV do worker-local, que é o que vale.
+      const avisoSalvo = () => (JSON.parse(w.kv.get('events') || '[]').find((/** @type {any} */ e) => e.slug === 'teste-do-roteiro') || {}).photosAlert || {};
+      const clicaAviso = () => page.locator('#f-alert-active').evaluate(el => /** @type {HTMLInputElement} */ (el).click());
+      /** @param {() => Promise<unknown>} mexe */
+      const salvaAviso = async mexe => {
+        await someAviso(page);
+        await aciona(novo.locator('[data-action="edit"]'), toque);
+        await page.waitForSelector('#overlay.open');
+        await aciona(page.locator('.bf-atalhos [data-alvo="bf-pagina"]'), toque);
+        await espera(page, 300);
+        await mexe();
+        await aciona(page.locator('#submit-btn'), toque);
+        await page.waitForSelector('#overlay.open', { state: 'hidden' });
+      };
+      await salvaAviso(clicaAviso);
+      const ligado = avisoSalvo();
+      await salvaAviso(async () => { await clicaAviso(); await clicaAviso(); });
+      const religado = avisoSalvo();
+      await salvaAviso(async () => {});
+      const intocado = avisoSalvo();
+      registra(ligado.active === true && !!ligado.addedAt && religado.active === true && religado.addedAt !== ligado.addedAt && intocado.addedAt === religado.addedAt,
+        `${rotulo}: "Novas fotos": religar reinicia o contador; salvar sem mexer, não`, { ligado: ligado.addedAt, religado: religado.addedAt, intocado: intocado.addedAt });
+
       // ---- 4. Menu "Mais ações": ocultar ----------------------------------
-      await espera(page, 3200);
+      await someAviso(page);
       const mais = novo.locator('[data-action="menu"]');
       await aciona(mais, toque);
       const menu = novo.locator('.menu');
@@ -264,7 +387,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         `${rotulo}: "Ocultar da galeria" pelo menu, e o card ganha o selo "Oculto"`, msgOcultou);
 
       // ---- 5. Resolver um pedido de remoção -------------------------------
-      await espera(page, 3200);
+      await someAviso(page);
       registra((await page.locator('#requests-badge').textContent()) === '2', `${rotulo}: a navegação avisa 2 pedidos pendentes`, await page.locator('#requests-badge').textContent());
       await aciona(page.locator('nav.nav [data-tab="requests"]'), toque);
       await page.waitForSelector('#tab-requests.active');
@@ -280,12 +403,16 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       // números do período comparados com o anterior, o gráfico de linhas com
       // a cruz (toque, mouse e teclado), a tabela, a semana, o portão, a lista
       // de projetos que foca o gráfico, e o CSV da série.
-      await espera(page, 3200);
+      await someAviso(page);
       await aciona(page.locator('nav.nav [data-tab="metrics"]'), toque);
       await page.waitForSelector('#tab-metrics.active');
       await page.waitForSelector('#grafico-acessos svg', { timeout: 6000 });
       const rotulos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
       registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período`, rotulos);
+      if (toque) {
+        const alturaProjeto = Math.round(((await page.locator('#metrics-projeto').boundingBox()) || { height: 0 }).height * 10) / 10;
+        registra(alturaProjeto >= 44, `${rotulo}: o seletor de projeto das métricas tem 44 px`, { alturaProjeto });
+      }
       const delta = ((await page.locator('#metrics-resumo .resumo-delta').first().textContent()) || '').trim();
       registra(/vs\. 30 dias antes/.test(delta), `${rotulo}: o número vem comparado com o período anterior ("${delta}")`, delta);
       const desenho = page.locator('#grafico-acessos svg');
@@ -351,6 +478,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         const depois = await page.locator('#dica-acessos .dica-dia').textContent();
         const anuncio = (await page.locator('#acessos-anuncio').textContent()) || '';
         registra(antes !== depois && /visitas/.test(anuncio), `${rotulo}: no teclado, a seta anda um dia e o leitor de tela ouve`, { antes, depois, anuncio });
+        const anelGrafico = await page.$eval('#grafico-acessos', el => getComputedStyle(el).boxShadow);
+        registra(/rgb\(192, 160, 96\) 0px 0px 0px 2px/.test(anelGrafico), `${rotulo}: o gráfico em foco tem o anel dourado (o cinza de antes tinha 2,1:1)`, anelGrafico);
         await page.keyboard.press('Escape');
         registra(await dica.isHidden(), `${rotulo}: Esc esconde a dica`, '');
       } else {
@@ -415,36 +544,78 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await page.reload();
       await page.waitForSelector('#tab-settings.active', { timeout: 5000 });
       registra(true, `${rotulo}: recarregar a página volta para a mesma seção`, '');
-      // Sai e entra com a senha nova.
+      // Sai; a senha antiga não entra mais (a troca valeu no servidor) e a
+      // nova entra.
       await Promise.all([page.waitForNavigation(), aciona(page.locator('form[action="/dashboard/logout"] button'), toque)]);
-      await page.goto(w.url + '/dashboard');
-      await page.fill('input[type="password"]', SENHA_NOVA);
-      await page.evaluate(() => {
-        const f = /** @type {HTMLFormElement} */ (document.querySelector('form'));
-        const i = document.createElement('input');
-        i.type = 'hidden'; i.name = 'cf-turnstile-response'; i.value = 'teste';
-        f.appendChild(i);
-      });
-      await Promise.all([page.waitForNavigation(), page.evaluate(() => /** @type {HTMLFormElement} */ (document.querySelector('form')).submit())]);
-      const entrou = (await page.locator('nav.nav').count()) === 1 && !new URL(page.url()).searchParams.get('error');
-      registra(entrou, `${rotulo}: entrar de novo com a senha nova`, page.url());
-      // A senha antiga não entra mais (prova de que a troca valeu no servidor).
-      registra(SENHA_NOVA !== SENHA_DE_TESTE, `${rotulo}: (a senha nova é outra)`, '');
+      const tentaEntrar = (/** @type {string} */ senha) => entraNoPainel(page, w.url, senha).then(() => 'entrou', e => String(e instanceof Error ? e.message : e));
+      const comAntiga = await tentaEntrar(SENHA_DE_TESTE);
+      registra(/login recusado/.test(comAntiga), `${rotulo}: a senha antiga não entra mais`, comAntiga);
+      const comNova = await tentaEntrar(SENHA_NOVA);
+      registra(comNova === 'entrou' && (await page.locator('nav.nav').count()) === 1, `${rotulo}: entrar de novo com a senha nova`, comNova);
 
-      // ---- 8. Excluir o evento de teste -----------------------------------
+      // ---- 8. A sessão cai no meio de uma edição -----------------------------
+      // (Inatividade, ou a senha trocada em outro aparelho.) O painel guarda um
+      // rascunho e vai para o login SEM o "Sair do site? As alterações podem
+      // não ser salvas" do navegador — elas estão no rascunho —, e entrar de
+      // novo devolve a edição. Inclusive o "religar o aviso de novidade", que
+      // muda o que é gravado (reinicia o contador) e por isso conta, sozinho,
+      // como alteração.
+      await someAviso(page);
       await aciona(page.locator('nav.nav [data-tab="events"]'), toque);
       await page.waitForSelector('#tab-events.active');
       const teste = page.locator('#evt-list .evt-item', { hasText: 'Teste do roteiro' });
+      const contadorAntes = avisoSalvo().addedAt;
+      await aciona(teste.locator('[data-action="edit"]'), toque);
+      await page.waitForSelector('#overlay.open');
+      await aciona(page.locator('.bf-atalhos [data-alvo="bf-pagina"]'), toque);
+      await espera(page, 300);
+      await clicaAviso();
+      await clicaAviso();
+      await aciona(page.locator('#overlay button.btn-secondary[data-onclick="closeForm"]'), toque);
+      const perguntou = await page.waitForSelector('.confirm-cancel', { timeout: 3000 }).then(() => true, () => false);
+      if (perguntou) await aciona(page.locator('.confirm-cancel'), toque);
+      await espera(page, 200);
+      registra(perguntou && (await page.locator('#overlay.open').count()) === 1,
+        `${rotulo}: desligar e religar o aviso conta como alteração (fechar pergunta antes de descartar)`, { perguntou });
+      const NOTA = 'Escrita antes de a sessão cair.';
+      await aciona(page.locator('.bf-atalhos [data-alvo="bf-producao"]'), toque);
+      await espera(page, 300);
+      await page.fill('#f-notes', NOTA);
+      for (const k of [...w.kv.keys()]) if (k.startsWith('admin_session:')) w.kv.delete(k);
+      /** @type {string[]} */
+      const dialogos = [];
+      // Aceita (o roteiro segue mesmo com o defeito de volta), mas anota.
+      const anota = (/** @type {import('playwright-core').Dialog} */ d) => { dialogos.push(d.type()); d.accept().catch(() => {}); };
+      page.on('dialog', anota);
+      await Promise.all([page.waitForNavigation({ timeout: 10000 }), aciona(page.locator('#submit-btn'), toque)]);
+      page.off('dialog', anota);
+      const noLogin = (await page.locator('form[action="/dashboard/login"]').count()) === 1;
+      registra(noLogin && dialogos.length === 0, `${rotulo}: com a sessão caída, salvar leva ao login sem o "Sair do site?"`, { noLogin, dialogos });
+      const voltou = await tentaEntrar(SENHA_NOVA);
+      const msgRecuperou = voltou === 'entrou' ? await aviso(page) : '';
+      const notaDeVolta = (await page.locator('#overlay.open').count()) === 1 ? await page.inputValue('#f-notes') : '';
+      registra(/Recuperei/.test(msgRecuperou) && notaDeVolta === NOTA, `${rotulo}: entrar de novo devolve a edição aberta`, { voltou, msgRecuperou, notaDeVolta });
+      await aciona(page.locator('#submit-btn'), toque);
+      await page.waitForSelector('#overlay.open', { state: 'hidden' });
+      const gravado = JSON.parse(w.kv.get('events') || '[]').find((/** @type {any} */ e) => e.slug === 'teste-do-roteiro') || {};
+      const contadorDepois = (gravado.photosAlert || {}).addedAt;
+      registra(gravado.internalNotes === NOTA && (gravado.photosAlert || {}).active === true && !!contadorDepois && contadorDepois !== contadorAntes,
+        `${rotulo}: salvar o rascunho grava a nota e reinicia o contador do aviso religado`, { nota: gravado.internalNotes, contadorAntes, contadorDepois });
+
+      // ---- 9. Excluir o evento de teste -----------------------------------
+      await someAviso(page);
       await aciona(teste.locator('[data-action="menu"]'), toque);
       await aciona(teste.locator('[data-action="del"]'), toque);
       await page.waitForSelector('.confirm-type-input');
+      registra(await inerte(), `${rotulo}: com a confirmação aberta, a página atrás fica inert`, '');
       await page.fill('.confirm-type-input', 'Teste do roteiro');
       await aciona(page.locator('.confirm-ok'), toque);
       const msgExcluiu = await aviso(page);
       await espera(page, 400);
       registra(/excluído/i.test(msgExcluiu) && (await teste.count()) === 0, `${rotulo}: excluir (com a confirmação digitada)`, msgExcluiu);
+      registra(!(await inerte()), `${rotulo}: fechada a confirmação, a página volta a responder`, '');
 
-      // ---- 9. Limpeza do console e da cota -----------------------------------
+      // ---- 10. Limpeza do console e da cota ----------------------------------
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);
       registra(estado.csp.length === 0, `${rotulo}: nenhuma violação da CSP aplicada`, estado.csp);
       const chaves = [...new Set(w.escritas.map(k => k.replace(/^admin_session:.*/, 'admin_session:*').replace(/^removal_request:.*/, 'removal_request:*')))].sort();

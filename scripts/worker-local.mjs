@@ -196,14 +196,15 @@ export async function sobeWorker(o = {}) {
  * Entra no painel pelo formulário de login de verdade. O widget do Turnstile
  * nunca carrega aqui, então o token vai num campo escondido criado na hora —
  * o servidor o confere contra o fetch interceptado, que aprova
- * (VERIFICACAO §2, pegadinha 3).
+ * (VERIFICACAO §2, pegadinha 3). Senha recusada lança "login recusado".
  * @param {import('playwright-core').Page} page
  * @param {string} base
+ * @param {string} [senha] a semeada, se não disser outra
  */
-export async function entraNoPainel(page, base) {
+export async function entraNoPainel(page, base, senha = SENHA_DE_TESTE) {
   await page.route(/challenges\.cloudflare\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await page.goto(base + '/dashboard');
-  await page.fill('input[type="password"]', SENHA_DE_TESTE);
+  await page.fill('input[type="password"]', senha);
   // O formulário DO LOGIN, não "o primeiro da página": numa prévia, a faixa
   // vem antes e tem formulários próprios (as ações do menu "Testes").
   await page.evaluate(() => {

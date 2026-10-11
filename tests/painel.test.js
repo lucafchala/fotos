@@ -193,6 +193,10 @@ describe('estrutura do painel', () => {
     expect(html).toMatch(/data-tab="events" aria-current="page"/);
   });
 
+  it('o aviso (toast) é uma região viva: o leitor de tela ouve "Evento atualizado!" e os erros', () => {
+    expect(html).toContain('<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>');
+  });
+
   it('o selo de pedidos pendentes tem lugar próprio na nav (o script só troca o número)', () => {
     expect(html).toContain('<span class="tab-badge" id="requests-badge" hidden></span>');
   });
@@ -238,24 +242,63 @@ describe('estrutura do painel', () => {
     expect(html).toContain(`<h3>Versão ${VERSAO}</h3>`);
   });
 
+  // Contraste WCAG, calculado das próprias cores da página — uma troca de cor
+  // não passa calada.
+  const raiz = html.match(/:root\{([^}]*)\}/)[1];
+  const cor = nome => raiz.match(new RegExp(`--${nome}:(#[0-9a-f]{3,6})`, 'i'))[1];
+  const rgb = hex => {
+    const h = hex.length === 4 ? hex.slice(1).split('').map(c => c + c).join('') : hex.slice(1);
+    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  };
+  const lum = c => {
+    const [r, g, b] = (typeof c === 'string' ? rgb(c) : c).map(v => v / 255)
+      .map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contraste = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+
   it('todo texto do painel tem contraste AA (4,5:1) sobre todo fundo do painel', () => {
     // v2.0: o cinza "apagado" (--text3) era #555 — 2,5:1 sobre os blocos, e é
-    // a cor de datas, dicas e rótulos lidos no celular, na rua. Calculado das
-    // próprias variáveis da página, para uma troca de cor não passar calada.
-    const raiz = html.match(/:root\{([^}]*)\}/)[1];
-    const cor = nome => raiz.match(new RegExp(`--${nome}:(#[0-9a-f]{3,6})`, 'i'))[1];
-    const lum = hex => {
-      const h = hex.length === 4 ? hex.slice(1).split('').map(c => c + c).join('') : hex.slice(1);
-      const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255)
-        .map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const contraste = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
-    for (const texto of ['text', 'text2', 'text3']) {
+    // a cor de datas, dicas e rótulos lidos no celular, na rua. E o vermelho
+    // de texto é o --red-texto: o --red (#c0392b) dá 3,4:1 e fica só nas
+    // bordas e fundos.
+    for (const texto of ['text', 'text2', 'text3', 'red-texto', 'verde-texto']) {
       for (const fundo of ['bg', 'bg2', 'bg3']) {
         expect(contraste(cor(texto), cor(fundo)), `--${texto} sobre --${fundo}`).toBeGreaterThanOrEqual(4.5);
       }
     }
+  });
+
+  it('todo selo do card tem contraste AA sobre o próprio fundo (a cor translúcida sobre o card)', () => {
+    // "Atrasado" (#c83a3a) tinha 3,4:1 e "Arquivado" (#666), 3:1.
+    const regras = [...html.matchAll(/\.st-([a-z-]+)\{color:([^;]+);background:rgba\((\d+),(\d+),(\d+),([\d.]+)\)\}/g)];
+    expect(regras.map(r => r[1]).sort()).toEqual(['acesso', 'arquivado', 'atrasado', 'destaque', 'em-edicao', 'em-revisao', 'embreve', 'entregue', 'oculto']);
+    const card = rgb(cor('bg2'));
+    for (const [, nome, bruta, r, g, b, a] of regras) {
+      const texto = bruta.startsWith('var(--') ? cor(bruta.slice(6, -1)) : bruta;
+      const fundo = [r, g, b].map((v, i) => Math.round(Number(v) * Number(a) + card[i] * (1 - Number(a))));
+      expect(contraste(texto, fundo), `.st-${nome}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('cor de texto escrita à mão em linha não existe — só classes e variáveis, que os testes acima medem', () => {
+    // As dicas "(opcional)" eram <span style="color:#555"> (2,5:1) e a falha
+    // de e-mail de um pedido, color:#b04040 (3,2:1): ninguém media.
+    expect(html.match(/style="[^"]*(?<![-\w])color:\s*#[^"]*"/g)).toBeNull();
+  });
+
+  it('todo campo do painel tem nome para o leitor de tela — rótulo, aria-label ou <label> em volta', () => {
+    // Placeholder não é nome: some ao digitar. O "Sumir em…" do aviso de
+    // novidade e a caixa de colar links só tinham isso.
+    const ssr = html.slice(0, html.lastIndexOf('<script nonce'));
+    const fors = new Set([...ssr.matchAll(/<label[^>]*\bfor="([^"]+)"/g)].map(m => m[1]));
+    const semNome = [...ssr.matchAll(/<(input|select|textarea)\b([^>]*)>/g)]
+      .filter(([, , a]) => !/type="hidden"/.test(a) && !/aria-label(ledby)?=/.test(a) && !fors.has((a.match(/\bid="([^"]+)"/) || [])[1]))
+      .filter(m => { const antes = ssr.slice(0, m.index); return antes.lastIndexOf('<label') <= antes.lastIndexOf('</label>'); })
+      .map(m => m[0].slice(0, 70));
+    expect(semNome).toEqual([]);
+    // As linhas de foto nascem no script, uma por URL.
+    expect(html).toContain('placeholder="URL da foto" aria-label="URL da foto ${i + 1}"');
   });
 
   it('lista vazia convida a criar o primeiro evento', () => {
