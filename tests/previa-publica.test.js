@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { execPath, env as ambienteDoTeste } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
-  SEGREDOS_DA_PREVIA, PREFIXO, segredosDoBuild, argumentosDoWrangler,
+  SEGREDOS_DA_PREVIA, PREFIXO, segredosDoBuild, argumentosDoWrangler, geraSegredo,
 } from '../scripts/previa-publica.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/previa-publica.mjs', import.meta.url));
@@ -25,6 +25,9 @@ const FONTES = readdirSync(new URL('../src/', import.meta.url))
   .filter((f) => f.endsWith('.js'))
   .map((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'))
   .join('\n');
+
+/** Gerador fixo: o teste vê ONDE o segredo gerado entra, sem depender do sorteio. */
+const gera = () => 'gerado-no-teste';
 
 describe('segredosDoBuild', () => {
   it('lê só os nomes da lista, só com o prefixo', () => {
@@ -44,20 +47,42 @@ describe('segredosDoBuild', () => {
       PREVIA_KUMA_PUSH_URL: 'https://kuma.exemplo/api/push/x',
       PREVIA_CF_ANALYTICS_TOKEN: 'x',
       PREVIA_ADMIN_EMAIL: 'dono@exemplo.com',
-    });
-    expect(segredos).toEqual({ ADMIN_EMAIL: 'dono@exemplo.com' });
+    }, gera);
+    expect(segredos).toEqual({ ADMIN_EMAIL: 'dono@exemplo.com', SIGNING_SECRET: 'gerado-no-teste' });
     expect(ignorados).toEqual(['PREVIA_CF_ANALYTICS_TOKEN', 'PREVIA_KUMA_PUSH_URL', 'PREVIA_TURNSTILE_SECRET_KEY']);
   });
 
   it('valor vazio ou só espaço não sobe', () => {
-    const { segredos, vazios } = segredosDoBuild({ PREVIA_ADMIN_PASSWORD: '', PREVIA_SIGNING_SECRET: '  \n' });
-    expect(segredos).toEqual({});
+    const { segredos, vazios } = segredosDoBuild({ PREVIA_ADMIN_PASSWORD: '', PREVIA_SIGNING_SECRET: '  \n' }, gera);
+    // …e o SIGNING_SECRET em branco no build é tratado como ausente: gerado.
+    expect(segredos).toEqual({ SIGNING_SECRET: 'gerado-no-teste' });
     expect(vazios).toEqual(['PREVIA_ADMIN_PASSWORD', 'PREVIA_SIGNING_SECRET']);
   });
 
   it('o valor sobe como está — sem aparar', () => {
-    expect(segredosDoBuild({ PREVIA_ADMIN_PASSWORD: ' senha com espaço ' }).segredos)
-      .toEqual({ ADMIN_PASSWORD: ' senha com espaço ' });
+    expect(segredosDoBuild({ PREVIA_ADMIN_PASSWORD: ' senha com espaço ' }, gera).segredos)
+      .toEqual({ ADMIN_PASSWORD: ' senha com espaço ', SIGNING_SECRET: 'gerado-no-teste' });
+  });
+
+  it('sem PREVIA_SIGNING_SECRET, o build gera um — e não o conta como ausente', () => {
+    const r = segredosDoBuild({}, gera);
+    expect(r.segredos).toEqual({ SIGNING_SECRET: 'gerado-no-teste' });
+    expect(r.gerados).toEqual(['SIGNING_SECRET']);
+    expect(r.ausentes).not.toContain('PREVIA_SIGNING_SECRET');
+  });
+
+  it('com PREVIA_SIGNING_SECRET, vale o do build', () => {
+    const r = segredosDoBuild({ PREVIA_SIGNING_SECRET: 'b'.repeat(40) }, gera);
+    expect(r.segredos.SIGNING_SECRET).toBe('b'.repeat(40));
+    expect(r.gerados).toEqual([]);
+  });
+});
+
+describe('geraSegredo', () => {
+  it('64 caracteres de base64, acima do piso de 32 do Worker, e outro a cada vez', () => {
+    const a = geraSegredo();
+    expect(a).toMatch(/^[A-Za-z0-9+/]{64}$/);
+    expect(geraSegredo()).not.toBe(a);
   });
 });
 
@@ -103,8 +128,9 @@ describe('o script de verdade, com um `npx` falso', () => {
   beforeAll(() => {
     pasta = mkdtempSync(join(tmpdir(), 'previa-publica-teste-'));
     registro = join(pasta, 'registro.json');
-    // O falso anota os argumentos e, do arquivo de segredos, só os NOMES, a
-    // permissão e se ele existia — o valor fica no arquivo, longe do registro.
+    // O falso anota os argumentos e, do arquivo de segredos, só os NOMES, o
+    // tamanho de cada valor e a permissão — o valor fica no arquivo, longe do
+    // registro.
     const npx = join(pasta, 'npx');
     writeFileSync(npx, [
       `#!${execPath}`,
@@ -112,9 +138,11 @@ describe('o script de verdade, com um `npx` falso', () => {
       'const args = process.argv.slice(2);',
       "const i = args.indexOf('--secrets-file');",
       'const arq = i >= 0 ? args[i + 1] : null;',
-      'const info = { args, arquivo: arq, nomes: null, modo: null };',
+      'const info = { args, arquivo: arq, nomes: null, tamanhos: null, modo: null };',
       'if (arq) {',
-      "  info.nomes = Object.keys(JSON.parse(fs.readFileSync(arq, 'utf8'))).sort();",
+      "  const segredos = JSON.parse(fs.readFileSync(arq, 'utf8'));",
+      '  info.nomes = Object.keys(segredos).sort();',
+      '  info.tamanhos = Object.fromEntries(Object.entries(segredos).map(([k, v]) => [k, v.length]));',
       '  info.modo = (fs.statSync(arq).mode & 0o777).toString(8);',
       '}',
       'fs.writeFileSync(process.env.REGISTRO, JSON.stringify(info));',
@@ -155,17 +183,21 @@ describe('o script de verdade, com um `npx` falso', () => {
     expect(log).toContain('PREVIA_KUMA_PUSH_URL ignorado');
   });
 
-  it('sem PREVIA_* no build, publica do mesmo jeito, sem `--secrets-file`', () => {
+  it('sem PREVIA_* no build, publica do mesmo jeito — com o SIGNING_SECRET gerado, que não aparece no log', () => {
     const r = roda({});
     expect(r.status).toBe(0);
-    expect(r.info.args).toEqual(['wrangler', 'preview']);
+    expect(r.info.args.slice(0, 3)).toEqual(['wrangler', 'preview', '--secrets-file']);
+    expect(r.info.nomes).toEqual(['SIGNING_SECRET']);
+    expect(r.info.tamanhos).toEqual({ SIGNING_SECRET: 64 });
     expect(r.stderr).toContain('nenhum PREVIA_*');
+    expect(r.stdout).toContain('SIGNING_SECRET: gerado neste build');
+    expect(r.stdout + r.stderr).not.toMatch(/[A-Za-z0-9+/]{40,}/);
   });
 
   it('a falha do wrangler é a falha do build — e o arquivo some mesmo assim', () => {
     const r = roda({ PREVIA_ADMIN_PASSWORD: 'senha-da-previa', SAIDA_DO_FALSO: '3' });
     expect(r.status).toBe(3);
-    expect(r.info.nomes).toEqual(['ADMIN_PASSWORD']);
+    expect(r.info.nomes).toEqual(['ADMIN_PASSWORD', 'SIGNING_SECRET']);
     expect(existsSync(r.info.arquivo)).toBe(false);
   });
 });

@@ -553,7 +553,12 @@ que o código, a cada push. Duas consequências:
   `PREVIA_*` a mais é ignorado com aviso. Segredo novo de prévia: acrescente
   lá, e o teste exige a linha dele no README;
 - o script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma
-  prévia que já o recebeu (`npx wrangler preview secret delete`).
+  prévia que já o recebeu (`npx wrangler preview secret delete`);
+- sem `PREVIA_SIGNING_SECRET`, o build **gera** um a cada publicação (64
+  caracteres aleatórios, nunca impressos). O que foi assinado antes de um push
+  (nonce do Drive, token de formulário — 2 h) deixa de valer depois dele. Só
+  na prévia, e é o preço de não exigir do dono um segredo que ele teria de
+  inventar.
 
 ---
 

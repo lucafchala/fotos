@@ -576,14 +576,14 @@ O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 
    | No build | Na prévia? | Por quê |
    | --- | --- | --- |
    | `PREVIA_ADMIN_PASSWORD` | **sim** — pode ser uma senha só da prévia | o KV da prévia começa vazio; é com ela que se entra no painel da prévia pela primeira vez |
-   | `PREVIA_SIGNING_SECRET` | **sim — um valor NOVO**, nunca o de produção | nonce de página e token de formulário da prévia não podem valer em produção. Gere com `openssl rand -base64 48` |
+   | `PREVIA_SIGNING_SECRET` | **opcional** — sem ele, o build gera um novo a cada publicação; nunca o de produção | nonce de página e token de formulário da prévia não podem valer em produção. O gerado muda a cada push: o que foi emitido antes (vale 2 h) deixa de valer depois — recarregue a página. Para um fixo, `openssl rand -base64 48` |
    | `PREVIA_RESEND_API_KEY` | sim, a mesma de produção | para testar os e-mails (saem com "[PRÉVIA]") |
    | `PREVIA_ADMIN_EMAIL` | sim, o mesmo | alertas da prévia chegam a você, marcados |
    | `PREVIA_GOOGLE_DRIVE_API_KEY` | sim, a mesma | para testar a galeria própria |
    | `TURNSTILE_SECRET_KEY` | **não** | a prévia usa as chaves de teste (ver acima) |
    | `KUMA_PUSH_URL`, `CF_ANALYTICS_TOKEN` | **não** | a prévia os ignora de qualquer jeito |
 
-   Só esses cinco sobem; outro `PREVIA_*` é ignorado com aviso no log. O script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma prévia que já o recebeu — para isso, `npx wrangler preview secret delete <NOME> --name <prévia>`.
+   O mínimo para testar tudo é `PREVIA_RESEND_API_KEY`, `PREVIA_ADMIN_EMAIL` e `PREVIA_GOOGLE_DRIVE_API_KEY`: o `SIGNING_SECRET` o build gera, e o `ADMIN_PASSWORD` pode vir da configuração base (ele só precisa existir quando a prévia nasce). Só esses cinco sobem; outro `PREVIA_*` é ignorado com aviso no log. O script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma prévia que já o recebeu — para isso, `npx wrangler preview secret delete <NOME> --name <prévia>`.
 
 3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
 
