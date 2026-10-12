@@ -11,7 +11,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { execPath, env as ambienteDoTeste } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
@@ -200,4 +201,95 @@ describe('o script de verdade, com um `npx` falso', () => {
     expect(r.info.nomes).toEqual(['ADMIN_PASSWORD', 'SIGNING_SECRET']);
     expect(existsSync(r.info.arquivo)).toBe(false);
   });
+});
+
+// O wrangler DE VERDADE, contra uma API falsa da Cloudflare
+// (CLOUDFLARE_API_BASE_URL). Não há conta nem token aqui, e é justamente o que
+// o `npx` falso acima não prova: que o `wrangler preview --secrets-file` põe
+// os segredos NA publicação, e com os bindings da PRÉVIA (KV `fotos-previa`,
+// AMBIENTE = "previa"), nunca os de produção. Foi este teste, rodado à mão em
+// 12/10/2026, que separou "o script não funciona" de "o build não rodou o
+// script" (README, "Prévia de PR" → "Para conferir se pegou").
+//
+// Ele conhece os caminhos da API de prévias que o wrangler chama. Se uma
+// versão nova do wrangler mudar esse diálogo e o teste quebrar, confira o
+// que mudou antes de mexer no script.
+describe('o wrangler de verdade, contra uma API falsa da Cloudflare', () => {
+  const TOML = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const CONTA = /^account_id\s*=\s*"([0-9a-f]{32})"/m.exec(TOML)?.[1] ?? '';
+  const KV_DA_PREVIA = /\[\[previews\.kv_namespaces\]\][^[]*?id\s*=\s*"([0-9a-f]{32})"/.exec(TOML)?.[1] ?? '';
+
+  it('a publicação leva os segredos e os bindings da prévia', async () => {
+    expect(CONTA).not.toBe('');
+    expect(KV_DA_PREVIA).not.toBe('');
+    /** @type {{ metodo: string, caminho: string, env?: Record<string, any> }[]} */
+    const pedidos = [];
+    const servidor = createServer((req, res) => {
+      /** @type {Buffer[]} */
+      const partes = [];
+      req.on('data', (c) => partes.push(c));
+      req.on('end', () => {
+        const caminho = new URL(req.url ?? '/', 'http://x').pathname;
+        /** @type {{ metodo: string, caminho: string, env?: Record<string, any> }} */
+        const pedido = { metodo: req.method ?? '', caminho };
+        if (req.method === 'POST' && /\/previews\/[^/]+\/deployments$/.test(caminho)) {
+          const fronteira = '--' + (/boundary=([^;]+)/.exec(req.headers['content-type'] ?? '')?.[1] ?? '');
+          const parte = Buffer.concat(partes).toString('utf8').split(fronteira).find((x) => x.includes('name="metadata"')) ?? '';
+          pedido.env = JSON.parse(parte.slice(parte.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, '')).env;
+        }
+        pedidos.push(pedido);
+        /** @param {unknown} result */
+        const responde = (result) => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ success: true, errors: [], messages: [], result }));
+        };
+        if (/\/previews\/[^/]+$/.test(caminho)) responde({ id: 'prev-1', slug: 'teste', name: 'teste', urls: [] });
+        else if (/\/deployments\/latest$/.test(caminho)) responde({ id: 'dep-0', migration_tag: 'v1' });
+        else if (/\/deployments$/.test(caminho)) responde({ id: 'dep-1', env: {}, urls: [] });
+        else if (/\/workers\/workers\/[^/]+$/.test(caminho)) responde({ previews_base_config: {} });
+        else responde({});
+      });
+    });
+    await new Promise((ok) => servidor.listen(0, '127.0.0.1', () => ok(null)));
+    const endereco = servidor.address();
+    const porta = typeof endereco === 'object' && endereco ? endereco.port : 0;
+
+    /** @type {Record<string, string | undefined>} */
+    const env = {
+      ...ambienteDoTeste,
+      CLOUDFLARE_API_BASE_URL: `http://127.0.0.1:${porta}/client/v4`,
+      CLOUDFLARE_API_TOKEN: 'token-falso',
+      CLOUDFLARE_ACCOUNT_ID: CONTA,
+      WRANGLER_SEND_METRICS: 'false',
+      CI: 'true',
+      PREVIA_RESEND_API_KEY: 're_valor_do_teste_que_nao_pode_vazar',
+      PREVIA_ADMIN_EMAIL: 'dono@exemplo.com',
+    };
+    // A API falsa é local: nenhum proxy no caminho (o wrangler usa o do
+    // ambiente para tudo, até para 127.0.0.1).
+    for (const chave of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) delete env[chave];
+    for (const chave of Object.keys(env)) {
+      if (chave.startsWith(PREFIXO) && !['PREVIA_RESEND_API_KEY', 'PREVIA_ADMIN_EMAIL'].includes(chave)) delete env[chave];
+    }
+
+    const filho = spawn(execPath, [SCRIPT, '--name', 'teste'], { env, cwd: fileURLToPath(new URL('..', import.meta.url)) });
+    let saida = '';
+    filho.stdout.on('data', (c) => { saida += c; });
+    filho.stderr.on('data', (c) => { saida += c; });
+    const codigo = await new Promise((ok) => filho.on('close', ok));
+    servidor.close();
+
+    expect(codigo, saida).toBe(0);
+    const publicacoes = pedidos.filter((p) => p.env);
+    expect(publicacoes).toHaveLength(1);
+    const enviado = publicacoes[0].env ?? {};
+    for (const nome of ['RESEND_API_KEY', 'ADMIN_EMAIL', 'SIGNING_SECRET']) expect(enviado[nome]?.type, nome).toBe('secret_text');
+    expect(enviado.RESEND_API_KEY.text).toBe('re_valor_do_teste_que_nao_pode_vazar');
+    expect(enviado.SIGNING_SECRET.text).toMatch(/^[A-Za-z0-9+/]{64}$/);
+    expect(enviado.AMBIENTE).toEqual({ type: 'plain_text', text: 'previa' });
+    expect(enviado.FOTOS?.namespace_id).toBe(KV_DA_PREVIA);
+    expect(Object.keys(enviado)).not.toContain('TURNSTILE_SECRET_KEY');
+    expect(saida).not.toContain('re_valor_do_teste_que_nao_pode_vazar');
+    expect(saida).not.toContain(enviado.SIGNING_SECRET.text);
+  }, 120_000);
 });
