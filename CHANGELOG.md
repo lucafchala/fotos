@@ -38,7 +38,9 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 - **Prévia de cada PR** (Cloudflare Worker Previews). Um site de teste por PR,
   com o mesmo código e configuração de produção e **dados próprios**, faixa
   "PRÉVIA" e e-mails com "[PRÉVIA]" no assunto. Ligar exige três passos no
-  painel da Cloudflare — README, "Prévia de PR".
+  painel da Cloudflare — README, "Prévia de PR". Os segredos das prévias
+  moram no build (`PREVIA_*`) e o `npm run previa` os leva a cada prévia a
+  cada push: a configuração base da Cloudflare só vale na criação de cada uma.
 - **Menu "Testes" na faixa da prévia**, para ver cada salvaguarda funcionar
   sem esperar ela acontecer. *Simulações*, só no navegador de quem liga: o
   Turnstile (passa, caixa, bloqueia, servidor recusa, script bloqueado), o

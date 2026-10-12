@@ -16,6 +16,7 @@
     "smoke": "bash scripts/smoke.sh",
     "smoke:local": "bash scripts/smoke.sh http://127.0.0.1:8787",
     "predeploy:check": "wrangler versions upload --env= --dry-run --outdir /tmp/bundle-check",
+    "previa": "node scripts/previa-publica.mjs",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:workers": "vitest run --project workers",

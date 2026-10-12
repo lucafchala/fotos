@@ -200,9 +200,11 @@ persist = true
 #                Produção não tem esta variável — e nunca deve ter.
 #
 # Segredos (Resend, senha inicial do painel, assinatura, Drive) não vão neste
-# arquivo: entram pela configuração base de prévias, no painel da Cloudflare
-# ou por `npx wrangler preview base-config secret put <NOME>`. A lista e o
-# que NÃO copiar estão no README. Cron não roda em prévia.
+# arquivo: moram nas variáveis do BUILD (Workers Builds, prefixo PREVIA_), e o
+# `npm run previa` (scripts/previa-publica.mjs) os leva à prévia a cada push.
+# A configuração base de prévias do painel não serve para isso: só vale na
+# criação de cada prévia. A lista e o que NÃO copiar estão no README. Cron não
+# roda em prévia.
 [previews.vars]
 AMBIENTE = "previa"
 

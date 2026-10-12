@@ -565,17 +565,25 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 já está aplicado). São três passos que só o dono faz — o 1 foi feito em 12/10/2026:
 
 1. **Trocar o Workers Builds para Worker Previews.** *Workers & Pages → fotos → Settings → Builds*: no aviso **"Set up Worker Previews"**, *Set up*. O comando de prévia passa a ser `npx wrangler preview`. A troca é de mão única e vale só para os builds de PR — produção continua saindo pelo `deploy.yml`, sem mudança nenhuma.
-2. **Segredos das prévias** — na mesma tela, ou por `npx wrangler preview base-config secret put <NOME>` (vale para toda prévia NOVA; uma que já exista recebe com `npx wrangler preview secret put <NOME> --name <prévia>`):
+2. **Segredos das prévias — no build, sincronizados a cada push.** Ainda em *Settings → Builds*:
+   - **Preview command**: `npm run previa`. É o `scripts/previa-publica.mjs`: ele roda o `npx wrangler preview` com os segredos abaixo (`--secrets-file`), e eles entram na mesma implantação que o código;
+   - **Variables and secrets** (as do build, não as de runtime): cada segredo da tabela com o prefixo `PREVIA_`, como *secret*.
 
-   | Segredo | Na prévia? | Por quê |
+   Toda prévia, nova ou já existente, sai de cada build com os valores atuais. Trocou um valor: o próximo push de cada PR (ou *Retry build*) já leva. O log do build mostra só os nomes, nunca os valores.
+
+   Por que não a configuração base de prévias do painel (*Settings → Variables and secrets → Previews Base*): ela só vale na **criação** de cada prévia — mudar depois não chega às que já existem — e o valor de um segredo não se lê de volta, então não há como copiá-lo para elas. Foi o que se viu na estreia: a prévia do PR #236 nasceu só com o `ADMIN_PASSWORD`.
+
+   | No build | Na prévia? | Por quê |
    | --- | --- | --- |
-   | `ADMIN_PASSWORD` | **sim** — pode ser uma senha só da prévia | o KV da prévia começa vazio; é com ela que se entra no painel da prévia pela primeira vez |
-   | `SIGNING_SECRET` | **sim — um valor NOVO**, nunca o de produção | nonce de página e token de formulário da prévia não podem valer em produção. Gere com `openssl rand -base64 48` |
-   | `RESEND_API_KEY` | sim, a mesma | para testar os e-mails (saem com "[PRÉVIA]") |
-   | `ADMIN_EMAIL` | sim, o mesmo | alertas da prévia chegam a você, marcados |
-   | `GOOGLE_DRIVE_API_KEY` | sim, a mesma | para testar a galeria própria |
+   | `PREVIA_ADMIN_PASSWORD` | **sim** — pode ser uma senha só da prévia | o KV da prévia começa vazio; é com ela que se entra no painel da prévia pela primeira vez |
+   | `PREVIA_SIGNING_SECRET` | **sim — um valor NOVO**, nunca o de produção | nonce de página e token de formulário da prévia não podem valer em produção. Gere com `openssl rand -base64 48` |
+   | `PREVIA_RESEND_API_KEY` | sim, a mesma de produção | para testar os e-mails (saem com "[PRÉVIA]") |
+   | `PREVIA_ADMIN_EMAIL` | sim, o mesmo | alertas da prévia chegam a você, marcados |
+   | `PREVIA_GOOGLE_DRIVE_API_KEY` | sim, a mesma | para testar a galeria própria |
    | `TURNSTILE_SECRET_KEY` | **não** | a prévia usa as chaves de teste (ver acima) |
    | `KUMA_PUSH_URL`, `CF_ANALYTICS_TOKEN` | **não** | a prévia os ignora de qualquer jeito |
+
+   Só esses cinco sobem; outro `PREVIA_*` é ignorado com aviso no log. O script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma prévia que já o recebeu — para isso, `npx wrangler preview secret delete <NOME> --name <prévia>`.
 
 3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
 

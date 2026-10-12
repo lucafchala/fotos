@@ -103,6 +103,7 @@ scripts/build-vendor.mjs      ← vendor/ → vendor.js, com o hash do conteúdo
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
+scripts/previa-publica.mjs    ← `npm run previa`, o "Preview command" do Workers Builds: publica a prévia com os segredos PREVIA_* do build (§5.17)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
 scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
@@ -532,6 +533,27 @@ ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
   (`:has(details[open])`), por cima de tudo — senão o aviso de cookies cobria
   metade do menu no celular. O `verifica:previa` confere com
   `elementFromPoint` em cada opção.
+
+### 5.17. Segredo de prévia: a configuração base só vale na criação
+
+A Cloudflare oferece uma "configuração base" de segredos para as prévias, e
+parece o lugar óbvio. Não é: ela só vale quando uma prévia **nasce**. Mudar a
+base depois não chega às prévias que já existem, e o valor de um segredo não
+se lê de volta, então não há como copiá-lo para elas. Na estreia (12/10/2026)
+a prévia do PR #236 nasceu só com o `ADMIN_PASSWORD`, e cadastrar o resto na
+base não mudaria nada nela.
+
+Por isso a fonte dos segredos das prévias é o **build**: as variáveis do
+Workers Builds com o prefixo `PREVIA_`, e o "Preview command" é
+`npm run previa` (`scripts/previa-publica.mjs`), que publica com
+`wrangler preview --secrets-file` — os valores entram na mesma implantação
+que o código, a cada push. Duas consequências:
+
+- só os cinco nomes de `SEGREDOS_DA_PREVIA` sobem, e só com o prefixo; um
+  `PREVIA_*` a mais é ignorado com aviso. Segredo novo de prévia: acrescente
+  lá, e o teste exige a linha dele no README;
+- o script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma
+  prévia que já o recebeu (`npx wrangler preview secret delete`).
 
 ---
 
