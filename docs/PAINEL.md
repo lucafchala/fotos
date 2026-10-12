@@ -451,7 +451,7 @@ para o topo (a folha guardava a rolagem anterior).
 | `f-slug` | `slug` | `validateSlug`: ≤ 60, minúsculas, números e hífen, sem hífen nas pontas, não reservado (`sobre`, `api`, `galeria`…); único (409) |
 | `f-title` | `title` | ≤ 200; obrigatório na criação |
 | `f-date` | `date` | `AAAA-MM-DD` ou vazio |
-| `f-category` | `category` | precisa estar na lista de categorias; senão fica o valor anterior — **inclusive o vazio**: "Sem categoria" não limpa a categoria de um evento (§17) |
+| `f-category` | `category` | um nome da lista de categorias, ou o vazio ("Sem categoria", que tira a categoria do evento); um nome fora da lista mantém o valor anterior |
 | `f-long` | `longDescription` | ≤ 5000 |
 | `f-drive` | `driveUrl` | `https://` (`toHttps`), ≤ 2000; obrigatório na criação |
 | lista de capas | `photos` e `thumbnailUrl` (= a primeira) | até 6, `toHttps` em cada. Na edição a capa segue a lista: esvaziá-la tira a capa; um `PUT` sem `photos` (o "Destacar") não mexe nela |
@@ -830,7 +830,7 @@ Nenhum endpoint mudou no redesenho; a v2.0 acrescentou um, o da série por dia
 | Salvar evento novo (`submitForm`) | `POST /api/events` | o payload do formulário (§6.2) | 201 com o evento; 400 (slug, título ou Drive), 409 (slug repetido) |
 | Salvar edição (`submitForm`) | `PUT /api/events/<id>` | idem | o evento salvo; 404; 409 se a URL estiver em uso |
 | Destacar (`togglePin`) | `PUT /api/events/<id>` | `{ pinned }` | só o que veio muda |
-| Ocultar/Mostrar (`toggleVisible`) | `PUT /api/events/<id>` | o **evento inteiro**, com `visible` invertido | o evento salvo (§17) |
+| Ocultar/Mostrar (`toggleVisible`) | `PUT /api/events/<id>` | `{ visible }` — só o que muda, como o Destacar (mandar o evento inteiro desfazia o que outro aparelho tivesse editado) | o evento salvo, inteiro |
 | Excluir (`deleteEvent`) | `DELETE /api/events/<id>` | — | `{ deleted: true }`; apaga também os contadores do slug |
 | Aplicar categoria em massa | `POST /api/events/bulk-category` | `{ ids, category }` | `{ updated, category }` |
 | Aplicar acesso em massa | `POST /api/events/bulk-access` | `{ ids, accessType }` | `{ updated, accessType }` |
@@ -1037,12 +1037,14 @@ menos caixas de seleção e botões de opção, e `select`: a busca, o filtro de
 categoria, o seletor de projeto das Métricas, o select da barra de seleção); e
 `.icon-btn` fica 44 × 44. A nav tem 52 px e o `summary` dos blocos do
 formulário, 52 px. **Exceções conhecidas**, medidas no iPhone emulado: a caixa
-de seleção do card e a de "Todos" (17 × 17), o × de excluir categoria (20 × 20),
-"Adicionar foto" (40 px) e a altura dos toggles (26 px; 44 de largura). O
-roteiro mede, em Eventos, os botões, `a.act`, campos e seletores à vista (o modo
-de seleção não é ligado) e as abas da nav, mais o seletor de projeto das
-Métricas, os itens da folha do menu "⋯" (48 px) e os botões da confirmação de
-excluir; o resto das outras seções fica sem medida (§15).
+de seleção do card e a de "Todos" (17 × 17) e a altura dos toggles (26 px; 44
+de largura — o rótulo ao lado também liga e desliga). No toque, "Adicionar
+foto" entra na lista de 44 px e o × de excluir categoria vira 44 × 44 (o chip
+cresce junto). O roteiro mede botões, `a.act`, campos, seletores e `summary` à
+vista em Eventos (com a nav; o modo de seleção não é ligado), na folha do
+formulário (com os seis blocos abertos), em Pedidos e em Ajustes, mais o
+seletor de projeto das Métricas, os itens da folha do menu "⋯" (48 px) e os
+botões da confirmação de excluir (§15).
 
 **Sem realce azul do toque.** `-webkit-tap-highlight-color: transparent` em
 botões, links e `summary`: cada controle tem o próprio estado.
@@ -1227,14 +1229,16 @@ entregue → ocultar pelo menu → resolver um pedido → métricas → trocar a
 antiga é recusada, a nova entra) → a sessão cair no meio de uma edição (e o
 rascunho voltar) → excluir o evento de teste.
 
-**O que cada checagem quer dizer** (167 em 11/10/2026: 55 em cada celular, 57 no
+**O que cada checagem quer dizer** (188 em 12/10/2026: 63 em cada celular, 62 no
 computador; o número muda quando alguém acrescenta uma — não é contrato):
 
 | Checagem | O que prova / se falhar, olhe |
 | --- | --- |
 | a navegação é a barra de baixo, de ponta a ponta (celular) / a barra lateral (computador) | a caixa da `nav.nav`: no celular, a borda de baixo na borda da tela e largura cheia; no computador, colada à esquerda e alta. CSS da estrutura (§3) |
 | **nada vaza para o lado, em nenhuma seção** (página na escala 1) | para cada seção, `scrollWidth` do documento ≤ largura do **aparelho** e `visualViewport.scale` ≥ 0,99. É o defeito do §13; em qual seção falhou vem no detalhe |
+| todo elemento com hidden está mesmo escondido | na carga, todo `[hidden]` com `display: none` calculado. Uma classe com `display` vencia o `hidden` (§16): o selo de Pedidos vazio e o resumo das Métricas |
 | (celular) todo alvo de toque da lista tem pelo menos 44 px | botões, `a.act`, campos (`input` menos caixas de seleção) e seletores à vista de `#tab-events`, e as abas da nav; **só** a seção Eventos, sem ligar o modo de seleção |
+| (celular) todo alvo de toque da folha do formulário / de Pedidos / de Ajustes tem pelo menos 44 px | a mesma medida (`alvosPequenos()`), na folha com os seis blocos abertos, em `#tab-requests` e em `#tab-settings`. Pegou o "Adicionar foto" (35–40 px) e o × de excluir categoria (20 px) |
 | (celular) campo com letra de 16 px | `font-size` calculado de `#evt-search` ≥ 16 |
 | a lista mostra os 5 eventos; o card escreve o estado; o card mostra o prazo | o card nos casos da semente: "Em edição" e "Atrasado" no evento atrasado; "prazo 10/01" |
 | filtros: a conta é a da lista, no singular quando é um, e a lista vazia diz a combinação | chip Ativos → "5 eventos ativos"; com a categoria Casamento → "1 evento ativo"; chip Todos → "1 evento" e um card; chip Em edição → `Nenhum evento com status "Em edição" na categoria "Casamento".`; sem filtro, de volta → "5 eventos" (§4.1) |
@@ -1244,16 +1248,20 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | a folha nova não tira o foco de quem já está num campo | com a folha de evento novo recém-aberta, o foco vai para o título; 250 ms depois, continua lá — o foco automático da URL (100 ms) só vem se ninguém estiver num campo (§16) |
 | o atalho abre o bloco recolhido | `irParaBloco` em "Prazo e status" |
 | criar um evento; o evento novo aparece, "Em edição" | `POST /api/events` pelo formulário, e a lista redesenhada **no navegador** (o card de `toString()`) |
+| evento novo com só a URL: fechar pergunta antes de descartar | digita só o slug e fecha: aparece o "Descartar alterações?" (o slug entra no `snapshotForm`), e "Cancelar" mantém a folha |
 | bloco recolhido mostra o resumo | `atualizaResumos` ("Em edição") |
+| colar e remover fotos atualiza o resumo do bloco | cola dois links pelo "Colar vários links": o resumo de "Fotos e Drive" diz "2 capas"; remove uma: "1 capa" (remove a outra no fim — nada é salvo) |
 | editar e marcar entregue; o card passa a dizer "Entregue" | `PUT /api/events/<id>` e o redesenho |
 | "Novas fotos": religar reinicia o contador; salvar sem mexer, não | liga o aviso e salva (grava a hora); edita de novo, liga-desliga-liga sem salvar no meio e salva (a hora muda); salva sem mexer (a hora fica). Lido do KV do `worker-local` (§6.2) |
 | "⋯" abre o menu | `aria-expanded="true"` e o menu visível |
 | (celular) o menu é uma folha embaixo, ao alcance do polegar, com itens de 48 px | a caixa do menu termina abaixo de 60% da altura da tela e todo item mede pelo menos 48 px (§13: a ordem das regras de toque no CSS) |
 | (computador) menu no teclado | o foco entra no 1º item ("Destacar"), a seta desce ("Ocultar"), `Esc` fecha e devolve o foco ao "⋯" |
 | "Ocultar da galeria" pelo menu, e o card ganha o selo "Oculto" | `PUT` com `visible` invertido, toast e selo |
+| "Ocultar" não desfaz o que outro aparelho editou | antes do clique, o roteiro grava um `eventCredits` novo direto no KV (como outro aparelho faria); depois do Ocultar, o KV tem `visible: false` **e** o `eventCredits` de lá — o `PUT` manda só `{ visible }` (§10) |
 | a navegação avisa 2 pedidos pendentes | `#requests-badge` com a contagem da semente |
 | resolver um pedido (e o aviso da navegação cai para 1) | `PUT …/resolve` e `loadRequests()` atualizando o selo |
 | métricas abrem com os números do período | os quatro `.resumo-lab`: Visitas, Abriram o Drive, Taxa de abertura, Hoje |
+| a aba tocada fica com o branco da ativa | a cor de `nav.nav [data-tab="metrics"]` depois do toque (ou do clique), passada a transição: `rgb(240, 235, 229)`. No toque a aba fica "em hover", e a cor do hover apagava a da ativa |
 | (celular) o seletor de projeto das métricas tem 44 px | altura de `#metrics-projeto` ≥ 44 |
 | o número vem comparado com o período anterior | o primeiro `.resumo-delta` diz "vs. 30 dias antes" (a seta, e "alta de"/"queda de" para o leitor de tela) |
 | gráfico de 30 dias, duas linhas e a legenda | o SVG de `#grafico-acessos` com `data-pontos="30"`, dois `path` de linha e dois itens em `#acessos-legenda` |
@@ -1359,11 +1367,15 @@ varredor de tags órfãs pula o bloco, e os comentários de CSS do arquivo citam
 à vontade — mas os contadores de `tests/painel.test.js` leem o HTML inteiro: não
 escreva ali o texto exato que eles procuram.
 
-**`hidden` perde para `display`.** O atributo `hidden` é só uma regra do navegador
-(`display: none`), e **qualquer** `display:` escrito no CSS do projeto a vence.
-Por isso `.menu[hidden]`, `.menu-fundo[hidden]` e `.dica[hidden]` têm regra
-própria. Elemento que o script esconde com `hidden` e que tem `display` no CSS
-precisa do mesmo (§17: os dois que não têm).
+**`hidden` perdia para `display`.** O atributo `hidden` é só uma regra do
+navegador (`display: none`), e **qualquer** `display:` escrito no CSS do projeto
+a vence. Foi assim que o selo de Pedidos (`.tab-badge`, `inline-flex`) aparecia
+vazio — um círculo vermelho — com zero pendentes, e o resumo das Métricas
+(`grid`) deixava uma folga vazia. Desde a v2.0 a base do CSS tem
+`[hidden] { display: none !important }`, e `hidden` esconde sempre; as regras
+`[hidden]` por classe saíram. O roteiro confere, na carga, que todo elemento
+com `hidden` está mesmo com `display: none`. Para mostrar algo, tire o
+`hidden` — não troque o `style.display`.
 
 **`const` do topo e a inicialização.** O script chama coisas na carga
 (`renderEventList()`, `restoreDraft()`…) antes de definir o resto. Uma função
@@ -1445,65 +1457,30 @@ restaura. Dois abertos ao mesmo tempo restauram o `fetch` na ordem errada.
 
 ## 17. Pendências e limitações conhecidas
 
-Estado em 11/10/2026, contra o código (as primeiras foram achadas em 10/10). Cada
+Estado em 12/10/2026, contra o código (as primeiras foram achadas em 10/10). Cada
 uma foi reproduzida no Chromium ou conferida no fonte. Quando alguma for
 corrigida, apague a linha — e as referências a ela nas outras seções (`grep
 §17`), se houver. O que já foi corrigido na v2.0 está em §18.
 
-**Defeitos de interface**
-
-- **Selo de Pedidos vazio com zero pendentes.** `#requests-badge` é escondido com
-  o atributo `hidden`, mas `.tab-badge` tem `display: inline-flex`, que vence o
-  `hidden` (§16): sem pendentes aparece um **círculo vermelho vazio** ao lado de
-  "Pedidos". Medido: `hidden = true`, `display = flex`, 16 × 16 px. O conserto é
-  `.tab-badge[hidden] { display: none }` (como `.menu[hidden]`) e apagar a regra
-  `.tab-badge` antiga, duplicada mais abaixo no CSS — que também fixa a largura em
-  16 px e deixa um selo de dois dígitos justo. O mesmo vale para
-  `#metrics-resumo` (`display: grid`), que só deixa 1 rem de folga vazia.
-- **O resumo do bloco recolhido não atualiza por clique.** `atualizaResumos` roda
-  na abertura e nos eventos `input`/`change` do formulário; adicionar, remover ou
-  colar fotos são cliques e não disparam nenhum. Medido: remover uma capa e
-  recolher "Fotos e Drive" ainda diz "2 capas" até a próxima digitação.
-  `renderPhotoList()` deveria chamá-la.
-- **O slug não entra em `snapshotForm`.** Num evento novo, digitar só o slug e
-  fechar não pede confirmação, e a recuperação de rascunho **não devolve o slug**
-  (medido: o formulário volta com o título, a pasta e o status, e o slug vazio).
-- **"Sem categoria" não tira a categoria de um evento.** O formulário manda
-  `category: ""`, e `normalizeEventFields` só aceita nomes da lista — o vazio cai
-  no "senão, fica o valor anterior". Medido pela API: um `PUT` com `""` devolve a
-  categoria antiga. Pela seleção em massa dá para limpar (`bulk-category` aceita o
-  vazio). Nenhum teste prende nenhum dos dois comportamentos.
-
 **Comportamentos a conhecer**
 
-- **"Ocultar/Mostrar" manda o evento inteiro**, como a página o conhece (§10).
-  Se o mesmo evento foi editado em outro aparelho depois que esta página abriu,
-  o Ocultar desfaz essa edição. "Destacar" manda só `pinned`. Mandar só
-  `{ visible }` resolveria.
 - **O backup é uma navegação.** Com a sessão expirada, o navegador mostra o JSON
   do erro ("Não autorizado.") em vez de um toast.
 - **A seleção em massa sobrevive a trocar de filtro** (§4.4): a quantidade a
   digitar inclui o que está escondido.
 - **Mudanças no painel levam até 30 s para aparecer no site** (cache do isolate).
 
-**Acessibilidade e toque** (§12, §13): alvos abaixo de 44 px (caixas de
-seleção, × de categoria, "Adicionar foto", altura dos toggles).
+**Acessibilidade e toque** (§12, §13): alvos abaixo de 44 px (as caixas de
+seleção do modo "Selecionar vários" e a altura dos toggles).
 
 **Verificação**
 
-- O roteiro mede alvos de toque em Eventos (sem ligar o modo de seleção), na
-  nav, no seletor de projeto das Métricas, na folha do menu "⋯" e na
-  confirmação de excluir; Pedidos e Ajustes não. O Tab percorre a lista, a
-  folha e as Métricas; Pedidos e Ajustes não.
+- O roteiro mede alvos de toque em todas as seções que visita, mas não liga o
+  modo de seleção; o Tab percorre a lista, a folha e as Métricas — Pedidos e
+  Ajustes não.
 - Nenhum teste compara `ajudaServidor` com `ajudaCard` (§16) — nem a `isOverdue`
   e o `rotulo` do script com os do servidor (§5) —, nem prende as quatro
   funções do formulário entre si (§6.4).
-- O escape do JSON dentro do `<script>` do painel (`jsonParaScript`) funciona
-  (conferido: um título com `</script>` sai como `\u003c/script\u003e`), mas o
-  único teste desse caso é o da página de projeto — o painel não tem o dele.
-
-**Limpeza**: CSS órfão do desenho antigo — `.filter-row`, `.search-row`,
-`.info-box` —, e a segunda regra `.tab-badge`.
 
 ---
 
@@ -1579,6 +1556,17 @@ pedido de remoção e trocar a senha.
   projeto (§6.2);
 - a **sessão que cai no meio de uma edição** leva ao login sem o "Sair do site?"
   do navegador, e o rascunho volta ao entrar (§6.3);
+- o **selo de Pedidos** não aparece mais vazio com zero pendentes: `hidden`
+  esconde sempre, em toda a página (§16);
+- "**Sem categoria**" tira a categoria de um evento (o servidor recusava o
+  vazio), e "**Ocultar/Mostrar**" manda só a visibilidade — mandava o evento
+  inteiro e desfazia o que outro aparelho tivesse editado (§10);
+- o formulário percebe a **URL digitada** num evento novo (fechar pergunta, e o
+  rascunho a devolve) e o resumo do bloco acompanha **adicionar, remover e colar
+  fotos**; a folha nova não rouba mais o foco de quem já está num campo (§16);
+- a **aba ativa** fica branca também no celular (o hover do toque a apagava);
+  "Adicionar foto", os botões das confirmações e o × de excluir categoria
+  passaram a 44 px no toque; e o CSS do desenho antigo que nada usava saiu;
 - os **pedidos de remoção** passaram a uma chave por pedido (#198): resolver
   grava só o registro do pedido (§14);
 - as páginas curtas do painel ("temporariamente indisponível", "não

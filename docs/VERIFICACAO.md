@@ -211,17 +211,20 @@ Roteiro versionado do painel **logado**, contra o `src/index.js` de verdade
 e pedidos de remoção. Faz o "pronto quando" do #220 em três aparelhos —
 iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 
-1. entrar pelo formulário de login; os filtros da lista e a conta ("1 evento
-   ativo", "Todos" com uma categoria conta só a categoria, a lista vazia diz a
-   combinação de filtros); no computador, a lista percorrida pelo Tab;
+1. entrar pelo formulário de login (todo elemento com `hidden` está mesmo
+   escondido); os filtros da lista e a conta ("1 evento ativo", "Todos" com uma
+   categoria conta só a categoria, a lista vazia diz a combinação de filtros);
+   no computador, a lista percorrida pelo Tab;
 2. criar um evento (com o atalho que abre o bloco "Prazo e status"); a página
-   atrás da folha fica `inert`, e a folha nova não tira o foco de quem já está
-   num campo; no computador, a folha inteira percorrida pelo Tab;
-3. editar e marcar entregue (o bloco recolhido mostra o resumo); o "Novas
-   fotos": ligar marca a hora, desligar e religar na mesma edição reinicia,
-   salvar sem mexer mantém (lido do KV);
-4. ocultar pelo menu "⋯" (no celular, folha embaixo com itens de 48 px; no
-   computador, teclado: foco no 1º item, seta, Esc devolve o foco);
+   atrás da folha fica `inert`, a folha nova não tira o foco de quem já está
+   num campo, e fechar com só a URL digitada pergunta antes de descartar; no
+   computador, a folha inteira percorrida pelo Tab;
+3. editar e marcar entregue (o bloco recolhido mostra o resumo, e acompanha
+   colar e remover fotos); o "Novas fotos": ligar marca a hora, desligar e
+   religar na mesma edição reinicia, salvar sem mexer mantém (lido do KV);
+4. ocultar pelo menu "⋯" sem desfazer o que outro aparelho editou (no celular,
+   folha embaixo com itens de 48 px; no computador, teclado: foco no 1º item,
+   seta, Esc devolve o foco);
 5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1);
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
@@ -247,10 +250,12 @@ contorno cortado pela faixa que rola.
 No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
 computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 44 px (botões, campos e seletores), campo de 16 px (o iPhone não dá zoom),
-contorno de foco nos campos, nenhum erro de JS, nenhuma violação da CSP
-aplicada, e que o fluxo só gravou no KV as chaves esperadas (`events`,
-`removal_request:<id>` do pedido resolvido, `admin_password`, sessão) — 13
-escritas por aparelho, 167 checagens no total, em ~40 s. Os pedidos semeados vêm nos dois formatos que produção tem logo
+contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
+de JS, nenhuma violação da CSP aplicada, e que o fluxo só gravou no KV as
+chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
+`admin_password`, sessão) — 13 escritas por aparelho, 188 checagens no total,
+em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
+Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
 depois do deploy da v2.0: um no array antigo `removal_requests`, outro na
 chave própria.
 `VERIFICA_PRINTS=/caminho` salva as capturas de cada seção, do formulário e
