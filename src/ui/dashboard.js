@@ -12,6 +12,10 @@ button{cursor:pointer}
 /* Sem o retângulo azul do toque (Android): cada botão tem o próprio estado. */
 button,a,summary{-webkit-tap-highlight-color:transparent}
 :focus-visible{outline:2px solid #c0a060;outline-offset:2px}
+/* O atributo hidden esconde sempre. Sem isto, qualquer classe com display
+   (inline-flex, grid) vence o [hidden] do navegador: o selo de Pedidos
+   aparecia vazio — um círculo vermelho — com zero pendentes. */
+[hidden]{display:none!important}
 /* Campo em foco com o mesmo contorno, por cima dos outline:none de cada
    campo (só a borda mudava, de #222 para #3a3a3a: 1,7:1 sobre o fundo, menos
    que os 3:1 que o foco precisa). O !important é o que vence as regras com
@@ -320,7 +324,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .tab svg{width:20px;height:20px;flex-shrink:0}
     .tab.active{color:var(--text)}
     .tab.active svg{color:#c0a060}
-    .tab:hover{color:var(--text2)}
+    /* Só nas outras: no toque, a aba recém-tocada fica "em hover", e a cor do
+       hover (mesma especificidade, depois no CSS) apagava o branco da ativa. */
+    .tab:not(.active):hover{color:var(--text2)}
     .tab-badge{position:absolute;top:.25rem;left:calc(50% + 4px);display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;min-width:16px;height:16px;padding:0 4px;border-radius:8px}
     .conteudo{padding:1.25rem 1rem calc(88px + env(safe-area-inset-bottom));max-width:1100px}
     /* computador: barra lateral */
@@ -411,7 +417,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
        baixo no celular (o polegar alcança e o texto cabe inteiro) */
     .mais{position:relative}
     .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:230px;background:#171717;border:1px solid #2a2a2a;border-radius:12px;padding:.35rem;box-shadow:0 18px 40px rgba(0,0,0,.55)}
-    .menu[hidden]{display:none}
     .menu-item{display:flex;align-items:center;gap:.6rem;width:100%;min-height:42px;padding:0 .75rem;background:none;border:none;border-radius:8px;color:var(--text2);font-size:.85rem;text-align:left;text-decoration:none}
     .menu-item:hover,.menu-item:focus-visible{background:var(--bg3);color:var(--text)}
     .menu-item svg{width:16px;height:16px;flex-shrink:0}
@@ -422,7 +427,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       .menu-item{min-height:48px;font-size:.92rem}
       .menu-fundo{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.55)}
     }
-    .menu-fundo[hidden]{display:none}
     @media(min-width:700px){.menu-fundo{display:none}}
     .metrics-nota{font-size:.75rem;color:var(--text3);line-height:1.5;margin:0;max-width:60ch}
     .metrics-resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin-bottom:1rem}
@@ -456,7 +460,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .grafico svg{display:block;max-width:100%;height:auto}
     .grafico-vazio{display:flex;align-items:center;justify-content:center;min-height:180px;padding:1rem;text-align:center;font-size:.82rem;color:var(--text2);line-height:1.55;border:1px dashed #2c2c2a;border-radius:10px}
     .dica{position:absolute;top:0;left:0;z-index:5;pointer-events:none;background:#1f1f1e;border:1px solid #383835;border-radius:10px;padding:.5rem .7rem;font-size:.76rem;color:var(--text);box-shadow:0 10px 24px rgba(0,0,0,.5);white-space:nowrap}
-    .dica[hidden]{display:none}
     .dica-dia{color:var(--text2);margin-bottom:.3rem}
     .dica-linha{display:flex;align-items:center;gap:.45rem;line-height:1.6}
     .dica-linha i{display:inline-block;width:10px;height:10px;border-radius:3px;flex-shrink:0}
@@ -510,10 +513,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .st-oculto{color:#8a8a8a;background:rgba(138,138,138,.08)}
     .st-embreve{color:#6aa8e0;background:rgba(106,168,224,.08)}
     .st-acesso{color:#b48ad0;background:rgba(180,138,208,.08)}
-    /* filter row */
-    .filter-row{margin-bottom:1rem;display:flex;flex-direction:column;gap:.625rem}
-    .filter-row select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;-webkit-appearance:none}
-    @media(min-width:600px){.filter-row{flex-direction:row}.filter-row select{width:auto;min-width:200px}}
     /* metrics table */
     .metrics-table{width:100%;border-collapse:collapse}
     .metrics-table th{text-align:left;font-size:.7rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:.5rem .75rem;border-bottom:1px solid var(--border)}
@@ -621,7 +620,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .btn-resolve{background:none;border:1px solid var(--border);color:var(--text3);padding:.4rem .875rem;border-radius:6px;font-size:.72rem;font-weight:500;margin-top:.625rem;transition:border-color .2s,color .2s}
     .btn-resolve:hover{border-color:var(--green);color:var(--green)}
     .btn-resolve:disabled{opacity:.5;cursor:wait}
-    .tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#c0392b;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;margin-left:.35rem;vertical-align:middle}
     .req-group{margin-bottom:1.75rem}
     .req-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:.375rem;padding:.5rem 0;border-bottom:1px solid var(--border);margin-bottom:.75rem}
     .req-group-title{font-size:.85rem;font-weight:600}
@@ -629,9 +627,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .req-pending-badge{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00;font-size:.62rem;font-weight:600;padding:.18rem .5rem;border-radius:4px;margin-left:auto}
     .req-resolved-toggle{background:none;border:none;cursor:pointer;font-size:.75rem;color:var(--text3);padding:.35rem 0;transition:color .2s;display:inline-flex;align-items:center;gap:.3rem;user-select:none;margin-bottom:.25rem}
     .req-resolved-toggle:hover{color:var(--text2)}
-    /* info box */
-    .info-box{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1rem 1.125rem;font-size:.78rem;color:var(--text3);line-height:1.65;margin-bottom:1.25rem}
-    .info-box strong{color:var(--text2)}
     /* field row */
     .field-row{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
     /* mass edit */
@@ -651,10 +646,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .cat-add{display:flex;gap:.5rem}
     .cat-add input{flex:1;min-width:0;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none}
     .cat-add input:focus{border-color:#3a3a3a}
-    /* event search */
-    .search-row{margin-bottom:.75rem}
-    .search-row input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:7px;font-size:.82rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
-    .search-row input:focus{border-color:#3a3a3a}
     /* required marker */
     .req-star{color:var(--red-texto)}
     /* bigger cover preview */
@@ -697,9 +688,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       input,select,textarea{font-size:16px!important}
     }
     @media(pointer:coarse){
-      .btn-sm,.act,.chip,.menu-item,.btn-resolve,.btn-danger,.req-resolved-toggle,.confirm-foot button{min-height:44px}
+      .btn-sm,.act,.chip,.menu-item,.btn-resolve,.btn-danger,.req-resolved-toggle,.confirm-foot button,.btn-add-photo{min-height:44px}
       input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
       .icon-btn{width:44px;height:44px}
+      /* O × de excluir categoria tem 20 × 20 no desenho; no toque, 44 × 44 —
+         o chip cresce junto, e o recheio de cima e de baixo sai. */
+      .cat-chip{padding:0 0 0 .8rem}
+      .cat-chip button{width:44px;height:44px}
       .btn-sm{padding:0 1rem}
     }
     /* No celular o menu é uma folha, com itens de 48 px (a regra de
@@ -1658,6 +1653,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       const val = id => document.getElementById(id)?.value ?? '';
       const chk = id => document.getElementById(id)?.checked ?? false;
       return JSON.stringify({
+        // O slug também: num evento novo, digitar só a URL e fechar não
+        // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
+        slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
         driveIg: val('f-drive-ig'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
@@ -1711,6 +1709,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       openForm(d.editingId || undefined);
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+      if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
       set('f-drive-ig', f.driveIg); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
@@ -1840,6 +1839,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       }
       if (addBtn) addBtn.style.display = photoList.length >= 6 ? 'none' : 'inline-flex';
       if (pasteBtn) pasteBtn.style.display = photoList.length >= 6 ? 'none' : '';
+      // Adicionar, remover e colar fotos são cliques, não 'input': o resumo do
+      // bloco recolhido ("2 capas") ficava velho até a próxima digitação.
+      atualizaResumos();
     }
 
     function addPhotoInput(url) {
@@ -2118,10 +2120,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     async function toggleVisible(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
-      const updated = { ...e, visible: e.visible === false ? true : false };
       setRowBusy(id, true);
       try {
-        const result = await api('PUT', '/api/events/' + id, updated);
+        // Só o que muda, como o "Destacar". Mandar o evento inteiro, como esta
+        // página o conhecia, desfazia o que outro aparelho tivesse editado
+        // depois que ela abriu. A resposta é o evento salvo, inteiro.
+        const result = await api('PUT', '/api/events/' + id, { visible: e.visible === false });
         events = events.map(ev => ev.id === id ? result : ev);
         renderEventList();
         toast(result.visible !== false ? 'Evento visível.' : 'Evento oculto.', 'ok');

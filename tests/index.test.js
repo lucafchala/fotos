@@ -93,6 +93,13 @@ describe('normalizeEventFields', () => {
     expect(f.date).toBe('');
   });
 
+  it('"Sem categoria" tira a categoria; um nome fora da lista mantém a que havia', () => {
+    const base = { ...DEFAULT_EVENT, category: 'Casamento' };
+    expect(normalizeEventFields({ category: '' }, base, CATS).category).toBe('');
+    expect(normalizeEventFields({ category: 'Nope' }, base, CATS).category).toBe('Casamento');
+    expect(normalizeEventFields({}, base, CATS).category).toBe('Casamento');
+  });
+
   it('accepts a valid promisedDate and rejects a malformed one (issue #139)', () => {
     const ok = normalizeEventFields({ promisedDate: '2026-12-01' }, DEFAULT_EVENT, CATS);
     expect(ok.promisedDate).toBe('2026-12-01');

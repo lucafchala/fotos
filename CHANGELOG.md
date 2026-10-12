@@ -69,16 +69,34 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
   de filtro e dos atalhos do formulário era cortado pela faixa que rola, e o
   do campo da URL, pela caixa do prefixo. O gráfico de acessos em foco também
   (o anel cinza tinha 2,1:1).
+- **O selo de Pedidos sumia de verdade com zero pendentes.** Ele era escondido
+  com o atributo `hidden`, mas a classe dele tinha `display: inline-flex`, que
+  vence o `hidden`: sem pedido nenhum, aparecia um círculo vermelho vazio ao
+  lado de "Pedidos" — o estado normal do painel. Agora `hidden` esconde sempre,
+  em toda a página.
+- **"Sem categoria" tira a categoria de um evento.** O servidor recusava o
+  vazio e mantinha a categoria antiga; só a seleção em massa conseguia limpar.
+- **"Ocultar/Mostrar" não desfaz mais o que outro aparelho editou.** Mandava o
+  evento inteiro como a página o conhecia ao abrir; agora manda só a
+  visibilidade, como o "Destacar".
+- **O formulário percebe mais alterações.** Num evento novo, digitar só a URL
+  e fechar não perguntava antes de descartar (e o rascunho de sessão expirada
+  voltava sem a URL); e o resumo do bloco recolhido ("2 capas") não acompanhava
+  adicionar, remover ou colar fotos.
+- **A aba ativa fica branca no celular.** A aba recém-tocada fica "em hover" no
+  toque, e a cor do hover apagava a da ativa: só o ícone dourado dizia onde se
+  estava.
 - **A folha de "Novo evento" não rouba mais o foco.** Ela põe o cursor na URL
   100 ms depois de abrir — e, se nesse meio-tempo a pessoa já tinha tocado
   noutro campo, o que ela digitava ia parar na URL. Agora só põe se ninguém
   estiver num campo da folha.
 - **Celular**: campos de 16 px (o iPhone não dá zoom ao tocar), alvos de toque
   de 44 px — agora também a busca, os filtros e o seletor de projeto das
-  Métricas, que tinham 41–43 px, e os botões das confirmações, que tinham 40
-  —, os itens do menu "⋯" com 48 px na folha de baixo (uma regra de toque
-  posterior os baixava para 44), e um bloco de Ajustes 25 px largo demais que
-  fazia o celular afastar a página inteira.
+  Métricas, que tinham 41–43 px, os botões das confirmações e o "Adicionar
+  foto", que tinham 35–40, e o × de excluir categoria, que tinha 20 —, os itens
+  do menu "⋯" com 48 px na folha de baixo (uma regra de toque posterior os
+  baixava para 44), e um bloco de Ajustes 25 px largo demais que fazia o
+  celular afastar a página inteira.
 - **Leitor de tela**: os avisos do painel são anunciados (o toast virou região
   viva) e quebram linha em vez de sair pelas bordas; com uma folha ou uma
   confirmação aberta, a página atrás fica inerte (nem o foco nem o leitor
@@ -144,10 +162,11 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 167 checagens em ~40 s, das Métricas com série
+  Android e no computador — 188 checagens em ~45 s, das Métricas com série
   sintética à troca de senha e à sessão que cai no meio de uma edição, com o
   foco (a lista, a folha e as Métricas percorridas pelo Tab), os alvos de
-  toque e o que o fluxo grava no KV. Ver `docs/VERIFICACAO.md`.
+  toque de cada seção, todo `hidden` de fato escondido e o que o fluxo grava
+  no KV. Ver `docs/VERIFICACAO.md`.
 - `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
   verdade, no celular e no computador — portão lotado de verdade no servidor,
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o
@@ -160,5 +179,7 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 - Os testes do limite de login rodam com o relógio parado: a janela da rajada
   é fixa e alinhada ao relógio, e uma execução da CI exatamente às 12:30:00
   viu a contagem zerar no meio do teste e falhar sem defeito no código.
+- Limpeza: o CSS do desenho antigo que nada mais usava (`.filter-row`,
+  `.search-row`, `.info-box` e a segunda regra `.tab-badge`) saiu.
 - **Nenhuma migração** de Durable Object nem de D1 nesta versão: o deploy
   segue o caminho normal (versão sem tráfego → smoke → promoção).

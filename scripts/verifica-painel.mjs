@@ -222,6 +222,17 @@ async function varreFoco(page, escopo, inicio) {
   await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
   return { semAnel, paradas: vistos.size };
 }
+/**
+ * Alvos de toque à vista, dentro de `escopo`, com menos de 44 px de altura:
+ * botões, links de ação, campos (menos caixas de seleção) e seletores.
+ * @param {import('playwright-core').Page} page @param {string} escopo
+ */
+const alvosPequenos = (page, escopo) => page.evaluate(sel => {
+  const vis = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  return [...document.querySelectorAll(sel.split(',').map(x => x.trim()).flatMap(x => [x + ' button', x + ' a.act', x + ' input:not([type=checkbox]):not([type=hidden])', x + ' select', x + ' summary']).join(', '))]
+    .filter(vis).map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || e.id || '').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
+    .filter(x => x.h < 44);
+}, escopo);
 /** @param {import('playwright-core').Page} page @param {string} nome */
 const print = async (page, nome) => { if (PRINTS) await page.screenshot({ path: join(PRINTS, `painel-${nome}.png`), fullPage: false }); };
 
@@ -242,6 +253,12 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       } else {
         registra(!!nav && nav.x < 40 && nav.height > 150, `${rotulo}: a navegação é a barra lateral`, nav);
       }
+      // O atributo hidden esconde de verdade: uma classe com display (o selo
+      // de Pedidos é inline-flex, o resumo das Métricas é grid) vencia o
+      // [hidden] do navegador — com zero pendentes, um círculo vermelho vazio.
+      const aparecendo = await page.evaluate(() => [...document.querySelectorAll('[hidden]')]
+        .filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
+      registra(aparecendo.length === 0, `${rotulo}: todo elemento com hidden está mesmo escondido`, aparecendo);
       // Vazar para o lado, seção por seção. Compara com a largura do APARELHO,
       // não com window.innerWidth: num celular, conteúdo largo demais faz o
       // navegador alargar a "janela de layout" e afastar a página (zoom para
@@ -259,12 +276,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 300);
       registra(vazam.length === 0, `${rotulo}: nada vaza para o lado, em nenhuma seção (página na escala 1)`, vazam);
       if (toque) {
-        const pequenos = await page.evaluate(() => {
-          const vis = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-          return [...document.querySelectorAll('#tab-events button, #tab-events a.act, #tab-events input:not([type=checkbox]), #tab-events select, nav.nav .tab')]
-            .filter(vis).map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
-            .filter(x => x.h < 44);
-        });
+        const pequenos = await alvosPequenos(page, '#tab-events, nav.nav');
         registra(pequenos.length === 0, `${rotulo}: todo alvo de toque da lista tem pelo menos 44 px`, pequenos.slice(0, 5));
         const fonte = await page.evaluate(() => parseFloat(getComputedStyle(/** @type {Element} */ (document.getElementById('evt-search'))).fontSize));
         registra(fonte >= 16, `${rotulo}: campo com letra de 16 px (o iPhone não dá zoom ao tocar)`, { fonte });
@@ -322,12 +334,24 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const focoFicou = await page.evaluate(() => document.activeElement && document.activeElement.id);
       registra(focoFicou === 'f-title', `${rotulo}: a folha nova não tira o foco de quem já está num campo`, focoFicou);
       await page.fill('#f-slug', 'teste-do-roteiro');
+      // Só a URL digitada já é alteração: fechar pergunta antes de descartar
+      // (o slug não entrava na conta do "sujo").
+      await aciona(page.locator('#overlay button.btn-secondary[data-onclick="closeForm"]'), toque);
+      const perguntouSlug = await page.waitForSelector('.confirm-cancel', { timeout: 3000 }).then(() => true, () => false);
+      if (perguntouSlug) await aciona(page.locator('.confirm-cancel'), toque);
+      registra(perguntouSlug && (await page.locator('#overlay.open').count()) === 1, `${rotulo}: evento novo com só a URL: fechar pergunta antes de descartar`, { perguntouSlug });
       await page.fill('#f-title', 'Teste do roteiro');
       await page.fill('#f-drive', 'https://drive.google.com/drive/folders/PASTA_TESTE_0001');
       // "Prazo e status" começa recolhido: o atalho abre e leva até ele.
       await aciona(page.locator('.bf-atalhos [data-alvo="bf-producao"]'), toque);
       await espera(page, 500);
       registra(await page.locator('#bf-producao').evaluate(d => /** @type {HTMLDetailsElement} */ (d).open), `${rotulo}: o atalho abre o bloco recolhido`, '');
+      if (toque) {
+        const eram = await page.$$eval('#overlay details.bloco-form', ds => ds.map(d => { const era = /** @type {HTMLDetailsElement} */ (d).open; /** @type {HTMLDetailsElement} */ (d).open = true; return era; }));
+        const naFolha = await alvosPequenos(page, '#overlay');
+        await page.$$eval('#overlay details.bloco-form', (ds, e) => ds.forEach((d, i) => { /** @type {HTMLDetailsElement} */ (d).open = e[i]; }), eram);
+        registra(naFolha.length === 0, `${rotulo}: todo alvo de toque da folha do formulário tem pelo menos 44 px`, naFolha.slice(0, 6));
+      }
       if (!toque) {
         // A folha inteira percorrida pelo Tab, como faz quem usa teclado (o da
         // URL do projeto ficava cortado pela caixa do prefixo; os chips dos
@@ -353,6 +377,18 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await page.waitForSelector('#overlay.open');
       const resumo = (await page.locator('[data-resumo="bf-producao"]').textContent()) || '';
       registra(/Em edição/.test(resumo), `${rotulo}: bloco recolhido mostra o resumo ("${resumo}")`, resumo);
+      // Colar e remover fotos são cliques, não digitação: o resumo do bloco
+      // ("2 capas") tem de acompanhar. Tira as duas no fim — nada é salvo.
+      const resumoFotos = async () => ((await page.locator('[data-resumo="bf-fotos"]').textContent()) || '').trim();
+      await aciona(page.locator('#btn-paste-photos'), toque);
+      await page.fill('#paste-photos-input', 'https://lh3.googleusercontent.com/d/FOTO_COLADA_1\nhttps://lh3.googleusercontent.com/d/FOTO_COLADA_2');
+      await aciona(page.locator('[data-onclick="commitPastePhotos"]'), toque);
+      const comDuas = await resumoFotos();
+      await aciona(page.locator('#photo-list [data-action="removePhoto"]').first(), toque);
+      const comUma = await resumoFotos();
+      await aciona(page.locator('#photo-list [data-action="removePhoto"]').first(), toque);
+      registra(/2 capas$/.test(comDuas) && /1 capa$/.test(comUma), `${rotulo}: colar e remover fotos atualiza o resumo do bloco`, { comDuas, comUma });
+      await someAviso(page); // o "2 foto(s) adicionada(s)." do colar não pode ser lido como o do salvar
       await aciona(page.locator('.bf-atalhos [data-alvo="bf-producao"]'), toque);
       await espera(page, 400);
       await page.selectOption('#f-status', 'entregue');
@@ -414,8 +450,16 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         if (PRINTS) { await mais.click(); await espera(page, 200); await print(page, `${id}-menu`); }
         if (await menu.isHidden()) await mais.click();
       }
+      // Outro aparelho edita o evento depois que esta página abriu (direto no
+      // KV): o "Ocultar" manda só `visible`, e a edição de lá fica.
+      const evs = JSON.parse(w.kv.get('events') || '[]');
+      evs.find((/** @type {any} */ e) => e.slug === 'teste-do-roteiro').eventCredits = 'Editado em outro aparelho';
+      w.kv.set('events', JSON.stringify(evs));
       await aciona(novo.locator('[data-action="vis"]'), toque);
       const msgOcultou = await aviso(page);
+      const oculto = JSON.parse(w.kv.get('events') || '[]').find((/** @type {any} */ e) => e.slug === 'teste-do-roteiro') || {};
+      registra(oculto.visible === false && oculto.eventCredits === 'Editado em outro aparelho',
+        `${rotulo}: "Ocultar" não desfaz o que outro aparelho editou`, { visible: oculto.visible, eventCredits: oculto.eventCredits });
       registra(/oculto/i.test(msgOcultou) && /Oculto/.test((await novo.locator('.evt-selos').textContent()) || ''),
         `${rotulo}: "Ocultar da galeria" pelo menu, e o card ganha o selo "Oculto"`, msgOcultou);
 
@@ -425,6 +469,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('nav.nav [data-tab="requests"]'), toque);
       await page.waitForSelector('#tab-requests.active');
       await print(page, `${id}-pedidos`);
+      if (toque) {
+        const emPedidos = await alvosPequenos(page, '#tab-requests');
+        registra(emPedidos.length === 0, `${rotulo}: todo alvo de toque de Pedidos tem pelo menos 44 px`, emPedidos.slice(0, 6));
+      }
       await aciona(page.locator('[data-action="resolveRequest"]').first(), toque);
       const msgResolveu = await aviso(page);
       await espera(page, 600);
@@ -439,6 +487,11 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await someAviso(page);
       await aciona(page.locator('nav.nav [data-tab="metrics"]'), toque);
       await page.waitForSelector('#tab-metrics.active');
+      // A aba ativa é branca mesmo com o dedo (ou o mouse) ainda em cima dela.
+      // Lida depois da transição de cor da aba (0,2 s).
+      await espera(page, 300);
+      const corDaAtiva = await page.locator('nav.nav [data-tab="metrics"]').evaluate(t => getComputedStyle(t).color);
+      registra(corDaAtiva === 'rgb(240, 235, 229)', `${rotulo}: a aba tocada fica com o branco da ativa`, corDaAtiva);
       await page.waitForSelector('#grafico-acessos svg', { timeout: 6000 });
       const rotulos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
       registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período`, rotulos);
@@ -559,7 +612,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(medida.sw <= viewport.width && medida.escala >= 0.99, `${rotulo}: as métricas desenhadas não vazam para o lado`, medida);
       await page.evaluate(() => window.scrollTo(0, 0));
       await print(page, `${id}-metricas`);
-      if (PRINTS) await page.screenshot({ path: join(PRINTS, `painel-${id}-metricas-inteira.png`), fullPage: true });
+      if (PRINTS) {
+        await page.screenshot({ path: join(PRINTS, `painel-${id}-metricas-inteira.png`), fullPage: true });
+        // A captura de página inteira desliga a emulação de toque do celular
+        // ((pointer: coarse) passa a falso) até a próxima navegação — e as
+        // medidas de alvo de toque depois dela (Ajustes) mediam o computador.
+        if (toque) await (await ctx.newCDPSession(page)).send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      }
 
       // ---- 7. Trocar a senha (e entrar de novo com ela) --------------------
       await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
@@ -567,6 +626,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const grupos = await page.locator('.grupo-titulo').allTextContents();
       registra(grupos.join('|') === 'Site|Dados|Conta|Sobre', `${rotulo}: ajustes em quatro grupos (o último diz a versão)`, grupos);
       await print(page, `${id}-ajustes`);
+      if (toque) {
+        const emAjustes = await alvosPequenos(page, '#tab-settings');
+        registra(emAjustes.length === 0, `${rotulo}: todo alvo de toque de Ajustes tem pelo menos 44 px`, emAjustes.slice(0, 6));
+      }
       await page.fill('#new-pass', SENHA_NOVA);
       await page.fill('#new-pass2', SENHA_NOVA);
       await aciona(page.locator('[data-onclick="changePassword"]'), toque);

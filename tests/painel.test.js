@@ -307,6 +307,15 @@ describe('estrutura do painel', () => {
     expect(html).toContain('placeholder="URL da foto" aria-label="URL da foto ${i + 1}"');
   });
 
+  it('um título com </script> não fecha o script do painel (os dados vão escapados)', () => {
+    const hostil = { ...BASE, title: '</script><script>alert(1)</script>', internalNotes: '<!-- </script> -->' };
+    const pagina = dashboardHTML([hostil], ['</script>'], 'N', '</script>');
+    expect(pagina).not.toContain('</script><script>alert(1)');
+    expect(pagina).toContain('\\u003c/script\\u003e\\u003cscript\\u003ealert(1)');
+    // O documento continua com um só bloco de script do painel aberto e fechado.
+    expect(pagina.split('<script nonce="N">').length - 1).toBe(pagina.split('</script>').length - 1);
+  });
+
   it('lista vazia convida a criar o primeiro evento', () => {
     expect(dashboardHTML([], [], 'N')).toContain('Toque em "Novo evento" para criar o primeiro.');
   });
