@@ -565,11 +565,13 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 já está aplicado). São três passos que só o dono faz — o 1 e o 2 foram feitos em 12/10/2026:
 
 1. **Trocar o Workers Builds para Worker Previews.** *Workers & Pages → fotos → Settings → Builds*: no aviso **"Set up Worker Previews"**, *Set up*. O comando de prévia passa a ser `npx wrangler preview`. A troca é de mão única e vale só para os builds de PR — produção continua saindo pelo `deploy.yml`, sem mudança nenhuma.
-2. **Segredos das prévias — no build, sincronizados a cada push.** Ainda em *Settings → Builds*:
-   - **Preview command**: `npm run previa`. É o `scripts/previa-publica.mjs`: ele roda o `npx wrangler preview` com os segredos abaixo (`--secrets-file`), e eles entram na mesma implantação que o código;
+2. **Segredos das prévias — no build, sincronizados a cada push.** Ainda em *Settings*, seção **Build**:
+   - **Build configuration → Preview command**: `npm run previa` (o *Build command* fica vazio). É o `scripts/previa-publica.mjs`: ele roda o `npx wrangler preview` com os segredos abaixo (`--secrets-file`), e eles entram na mesma implantação que o código;
    - **Variables and secrets** (as do build, não as de runtime): cada segredo da tabela com o prefixo `PREVIA_`, como *secret*.
 
-   Toda prévia, nova ou já existente, sai de cada build com os valores atuais. Trocou um valor: o próximo push de cada PR (ou *Retry build*) já leva. O log do build mostra só os nomes, nunca os valores.
+   Toda prévia, nova ou já existente, sai de cada build com os valores atuais. Trocou um valor — ou o próprio comando: o próximo push de cada PR (ou *Retry build*) já leva; mudar a configuração não dispara build nenhum. O log do build mostra só os nomes, nunca os valores.
+
+   **Para conferir se pegou:** no `/api/healthz` da prévia, `config.signing` fica `true` — o script sempre leva um `SIGNING_SECRET`, então `false` quer dizer que ele não rodou (o *Preview command* não está como `npm run previa`, ou o build é de antes da troca). No log do build, as linhas do script começam com `[prévia]`.
 
    Por que não a configuração base de prévias do painel (*Settings → Variables and secrets → Previews Base*): ela só vale na **criação** de cada prévia — mudar depois não chega às que já existem — e o valor de um segredo não se lê de volta, então não há como copiá-lo para elas. Foi o que se viu na estreia: a prévia do PR #236 nasceu só com o `ADMIN_PASSWORD`.
 
