@@ -221,26 +221,31 @@ dublê tinha sido escrita por nós. Ele afirmava o que queríamos ouvir. Só qua
 o mesmo teste rodou dentro do workerd (`npm run test:workers`) o `3` apareceu.
 **Não teste contra dublê aquilo que a plataforma é que garante.**
 
-### 5.3-b. Migração de Durable Object quebra o preview do Workers Builds
+### 5.3-b. Migração de Durable Object não sobe por `versions upload`
 
-O Cloudflare Workers Builds — configurado no **painel**, não neste repositório —
-roda `npx wrangler versions upload` a cada PR. Esse caminho **não aplica
-migração de Durable Object**: a API recusa com o código **10211**, dizendo que
-"migrations must be fully applied via a non-versioned deployment".
+`versions upload` **não aplica migração de Durable Object**: a API recusa com o
+código **10211**, dizendo que "migrations must be fully applied via a
+non-versioned deployment". Isso pega o `deploy.yml`, que sobe a versão do
+portão por esse caminho: depois do merge de um PR com migração nova
+(`[[migrations]]` com uma tag nova no `wrangler.toml`), o deploy **falha no
+upload**, de propósito e com a mensagem explicando, e o caminho é redisparar à
+mão com `unversioned: true` (README, deploy manual). Não há atalho: migração e
+código sobem juntos, não dá para aplicar só a migração antes.
 
-Então, sempre que um PR introduzir uma migração nova (`[[migrations]]` com uma
-tag nova no `wrangler.toml`), **o build de preview daquele PR vai falhar**. Isso
-é esperado. Não é sinal de código quebrado, e não adianta mexer no código para
-tentar consertar.
+Até 12/10/2026 isso pegava também **todo build de PR**: o Cloudflare Workers
+Builds — configurado no **painel**, não neste repositório — rodava
+`npx wrangler versions upload` a cada PR, e o build de um PR com migração nova
+falhava por desenho (aconteceu na estreia dos contadores em DO, migração `v1`).
+Nesse modelo a versão do PR rodava com a configuração de **produção**, e o
+comentário do bot no PR não trazia link nenhum: só "Deployment successful" e,
+no check, um Version ID.
 
-A ordem que funciona:
-
-1. merge → o `deploy.yml` roda `wrangler deploy` (não-versionado) → a migração
-   é aplicada e as classes passam a existir;
-2. a partir daí os previews de PR voltam a passar sozinhos.
-
-Não há atalho: migração e código sobem juntos, não dá para aplicar só a migração
-antes. Aconteceu na estreia dos contadores em DO (migração `v1`).
+Desde então os builds de PR saem por **`npx wrangler preview`** (Worker
+Previews; README, "Prévia de PR"): cada prévia tem dados próprios e um
+namespace de Durable Object próprio, criado a partir das migrações do topo do
+`wrangler.toml`. Como uma migração **nova** chega a uma prévia que já existe
+ainda não foi visto — o primeiro PR com `v2` responde, e o resultado entra
+aqui.
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 

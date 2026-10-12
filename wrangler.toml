@@ -89,20 +89,21 @@ migrations_dir = "migrations"
 #
 # A API recusa com o código 10211: "migrations must be fully applied via a
 # non-versioned deployment". Ou seja, quem cria a classe é `wrangler deploy`
-# (não-versionado) — que é o que o .github/workflows/deploy.yml roda no push
-# para a main.
+# (não-versionado). O .github/workflows/deploy.yml sobe por `versions upload`
+# (o portão sem tráfego): com uma migração nova ele FALHA no upload, de
+# propósito e com a mensagem explicando, e o caminho é redisparar à mão com
+# `unversioned: true` — que usa `wrangler deploy` e abre mão do portão naquele
+# deploy. Não existe atalho: migração e código sobem juntos, não dá para
+# aplicar só a migração antes.
 #
-# Isso importa porque o Cloudflare Workers Builds (configurado no PAINEL, não
-# neste repositório) roda `npx wrangler versions upload` a cada PR. Enquanto a
-# migração nova não tiver sido aplicada por um deploy de verdade, esse build
-# FALHA — e a falha é esperada, não é sinal de código quebrado.
-#
-# A ordem que funciona, e que vale para toda migração futura (v2, v3…):
-#   1. merge → deploy.yml roda `wrangler deploy` → a migração é aplicada;
-#   2. a partir daí os previews de PR voltam a passar sozinhos.
-#
-# Não existe atalho: migração e código sobem juntos, não dá para aplicar só a
-# migração antes.
+# Os builds de PR já não passam por aí. Até 12/10/2026 o Cloudflare Workers
+# Builds (configurado no PAINEL, não neste repositório) rodava `npx wrangler
+# versions upload` a cada PR, e esse build falhava, por desenho, em todo PR com
+# migração nova (RETOMADA §5.3-b). Desde então os PRs saem por `npx wrangler
+# preview` (Worker Previews, bloco [previews] no fim deste arquivo): cada
+# prévia ganha um namespace de DO próprio, criado a partir destas migrações.
+# Como uma migração NOVA chega a uma prévia que já existe ainda não foi visto —
+# o primeiro PR com `v2` responde.
 [[durable_objects.bindings]]
 name = "COUNTER"
 class_name = "Counter"
