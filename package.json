@@ -24,7 +24,7 @@
     "verifica:evento": "node scripts/verifica-evento.mjs"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20260920.1",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.11",
