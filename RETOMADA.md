@@ -560,6 +560,16 @@ que o código, a cada push. Duas consequências:
   na prévia, e é o preço de não exigir do dono um segredo que ele teria de
   inventar.
 
+**Para saber se pegou, sem acesso à conta da Cloudflare:** `config.signing`
+no `/api/healthz` da prévia. O script sempre leva um `SIGNING_SECRET`, então
+`false` quer dizer que ele não rodou naquele build: o Preview command não está
+salvo como `npm run previa`, ou o build começou antes da troca (mudar a
+configuração não dispara build). E o caminho script → wrangler → publicação se
+prova sem conta nenhuma: `tests/previa-publica.test.js` roda o wrangler de
+verdade contra uma API falsa e confere que os segredos e os bindings da prévia
+vão na publicação. Foi assim, em 12/10/2026, que "o script não funciona" virou
+"o build não rodou o script".
+
 ---
 
 ## 6. Como fazer uma mudança
