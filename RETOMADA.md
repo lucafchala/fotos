@@ -637,10 +637,17 @@ imprimir nada, e uma mutação "escapava" só porque o processo morria.
      falhar, escreva o teste que falta em vez de baixar o número.
 4. Mexeu em UI, CSP ou rota? **Abra num navegador.** Ver `docs/VERIFICACAO.md`.
 5. Mexeu em `docs/legal/`? `npm run build:legal`.
-6. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de
+6. **Versão.** Mudou o que vai ao ar? Suba `VERSAO` (`src/config.js`) e o
+   `version` do `package.json` juntos e escreva a seção nova no topo do
+   `CHANGELOG.md` — uma vez por PR, "ainda não publicada" até o merge. Maior,
+   menor ou correção: a regra está no comentário de `VERSAO`. Só README,
+   testes ou CI não sobem número. A versão do site (o que mudou) não é a
+   implantação da Cloudflare (`versao.id` no healthz, usada no rollback) nem a
+   etiqueta `deploy-…` do git; o mesmo comentário explica as três.
+7. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de
    dependências. O CodeQL só analisa PR com base na `main` — PR empilhado
    passa sem ele até a base ser trocada (`docs/BRANCHES.md`).
-7. Merge → deploy automático → smoke test contra a produção. **Um merge por
+8. Merge → deploy automático → smoke test contra a produção. **Um merge por
    vez**: espere o deploy anterior terminar verde (§5.11).
 
 **Deploy manual** (sem commit): Actions → Deploy → Run workflow. Funciona do

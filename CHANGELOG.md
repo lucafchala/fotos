@@ -5,8 +5,18 @@ mantém. O detalhe técnico de cada item está no PR e nos documentos citados.
 
 A **2.0.0** é a primeira versão com número: antes dela o projeto não numerava
 versões, e o histórico está nos PRs e no git. O número mora em dois lugares
-que andam juntos — `package.json` e `VERSAO` em `src/config.js` (há teste que
-confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
+que andam juntos — `package.json` e `VERSAO` em `src/config.js` — e aparece no
+painel (barra lateral e *Ajustes → Sobre*), na faixa da prévia e em
+`versaoSite` no `/api/healthz`.
+
+**Como as versões funcionam** (a regra completa está no comentário de `VERSAO`,
+em `src/config.js`): versionamento semântico. **Maior** quando o dono precisa
+fazer algo ou algo deixa de valer (formato de dado, secret novo, o que o
+visitante aceita); **menor** para função nova; **correção** para o mesmo
+comportamento, melhor. PR que não muda o que vai ao ar não sobe número. O
+número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda não
+publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
+`package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
 ## [2.0.0] — ainda não publicada
 

@@ -30,6 +30,17 @@ Fixes #
      nenhuma variação exercita continua sem rede, e comportamento só um
      navegador mostra — descreva como validou. -->
 
+## Versão
+
+<!-- Merge é deploy. Mudou o que vai ao ar? Suba VERSAO (src/config.js) e o
+     "version" do package.json juntos, e escreva a seção no topo do
+     CHANGELOG.md, "ainda não publicada". Maior / menor / correção: a regra
+     está no comentário de VERSAO. Só docs fora de docs/legal, testes ou CI:
+     não sobe. -->
+
+- [ ] Sobe para `x.y.z` (maior / menor / correção), com a seção no CHANGELOG.md
+- [ ] Não muda o que vai ao ar — sem versão nova
+
 ## Test plan (automatizado)
 
 <!-- `npm test` prova que as funções fazem o que as funções fazem, não que

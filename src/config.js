@@ -165,6 +165,44 @@ export const METRICAS_DIAS_MAX = 180;
 // registro de consentimento (0, 1, 2). Só a contagem — sem slug, sem IP.
 export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'email']);
 
-// Versão do site. Sobe junto com a do package.json (há teste que confere) e
-// aparece no rodapé do painel; o CHANGELOG.md diz o que mudou em cada uma.
+// ---------------------------------------------------------------------------
+// Versões: como o site é numerado (leia antes de mexer em VERSAO)
+// ---------------------------------------------------------------------------
+// "Versão" aqui quer dizer três coisas, e cada uma responde a uma pergunta:
+//
+// 1. VERSAO, logo abaixo: "o que mudou para quem usa?" É versionamento
+//    semântico (MAIOR.MENOR.CORREÇÃO, https://semver.org/lang/pt-BR/),
+//    escrito à mão. É o número que o dono e quem testa leem: a barra lateral
+//    do painel, Ajustes → Sobre, a faixa da prévia de PR e `versaoSite` no
+//    /api/healthz. Mora em dois lugares que andam juntos, aqui e no
+//    "version" do package.json, e o CHANGELOG.md abre com a seção dele —
+//    tests/versao.test.js reprova se os três divergirem.
+// 2. A implantação da Cloudflare: "qual build está no ar?" É o id que o
+//    deploy gera (`wrangler versions upload`), lido do binding
+//    [version_metadata] e mostrado em `versao` no /api/healthz (`id`, e `tag`
+//    = o commit). Muda a cada deploy, com ou sem VERSAO nova, e é por ele que
+//    se volta atrás: `wrangler versions deploy <id>`.
+// 3. A etiqueta do git `deploy-AAAAMMDD-HHMMSS-<commit>` e o GitHub Release
+//    que o .github/workflows/deploy.yml cria quando o smoke de produção
+//    passa: "o que foi ao ar, quando, e o que veio desde o anterior".
+//
+// Quando subir VERSAO. Merge na main é deploy, então o número sobe no PR, uma
+// vez por PR (não um por commit), junto com a seção dele no topo do
+// CHANGELOG.md, marcada "— ainda não publicada" até o merge. Enquanto a
+// versão não foi publicada, o que mais entrar no mesmo PR vai para a mesma
+// seção, sem número novo.
+//   - MAIOR (3.0.0): o dono precisa fazer algo para a versão funcionar, ou
+//     algo deixa de valer. Formato de dado gravado que muda (KV, D1, backup),
+//     secret ou binding novo obrigatório, mudança no que o visitante aceita
+//     (Termos, modelo de consentimento), função que sai. A 2.0.0 é a primeira
+//     com número: pedidos de remoção numa chave cada e métricas por dia.
+//   - MENOR (2.1.0): função nova que o dono ou o visitante veem, sem quebrar
+//     nada do que já existe.
+//   - CORREÇÃO (2.0.1): defeito corrigido, texto, acessibilidade,
+//     desempenho, dependência — o mesmo comportamento, melhor. Os documentos
+//     de docs/legal/ contam: o site os serve (src/content/legal-docs.js).
+//   - Nada: PR que não muda o que vai ao ar — só README e docs/ fora de
+//     docs/legal, só testes, só CI. Não sobe número.
+// Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
+// menos esconde do dono que havia algo para ele fazer.
 export const VERSAO = '2.0.0';

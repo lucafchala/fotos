@@ -37,7 +37,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
-  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
@@ -2481,6 +2481,9 @@ function healthzResposta(request, env, medicao, cache) {
       signing: signingSecretProblem(env) === null,
     },
     termsVersion: TERMS_VERSION,
+    // As duas versões juntas (src/config.js, "Versões"): a do site, que diz o
+    // que mudou, e a implantação da Cloudflare, que diz qual build está no ar.
+    versaoSite: VERSAO,
     versao: versaoImplantada(env),
     colo: request.cf?.colo || null,
     country: request.cf?.country || null,
