@@ -562,7 +562,7 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 
 ### Ligar (uma vez, no painel da Cloudflare)
 
-O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 já está aplicado). São três passos que só o dono faz — o 1 e o 2 foram feitos em 12/10/2026:
+O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 já está aplicado). São três passos que só o dono faz. O 1 foi feito em 12/10/2026; o 2 ainda não pegou — em 17/10 o build ainda rodava `npx wrangler preview`, sem variáveis de build (o formulário não tinha sido salvo; ver "Para conferir se pegou", abaixo):
 
 1. **Trocar o Workers Builds para Worker Previews.** *Workers & Pages → fotos → Settings → Builds*: no aviso **"Set up Worker Previews"**, *Set up*. O comando de prévia passa a ser `npx wrangler preview`. A troca é de mão única e vale só para os builds de PR — produção continua saindo pelo `deploy.yml`, sem mudança nenhuma.
 2. **Segredos das prévias — no build, sincronizados a cada push.** Ainda em *Settings*, seção **Build**:

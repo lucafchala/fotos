@@ -350,6 +350,15 @@ falhava só na prévia. Seletor pelo que se quer (`form[action="/dashboard/login
 Os scripts do site usam id, classe ou `data-action` (a faixa usa `previa-*` e
 `data-acao`, de propósito), então não esbarram nela.
 
+**Os segredos da prévia, sem conta da Cloudflare.** O que o build publica
+(`npm run previa`, README "Prévia de PR") se prova sem token nenhum:
+`tests/previa-publica.test.js` roda o **wrangler de verdade** apontado para uma
+API falsa (`CLOUDFLARE_API_BASE_URL`) e confere a publicação que chega — os
+segredos como `secret_text`, `AMBIENTE = "previa"`, o KV `fotos-previa` e
+nunca o de produção, nenhum valor no log. Do lado de lá, na prévia publicada,
+o sinal é `config.signing` no `/api/healthz`: o script sempre leva um
+`SIGNING_SECRET`, então `false` quer dizer que o build não rodou o script.
+
 ### Sem JavaScript
 
 ```js
