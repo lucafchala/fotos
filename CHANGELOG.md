@@ -95,10 +95,10 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 - **Celular**: campos de 16 px (o iPhone não dá zoom ao tocar), alvos de toque
   de 44 px — agora também a busca, os filtros e o seletor de projeto das
   Métricas, que tinham 41–43 px, os botões das confirmações e o "Adicionar
-  foto", que tinham 35–40, e o × de excluir categoria, que tinha 20 —, os itens
-  do menu "⋯" com 48 px na folha de baixo (uma regra de toque posterior os
-  baixava para 44), e um bloco de Ajustes 25 px largo demais que fazia o
-  celular afastar a página inteira.
+  foto", que tinham 35–40, o × de excluir categoria, que tinha 20, e as caixas
+  do "Selecionar vários" e os toggles —, os itens do menu "⋯" com 48 px na folha
+  de baixo (uma regra de toque posterior os baixava para 44), e um bloco de
+  Ajustes 25 px largo demais que fazia o celular afastar a página inteira.
 - **Leitor de tela**: os avisos do painel são anunciados (o toast virou região
   viva) e quebram linha em vez de sair pelas bordas; com uma folha ou uma
   confirmação aberta, a página atrás fica inerte (nem o foco nem o leitor
@@ -164,7 +164,7 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 188 checagens em ~45 s, das Métricas com série
+  Android e no computador — 196 checagens em ~45 s, das Métricas com série
   sintética à troca de senha e à sessão que cai no meio de uma edição, com o
   foco (a lista, a folha e as Métricas percorridas pelo Tab), os alvos de
   toque de cada seção, todo `hidden` de fato escondido e o que o fluxo grava

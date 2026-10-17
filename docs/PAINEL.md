@@ -307,7 +307,8 @@ Agora há **uma função**, `cardProjetoPainel(e, h, marcado)`, exportada de
   `const cardProjeto = (<código>);`. Ela é chamada com `ajudaCard`: cópias de
   `esc` e `safeUrl` do próprio script, presas às do servidor pelos pares de
   `tests/security.test.js`, e uma `isOverdue` que usa a cópia de
-  `hojeEmSaoPaulo` (essa também presa; a `isOverdue` em si não tem par — §17).
+  `hojeEmSaoPaulo` (essa também presa). A `isOverdue` e os rótulos de status
+  do script são comparados com os do servidor em `tests/painel-pares.test.js`.
   Os ícones (`ICONES`, SVG em linha, herdam a cor do texto) vão como dado
   (`jsonParaScript`): o card redesenhado no navegador usa exatamente os mesmos
   desenhos.
@@ -546,10 +547,12 @@ folha abriu. É a diferença entre os dois que define "sujo" (`isFormDirty()`):
 ### 6.4 Acrescentar um campo: o passo a passo
 
 Os quatro lugares do formulário espelham uns aos outros, e o comentário em
-`snapshotForm` já pede: "keep the two in sync when adding a field". **Nada hoje
-prende as quatro funções entre si** — um campo que entra no `submitForm` e
-esquece o `snapshotForm` salva certo, mas não conta como alteração (fechar sem
-salvar não avisa) e some do rascunho. Esta é a lista:
+`snapshotForm` já pede: "keep the two in sync when adding a field". Um campo que
+entra no `submitForm` e esquece o `snapshotForm` salva certo, mas não conta como
+alteração (fechar sem salvar não avisa) e some do rascunho.
+`tests/painel-pares.test.js` prende as quatro funções entre si e contra o HTML
+do formulário (todo `id="f-…"`): esquecer o campo novo em qualquer uma reprova.
+Esta é a lista:
 
 **Servidor.** Sem isto, o campo é descartado em silêncio: `normalizeEventFields`
 só copia o que conhece.
@@ -585,13 +588,14 @@ só copia o que conhece.
     `tests/helpers/scripts-embutidos.d.ts`: o tsc dos scripts embutidos usa
     listas fechadas.
 
-**Verificação.** `npx vitest run tests/painel.test.js tests/scripts-embutidos.test.js`,
+**Verificação.** `npx vitest run tests/painel.test.js tests/painel-pares.test.js tests/scripts-embutidos.test.js`,
 `npm run verifica:painel` e, se o campo faz parte do que o dono faz no dia a
 dia, um passo no roteiro.
 
-Duas exceções à tríade: o **slug** não entra em `snapshotForm` (é somente leitura
-na edição; ver §17 para o efeito no evento novo) e o **`pinned`** não está no
-formulário.
+Uma exceção, e uma ressalva: o **`pinned`** não está no formulário (o destaque
+é pelo menu "⋯"); e o **slug** entra em `snapshotForm` (senão, num evento novo,
+digitar só a URL e fechar não perguntava nada), mas o `restoreDraft` só o devolve num
+evento novo — na edição ele é somente leitura.
 
 ---
 
@@ -1011,10 +1015,6 @@ resolvido") e **"Carregando…"** nas seções que buscam dados.
   proibir o zoom.
 - `lang="pt-BR"`.
 
-**O que falta** (medido, não suposto; ver também §17):
-
-- **Alvos de toque abaixo de 44 px** (§13).
-
 ---
 
 ## 13. Celular: as decisões
@@ -1036,15 +1036,16 @@ ganham `min-height: 44px`; todo campo também (`input`,
 menos caixas de seleção e botões de opção, e `select`: a busca, o filtro de
 categoria, o seletor de projeto das Métricas, o select da barra de seleção); e
 `.icon-btn` fica 44 × 44. A nav tem 52 px e o `summary` dos blocos do
-formulário, 52 px. **Exceções conhecidas**, medidas no iPhone emulado: a caixa
-de seleção do card e a de "Todos" (17 × 17) e a altura dos toggles (26 px; 44
-de largura — o rótulo ao lado também liga e desliga). No toque, "Adicionar
-foto" entra na lista de 44 px e o × de excluir categoria vira 44 × 44 (o chip
-cresce junto). O roteiro mede botões, `a.act`, campos, seletores e `summary` à
-vista em Eventos (com a nav; o modo de seleção não é ligado), na folha do
-formulário (com os seis blocos abertos), em Pedidos e em Ajustes, mais o
-seletor de projeto das Métricas, os itens da folha do menu "⋯" (48 px) e os
-botões da confirmação de excluir (§15).
+formulário, 52 px. A caixa de seleção do card e a de "Todos" (17 × 17) ganham
+área de toque de 44 × 44 pelo rótulo em volta (`label.evt-check-alvo`;
+`label.mass-selall`, com 44 px de altura), e os toggles têm 44 px de altura, com
+o trilho de 26 px no meio (o rótulo ao lado também liga e desliga). No toque,
+"Adicionar foto" entra na lista de 44 px e o × de excluir categoria vira 44 × 44
+(o chip cresce junto). O roteiro mede botões, `a.act`, campos, seletores e
+`summary` à vista em Eventos (com a nav e, com o modo de seleção ligado, as
+caixas e o "Todos"), na folha do formulário (com os seis blocos abertos, e os
+toggles), em Pedidos e em Ajustes, mais o seletor de projeto das Métricas, os
+itens da folha do menu "⋯" (48 px) e os botões da confirmação de excluir (§15).
 
 **Sem realce azul do toque.** `-webkit-tap-highlight-color: transparent` em
 botões, links e `summary`: cada controle tem o próprio estado.
@@ -1229,7 +1230,7 @@ entregue → ocultar pelo menu → resolver um pedido → métricas → trocar a
 antiga é recusada, a nova entra) → a sessão cair no meio de uma edição (e o
 rascunho voltar) → excluir o evento de teste.
 
-**O que cada checagem quer dizer** (188 em 12/10/2026: 63 em cada celular, 62 no
+**O que cada checagem quer dizer** (196 em 17/10/2026: 67 em cada celular, 62 no
 computador; o número muda quando alguém acrescenta uma — não é contrato):
 
 | Checagem | O que prova / se falhar, olhe |
@@ -1237,8 +1238,10 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | a navegação é a barra de baixo, de ponta a ponta (celular) / a barra lateral (computador) | a caixa da `nav.nav`: no celular, a borda de baixo na borda da tela e largura cheia; no computador, colada à esquerda e alta. CSS da estrutura (§3) |
 | **nada vaza para o lado, em nenhuma seção** (página na escala 1) | para cada seção, `scrollWidth` do documento ≤ largura do **aparelho** e `visualViewport.scale` ≥ 0,99. É o defeito do §13; em qual seção falhou vem no detalhe |
 | todo elemento com hidden está mesmo escondido | na carga, todo `[hidden]` com `display: none` calculado. Uma classe com `display` vencia o `hidden` (§16): o selo de Pedidos vazio e o resumo das Métricas |
-| (celular) todo alvo de toque da lista tem pelo menos 44 px | botões, `a.act`, campos (`input` menos caixas de seleção) e seletores à vista de `#tab-events`, e as abas da nav; **só** a seção Eventos, sem ligar o modo de seleção |
+| (celular) todo alvo de toque da lista tem pelo menos 44 px | botões, `a.act`, campos (`input` menos caixas de seleção) e seletores à vista de `#tab-events`, e as abas da nav; **só** a seção Eventos (o modo de seleção, na linha seguinte) |
+| (celular) no modo "Selecionar vários", cada caixa e o "Todos" têm 44 px, e o toque no canto de cima de uma caixa cai no rótulo | liga `#mass-toggle`; conta as `label.evt-check-alvo` (uma por card, cada uma com 44 × 44) e mede a `label.mass-selall` (44 px de altura); `elementFromPoint` 3 px dentro do canto de cima do primeiro card, fora dos 17 px da caixa, devolve o rótulo. Desliga de novo antes do resto do roteiro. Sem o rótulo, ou com a caixa de 17 px, falha |
 | (celular) todo alvo de toque da folha do formulário / de Pedidos / de Ajustes tem pelo menos 44 px | a mesma medida (`alvosPequenos()`), na folha com os seis blocos abertos, em `#tab-requests` e em `#tab-settings`. Pegou o "Adicionar foto" (35–40 px) e o × de excluir categoria (20 px) |
+| (celular) os toggles da folha têm 44 × 44, e o toque 3 px abaixo da borda de cima do primeiro cai nele | cada `label.toggle` à vista em `#overlay`, medido com os blocos abertos (antes de fechá-los): 44 × 44, e `elementFromPoint` no primeiro. Com o toggle de 26 px, falha |
 | (celular) campo com letra de 16 px | `font-size` calculado de `#evt-search` ≥ 16 |
 | a lista mostra os 5 eventos; o card escreve o estado; o card mostra o prazo | o card nos casos da semente: "Em edição" e "Atrasado" no evento atrasado; "prazo 10/01" |
 | filtros: a conta é a da lista, no singular quando é um, e a lista vazia diz a combinação | chip Ativos → "5 eventos ativos"; com a categoria Casamento → "1 evento ativo"; chip Todos → "1 evento" e um card; chip Em edição → `Nenhum evento com status "Em edição" na categoria "Casamento".`; sem filtro, de volta → "5 eventos" (§4.1) |
@@ -1470,17 +1473,11 @@ corrigida, apague a linha — e as referências a ela nas outras seções (`grep
   digitar inclui o que está escondido.
 - **Mudanças no painel levam até 30 s para aparecer no site** (cache do isolate).
 
-**Acessibilidade e toque** (§12, §13): alvos abaixo de 44 px (as caixas de
-seleção do modo "Selecionar vários" e a altura dos toggles).
-
 **Verificação**
 
-- O roteiro mede alvos de toque em todas as seções que visita, mas não liga o
-  modo de seleção; o Tab percorre a lista, a folha e as Métricas — Pedidos e
-  Ajustes não.
-- Nenhum teste compara `ajudaServidor` com `ajudaCard` (§16) — nem a `isOverdue`
-  e o `rotulo` do script com os do servidor (§5) —, nem prende as quatro
-  funções do formulário entre si (§6.4).
+- O roteiro mede alvos de toque em todas as seções que visita, e liga o modo
+  "Selecionar vários" para medir as caixas; o Tab percorre a lista, a folha e as
+  Métricas — Pedidos e Ajustes não.
 
 ---
 
@@ -1572,7 +1569,9 @@ pedido de remoção e trocar a senha.
 - as páginas curtas do painel ("temporariamente indisponível", "não
   configurado") viraram documento de verdade, legíveis no celular;
 - numa **prévia de PR**, a faixa "PRÉVIA" fica por cima do painel, com o menu
-  "Testes" (README, "Prévia de PR").
+  "Testes" (README, "Prévia de PR");
+- nas telas de toque, as caixas do "Selecionar vários" e os toggles passaram a
+  receber o toque em 44 × 44 (o tamanho visível segue o mesmo; §13).
 
 ---
 

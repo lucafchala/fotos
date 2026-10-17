@@ -253,7 +253,7 @@ computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
 de JS, nenhuma violação da CSP aplicada, e que o fluxo só gravou no KV as
 chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
-`admin_password`, sessão) — 13 escritas por aparelho, 188 checagens no total,
+`admin_password`, sessão) — 13 escritas por aparelho, 196 checagens no total,
 em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
 Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
 depois do deploy da v2.0: um no array antigo `removal_requests`, outro na

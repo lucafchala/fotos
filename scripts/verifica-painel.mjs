@@ -278,6 +278,38 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       if (toque) {
         const pequenos = await alvosPequenos(page, '#tab-events, nav.nav');
         registra(pequenos.length === 0, `${rotulo}: todo alvo de toque da lista tem pelo menos 44 px`, pequenos.slice(0, 5));
+        // Com "Selecionar vários" ligado, a caixa de cada card tem 17 px, mas o
+        // alvo de toque é o rótulo em volta dela. Liga-se só para medir e
+        // desliga-se logo depois: o resto do roteiro vê a lista como antes.
+        await aciona(page.locator('#mass-toggle'), toque);
+        await espera(page, 300);
+        const selecao = await page.evaluate(() => {
+          const vis = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+          const tam = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
+          const caixas = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('#evt-list .evt-check-alvo')]).filter(vis);
+          const todos = /** @type {HTMLElement | null} */ (document.querySelector('label.mass-selall'));
+          const pequenos = caixas.filter(e => tam(e).w < 44 || tam(e).h < 44)
+            .map(e => ({ caixa: (e.querySelector('input')?.getAttribute('aria-label') || '').slice(0, 40), ...tam(e) }));
+          // O canto de cima à esquerda do primeiro card, 3 px para dentro: fora
+          // dos 17 px da caixa, mas dentro do rótulo de 44 px.
+          const y = window.scrollY;
+          const primeiro = caixas[0];
+          let tocado = 'nada';
+          if (primeiro) {
+            primeiro.scrollIntoView({ block: 'center' });
+            const r = primeiro.getBoundingClientRect();
+            const ali = document.elementFromPoint(r.left + 3, r.top + 3);
+            tocado = ali ? (ali === primeiro || primeiro.contains(ali) ? 'rótulo' : ali.tagName + '.' + ali.className) : 'nada';
+          }
+          window.scrollTo(0, y);
+          return { caixas: caixas.length, pequenos, todos: todos ? tam(todos).h : 0, tocado };
+        });
+        registra(selecao.caixas === EVENTOS.length && selecao.pequenos.length === 0 && selecao.todos >= 44,
+          `${rotulo}: no modo "Selecionar vários", cada caixa de seleção recebe o toque em pelo menos 44 × 44, e o "Todos" tem 44 px de altura`,
+          { caixas: selecao.caixas, pequenos: selecao.pequenos, todos: selecao.todos });
+        registra(selecao.tocado === 'rótulo', `${rotulo}: o toque 3 px dentro do canto de cima de uma caixa (fora dos 17 px dela) cai no rótulo`, selecao.tocado);
+        await aciona(page.locator('#mass-toggle'), toque);
+        await espera(page, 300);
         const fonte = await page.evaluate(() => parseFloat(getComputedStyle(/** @type {Element} */ (document.getElementById('evt-search'))).fontSize));
         registra(fonte >= 16, `${rotulo}: campo com letra de 16 px (o iPhone não dá zoom ao tocar)`, { fonte });
       }
@@ -349,7 +381,30 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       if (toque) {
         const eram = await page.$$eval('#overlay details.bloco-form', ds => ds.map(d => { const era = /** @type {HTMLDetailsElement} */ (d).open; /** @type {HTMLDetailsElement} */ (d).open = true; return era; }));
         const naFolha = await alvosPequenos(page, '#overlay');
+        // Os toggles medem-se com os blocos ainda abertos. O trilho tem 26 px e
+        // fica no meio do rótulo de 44 px: a faixa de cima é só do rótulo.
+        const toggles = await page.evaluate(() => {
+          const vis = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+          const tam = (/** @type {Element} */ e) => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; };
+          const lista = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('#overlay label.toggle')]).filter(vis);
+          const pequenos = lista.filter(e => tam(e).w < 44 || tam(e).h < 44)
+            .map(e => ({ campo: e.querySelector('input')?.id || '', ...tam(e) }));
+          const corpo = /** @type {HTMLElement | null} */ (document.querySelector('#overlay .sheet-body'));
+          const rolagem = corpo ? corpo.scrollTop : 0;
+          const primeiro = lista[0];
+          let tocado = 'nada';
+          if (primeiro) {
+            primeiro.scrollIntoView({ block: 'center' });
+            const r = primeiro.getBoundingClientRect();
+            const ali = document.elementFromPoint(r.left + r.width / 2, r.top + 3);
+            tocado = ali ? (ali === primeiro || primeiro.contains(ali) ? 'rótulo' : ali.tagName + '.' + ali.className) : 'nada';
+          }
+          if (corpo) corpo.scrollTop = rolagem;
+          return { n: lista.length, pequenos, tocado };
+        });
         await page.$$eval('#overlay details.bloco-form', (ds, e) => ds.forEach((d, i) => { /** @type {HTMLDetailsElement} */ (d).open = e[i]; }), eram);
+        registra(toggles.n > 0 && toggles.pequenos.length === 0, `${rotulo}: os toggles da folha recebem o toque em pelo menos 44 × 44`, toggles.pequenos.length ? toggles.pequenos : { toggles: toggles.n });
+        registra(toggles.tocado === 'rótulo', `${rotulo}: o toque 3 px abaixo da borda de cima do primeiro toggle cai nele`, toggles.tocado);
         registra(naFolha.length === 0, `${rotulo}: todo alvo de toque da folha do formulário tem pelo menos 44 px`, naFolha.slice(0, 6));
       }
       if (!toque) {

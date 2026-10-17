@@ -214,7 +214,7 @@ export function cardProjetoPainel(e, h, marcado) {
   // transformação do deploy para pegar isso.
   const itemMenu = '<button type="button" class="menu-item" role="menuitem" data-id="' + id + '" data-action=';
   return '<div class="evt-item' + (visivel ? '' : ' hidden-evt') + (selecao ? ' com-check' : '') + '" id="evt-' + id + '">'
-    + (selecao ? '<input type="checkbox" class="evt-check" data-id="' + id + '" aria-label="Selecionar ' + titulo + '"' + (marcado ? ' checked' : '') + '>' : '')
+    + (selecao ? '<label class="evt-check-alvo"><input type="checkbox" class="evt-check" data-id="' + id + '" aria-label="Selecionar ' + titulo + '"' + (marcado ? ' checked' : '') + '></label>' : '')
     + thumb
     + '<div class="evt-info">'
     + '<div class="evt-name">' + titulo + '</div>'
@@ -636,7 +636,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     #mass-count{font-size:.75rem;color:var(--text3)}
     .mass-apply{display:flex;gap:.5rem;align-items:center;margin-left:auto}
     .mass-apply select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.45rem .6rem;border-radius:7px;font-size:.78rem;outline:none;-webkit-appearance:none}
-    .evt-item .evt-check{margin-right:.25rem}
+    .evt-check-alvo{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.25rem}
     /* category manager */
     .cat-list{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.125rem}
     .cat-chip{display:inline-flex;align-items:center;gap:.4rem;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.35rem .4rem .35rem .8rem;font-size:.78rem;color:var(--text2)}
@@ -696,6 +696,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       .cat-chip{padding:0 0 0 .8rem}
       .cat-chip button{width:44px;height:44px}
       .btn-sm{padding:0 1rem}
+      /* Toque: o tamanho visível fica igual; só a área que recebe o toque vai a
+         44 × 44. O trilho do toggle segue com 26 px, no meio dela; a margem
+         negativa da caixa usa o recheio do card, e o título perde pouca largura. */
+      .toggle{height:44px}
+      .toggle-track{top:9px;bottom:9px}
+      .evt-check-alvo{min-width:44px;min-height:44px;margin:0 -.25rem 0 -.6rem}
+      .mass-selall{min-height:44px}
     }
     /* No celular o menu é uma folha, com itens de 48 px (a regra de
        max-width:699px lá em cima); o bloco de toque acima, que vem depois no
