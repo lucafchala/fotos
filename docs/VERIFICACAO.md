@@ -193,7 +193,18 @@ registrando a largura/formato pedidos). Cobre:
   **não** oferece o código por e-mail (não é bloqueio);
 - **VPN/bloqueador** — Turnstile no `error-callback` → o modal já abre com a
   opção do código por e-mail; código errado mostra a mensagem do servidor,
-  código certo libera.
+  código certo libera;
+- **álbum restrito com o Turnstile bloqueado (#146)** — o pedido do script é
+  abortado, como um bloqueador faz: num álbum de família o campo do nome abre
+  sozinho e obrigatório, o aceite sem nome não pede o link (a dica diz o que
+  falta), digitar não dispara pedido a cada tecla e, ao sair do campo, o pedido
+  leva o nome inteiro; o 403 do teto (`usarEmail`) abre o código por e-mail com
+  a frase do servidor; o 400 com `campo: "nome"` numa página que não esperava
+  pedir abre o campo sem tela de erro; num álbum público o nome segue opcional.
+
+Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
+erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
+falhas já registradas. 46 checagens em 17/10/2026.
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a

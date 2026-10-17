@@ -163,6 +163,16 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 ### Segurança e LGPD
 
+- **Álbum de família ou privado: consentimento, não sigilo (#146).** A
+  decisão do dono sobre o caminho sem a verificação de segurança (Turnstile
+  bloqueado no navegador): ele continua entregando o álbum, mas pede o
+  **nome**, para o registro de consentimento não sair anônimo, e cada IP abre
+  no máximo **3 álbuns restritos diferentes por dia** por ele — o mesmo
+  álbum, quantas vezes precisar, então o público de um evento no Wi-Fi do
+  local não esbarra. Passado o teto, a página abre o código por e-mail. As
+  declarações foram reescritas para não soarem como senha ("Este é um álbum
+  de família: reconheço que as imagens são de uso estritamente particular e
+  doméstico."). Com o Turnstile, ou pelo código por e-mail, nada muda.
 - **Registro das operações (ROPA)**: §5 cobre a contagem por dia e por modo
   do portão (continua sem dado pessoal); §10, novo, registra o ambiente de
   prévia — com a limitação honesta de que nada lá é podado sozinho.

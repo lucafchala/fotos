@@ -77,10 +77,37 @@ issue before any public disclosure.
   served `X-Robots-Tag: noindex` (next bullet) so this path can't be reached
   by discovering the slug through search first — but the same noscript
   bypass still works against a restricted slug obtained any other way (direct
-  link, backlink). Tightening that further (per-event throttling, requiring a
-  real Turnstile pass for restricted events, or an identity requirement) is
-  an open decision the owner still needs to make, not something this
-  paragraph resolves on its own.
+  link, backlink).
+- **The owner's decision for `private`/`family` albums (#146, 2026-10):
+  consent, not confidentiality.** The declaration records how the visitor
+  agreed to use the photos; it is not an access barrier, and the album's Drive
+  link is anyone-with-the-link once released. So the noscript path stays —
+  but for a restricted album, and only on that path (the one with no
+  challenge), it is tightened:
+  - **a name is required** (2+ characters, at least one letter —
+    `nomeDeConsentimento()` in `src/utils.js`), so the consent record of an
+    unverified grant is not anonymous. It is not verified and can be made up;
+    what it changes is that a scripted grant now carries a declaration in
+    somebody's name. The page opens the field by itself and only asks for the
+    link once the name is there (`exigeNome()` in `src/ui/event.js`);
+  - **one IP opens at most 3 _distinct_ restricted albums in 24 h** this way
+    (`NOSCRIPT_RESTRITOS_POR_IP` in `src/config.js`), counted in D1 by the
+    same function the sweep alert uses (`concessoesSemTurnstile()`), IPv6 per
+    /64. It counts albums, not requests: the same album opens as often as
+    needed, so an event audience behind one venue NAT never gets near it. Past
+    the cap the answer is a 403 with `usarEmail`, and the page opens the
+    e-mail code straight away — that path proves a mailbox and is not capped
+    here. Known limits: IP rotation splits the count; two simultaneous
+    requests can both pass the check; with D1 down (or not configured) the
+    cap fails open and says so in `/api/healthz`.
+  - **the declarations were reworded** so they don't read as a password to a
+    lay guest: "Este é um álbum de família: reconheço que as imagens são de
+    uso estritamente particular e doméstico." instead of "Declaro ser membro
+    da família…". Each consent row keeps the exact text the person saw.
+  With Turnstile, or with the e-mail code, nothing changes: the name stays
+  optional and the cap doesn't apply. Closing the album for real
+  (per-person Drive sharing, guest sessions) remains outside what this
+  Worker can do, and is not the chosen model.
 - **A sweep through the noscript path now raises an alert — it does not
   block (#147).** After each noscript grant is logged, the Worker counts how
   many *distinct* projects that IP opened without Turnstile in the last 24 h;
@@ -125,10 +152,11 @@ issue before any public disclosure.
   delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
   a semantics decision.
 - **`private`/`family` events are excluded from `sitemap.xml` and served
-  `X-Robots-Tag: noindex`**, same as an unlisted one — the accessType
-  declaration gate exists to restrict the album to a member/participant, so
-  the page being search-indexable would work against that even though it's a
-  consent gate, not a confidentiality ACL. The event still opens on a direct
+  `X-Robots-Tag: noindex`**, same as an unlisted one — the album is meant
+  for the family or the event's participants (the declaration records that
+  use; it doesn't enforce it, see the #146 bullet above), so the page being
+  search-indexable would work against that even though it's a consent gate,
+  not a confidentiality ACL. The event still opens on a direct
   link and appears in the gallery/self-test like any other visible event;
   only search-engine discovery is affected (`isRestrictedAccess()` in
   `src/utils.js`).

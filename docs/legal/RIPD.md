@@ -32,8 +32,14 @@ do portão:
 | Categoria | O que é | Exigência no portão |
 | --- | --- | --- |
 | `public` | Evento sem expectativa de privacidade | Aceite dos Termos |
-| `private` | Evento fechado | Termos + declaração de participação/autorização |
-| `family` | Ensaio familiar, uso doméstico | Termos + declaração de vínculo familiar |
+| `private` | Evento fechado | Termos + reconhecimento de que o material é para uso pessoal, sem fim comercial |
+| `family` | Ensaio familiar, uso doméstico | Termos + reconhecimento de que as imagens são de uso particular e doméstico |
+
+A declaração registra o uso combinado; **não é barreira de acesso** — o link
+do Drive, liberado, abre para quem o tiver (#146, modelo "consentimento, não
+sigilo"). Sem a verificação de segurança (Turnstile bloqueado no navegador),
+álbum restrito pede também o **nome**, para o registro não sair anônimo, e
+cada IP abre no máximo 3 álbuns restritos distintos por dia por esse caminho.
 
 ## 2. Necessidade e proporcionalidade
 

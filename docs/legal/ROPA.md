@@ -37,7 +37,7 @@ esquema em `migrations/0001_consent.sql` e `0002_access_type.sql`; escrita em
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | `created_at`, `event_slug`, `event_title`, `drive_target`, `access_type`, `terms_version`, `terms_hash`, `consent_text`, `declaration_text`, `consenter_name` (opcional, informado pelo titular), `turnstile_ok` (como a pessoa foi verificada: `0` nenhuma — caminho sem Turnstile; `1` Turnstile; `2` código por e-mail, seção 9), `ip`, `country`, `region`, `city`, `timezone`, `asn`, `as_org`, `colo`, `user_agent`, `accept_language`, `referrer`, `page_url`. |
+| **Dados** | `created_at`, `event_slug`, `event_title`, `drive_target`, `access_type`, `terms_version`, `terms_hash`, `consent_text`, `declaration_text`, `consenter_name` (informado pelo titular: opcional, exceto em álbum de família ou privado aberto sem a verificação de segurança, em que é obrigatório — #146), `turnstile_ok` (como a pessoa foi verificada: `0` nenhuma — caminho sem Turnstile; `1` Turnstile; `2` código por e-mail, seção 9), `ip`, `country`, `region`, `city`, `timezone`, `asn`, `as_org`, `colo`, `user_agent`, `accept_language`, `referrer`, `page_url`. |
 | **Titulares** | Quem acessa as fotos de um evento. |
 | **Origem** | Formulário do gate (nome) + cabeçalhos e metadados da requisição (o resto). |
 | **Finalidade** | Comprovar **quando, por quem e sob qual texto exato** a autorização de uso de imagem foi dada. É a prova de não-repúdio: cada registro guarda a versão dos Termos **e o hash SHA-256 do HTML exibido**, então o texto aceito é reconstituível mesmo depois de os Termos mudarem. |

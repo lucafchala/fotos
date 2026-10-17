@@ -154,7 +154,12 @@ fragilidades conhecidas, com o motivo de cada uma:
    varredura por esse caminho gera alerta, mas não é bloqueada: 5 ou mais
    projetos distintos do mesmo IP em 24 h mandam e-mail ao controlador
    (`checkNoscriptSweep()` em `src/index.js`, `sendNoscriptSweepAlert()` em
-   `src/utils.js`).
+   `src/utils.js`). Para álbum de família ou privado o modelo é
+   **consentimento, não sigilo** (#146): por esse caminho o nome passa a ser
+   obrigatório, para o registro não sair anônimo, e cada IP abre no máximo 3
+   álbuns restritos distintos em 24 h — passado o teto, o portão oferece o
+   código por e-mail. A declaração registra o uso combinado; não é barreira
+   de acesso.
 4. **Sem segundo fator no painel.** Registrado no TODO (magic link ou TOTP).
 5. **Sem COEP.** `require-corp` quebraria as imagens do
    `lh3.googleusercontent.com`, que não enviam CORP.
