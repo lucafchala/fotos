@@ -13,9 +13,11 @@
 // aparelho (iPhone, Android, computador):
 //   entrar → criar um evento → editar e marcar entregue → ocultar pelo menu
 //   "Mais ações" → resolver um pedido de remoção → trocar a senha (e entrar de
-//   novo com ela) → baixar o backup (no computador) → a sessão cair no meio de
-//   uma edição (e o rascunho voltar) → excluir o evento de teste → o backup,
-//   com a sessão caída, leva ao login.
+//   novo com ela) → "Sair dos outros aparelhos" (um segundo navegador logado
+//   cai no login; este fica) → baixar o backup (no computador; a linha "Último
+//   backup" passa a dizer hoje) → a sessão cair no meio de uma edição (e o
+//   rascunho voltar) → excluir o evento de teste → o backup, com a sessão
+//   caída, leva ao login.
 // E, no caminho, o que só um navegador mostra: a navegação no lugar certo
 // (barra de baixo no celular, lateral no computador), nada vazando para o
 // lado, alvos de toque de 44 px, campo que não dá zoom no iPhone, menu com
@@ -115,6 +117,9 @@ function contadoresSinteticos() {
 }
 const CONTADORES = contadoresSinteticos();
 
+// O pixel que vale por toda capa do lh3 (vermelho — por isso as miniaturas das capturas são quadrados vermelhos).
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
 
 /**
@@ -133,10 +138,7 @@ async function abre(viewport, dpr, toque) {
     if (/Content Security Policy/i.test(t) && !/Report Only/i.test(t)) estado.csp.push(t.slice(0, 160));
   });
   // Miniaturas do lh3: um pixel basta (o painel não depende da imagem).
-  await page.route(/lh3\.googleusercontent\.com/, r => r.fulfill({
-    contentType: 'image/png',
-    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
-  }));
+  await page.route(/lh3\.googleusercontent\.com/, r => r.fulfill({ contentType: 'image/png', body: PIXEL }));
   await entraNoPainel(page, w.url);
   return { w, ctx, page, estado };
 }
@@ -715,6 +717,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await page.waitForSelector('#tab-settings.active');
       const grupos = await page.locator('.grupo-titulo').allTextContents();
       registra(grupos.join('|') === 'Site|Dados|Conta|Sobre', `${rotulo}: ajustes em quatro grupos (o último diz a versão)`, grupos);
+      // Lembrete de backup: a semente não tem `backup:ultimo`, então a linha
+      // avisa — com o texto E com o fundo âmbar do .aviso aplicado de verdade
+      // (rgb de #1a1408), não só a classe no elemento.
+      const linhaBackup = () => page.locator('#backup-ultimo').evaluate(e => ({ texto: (e.textContent || '').trim(), aviso: e.classList.contains('aviso'), fundo: getComputedStyle(e).backgroundColor }));
+      const semBackup = await linhaBackup();
+      registra(semBackup.texto === 'Nenhum backup baixado ainda.' && semBackup.aviso && semBackup.fundo === 'rgb(26, 20, 8)',
+        `${rotulo}: sem backup baixado, a linha de Ajustes avisa "Nenhum backup baixado ainda." em âmbar`, semBackup);
       await print(page, `${id}-ajustes`);
       if (toque) {
         const emAjustes = await alvosPequenos(page, '#tab-settings');
@@ -744,6 +753,68 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const comNova = await tentaEntrar(SENHA_NOVA);
       registra(comNova === 'entrou' && (await page.locator('nav.nav').count()) === 1, `${rotulo}: entrar de novo com a senha nova`, comNova);
 
+      // ---- 7b. Sair dos outros aparelhos ---------------------------------------
+      // Um segundo aparelho (outro contexto do navegador, com os cookies dele)
+      // entra com a senha nova. Este pede "Sair dos outros aparelhos": o outro cai
+      // no login no gesto seguinte, e este continua — com uma sessão MAIS VELHA
+      // que o corte, que só passa por ser a de quem pediu.
+      //
+      // O KV deste roteiro é um Map, forte e sem cache: o buraco do KV de verdade
+      // (o apagamento que ainda não chegou a outro local, e a renovação que
+      // ressuscita o registro) não acontece sozinho. Então ele é feito à mão: o
+      // registro apagado do outro aparelho é posto de volta no KV, como a
+      // renovação de um local com cache velho o poria — e o marcador de revogação
+      // tem de recusá-lo do mesmo jeito.
+      await someAviso(page);
+      await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
+      await page.waitForSelector('#tab-settings.active');
+      const sessoesNoKv = () => [...w.kv.keys()].filter(k => k.startsWith('admin_session:'));
+      const desteAparelho = sessoesNoKv();
+      const ctx2 = await browser.newContext({ viewport, deviceScaleFactor: dpr, hasTouch: toque, isMobile: toque });
+      try {
+        const page2 = await ctx2.newPage();
+        page2.on('pageerror', e => estado.erros.push('[2º aparelho] ' + String(e)));
+        await page2.route(/lh3\.googleusercontent\.com/, r => r.fulfill({ contentType: 'image/png', body: PIXEL }));
+        await entraNoPainel(page2, w.url, SENHA_NOVA);
+        const comOsDois = sessoesNoKv();
+        const chaveDoOutro = comOsDois.find(k => !desteAparelho.includes(k)) || '';
+        const registroDoOutro = w.kv.get(chaveDoOutro) || '';
+        registra(desteAparelho.length === 1 && comOsDois.length === 2 && !!registroDoOutro,
+          `${rotulo}: com o segundo aparelho dentro, há duas sessões abertas`, { desteAparelho: desteAparelho.length, comOsDois: comOsDois.length });
+
+        const botaoSessoes = page.locator('[data-onclick="revokeOtherSessions"]');
+        await aciona(botaoSessoes, toque);
+        await page.waitForSelector('.confirm-ok');
+        const pedeDigitar = await page.locator('.confirm-type-input').count();
+        await aciona(page.locator('.confirm-ok'), toque);
+        const msgSessoes = await aviso(page);
+        registra(pedeDigitar === 0 && msgSessoes === '1 sessão encerrada.' && (await botaoSessoes.isEnabled()),
+          `${rotulo}: "Sair dos outros aparelhos" pede uma confirmação simples (sem digitar) e o aviso diz "1 sessão encerrada."`, { pedeDigitar, msgSessoes });
+
+        const restaram = sessoesNoKv();
+        const corte = JSON.parse(w.kv.get('admin_sessions_corte') || '{}');
+        registra(restaram.length === 1 && restaram[0] === desteAparelho[0] && typeof corte.antes === 'number' && /^[0-9a-f]{64}$/.test(corte.exceto),
+          `${rotulo}: no KV só fica a sessão deste aparelho, e o corte (o marcador de revogação) fica gravado`, { restaram: restaram.length, corte });
+
+        // O registro apagado volta ao KV (a renovação de um local com cache velho).
+        w.kv.set(chaveDoOutro, registroDoOutro);
+        /** @type {string[]} */
+        const dialogosDoOutro = [];
+        page2.on('dialog', d => { dialogosDoOutro.push(d.type()); d.accept().catch(() => {}); });
+        // O gesto seguinte do outro aparelho: abrir Métricas pede dados ao servidor.
+        await aciona(page2.locator('nav.nav [data-tab="metrics"]'), toque);
+        const outroNoLogin = await page2.waitForSelector('form[action="/dashboard/login"]', { timeout: 8000 }).then(() => true, () => false);
+        registra(outroNoLogin, `${rotulo}: o outro aparelho, no gesto seguinte, cai no login — mesmo com o registro posto de volta no KV (o marcador o recusa)`, { outroNoLogin, dialogosDoOutro });
+        registra(!w.kv.has(chaveDoOutro), `${rotulo}: o registro ressuscitado é apagado de novo`, w.kv.has(chaveDoOutro));
+
+        // Este aparelho continua dentro: recarregar devolve o painel, não o login.
+        await page.reload();
+        registra((await page.locator('nav.nav').count()) === 1 && (await page.locator('form[action="/dashboard/login"]').count()) === 0,
+          `${rotulo}: este aparelho continua logado depois do corte (a sessão dele é mais velha que o corte)`, page.url());
+      } finally {
+        await ctx2.close();
+      }
+
       // Só no computador: o download e o aviso de saída são o mesmo código no celular.
       if (!toque) {
         await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
@@ -756,6 +827,12 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         const backup = caminhoBackup ? (() => { try { return JSON.parse(readFileSync(caminhoBackup, 'utf8')); } catch { return {}; } })() : {};
         registra(/^fotos-backup-.*\.json$/.test(baixado.suggestedFilename()) && Array.isArray(backup.events),
           `${rotulo}: "Baixar backup" baixa fotos-backup-AAAA-MM-DD.json, com a lista de eventos`, baixado.suggestedFilename());
+        // A linha de Ajustes muda no lugar — sem recarregar — assim que o fetch do
+        // backup termina, e sai do aviso.
+        await page.waitForFunction(() => (document.getElementById('backup-ultimo')?.textContent || '').startsWith('Último backup'), null, { timeout: 4000 }).catch(() => {});
+        const depoisDoBackup = await linhaBackup();
+        registra(depoisDoBackup.texto === 'Último backup: hoje' && !depoisDoBackup.aviso && depoisDoBackup.fundo === 'rgba(0, 0, 0, 0)',
+          `${rotulo}: "Baixar backup" muda a linha para "Último backup: hoje", sem recarregar e sem o aviso`, depoisDoBackup);
 
         // Ajustes com texto não salvo: recarregar pergunta "Sair do site?" (uma
         // vez), e o dispensar mantém a página e o texto. Sem texto, não pergunta.
@@ -785,6 +862,11 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         await page.waitForSelector('#tab-settings.active', { timeout: 5000 });
         const recarregou = await page.evaluate(() => window.__antesDoRecarregar === undefined);
         registra(avisosLimpo.length === 0 && recarregou, `${rotulo}: Ajustes sem texto não salvo: recarregar não pergunta nada`, { avisosLimpo, recarregou });
+        // Recarregada de verdade, a linha vem do servidor: ele gravou backup:ultimo
+        // no download, e a página o leu na abertura.
+        const doServidor = await linhaBackup();
+        registra(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(w.kv.get('backup:ultimo') || '') && doServidor.texto === 'Último backup: hoje' && !doServidor.aviso,
+          `${rotulo}: recarregar a página mantém "Último backup: hoje" (o servidor gravou backup:ultimo e a página o leu)`, { gravado: w.kv.get('backup:ultimo'), doServidor });
       }
 
       // ---- 8. A sessão cai no meio de uma edição -----------------------------
@@ -869,8 +951,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);
       registra(estado.csp.length === 0, `${rotulo}: nenhuma violação da CSP aplicada`, estado.csp);
       const chaves = [...new Set(w.escritas.map(k => k.replace(/^admin_session:.*/, 'admin_session:*').replace(/^removal_request:.*/, 'removal_request:*')))].sort();
-      registra(chaves.every(k => ['admin_password', 'admin_session:*', 'events', 'removal_request:*'].includes(k)),
-        `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, chaves);
+      // Só o computador baixa o backup, então só nele `backup:ultimo` é esperado.
+      // A conta é exata de propósito: uma escrita a mais numa chave permitida
+      // também gasta a cota (16 por aparelho; 17 no computador — docs/PAINEL.md §15.2).
+      const permitidas = ['admin_password', 'admin_session:*', 'admin_sessions_corte', 'events', 'removal_request:*', ...(toque ? [] : ['backup:ultimo'])];
+      const esperadas = toque ? 16 : 17;
+      registra(chaves.every(k => permitidas.includes(k)) && w.escritas.length === esperadas,
+        `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, { chaves, esperadas });
     } finally {
       await ctx.close();
       await w.fecha();
