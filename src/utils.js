@@ -381,6 +381,58 @@ export async function saveAgenda(env, texto) {
   _agendaAt = Date.now();
 }
 
+// Lembrete de backup (Ajustes → Dados): a hora em que o painel entregou o
+// último arquivo, em ISO. Não há backup automático, e o que o dono vê é "há N
+// dias" — a conta é do navegador, por dia de São Paulo. O instante é o da
+// ENTREGA: o servidor não sabe se o arquivo foi salvo, só que saiu.
+export const BACKUP_ULTIMO_KEY = 'backup:ultimo';
+
+// O valor vai para dentro de uma página, então só passa a forma que NÓS
+// gravamos (toISOString); qualquer outra coisa conta como "nunca". O instante
+// de volta tem de dar o mesmo texto: 31/02 o Date "corrige" para março em
+// silêncio, e o lembrete mostraria uma data que ninguém gravou.
+/**
+ * @param {unknown} v
+ * @returns {string|null}
+ */
+export function limpaBackupUltimo(v) {
+  if (typeof v !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d{1,3})?Z$/.exec(v);
+  const t = m ? Date.parse(v) : NaN;
+  return m && Number.isFinite(t) && new Date(t).toISOString().startsWith(m[1]) ? v : null;
+}
+
+// Nunca lança: o lembrete é enfeite, e uma leitura que falha não pode virar
+// "painel indisponível" — sai como se nunca tivesse havido backup, e a falha
+// vai para o healthz.
+/**
+ * @param {Env} env
+ * @returns {Promise<string|null>}
+ */
+export async function getUltimoBackup(env) {
+  try {
+    return limpaBackupUltimo(await env.FOTOS.get(BACKUP_ULTIMO_KEY, { cacheTtl: KV_CACHE_TTL_S }));
+  } catch (e) {
+    noteKvFailure('leitura', e, 'último backup');
+    return null;
+  }
+}
+
+// Uma escrita por download. Nunca rejeita: quem chama a entrega a `waitUntil`
+// (ou a aguarda), e a recusa do KV — a cota de 1000/dia — vira aviso no healthz
+// em vez de derrubar um download que já está pronto.
+/**
+ * @param {Env} env
+ * @returns {Promise<void>}
+ */
+export async function registraUltimoBackup(env) {
+  try {
+    await env.FOTOS.put(BACKUP_ULTIMO_KEY, new Date().toISOString());
+  } catch (e) {
+    noteKvFailure('escrita', e, 'registro do último backup');
+  }
+}
+
 
 /**
  * @param {string} hex
@@ -396,6 +448,15 @@ function hexToBytes(hex) {
  */
 function bytesToHex(u8) {
   return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * SHA-256 de um texto, em hexadecimal minúsculo.
+ * @param {string} s
+ */
+export async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return bytesToHex(new Uint8Array(buf));
 }
 
 /**
@@ -480,6 +541,24 @@ export const SESSION_COOKIE = '__Host-session';
 export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
 export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
 const SESSION_REFRESH_SECS = 600;          // só reescreve o "lastSeen" a cada 10 min
+
+// Marcador de revogação (ver `encerraOutrasSessoes`): "toda sessão aberta antes
+// de `antes` morre, menos a de quem pediu". Mora numa chave própria, e não em
+// cada registro, por causa do KV: ele é eventualmente consistente, e um
+// apagamento só chega a outro local da Cloudflare quando o cache de lá vence.
+// Nessa janela o aparelho revogado ainda é aceito — e, se a renovação do
+// `lastSeen` (a cada 10 min) cair nela, o `put` do verifySession RESSUSCITA o
+// registro apagado, por mais 24 h. O registro ressuscitado guarda o `createdAt`
+// antigo, então o marcador o derruba assim que chega ao local: a janela cai de
+// "até 24 h" para o cacheTtl da leitura (30 s, o mínimo do KV).
+export const CORTE_DE_SESSOES_KEY = 'admin_sessions_corte';
+// Passadas 25 h, toda sessão anterior ao corte já estourou o teto de 24 h por
+// si, e o marcador não tem mais o que cortar.
+const CORTE_TTL_SECS = SESSION_TTL_SECS + 3600;
+// Relógios de locais diferentes divergem em milissegundos. Um `antes` mais de
+// 1 min À FRENTE de agora não é divergência, é lixo — e valeria contra a sessão
+// que o dono abrir depois, trancando-o fora do painel por até 25 h.
+const CORTE_FUTURO_MAX_MS = 60_000;
 
 /**
  * @param {string} token
@@ -574,9 +653,35 @@ function parseSessionRecord(raw) {
   return rec;
 }
 
-// Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
-// uma comparação com a string 'valid', sem inatividade nem vínculo com o
-// cliente que abriu a sessão.
+// Marcador ausente = sem corte. Marcador ilegível TAMBÉM = sem corte, mas
+// avisado: tratá-lo como corte total trancaria o dono fora do painel por causa
+// de um valor corrompido, e calar deixaria a revogação de deixar de valer sem
+// ninguém saber (o aviso fica em /api/healthz até o próximo "sair dos outros
+// aparelhos" regravar a chave).
+/**
+ * @param {string|null} raw
+ * @param {number} now
+ * @returns {{ antes: number, exceto: string } | null}
+ */
+function parseCorte(raw, now) {
+  if (raw === null || raw === undefined) return null;
+  let c;
+  try { c = JSON.parse(raw); } catch { c = null; }
+  if (!c || typeof c !== 'object' || Array.isArray(c)
+    || typeof c.antes !== 'number' || !Number.isFinite(c.antes) || c.antes > now + CORTE_FUTURO_MAX_MS
+    || typeof c.exceto !== 'string' || !/^[0-9a-f]{64}$/.test(c.exceto)) {
+    noteDegraded(
+      'marcador de revogação de sessões ilegível',
+      `${CORTE_DE_SESSOES_KEY} está fora da forma esperada e foi ignorado: a revogação de sessões pode não valer em outro local até "Sair dos outros aparelhos" regravá-lo`,
+    );
+    return null;
+  }
+  return { antes: c.antes, exceto: c.exceto };
+}
+
+// Encerra a sessão por TTL, inatividade, fingerprint trocado OU revogação
+// (marcador de `encerraOutrasSessoes`) — antes era só uma comparação com a
+// string 'valid', sem inatividade nem vínculo com o cliente que abriu a sessão.
 /**
  * @param {Env} env
  * @param {Request} request
@@ -588,7 +693,15 @@ export async function verifySession(env, request) {
   if (!token) return false;
 
   const key = `admin_session:${token}`;
-  const raw = await env.FOTOS.get(key);
+  // O registro e o marcador de revogação vêm juntos (uma ida só ao KV), os dois
+  // com o cacheTtl mínimo: o padrão do KV é 60 s de cache em cada local, e é
+  // nessa janela que um aparelho já revogado ainda passa. Falha de leitura de
+  // qualquer um PROPAGA, como a do registro sempre propagou: quem chama
+  // responde 503 e o painel falha FECHADO, nunca aberto.
+  const [raw, rawCorte] = await Promise.all([
+    env.FOTOS.get(key, { cacheTtl: KV_CACHE_TTL_S }),
+    env.FOTOS.get(CORTE_DE_SESSOES_KEY, { cacheTtl: KV_CACHE_TTL_S }),
+  ]);
   if (!raw) return false;
 
   // O valor legado `'valid'` (sessão sem metadado, anterior a 2026-08) não
@@ -622,6 +735,15 @@ export async function verifySession(env, request) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
+  // Revogada por "sair dos outros aparelhos" ou pela troca de senha: aberta
+  // antes do corte, e não é a sessão de quem o pediu. ANTES da renovação logo
+  // abaixo, de propósito — é o `put` dela que ressuscitaria o registro. A conta
+  // do hash só roda para quem está antes do corte (raro), não a cada pedido.
+  const corte = parseCorte(rawCorte, now);
+  if (corte && createdAt < corte.antes && !timingSafeEqual(await sha256Hex(token), corte.exceto)) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
 
   // Renovação travada a 1x/10min por sessão, não por requisição: o painel faz
   // várias chamadas por tela e a cota de escrita do KV é 1000/dia.
@@ -632,6 +754,48 @@ export async function verifySession(env, request) {
       .catch(e => noteKvFailure('escrita', e, 'session refresh'));
   }
   return true;
+}
+
+// Encerra o painel em todos os aparelhos MENOS o de quem pediu. É a ÚNICA
+// implementação: o "Sair dos outros aparelhos" (POST /api/sessions/revoke-others)
+// e a troca de senha chamam esta função — uma regra escrita duas vezes é
+// corrigida uma vez só.
+//
+// O marcador vai PRIMEIRO, de propósito: ele é a revogação de verdade. Vale em
+// qualquer local, inclusive para o registro que o apagamento ainda não
+// alcançou, que o `list` (também eventual) não enxergou ou que uma renovação
+// ressuscitou; apagar os registros é a faxina. Se a varredura cair no meio, o
+// corte já vale.
+//
+// Custo: 1 put + 1 list (mais um por 1000 chaves) + 1 delete por sessão, tudo da
+// cota de escrita do KV (1000/dia). Falha LANÇA — quem chama decide a resposta —
+// e repetir é seguro.
+/**
+ * @param {Env} env
+ * @param {string} tokenAtual o token do pedido: a sessão que fica
+ * @returns {Promise<number>} quantas sessões foram encerradas
+ */
+export async function encerraOutrasSessoes(env, tokenAtual) {
+  await env.FOTOS.put(
+    CORTE_DE_SESSOES_KEY,
+    JSON.stringify({ antes: Date.now(), exceto: await sha256Hex(tokenAtual) }),
+    { expirationTtl: CORTE_TTL_SECS },
+  );
+  const fica = `admin_session:${tokenAtual}`;
+  let encerradas = 0;
+  // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
+  // sessões que o normal, que é justamente quando isto importa de verdade.
+  /** @type {string|undefined} */
+  let cursor;
+  do {
+    /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
+    const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
+    const outras = page.keys.map(k => k.name).filter(nome => nome !== fica);
+    await Promise.all(outras.map(nome => env.FOTOS.delete(nome)));
+    encerradas += outras.length;
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return encerradas;
 }
 
 // Cota de escrita do KV: 1000/dia na conta toda, e passada ela a escrita

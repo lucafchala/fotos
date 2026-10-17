@@ -17,9 +17,9 @@ import { ehPrevia, fetchDaPrevia } from './previa.js';
 import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
-  getAgenda, saveAgenda, limpaAgenda,
-  hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
+  hashPassword, verifyPassword, generateToken, sha256Hex,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
@@ -284,8 +284,11 @@ const worker = {
       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
       if (path === '/api/metrics/diario' && method === 'GET') return handleMetricsDiario(request, env, url);
       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
+      if (path === '/api/sessions/revoke-others' && method === 'POST') return handleRevokeOtherSessions(request, env);
       if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
-      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
+      // HEAD chega aqui como GET (ver o topo do fetch): ele não baixa nada, então
+      // não pode marcar um backup como feito.
+      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env, ctx, interno.headOnly === true);
       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
 
@@ -710,10 +713,12 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   const [events, categories] = dados;
-  // Fora do `try` acima de propósito: getAgenda não lança, e o selo não pode
-  // ser motivo de "painel indisponível".
-  const agenda = await getAgenda(env, true);
-  return adminHtml(dashboardHTML(events, categories, nonce, agenda), 200, nonce);
+  // Fora do `try` acima de propósito: getAgenda e getUltimoBackup não lançam, e
+  // nem o selo nem o lembrete de backup podem ser motivo de "painel
+  // indisponível". Lidos juntos: o lembrete custa uma leitura de KV por abertura
+  // do painel, sem uma ida a mais.
+  const [agenda, backupUltimo] = await Promise.all([getAgenda(env, true), getUltimoBackup(env)]);
+  return adminHtml(dashboardHTML(events, categories, nonce, agenda, backupUltimo), 200, nonce);
 }
 
 // Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
@@ -1736,41 +1741,72 @@ export async function handleChangePassword(request, env, ctx) {
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
-  // trocando é preservada; o resto é revogado. Best-effort: falha aqui não
-  // desfaz a troca de senha, que já valeu.
+  // trocando é preservada; o resto é revogado — pela MESMA função do "Sair dos
+  // outros aparelhos", que além de apagar os registros grava o marcador de
+  // revogação: só apagar deixava o cookie roubado valer por até 60 s noutro
+  // local e, se a renovação do lastSeen caísse nessa janela, ressuscitava a
+  // sessão por mais 24 h. Best-effort: falha aqui não desfaz a troca de senha,
+  // que já valeu.
   try {
     // Mesmo leitor do `verifySession`: a sessão preservada tem de ser a que
     // está fazendo a troca. Com o padrão antigo, um cookie legado plantado
     // fazia a varredura poupar o token do vizinho e apagar o do próprio admin,
     // deslogando quem acabou de trocar a senha. Ver utils.js.
     const currentToken = sessionTokenFromRequest(request);
-    // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
-    // sessões que o normal, que é justamente quando isto importa de verdade.
-    let cursor;
-    do {
-      /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
-      const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
-      await Promise.all(
-        page.keys
-          .filter(k => k.name !== `admin_session:${currentToken}`)
-          .map(k => env.FOTOS.delete(k.name))
-      );
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
+    if (currentToken) await encerraOutrasSessoes(env, currentToken);
   } catch (e) {
-    // Se a varredura falha, sessões antigas continuam abrindo o painel por
-    // até 24h enquanto o admin acha que fechou a porta — precisa aparecer,
-    // não só um console.error. (Promise.all acima rejeita no 1º delete que
-    // falhar, então a varredura pode ter sido parcial.)
+    // Se a revogação falha, sessões antigas podem continuar abrindo o painel
+    // por até 24h enquanto o admin acha que fechou a porta — precisa
+    // aparecer, não só um console.error. (A varredura rejeita no 1º delete que
+    // falhar, então pode ter sido parcial; o marcador, gravado antes, já vale
+    // se foi ele que passou.)
     noteDegraded(
       'troca de senha não encerrou as outras sessões',
-      'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
+      'o KV recusou gravar o marcador de revogação ou apagar os registros; a senha nova já vale, mas sessões antigas podem seguir abertas até expirarem',
       e,
     );
     ctx?.waitUntil(sendErrorAlert(env, e, { path: 'PUT /api/settings/password (session sweep)' }).catch(() => {}));
   }
 
   return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Sair dos outros aparelhos
+// ---------------------------------------------------------------------------
+// Encerra o painel em todos os aparelhos menos o de quem pede — o que se faz
+// ao perder o celular ou esquecer o painel aberto num computador alheio, sem
+// precisar trocar a senha. A implementação é `encerraOutrasSessoes` (utils.js),
+// a mesma da troca de senha; ver lá o marcador de revogação.
+//
+// POST sem corpo: admin-only (checkAuth) e atrás do portão de origem do
+// roteador, que vale para todo método que escreve. Custo: 1 put + 1 list + 1
+// delete por sessão encerrada (cota de escrita do KV: 1000/dia).
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleRevokeOtherSessions(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  // checkAuth acabou de aceitar um token, então ele existe; o teste é só para o
+  // tipo — e para nunca varrer "todas menos null".
+  const token = sessionTokenFromRequest(request);
+  if (!token) return jsonErr('Não autorizado.', 401);
+
+  let encerradas;
+  try {
+    encerradas = await encerraOutrasSessoes(env, token);
+  } catch (e) {
+    // Sem o 500 genérico (e o e-mail de "erro no site"): a causa realista é o
+    // KV recusando escrita, e o painel só precisa dizer isso. A varredura pode
+    // ter sido parcial — repetir é seguro, e o marcador (gravado antes) já vale
+    // se foi ele que passou.
+    noteKvFailure('escrita', e, 'encerrar as outras sessões do painel');
+    return jsonErr('Não deu para encerrar as outras sessões: o banco de dados do site não respondeu. Tente de novo em alguns minutos.', 503);
+  }
+  return jsonOk({ ok: true, encerradas });
 }
 
 // ---------------------------------------------------------------------------
@@ -2815,12 +2851,6 @@ function tooManyRequests(retryAfter) {
   return res;
 }
 
-/** @param {string} s */
-async function sha256Hex(s) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 // O último recurso do portão do Drive: um código de 6 dígitos por e-mail, para
 // quem não passa pelo Turnstile (VPN, bloqueador que quebra o desafio) ou
 // esgotou as tentativas. O objetivo do site é a foto chegar — este caminho
@@ -3599,18 +3629,31 @@ export function mergeRestore(current, backupEvents) {
   return { events: result, added, updated, skipped };
 }
 
+// Marca o instante da entrega em `backup:ultimo` (o lembrete "último backup há N
+// dias" do painel). Só depois de o arquivo estar pronto — um backup que falhou
+// não conta — e fora do caminho da resposta: o download não espera o KV nem
+// falha por ele (a recusa vai para o healthz, ver registraUltimoBackup).
+// `headOnly`: HEAD não baixa nada. Uma escrita por download.
 /**
  * @param {Request} request
  * @param {Env} env
+ * @param {ExecutionContext} [ctx]
+ * @param {boolean} [headOnly]
  */
-async function handleGetBackup(request, env) {
+export async function handleGetBackup(request, env, ctx, headOnly = false) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const [events, categories, removalRequests] = await Promise.all([
     getEvents(env, true), getCategories(env), listaPedidos(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup({ events, categories, removalRequests }), {
+  const arquivo = buildBackup({ events, categories, removalRequests });
+  if (!headOnly) {
+    const marcado = registraUltimoBackup(env);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(marcado);
+    else await marcado;
+  }
+  return new Response(arquivo, {
     headers: {
       // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
       // remoção, com e-mail e telefone de cada titular.

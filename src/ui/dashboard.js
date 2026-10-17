@@ -21,6 +21,10 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
    que os 3:1 que o foco precisa). O !important é o que vence as regras com
    classe e os estilos em linha. */
 input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #c0a060!important;outline-offset:1px}
+/* O aviso âmbar (atenção que não é erro). Mora aqui, e não no CSS do login,
+   porque o painel o usa também (o lembrete de backup, em Ajustes): uma regra,
+   uma cor, dois lugares. */
+.aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
 `;
 
 // Sem modo "criar senha": o painel NÃO tem trust-on-first-use. Sem credencial
@@ -80,7 +84,6 @@ export function loginHTML(opts = {}, nonce = '') {
     .btn-primary:disabled{opacity:.45;cursor:not-allowed}
     .cf-turnstile{min-height:65px;margin-bottom:.75rem}
     .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:var(--red-texto);font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
-    .aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
   </style>
 </head>
 <body>
@@ -244,10 +247,12 @@ export function cardProjetoPainel(e, h, marcado) {
  * @param {string[]} [categories]
  * @param {string} [nonce]
  * @param {string} [agenda] selo de agenda (#211)
+ * @param {string|null} [backupUltimo] ISO do último backup baixado (o lembrete de Ajustes → Dados); null = nunca
  */
-export function dashboardHTML(events, categories = [], nonce = '', agenda = '') {
+export function dashboardHTML(events, categories = [], nonce = '', agenda = '', backupUltimo = null) {
   const eventsJSON = jsonParaScript(events);
   const categoriesJSON = jsonParaScript(categories);
+  const backupUltimoJSON = jsonParaScript(typeof backupUltimo === 'string' ? backupUltimo : null);
 
   const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
   const catOptionsBody = categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
@@ -525,6 +530,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .views-badge{background:var(--bg3);padding:.2rem .6rem;border-radius:20px;font-size:.75rem;font-weight:500;color:var(--text2)}
     /* ajustes: os blocos usam .bloco; aqui só o que é deles */
     .bloco .field:last-of-type{margin-bottom:.75rem}
+    /* Lembrete de backup: em dia, só texto; sem backup ou com mais de 30 dias,
+       ganha o .aviso (BASE). A margem de baixo do aviso sai: o botão que vem
+       depois já tem a dele. */
+    .backup-ultimo{font-size:.8rem;color:var(--text2);margin-top:1rem}
+    .backup-ultimo.aviso{margin-bottom:0}
     .arquivo{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:9px;font-size:.82rem;width:100%}
     /* form overlay */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:none;align-items:flex-end;justify-content:center}
@@ -941,6 +951,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         <div class="bloco">
           <h3>Backup dos dados</h3>
           <p class="bloco-desc">Uma cópia completa: eventos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
+          <p class="backup-ultimo" id="backup-ultimo"></p>
           <button class="btn-sm" style="margin-top:1rem" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
         </div>
         <div class="bloco">
@@ -982,6 +993,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
             <input type="password" id="new-pass2" placeholder="••••••••" autocomplete="new-password" minlength="${PASSWORD_MIN_LENGTH}">
           </div>
           <button class="btn-danger" data-onclick="changePassword">Salvar nova senha</button>
+        </div>
+        <div class="bloco" id="bloco-sessoes">
+          <h3>Sair dos outros aparelhos</h3>
+          <p class="bloco-desc">Encerra a sessão do painel em todos os aparelhos, menos neste. Em outro lugar, pode levar até 30 s.</p>
+          <button class="btn-sm" style="margin-top:1rem" data-onclick="revokeOtherSessions">Sair dos outros aparelhos</button>
         </div>
       </div>
     </div>
@@ -1215,6 +1231,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     let events = ${eventsJSON};
     let categories = ${categoriesJSON};
+    // O último backup baixado (ISO), ou null: Ajustes → Dados escreve o "há N
+    // dias" daqui (mostraUltimoBackup), e downloadBackup() o atualiza no lugar.
+    let backupUltimo = ${backupUltimoJSON};
     // Ícones e card de evento: a MESMA fonte do servidor. O card é o código da
     // função cardProjetoPainel() de dashboard.js, inteiro (toString), entre
     // parênteses — assim o nome que o bundler der à função não importa.
@@ -1435,6 +1454,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         case 'exportConsentCSV': exportConsentCSV(); break;
         case 'exportRemovalCSV': exportRemovalCSV(); break;
         case 'changePassword': changePassword(); break;
+        case 'revokeOtherSessions': revokeOtherSessions(el); break;
         case 'restoreBackup': restoreBackup(); break;
         case 'closeForm': closeForm(); break;
         case 'submitForm': submitForm(); break;
@@ -1471,6 +1491,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
     refreshCategorySelects();
     renderCategoryManager();
+    mostraUltimoBackup();
     loadRequests();
     // Depois de a lista existir: se a sessão expirou no meio de uma edição,
     // reabre o formulário com o que estava digitado.
@@ -2906,7 +2927,61 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       }
     }
 
+    // ---- Sair dos outros aparelhos ----
+    // Confirmação simples, sem digitar: nenhum dado se perde, só as outras
+    // sessões caem (e entram de novo com a senha). O servidor diz quantas
+    // encerrou; o aviso conta por extenso.
+    function avisoSessoesEncerradas(n) {
+      if (!n) return 'Nenhuma outra sessão estava aberta.';
+      return n === 1 ? '1 sessão encerrada.' : n + ' sessões encerradas.';
+    }
+    async function revokeOtherSessions(btn) {
+      const ok = await confirmDialog({
+        title: 'Sair dos outros aparelhos',
+        message: 'A sessão do painel será encerrada em todos os outros aparelhos. Esta continua aberta.',
+        confirmLabel: 'Encerrar sessões',
+      });
+      if (!ok) return;
+      // Desligado enquanto corre: cada pedido grava o marcador no KV (cota de
+      // 1000 escritas por dia), e um duplo toque gastaria duas.
+      btn.disabled = true;
+      try {
+        const res = await api('POST', '/api/sessions/revoke-others');
+        toast(avisoSessoesEncerradas(Number(res.encerradas) || 0), 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao encerrar as outras sessões.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     // ---- Backup ----
+    // O lembrete "Último backup: …" de Ajustes → Dados. O servidor guarda só o
+    // instante da última entrega (ISO); o texto sai aqui, por dia do CALENDÁRIO
+    // de São Paulo (hojeEmSaoPaulo, acima): às 00:10 o backup das 23:50 já é de
+    // ontem, embora tenha 20 minutos. Nunca baixado, ou há mais de 30 dias, vira
+    // aviso (velho).
+    function textoUltimoBackup(iso, agora) {
+      const LIMITE_DIAS = 30;
+      const quando = iso ? new Date(iso) : null;
+      if (!quando || isNaN(quando.getTime())) return { texto: 'Nenhum backup baixado ainda.', velho: true };
+      const dia = hojeEmSaoPaulo(quando);
+      const dias = Math.round((Date.parse(hojeEmSaoPaulo(agora) + 'T12:00:00Z') - Date.parse(dia + 'T12:00:00Z')) / 86400000);
+      // Relógio do navegador atrás do servidor: um backup "do futuro" é de hoje.
+      if (dias <= 0) return { texto: 'Último backup: hoje', velho: false };
+      if (dias === 1) return { texto: 'Último backup: ontem', velho: false };
+      return {
+        texto: 'Último backup: há ' + dias + ' dias (' + dia.slice(8, 10) + '/' + dia.slice(5, 7) + '/' + dia.slice(0, 4) + ')',
+        velho: dias > LIMITE_DIAS,
+      };
+    }
+    function mostraUltimoBackup() {
+      const el = document.getElementById('backup-ultimo');
+      if (!el) return;
+      const r = textoUltimoBackup(backupUltimo, new Date());
+      el.textContent = r.texto;
+      el.classList.toggle('aviso', r.velho);
+    }
     // Um fetch, e não um link: com a sessão expirada, o navegador mostrava o JSON
     // do erro. O 401 vai ao login, como no api().
     async function downloadBackup() {
@@ -2922,6 +2997,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(u), 1000);
       toast('Backup baixado.', 'ok');
+      // O servidor já marcou a entrega; aqui a linha de Ajustes muda no lugar,
+      // sem recarregar a página.
+      backupUltimo = new Date().toISOString();
+      mostraUltimoBackup();
     }
     async function restoreBackup() {
       const fileInput = document.getElementById('restore-file');
