@@ -159,6 +159,15 @@ ele guarda a própria medição por 10 s por `env` quando responde `ok` (#195):
 com o **mesmo** `env` no mesmo arquivo, o segundo healthz não relê nada
 (cabeçalho `X-Healthz-Cache: hit`).
 
+E por baixo do cache do isolate há outro: o KV guarda cópia em cada local da
+Cloudflare, por 60 s se ninguém disser nada, e uma escrita feita em outro
+local só aparece quando essa cópia vence. As leituras do site público (a
+lista e o selo de agenda) pedem `cacheTtl: 30`, o mínimo aceito: somado aos
+30 s do isolate, uma mudança do painel chega a qualquer visitante em **até
+1 min** — é o que o toast de salvar promete. Tirar o `cacheTtl` volta o pior
+caso para 90 s e faz o aviso mentir para quem está longe de quem salvou;
+`tests/kv.test.js` prende os dois pedidos.
+
 ### 5.3. Cota de KV é 1000 escritas/dia — mas os contadores saíram do KV
 
 > ✅ **Atualizado.** Os contadores e o rate limit migraram para **Durable
@@ -570,6 +579,34 @@ verdade contra uma API falsa e confere que os segredos e os bindings da prévia
 vão na publicação. Foi assim, em 12/10/2026, que "o script não funciona" virou
 "o build não rodou o script".
 
+### 5.18. Álbum de família ou privado: consentimento, não sigilo (#146)
+
+A caixa de declaração **não é barreira de acesso**: registra o uso que a
+pessoa reconheceu, e o link do Drive, liberado, abre para quem o tiver. Foi a
+escolha do dono em out/2026. O que muda é só o caminho sem desafio — o
+`noscript`, de quem tem o Turnstile bloqueado no navegador:
+
+- **nome obrigatório** num álbum restrito (`nomeDeConsentimento()`), para o
+  registro não sair anônimo. A regra existe duas vezes, no servidor e na
+  página (`nomeOk()` em `src/ui/event.js`), presas por um teste de par em
+  `tests/drive-gate.test.js`. A página pede o link no `change` do campo, não
+  no `input`: disparar a cada tecla gravaria "Jo" no lugar de "João";
+- **teto de 3 álbuns restritos distintos por IP em 24 h**. Conta álbuns, não
+  pedidos, pelo mesmo motivo do §5.12: o público de um evento é um IP só, e
+  todo mundo pedindo o mesmo álbum não pode esbarrar em nada. A conta é a
+  mesma do alerta de varredura (#147), numa função só
+  (`concessoesSemTurnstile()`, `src/index.js`) — mexer numa é mexer nas duas.
+  Com o D1 fora, libera (o portão existe para a foto chegar) e avisa no
+  healthz;
+- passado o teto, o 403 traz `usarEmail` e a página abre o código por
+  e-mail, que prova uma caixa e não conta no teto. O 400 do nome traz
+  `campo: "nome"`. A página decide pelo campo, nunca pela frase.
+
+O `verifica:evento` roda os quatro casos com o pedido do Turnstile abortado,
+como um bloqueador faz. Desde então uma exceção no meio de um cenário vira
+FALHA no relatório: antes, um campo que não aparecia derrubava o roteiro sem
+imprimir nada, e uma mutação "escapava" só porque o processo morria.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -678,6 +715,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 - **Galeria própria** (#235): **prévia só do dono**. Falta o dono
   configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
   depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
+- **Termos e o modelo do #146**: `/termos` ainda diz "Acesso restrito a
+  membros da família" e "a participantes ou pessoas autorizadas". Combina com
+  a intenção do álbum, mas não com "a declaração não é barreira" (§5.18).
+  Mudar o texto dos Termos pede `TERMS_VERSION` nova (cada registro de
+  consentimento fixa a versão) — decisão do dono.
 
 ---
 
