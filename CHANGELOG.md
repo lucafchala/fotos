@@ -160,6 +160,8 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 - **Ajustes com texto não salvo pergunta antes de sair** — a senha nova, a
   categoria nova, o selo e o arquivo do restaurar. Antes, só o formulário de
   evento avisava.
+- **O "Todos" do "Selecionar vários" acompanha as caixas**: desmarcar um card
+  deixava o "Todos" marcado até a lista ser redesenhada.
 
 ### Segurança e LGPD
 

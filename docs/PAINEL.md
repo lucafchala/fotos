@@ -280,7 +280,8 @@ card tira ele da seleção (`renderEventList()` poda `selectedIds` a cada
 redesenho), e a quantidade a digitar na confirmação é a da lista que aparece.
 Antes, a seleção sobrevivia ao filtro: o dono via 1 card e a confirmação falava
 em 5. Ao redesenhar, `#mass-selall` fica marcado só se todo card visível está
-marcado.
+marcado — e o mesmo vale a cada caixa marcada ou desmarcada, sem esperar o
+redesenho (antes, desmarcar um card deixava o "Todos" marcado).
 
 ---
 
@@ -1280,6 +1281,7 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | (celular) campo com letra de 16 px | `font-size` calculado de `#evt-search` ≥ 16 |
 | a lista mostra os 5 eventos; o card escreve o estado; o card mostra o prazo | o card nos casos da semente: "Em edição" e "Atrasado" no evento atrasado; "prazo 10/01" |
 | filtros: a conta é a da lista, no singular quando é um, e a lista vazia diz a combinação | chip Ativos → "5 eventos ativos"; com a categoria Casamento → "1 evento ativo"; chip Todos → "1 evento" e um card; chip Em edição → `Nenhum evento com status "Em edição" na categoria "Casamento".`; sem filtro, de volta → "5 eventos" (§4.1) |
+| (computador) o "Todos" acompanha as caixas | com "Todos" marcado, desmarca a primeira caixa: o "Todos" desmarca; remarca: ele volta. Sem o acerto no `change` da lista, só o próximo redesenho o corrigia |
 | (computador) a seleção só tem o que está à vista | liga o modo, marca "Todos" (5 selecionados), filtra para "Em edição" (um card): a conta diz "1 selecionado" e um só card está marcado. Depois, o filtro volta e o modo se desliga. Sem a poda (§4.4), a conta ficava em 5 |
 | (computador) campo em foco ganha o contorno de 2 px (busca e categoria) | o `outline` calculado de `#evt-search` e de `#category-filter`, com o foco no teclado: `solid 2px rgb(192, 160, 96)` (§12) |
 | (computador) no Tab, toda parada da lista / da folha / das Métricas / de Pedidos / de Ajustes mostra o contorno de foco, sem corte | `varreFoco()`: anda pelo Tab, como quem usa teclado, a partir de `#evt-search` (lista), do slug com os seis blocos abertos (folha), do chip "7 dias" (Métricas), do primeiro botão de Pedidos (com um Tab antes, para o foco ser de teclado) e do campo do selo (Ajustes). Em cada parada — campos, toggles, botões, chips, `summary`, o gráfico — exige um contorno à vista (no próprio elemento, no trilho do toggle ou na caixa em volta; `outline` ou o anel de `box-shadow`) que nenhum ancestral com `overflow` corte. O detalhe diz qual parada e qual caixa. Foi o que achou os toggles sem foco e os chips cortados pela faixa que rola (§12) |

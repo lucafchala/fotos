@@ -364,6 +364,15 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         await espera(page, 200);
         await page.check('#mass-selall');
         const todosMarcados = ((await page.locator('#mass-count').textContent()) || '').trim();
+        // O "Todos" acompanha as caixas: desmarcar uma o desmarca, e remarcá-la
+        // o marca de novo — sem esperar o próximo redesenho da lista.
+        const primeiraCaixa = page.locator('#evt-list .evt-check').first();
+        await primeiraCaixa.uncheck();
+        const todosAposDesmarcar = await page.isChecked('#mass-selall');
+        await primeiraCaixa.check();
+        const todosAposRemarcar = await page.isChecked('#mass-selall');
+        registra(!todosAposDesmarcar && todosAposRemarcar,
+          `${rotulo}: o "Todos" acompanha as caixas: desmarcar uma o desmarca, remarcar o marca`, { todosAposDesmarcar, todosAposRemarcar });
         await aciona(page.locator('#status-filter [data-valor="em-edicao"]'), toque);
         const visiveisMarcados = await page.locator('#evt-list .evt-check:checked').count();
         const contagemFiltrada = ((await page.locator('#mass-count').textContent()) || '').trim();

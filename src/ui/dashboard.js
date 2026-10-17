@@ -1309,6 +1309,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       if (!cb) return;
       if (cb.checked) selectedIds.add(cb.dataset.id); else selectedIds.delete(cb.dataset.id);
       updateMassCount();
+      // "Todos" acompanha as caixas: desmarcar uma desmarca o "Todos", marcar a
+      // última o marca. Antes ele só se acertava no próximo redesenho da lista.
+      const selAll = document.getElementById('mass-selall');
+      const caixas = [...document.querySelectorAll('#evt-list .evt-check')];
+      if (selAll) selAll.checked = caixas.length > 0 && caixas.every(c => c.checked);
     });
 
     // ---- Delegated handlers (CSP: no inline on* attributes) ----
