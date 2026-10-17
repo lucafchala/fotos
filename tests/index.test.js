@@ -93,6 +93,13 @@ describe('normalizeEventFields', () => {
     expect(f.date).toBe('');
   });
 
+  it('"Sem categoria" tira a categoria; um nome fora da lista mantém a que havia', () => {
+    const base = { ...DEFAULT_EVENT, category: 'Casamento' };
+    expect(normalizeEventFields({ category: '' }, base, CATS).category).toBe('');
+    expect(normalizeEventFields({ category: 'Nope' }, base, CATS).category).toBe('Casamento');
+    expect(normalizeEventFields({}, base, CATS).category).toBe('Casamento');
+  });
+
   it('accepts a valid promisedDate and rejects a malformed one (issue #139)', () => {
     const ok = normalizeEventFields({ promisedDate: '2026-12-01' }, DEFAULT_EVENT, CATS);
     expect(ok.promisedDate).toBe('2026-12-01');
@@ -569,6 +576,61 @@ describe('slugs reservados pelas rotas fixas', () => {
   it('o autoteste do healthz acusa um projeto público que nunca vai abrir', () => {
     const { problems } = auditSite([{ slug: 'sobre', title: 'X', driveUrl: 'https://drive.google.com/x' }]);
     expect(problems.join(' | ')).toMatch(/slug inválido ou reservado: sobre/);
+  });
+});
+
+describe('editar as fotos de capa', () => {
+  const TOKEN = 'e'.repeat(64);
+  const A = 'https://lh3.googleusercontent.com/d/FOTO_A';
+  const B = 'https://lh3.googleusercontent.com/d/FOTO_B';
+  /** @param {Record<string, any>} evento */
+  function montar(evento) {
+    const store = new Map([[`admin_session:${TOKEN}`, JSON.stringify({ createdAt: Date.now() })], ['events', JSON.stringify([evento])]]);
+    const env = withDurableObjects({
+      FOTOS: {
+        async get(k) { return store.get(k) ?? null; },
+        async put(k, v) { store.set(k, v); },
+        async delete(k) { store.delete(k); },
+      },
+    });
+    /** @param {Record<string, any>} corpo */
+    const salva = async corpo => {
+      const res = await worker.fetch(new Request(`https://fotos.lucafchala.com/api/events/${evento.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: `__Host-session=${TOKEN}` },
+        body: JSON.stringify(corpo),
+      }), env, { waitUntil() {} });
+      expect(res.status).toBe(200);
+      return JSON.parse(store.get('events'))[0];
+    };
+    return { salva };
+  }
+  const base = { id: 'p1', slug: 'projeto', title: 'Projeto', driveUrl: 'https://drive.google.com/x', visible: true };
+
+  it('tirar a última foto tira a capa — a foto retirada não segue no card nem no topo da página', async () => {
+    const { salva } = montar({ ...base, photos: [A], thumbnailUrl: A });
+    // O que o formulário do painel manda ao salvar com a lista vazia.
+    const salvo = await salva({ ...base, photos: [], thumbnailUrl: '' });
+    expect(salvo.photos).toEqual([]);
+    expect(salvo.thumbnailUrl).toBe('');
+  });
+
+  it('trocar a primeira foto troca a capa', async () => {
+    const { salva } = montar({ ...base, photos: [A, B], thumbnailUrl: A });
+    expect((await salva({ ...base, photos: [B], thumbnailUrl: B })).thumbnailUrl).toBe(B);
+  });
+
+  it('registro antigo só com capa: devolver o evento inteiro (o "Ocultar") mantém a capa', async () => {
+    const antigo = { ...base, photos: [], thumbnailUrl: B };
+    const { salva } = montar(antigo);
+    const salvo = await salva({ ...antigo, visible: false });
+    expect(salvo.visible).toBe(false);
+    expect(salvo.thumbnailUrl).toBe(B);
+  });
+
+  it('mudança sem a lista de fotos (o "Destacar") não mexe na capa', async () => {
+    const { salva } = montar({ ...base, photos: [], thumbnailUrl: B });
+    expect((await salva({ pinned: true })).thumbnailUrl).toBe(B);
   });
 });
 

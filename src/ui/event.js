@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -408,6 +408,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .dv-wait{color:var(--text-muted,var(--text));font-size:.85rem;line-height:1.6}
     .drive-email{margin-top:1rem}
     .drive-email .de-note{font-size:.85rem;line-height:1.6;color:var(--text)}
+    .drive-name-nota{font-size:.82rem;line-height:1.5;color:var(--text-2);margin:.4rem 0 0}
     .drive-email .de-row{display:flex;gap:.5rem;margin-top:.5rem;align-items:stretch}
     .drive-email .de-row input{flex:1;min-width:0}
     .drive-email .de-btn{flex:none;padding:.6rem .9rem;border-radius:8px;border:1px solid var(--border-dim);background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;cursor:pointer}
@@ -624,7 +625,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         -->
         <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" data-action="toggleDriveName">+ incluir meu nome (opcional)</button>
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
-          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
+          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name" aria-label="Seu nome" data-onchange="onDriveConsent">
+          <p id="drive-name-nota" class="drive-name-nota" style="display:none">Sem a verificação de segurança, este álbum pede o seu nome para o registro do aceite.</p>
         </div>
         ${declaration ? `<label class="drive-consent">
           <input type="checkbox" id="drive-declaration" data-onchange="onDriveConsent">
@@ -830,6 +832,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // seja reaproveitado pra varrer os slugs do site sem carregar a página.
     // Vazio quando SIGNING_SECRET não está configurado (ver src/index.js).
     const DRIVE_NONCE    = ${JSON.stringify(driveNonce || '')};
+    // Álbum de família ou privado (#146): sem o Turnstile, o portão pede o
+    // nome antes de liberar, e o servidor recusa sem ele. Com o Turnstile, ou
+    // pelo código por e-mail, o nome segue opcional.
+    const NOME_SEM_VERIFICACAO = ${restrictedAccess ? 'true' : 'false'};
+    const NOME_MIN = ${NOME_CONSENTIMENTO_MIN};
     // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
     // que chega menos de 3 s depois de a página ser servida é automação.
     const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
@@ -1136,7 +1143,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
       // that must not brick delivery, so the server has its own (weaker,
       // rate-limited) path for this token value.
-      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; maybeFetchDriveLink(); return; }
+      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; exigeNome(); maybeFetchDriveLink(); return; }
       if (driveTsToken) {
         // Pre-fetched while the page was idle — nothing left to wait for.
         clearTimeout(driveTimeout);
@@ -1164,6 +1171,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
       const consentOk = c && c.checked && (!decl || decl.checked);
+      if (consentOk && faltaNome()) {
+        // O pedido sai quando o campo do nome muda (data-onchange), já com o
+        // nome inteiro: disparar a cada tecla gravaria "Jo" no lugar de "João".
+        showDriveHint('escreva o seu nome acima para liberar');
+        const nomeEl = document.getElementById('drive-name');
+        if (nomeEl) nomeEl.focus();
+        return;
+      }
       if (consentOk && driveTsToken !== '') {
         fetchDriveLink();
       } else if (consentOk) {
@@ -1228,6 +1243,27 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             setDriveLinkUI('idle');
             setDriveEmailBusy(false);
             driveEmailMsg(errData.error || 'Não foi possível confirmar o código. Tente de novo.');
+            return;
+          }
+          // O servidor pediu o nome (álbum restrito sem o Turnstile, #146):
+          // volta ao começo com o campo aberto. Não é erro, e não gasta a
+          // tentativa automática.
+          if (status === 400 && errData.campo === 'nome') {
+            driveLinkState = 'idle';
+            setDriveLinkUI('idle');
+            exigeNome(true);
+            showDriveHint(errData.error || 'escreva o seu nome acima para liberar');
+            const nomeEl = document.getElementById('drive-name');
+            if (nomeEl) nomeEl.focus();
+            return;
+          }
+          // Passou do teto de álbuns restritos sem o Turnstile (#146): o
+          // código por e-mail é o caminho, e já abre pronto para receber.
+          if (status === 403 && errData.usarEmail) {
+            driveLinkState = 'idle';
+            setDriveLinkUI('idle');
+            showDriveEmail();
+            driveEmailMsg(errData.error || 'Para abrir este álbum, receba um código por e-mail.');
             return;
           }
           // 429: espera o tempo que o servidor mandou e tenta de novo, com
@@ -1478,9 +1514,40 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         document.querySelectorAll('.drive-consent').forEach(function(l) {
           l.classList.remove('flash-warn'); void l.offsetWidth; l.classList.add('flash-warn');
         });
+      } else if (faltaNome()) {
+        showDriveHint('escreva o seu nome acima para liberar');
       } else {
         showDriveHint('só um instante, o acesso ainda está carregando');
       }
+    }
+    // Mesma regra de nomeDeConsentimento() no servidor (src/utils.js), presa
+    // por um teste de par: 2+ caracteres, ao menos uma letra.
+    function nomeOk(v) {
+      const s = String(v || '').trim();
+      return s.length >= NOME_MIN && /\\p{L}/u.test(s);
+    }
+    let nomeExigido = false; // ligado por exigeNome(), vale até a página recarregar
+    // Abre o campo do nome como obrigatório (#146). forcar: o servidor pediu o
+    // nome numa página que não esperava pedir (uma aba aberta antes da troca).
+    function exigeNome(forcar) {
+      if (!NOME_SEM_VERIFICACAO && !forcar) return;
+      nomeExigido = true;
+      const w = document.getElementById('drive-name-wrap');
+      const t = document.getElementById('drive-name-toggle');
+      const i = document.getElementById('drive-name');
+      const nota = document.getElementById('drive-name-nota');
+      if (w) w.style.display = '';
+      if (t) t.style.display = 'none';
+      if (nota) nota.style.display = '';
+      if (i) {
+        i.setAttribute('required', '');
+        i.setAttribute('placeholder', 'Seu nome');
+        i.setAttribute('aria-describedby', 'drive-name-nota');
+      }
+    }
+    function faltaNome() {
+      const i = document.getElementById('drive-name');
+      return nomeExigido && driveTsToken === 'noscript' && !nomeOk(i ? i.value : '');
     }
     function toggleDriveName() {
       const w = document.getElementById('drive-name-wrap');

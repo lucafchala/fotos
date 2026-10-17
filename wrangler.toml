@@ -23,6 +23,12 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 #                         consegue manter um monitor verde sobre um serviço
 #                         caído. Por isso não mora no código — este repositório
 #                         é público.
+#   GOOGLE_DRIVE_API_KEY  chave de API do Google Cloud, restrita à Drive API,
+#                         para a GALERIA PRÓPRIA (prévia, só o dono — #235):
+#                         lista a pasta do projeto e busca o original no
+#                         "tamanho máximo". OPCIONAL: sem ela, /galeria/<slug>
+#                         mostra o passo a passo de como criar, e nada mais
+#                         muda. Só é usada no servidor — nunca sai na página.
 #
 # ATENÇÃO ao SIGNING_SECRET: diferente dos outros, a ausência dele NÃO quebra
 # nada — os dois controles simplesmente não são exigidos, e o site segue
@@ -83,20 +89,21 @@ migrations_dir = "migrations"
 #
 # A API recusa com o código 10211: "migrations must be fully applied via a
 # non-versioned deployment". Ou seja, quem cria a classe é `wrangler deploy`
-# (não-versionado) — que é o que o .github/workflows/deploy.yml roda no push
-# para a main.
+# (não-versionado). O .github/workflows/deploy.yml sobe por `versions upload`
+# (o portão sem tráfego): com uma migração nova ele FALHA no upload, de
+# propósito e com a mensagem explicando, e o caminho é redisparar à mão com
+# `unversioned: true` — que usa `wrangler deploy` e abre mão do portão naquele
+# deploy. Não existe atalho: migração e código sobem juntos, não dá para
+# aplicar só a migração antes.
 #
-# Isso importa porque o Cloudflare Workers Builds (configurado no PAINEL, não
-# neste repositório) roda `npx wrangler versions upload` a cada PR. Enquanto a
-# migração nova não tiver sido aplicada por um deploy de verdade, esse build
-# FALHA — e a falha é esperada, não é sinal de código quebrado.
-#
-# A ordem que funciona, e que vale para toda migração futura (v2, v3…):
-#   1. merge → deploy.yml roda `wrangler deploy` → a migração é aplicada;
-#   2. a partir daí os previews de PR voltam a passar sozinhos.
-#
-# Não existe atalho: migração e código sobem juntos, não dá para aplicar só a
-# migração antes.
+# Os builds de PR já não passam por aí. Até 12/10/2026 o Cloudflare Workers
+# Builds (configurado no PAINEL, não neste repositório) rodava `npx wrangler
+# versions upload` a cada PR, e esse build falhava, por desenho, em todo PR com
+# migração nova (RETOMADA §5.3-b). Desde então os PRs saem por `npx wrangler
+# preview` (Worker Previews, bloco [previews] no fim deste arquivo): cada
+# prévia ganha um namespace de DO próprio, criado a partir destas migrações.
+# Como uma migração NOVA chega a uma prévia que já existe ainda não foi visto —
+# o primeiro PR com `v2` responde.
 [[durable_objects.bindings]]
 name = "COUNTER"
 class_name = "Counter"
@@ -169,6 +176,55 @@ persist = true
 # Sem `[env.*]`, de propósito (#166). Existia um `[env.preview]` que declarava
 # um Worker à parte (`fotos-preview`) com o MESMO KV de produção e sem D1:
 # quem rodasse `--env preview` achando que estava isolado gravava nos dados
-# reais, sem registro de consentimento. Preview de verdade é a versão que o
-# deploy.yml sobe sem tráfego (`versions upload`), no próprio Worker `fotos`.
-# Um ambiente isolado precisa de KV e D1 PRÓPRIOS — nunca do id acima.
+# reais, sem registro de consentimento. A versão que o deploy.yml sobe sem
+# tráfego (`versions upload`) é o portão do deploy — com os dados de produção.
+# Um ambiente isolado precisa de KV e D1 PRÓPRIOS — nunca do id acima. É o que
+# o bloco abaixo faz (tests/wrangler-ambientes.test.js confere).
+
+# ---------------------------------------------------------------------------
+# Prévia de PR (Cloudflare Worker Previews, v2.0)
+# ---------------------------------------------------------------------------
+# Cada PR ganha uma Prévia com URL própria, que o Workers Builds posta no PR:
+# o mesmo código e a mesma configuração de cima, com DADOS PRÓPRIOS. Uma
+# prévia não herda nada de produção — o que ela usa está declarado aqui:
+#
+#   FOTOS        KV `fotos-previa` — começa vazio; enche-se restaurando um
+#                backup baixado do painel de produção (README, "Prévia de PR").
+#   CONSENT_DB   D1 `fotos-consent-previa`, com o mesmo esquema de produção.
+#                Migração nova: aplicar também aqui antes da prévia
+#                (`node scripts/d1-migrate.mjs fotos-consent-previa migrations`).
+#   COUNTER /    Durable Objects: a Cloudflare cria um namespace NOVO por
+#   RATELIMIT    prévia; declarar aqui só dá o binding ao código.
+#   AMBIENTE     "previa" liga a camada de src/previa.js (faixa, noindex,
+#                Turnstile de teste, "[PRÉVIA]" no assunto do e-mail).
+#                Produção não tem esta variável — e nunca deve ter.
+#
+# Segredos (Resend, senha inicial do painel, assinatura, Drive) não vão neste
+# arquivo: moram nas variáveis do BUILD (Workers Builds, prefixo PREVIA_), e o
+# `npm run previa` (scripts/previa-publica.mjs) os leva à prévia a cada push.
+# A configuração base de prévias do painel não serve para isso: só vale na
+# criação de cada prévia. A lista e o que NÃO copiar estão no README. Cron não
+# roda em prévia.
+[previews.vars]
+AMBIENTE = "previa"
+
+[[previews.kv_namespaces]]
+binding = "FOTOS"
+id = "e059470a54d34b93a65402bbcd0fa310"
+
+[[previews.d1_databases]]
+binding = "CONSENT_DB"
+database_name = "fotos-consent-previa"
+database_id = "c2aac165-34e8-4444-8c04-fc9df3e0f35f"
+migrations_dir = "migrations"
+
+[[previews.durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[previews.durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[previews.version_metadata]
+binding = "CF_VERSION_METADATA"

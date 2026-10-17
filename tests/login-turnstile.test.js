@@ -128,16 +128,25 @@ describe('login com Turnstile', () => {
       await handleLogin(loginReq('errada', 'tok'), /** @type {any} */ (env), /** @type {any} */ ({ waitUntil: (/** @type {Promise<unknown>} */ p) => pendentes.push(p) }));
       await Promise.all(pendentes);
     };
-    for (let i = 0; i < 4; i++) await tenta();
-    expect(emails, 'abaixo do piso, nenhum alerta').toHaveLength(0);
-    expect(FOTOS.escritas, 'contar falha não escreve no KV').toBe(0);
-    await tenta();
-    expect(emails).toHaveLength(1);
-    expect(emails[0]).toContain('5 ou mais');
-    // Depois do alerta, o cooldown (uma escrita, uma vez) segura o flood.
-    for (let i = 0; i < 3; i++) await tenta();
-    expect(emails).toHaveLength(1);
-    expect(FOTOS.escritas).toBe(1);
+    // Relógio parado: a janela de 15 min é fixa e alinhada ao relógio (xx:00,
+    // xx:15…), e oito PBKDF2 cruzando a virada zeravam a contagem no meio —
+    // a mesma falha que a CI pegou no teste da rajada (security.test.js).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-11T12:25:00Z'));
+    try {
+      for (let i = 0; i < 4; i++) await tenta();
+      expect(emails, 'abaixo do piso, nenhum alerta').toHaveLength(0);
+      expect(FOTOS.escritas, 'contar falha não escreve no KV').toBe(0);
+      await tenta();
+      expect(emails).toHaveLength(1);
+      expect(emails[0]).toContain('5 ou mais');
+      // Depois do alerta, o cooldown (uma escrita, uma vez) segura o flood.
+      for (let i = 0; i < 3; i++) await tenta();
+      expect(emails).toHaveLength(1);
+      expect(FOTOS.escritas).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('o PBKDF2 roda mesmo sem token — é o canário de CPU do smoke', async () => {

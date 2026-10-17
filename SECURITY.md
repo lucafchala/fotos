@@ -32,8 +32,8 @@ issue before any public disclosure.
 - The production site `https://fotos.lucafchala.com` and its `*.workers.dev`
   deployment.
 - The Worker code in this repository (`src/`): the admin dashboard
-  (`/dashboard`), the public APIs (`/api/*`), and the LGPD removal/consent
-  flows.
+  (`/dashboard`), the public APIs (`/api/*`), the LGPD removal/consent
+  flows, and the owner-only gallery preview (`/galeria/*`).
 
 **Out of scope / known by design:**
 
@@ -77,10 +77,37 @@ issue before any public disclosure.
   served `X-Robots-Tag: noindex` (next bullet) so this path can't be reached
   by discovering the slug through search first — but the same noscript
   bypass still works against a restricted slug obtained any other way (direct
-  link, backlink). Tightening that further (per-event throttling, requiring a
-  real Turnstile pass for restricted events, or an identity requirement) is
-  an open decision the owner still needs to make, not something this
-  paragraph resolves on its own.
+  link, backlink).
+- **The owner's decision for `private`/`family` albums (#146, 2026-10):
+  consent, not confidentiality.** The declaration records how the visitor
+  agreed to use the photos; it is not an access barrier, and the album's Drive
+  link is anyone-with-the-link once released. So the noscript path stays —
+  but for a restricted album, and only on that path (the one with no
+  challenge), it is tightened:
+  - **a name is required** (2+ characters, at least one letter —
+    `nomeDeConsentimento()` in `src/utils.js`), so the consent record of an
+    unverified grant is not anonymous. It is not verified and can be made up;
+    what it changes is that a scripted grant now carries a declaration in
+    somebody's name. The page opens the field by itself and only asks for the
+    link once the name is there (`exigeNome()` in `src/ui/event.js`);
+  - **one IP opens at most 3 _distinct_ restricted albums in 24 h** this way
+    (`NOSCRIPT_RESTRITOS_POR_IP` in `src/config.js`), counted in D1 by the
+    same function the sweep alert uses (`concessoesSemTurnstile()`), IPv6 per
+    /64. It counts albums, not requests: the same album opens as often as
+    needed, so an event audience behind one venue NAT never gets near it. Past
+    the cap the answer is a 403 with `usarEmail`, and the page opens the
+    e-mail code straight away — that path proves a mailbox and is not capped
+    here. Known limits: IP rotation splits the count; two simultaneous
+    requests can both pass the check; with D1 down (or not configured) the
+    cap fails open and says so in `/api/healthz`.
+  - **the declarations were reworded** so they don't read as a password to a
+    lay guest: "Este é um álbum de família: reconheço que as imagens são de
+    uso estritamente particular e doméstico." instead of "Declaro ser membro
+    da família…". Each consent row keeps the exact text the person saw.
+  With Turnstile, or with the e-mail code, nothing changes: the name stays
+  optional and the cap doesn't apply. Closing the album for real
+  (per-person Drive sharing, guest sessions) remains outside what this
+  Worker can do, and is not the chosen model.
 - **A sweep through the noscript path now raises an alert — it does not
   block (#147).** After each noscript grant is logged, the Worker counts how
   many *distinct* projects that IP opened without Turnstile in the last 24 h;
@@ -125,10 +152,11 @@ issue before any public disclosure.
   delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
   a semantics decision.
 - **`private`/`family` events are excluded from `sitemap.xml` and served
-  `X-Robots-Tag: noindex`**, same as an unlisted one — the accessType
-  declaration gate exists to restrict the album to a member/participant, so
-  the page being search-indexable would work against that even though it's a
-  consent gate, not a confidentiality ACL. The event still opens on a direct
+  `X-Robots-Tag: noindex`**, same as an unlisted one — the album is meant
+  for the family or the event's participants (the declaration records that
+  use; it doesn't enforce it, see the #146 bullet above), so the page being
+  search-indexable would work against that even though it's a consent gate,
+  not a confidentiality ACL. The event still opens on a direct
   link and appears in the gallery/self-test like any other visible event;
   only search-engine discovery is affected (`isRestrictedAccess()` in
   `src/utils.js`).
@@ -177,6 +205,10 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
+| Owner-only gallery preview: the **same 404** as an unknown route, decided before any KV read when there is no cookie | `podeVerGaleria()`, `/galeria/*` | The preview (or its download proxy, which spends our Google API quota) being reachable — or even detectable — by anyone but the logged-in owner |
+| Download proxy serves only files listed in **that project's** folder | `handleGaleriaBaixar()`, `achaFoto()` | The proxy turning into an open relay for any public Drive file, on our API key and quota |
+| Drive API key used only server-side | `src/drive.js` | The key reaching a browser: the page's data island carries neither the key nor resource keys, originals go through the proxy, and error messages never include the request URL (which carries the key) |
+| Third-party code vendored, byte-exact and hash-named | `vendor/`, `src/content/vendor.js`, `/vendor/*` | A CDN or package swap changing the code that runs on our origin: PhotoSwipe is the npm tarball verified against its registry integrity, served from our origin under its content hash, and the suite fails if a byte differs |
 
 ### CSP: two policies at once
 
@@ -379,7 +411,8 @@ notified, and the person was told nothing more than "something went wrong".
 The request is now recorded by **two independent channels**, and only the first
 depends on KV:
 
-1. **KV** (`removal_requests`) — what the dashboard lists.
+1. **KV** (`removal_request:<id>`, one key per request since v2.0 — #198) —
+   what the dashboard lists.
 2. **Email** — the admin notification and the requester's confirmation, which is
    what actually makes someone act inside the deadline.
 
@@ -642,6 +675,12 @@ encoder output for HEIC and GIF alongside the hand-built ones.
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
 **`SIGNING_SECRET`** — see `wrangler.toml` for what each does.
 
+`GOOGLE_DRIVE_API_KEY` is optional: it only powers the owner-only gallery
+preview. Restrict it to the Drive API in Google Cloud. An API key can only read
+what is already shared as "anyone with the link", so a leaked key exposes
+nothing private — its cost would be quota, which is why it never leaves the
+server.
+
 `SIGNING_SECRET` deserves a note: unlike the others, its absence **breaks
 nothing**. The Drive page nonce and the form tokens simply stop being required,
 and the site keeps serving as if it were protected. That is a deliberate
@@ -656,8 +695,8 @@ npx wrangler secret put SIGNING_SECRET
 
 ## Invariants for contributors / Invariantes ao mexer no código
 
-Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.test.js`,
-`tests/utils.test.js`) — if you change either, expect a red suite.
+Three guards are easy to half-apply. All are pinned by tests (`tests/drive-gate.test.js`,
+`tests/utils.test.js`, `tests/galeria.test.js`) — if you change one, expect a red suite.
 
 - **`safeUrl()` is a scheme allowlist, not an HTML escaper.** It strips
   `javascript:`/`data:` and upgrades `http:` — it does *not* escape quotes, so
@@ -665,6 +704,9 @@ Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.t
   attribute needs both: `escape(safeUrl(v))`. Assigning to a DOM property in the
   client (`el.href = v`) needs only `safeUrl()`, because no HTML is parsed.
   Neither function alone covers both attacks.
+- **The gallery proxy checks membership before fetching.** Any new route that
+  fetches a Drive file by id must first find that id in the project's own
+  listing (`achaFoto()`); `tests/galeria.test.js` fails if the check is removed.
 - **KV counters go through `toCount()`.** Counters are stored as plain strings;
   a corrupted value read back with a bare `parseInt` yields `NaN`, and
   `String(NaN)` written back poisons the counter permanently. `toCount()`

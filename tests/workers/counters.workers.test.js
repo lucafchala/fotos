@@ -121,6 +121,56 @@ describe('Counter — no runtime de verdade', () => {
     expect(missing, 'volta a ser desconhecida, não zero gravado').toEqual([k]);
   });
 
+  // -------------------------------------------------------------------------
+  // Série por dia (#215)
+  // -------------------------------------------------------------------------
+  // O "pronto quando" do #215 pede este teste aqui, e não na suíte `unit`: o
+  // balde do dia vai na MESMA gravação do total, e quem garante que nenhuma
+  // intercalação perde contagem é a serialização do runtime — de novo, coisa
+  // que um dublê nosso só afirmaria sobre si mesmo.
+  //
+  // A soma é feita entre os baldes, não lida de um dia só: se o teste rodar
+  // na virada da meia-noite de São Paulo, a rajada se reparte em dois dias
+  // sem nada estar errado.
+  const somaDaSerie = (serie, k) => Object.entries(serie)
+    .filter(([kk]) => kk.endsWith(`:${k}`))
+    .reduce((s, [, v]) => s + v, 0);
+
+  it('série diária: 100 incrementos simultâneos somam 100 no total E no balde do dia', async () => {
+    const k = chave('views');
+    const stub = contador();
+
+    await Promise.all(Array.from({ length: 100 }, () => stub.increment(k, 1)));
+
+    expect(await stub.value(k)).toBe(100);
+    const { serie } = await stub.serie('0000-01-01');
+    const baldes = Object.keys(serie).filter(kk => kk.endsWith(`:${k}`));
+    expect(baldes.length, 'um balde (dois, só na virada do dia)').toBeGreaterThanOrEqual(1);
+    for (const kk of baldes) expect(kk).toMatch(/^d:\d{4}-\d{2}-\d{2}:/);
+    expect(somaDaSerie(serie, k), 'nenhuma contagem perdida no balde').toBe(100);
+  });
+
+  it('série diária: grava no armazenamento e sobrevive à evicção', async () => {
+    const k = chave('views');
+    await contador().increment(k, 3);
+
+    await evictDurableObject(contador());
+
+    const { serie } = await contador().serie('0000-01-01');
+    expect(somaDaSerie(serie, k)).toBe(3);
+  });
+
+  it('remove apaga a série junto com o total — nada órfão no armazenamento', async () => {
+    const k = chave('views');
+    const stub = contador();
+    await stub.increment(k, 2);
+    await stub.remove([k]);
+    await runInDurableObject(stub, async (_i, state) => {
+      const sobra = [...(await state.storage.list({ prefix: 'd:' })).keys()].filter(kk => kk.endsWith(`:${k}`));
+      expect(sobra).toEqual([]);
+    });
+  });
+
   it('o armazenamento fica limpo depois de remove — objeto recolhível', async () => {
     const k = chave('views');
     const stub = contador();

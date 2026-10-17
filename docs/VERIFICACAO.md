@@ -61,8 +61,14 @@ O harness roda **o `src/index.js` de verdade** com:
 É a montagem que pegou a catástrofe da CSP, o loop de recarregamento do portão
 do Drive e o colapso da galeria sem JavaScript.
 
-Ele **não está versionado** — é um arquivo de ~120 linhas que se reescreve
-rápido. O essencial:
+Desde out/2026 ele **está versionado**: `scripts/worker-local.mjs` exporta
+`sobeWorker()` (sobe o Worker num servidor HTTP local, devolve a URL, o KV e a
+lista de `escritas`) e `entraNoPainel()` (faz o login pelo formulário de
+verdade, com o campo do Turnstile). Ele precisa do gancho que troca
+`cloudflare:workers` pelo dublê da suíte — rode com
+`node --import ./scripts/node-com-workers.mjs seu-roteiro.mjs`. É o que o
+`npm run verifica:painel` usa (§3). O esqueleto abaixo continua valendo para
+entender o que ele faz:
 
 ```js
 // serve.mjs
@@ -124,6 +130,12 @@ CSP aplicada, fonte que não carregou, galeria sem JavaScript, lightbox, login.
 Sai com 1 se algo falhar. O que segue aqui é para a verificação específica da
 sua mudança, que nenhum roteiro genérico cobre.
 
+**Na CI:** os roteiros que não precisam do `wrangler dev` — `verifica:painel`,
+`verifica:galeria`, `verifica:evento` e `verifica:previa` — rodam em todo push
+e PR, no job *Roteiros no navegador (Chromium)* do `checks.yml` (#232). O
+`verifica:navegador` não: ele precisa de um Worker de pé com projetos
+semeados.
+
 Chromium está pré-instalado em `/opt/pw-browsers`:
 
 ```js
@@ -181,7 +193,18 @@ registrando a largura/formato pedidos). Cobre:
   **não** oferece o código por e-mail (não é bloqueio);
 - **VPN/bloqueador** — Turnstile no `error-callback` → o modal já abre com a
   opção do código por e-mail; código errado mostra a mensagem do servidor,
-  código certo libera.
+  código certo libera;
+- **álbum restrito com o Turnstile bloqueado (#146)** — o pedido do script é
+  abortado, como um bloqueador faz: num álbum de família o campo do nome abre
+  sozinho e obrigatório, o aceite sem nome não pede o link (a dica diz o que
+  falta), digitar não dispara pedido a cada tecla e, ao sair do campo, o pedido
+  leva o nome inteiro; o 403 do teto (`usarEmail`) abre o código por e-mail com
+  a frase do servidor; o 400 com `campo: "nome"` numa página que não esperava
+  pedir abre o campo sem tela de erro; num álbum público o nome segue opcional.
+
+Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
+erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
+falhas já registradas. 46 checagens em 17/10/2026.
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
@@ -191,6 +214,165 @@ Dois tropeços do roteiro: o PNG de 1 px deixa a `<img>` pequena demais para o
 `click()` do Playwright (use `dispatchEvent`), e `navigator.connection` só
 existe no Chromium — para simular economia de dados, `addInitScript` com
 `Object.defineProperty`.
+
+### Painel — `npm run verifica:painel`
+
+Roteiro versionado do painel **logado**, contra o `src/index.js` de verdade
+(o harness do §2, `scripts/worker-local.mjs`), semeado com eventos, categorias
+e pedidos de remoção. Faz o "pronto quando" do #220 em três aparelhos —
+iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
+
+1. entrar pelo formulário de login (todo elemento com `hidden` está mesmo
+   escondido); os filtros da lista e a conta ("1 evento ativo", "Todos" com uma
+   categoria conta só a categoria, a lista vazia diz a combinação de filtros);
+   no computador, a lista percorrida pelo Tab, e a seleção só com o que está à vista;
+2. criar um evento (com o atalho que abre o bloco "Prazo e status"); a página
+   atrás da folha fica `inert`, a folha nova não tira o foco de quem já está
+   num campo, e fechar com só a URL digitada pergunta antes de descartar; no
+   computador, a folha inteira percorrida pelo Tab;
+3. editar e marcar entregue (o bloco recolhido mostra o resumo, e acompanha
+   colar e remover fotos); o "Novas fotos": ligar marca a hora, desligar e
+   religar na mesma edição reinicia, salvar sem mexer mantém (lido do KV);
+4. ocultar pelo menu "⋯" sem desfazer o que outro aparelho editou (no celular,
+   folha embaixo com itens de 48 px; no computador, teclado: foco no 1º item,
+   seta, Esc devolve o foco);
+5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1); no
+   computador, Pedidos percorrido pelo Tab;
+6. as Métricas com a série sintética: os números do período comparados com o
+   anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
+   dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
+   semana, portão, foco num projeto e o CSV da série; no computador, a seção
+   percorrida pelo Tab;
+7. trocar a senha, recarregar (volta para a mesma seção), sair; a senha antiga
+   é recusada e a nova entra; no computador, baixar o backup (o arquivo
+   `fotos-backup-AAAA-MM-DD.json`) e conferir que Ajustes com texto não salvo
+   pergunta ao recarregar;
+8. a sessão cai no meio de uma edição (a chave da sessão é apagada no KV):
+   desligar e religar o aviso conta como alteração; salvar leva ao login **sem**
+   o "Sair do site?" do navegador; entrar de novo devolve a edição aberta, e
+   salvá-la grava a nota e reinicia o contador;
+9. excluir o evento de teste (confirmação digitada, com botões de 44 px no
+   celular; a página atrás fica `inert` e volta a responder); no computador, por
+   último, o backup com a sessão caída leva ao login.
+
+"Percorrida pelo Tab" é a função `varreFoco()`: anda pelo Tab como quem usa
+teclado e, em cada parada, exige um contorno de foco à vista (no próprio
+elemento, no trilho do toggle — o checkbox é invisível — ou na caixa em volta,
+como a do campo da URL) e que nenhuma caixa que rola ou corta (`overflow`) o
+esconda. Foi assim que apareceram os toggles sem foco nenhum e os chips com o
+contorno cortado pela faixa que rola.
+
+No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
+computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
+44 px (botões, campos e seletores), campo de 16 px (o iPhone não dá zoom),
+contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
+de JS, nenhuma violação da CSP aplicada, e que o fluxo só gravou no KV as
+chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
+`admin_password`, sessão) — 13 escritas por aparelho, 211 checagens no total,
+em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
+Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
+depois do deploy da v2.0: um no array antigo `removal_requests`, outro na
+chave própria.
+`VERIFICA_PRINTS=/caminho` salva as capturas de cada seção, do formulário e
+do menu.
+
+Dois tropeços que o roteiro ensinou:
+
+- **No celular emulado, `window.innerWidth` cresce junto com o vazamento.** O
+  navegador alarga a janela de layout e afasta a página, e
+  `scrollWidth - innerWidth` dá zero com a página quebrada. O roteiro compara
+  com a largura do APARELHO e olha `visualViewport.scale`. Um bloco de
+  Ajustes 25 px largo demais passou da primeira vez por causa disso.
+- **`waitForSelector('#overlay:not(.open)')` nunca resolve**: espera o
+  elemento ficar VISÍVEL, e o overlay fechado é `display:none`. Use
+  `waitForSelector('#overlay.open', { state: 'hidden' })`.
+
+### Galeria própria — `npm run verifica:galeria`
+
+Roteiro versionado da galeria própria (`/galeria/<slug>`, prévia só do dono).
+Também **não precisa do `wrangler dev` nem da Drive API**: renderiza a página
+com o `galeriaHTML()` de verdade, servida com os cabeçalhos reais do painel
+(CSP inclusive), e intercepta a rede — o `lh3` devolve uma imagem gerada **na
+largura pedida** (com o `sharp`; sem ele, 1 px, e a largura é conferida pela
+URL), e o proxy de download devolve um arquivo com os cabeçalhos do servidor.
+Cobre:
+
+- **grade por aparelho** — desktop 1440@1, Retina 1440@2, iPhone 390@3,
+  Android 360@2 e Pixel 412@2,625: linhas justificadas (cada uma fecha na
+  largura, ±2 px), miniatura com pixels suficientes (largura × DPR), carga
+  preguiçosa, WebP, sem rolagem lateral; tema escuro;
+- **visualizador** — abre na menor largura da escada que cobre a foto exibida
+  em pixels físicos; o zoom sobe a resolução por degraus até o original
+  (desktop: roda; iPhone: duplo toque); setas, Esc, link direto `#foto=`;
+  o **voltar** fecha a camada de cima (folha, depois foto) e fica na galeria;
+- **downloads** — a folha oferece "para redes" e "tamanho máximo" (com
+  dimensões e peso); no computador, um download por variante pelo proxy; no
+  celular (iPhone e Android pelo mesmo caminho), a foto é preparada e
+  "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
+- **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
+  de tela ouve "selecionada";
+- **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP.
+
+`VERIFICA_PRINTS=/caminho npm run verifica:galeria` salva as capturas (grade
+por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-as:
+o roteiro prova o comportamento, não a aparência.
+
+Prova o comportamento da **página**. O do servidor (portão só do dono, Drive
+API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
+o workerd garante (bundle byte a byte, Cache API de verdade) em
+`tests/workers/galeria.workers.test.js`.
+
+Um tropeço: **`page.route` não intercepta o `<a download>`** — a navegação vira
+download antes de passar pela rota, e o Chromium sugere o nome pela URL. Por
+isso o roteiro confere a URL do download (foto e variante), e o nome do arquivo
+(`Content-Disposition`) fica com a suíte. Para ver o nome de verdade no
+navegador, sirva o `src/index.js` num servidor HTTP local (§2) — com o
+`fetch` do Node interceptando `www.googleapis.com` e o `lh3`.
+
+### Prévia de PR — `npm run verifica:previa`
+
+Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o
+`src/index.js` de verdade com `AMBIENTE = "previa"` — o harness do §2, com o
+Turnstile de mentira do `verifica:evento` (entrega ficha) e o Resend
+interceptado anotando cada envio (a chave recusada da prévia leva 401, como
+no Resend de verdade). No iPhone 390@3 e no computador 1440@1:
+
+- a faixa no topo, 44 px, de ponta a ponta, sem nada vazando para o lado; o
+  menu cabe na tela (rola por dentro), toda opção tem 44 px, e **nada da
+  página cobre o menu aberto** — o roteiro pergunta ao navegador o que está no
+  centro de cada opção (`elementFromPoint`); foi assim que o aviso de cookies
+  por cima do menu apareceu;
+- **portão lotado** de verdade no servidor: a página mostra "muita gente
+  acessando agora" com a contagem; "Voltar tudo ao normal" e o mesmo portão
+  libera o link;
+- **KV fora**: o painel cai no "temporariamente indisponível" e a faixa segue
+  lá, com a saída — a página não tinha `<body>` e a faixa não entrava (o
+  roteiro pegou; hoje ela é documento de verdade, e a faixa entra mesmo em
+  página sem `<body>`);
+- no painel: **tudo para o dono** + resolver um pedido = o e-mail vai para o
+  dono com o destinatário no assunto; **gerar métricas de exemplo** volta
+  com o menu aberto e o aviso, e o gráfico de acessos enche; apagar e zerar
+  avisam; no computador, o menu abre pelo teclado;
+- nenhum erro de JS, nenhuma violação da CSP aplicada.
+
+`VERIFICA_PRINTS=/caminho npm run verifica:previa` salva as capturas (menu,
+lotado, KV fora, painel, aviso, métricas).
+
+Um tropeço que o roteiro ensinou: **a faixa vem antes do conteúdo da página**,
+com formulários próprios (as ações). Um `document.querySelector('form')` pega
+o dela, não o da página — o `entraNoPainel()` do harness fazia isso e o login
+falhava só na prévia. Seletor pelo que se quer (`form[action="/dashboard/login"]`).
+Os scripts do site usam id, classe ou `data-action` (a faixa usa `previa-*` e
+`data-acao`, de propósito), então não esbarram nela.
+
+**Os segredos da prévia, sem conta da Cloudflare.** O que o build publica
+(`npm run previa`, README "Prévia de PR") se prova sem token nenhum:
+`tests/previa-publica.test.js` roda o **wrangler de verdade** apontado para uma
+API falsa (`CLOUDFLARE_API_BASE_URL`) e confere a publicação que chega — os
+segredos como `secret_text`, `AMBIENTE = "previa"`, o KV `fotos-previa` e
+nunca o de produção, nenhum valor no log. Do lado de lá, na prévia publicada,
+o sinal é `config.signing` no `/api/healthz`: o script sempre leva um
+`SIGNING_SECRET`, então `false` quer dizer que o build não rodou o script.
 
 ### Sem JavaScript
 
@@ -274,6 +456,13 @@ Duas coisas que confundem na primeira vez:
       específica da mudança num navegador, console limpo
 - [ ] Mexeu no portão do Drive, no carrossel/fotos da página de projeto ou em
       limite por IP → `npm run verifica:evento`
+- [ ] Mexeu na galeria própria (`src/ui/galeria.js`, `src/drive.js`, `vendor/`)
+      → `npm run verifica:galeria`, e olhe as capturas (`VERIFICA_PRINTS`)
+- [ ] Mexeu no painel (`src/ui/dashboard.js`) → `npm run verifica:painel`, e
+      olhe as capturas no celular; mexeu no card de evento → também
+      `tests/painel.test.js` (ele aplica a transformação do deploy)
+- [ ] Mexeu na prévia (`src/previa.js`) ou numa página que ela marca → `npm
+      run verifica:previa`, e olhe as capturas do menu no celular
 - [ ] Mexeu em login, healthz, fontes ou algo que o smoke olha → `npm run smoke:local`
       (é o que decide a reversão automática em produção)
 - [ ] Mexeu em `deploy.yml` → passo extraído e rodado local

@@ -64,6 +64,8 @@ interface Element {
   disabled: any;
   readOnly: any;
   files: any;
+  // <details> (os blocos recolhíveis do formulário do painel, #220)
+  open: any;
   // <img>, <a>
   src: any;
   href: any;
