@@ -144,6 +144,23 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 - **CodeQL**: o teste da galeria deixou de tirar `<script>` com regex (as duas
   falhas que o CodeQL apontou); o ajudante novo anda como o tokenizador.
 
+- **Salvar um evento diz quando o site mostra a mudança.** O aviso dizia só
+  "Evento adicionado!"; agora diz "O site mostra em até 1 min" — 30 s do cache
+  do site, mais até 30 s para a Cloudflare espalhar a mudança. O selo da agenda
+  diz o mesmo.
+- **Baixar o backup com a sessão expirada leva ao login.** O download era um
+  link, e o navegador mostrava o JSON do erro; agora é um pedido comum, e o 401
+  vai ao login, como no resto do painel.
+- **A seleção em massa só tem o que está à vista.** Um filtro que escondia um
+  card o deixava na seleção, e a confirmação contava também os escondidos: a
+  conta podia dizer 5 com um só card na tela.
+- **Celular: a barra do "Selecionar vários" cabe na tela.** Os pares de
+  categoria e de acesso empilham; o "Aplicar acesso" saía pela direita, numa
+  barra de 398 px num aparelho de 390.
+- **Ajustes com texto não salvo pergunta antes de sair** — a senha nova, a
+  categoria nova, o selo e o arquivo do restaurar. Antes, só o formulário de
+  evento avisava.
+
 ### Segurança e LGPD
 
 - **Registro das operações (ROPA)**: §5 cobre a contagem por dia e por modo
@@ -164,11 +181,11 @@ confere) — e aparece no painel (barra lateral e *Ajustes → Sobre*).
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 196 checagens em ~45 s, das Métricas com série
+  Android e no computador — 211 checagens em ~45 s, das Métricas com série
   sintética à troca de senha e à sessão que cai no meio de uma edição, com o
-  foco (a lista, a folha e as Métricas percorridas pelo Tab), os alvos de
-  toque de cada seção, todo `hidden` de fato escondido e o que o fluxo grava
-  no KV. Ver `docs/VERIFICACAO.md`.
+  foco (a lista, a folha, as Métricas, Pedidos e Ajustes percorridos pelo
+  Tab), os alvos de toque de cada seção, todo `hidden` de fato escondido e o
+  que o fluxo grava no KV. Ver `docs/VERIFICACAO.md`.
 - `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
   verdade, no celular e no computador — portão lotado de verdade no servidor,
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o

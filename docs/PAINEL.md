@@ -157,8 +157,9 @@ seção, o período das Métricas e o rascunho já não existem).
 **O selo de Pedidos.** `#requests-badge` fica dentro do botão de Pedidos. O
 script só troca o número — `loadRequests()` roda na abertura da página e depois
 de cada pedido resolvido, então a contagem aparece sem o dono abrir a seção — e
-esconde o selo (atributo `hidden`) quando não há pendentes. Ver §17: hoje, com
-zero pendentes, o CSS vence o `hidden`.
+esconde o selo (atributo `hidden`) quando não há pendentes. Até a v2.0, com zero
+pendentes, o `display` da classe vencia o `hidden` e o selo vazio aparecia; a
+regra `[hidden]{display:none!important}` resolveu (§16).
 
 ---
 
@@ -274,8 +275,12 @@ e **pede digitar a quantidade** de eventos selecionados. Depois, o modo se
 desliga e o toast diz quantos mudaram — o servidor só conta quem de fato mudou
 de valor. "Cancelar seleção" desmarca tudo.
 
-A seleção (`selectedIds`) **sobrevive a trocar de filtro**, e a quantidade a
-digitar é a da seleção inteira, inclusive o que o filtro está escondendo.
+A seleção só tem o que está **à vista**. Um filtro ou uma busca que esconde um
+card tira ele da seleção (`renderEventList()` poda `selectedIds` a cada
+redesenho), e a quantidade a digitar na confirmação é a da lista que aparece.
+Antes, a seleção sobrevivia ao filtro: o dono via 1 card e a confirmação falava
+em 5. Ao redesenhar, `#mass-selall` fica marcado só se todo card visível está
+marcado.
 
 ---
 
@@ -507,7 +512,11 @@ outra."). O formulário continua aberto em qualquer erro.
 
 **Depois de salvar.** A lista local é atualizada com o evento que o servidor
 devolveu e redesenhada, a folha fecha sem pedir confirmação e o toast diz
-"Evento adicionado!" / "Evento atualizado!". Se o link do YouTube não foi
+"Evento adicionado! O site mostra em até 1 min." / "Evento atualizado! O site
+mostra em até 1 min.". Esse prazo é o da página pública: até 30 s do cache de
+cada isolate, mais até 30 s para o KV chegar aos outros locais da Cloudflare
+(`cacheTtl: 30` nas leituras públicas) — por isso o aviso diz o prazo, e não só
+"salvo". Se o link do YouTube não foi
 reconhecido, o servidor o guardou vazio — um segundo toast avisa, no lugar do
 "salvo", para o dono não achar que o vídeo está na página. O mesmo vale para
 "Mais vídeos": se o servidor guardou menos links do que foram enviados (até 5)
@@ -537,8 +546,11 @@ folha abriu. É a diferença entre os dois que define "sujo" (`isFormDirty()`):
   atualiza** o `formSnapshot` — ele é justamente "alterações não salvas", e
   fechar sem salvar continua pedindo confirmação. É `sessionStorage` e não
   `localStorage` porque o rascunho pode ter notas internas e deve morrer com a
-  aba. Volta tudo, **menos o slug** (§17). Só `api()` faz isso: o CSV de
-  consentimentos e o backup não passam por ela (§10). (Conferido no Chromium
+  aba. Volta tudo; o slug, só num evento novo (na edição ele é só leitura, e o
+  `openForm` já o preencheu). Só `api()` faz isso: o CSV de
+  consentimentos e o backup não passam por ela (§10), mas o backup chama o mesmo
+  `vaiParaOLogin()` no 401. Ajustes sujo continua pedindo o "Sair do site?" mesmo
+  nessa saída (§9). (Conferido no Chromium
   pelo `verifica:painel`, §15.2: abre um evento, religa o aviso, escreve uma
   nota, apaga a sessão no servidor e salva — vai ao login sem o "Sair do
   site?" —, entra de novo e a edição volta; salvar grava a nota e reinicia o
@@ -775,7 +787,8 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
 - **Selo de agenda.** Uma frase curta no topo da galeria e da /sobre ("Agendando
   para janeiro/2027"); vazio, o selo some (a chave `agenda` é apagada). O servidor
   limpa o texto (uma linha, sem espaço sobrando, ≤ 80); o site público lê com
-  cache de 30 s, e o toast avisa. **Fora do backup**: é uma frase, redigitada em
+  cache de 30 s, e o KV leva até mais 30 s para chegar aos outros locais: o
+  toast diz "até 1 min" (§6.2). **Fora do backup**: é uma frase, redigitada em
   segundos.
 - **Categorias.** Alimentam os filtros da galeria e do painel e o select do
   formulário. Até a primeira alteração valem Formatura, Casamento, Ensaio, Evento
@@ -783,8 +796,10 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   contam). Excluir uma categoria a tira de todos os eventos que a usavam.
 - **Backup.** `fotos-backup-AAAA-MM-DD.json`, versão 2: eventos, categorias e
   pedidos de remoção — estes com e-mail e telefone de quem pediu, então o arquivo
-  pede cuidado. Não há backup automático. O download é uma **navegação** (um `<a>`
-  clicado), não um `fetch`.
+  pede cuidado. Não há backup automático. O download é um `fetch`
+  (`downloadBackup()`) e depois um `<a download>` com o blob, como o CSV. Com a
+  sessão expirada, o 401 leva ao login pelo mesmo `vaiParaOLogin()` do `api()`:
+  antes, o navegador mostrava o JSON do erro.
 - **Planilhas.** O CSV de consentimentos vem do servidor (D1; 503 sem o banco
   provisionado); os de pedidos e de métricas (totais e por dia) são montados no
   navegador por `toCSV()`, com BOM, citação e a defesa contra injeção de
@@ -800,6 +815,13 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   de 20 ou mais. O cliente só confere "preenchida", "iguais" e o mínimo; o resto é
   do servidor, e o toast mostra o motivo. A sessão de quem trocou continua; as
   outras são revogadas.
+- **Sair com algo não salvo.** A nova senha, a categoria nova, o texto do selo
+  e o arquivo escolhido para restaurar pedem "Sair do site?" ao recarregar ou
+  sair (`ajustesSujos()`, no `beforeunload`). Na saída para o login por sessão
+  expirada o pedido vale mesmo com o rascunho guardado: o texto de Ajustes não
+  vai para o rascunho, e ficar na página é o jeito de copiá-lo. O restaurar tira
+  o arquivo do campo quando dá certo, para o recarregamento de 1,8 s não
+  perguntar.
 
 ### Confirmação digitada
 
@@ -842,7 +864,7 @@ Nenhum endpoint mudou no redesenho; a v2.0 acrescentou um, o da série por dia
 | Excluir categoria | `POST /api/categories/delete` | `{ name }` | `{ categories, cleared }` |
 | Salvar selo de agenda | `PUT /api/settings/agenda` | `{ texto }` | `{ texto }` já limpo |
 | Trocar a senha | `PUT /api/settings/password` | `{ password }` | `{ ok: true }`; 400 com o motivo da política |
-| Baixar backup | `GET /api/backup` | — | arquivo `.json`, por **navegação** |
+| Baixar backup | `GET /api/backup` | — | arquivo `.json`, por `fetch` e blob; 401 leva ao login (`vaiParaOLogin()`) |
 | Restaurar backup | `POST /api/backup/restore` | o JSON do backup | `{ ok, added, updated, skipped, total }`; no backup v2, também `categories` (a contagem gravada, não a lista), `categoriesDropped` (se passou de 30) e `removalRequestsAdded` — na prévia de PR, `removalRequestsSkipped` no lugar dos pedidos |
 | Planilha de consentimentos | `GET /api/consent/export` | — | CSV (`fetch` e blob); 503 sem D1 |
 | Planilha de pedidos | `GET /api/removal-requests` | — | CSV montado no navegador |
@@ -872,11 +894,12 @@ igual com a senha certa ou errada) e "o banco de dados do site não respondeu"
 
 **O que `api()` faz com a resposta.** Todo `fetch` do painel passa por `api()`,
 com duas exceções: a planilha de consentimentos (`exportConsentCSV` chama o
-`fetch` direto, para receber o CSV como blob) e o backup (uma navegação). Nelas
-um 401 não manda para o login: na planilha vira só o toast com a mensagem do
-servidor, e no backup o navegador mostra o JSON do erro (§17). Em `api()`: JSON
-de ida e de volta; **401** → guarda o rascunho (`stashDraft()`, §6.3) e navega
-para `/dashboard` (o login) — o erro lançado ainda chega ao `catch` de quem
+`fetch` direto, para receber o CSV como blob) e o backup (`downloadBackup()`,
+também um `fetch`). Na planilha um 401 vira só o toast com a mensagem do
+servidor; no backup ele leva ao login, pelo mesmo `vaiParaOLogin()` do `api()`.
+Em `api()`: JSON
+de ida e de volta; **401** → `vaiParaOLogin()`: guarda o rascunho (`stashDraft()`,
+§6.3) e navega para `/dashboard` (o login) — o erro lançado ainda chega ao `catch` de quem
 chamou, então um toast "Não autorizado." pode piscar antes de a página trocar;
 qualquer outro erro vira `Error(data.error)` e quem chamou o mostra num toast.
 Um **503** (KV fora do ar) não é 401 de propósito: o aviso diz o que houve e a
@@ -895,7 +918,8 @@ Tudo em variáveis do script (`let`/`const` no topo):
 | `events`, `categories` | cópia local dos dados; cada ação bem-sucedida a atualiza e redesenha — a página **não** rebusca a lista |
 | `massMode`, `selectedIds` | modo de seleção e os ids marcados |
 | `editingId`, `photoList`, `formSnapshot`, `lastFocused` | o formulário aberto: qual evento (`null` = novo), as capas, o instantâneo do "sujo" e quem tinha o foco |
-| `saindoComRascunho` | `true` quando `api()` leva ao login com o rascunho guardado: é o que cala o `beforeunload` (§6.3) |
+| `saindoComRascunho` | `true` quando `vaiParaOLogin()` (no 401 do `api()` e do backup) leva ao login com o rascunho guardado: é o que cala o `beforeunload` do formulário (§6.3). Não cala o aviso de Ajustes (§9) |
+| `agendaSalvo` | o selo como está salvo: o "sujo" de Ajustes compara com ele (§9) |
 | `menuAberto` | o menu "⋯" aberto agora (no máximo um) |
 | `metricsData`, `metricsSort`, `metricsLoaded` | os totais desde o início e a ordenação da tabela |
 | `serieDiaria`, `metricsPeriodo`, `metricsProjeto`, `metricsOrdem`, `recorteAtual` | a série por dia (uma leitura de 180 dias) e o que o dono escolheu nos filtros; trocar o filtro redesenha daqui, sem pedir nada ao servidor. O período volta ao recarregar (`sessionStorage`, `painel:periodo`) |
@@ -1059,6 +1083,13 @@ encolhe abaixo da largura natural. Daí `grid-template-columns: minmax(0, 1fr)` 
 rola **dentro** do bloco (`.bloco-tabela`), as linhas de filtro rolam de lado,
 e as linhas do card cortam com reticências em vez de empurrar.
 
+**A barra de seleção em massa.** Com "Selecionar vários" ligado, a barra tem
+"Todos", a contagem e os dois pares (um select com o seu botão). Em 390 px os
+dois pares não cabem numa linha: o "Aplicar acesso" saía pela direita (a barra
+tinha 398 px). No celular, cada par ocupa uma linha inteira (`.mass-par`, com o
+select que encolhe); no computador, continua tudo numa linha. O roteiro mede a
+barra com o modo ligado nos dois celulares (§15.2).
+
 **A barra de baixo e o conteúdo.** O conteúdo reserva `88px` embaixo para a nav
 não cobrir o último bloco, e o toast sobe `80px` para ficar acima dela. Ambos
 somam `env(safe-area-inset-bottom)` — mas a `<meta viewport>` do painel não tem
@@ -1122,8 +1153,9 @@ acrescentou nenhuma; `verifica:painel` prova isso por fluxo (§15).
 | sessão em uso | o `lastSeen` é reescrito **no máximo a cada 10 min** |
 
 Leituras: algumas por ação (a sessão é lida em toda chamada). As páginas públicas
-usam um cache de 30 s por isolate, então uma mudança no painel pode levar esse
-tempo para aparecer no site; o painel lê sempre o KV fresco (`getEvents(env,
+usam um cache de 30 s por isolate, e o KV leva até mais 30 s para chegar aos
+outros locais da Cloudflare (`cacheTtl: 30`): uma mudança no painel pode levar
+até 1 min para aparecer no site. O painel lê sempre o KV fresco (`getEvents(env,
 true)`).
 
 Desde o #198 há também a operação `list` do KV: abrir o painel (`loadRequests()`
@@ -1228,9 +1260,11 @@ Não precisa do `wrangler dev`. Sai com 1 se alguma checagem falhar, e roda em u
 **O fluxo**, em cada aparelho: entrar → criar um evento → editar e marcar
 entregue → ocultar pelo menu → resolver um pedido → métricas → trocar a senha (a
 antiga é recusada, a nova entra) → a sessão cair no meio de uma edição (e o
-rascunho voltar) → excluir o evento de teste.
+rascunho voltar) → excluir o evento de teste. No computador, o roteiro também
+baixa o backup e confere o aviso de Ajustes sujo (depois de trocar a senha), e,
+no fim, vê o backup com a sessão caída levar ao login.
 
-**O que cada checagem quer dizer** (196 em 17/10/2026: 67 em cada celular, 62 no
+**O que cada checagem quer dizer** (211 em 17/10/2026: 70 em cada celular, 71 no
 computador; o número muda quando alguém acrescenta uma — não é contrato):
 
 | Checagem | O que prova / se falhar, olhe |
@@ -1240,21 +1274,25 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | todo elemento com hidden está mesmo escondido | na carga, todo `[hidden]` com `display: none` calculado. Uma classe com `display` vencia o `hidden` (§16): o selo de Pedidos vazio e o resumo das Métricas |
 | (celular) todo alvo de toque da lista tem pelo menos 44 px | botões, `a.act`, campos (`input` menos caixas de seleção) e seletores à vista de `#tab-events`, e as abas da nav; **só** a seção Eventos (o modo de seleção, na linha seguinte) |
 | (celular) no modo "Selecionar vários", cada caixa e o "Todos" têm 44 px, e o toque no canto de cima de uma caixa cai no rótulo | liga `#mass-toggle`; conta as `label.evt-check-alvo` (uma por card, cada uma com 44 × 44) e mede a `label.mass-selall` (44 px de altura); `elementFromPoint` 3 px dentro do canto de cima do primeiro card, fora dos 17 px da caixa, devolve o rótulo. Desliga de novo antes do resto do roteiro. Sem o rótulo, ou com a caixa de 17 px, falha |
+| (celular) com "Selecionar vários" ligado, a barra cabe no aparelho | `#mass-bar`: `scrollWidth` ≤ `clientWidth` + 1, e a borda direita de cada elemento dela ≤ a largura do **aparelho**, não de `innerWidth`. Sem os pares empilhados, a barra tinha 398 px e cortava o "Aplicar acesso" (§13) |
 | (celular) todo alvo de toque da folha do formulário / de Pedidos / de Ajustes tem pelo menos 44 px | a mesma medida (`alvosPequenos()`), na folha com os seis blocos abertos, em `#tab-requests` e em `#tab-settings`. Pegou o "Adicionar foto" (35–40 px) e o × de excluir categoria (20 px) |
 | (celular) os toggles da folha têm 44 × 44, e o toque 3 px abaixo da borda de cima do primeiro cai nele | cada `label.toggle` à vista em `#overlay`, medido com os blocos abertos (antes de fechá-los): 44 × 44, e `elementFromPoint` no primeiro. Com o toggle de 26 px, falha |
 | (celular) campo com letra de 16 px | `font-size` calculado de `#evt-search` ≥ 16 |
 | a lista mostra os 5 eventos; o card escreve o estado; o card mostra o prazo | o card nos casos da semente: "Em edição" e "Atrasado" no evento atrasado; "prazo 10/01" |
 | filtros: a conta é a da lista, no singular quando é um, e a lista vazia diz a combinação | chip Ativos → "5 eventos ativos"; com a categoria Casamento → "1 evento ativo"; chip Todos → "1 evento" e um card; chip Em edição → `Nenhum evento com status "Em edição" na categoria "Casamento".`; sem filtro, de volta → "5 eventos" (§4.1) |
+| (computador) a seleção só tem o que está à vista | liga o modo, marca "Todos" (5 selecionados), filtra para "Em edição" (um card): a conta diz "1 selecionado" e um só card está marcado. Depois, o filtro volta e o modo se desliga. Sem a poda (§4.4), a conta ficava em 5 |
 | (computador) campo em foco ganha o contorno de 2 px (busca e categoria) | o `outline` calculado de `#evt-search` e de `#category-filter`, com o foco no teclado: `solid 2px rgb(192, 160, 96)` (§12) |
-| (computador) no Tab, toda parada da lista / da folha / das Métricas mostra o contorno de foco, sem corte | `varreFoco()`: anda pelo Tab, como quem usa teclado, a partir de `#evt-search` (lista), do slug com os seis blocos abertos (folha) e do chip "7 dias" (Métricas). Em cada parada — campos, toggles, botões, chips, `summary`, o gráfico — exige um contorno à vista (no próprio elemento, no trilho do toggle ou na caixa em volta; `outline` ou o anel de `box-shadow`) que nenhum ancestral com `overflow` corte. O detalhe diz qual parada e qual caixa. Foi o que achou os toggles sem foco e os chips cortados pela faixa que rola (§12) |
+| (computador) no Tab, toda parada da lista / da folha / das Métricas / de Pedidos / de Ajustes mostra o contorno de foco, sem corte | `varreFoco()`: anda pelo Tab, como quem usa teclado, a partir de `#evt-search` (lista), do slug com os seis blocos abertos (folha), do chip "7 dias" (Métricas), do primeiro botão de Pedidos (com um Tab antes, para o foco ser de teclado) e do campo do selo (Ajustes). Em cada parada — campos, toggles, botões, chips, `summary`, o gráfico — exige um contorno à vista (no próprio elemento, no trilho do toggle ou na caixa em volta; `outline` ou o anel de `box-shadow`) que nenhum ancestral com `overflow` corte. O detalhe diz qual parada e qual caixa. Foi o que achou os toggles sem foco e os chips cortados pela faixa que rola (§12) |
 | com a folha do formulário aberta, a página atrás fica inert; fechada a folha, a página volta a responder | `#app.inert` (§12) — `openForm` liga, `closeForm` desliga |
 | a folha nova não tira o foco de quem já está num campo | com a folha de evento novo recém-aberta, o foco vai para o título; 250 ms depois, continua lá — o foco automático da URL (100 ms) só vem se ninguém estiver num campo (§16) |
 | o atalho abre o bloco recolhido | `irParaBloco` em "Prazo e status" |
 | criar um evento; o evento novo aparece, "Em edição" | `POST /api/events` pelo formulário, e a lista redesenhada **no navegador** (o card de `toString()`) |
+| o aviso de criar diz quando o site mostra a mudança | a regex `/O site mostra em até 1 min/` no toast da criação (§6.2) |
 | evento novo com só a URL: fechar pergunta antes de descartar | digita só o slug e fecha: aparece o "Descartar alterações?" (o slug entra no `snapshotForm`), e "Cancelar" mantém a folha |
 | bloco recolhido mostra o resumo | `atualizaResumos` ("Em edição") |
 | colar e remover fotos atualiza o resumo do bloco | cola dois links pelo "Colar vários links": o resumo de "Fotos e Drive" diz "2 capas"; remove uma: "1 capa" (remove a outra no fim — nada é salvo) |
 | editar e marcar entregue; o card passa a dizer "Entregue" | `PUT /api/events/<id>` e o redesenho |
+| o aviso de editar diz quando o site mostra a mudança | a mesma regex, no toast da edição (§6.2) |
 | "Novas fotos": religar reinicia o contador; salvar sem mexer, não | liga o aviso e salva (grava a hora); edita de novo, liga-desliga-liga sem salvar no meio e salva (a hora muda); salva sem mexer (a hora fica). Lido do KV do `worker-local` (§6.2) |
 | "⋯" abre o menu | `aria-expanded="true"` e o menu visível |
 | (celular) o menu é uma folha embaixo, ao alcance do polegar, com itens de 48 px | a caixa do menu termina abaixo de 60% da altura da tela e todo item mede pelo menos 48 px (§13: a ordem das regras de toque no CSS) |
@@ -1286,12 +1324,16 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | recarregar a página volta para a mesma seção | `sessionStorage` e `voltaParaSecao()` |
 | a senha antiga não entra mais | depois do "Sair", `entraNoPainel()` com a senha da semente lança "login recusado" |
 | entrar de novo com a senha nova | entra com a senha nova pelo formulário e chega à `nav.nav` sem `?error=` |
+| (computador) "Baixar backup" baixa `fotos-backup-AAAA-MM-DD.json`, com a lista de eventos | `waitForEvent('download')`: o nome casa `/^fotos-backup-.*\.json$/` e o JSON tem `events`. Só lê, sem escrita no KV (§9) |
+| (computador) Ajustes com texto não salvo: recarregar pergunta "Sair do site?" uma vez, e a página fica | `#cat-new` preenchido e `reload()`: um diálogo `beforeunload` (dispensado, a recarga para e o texto continua). Uma marca na janela prova que não recarregou (§9) |
+| (computador) Ajustes sem texto não salvo: recarregar não pergunta nada | campo limpo e `reload()`: nenhum diálogo, e a marca some, porque a página recarregou |
 | desligar e religar o aviso conta como alteração (fechar pergunta antes de descartar) | numa edição aberta, liga-desliga-liga o aviso de novidade e fecha: aparece o "Descartar alterações?" (o `snapshotForm` inclui `alertWasActive`), e "Cancelar" mantém a folha |
 | com a sessão caída, salvar leva ao login sem o "Sair do site?" | apaga as sessões do KV, escreve uma nota e salva: a página navega para o formulário de login e nenhum diálogo nativo (`beforeunload`) aparece (§6.3) |
 | entrar de novo devolve a edição aberta | depois do login, a folha reabre com a nota no campo e o toast "Sua sessão tinha expirado. Recuperei…" |
 | salvar o rascunho grava a nota e reinicia o contador do aviso religado | no KV, `internalNotes` é a nota, `photosAlert.active` é verdadeiro e `addedAt` mudou |
 | excluir (com a confirmação digitada) | digita o título; o toast diz "excluído" e o card some |
 | com a confirmação aberta, a página atrás fica inert; fechada, volta a responder | `#app.inert` durante o `confirmDialog` e o estado de antes devolvido ao fechar |
+| (computador) "Baixar backup" com a sessão caída leva ao login, sem o JSON do erro | no fim do roteiro, para não precisar de sessão depois: apaga as sessões do KV e clica no backup; o 401 leva ao `form[action="/dashboard/login"]` (§9) |
 | (celular) os botões da confirmação têm 44 px | as alturas de `.confirm-foot button` na confirmação de excluir (eram 40) |
 | nenhum erro de JS | nenhum `pageerror` na sessão toda |
 | nenhuma violação da CSP aplicada | nenhuma mensagem de CSP no console, descontadas as de Report-Only |
@@ -1467,17 +1509,15 @@ corrigida, apague a linha — e as referências a ela nas outras seções (`grep
 
 **Comportamentos a conhecer**
 
-- **O backup é uma navegação.** Com a sessão expirada, o navegador mostra o JSON
-  do erro ("Não autorizado.") em vez de um toast.
-- **A seleção em massa sobrevive a trocar de filtro** (§4.4): a quantidade a
-  digitar inclui o que está escondido.
-- **Mudanças no painel levam até 30 s para aparecer no site** (cache do isolate).
+- **Mudanças no painel levam até 1 min para aparecer no site**: 30 s do cache do
+  isolate, mais até 30 s para o KV chegar aos outros locais da Cloudflare
+  (`cacheTtl: 30` nas leituras públicas). O toast de salvar diz o prazo (§6.2).
 
 **Verificação**
 
 - O roteiro mede alvos de toque em todas as seções que visita, e liga o modo
-  "Selecionar vários" para medir as caixas; o Tab percorre a lista, a folha e as
-  Métricas — Pedidos e Ajustes não.
+  "Selecionar vários" para medir as caixas e a barra; o Tab percorre a lista, a
+  folha, as Métricas, Pedidos e Ajustes (no computador).
 
 ---
 
@@ -1571,7 +1611,12 @@ pedido de remoção e trocar a senha.
 - numa **prévia de PR**, a faixa "PRÉVIA" fica por cima do painel, com o menu
   "Testes" (README, "Prévia de PR");
 - nas telas de toque, as caixas do "Selecionar vários" e os toggles passaram a
-  receber o toque em 44 × 44 (o tamanho visível segue o mesmo; §13).
+  receber o toque em 44 × 44 (o tamanho visível segue o mesmo; §13);
+- a **seleção em massa** só tem o que está à vista (filtrar tira da conta o que
+  saiu da lista, §4.4), e a barra do "Selecionar vários" empilha os pares no
+  celular (§13);
+- o **backup** com a sessão expirada leva ao login, em vez de mostrar o JSON do
+  erro, e Ajustes com texto não salvo pergunta antes de sair (§9).
 
 ---
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
-  checkRateLimit, ipParaLimite, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES,
+  checkRateLimit, ipParaLimite, getEvents, saveEvents, getCategories, DEFAULT_CATEGORIES, getAgenda,
   MAX_CATEGORIES, MAX_CATEGORY_LEN,
   degradedHealth, resetDegraded, noteDegraded,
   bumpCounter, readCounter, readCounters, deleteCounters,
@@ -381,6 +381,18 @@ describe('getEvents / saveEvents', () => {
   it('returns an empty array when the key is missing or corrupt', async () => {
     expect(await getEvents({ FOTOS: fakeKV() }, true)).toEqual([]);
     expect(await getEvents({ FOTOS: fakeKV({ events: 'not json' }) }, true)).toEqual([]);
+  });
+  // O toast do painel promete "o site mostra em até 1 min": 30 s do cache do
+  // isolate + 30 s do cache do KV em cada local da Cloudflare. Sem o cacheTtl o
+  // KV usa 60 s, e a conta passa de 1 min para quem está longe de quem salvou.
+  it('lê a lista e o selo com cacheTtl de 30 s, o mínimo do KV', async () => {
+    /** @type {any[]} */
+    const pedidos = [];
+    const kv = fakeKV({ events: '[]', agenda: 'Agenda aberta' });
+    const env = { FOTOS: { ...kv, async get(/** @type {string} */ k, /** @type {any} */ o) { pedidos.push([k, o]); return kv.get(k); } } };
+    await getEvents(env, true);
+    expect(await getAgenda(env, true)).toBe('Agenda aberta');
+    expect(pedidos).toEqual([['events', { cacheTtl: 30 }], ['agenda', { cacheTtl: 30 }]]);
   });
 });
 

@@ -214,7 +214,7 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 1. entrar pelo formulário de login (todo elemento com `hidden` está mesmo
    escondido); os filtros da lista e a conta ("1 evento ativo", "Todos" com uma
    categoria conta só a categoria, a lista vazia diz a combinação de filtros);
-   no computador, a lista percorrida pelo Tab;
+   no computador, a lista percorrida pelo Tab, e a seleção só com o que está à vista;
 2. criar um evento (com o atalho que abre o bloco "Prazo e status"); a página
    atrás da folha fica `inert`, a folha nova não tira o foco de quem já está
    num campo, e fechar com só a URL digitada pergunta antes de descartar; no
@@ -225,20 +225,24 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 4. ocultar pelo menu "⋯" sem desfazer o que outro aparelho editou (no celular,
    folha embaixo com itens de 48 px; no computador, teclado: foco no 1º item,
    seta, Esc devolve o foco);
-5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1);
+5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1); no
+   computador, Pedidos percorrido pelo Tab;
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
    dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
    semana, portão, foco num projeto e o CSV da série; no computador, a seção
    percorrida pelo Tab;
 7. trocar a senha, recarregar (volta para a mesma seção), sair; a senha antiga
-   é recusada e a nova entra;
+   é recusada e a nova entra; no computador, baixar o backup (o arquivo
+   `fotos-backup-AAAA-MM-DD.json`) e conferir que Ajustes com texto não salvo
+   pergunta ao recarregar;
 8. a sessão cai no meio de uma edição (a chave da sessão é apagada no KV):
    desligar e religar o aviso conta como alteração; salvar leva ao login **sem**
    o "Sair do site?" do navegador; entrar de novo devolve a edição aberta, e
    salvá-la grava a nota e reinicia o contador;
 9. excluir o evento de teste (confirmação digitada, com botões de 44 px no
-   celular; a página atrás fica `inert` e volta a responder).
+   celular; a página atrás fica `inert` e volta a responder); no computador, por
+   último, o backup com a sessão caída leva ao login.
 
 "Percorrida pelo Tab" é a função `varreFoco()`: anda pelo Tab como quem usa
 teclado e, em cada parada, exige um contorno de foco à vista (no próprio
@@ -253,7 +257,7 @@ computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
 de JS, nenhuma violação da CSP aplicada, e que o fluxo só gravou no KV as
 chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
-`admin_password`, sessão) — 13 escritas por aparelho, 196 checagens no total,
+`admin_password`, sessão) — 13 escritas por aparelho, 211 checagens no total,
 em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
 Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
 depois do deploy da v2.0: um no array antigo `removal_requests`, outro na

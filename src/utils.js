@@ -56,6 +56,12 @@ export function ehPrevia(env) {
 let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
+// O KV tem o próprio cache em cada local da Cloudflare (60 s por padrão): uma
+// escrita feita em outro local só aparece aqui quando ele vence. 30 s é o
+// mínimo aceito (desde jan/2026). Somado aos 30 s do cache do isolate, uma
+// mudança do painel chega a qualquer visitante em até 1 min, que é o que o
+// toast do painel promete. Só a lista e o selo: são o que o site público lê.
+const KV_CACHE_TTL_S = 30;
 // Abort outbound transactional-email calls if Resend hangs, so a slow upstream
 // never holds the request past this budget.
 const EMAIL_TIMEOUT_MS = 10_000;
@@ -194,7 +200,7 @@ export async function getEvents(env, fresh = false) {
 
   let data;
   try {
-    data = await env.FOTOS.get('events');
+    data = await env.FOTOS.get('events', { cacheTtl: KV_CACHE_TTL_S });
   } catch (e) {
     // `fresh` NUNCA cai para a cópia: quem pede fresh é admin ou
     // read-modify-write, onde dado velho não degrada com elegância — o
@@ -332,7 +338,7 @@ export async function getAgenda(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _agenda !== null && now - _agendaAt < CACHE_TTL) return _agenda;
   try {
-    _agenda = limpaAgenda(await env.FOTOS.get('agenda'));
+    _agenda = limpaAgenda(await env.FOTOS.get('agenda', { cacheTtl: KV_CACHE_TTL_S }));
     _agendaAt = now;
     return _agenda;
   } catch (e) {

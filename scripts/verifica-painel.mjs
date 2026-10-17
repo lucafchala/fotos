@@ -13,8 +13,9 @@
 // aparelho (iPhone, Android, computador):
 //   entrar → criar um evento → editar e marcar entregue → ocultar pelo menu
 //   "Mais ações" → resolver um pedido de remoção → trocar a senha (e entrar de
-//   novo com ela) → a sessão cair no meio de uma edição (e o rascunho voltar)
-//   → excluir o evento de teste.
+//   novo com ela) → baixar o backup (no computador) → a sessão cair no meio de
+//   uma edição (e o rascunho voltar) → excluir o evento de teste → o backup,
+//   com a sessão caída, leva ao login.
 // E, no caminho, o que só um navegador mostra: a navegação no lugar certo
 // (barra de baixo no celular, lateral no computador), nada vazando para o
 // lado, alvos de toque de 44 px, campo que não dá zoom no iPhone, menu com
@@ -308,6 +309,16 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
           `${rotulo}: no modo "Selecionar vários", cada caixa de seleção recebe o toque em pelo menos 44 × 44, e o "Todos" tem 44 px de altura`,
           { caixas: selecao.caixas, pequenos: selecao.pequenos, todos: selecao.todos });
         registra(selecao.tocado === 'rótulo', `${rotulo}: o toque 3 px dentro do canto de cima de uma caixa (fora dos 17 px dela) cai no rótulo`, selecao.tocado);
+        // A barra com o modo ligado: nada dela passa da largura do APARELHO (os
+        // pares select + botão empilham). Compara com viewport.width, não com
+        // innerWidth — ver a nota do vazamento, mais acima.
+        const barra = await page.evaluate(largura => {
+          const b = /** @type {HTMLElement} */ (document.getElementById('mass-bar'));
+          const direitas = [b, ...b.querySelectorAll('*')].map(e => e.getBoundingClientRect().right);
+          return { sobra: b.scrollWidth - b.clientWidth, maiorDireita: Math.round(Math.max(...direitas) * 10) / 10, largura };
+        }, viewport.width);
+        registra(barra.sobra <= 1 && barra.maiorDireita <= viewport.width + 0.5,
+          `${rotulo}: com "Selecionar vários" ligado, a barra cabe no aparelho (nada passa da borda)`, barra);
         await aciona(page.locator('#mass-toggle'), toque);
         await espera(page, 300);
         const fonte = await page.evaluate(() => parseFloat(getComputedStyle(/** @type {Element} */ (document.getElementById('evt-search'))).fontSize));
@@ -346,6 +357,20 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
           `${rotulo}: campo em foco ganha o contorno de 2 px (busca e categoria)`, { naBusca, naCategoria });
         const lista = await varreFoco(page, '#tab-events', '#evt-search');
         registra(lista.semAnel.length === 0 && lista.paradas > 15, `${rotulo}: no Tab, toda parada da lista mostra o contorno de foco, sem corte (${lista.paradas} paradas)`, lista.semAnel);
+        // A seleção é só do que está à vista: "Todos" marca os cinco, e o filtro
+        // "Em edição" (um card) deixa a conta em 1, não em 5 (§4.4). Depois, o
+        // filtro volta e o modo se desliga: o resto do roteiro vê a lista como antes.
+        await aciona(page.locator('#mass-toggle'), toque);
+        await espera(page, 200);
+        await page.check('#mass-selall');
+        const todosMarcados = ((await page.locator('#mass-count').textContent()) || '').trim();
+        await aciona(page.locator('#status-filter [data-valor="em-edicao"]'), toque);
+        const visiveisMarcados = await page.locator('#evt-list .evt-check:checked').count();
+        const contagemFiltrada = ((await page.locator('#mass-count').textContent()) || '').trim();
+        await aciona(page.locator('#status-filter [data-valor="todos"]'), toque);
+        await aciona(page.locator('#mass-toggle'), toque);
+        registra(todosMarcados === `${EVENTOS.length} selecionados` && visiveisMarcados === 1 && contagemFiltrada === '1 selecionado',
+          `${rotulo}: a seleção só tem o que está à vista: filtrar tira da conta o que saiu da lista`, { todosMarcados, visiveisMarcados, contagemFiltrada });
       }
       const selos = await page.locator('#evt-ev3 .status-badge').allTextContents();
       registra(selos.join('|') === 'Em edição|Atrasado', `${rotulo}: o card escreve o estado (status, atrasado)`, selos);
@@ -421,6 +446,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('#submit-btn'), toque);
       const msgCriou = await aviso(page);
       registra(/adicionado/i.test(msgCriou), `${rotulo}: criar um evento`, msgCriou);
+      registra(/O site mostra em até 1 min/.test(msgCriou), `${rotulo}: o aviso de criar diz quando o site mostra a mudança`, msgCriou);
       await page.waitForSelector('#overlay.open', { state: 'hidden' });
       registra(!(await inerte()), `${rotulo}: fechada a folha, a página volta a responder`, '');
       const novo = page.locator('#evt-list .evt-item', { hasText: 'Teste do roteiro' });
@@ -450,6 +476,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await aciona(page.locator('#submit-btn'), toque);
       const msgEditou = await aviso(page);
       registra(/atualizado/i.test(msgEditou), `${rotulo}: editar e marcar entregue`, msgEditou);
+      registra(/O site mostra em até 1 min/.test(msgEditou), `${rotulo}: o aviso de editar diz quando o site mostra a mudança`, msgEditou);
       await page.waitForSelector('#overlay.open', { state: 'hidden' });
       registra(/Entregue/.test((await novo.locator('.evt-selos').textContent()) || ''), `${rotulo}: o card passa a dizer "Entregue"`, '');
 
@@ -533,6 +560,14 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 600);
       registra(/resolvida/i.test(msgResolveu) && (await page.locator('#requests-badge').textContent()) === '1',
         `${rotulo}: resolver um pedido (e o aviso da navegação cai para 1)`, msgResolveu);
+      if (!toque) {
+        // Um Tab antes: foco por script só mostra o contorno de botão se o foco
+        // anterior veio do teclado. Depois de um clique, a varredura começaria no
+        // escuro — e a de Métricas, logo abaixo, faz o mesmo com a seta.
+        await page.keyboard.press('Tab');
+        const pedidos = await varreFoco(page, '#tab-requests', '#tab-requests button');
+        registra(pedidos.semAnel.length === 0 && pedidos.paradas > 1, `${rotulo}: no Tab, toda parada de Pedidos mostra o contorno de foco, sem corte (${pedidos.paradas} paradas)`, pedidos.semAnel);
+      }
 
       // ---- 6. Métricas (v2, #215) -------------------------------------------
       // Uma leitura da série por dia, e o resto é desenhado no navegador:
@@ -684,6 +719,9 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       if (toque) {
         const emAjustes = await alvosPequenos(page, '#tab-settings');
         registra(emAjustes.length === 0, `${rotulo}: todo alvo de toque de Ajustes tem pelo menos 44 px`, emAjustes.slice(0, 6));
+      } else {
+        const ajustes = await varreFoco(page, '#tab-settings', '#agenda-texto');
+        registra(ajustes.semAnel.length === 0 && ajustes.paradas > 15, `${rotulo}: no Tab, toda parada de Ajustes mostra o contorno de foco, sem corte (${ajustes.paradas} paradas)`, ajustes.semAnel);
       }
       await page.fill('#new-pass', SENHA_NOVA);
       await page.fill('#new-pass2', SENHA_NOVA);
@@ -705,6 +743,49 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(/login recusado/.test(comAntiga), `${rotulo}: a senha antiga não entra mais`, comAntiga);
       const comNova = await tentaEntrar(SENHA_NOVA);
       registra(comNova === 'entrou' && (await page.locator('nav.nav').count()) === 1, `${rotulo}: entrar de novo com a senha nova`, comNova);
+
+      // Só no computador: o download e o aviso de saída são o mesmo código no celular.
+      if (!toque) {
+        await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
+        await page.waitForSelector('#tab-settings.active');
+        const [baixado] = await Promise.all([
+          page.waitForEvent('download', { timeout: 6000 }),
+          aciona(page.locator('[data-onclick="downloadBackup"]'), toque),
+        ]);
+        const caminhoBackup = await baixado.path();
+        const backup = caminhoBackup ? (() => { try { return JSON.parse(readFileSync(caminhoBackup, 'utf8')); } catch { return {}; } })() : {};
+        registra(/^fotos-backup-.*\.json$/.test(baixado.suggestedFilename()) && Array.isArray(backup.events),
+          `${rotulo}: "Baixar backup" baixa fotos-backup-AAAA-MM-DD.json, com a lista de eventos`, baixado.suggestedFilename());
+
+        // Ajustes com texto não salvo: recarregar pergunta "Sair do site?" (uma
+        // vez), e o dispensar mantém a página e o texto. Sem texto, não pergunta.
+        // Uma marca na janela: some só com uma recarga de verdade. (Sem ela, o
+        // "#tab-settings.active" do documento antigo passaria sozinho.)
+        await page.fill('#cat-new', 'Categoria do roteiro');
+        await page.evaluate(() => { window.__antesDoRecarregar = 1; });
+        /** @type {string[]} */
+        const avisosSujo = [];
+        const anotaSujo = (/** @type {import('playwright-core').Dialog} */ d) => { avisosSujo.push(d.type()); d.dismiss().catch(() => {}); };
+        page.on('dialog', anotaSujo);
+        // Dispensado, o aviso cancela a recarga: o reload() pode falhar — o que vale é o que ficou.
+        await page.reload({ timeout: 5000 }).catch(() => {});
+        page.off('dialog', anotaSujo);
+        const ficou = await page.evaluate(() => window.__antesDoRecarregar === 1);
+        const campoFicou = await page.inputValue('#cat-new');
+        registra(avisosSujo.length === 1 && avisosSujo[0] === 'beforeunload' && campoFicou === 'Categoria do roteiro' && ficou,
+          `${rotulo}: Ajustes com texto não salvo: recarregar pergunta "Sair do site?" uma vez, e a página fica`, { avisosSujo, campoFicou, ficou });
+        await page.fill('#cat-new', '');
+        await page.evaluate(() => { window.__antesDoRecarregar = 1; });
+        /** @type {string[]} */
+        const avisosLimpo = [];
+        const anotaLimpo = (/** @type {import('playwright-core').Dialog} */ d) => { avisosLimpo.push(d.type()); d.dismiss().catch(() => {}); };
+        page.on('dialog', anotaLimpo);
+        await page.reload({ timeout: 5000 }).catch(() => {});
+        page.off('dialog', anotaLimpo);
+        await page.waitForSelector('#tab-settings.active', { timeout: 5000 });
+        const recarregou = await page.evaluate(() => window.__antesDoRecarregar === undefined);
+        registra(avisosLimpo.length === 0 && recarregou, `${rotulo}: Ajustes sem texto não salvo: recarregar não pergunta nada`, { avisosLimpo, recarregou });
+      }
 
       // ---- 8. A sessão cai no meio de uma edição -----------------------------
       // (Inatividade, ou a senha trocada em outro aparelho.) O painel guarda um
@@ -771,6 +852,18 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 400);
       registra(/excluído/i.test(msgExcluiu) && (await teste.count()) === 0, `${rotulo}: excluir (com a confirmação digitada)`, msgExcluiu);
       registra(!(await inerte()), `${rotulo}: fechada a confirmação, a página volta a responder`, '');
+
+      // ---- 9b. Baixar o backup com a sessão caída (só no computador) ---------
+      // No fim do roteiro, para não precisar de nova sessão depois. O 401 do
+      // backup tem de levar ao login, e não deixar o JSON do erro na tela.
+      if (!toque) {
+        await aciona(page.locator('nav.nav [data-tab="settings"]'), toque);
+        await page.waitForSelector('#tab-settings.active');
+        for (const k of [...w.kv.keys()]) if (k.startsWith('admin_session:')) w.kv.delete(k);
+        await aciona(page.locator('[data-onclick="downloadBackup"]'), toque);
+        const noLoginDoBackup = await page.waitForSelector('form[action="/dashboard/login"]', { timeout: 8000 }).then(() => true, () => false);
+        registra(noLoginDoBackup, `${rotulo}: "Baixar backup" com a sessão caída leva ao login, sem o JSON do erro`, noLoginDoBackup);
+      }
 
       // ---- 10. Limpeza do console e da cota ----------------------------------
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);

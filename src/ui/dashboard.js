@@ -426,6 +426,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       .menu{position:fixed;left:.5rem;right:.5rem;top:auto;bottom:calc(.5rem + env(safe-area-inset-bottom));min-width:0;border-radius:16px;padding:.5rem}
       .menu-item{min-height:48px;font-size:.92rem}
       .menu-fundo{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.55)}
+      /* A barra de seleção no celular: cada par (select + botão) numa linha, sem passar da tela */
+      .mass-apply{margin-left:0;width:100%}
+      .mass-par{flex:1 1 100%}
+      .mass-par select{flex:1;min-width:0}
     }
     @media(min-width:700px){.menu-fundo{display:none}}
     .metrics-nota{font-size:.75rem;color:var(--text3);line-height:1.5;margin:0;max-width:60ch}
@@ -634,7 +638,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     .mass-selall{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text2);cursor:pointer}
     .mass-selall input,.evt-check{width:17px;height:17px;accent-color:#c0a060;cursor:pointer;flex-shrink:0}
     #mass-count{font-size:.75rem;color:var(--text3)}
-    .mass-apply{display:flex;gap:.5rem;align-items:center;margin-left:auto}
+    .mass-apply{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-left:auto}
+    .mass-par{display:flex;gap:.5rem;align-items:center}
     .mass-apply select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.45rem .6rem;border-radius:7px;font-size:.78rem;outline:none;-webkit-appearance:none}
     .evt-check-alvo{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.25rem}
     /* category manager */
@@ -771,15 +776,20 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     <div class="mass-bar" id="mass-bar" style="display:none">
       <label class="mass-selall"><input type="checkbox" id="mass-selall" data-onchange="toggleSelectAll"> Todos</label>
       <span id="mass-count">0 selecionados</span>
+      <!-- Cada select com o seu botão (.mass-par): no celular, cada par tem a sua linha. -->
       <div class="mass-apply">
-        <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
-        <button class="btn-sm" data-onclick="applyMassCategory">Aplicar categoria</button>
-        <select id="mass-access" aria-label="Tipo de acesso para aplicar">
-          <option value="public">Público</option>
-          <option value="private">Privado</option>
-          <option value="family">Familiar</option>
-        </select>
-        <button class="btn-sm" data-onclick="applyMassAccess">Aplicar acesso</button>
+        <div class="mass-par">
+          <select id="mass-cat" aria-label="Categoria para aplicar">${catOptionsSSR}</select>
+          <button class="btn-sm" data-onclick="applyMassCategory">Aplicar categoria</button>
+        </div>
+        <div class="mass-par">
+          <select id="mass-access" aria-label="Tipo de acesso para aplicar">
+            <option value="public">Público</option>
+            <option value="private">Privado</option>
+            <option value="family">Familiar</option>
+          </select>
+          <button class="btn-sm" data-onclick="applyMassAccess">Aplicar acesso</button>
+        </div>
       </div>
     </div>
     <div class="evt-list" id="evt-list">${ssrList}</div>
@@ -1249,10 +1259,14 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     let requestsLoaded = false;
     let lastFocused = null;
     let formSnapshot = '';
-    // A caminho do login com o rascunho guardado (api(), no 401): o "Sair do
-    // site? As alterações podem não ser salvas" seria falso — elas estão no
-    // rascunho e voltam ao entrar de novo.
+    // A caminho do login com o rascunho guardado (vaiParaOLogin(), no 401 de
+    // api() ou do backup): o "Sair do site? As alterações podem não ser salvas"
+    // seria falso — elas estão no rascunho e voltam ao entrar de novo. Não cala
+    // o aviso de Ajustes (ajustesSujos()): esse texto não vai para o rascunho.
     let saindoComRascunho = false;
+    // O selo como está salvo. defaultValue, e não value: o navegador pode devolver
+    // ao recarregar o que foi digitado, e aí o "sujo" de Ajustes nunca apareceria.
+    let agendaSalvo = ((/** @type {HTMLInputElement | null} */ (document.getElementById('agenda-texto')))?.defaultValue ?? '').trim();
     const STATUS_LABELS = { 'em-edicao': 'Em edição', 'em-revisao': 'Em revisão', 'entregue': 'Entregue', 'arquivado': 'Arquivado' };
     // Os ajudantes do lado do NAVEGADOR para o card compartilhado (os do
     // servidor ficam em dashboardHTML, com escape/safeUrl de utils.js).
@@ -1564,6 +1578,15 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         if (!a.pinned && b.pinned) return 1;
         return byDate(b) - byDate(a);
       });
+      // Seleção é só do que está à vista: um filtro que esconde um card tira ele da
+      // seleção, e a quantidade a digitar na confirmação é a da lista que aparece.
+      if (massMode) {
+        const visiveis = new Set(sorted.map(e => e.id));
+        for (const id of [...selectedIds]) if (!visiveis.has(id)) selectedIds.delete(id);
+        updateMassCount();
+        const selAll = document.getElementById('mass-selall');
+        if (selAll) selAll.checked = sorted.length > 0 && sorted.every(e => selectedIds.has(e.id));
+      }
       const noun = n => n === 1 ? 'evento' : 'eventos';
       // A conta é sempre a da lista que aparece: com uma categoria escolhida,
       // "Todos" contava todos os eventos do site, não os da categoria.
@@ -1756,8 +1779,21 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       lastFocused = null;
     }
 
+    // Ajustes com algo não salvo (senha, categoria nova, selo, arquivo do
+    // restaurar): sair daqui perde isso, e o rascunho não cobre Ajustes.
+    function ajustesSujos() {
+      const val = id => (document.getElementById(id)?.value || '');
+      const arquivo = /** @type {HTMLInputElement | null} */ (document.getElementById('restore-file'));
+      return val('new-pass') !== '' || val('new-pass2') !== ''
+        || val('agenda-texto').trim() !== agendaSalvo
+        || val('cat-new').trim() !== ''
+        || !!(arquivo && arquivo.files && arquivo.files.length);
+    }
+    // O "Sair do site?" vale também na saída para o login por sessão expirada,
+    // quando Ajustes está sujo: o texto de lá não foi para o rascunho, e ficar na
+    // página é o único jeito de copiá-lo.
     window.addEventListener('beforeunload', function(e) {
-      if (!saindoComRascunho && isFormDirty()) { e.preventDefault(); e.returnValue = ''; }
+      if ((!saindoComRascunho && isFormDirty()) || ajustesSujos()) { e.preventDefault(); e.returnValue = ''; }
     });
 
     // ---- Form keyboard handling (Esc close, Ctrl/Cmd+Enter submit, focus trap) ----
@@ -1987,11 +2023,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         if (editingId) {
           saved = await api('PUT', '/api/events/' + editingId, body);
           events = events.map(e => e.id === editingId ? saved : e);
-          toast('Evento atualizado!', 'ok');
+          toast('Evento atualizado! O site mostra em até 1 min.', 'ok');
         } else {
           saved = await api('POST', '/api/events', body);
           events.push(saved);
-          toast('Evento adicionado!', 'ok');
+          toast('Evento adicionado! O site mostra em até 1 min.', 'ok');
         }
         renderEventList();
         closeForm(true);
@@ -2871,12 +2907,21 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     }
 
     // ---- Backup ----
-    function downloadBackup() {
+    // Um fetch, e não um link: com a sessão expirada, o navegador mostrava o JSON
+    // do erro. O 401 vai ao login, como no api().
+    async function downloadBackup() {
+      let res;
+      try { res = await fetch('/api/backup'); } catch { toast('Sem conexão — o backup não foi baixado.', 'err'); return; }
+      if (res.status === 401) { vaiParaOLogin(); return; }
+      if (!res.ok) { const data = await res.json().catch(() => ({})); toast(data.error || 'Erro ' + res.status + ' ao baixar o backup.', 'err'); return; }
+      let blob;
+      try { blob = await res.blob(); } catch { toast('A conexão caiu no meio — o backup não foi baixado.', 'err'); return; }
+      const nome = (/filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '') || [])[1] || 'fotos-backup.json';
+      const u = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = '/api/backup';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(u), 1000);
+      toast('Backup baixado.', 'ok');
     }
     async function restoreBackup() {
       const fileInput = document.getElementById('restore-file');
@@ -2904,6 +2949,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
         // pessoais de terceiros) — e o aviso diz isso, em vez de sumirem calados.
         const semPedidos = res.removalRequestsSkipped ? ' Pedidos de remoção não entram na prévia (dados pessoais).' : '';
         toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos, 'ok');
+        // Arquivo já usado sai do campo: com ele escolhido, o recarregamento abaixo
+        // perguntaria "Sair do site?" (ajustesSujos()).
+        fileInput.value = '';
         setTimeout(() => window.location.reload(), 1800);
       } catch(err) {
         toast(err.message || 'Erro ao restaurar.', 'err');
@@ -3058,7 +3106,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       try {
         const res = await api('PUT', '/api/settings/agenda', { texto: input.value || '' });
         input.value = res.texto;
-        toast(res.texto ? 'Selo salvo. A galeria mostra em até 30 s.' : 'Selo removido.', 'ok');
+        agendaSalvo = res.texto;
+        toast(res.texto ? 'Selo salvo. A galeria mostra em até 1 min.' : 'Selo removido.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro ao salvar o selo.', 'err');
       }
@@ -3169,6 +3218,15 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
     }
 
     // ---- API helper ----
+    // Também o backup (que não passa por api()) chama esta: o 401 tem de ter o
+    // mesmo destino em toda parte.
+    function vaiParaOLogin() {
+      // Session expired — send back to login instead of a confusing toast on
+      // every action. stashDraft() first so an in-progress edit isn't lost
+      // (and, once it is stashed, without the browser's "leave site?").
+      saindoComRascunho = stashDraft();
+      window.location.href = '/dashboard';
+    }
     async function api(method, path, body) {
       const res = await fetch(path, {
         method,
@@ -3177,11 +3235,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
-        // Session expired — send back to login instead of a confusing toast on
-        // every action. stashDraft() first so an in-progress edit isn't lost
-        // (and, once it is stashed, without the browser's "leave site?").
-        saindoComRascunho = stashDraft();
-        window.location.href = '/dashboard';
+        vaiParaOLogin();
         throw new Error(data.error || 'Sessão expirada.');
       }
       if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
