@@ -93,6 +93,18 @@ export const FORM_LIMIT_PER_HOUR = 20;
 // escola, um evento) com bloqueador — ver SECURITY.md.
 export const NOSCRIPT_SWEEP_MIN_SLUGS = 5;
 export const NOSCRIPT_SWEEP_WINDOW_SECS = 24 * 3600;
+// Álbum restrito (família/privado) pelo caminho noscript (#146). O modelo é
+// "consentimento, não sigilo": a declaração registra o uso combinado, não
+// barra ninguém. Duas coisas apertam só este caminho, que não tem desafio:
+//   - o nome é obrigatório, para o registro de consentimento não sair anônimo;
+//   - um IP abre no máximo este número de álbuns restritos DISTINTOS na janela
+//     do alerta acima (24 h). Conta álbuns, não pedidos: o mesmo álbum abre
+//     quantas vezes for preciso, e o público de um evento atrás do Wi-Fi do
+//     local nunca chega perto. Quem tem bloqueador abre um álbum restrito,
+//     às vezes dois ou três da mesma família; quem varre o catálogo quer todos.
+// Passou do teto, o portão oferece o código por e-mail, que prova uma caixa
+// de e-mail e não conta aqui.
+export const NOSCRIPT_RESTRITOS_POR_IP = 3;
 // Um alerta a cada 6 h no máximo, para o conjunto — não por IP: com rotação de
 // IP, um cooldown por IP viraria enxurrada de e-mails e de escritas no KV.
 export const NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS = 6 * 3600;

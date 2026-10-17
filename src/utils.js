@@ -90,9 +90,17 @@ export const ACCESS_TYPES = ['public', 'private', 'family'];
 // before the Drive link unlocks, for 'family' and 'private' projects. Stored verbatim with
 // each consent record for non-repudiation — the canonical source, like CONSENT_LABEL.
 // 'public' has no extra declaration (Terms acceptance only).
+//
+// O modelo é consentimento, não sigilo (#146): a caixa registra o uso
+// combinado, não barra ninguém — o link do Drive, depois de liberado, abre
+// para quem o tiver. Por isso o texto diz o que o álbum é e o que a pessoa
+// reconhece sobre o uso, sem pedir que ela "declare ser" alguém: até a v2.0,
+// "Declaro ser membro da família" lia, para um convidado leigo, como uma senha.
+// Cada registro guarda o texto que a pessoa viu; os antigos continuam com o
+// antigo.
 export const ACCESS_DECLARATIONS = {
-  family:  'Declaro ser membro da família e reconheço que estas imagens são de uso estritamente particular e doméstico.',
-  private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
+  family:  'Este é um álbum de família: reconheço que as imagens são de uso estritamente particular e doméstico.',
+  private: 'Este é um álbum de quem participou do evento: reconheço que o material é para meu uso pessoal e não deve ser comercializado.',
 };
 
 // True for 'private'/'family' events — a self-declaration gate on top of the
@@ -104,6 +112,19 @@ export const ACCESS_DECLARATIONS = {
 /** @param {Evento} event */
 export function isRestrictedAccess(event) {
   return event.accessType === 'private' || event.accessType === 'family';
+}
+
+// Nome no registro de consentimento de um álbum restrito aberto SEM o
+// Turnstile (#146): nesse caminho ele é obrigatório, para o registro não sair
+// anônimo. Não dá para conferir se é verdadeiro; dá para exigir que pareça um
+// nome: 2+ caracteres, ao menos uma letra. A página tem a mesma regra, para
+// só pedir o link quando ele vai passar (src/ui/event.js, nomeOk) — as duas
+// cópias estão presas por um teste de par em tests/drive-gate.test.js.
+export const NOME_CONSENTIMENTO_MIN = 2;
+/** @param {unknown} v */
+export function nomeDeConsentimento(v) {
+  const s = String(v ?? '').trim();
+  return s.length >= NOME_CONSENTIMENTO_MIN && /\p{L}/u.test(s);
 }
 
 // Cópia de sobrevivência da lista de eventos, via Cache API. KV é a única

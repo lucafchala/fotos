@@ -1117,7 +1117,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '') 
               <option value="private">Privado</option>
               <option value="family">Familiar</option>
             </select>
-            <div class="field-hint" style="margin-top:.5rem">Define a autodeclaração exigida no gateway antes de liberar o Drive. <strong>Público</strong>: só o aceite dos Termos. <strong>Privado/Familiar</strong>: o visitante também precisa declarar que é participante/autorizado ou membro da família.</div>
+            <div class="field-hint" style="margin-top:.5rem">Define o que o portão pede antes de liberar o Drive. <strong>Público</strong>: só o aceite dos Termos. <strong>Privado/Familiar</strong>: também uma caixa em que o visitante reconhece o uso combinado (pessoal; particular e doméstico) e, quando a verificação de segurança não carrega, o nome. É um registro de consentimento, não uma senha: quem tiver o link do Drive abre.</div>
           </div>
           <div class="field">
             <div class="toggle-row">

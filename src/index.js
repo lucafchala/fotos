@@ -24,7 +24,7 @@ import {
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
-  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess, nomeDeConsentimento,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
@@ -37,7 +37,7 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
-  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
@@ -2710,6 +2710,23 @@ export async function handleDriveLink(request, env, ctx) {
     return jsonErr('É necessário confirmar a declaração de acesso.', 400);
   }
 
+  // Álbum restrito sem o Turnstile (#146): o caminho sem desafio pede o nome
+  // e respeita o teto de álbuns distintos por IP (config.js). O Turnstile e o
+  // código por e-mail não passam por aqui: os dois já provam alguma coisa.
+  // `campo` e `usarEmail` dizem à página o que fazer, sem ela ler a frase.
+  const nome = String(body.name || '').trim().slice(0, 120);
+  if (isNoscript && isRestrictedAccess(event)) {
+    if (!nomeDeConsentimento(nome)) {
+      return jsonOk({ error: 'Sem a verificação de segurança, este álbum pede o seu nome.', campo: 'nome' }, 400);
+    }
+    if (await passouDoTetoDeRestritos(env, ip, slug)) {
+      return jsonOk({
+        error: `Sem a verificação de segurança, cada conexão abre até ${NOSCRIPT_RESTRITOS_POR_IP} álbuns de família ou privados por dia. Para abrir este, receba um código por e-mail.`,
+        usarEmail: true,
+      }, 403);
+    }
+  }
+
   // Audit — non-blocking, always using the server's canonical texts, never
   // whatever the client sends.
   if (env.CONSENT_DB) {
@@ -2726,7 +2743,7 @@ export async function handleDriveLink(request, env, ctx) {
       await getTermsHash(),
       CONSENT_LABEL,
       declarationText || null,
-      String(body.name || '').trim().slice(0, 120) || null,
+      nome || null,
       verificacao,
       ip.slice(0, 64),
       String(request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
@@ -2912,6 +2929,63 @@ export function driveTarget(event) {
   return event.driveUrlVideos ? `${base}+videos` : base;
 }
 
+// As concessões sem Turnstile deste IP na janela de 24 h: a conta do alerta de
+// varredura (#147) e a do teto de álbuns restritos (#146). Uma função só, para
+// as duas contas sobre o mesmo D1 não divergirem (um número no alerta, outro
+// no teto). `outrosRestritos` deixa de fora o álbum pedido agora: reabrir um
+// álbum que já conta não pode esbarrar no teto. Lança se o D1 falhar; quem
+// chama decide o que isso significa.
+/**
+ * @param {D1Database} db
+ * @param {string} ip
+ * @param {string} [slugAtual]
+ * @returns {Promise<{ slugs: number, total: number, restritos: number, outrosRestritos: number }>}
+ */
+async function concessoesSemTurnstile(db, ip, slugAtual = '') {
+  const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+  const rede = ipParaLimite(ip);
+  if (rede.endsWith('::/64')) {
+    // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
+    // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
+    // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
+    // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
+    // consegue agrupar por prefixo: ele traz as concessões noscript da
+    // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
+    // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
+    // completo continua na coluna para auditoria. Concessão sem Turnstile é
+    // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
+    // pior caso.
+    const { results } = await db.prepare(
+      `SELECT ip, event_slug, access_type FROM image_use_consent
+        WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
+        LIMIT 5000`
+    ).bind(desde, `${ip.split(':')[0]}:%`).all();
+    const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
+      .filter(r => ipParaLimite(r.ip) === rede);
+    const restritos = new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug));
+    return {
+      slugs: new Set(daRede.map(r => r.event_slug)).size,
+      total: daRede.length,
+      restritos: restritos.size,
+      outrosRestritos: [...restritos].filter(s => s !== slugAtual).length,
+    };
+  }
+  /** @type {Record<string, unknown> | null} */
+  const linha = await db.prepare(
+    `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+            COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos,
+            COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') AND event_slug <> ? THEN event_slug END) AS outrosRestritos
+       FROM image_use_consent
+      WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+  ).bind(slugAtual, ip.slice(0, 64), desde).first();
+  return {
+    slugs: Number(linha?.slugs) || 0,
+    total: Number(linha?.total) || 0,
+    restritos: Number(linha?.restritos) || 0,
+    outrosRestritos: Number(linha?.outrosRestritos) || 0,
+  };
+}
+
 // Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
 // abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
 // projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
@@ -2923,53 +2997,39 @@ export function driveTarget(event) {
 async function checkNoscriptSweep(env, ip) {
   if (!env.CONSENT_DB) return;
   try {
-    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
     const rede = ipParaLimite(ip);
-    /** @type {{ slugs: number, total: number, restritos: number } | null} */
-    let linha;
-    if (rede.endsWith('::/64')) {
-      // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
-      // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
-      // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
-      // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
-      // consegue agrupar por prefixo: ele traz as concessões noscript da
-      // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
-      // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
-      // completo continua na coluna para auditoria. Concessão sem Turnstile é
-      // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
-      // pior caso.
-      const { results } = await env.CONSENT_DB.prepare(
-        `SELECT ip, event_slug, access_type FROM image_use_consent
-          WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
-          LIMIT 5000`
-      ).bind(desde, `${ip.split(':')[0]}:%`).all();
-      const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
-        .filter(r => ipParaLimite(r.ip) === rede);
-      linha = {
-        slugs: new Set(daRede.map(r => r.event_slug)).size,
-        total: daRede.length,
-        restritos: new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug)).size,
-      };
-    } else {
-      linha = await env.CONSENT_DB.prepare(
-        `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
-                COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
-           FROM image_use_consent
-          WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
-      ).bind(ip.slice(0, 64), desde).first();
-    }
-    const slugs = Number(linha?.slugs) || 0;
-    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    const conta = await concessoesSemTurnstile(env.CONSENT_DB, ip);
+    if (conta.slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
     await sendNoscriptSweepAlert(env, {
       // O /64 junto, quando for IPv6: é ele que vai numa regra de WAF.
       ip: rede.endsWith('::/64') ? `${ip} (rede ${rede})` : ip,
-      slugs,
-      restritos: Number(linha?.restritos) || 0,
-      total: Number(linha?.total) || 0,
+      slugs: conta.slugs,
+      restritos: conta.restritos,
+      total: conta.total,
       janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
     });
   } catch (e) {
     noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
+}
+
+// O teto de álbuns restritos do caminho noscript (#146; o número e o porquê
+// em config.js). Falha aberta, de propósito: sem D1, ou com ele fora, não há
+// como contar, e o portão existe para a foto chegar. A falha vai para o
+// /api/healthz, como a da checagem de varredura.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} slug
+ */
+async function passouDoTetoDeRestritos(env, ip, slug) {
+  if (!env.CONSENT_DB) return false;
+  try {
+    const { outrosRestritos } = await concessoesSemTurnstile(env.CONSENT_DB, ip, slug);
+    return outrosRestritos >= NOSCRIPT_RESTRITOS_POR_IP;
+  } catch (e) {
+    noteDegraded('teto de álbuns restritos sem Turnstile falhou', 'D1 não respondeu à contagem por IP; o portão liberou sem contar', e);
+    return false;
   }
 }
 
