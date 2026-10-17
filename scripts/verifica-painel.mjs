@@ -19,8 +19,9 @@
 // E, no caminho, o que só um navegador mostra: a navegação no lugar certo
 // (barra de baixo no celular, lateral no computador), nada vazando para o
 // lado, alvos de toque de 44 px, campo que não dá zoom no iPhone, menu com
-// teclado, nenhum erro de JS, nenhuma violação da CSP aplicada, e quais
-// chaves do KV o fluxo gravou (a cota é de 1000 escritas/dia — TODO.md).
+// teclado, nenhum erro de JS, nenhuma mensagem de CSP no console (a política
+// estrita é a aplicada, #126: scripts/vigia-csp.mjs), e quais chaves do KV o
+// fluxo gravou (a cota é de 1000 escritas/dia — TODO.md).
 //
 // Uma falha não esconde as outras: cada cenário roda dentro de `cenario()`,
 // que registra a exceção e segue (a mesma lição do smoke.sh).
@@ -33,6 +34,7 @@ import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
+import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { metricasDeExemplo } from '../src/previa.js';
 import { hojeEmSaoPaulo } from '../src/utils.js';
 
@@ -116,6 +118,8 @@ function contadoresSinteticos() {
 const CONTADORES = contadoresSinteticos();
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+// O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
+await provaOVigia(browser, registra);
 
 /**
  * Um contexto logado num Worker novo (cada aparelho com o seu: a troca de
@@ -128,10 +132,7 @@ async function abre(viewport, dpr, toque) {
   const page = await ctx.newPage();
   const estado = { erros: /** @type {string[]} */ ([]), csp: /** @type {string[]} */ ([]) };
   page.on('pageerror', e => estado.erros.push(String(e)));
-  page.on('console', m => {
-    const t = m.text();
-    if (/Content Security Policy/i.test(t) && !/Report Only/i.test(t)) estado.csp.push(t.slice(0, 160));
-  });
+  vigiaCsp(page, estado.csp);
   // Miniaturas do lh3: um pixel basta (o painel não depende da imagem).
   await page.route(/lh3\.googleusercontent\.com/, r => r.fulfill({
     contentType: 'image/png',
@@ -867,7 +868,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
 
       // ---- 10. Limpeza do console e da cota ----------------------------------
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);
-      registra(estado.csp.length === 0, `${rotulo}: nenhuma violação da CSP aplicada`, estado.csp);
+      registra(estado.csp.length === 0, `${rotulo}: nenhuma mensagem de CSP no console`, estado.csp);
       const chaves = [...new Set(w.escritas.map(k => k.replace(/^admin_session:.*/, 'admin_session:*').replace(/^removal_request:.*/, 'removal_request:*')))].sort();
       registra(chaves.every(k => ['admin_password', 'admin_session:*', 'events', 'removal_request:*'].includes(k)),
         `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, chaves);
