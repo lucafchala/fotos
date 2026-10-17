@@ -349,9 +349,13 @@ portão do Drive.
 ### 5.11. O smoke roda depois da promoção — o portão de preview está indisponível
 
 O `deploy.yml` foi feito para rodar o smoke numa versão sem tráfego e só então
-promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker
-(provável causa: ele implementa Durable Objects — #179), e o resumo de todo
-deploy diz "Portão de preview: ⚠️ indisponível". O deploy então promove, roda o
+promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker,
+e não vai entregar: a documentação dela diz que "Version URLs are not generated
+for Workers that implement a Durable Object" (Versions & Deployments → Version
+URLs → Limitations; #179). O resumo de todo deploy diz "Portão de preview: ⚠️
+indisponível". O caminho para um portão antes da promoção são as Worker
+Previews, que têm Durable Objects próprios (o `[previews]` do `wrangler.toml`
+já existe) — isso muda o `deploy.yml` e espera o ok do dono. O deploy então promove, roda o
 smoke em produção e **reverte sozinho** se reprovar. Três consequências:
 
 - clientes ficam expostos por segundos a uma versão não verificada;
