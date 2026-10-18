@@ -740,11 +740,13 @@ Tudo vive numa única instância de KV (`binding = "FOTOS"`). Chaves usadas:
 | `events` | JSON: array com **todos** os eventos | `handleCreateEvent`, `handleUpdateEvent`, `handleDeleteEvent`, `handleRestoreBackup` |
 | `admin_password` | String no formato `pbkdf2:<iter>:<saltHex>:<hashHex>` (ou SHA-256 legado, migrado no próximo login) | `handleLogin` (primeira vez ou setup), `handleChangePassword` |
 | `admin_session:<token>` | JSON `{v, createdAt, lastSeen, fp}` com `expirationTtl` ≤ 24 h (o valor legado `"valid"` é recusado e apagado desde o #197) | `handleLogin` ao sucesso; `verifySession` renova `lastSeen` a cada 10 min; deletada no logout |
+| `admin_sessions_corte` | ISO do instante do "Sair dos outros aparelhos": derruba toda sessão criada antes dele, com `expirationTtl` de 25 h (passadas as 24 h do teto, não há mais o que cortar) | `handleRevokeOtherSessions` (antes da varredura) |
 | `removal_request:<id>` | JSON: **uma** solicitação de remoção por chave (desde a v2.0, #198 — schema abaixo) | `handleRemovalRequest` (o pedido e, depois dos e-mails, o carimbo do status deles), `handleResolveRequest`, `handleRestoreBackup`; a poda e a migração do cron (`src/pedidos.js`) |
 | `removal_requests` | **Legado, some sozinho.** O array único de antes da v2.0. Lido junto com as chaves próprias até o cron diário copiar cada pedido para a sua chave — só então é apagado | ninguém (desde a v2.0); apagado por `migraLegado()` |
 | `categories` | JSON: array de nomes de categorias gerenciáveis | `handleCreateCategory`, `handleDeleteCategory` |
 | `agenda` | Texto do selo de agenda (até 80 caracteres, uma linha); ausente = sem selo. Lido com cache de 30 s por isolate, mais até 30 s para o KV chegar aos outros locais da Cloudflare (`cacheTtl: 30`): até 1 min. Uma falha de leitura só omite o selo. **Fora do backup** — é uma frase, redigitada em segundos | `handleSaveAgenda` |
 | `cron:last` | ISO da última execução do cron diário | `scheduled()` |
+| `backup:ultimo` | ISO do último backup baixado — alimenta o lembrete "Último backup" em Ajustes → Dados | `handleGetBackup` (via `registraUltimoBackup`, só depois do arquivo pronto e fora do caminho da resposta) |
 | `support-dup:<ip>:<hash>` | `"1"`, TTL 1 h — supressão de mensagem de suporte repetida | `handleSupportRequest` (só depois do envio dar certo) |
 | `error-alert:cooldown`, `login-alert:cooldown`, `noscript-sweep-alert:cooldown` | `"1"` com TTL — cooldown dos e-mails de alerta | `sendErrorAlert`, `sendLoginAlert`, `sendNoscriptSweepAlert` |
 | `views:<slug>`, `drive_clicks:<slug>` | **Legado, só leitura.** Contadores da era do KV; hoje moram no Durable Object `Counter` e estas chaves só são lidas uma vez, para assentar o valor antigo | ninguém (desde a migração para Durable Objects) |
@@ -929,6 +931,7 @@ compatibilidade sem comprar segurança.
 | GET | `/dashboard` | Painel ou tela de login/setup |
 | POST | `/dashboard/login` | Recebe form, valida ou cria senha, cria sessão |
 | POST | `/dashboard/logout` | Deleta sessão no KV + cookie expirado |
+| POST | `/api/sessions/revoke-others` | "Sair dos outros aparelhos" (Ajustes → Conta): encerra a sessão do painel em todos os aparelhos menos o atual, gravando o marcador `admin_sessions_corte` |
 | POST | `/api/events` | Criar evento |
 | PUT | `/api/events/<id>` | Atualizar evento (parcial; só campos enviados) |
 | DELETE | `/api/events/<id>` | Excluir evento e deletar `views:<slug>` |
