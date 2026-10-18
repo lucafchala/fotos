@@ -320,3 +320,16 @@ describe('estrutura do painel', () => {
     expect(dashboardHTML([], [], 'N')).toContain('Toque em "Novo evento" para criar o primeiro.');
   });
 });
+
+describe('formulário: "Visível na galeria" explica o que "oculto" quer dizer (#128)', () => {
+  it('a dica fica logo abaixo do interruptor e diz: não listado, mas abre com o link', () => {
+    const html = dashboardHTML([], [], 'N');
+    const dica = html.match(/<div class="field-hint" id="f-visible-dica"[^>]*>([\s\S]*?)<\/div>/);
+    expect(dica, 'dica ausente').not.toBeNull();
+    const texto = dica[1].replace(/<[^>]+>/g, '');
+    expect(texto).toContain('oculto');
+    expect(texto).toContain('não listado');
+    expect(texto).toContain('quem tem o link ainda abre');
+    expect(html.indexOf('id="f-visible"')).toBeLessThan(html.indexOf('id="f-visible-dica"'));
+  });
+});

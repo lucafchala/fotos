@@ -1143,6 +1143,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <span class="toggle-track"></span>
               </label>
             </div>
+            <div class="field-hint" id="f-visible-dica" style="margin-top:.5rem">Desligado, o projeto fica <strong>oculto</strong> (não listado): some da página inicial, mas quem tem o link ainda abre.</div>
           </div>
           <div class="field">
             <div class="toggle-row">
