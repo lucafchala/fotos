@@ -347,11 +347,13 @@ describe('RateLimiter.take — balde de fichas no runtime de verdade', () => {
 
   it('devolve fichas com o tempo', async () => {
     const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-volta')));
-    // 36000/h = 10 fichas/s: em ~250 ms volta pelo menos uma.
-    expect((await stub.take(1, 36000)).ok).toBe(true);
-    expect((await stub.take(1, 36000)).ok).toBe(false);
-    await new Promise(r => setTimeout(r, 250));
-    expect((await stub.take(1, 36000)).ok, 'ficha devolvida').toBe(true);
+    // 3600/h = 1 ficha por segundo. Com 10/s a recusa do segundo pedido
+    // dependia da máquina: 100 ms entre as duas chamadas (comum num runner
+    // da CI) já devolviam a ficha, e o teste falhava sem defeito nenhum.
+    expect((await stub.take(1, 3600)).ok).toBe(true);
+    expect((await stub.take(1, 3600)).ok).toBe(false);
+    await new Promise(r => setTimeout(r, 1100));
+    expect((await stub.take(1, 3600)).ok, 'ficha devolvida').toBe(true);
   });
 
   it('recusa não grava nada — não gasta linha escrita do Durable Object', async () => {
