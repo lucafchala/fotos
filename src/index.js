@@ -3532,6 +3532,33 @@ function textoRestaurado(v) {
   return typeof v === 'number' && Number.isFinite(v) ? String(v) : '';
 }
 
+// Link de Drive falso que a PRÉVIA grava no lugar do real nos álbuns restritos.
+// Só precisa ser https e não vazio: a página e `driveTarget` olham se o campo
+// existe, e nenhum dos dois abre o álbum.
+const DRIVE_FALSO_DA_PREVIA = 'https://drive.google.com/drive/folders/previa-sem-album-real';
+const CAMPOS_DRIVE = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos'];
+
+// O Turnstile da prévia passa para qualquer visitante, então
+// `POST /api/drive-link` devolve o `driveUrl` de quem pedir. Restaurar o backup
+// de produção ali com os links reais dos álbuns private/family os entregaria a
+// qualquer pessoa: nas prévias eles entram trocados por um falso.
+/**
+ * @param {unknown[]} eventos
+ * @returns {unknown[]}
+ */
+export function neutralizaLinksRestritosNaPrevia(eventos) {
+  return eventos.map(ev => {
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return ev;
+    const e = /** @type {Record<string, any>} */ (ev);
+    if (!isRestrictedAccess(e)) return ev;
+    const out = { ...e };
+    for (const f of CAMPOS_DRIVE) {
+      if (typeof out[f] === 'string' && out[f].trim()) out[f] = DRIVE_FALSO_DA_PREVIA;
+    }
+    return out;
+  });
+}
+
 // Um evento do backup só entra com IDENTIDADE utilizável — sem ela ele não é
 // dado a preservar, é armadilha:
 //   • `id`: é por ele que o painel edita e apaga (`/api/events/<id>`). Sem id,
@@ -3684,7 +3711,8 @@ async function handleRestoreBackup(request, env) {
   // criado noutro isolate) ou, pior, sobre a cópia de sobrevivência de até 7
   // dias se o KV estivesse fora — e gravar isso como se fosse o estado atual.
   const current = await getEvents(env, true);
-  const { events: merged, added, updated, skipped } = mergeRestore(current, body.events);
+  const doBackup = ehPrevia(env) ? neutralizaLinksRestritosNaPrevia(body.events) : body.events;
+  const { events: merged, added, updated, skipped } = mergeRestore(current, doBackup);
   await saveEvents(env, merged);
   // `categories` e `removalRequestsAdded` entram depois, só quando o backup
   // traz essas seções (v2). A forma inferida do literal não as inclui.

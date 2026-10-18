@@ -4,7 +4,7 @@ import {
   ehPrevia, comFaixa, MODOS_TURNSTILE, SIMULACOES, LIMITES_DO_APARELHO, ATRASO_LENTO_MS, ESPERA_LOTADO_S,
   CHAVE_RESEND_RECUSADA, CHAVE_DRIVE_RECUSADA, envSimulado, simulacoes, metricasDeExemplo, relogioDaPrevia,
 } from '../src/previa.js';
-import { saveEvents, corpoResend, checkRateLimit, degradedHealth, resetDegraded, hojeEmSaoPaulo } from '../src/utils.js';
+import { saveEvents, getEvents, corpoResend, checkRateLimit, degradedHealth, resetDegraded, hojeEmSaoPaulo } from '../src/utils.js';
 import { TURNSTILE_SITE_KEY, VERSAO, FORM_LIMIT_PER_HOUR, FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS } from '../src/config.js';
 import { signToken } from '../src/security.js';
 import { readFileSync } from 'node:fs';
@@ -328,6 +328,43 @@ describe('prévia: restaurar backup sem dados pessoais de terceiros', () => {
     const corpo = await (await restaura(env, backup)).json();
     expect(corpo.removalRequestsAdded).toBe(1);
     expect(pedidosGravados(env.FOTOS._store).map(p => p.email)).toEqual(['real@exemplo.com']);
+  });
+
+  describe('links de Drive dos álbuns restritos', () => {
+    const REAL = 'https://drive.google.com/drive/folders/ALBUM-REAL-DA-FAMILIA';
+    const PUBLICO = 'https://drive.google.com/drive/folders/ALBUM-PUBLICO';
+    const album = (id, accessType, extra = {}) => ({ ...EVENTOS[0], id, slug: `album-${id}`, title: `Álbum ${id}`, accessType, driveUrl: REAL, ...extra });
+    const restauraAlbuns = async (env) => {
+      const res = await restaura(env, { events: [album('p1', 'private', { driveUrlVideos: `${REAL}-VIDEOS` }), album('f1', 'family'), album('u1', 'public', { driveUrl: PUBLICO })] });
+      expect(res.status).toBe(200);
+      const salvos = await getEvents(env, true);
+      return (id) => salvos.find(e => e.id === id);
+    };
+
+    it('na prévia, private e family entram com um link falso — nunca o real', async () => {
+      const env = await montaEnv({ AMBIENTE: 'previa' });
+      const achar = await restauraAlbuns(env);
+      for (const id of ['p1', 'f1']) {
+        expect(achar(id).driveUrl).toMatch(/^https:\/\//);
+        expect(achar(id).driveUrl).not.toContain('ALBUM-REAL');
+      }
+      expect(achar('p1').driveUrlVideos).not.toContain('ALBUM-REAL');
+      expect(achar('p1').driveUrlVideos, 'o campo continua preenchido').toBeTruthy();
+      expect(achar('f1').driveUrlVideos, 'campo vazio continua vazio').toBeFalsy();
+      expect(JSON.stringify([...env.FOTOS._store.values()])).not.toContain('ALBUM-REAL-DA-FAMILIA');
+    });
+
+    it('na prévia, o álbum público mantém o link (ele já é público)', async () => {
+      const env = await montaEnv({ AMBIENTE: 'previa' });
+      expect((await restauraAlbuns(env))('u1').driveUrl).toBe(PUBLICO);
+    });
+
+    it('em produção, o restore guarda o link real dos restritos', async () => {
+      const env = await montaEnv();
+      const achar = await restauraAlbuns(env);
+      expect(achar('p1').driveUrl).toBe(REAL);
+      expect(achar('f1').driveUrl).toBe(REAL);
+    });
   });
 });
 
