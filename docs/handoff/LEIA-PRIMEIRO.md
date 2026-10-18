@@ -442,10 +442,77 @@ O resto da superfície revisada passou:
 - o PhotoSwipe em `vendor/`, idêntico ao do npm;
 - a CI.
 
-## 6. Pesquisa de recursos
+## 6. Pesquisa de recursos (resumo do relatório da sessão de nuvem)
 
-Se a pesquisa da sessão de nuvem terminar a tempo, o relatório entra aqui num commit
-seguinte. Sem nada abaixo, pule o item 9 da seção 4.
+Leve ao dono, no fim, as 3–5 melhores ideias, sem implementar antes do ok. A exceção é o
+que já está nas tarefas acima. Linhas de código e números vêm do relatório: confira antes
+de agir. Estatísticas de terceiros não foram checadas na fonte.
+
+**Atenção (decisões, não código):**
+
+- `/llms.txt` diz `Usage-Policy: Training allowed` (`handleLlmsTxt`, `src/index.js`
+  ~511–545). É a mesma decisão da pergunta 10.
+- O log de consentimento (`image_use_consent`, no D1) fica fora do `GET /api/backup`
+  (~3463–3468): a prova do aceite não tem cópia.
+- Menores: os termos (`src/ui/terms.js` ~104) exigem o aceite dos responsáveis, coletado
+  fora do site. O ECA Digital (Lei 15.211/2025, em vigor desde 17/03/2026) pode alcançar o
+  serviço: é pergunta para advogado.
+
+**Vale fazer** (valor alto, custo pequeno):
+
+1. **Texto alternativo por foto.**
+   - Nas capas e no lightbox: `alt="Foto i de n — título"` (`src/ui/event.js` ~148–155 e
+     ~813; o lightbox hoje usa `alt=""`).
+   - Na galeria (`src/ui/galeria.js` ~504): o índice em vez do nome do arquivo.
+   - Entra junto da 4.1 e da 4.2.
+2. **Erros de JS do navegador**, amostrados e sem dado pessoal.
+   - No bloco RUM de `src/utils.js` (~2596–2612), `error` e `unhandledrejection` mandam
+     `sendBeacon('/api/perf', {kind:'js', tipo, arquivo, linha})`.
+   - 10% de amostra e no máximo 3 por página, sem mensagem livre nem query.
+   - `handlePerfBeacon` passa a aceitar o `kind`. Não usa KV.
+3. **INP e CLS** no mesmo beacon (hoje ele só manda LCP, FCP e TTFB).
+4. **axe-core** (devDependency, versão fixa) nos roteiros `verifica-evento`,
+   `verifica-galeria` e `verifica-painel`. Falha em impacto serious ou critical, com uma
+   lista explícita de exceções.
+5. **Declaração de acessibilidade.**
+   - Rota no padrão de `src/ui/about.js`, registrada na lista de `src/ui/legal.js`, com
+     link no rodapé.
+   - Diz o nível-alvo (WCAG 2.2 AA), o que foi testado, o que falta e o contato pelo
+     /suporte.
+   - Se a LBI alcança o dono é pergunta para advogado.
+6. **`AGENTS.md` de três linhas**, só apontando para `llms.md` e `RETOMADA.md` (outras
+   ferramentas leem AGENTS.md). Não copie regras.
+7. **Inventário de vencimentos e acessos** em `RETOMADA.md`: domínio, DNS, Resend, chave do
+   Drive, Turnstile, Cloudflare, GitHub e Kuma, cada um com dono, vencimento e lembrete.
+8. **Consentimento no backup.**
+   - Primeiro, um runbook de export do D1 `CONSENT_DB`, guardado fora do repo (o log tem
+     IP).
+   - Depois, se o dono quiser, incluir o log no backup, com o restore testado.
+9. **Expiração da página por data** (decisão do dono): o cron diário põe `visible=false`.
+   Não revoga o Drive, então não é retenção.
+
+**Depois:**
+
+- regressão visual com Playwright;
+- seleção, favoritas e download "para redes" do convidado, quando a galeria abrir;
+- QR de evento (o TODO pede uma necessidade nova).
+
+**Não fazer:**
+
+- **Reconhecimento facial ou busca por selfie:** dado biométrico é dado sensível (LGPD
+  art. 11).
+- **Senha como sigilo:** o link do Drive é público; o modelo é "consentimento, não
+  sigilo".
+- **Marca d'água nas entregas.**
+- **Loja ou cobrança.**
+- **Captura de e-mail ou newsletter.**
+- **Upload por convidados.**
+- **Service worker ou cache offline:** o nonce da CSP vale 2 h.
+- **Analytics de terceiros ou session replay.**
+- **Framework ou build.**
+- **Monitor terceirizado:** o dono recusou.
+- **Workers Paid "por precaução".**
+- **Cloudflare Images, Stream ou Pro:** já foram decididos contra.
 
 ## 7. Perguntas ao dono (todas no fim, cada uma com a sua recomendação)
 
@@ -513,4 +580,6 @@ Só o dono pode fazer (lembre no relatório):
 - #177: proteger a `main`;
 - #178: conferir em produção depois do deploy;
 - #230, #231, #233: pós-evento;
-- os segredos da prévia (pergunta 3).
+- os segredos da prévia (pergunta 3);
+- levar ao advogado, junto do #125: o ECA Digital (menores) e a LBI (declaração de
+  acessibilidade), da seção 6.
