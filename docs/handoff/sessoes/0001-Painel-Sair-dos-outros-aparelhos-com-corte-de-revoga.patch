@@ -1,0 +1,1493 @@
+From 6d27866f57b99a7770aa3aca969b76bea9a9dc4e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 17 Oct 2026 13:16:21 +0000
+Subject: [PATCH 1/3] =?UTF-8?q?Painel:=20"Sair=20dos=20outros=20aparelhos"?=
+ =?UTF-8?q?=20(com=20corte=20de=20revoga=C3=A7=C3=A3o)=20e=20lembrete=20de?=
+ =?UTF-8?q?=20=C3=BAltimo=20backup?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sessões. O KV é eventualmente consistente: um apagamento só chega a outro
+local da Cloudflare quando o cache de lá vence (60 s por padrão). Nessa
+janela o aparelho revogado ainda era aceito — e se a renovação do lastSeen
+(a cada 10 min) caísse nela, o put do verifySession RESSUSCITAVA o registro
+apagado, por mais 24 h. A troca de senha já tinha o buraco.
+
+Agora há um marcador, `admin_sessions_corte` = {antes, exceto}: toda sessão
+aberta antes de `antes` morre, menos a de quem pediu (hash SHA-256 do token).
+O verifySession lê registro e marcador juntos, os dois com cacheTtl 30 s (o
+mínimo do KV), e recusa — antes de renovar — a sessão anterior ao corte. O
+registro ressuscitado guarda o createdAt antigo, então a janela cai de "até
+24 h" para o cache (30 s). Marcador ausente = sem corte; ilegível (ou datado
+do futuro) = ignorado e avisado no healthz, para não trancar o dono fora.
+
+Uma função só faz o corte (`encerraOutrasSessoes`: marcador primeiro, depois
+list + delete) e as duas portas a chamam: a troca de senha e o novo
+POST /api/sessions/revoke-others ({ ok, encerradas }). Ajustes → Conta ganha o
+bloco "Sair dos outros aparelhos", com confirmação simples.
+
+Backup. GET /api/backup grava `backup:ultimo` (ISO) em waitUntil, sem travar
+nem derrubar o download (a recusa do KV vai para o noteKvFailure; HEAD não
+conta). O painel lê a chave na abertura, em paralelo com o selo de agenda, e
+Ajustes → Dados mostra "Último backup: hoje / ontem / há N dias (DD/MM/AAAA)"
+por dia de São Paulo, calculado no navegador e atualizado no lugar depois do
+download. Nunca baixado, ou há mais de 30 dias, vira o aviso âmbar — a regra
+.aviso do login passou para o CSS compartilhado, uma definição só.
+
+Testes: tests/sessoes-corte.test.js (inclui um KV de dois locais com cache que
+reproduz o buraco inteiro), tests/workers/sessoes.workers.test.js (KV de
+verdade) e tests/backup-lembrete.test.js.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018fDHdgZmd7MSSwuVng2yjQ
+---
+ src/index.js                          | 115 ++++---
+ src/ui/dashboard.js                   |  83 ++++-
+ src/utils.js                          | 172 ++++++++++-
+ tests/backup-lembrete.test.js         | 343 +++++++++++++++++++++
+ tests/sessoes-corte.test.js           | 427 ++++++++++++++++++++++++++
+ tests/workers/sessoes.workers.test.js |  66 ++++
+ 6 files changed, 1164 insertions(+), 42 deletions(-)
+ create mode 100644 tests/backup-lembrete.test.js
+ create mode 100644 tests/sessoes-corte.test.js
+ create mode 100644 tests/workers/sessoes.workers.test.js
+
+diff --git a/src/index.js b/src/index.js
+index 8ecb35e..dd3aa2c 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -17,9 +17,9 @@ import { ehPrevia, fetchDaPrevia } from './previa.js';
+ import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
+ import {
+   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
+-  getAgenda, saveAgenda, limpaAgenda,
+-  hashPassword, verifyPassword, generateToken,
+-  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
++  getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
++  hashPassword, verifyPassword, generateToken, sha256Hex,
++  verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
+   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
+   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
+@@ -284,8 +284,11 @@ const worker = {
+       if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
+       if (path === '/api/metrics/diario' && method === 'GET') return handleMetricsDiario(request, env, url);
+       if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
++      if (path === '/api/sessions/revoke-others' && method === 'POST') return handleRevokeOtherSessions(request, env);
+       if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
+-      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
++      // HEAD chega aqui como GET (ver o topo do fetch): ele não baixa nada, então
++      // não pode marcar um backup como feito.
++      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env, ctx, interno.headOnly === true);
+       if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
+       if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
+ 
+@@ -710,10 +713,12 @@ async function handleDashboardPage(request, env, url, nonce) {
+   }
+ 
+   const [events, categories] = dados;
+-  // Fora do `try` acima de propósito: getAgenda não lança, e o selo não pode
+-  // ser motivo de "painel indisponível".
+-  const agenda = await getAgenda(env, true);
+-  return adminHtml(dashboardHTML(events, categories, nonce, agenda), 200, nonce);
++  // Fora do `try` acima de propósito: getAgenda e getUltimoBackup não lançam, e
++  // nem o selo nem o lembrete de backup podem ser motivo de "painel
++  // indisponível". Lidos juntos: o lembrete custa uma leitura de KV por abertura
++  // do painel, sem uma ida a mais.
++  const [agenda, backupUltimo] = await Promise.all([getAgenda(env, true), getUltimoBackup(env)]);
++  return adminHtml(dashboardHTML(events, categories, nonce, agenda, backupUltimo), 200, nonce);
+ }
+ 
+ // Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
+@@ -1736,35 +1741,28 @@ export async function handleChangePassword(request, env, ctx) {
+ 
+   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
+   // cookie roubado continuaria válido por até 24h. A sessão de quem está
+-  // trocando é preservada; o resto é revogado. Best-effort: falha aqui não
+-  // desfaz a troca de senha, que já valeu.
++  // trocando é preservada; o resto é revogado — pela MESMA função do "Sair dos
++  // outros aparelhos", que além de apagar os registros grava o marcador de
++  // revogação: só apagar deixava o cookie roubado valer por até 60 s noutro
++  // local e, se a renovação do lastSeen caísse nessa janela, ressuscitava a
++  // sessão por mais 24 h. Best-effort: falha aqui não desfaz a troca de senha,
++  // que já valeu.
+   try {
+     // Mesmo leitor do `verifySession`: a sessão preservada tem de ser a que
+     // está fazendo a troca. Com o padrão antigo, um cookie legado plantado
+     // fazia a varredura poupar o token do vizinho e apagar o do próprio admin,
+     // deslogando quem acabou de trocar a senha. Ver utils.js.
+     const currentToken = sessionTokenFromRequest(request);
+-    // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
+-    // sessões que o normal, que é justamente quando isto importa de verdade.
+-    let cursor;
+-    do {
+-      /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
+-      const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
+-      await Promise.all(
+-        page.keys
+-          .filter(k => k.name !== `admin_session:${currentToken}`)
+-          .map(k => env.FOTOS.delete(k.name))
+-      );
+-      cursor = page.list_complete ? undefined : page.cursor;
+-    } while (cursor);
++    if (currentToken) await encerraOutrasSessoes(env, currentToken);
+   } catch (e) {
+-    // Se a varredura falha, sessões antigas continuam abrindo o painel por
+-    // até 24h enquanto o admin acha que fechou a porta — precisa aparecer,
+-    // não só um console.error. (Promise.all acima rejeita no 1º delete que
+-    // falhar, então a varredura pode ter sido parcial.)
++    // Se a revogação falha, sessões antigas podem continuar abrindo o painel
++    // por até 24h enquanto o admin acha que fechou a porta — precisa
++    // aparecer, não só um console.error. (A varredura rejeita no 1º delete que
++    // falhar, então pode ter sido parcial; o marcador, gravado antes, já vale
++    // se foi ele que passou.)
+     noteDegraded(
+       'troca de senha não encerrou as outras sessões',
+-      'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
++      'o KV recusou gravar o marcador de revogação ou apagar os registros; a senha nova já vale, mas sessões antigas podem seguir abertas até expirarem',
+       e,
+     );
+     ctx?.waitUntil(sendErrorAlert(env, e, { path: 'PUT /api/settings/password (session sweep)' }).catch(() => {}));
+@@ -1773,6 +1771,44 @@ export async function handleChangePassword(request, env, ctx) {
+   return jsonOk({ ok: true });
+ }
+ 
++// ---------------------------------------------------------------------------
++// API: Sair dos outros aparelhos
++// ---------------------------------------------------------------------------
++// Encerra o painel em todos os aparelhos menos o de quem pede — o que se faz
++// ao perder o celular ou esquecer o painel aberto num computador alheio, sem
++// precisar trocar a senha. A implementação é `encerraOutrasSessoes` (utils.js),
++// a mesma da troca de senha; ver lá o marcador de revogação.
++//
++// POST sem corpo: admin-only (checkAuth) e atrás do portão de origem do
++// roteador, que vale para todo método que escreve. Custo: 1 put + 1 list + 1
++// delete por sessão encerrada (cota de escrita do KV: 1000/dia).
++/**
++ * @param {Request} request
++ * @param {Env} env
++ */
++export async function handleRevokeOtherSessions(request, env) {
++  const authErr = await checkAuth(request, env);
++  if (authErr) return authErr;
++
++  // checkAuth acabou de aceitar um token, então ele existe; o teste é só para o
++  // tipo — e para nunca varrer "todas menos null".
++  const token = sessionTokenFromRequest(request);
++  if (!token) return jsonErr('Não autorizado.', 401);
++
++  let encerradas;
++  try {
++    encerradas = await encerraOutrasSessoes(env, token);
++  } catch (e) {
++    // Sem o 500 genérico (e o e-mail de "erro no site"): a causa realista é o
++    // KV recusando escrita, e o painel só precisa dizer isso. A varredura pode
++    // ter sido parcial — repetir é seguro, e o marcador (gravado antes) já vale
++    // se foi ele que passou.
++    noteKvFailure('escrita', e, 'encerrar as outras sessões do painel');
++    return jsonErr('Não deu para encerrar as outras sessões: o banco de dados do site não respondeu. Tente de novo em alguns minutos.', 503);
++  }
++  return jsonOk({ ok: true, encerradas });
++}
++
+ // ---------------------------------------------------------------------------
+ // API: Removal request (public)
+ // ---------------------------------------------------------------------------
+@@ -2815,12 +2851,6 @@ function tooManyRequests(retryAfter) {
+   return res;
+ }
+ 
+-/** @param {string} s */
+-async function sha256Hex(s) {
+-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+-}
+-
+ // O último recurso do portão do Drive: um código de 6 dígitos por e-mail, para
+ // quem não passa pelo Turnstile (VPN, bloqueador que quebra o desafio) ou
+ // esgotou as tentativas. O objetivo do site é a foto chegar — este caminho
+@@ -3599,18 +3629,31 @@ export function mergeRestore(current, backupEvents) {
+   return { events: result, added, updated, skipped };
+ }
+ 
++// Marca o instante da entrega em `backup:ultimo` (o lembrete "último backup há N
++// dias" do painel). Só depois de o arquivo estar pronto — um backup que falhou
++// não conta — e fora do caminho da resposta: o download não espera o KV nem
++// falha por ele (a recusa vai para o healthz, ver registraUltimoBackup).
++// `headOnly`: HEAD não baixa nada. Uma escrita por download.
+ /**
+  * @param {Request} request
+  * @param {Env} env
++ * @param {ExecutionContext} [ctx]
++ * @param {boolean} [headOnly]
+  */
+-async function handleGetBackup(request, env) {
++export async function handleGetBackup(request, env, ctx, headOnly = false) {
+   const authErr = await checkAuth(request, env);
+   if (authErr) return authErr;
+   const [events, categories, removalRequests] = await Promise.all([
+     getEvents(env, true), getCategories(env), listaPedidos(env),
+   ]);
+   const date = new Date().toISOString().split('T')[0];
+-  return new Response(buildBackup({ events, categories, removalRequests }), {
++  const arquivo = buildBackup({ events, categories, removalRequests });
++  if (!headOnly) {
++    const marcado = registraUltimoBackup(env);
++    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(marcado);
++    else await marcado;
++  }
++  return new Response(arquivo, {
+     headers: {
+       // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
+       // remoção, com e-mail e telefone de cada titular.
+diff --git a/src/ui/dashboard.js b/src/ui/dashboard.js
+index 0669f01..cd3814b 100644
+--- a/src/ui/dashboard.js
++++ b/src/ui/dashboard.js
+@@ -21,6 +21,10 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
+    que os 3:1 que o foco precisa). O !important é o que vence as regras com
+    classe e os estilos em linha. */
+ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #c0a060!important;outline-offset:1px}
++/* O aviso âmbar (atenção que não é erro). Mora aqui, e não no CSS do login,
++   porque o painel o usa também (o lembrete de backup, em Ajustes): uma regra,
++   uma cor, dois lugares. */
++.aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
+ `;
+ 
+ // Sem modo "criar senha": o painel NÃO tem trust-on-first-use. Sem credencial
+@@ -80,7 +84,6 @@ export function loginHTML(opts = {}, nonce = '') {
+     .btn-primary:disabled{opacity:.45;cursor:not-allowed}
+     .cf-turnstile{min-height:65px;margin-bottom:.75rem}
+     .error-msg{background:#1a0a0a;border:1px solid #3a1010;color:var(--red-texto);font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1.25rem}
+-    .aviso{background:#1a1408;border:1px solid #3a2c10;color:#e0b870;font-size:.8rem;padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem}
+   </style>
+ </head>
+ <body>
+@@ -244,10 +247,12 @@ export function cardProjetoPainel(e, h, marcado) {
+  * @param {string[]} [categories]
+  * @param {string} [nonce]
+  * @param {string} [agenda] selo de agenda (#211)
++ * @param {string|null} [backupUltimo] ISO do último backup baixado (o lembrete de Ajustes → Dados); null = nunca
+  */
+-export function dashboardHTML(events, categories = [], nonce = '', agenda = '') {
++export function dashboardHTML(events, categories = [], nonce = '', agenda = '', backupUltimo = null) {
+   const eventsJSON = jsonParaScript(events);
+   const categoriesJSON = jsonParaScript(categories);
++  const backupUltimoJSON = jsonParaScript(typeof backupUltimo === 'string' ? backupUltimo : null);
+ 
+   const esc = escape; // canonical 5-char escaper (also escapes '), shared with the gallery/event pages
+   const catOptionsBody = categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+@@ -525,6 +530,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+     .views-badge{background:var(--bg3);padding:.2rem .6rem;border-radius:20px;font-size:.75rem;font-weight:500;color:var(--text2)}
+     /* ajustes: os blocos usam .bloco; aqui só o que é deles */
+     .bloco .field:last-of-type{margin-bottom:.75rem}
++    /* Lembrete de backup: em dia, só texto; sem backup ou com mais de 30 dias,
++       ganha o .aviso (BASE). A margem de baixo do aviso sai: o botão que vem
++       depois já tem a dele. */
++    .backup-ultimo{font-size:.8rem;color:var(--text2);margin-top:1rem}
++    .backup-ultimo.aviso{margin-bottom:0}
+     .arquivo{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.6rem .75rem;border-radius:9px;font-size:.82rem;width:100%}
+     /* form overlay */
+     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:none;align-items:flex-end;justify-content:center}
+@@ -941,6 +951,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+         <div class="bloco">
+           <h3>Backup dos dados</h3>
+           <p class="bloco-desc">Uma cópia completa: eventos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
++          <p class="backup-ultimo" id="backup-ultimo"></p>
+           <button class="btn-sm" style="margin-top:1rem" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
+         </div>
+         <div class="bloco">
+@@ -983,6 +994,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+           </div>
+           <button class="btn-danger" data-onclick="changePassword">Salvar nova senha</button>
+         </div>
++        <div class="bloco" id="bloco-sessoes">
++          <h3>Sair dos outros aparelhos</h3>
++          <p class="bloco-desc">Encerra a sessão do painel em todos os aparelhos, menos neste. Em outro lugar, pode levar até 30 s.</p>
++          <button class="btn-sm" style="margin-top:1rem" data-onclick="revokeOtherSessions">Sair dos outros aparelhos</button>
++        </div>
+       </div>
+     </div>
+ 
+@@ -1215,6 +1231,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
+     let events = ${eventsJSON};
+     let categories = ${categoriesJSON};
++    // O último backup baixado (ISO), ou null: Ajustes → Dados escreve o "há N
++    // dias" daqui (mostraUltimoBackup), e downloadBackup() o atualiza no lugar.
++    let backupUltimo = ${backupUltimoJSON};
+     // Ícones e card de evento: a MESMA fonte do servidor. O card é o código da
+     // função cardProjetoPainel() de dashboard.js, inteiro (toString), entre
+     // parênteses — assim o nome que o bundler der à função não importa.
+@@ -1435,6 +1454,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+         case 'exportConsentCSV': exportConsentCSV(); break;
+         case 'exportRemovalCSV': exportRemovalCSV(); break;
+         case 'changePassword': changePassword(); break;
++        case 'revokeOtherSessions': revokeOtherSessions(el); break;
+         case 'restoreBackup': restoreBackup(); break;
+         case 'closeForm': closeForm(); break;
+         case 'submitForm': submitForm(); break;
+@@ -1471,6 +1491,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+     try { renderEventList(); } catch(e) { console.error('renderEventList:', e); }
+     refreshCategorySelects();
+     renderCategoryManager();
++    mostraUltimoBackup();
+     loadRequests();
+     // Depois de a lista existir: se a sessão expirou no meio de uma edição,
+     // reabre o formulário com o que estava digitado.
+@@ -2906,7 +2927,61 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+       }
+     }
+ 
++    // ---- Sair dos outros aparelhos ----
++    // Confirmação simples, sem digitar: nenhum dado se perde, só as outras
++    // sessões caem (e entram de novo com a senha). O servidor diz quantas
++    // encerrou; o aviso conta por extenso.
++    function avisoSessoesEncerradas(n) {
++      if (!n) return 'Nenhuma outra sessão estava aberta.';
++      return n === 1 ? '1 sessão encerrada.' : n + ' sessões encerradas.';
++    }
++    async function revokeOtherSessions(btn) {
++      const ok = await confirmDialog({
++        title: 'Sair dos outros aparelhos',
++        message: 'A sessão do painel será encerrada em todos os outros aparelhos. Esta continua aberta.',
++        confirmLabel: 'Encerrar sessões',
++      });
++      if (!ok) return;
++      // Desligado enquanto corre: cada pedido grava o marcador no KV (cota de
++      // 1000 escritas por dia), e um duplo toque gastaria duas.
++      btn.disabled = true;
++      try {
++        const res = await api('POST', '/api/sessions/revoke-others');
++        toast(avisoSessoesEncerradas(Number(res.encerradas) || 0), 'ok');
++      } catch(err) {
++        toast(err.message || 'Erro ao encerrar as outras sessões.', 'err');
++      } finally {
++        btn.disabled = false;
++      }
++    }
++
+     // ---- Backup ----
++    // O lembrete "Último backup: …" de Ajustes → Dados. O servidor guarda só o
++    // instante da última entrega (ISO); o texto sai aqui, por dia do CALENDÁRIO
++    // de São Paulo (hojeEmSaoPaulo, acima): às 00:10 o backup das 23:50 já é de
++    // ontem, embora tenha 20 minutos. Nunca baixado, ou há mais de 30 dias, vira
++    // aviso (velho).
++    function textoUltimoBackup(iso, agora) {
++      const LIMITE_DIAS = 30;
++      const quando = iso ? new Date(iso) : null;
++      if (!quando || isNaN(quando.getTime())) return { texto: 'Nenhum backup baixado ainda.', velho: true };
++      const dia = hojeEmSaoPaulo(quando);
++      const dias = Math.round((Date.parse(hojeEmSaoPaulo(agora) + 'T12:00:00Z') - Date.parse(dia + 'T12:00:00Z')) / 86400000);
++      // Relógio do navegador atrás do servidor: um backup "do futuro" é de hoje.
++      if (dias <= 0) return { texto: 'Último backup: hoje', velho: false };
++      if (dias === 1) return { texto: 'Último backup: ontem', velho: false };
++      return {
++        texto: 'Último backup: há ' + dias + ' dias (' + dia.slice(8, 10) + '/' + dia.slice(5, 7) + '/' + dia.slice(0, 4) + ')',
++        velho: dias > LIMITE_DIAS,
++      };
++    }
++    function mostraUltimoBackup() {
++      const el = document.getElementById('backup-ultimo');
++      if (!el) return;
++      const r = textoUltimoBackup(backupUltimo, new Date());
++      el.textContent = r.texto;
++      el.classList.toggle('aviso', r.velho);
++    }
+     // Um fetch, e não um link: com a sessão expirada, o navegador mostrava o JSON
+     // do erro. O 401 vai ao login, como no api().
+     async function downloadBackup() {
+@@ -2922,6 +2997,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '')
+       a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+       setTimeout(() => URL.revokeObjectURL(u), 1000);
+       toast('Backup baixado.', 'ok');
++      // O servidor já marcou a entrega; aqui a linha de Ajustes muda no lugar,
++      // sem recarregar a página.
++      backupUltimo = new Date().toISOString();
++      mostraUltimoBackup();
+     }
+     async function restoreBackup() {
+       const fileInput = document.getElementById('restore-file');
+diff --git a/src/utils.js b/src/utils.js
+index 6cebb55..32ac557 100644
+--- a/src/utils.js
++++ b/src/utils.js
+@@ -381,6 +381,58 @@ export async function saveAgenda(env, texto) {
+   _agendaAt = Date.now();
+ }
+ 
++// Lembrete de backup (Ajustes → Dados): a hora em que o painel entregou o
++// último arquivo, em ISO. Não há backup automático, e o que o dono vê é "há N
++// dias" — a conta é do navegador, por dia de São Paulo. O instante é o da
++// ENTREGA: o servidor não sabe se o arquivo foi salvo, só que saiu.
++export const BACKUP_ULTIMO_KEY = 'backup:ultimo';
++
++// O valor vai para dentro de uma página, então só passa a forma que NÓS
++// gravamos (toISOString); qualquer outra coisa conta como "nunca". O instante
++// de volta tem de dar o mesmo texto: 31/02 o Date "corrige" para março em
++// silêncio, e o lembrete mostraria uma data que ninguém gravou.
++/**
++ * @param {unknown} v
++ * @returns {string|null}
++ */
++export function limpaBackupUltimo(v) {
++  if (typeof v !== 'string') return null;
++  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d{1,3})?Z$/.exec(v);
++  const t = m ? Date.parse(v) : NaN;
++  return m && Number.isFinite(t) && new Date(t).toISOString().startsWith(m[1]) ? v : null;
++}
++
++// Nunca lança: o lembrete é enfeite, e uma leitura que falha não pode virar
++// "painel indisponível" — sai como se nunca tivesse havido backup, e a falha
++// vai para o healthz.
++/**
++ * @param {Env} env
++ * @returns {Promise<string|null>}
++ */
++export async function getUltimoBackup(env) {
++  try {
++    return limpaBackupUltimo(await env.FOTOS.get(BACKUP_ULTIMO_KEY, { cacheTtl: KV_CACHE_TTL_S }));
++  } catch (e) {
++    noteKvFailure('leitura', e, 'último backup');
++    return null;
++  }
++}
++
++// Uma escrita por download. Nunca rejeita: quem chama a entrega a `waitUntil`
++// (ou a aguarda), e a recusa do KV — a cota de 1000/dia — vira aviso no healthz
++// em vez de derrubar um download que já está pronto.
++/**
++ * @param {Env} env
++ * @returns {Promise<void>}
++ */
++export async function registraUltimoBackup(env) {
++  try {
++    await env.FOTOS.put(BACKUP_ULTIMO_KEY, new Date().toISOString());
++  } catch (e) {
++    noteKvFailure('escrita', e, 'registro do último backup');
++  }
++}
++
+ 
+ /**
+  * @param {string} hex
+@@ -398,6 +450,15 @@ function bytesToHex(u8) {
+   return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+ }
+ 
++/**
++ * SHA-256 de um texto, em hexadecimal minúsculo.
++ * @param {string} s
++ */
++export async function sha256Hex(s) {
++  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
++  return bytesToHex(new Uint8Array(buf));
++}
++
+ /**
+  * @param {string} a
+  * @param {string} b
+@@ -481,6 +542,24 @@ export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
+ export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
+ const SESSION_REFRESH_SECS = 600;          // só reescreve o "lastSeen" a cada 10 min
+ 
++// Marcador de revogação (ver `encerraOutrasSessoes`): "toda sessão aberta antes
++// de `antes` morre, menos a de quem pediu". Mora numa chave própria, e não em
++// cada registro, por causa do KV: ele é eventualmente consistente, e um
++// apagamento só chega a outro local da Cloudflare quando o cache de lá vence.
++// Nessa janela o aparelho revogado ainda é aceito — e, se a renovação do
++// `lastSeen` (a cada 10 min) cair nela, o `put` do verifySession RESSUSCITA o
++// registro apagado, por mais 24 h. O registro ressuscitado guarda o `createdAt`
++// antigo, então o marcador o derruba assim que chega ao local: a janela cai de
++// "até 24 h" para o cacheTtl da leitura (30 s, o mínimo do KV).
++export const CORTE_DE_SESSOES_KEY = 'admin_sessions_corte';
++// Passadas 25 h, toda sessão anterior ao corte já estourou o teto de 24 h por
++// si, e o marcador não tem mais o que cortar.
++const CORTE_TTL_SECS = SESSION_TTL_SECS + 3600;
++// Relógios de locais diferentes divergem em milissegundos. Um `antes` mais de
++// 1 min À FRENTE de agora não é divergência, é lixo — e valeria contra a sessão
++// que o dono abrir depois, trancando-o fora do painel por até 25 h.
++const CORTE_FUTURO_MAX_MS = 60_000;
++
+ /**
+  * @param {string} token
+  * @param {{ clear?: boolean }} [opts]
+@@ -574,9 +653,35 @@ function parseSessionRecord(raw) {
+   return rec;
+ }
+ 
+-// Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
+-// uma comparação com a string 'valid', sem inatividade nem vínculo com o
+-// cliente que abriu a sessão.
++// Marcador ausente = sem corte. Marcador ilegível TAMBÉM = sem corte, mas
++// avisado: tratá-lo como corte total trancaria o dono fora do painel por causa
++// de um valor corrompido, e calar deixaria a revogação de deixar de valer sem
++// ninguém saber (o aviso fica em /api/healthz até o próximo "sair dos outros
++// aparelhos" regravar a chave).
++/**
++ * @param {string|null} raw
++ * @param {number} now
++ * @returns {{ antes: number, exceto: string } | null}
++ */
++function parseCorte(raw, now) {
++  if (raw === null || raw === undefined) return null;
++  let c;
++  try { c = JSON.parse(raw); } catch { c = null; }
++  if (!c || typeof c !== 'object' || Array.isArray(c)
++    || typeof c.antes !== 'number' || !Number.isFinite(c.antes) || c.antes > now + CORTE_FUTURO_MAX_MS
++    || typeof c.exceto !== 'string' || !/^[0-9a-f]{64}$/.test(c.exceto)) {
++    noteDegraded(
++      'marcador de revogação de sessões ilegível',
++      `${CORTE_DE_SESSOES_KEY} está fora da forma esperada e foi ignorado: a revogação de sessões pode não valer em outro local até "Sair dos outros aparelhos" regravá-lo`,
++    );
++    return null;
++  }
++  return { antes: c.antes, exceto: c.exceto };
++}
++
++// Encerra a sessão por TTL, inatividade, fingerprint trocado OU revogação
++// (marcador de `encerraOutrasSessoes`) — antes era só uma comparação com a
++// string 'valid', sem inatividade nem vínculo com o cliente que abriu a sessão.
+ /**
+  * @param {Env} env
+  * @param {Request} request
+@@ -588,7 +693,15 @@ export async function verifySession(env, request) {
+   if (!token) return false;
+ 
+   const key = `admin_session:${token}`;
+-  const raw = await env.FOTOS.get(key);
++  // O registro e o marcador de revogação vêm juntos (uma ida só ao KV), os dois
++  // com o cacheTtl mínimo: o padrão do KV é 60 s de cache em cada local, e é
++  // nessa janela que um aparelho já revogado ainda passa. Falha de leitura de
++  // qualquer um PROPAGA, como a do registro sempre propagou: quem chama
++  // responde 503 e o painel falha FECHADO, nunca aberto.
++  const [raw, rawCorte] = await Promise.all([
++    env.FOTOS.get(key, { cacheTtl: KV_CACHE_TTL_S }),
++    env.FOTOS.get(CORTE_DE_SESSOES_KEY, { cacheTtl: KV_CACHE_TTL_S }),
++  ]);
+   if (!raw) return false;
+ 
+   // O valor legado `'valid'` (sessão sem metadado, anterior a 2026-08) não
+@@ -622,6 +735,15 @@ export async function verifySession(env, request) {
+     await env.FOTOS.delete(key).catch(() => {});
+     return false;
+   }
++  // Revogada por "sair dos outros aparelhos" ou pela troca de senha: aberta
++  // antes do corte, e não é a sessão de quem o pediu. ANTES da renovação logo
++  // abaixo, de propósito — é o `put` dela que ressuscitaria o registro. A conta
++  // do hash só roda para quem está antes do corte (raro), não a cada pedido.
++  const corte = parseCorte(rawCorte, now);
++  if (corte && createdAt < corte.antes && !timingSafeEqual(await sha256Hex(token), corte.exceto)) {
++    await env.FOTOS.delete(key).catch(() => {});
++    return false;
++  }
+ 
+   // Renovação travada a 1x/10min por sessão, não por requisição: o painel faz
+   // várias chamadas por tela e a cota de escrita do KV é 1000/dia.
+@@ -634,6 +756,48 @@ export async function verifySession(env, request) {
+   return true;
+ }
+ 
++// Encerra o painel em todos os aparelhos MENOS o de quem pediu. É a ÚNICA
++// implementação: o "Sair dos outros aparelhos" (POST /api/sessions/revoke-others)
++// e a troca de senha chamam esta função — uma regra escrita duas vezes é
++// corrigida uma vez só.
++//
++// O marcador vai PRIMEIRO, de propósito: ele é a revogação de verdade. Vale em
++// qualquer local, inclusive para o registro que o apagamento ainda não
++// alcançou, que o `list` (também eventual) não enxergou ou que uma renovação
++// ressuscitou; apagar os registros é a faxina. Se a varredura cair no meio, o
++// corte já vale.
++//
++// Custo: 1 put + 1 list (mais um por 1000 chaves) + 1 delete por sessão, tudo da
++// cota de escrita do KV (1000/dia). Falha LANÇA — quem chama decide a resposta —
++// e repetir é seguro.
++/**
++ * @param {Env} env
++ * @param {string} tokenAtual o token do pedido: a sessão que fica
++ * @returns {Promise<number>} quantas sessões foram encerradas
++ */
++export async function encerraOutrasSessoes(env, tokenAtual) {
++  await env.FOTOS.put(
++    CORTE_DE_SESSOES_KEY,
++    JSON.stringify({ antes: Date.now(), exceto: await sha256Hex(tokenAtual) }),
++    { expirationTtl: CORTE_TTL_SECS },
++  );
++  const fica = `admin_session:${tokenAtual}`;
++  let encerradas = 0;
++  // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
++  // sessões que o normal, que é justamente quando isto importa de verdade.
++  /** @type {string|undefined} */
++  let cursor;
++  do {
++    /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
++    const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
++    const outras = page.keys.map(k => k.name).filter(nome => nome !== fica);
++    await Promise.all(outras.map(nome => env.FOTOS.delete(nome)));
++    encerradas += outras.length;
++    cursor = page.list_complete ? undefined : page.cursor;
++  } while (cursor);
++  return encerradas;
++}
++
+ // Cota de escrita do KV: 1000/dia na conta toda, e passada ela a escrita
+ // LANÇA. Contadores e rate limit já saíram do KV (Durable Objects, ver
+ // counters.js); o que ainda grava lá — sessões, projetos, pedidos — precisa
+diff --git a/tests/backup-lembrete.test.js b/tests/backup-lembrete.test.js
+new file mode 100644
+index 0000000..bfd203a
+--- /dev/null
++++ b/tests/backup-lembrete.test.js
+@@ -0,0 +1,343 @@
++// Lembrete de backup: "Último backup: há N dias" em Ajustes → Dados.
++//
++// Não há backup automático, e o dono só lembra de baixar um depois de uma
++// mudança grande. O servidor marca em `backup:ultimo` o instante em que
++// entregou o arquivo; o painel lê na abertura e escreve a frase no navegador,
++// por dia de São Paulo; sem backup nenhum, ou com mais de 30 dias, a linha vira
++// aviso. Tudo aqui prende o que o dono ia notar se quebrasse em silêncio:
++//  - o download NUNCA falha por causa do lembrete (cota de escrita do KV);
++//  - o lembrete NUNCA derruba o painel (a leitura é enfeite);
++//  - "ontem" é dia de calendário, não 24 horas;
++//  - o bloco "Sair dos outros aparelhos" está no lugar certo e ligado.
++
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import { readFileSync } from 'node:fs';
++import worker, { handleGetBackup } from '../src/index.js';
++import { degradedHealth, resetDegraded, BACKUP_ULTIMO_KEY, limpaBackupUltimo } from '../src/utils.js';
++import { dashboardHTML, loginHTML } from '../src/ui/dashboard.js';
++import { withDurableObjects } from './helpers/do.js';
++
++const TOKEN = 'a'.repeat(64);
++const AGORA = Date.parse('2026-10-17T15:00:00Z');
++
++/** @param {Record<string, string>} inicial */
++function kv(inicial = {}) {
++  const store = new Map(Object.entries({
++    events: '[]',
++    admin_password: 'pbkdf2:1:00:00',
++    [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() - 3600_000, lastSeen: Date.now() - 1000 }),
++    ...inicial,
++  }));
++  /** @type {{ op: string, k: string }[]} */
++  const log = [];
++  return {
++    async get(/** @type {string} */ k) { log.push({ op: 'get', k }); return store.has(k) ? store.get(k) : null; },
++    async put(/** @type {string} */ k, /** @type {string} */ v) { log.push({ op: 'put', k }); store.set(k, v); },
++    async delete(/** @type {string} */ k) { log.push({ op: 'delete', k }); store.delete(k); },
++    async list(/** @type {{ prefix?: string }} */ { prefix = '' } = {}) {
++      return { keys: [...store.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name })), list_complete: true, cursor: null };
++    },
++    _store: store,
++    _log: log,
++  };
++}
++const escritas = (/** @type {ReturnType<typeof kv>} */ FOTOS) => FOTOS._log.filter(c => c.op === 'put' || c.op === 'delete').map(c => c.k);
++
++/** ctx que guarda o que foi entregue ao waitUntil, para o teste aguardar depois. */
++function comCtx() {
++  /** @type {Promise<unknown>[]} */
++  const pendentes = [];
++  return { ctx: { waitUntil: (/** @type {Promise<unknown>} */ p) => { pendentes.push(p); } }, aguarda: () => Promise.all(pendentes) };
++}
++
++const chama = (/** @type {ReturnType<typeof kv>} */ FOTOS, caminho, /** @type {any} */ ctx, init = {}) => worker.fetch(
++  new Request(`https://fotos.lucafchala.com${caminho}`, { headers: { Cookie: `__Host-session=${TOKEN}` }, ...init }),
++  /** @type {any} */ (withDurableObjects({ FOTOS })), ctx,
++);
++/** O handler sem passar pelo roteador, e sem ctx. */
++const direto = (/** @type {ReturnType<typeof kv>} */ FOTOS) => handleGetBackup(
++  new Request('https://fotos.lucafchala.com/api/backup', { headers: { Cookie: `__Host-session=${TOKEN}` } }),
++  /** @type {any} */ ({ FOTOS }),
++);
++
++beforeEach(() => {
++  vi.useFakeTimers({ toFake: ['Date'] });
++  vi.setSystemTime(AGORA);
++  resetDegraded();
++  vi.spyOn(console, 'error').mockImplementation(() => {});
++});
++afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); resetDegraded(); });
++
++// ---------------------------------------------------------------------------
++describe('GET /api/backup marca backup:ultimo', () => {
++  it('escreve o instante da entrega em ISO, uma vez, e o arquivo sai inteiro', async () => {
++    const FOTOS = kv();
++    const { ctx, aguarda } = comCtx();
++    const res = await chama(FOTOS, '/api/backup', ctx);
++    await aguarda();
++
++    expect(res.status).toBe(200);
++    expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="fotos-backup-2026-10-17\.json"$/);
++    const backup = await res.json();
++    expect(Array.isArray(backup.events)).toBe(true);
++
++    expect(FOTOS._store.get(BACKUP_ULTIMO_KEY)).toBe('2026-10-17T15:00:00.000Z');
++    expect(escritas(FOTOS).filter(k => k === BACKUP_ULTIMO_KEY), 'uma escrita por download').toHaveLength(1);
++  });
++
++  it('o download não espera a gravação (waitUntil) — nem a cota lenta o segura', async () => {
++    const FOTOS = kv();
++    /** @type {() => void} */
++    let libera = () => {};
++    FOTOS.put = (/** @type {string} */ k, /** @type {string} */ v) => new Promise(ok => { libera = () => { FOTOS._store.set(k, v); ok(undefined); }; });
++    const { ctx, aguarda } = comCtx();
++
++    const res = await chama(FOTOS, '/api/backup', ctx);   // resolve com a gravação ainda pendente
++    expect(res.status).toBe(200);
++    expect(FOTOS._store.has(BACKUP_ULTIMO_KEY), 'ainda não gravou').toBe(false);
++    libera();
++    await aguarda();
++    expect(FOTOS._store.has(BACKUP_ULTIMO_KEY)).toBe(true);
++  });
++
++  it('chamado sem ctx (o roteador sempre passa um), aguarda a gravação antes de responder', async () => {
++    const FOTOS = kv();
++    const res = await direto(FOTOS);
++    expect(res.status).toBe(200);
++    expect(FOTOS._store.get(BACKUP_ULTIMO_KEY)).toBe('2026-10-17T15:00:00.000Z');
++  });
++
++  it('o KV recusando a escrita (cota) não quebra o download — vai para o healthz', async () => {
++    for (const comWaitUntil of [true, false]) {
++      resetDegraded();
++      const FOTOS = kv();
++      const real = FOTOS.put;
++      FOTOS.put = (k, v) => (k === BACKUP_ULTIMO_KEY ? Promise.reject(new Error('KV PUT failed: 429 Too Many Requests')) : real(k, v));
++      const { ctx, aguarda } = comCtx();
++      const res = comWaitUntil ? await chama(FOTOS, '/api/backup', ctx) : await direto(FOTOS);
++      await aguarda();
++
++      expect(res.status, comWaitUntil ? 'com waitUntil' : 'sem waitUntil').toBe(200);
++      expect(Array.isArray((await res.json()).events)).toBe(true);
++      const [aviso] = degradedHealth();
++      expect(aviso.label).toBe('KV: escrita recusada');
++      expect(aviso.detail).toMatch(/registro do último backup/);
++    }
++  });
++
++  it('uma escrita que lança de forma síncrona também não quebra o download', async () => {
++    const FOTOS = kv();
++    FOTOS.put = () => { throw new Error('put síncrono'); };
++    const res = await chama(FOTOS, '/api/backup', comCtx().ctx);
++    expect(res.status).toBe(200);
++    expect(degradedHealth().map(p => p.label)).toEqual(['KV: escrita recusada']);
++  });
++
++  it('HEAD não baixa nada: não marca backup', async () => {
++    const FOTOS = kv();
++    const { ctx, aguarda } = comCtx();
++    const res = await chama(FOTOS, '/api/backup', ctx, { method: 'HEAD' });
++    await aguarda();
++    expect(res.status).toBe(200);
++    expect(escritas(FOTOS)).toEqual([]);
++  });
++
++  it('sem sessão: 401 e nada gravado', async () => {
++    const FOTOS = kv();
++    const res = await worker.fetch(new Request('https://fotos.lucafchala.com/api/backup'), /** @type {any} */ (withDurableObjects({ FOTOS })), /** @type {any} */ (comCtx().ctx));
++    expect(res.status).toBe(401);
++    expect(escritas(FOTOS)).toEqual([]);
++  });
++
++  it('um backup que não ficou pronto não conta: a leitura dos eventos falhou, nada é marcado', async () => {
++    const FOTOS = kv();
++    const real = FOTOS.get;
++    FOTOS.get = k => (k === 'events' ? Promise.reject(new Error('KV GET failed: 503')) : real(k));
++    const { ctx, aguarda } = comCtx();
++    // Hoje o roteador deixa a rejeição de um handler passar (o `return handler()`
++    // dentro do try não é `return await`); se algum dia virar uma página 500,
++    // o que este teste prende — nada marcado — continua valendo.
++    const res = await chama(FOTOS, '/api/backup', ctx).catch(e => e);
++    await aguarda();
++    expect(res instanceof Error || res.status >= 500).toBe(true);
++    expect(escritas(FOTOS)).toEqual([]);
++  });
++});
++
++// ---------------------------------------------------------------------------
++describe('o painel lê backup:ultimo na abertura', () => {
++  const abre = (/** @type {ReturnType<typeof kv>} */ FOTOS) => chama(FOTOS, '/dashboard', comCtx().ctx);
++
++  it('uma leitura a mais, e o valor chega ao script da página', async () => {
++    const FOTOS = kv({ [BACKUP_ULTIMO_KEY]: '2026-10-01T12:00:00.000Z' });
++    const res = await abre(FOTOS);
++    expect(res.status).toBe(200);
++    expect(await res.text()).toContain('let backupUltimo = "2026-10-01T12:00:00.000Z";');
++    expect(FOTOS._log.filter(c => c.op === 'get' && c.k === BACKUP_ULTIMO_KEY), 'uma leitura por abertura').toHaveLength(1);
++  });
++
++  it('sem backup nunca feito: null', async () => {
++    const html = await (await abre(kv())).text();
++    expect(html).toContain('let backupUltimo = null;');
++  });
++
++  it('valor fora da forma que nós gravamos vira "nunca" — não entra na página', async () => {
++    for (const lixo of ['ontem', '2026-10-01', '"><script>alert(1)</script>', '{"a":1}', '2026-13-45T99:99:99Z']) {
++      const html = await (await abre(kv({ [BACKUP_ULTIMO_KEY]: lixo }))).text();
++      expect(html, lixo).toContain('let backupUltimo = null;');
++      expect(html).not.toContain('alert(1)</script>');
++    }
++  });
++
++  it('a leitura falhando não derruba o painel: abre sem o lembrete e avisa o healthz', async () => {
++    const FOTOS = kv({ [BACKUP_ULTIMO_KEY]: '2026-10-01T12:00:00.000Z' });
++    const real = FOTOS.get;
++    FOTOS.get = k => (k === BACKUP_ULTIMO_KEY ? Promise.reject(new Error('KV GET failed: 503')) : real(k));
++    const res = await abre(FOTOS);
++    expect(res.status).toBe(200);
++    expect(await res.text()).toContain('let backupUltimo = null;');
++    expect(degradedHealth().map(p => p.label)).toContain('KV: leitura recusada');
++  });
++
++  it('na tela de login não lê nada disso', async () => {
++    const FOTOS = kv();
++    const res = await worker.fetch(new Request('https://fotos.lucafchala.com/dashboard'), /** @type {any} */ (withDurableObjects({ FOTOS })), /** @type {any} */ (comCtx().ctx));
++    expect(res.status).toBe(200);
++    expect(FOTOS._log.some(c => c.k === BACKUP_ULTIMO_KEY)).toBe(false);
++  });
++
++  it('limpaBackupUltimo só deixa passar o ISO que o servidor grava', () => {
++    expect(limpaBackupUltimo('2026-10-17T15:00:00.000Z')).toBe('2026-10-17T15:00:00.000Z');
++    expect(limpaBackupUltimo('2026-10-17T15:00:00Z')).toBe('2026-10-17T15:00:00Z');
++    // Dia que não existe: o Date "corrigiria" para março em silêncio.
++    for (const v of [null, undefined, 42, '', 'x', '2026-10-17', '2026-10-17T15:00:00', '2026-10-17T15:00:00+03:00', '2026-02-31T10:00:00.000Z', '2026-10-17T24:00:00Z', '2026-13-01T00:00:00Z']) {
++      expect(limpaBackupUltimo(v), String(v)).toBeNull();
++    }
++  });
++});
++
++// ---------------------------------------------------------------------------
++// A frase de Ajustes é calculada NO NAVEGADOR. O teste tira a função do fonte
++// da página, exatamente como ela vai para o navegador, e a executa no node —
++// a mesma técnica de tests/metricas-painel.test.js e dos pares de
++// tests/security.test.js. O fuso do node não entra: as contas usam o
++// hojeEmSaoPaulo() do próprio painel, que fixa America/Sao_Paulo.
++const fonte = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
++/** @param {RegExp} re @param {string} nome */
++function tira(re, nome) {
++  const m = fonte.match(re);
++  if (!m) throw new Error(`${nome} não encontrada em dashboard.js — o teste precisa ser reapontado`);
++  return m[0].replace(/\\\\/g, '\\');   // dentro do template literal, toda barra está dobrada
++}
++const cliente = new Function(`
++  ${tira(/function hojeEmSaoPaulo\(agora = new Date\(\)\) \{[\s\S]*?\n {4}\}/, 'hojeEmSaoPaulo')}
++  ${tira(/function textoUltimoBackup\(iso, agora\) \{[\s\S]*?\n {4}\}/, 'textoUltimoBackup')}
++  ${tira(/function avisoSessoesEncerradas\(n\) \{[\s\S]*?\n {4}\}/, 'avisoSessoesEncerradas')}
++  return { textoUltimoBackup, avisoSessoesEncerradas };
++`)();
++const frase = (/** @type {string|null} */ iso, /** @type {string} */ agora) => cliente.textoUltimoBackup(iso, new Date(agora));
++
++describe('a linha "Último backup" (script do painel)', () => {
++  // São Paulo é UTC-3 o ano todo (sem horário de verão desde 2019).
++  const AGORA_SP = '2026-10-17T20:00:00Z';   // 17h do dia 17
++
++  it('hoje, ontem e há N dias com a data', () => {
++    expect(frase('2026-10-17T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: hoje', velho: false });
++    expect(frase('2026-10-16T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: ontem', velho: false });
++    expect(frase('2026-10-15T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: há 2 dias (15/10/2026)', velho: false });
++    expect(frase('2026-10-12T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: há 5 dias (12/10/2026)', velho: false });
++  });
++
++  it('conta por dia de CALENDÁRIO de São Paulo, não por 24 horas', () => {
++    // 23h50 de sexta (02h50Z de sábado) visto 20 minutos depois, já sábado em SP: ontem.
++    expect(frase('2026-10-17T02:50:00Z', '2026-10-17T03:10:00Z').texto).toBe('Último backup: ontem');
++    // 00h05 de sábado em SP visto às 23h50 do mesmo sábado — quase 24 h depois: ainda hoje.
++    expect(frase('2026-10-17T03:05:00Z', '2026-10-18T02:50:00Z').texto).toBe('Último backup: hoje');
++    // Ano novo: 31/12 às 22h (01h do dia 1º em UTC) visto em 1º/1 às 09h.
++    expect(frase('2027-01-01T01:00:00Z', '2027-01-01T12:00:00Z').texto).toBe('Último backup: ontem');
++  });
++
++  it('nunca baixado, ou um valor que não é data: "Nenhum backup baixado ainda." em aviso', () => {
++    const nunca = { texto: 'Nenhum backup baixado ainda.', velho: true };
++    expect(frase(null, AGORA_SP)).toEqual(nunca);
++    expect(frase('', AGORA_SP)).toEqual(nunca);
++    expect(frase('lixo', AGORA_SP)).toEqual(nunca);
++  });
++
++  it('vira aviso só com MAIS de 30 dias', () => {
++    // 17/10 menos 30 dias = 17/09; menos 31 = 16/09.
++    expect(frase('2026-09-17T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: há 30 dias (17/09/2026)', velho: false });
++    expect(frase('2026-09-16T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: há 31 dias (16/09/2026)', velho: true });
++    expect(frase('2025-10-17T15:00:00Z', AGORA_SP).velho).toBe(true);
++  });
++
++  it('relógio do navegador atrás do servidor: um backup "do futuro" é de hoje, não "há -1 dias"', () => {
++    expect(frase('2026-10-18T15:00:00Z', AGORA_SP)).toEqual({ texto: 'Último backup: hoje', velho: false });
++  });
++});
++
++// ---------------------------------------------------------------------------
++describe('Ajustes: o bloco "Sair dos outros aparelhos" e o lembrete na página', () => {
++  const html = dashboardHTML([], [], 'N', '', '2026-10-17T15:00:00.000Z');
++
++  it('"Sair dos outros aparelhos" está em Conta, depois da senha, e NÃO é um bloco sensível', () => {
++    const conta = html.indexOf('<h2 class="grupo-titulo">Conta</h2>');
++    const sobre = html.indexOf('<h2 class="grupo-titulo">Sobre</h2>');
++    const senha = html.indexOf('<h3>Trocar a senha do painel</h3>');
++    const bloco = html.indexOf('<div class="bloco" id="bloco-sessoes">');
++    expect(conta).toBeGreaterThan(-1);
++    expect(senha).toBeGreaterThan(conta);
++    expect(bloco).toBeGreaterThan(senha);
++    expect(bloco).toBeLessThan(sobre);
++    const trecho = html.slice(bloco, sobre);
++    expect(trecho).toContain('<h3>Sair dos outros aparelhos</h3>');
++    expect(trecho).toContain('Encerra a sessão do painel em todos os aparelhos, menos neste. Em outro lugar, pode levar até 30 s.');
++    expect(trecho).toContain('data-onclick="revokeOtherSessions"');
++    expect(trecho, 'sem confirmação digitada: nenhum dado se perde').not.toContain('sensivel');
++    expect((html.match(/class="bloco sensivel"/g) || []).length).toBe(2);
++  });
++
++  it('o botão está ligado: há um case no switch delegado e a função existe', () => {
++    expect(html).toContain("case 'revokeOtherSessions': revokeOtherSessions(el); break;");
++    expect(html).toContain('async function revokeOtherSessions(btn) {');
++    expect(html).toContain("api('POST', '/api/sessions/revoke-others')");
++  });
++
++  it('o aviso conta 0, 1 e N sessões por extenso', () => {
++    expect(cliente.avisoSessoesEncerradas(0)).toBe('Nenhuma outra sessão estava aberta.');
++    expect(cliente.avisoSessoesEncerradas(1)).toBe('1 sessão encerrada.');
++    expect(cliente.avisoSessoesEncerradas(2)).toBe('2 sessões encerradas.');
++    expect(cliente.avisoSessoesEncerradas(12)).toBe('12 sessões encerradas.');
++  });
++
++  it('a linha do backup mora no bloco "Backup dos dados", antes do botão, e o valor vai para o script', () => {
++    const titulo = html.indexOf('<h3>Backup dos dados</h3>');
++    const linha = html.indexOf('<p class="backup-ultimo" id="backup-ultimo"></p>');
++    const botao = html.indexOf('data-onclick="downloadBackup"');
++    expect(titulo).toBeGreaterThan(-1);
++    expect(linha).toBeGreaterThan(titulo);
++    expect(botao).toBeGreaterThan(linha);
++    expect(html).toContain('let backupUltimo = "2026-10-17T15:00:00.000Z";');
++    expect(html).toContain('mostraUltimoBackup();');
++    // Depois do download: a linha muda no lugar, sem recarregar.
++    expect(html).toMatch(/toast\('Backup baixado\.', 'ok'\);[\s\S]*?backupUltimo = new Date\(\)\.toISOString\(\);\s*mostraUltimoBackup\(\);/);
++  });
++
++  it('sem o parâmetro (as outras chamadas da página), o padrão é null', () => {
++    expect(dashboardHTML([], [], 'N')).toContain('let backupUltimo = null;');
++    expect(dashboardHTML([], [], 'N', '', 42)).toContain('let backupUltimo = null;');
++  });
++
++  it('dado hostil no parâmetro não fecha o script', () => {
++    const hostil = dashboardHTML([], [], 'N', '', '</script><script>alert(1)</script>');
++    expect(hostil).not.toContain('</script><script>alert(1)');
++    expect(hostil).toContain('\\u003c/script\\u003e');
++  });
++
++  it('o aviso âmbar tem UMA regra, no CSS compartilhado, e vale para o painel e o login', () => {
++    const regra = /\.aviso\{background:#1a1408;[^}]*\}/g;
++    expect((html.match(regra) || []).length, 'painel').toBe(1);
++    expect((loginHTML({}, 'N').match(regra) || []).length, 'login').toBe(1);
++    expect(html).toContain('.backup-ultimo.aviso{margin-bottom:0}');
++  });
++});
+diff --git a/tests/sessoes-corte.test.js b/tests/sessoes-corte.test.js
+new file mode 100644
+index 0000000..1a78530
+--- /dev/null
++++ b/tests/sessoes-corte.test.js
+@@ -0,0 +1,427 @@
++// Revogação de sessões do painel: "Sair dos outros aparelhos" e a troca de senha.
++//
++// O buraco que isto fecha: o KV é eventualmente consistente. Um apagamento só
++// chega a outro local da Cloudflare quando o cache de lá vence (60 s por
++// padrão), e nessa janela o aparelho revogado ainda é aceito — se a renovação
++// do `lastSeen` (a cada 10 min) cair nela, o `put` do verifySession RESSUSCITA
++// o registro apagado, por mais 24 h. A troca de senha já tinha esse buraco.
++//
++// A correção é um marcador (`admin_sessions_corte`): "tudo aberto antes de T
++// morre, menos a sessão de quem pediu". O registro ressuscitado guarda o
++// createdAt antigo, então o marcador o derruba assim que chega ao local.
++//
++// O último bloco reproduz o buraco INTEIRO, com um KV de dois locais e cache
++// (não só o resultado dele): é o teste que mostra o problema, e que reprova se
++// o marcador sair do verifySession.
++
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import { createHash } from 'node:crypto';
++import worker, { handleChangePassword, handleRevokeOtherSessions } from '../src/index.js';
++import {
++  verifySession, encerraOutrasSessoes, degradedHealth, resetDegraded,
++  CORTE_DE_SESSOES_KEY, SESSION_TTL_SECS, clientFingerprint,
++} from '../src/utils.js';
++
++const DONO = 'a'.repeat(64);      // quem pede o corte
++const LADRAO = 'b'.repeat(64);    // um aparelho que o dono quer fora
++const OUTRO = 'c'.repeat(64);
++const hash = (/** @type {string} */ t) => createHash('sha256').update(t).digest('hex');
++const chave = (/** @type {string} */ t) => `admin_session:${t}`;
++const UA = 'ua-de-teste';
++
++const AGORA = Date.parse('2026-10-17T15:00:00Z');
++const MIN = 60_000;
++
++/** Registro de sessão como o login grava. */
++const sessao = (/** @type {Record<string, unknown>} */ o = {}) => JSON.stringify({
++  v: 1, createdAt: AGORA - 3600_000, lastSeen: AGORA - 60_000,
++  fp: clientFingerprint(new Request('https://fotos.lucafchala.com/', { headers: { 'User-Agent': UA } })), ...o,
++});
++const corte = (/** @type {Record<string, unknown>} */ o = {}) => JSON.stringify({ antes: AGORA - 10 * MIN, exceto: hash(DONO), ...o });
++
++/**
++ * KV em memória que anota cada chamada, com `list` paginado de verdade
++ * (`porPagina`): em ordem de chave, e o cursor é a última chave devolvida — como
++ * o do KV, resiste a apagar entre uma página e outra (um cursor por posição
++ * pularia chaves, porque a varredura apaga enquanto anda).
++ * @param {Record<string, string>} inicial
++ * @param {{ porPagina?: number }} [o]
++ */
++function kv(inicial = {}, { porPagina = 1000 } = {}) {
++  const store = new Map(Object.entries(inicial));
++  /** @type {{ op: string, k?: string, opts?: any }[]} */
++  const log = [];
++  return {
++    async get(/** @type {string} */ k, /** @type {any} */ opts) { log.push({ op: 'get', k, opts }); return store.has(k) ? store.get(k) : null; },
++    async put(/** @type {string} */ k, /** @type {string} */ v, /** @type {any} */ opts) { log.push({ op: 'put', k, opts }); store.set(k, v); },
++    async delete(/** @type {string} */ k) { log.push({ op: 'delete', k }); store.delete(k); },
++    async list(/** @type {{ prefix?: string, cursor?: string }} */ { prefix = '', cursor } = {}) {
++      log.push({ op: 'list', opts: { prefix, cursor } });
++      const restantes = [...store.keys()].filter(k => k.startsWith(prefix)).sort().filter(k => !cursor || k > cursor);
++      const fatia = restantes.slice(0, porPagina);
++      const completo = restantes.length <= porPagina;
++      return { keys: fatia.map(name => ({ name })), list_complete: completo, cursor: completo ? undefined : fatia[fatia.length - 1] };
++    },
++    _store: store,
++    _log: log,
++  };
++}
++
++/** Pedido ao painel com o cookie de `token` (e a mesma impressão do cliente dos registros). */
++const pedido = (/** @type {string} */ token, caminho = '/dashboard', init = {}) => new Request(`https://fotos.lucafchala.com${caminho}`, {
++  ...init,
++  headers: { Cookie: `__Host-session=${token}`, 'User-Agent': UA, 'Sec-Fetch-Site': 'same-origin', ...(/** @type {any} */ (init).headers || {}) },
++});
++
++beforeEach(() => {
++  vi.useFakeTimers({ toFake: ['Date'] });
++  vi.setSystemTime(AGORA);
++  resetDegraded();
++  vi.spyOn(console, 'error').mockImplementation(() => {});
++});
++afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); resetDegraded(); });
++
++// ---------------------------------------------------------------------------
++describe('verifySession e o marcador de corte', () => {
++  it('derruba a sessão aberta antes do corte, menos a de quem pediu', async () => {
++    const FOTOS = kv({
++      [chave(DONO)]: sessao({ createdAt: AGORA - 3 * 3600_000 }),
++      [chave(LADRAO)]: sessao({ createdAt: AGORA - 2 * 3600_000 }),
++      [CORTE_DE_SESSOES_KEY]: corte(),
++    });
++    expect(await verifySession({ FOTOS }, pedido(LADRAO)), 'aberta antes do corte').toBe(false);
++    expect(FOTOS._store.has(chave(LADRAO)), 'o registro recusado é apagado').toBe(false);
++    expect(await verifySession({ FOTOS }, pedido(DONO)), 'a de quem pediu fica, mesmo sendo mais velha que o corte').toBe(true);
++    expect(FOTOS._store.has(chave(DONO))).toBe(true);
++  });
++
++  it('a sessão aberta DEPOIS do corte passa', async () => {
++    const FOTOS = kv({
++      [chave(OUTRO)]: sessao({ createdAt: AGORA - 5 * MIN, lastSeen: AGORA - 5 * MIN }),
++      [CORTE_DE_SESSOES_KEY]: corte(),
++    });
++    expect(await verifySession({ FOTOS }, pedido(OUTRO))).toBe(true);
++  });
++
++  it('no instante exato do corte a sessão passa (createdAt < antes é o que corta)', async () => {
++    const FOTOS = kv({
++      [chave(OUTRO)]: sessao({ createdAt: AGORA - 10 * MIN, lastSeen: AGORA - 60_000 }),
++      [CORTE_DE_SESSOES_KEY]: corte({ antes: AGORA - 10 * MIN }),
++    });
++    expect(await verifySession({ FOTOS }, pedido(OUTRO))).toBe(true);
++  });
++
++  it('registro posto de volta depois do corte (ressurreição) continua recusado', async () => {
++    const FOTOS = kv({
++      [chave(DONO)]: sessao({ createdAt: AGORA - 3 * 3600_000 }),
++      [CORTE_DE_SESSOES_KEY]: corte(),
++    });
++    // O que a renovação de outro local faz: reescreve o registro apagado, com o
++    // createdAt de sempre e um lastSeen novo.
++    FOTOS._store.set(chave(LADRAO), sessao({ createdAt: AGORA - 2 * 3600_000, lastSeen: AGORA - 1000 }));
++    expect(await verifySession({ FOTOS }, pedido(LADRAO))).toBe(false);
++    expect(FOTOS._store.has(chave(LADRAO)), 'e o registro ressuscitado some de novo').toBe(false);
++  });
++
++  it('a sessão cortada não é reescrita: o corte vem ANTES da renovação do lastSeen', async () => {
++    // Renovação vencida (lastSeen de 9 min atrás, o limite é 10) — o `put`
++    // dela é justamente o que ressuscitaria um registro revogado.
++    const FOTOS = kv({
++      [chave(LADRAO)]: sessao({ createdAt: AGORA - 2 * 3600_000, lastSeen: AGORA - 11 * MIN }),
++      [CORTE_DE_SESSOES_KEY]: corte(),
++    });
++    expect(await verifySession({ FOTOS }, pedido(LADRAO))).toBe(false);
++    expect(FOTOS._log.filter(c => c.op === 'put'), 'nenhuma escrita para uma sessão revogada').toEqual([]);
++  });
++
++  it('sem marcador, nada muda: a sessão válida passa e o que vence continua vencendo', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao() });
++    expect(await verifySession({ FOTOS }, pedido(DONO))).toBe(true);
++    const velha = kv({ [chave(DONO)]: sessao({ createdAt: AGORA - SESSION_TTL_SECS * 1000 - 1000 }) });
++    expect(await verifySession({ FOTOS: velha }, pedido(DONO)), 'o teto de 24 h segue valendo').toBe(false);
++    expect(degradedHealth(), 'ausência de marcador não é problema').toEqual([]);
++  });
++
++  it('lê o registro e o marcador juntos, os dois com cacheTtl de 30 s (o mínimo do KV)', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao() });
++    await verifySession({ FOTOS }, pedido(DONO));
++    const leituras = FOTOS._log.filter(c => c.op === 'get');
++    expect(leituras.map(l => l.k).sort()).toEqual([CORTE_DE_SESSOES_KEY, chave(DONO)].sort());
++    for (const l of leituras) expect(l.opts, `leitura de ${l.k}`).toEqual({ cacheTtl: 30 });
++  });
++
++  it('sem cookie de sessão não encosta no KV', async () => {
++    const FOTOS = kv({ [CORTE_DE_SESSOES_KEY]: corte() });
++    expect(await verifySession({ FOTOS }, new Request('https://fotos.lucafchala.com/dashboard'))).toBe(false);
++    expect(FOTOS._log).toEqual([]);
++  });
++
++  it('o KV que não responde segue propagando, do registro ou do marcador (o painel falha FECHADO)', async () => {
++    for (const quebrada of [chave(DONO), CORTE_DE_SESSOES_KEY]) {
++      const FOTOS = kv({ [chave(DONO)]: sessao() });
++      const real = FOTOS.get;
++      FOTOS.get = (k, o) => (k === quebrada ? Promise.reject(new Error('KV GET failed: 503')) : real(k, o));
++      await expect(verifySession({ FOTOS }, pedido(DONO)), `leitura de ${quebrada}`).rejects.toThrow(/KV GET failed/);
++    }
++  });
++
++  describe('marcador ilegível é ignorado — não pode trancar o dono fora — e vira aviso', () => {
++    it.each([
++      ['não é JSON', 'isto nao e json'],
++      ['JSON que não é objeto', '"corte"'],
++      ['array', '[1,2]'],
++      ['null', 'null'],
++      ['antes não é número', JSON.stringify({ antes: 'ontem', exceto: hash(DONO) })],
++      ['antes sem exceto', JSON.stringify({ antes: AGORA - MIN })],
++      ['exceto que não é um SHA-256', JSON.stringify({ antes: AGORA - MIN, exceto: 'curto' })],
++      ['exceto em maiúsculas', JSON.stringify({ antes: AGORA - MIN, exceto: hash(DONO).toUpperCase() })],
++      // Lixo válido como JSON, mas que valeria contra a sessão que o dono abrir
++      // depois: o login do futuro nasce "antes" desse corte.
++      ['antes no futuro distante', JSON.stringify({ antes: AGORA + 400 * 86400_000, exceto: hash(OUTRO) })],
++      ['vazio', ''],
++    ])('%s', async (_nome, bruto) => {
++      const FOTOS = kv({
++        [chave(DONO)]: sessao({ createdAt: AGORA - 3 * 3600_000 }),
++        [CORTE_DE_SESSOES_KEY]: bruto,
++      });
++      expect(await verifySession({ FOTOS }, pedido(DONO)), 'a sessão válida continua entrando').toBe(true);
++      expect(degradedHealth().map(p => p.label)).toContain('marcador de revogação de sessões ilegível');
++    });
++  });
++});
++
++// ---------------------------------------------------------------------------
++describe('encerraOutrasSessoes — a única implementação do corte', () => {
++  it('grava o marcador (hora, hash do token que pediu, TTL de 25 h), apaga as outras e conta', async () => {
++    const FOTOS = kv({
++      [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao(), [chave(OUTRO)]: sessao(),
++      events: '[]',
++    });
++    const n = await encerraOutrasSessoes({ FOTOS }, DONO);
++
++    expect(n).toBe(2);
++    expect([...FOTOS._store.keys()].sort(), 'só a sessão atual e o que não é sessão').toEqual([CORTE_DE_SESSOES_KEY, chave(DONO), 'events'].sort());
++    expect(JSON.parse(/** @type {string} */ (FOTOS._store.get(CORTE_DE_SESSOES_KEY)))).toEqual({ antes: AGORA, exceto: hash(DONO) });
++    const gravacao = FOTOS._log.find(c => c.op === 'put');
++    expect(gravacao?.k).toBe(CORTE_DE_SESSOES_KEY);
++    expect(gravacao?.opts, '24 h do teto absoluto + 1 h').toEqual({ expirationTtl: SESSION_TTL_SECS + 3600 });
++  });
++
++  it('o marcador é gravado ANTES de qualquer apagamento', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    await encerraOutrasSessoes({ FOTOS }, DONO);
++    const ordem = FOTOS._log.filter(c => c.op !== 'get').map(c => c.op);
++    expect(ordem).toEqual(['put', 'list', 'delete']);
++  });
++
++  it('a chave do marcador não casa com o prefixo das sessões (a varredura não a apaga)', async () => {
++    expect(CORTE_DE_SESSOES_KEY.startsWith('admin_session:')).toBe(false);
++    const FOTOS = kv({ [CORTE_DE_SESSOES_KEY]: corte({ antes: 1 }), [chave(DONO)]: sessao() });
++    await encerraOutrasSessoes({ FOTOS }, DONO);
++    expect(FOTOS._store.has(CORTE_DE_SESSOES_KEY)).toBe(true);
++  });
++
++  it('percorre todas as páginas do list', async () => {
++    const outras = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [chave(String(i).repeat(64)), sessao()]));
++    const FOTOS = kv({ [chave(DONO)]: sessao(), ...outras }, { porPagina: 3 });
++    const n = await encerraOutrasSessoes({ FOTOS }, DONO);
++    expect(n).toBe(7);
++    expect([...FOTOS._store.keys()].filter(k => k.startsWith('admin_session:'))).toEqual([chave(DONO)]);
++    expect(FOTOS._log.filter(c => c.op === 'list').length).toBeGreaterThanOrEqual(3);
++  });
++
++  it('sem outras sessões devolve 0 — e ainda assim grava o corte (o registro pode estar noutro local)', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao() });
++    expect(await encerraOutrasSessoes({ FOTOS }, DONO)).toBe(0);
++    expect(FOTOS._store.has(CORTE_DE_SESSOES_KEY)).toBe(true);
++  });
++
++  it('se o marcador não puder ser gravado, lança e não apaga nada', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    FOTOS.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
++    await expect(encerraOutrasSessoes({ FOTOS }, DONO)).rejects.toThrow(/429/);
++    expect(FOTOS._store.has(chave(LADRAO)), 'sem corte gravado, apagar só deixaria a janela aberta sem aviso').toBe(true);
++  });
++});
++
++// ---------------------------------------------------------------------------
++describe('POST /api/sessions/revoke-others', () => {
++  const env = (/** @type {ReturnType<typeof kv>} */ FOTOS) => ({ FOTOS });
++  const ctx = { waitUntil: () => {} };
++  const post = (/** @type {ReturnType<typeof kv>} */ FOTOS, token = DONO, init = {}) =>
++    worker.fetch(pedido(token, '/api/sessions/revoke-others', { method: 'POST', ...init }), /** @type {any} */ (env(FOTOS)), /** @type {any} */ (ctx));
++
++  it('devolve a contagem e deixa só a sessão de quem pediu', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao(), [chave(OUTRO)]: sessao() });
++    const res = await post(FOTOS);
++    expect(res.status).toBe(200);
++    expect(await res.json()).toEqual({ ok: true, encerradas: 2 });
++    expect([...FOTOS._store.keys()].filter(k => k.startsWith('admin_session:'))).toEqual([chave(DONO)]);
++    // E a sessão que ficou continua entrando, mesmo com o corte gravado depois dela.
++    expect(await verifySession(env(FOTOS), pedido(DONO))).toBe(true);
++  });
++
++  it('sozinho no painel: 0, e o corte gravado do mesmo jeito', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao() });
++    expect(await (await post(FOTOS)).json()).toEqual({ ok: true, encerradas: 0 });
++    expect(FOTOS._store.has(CORTE_DE_SESSOES_KEY)).toBe(true);
++  });
++
++  it('sem sessão: 401 e nada gravado nem apagado', async () => {
++    const FOTOS = kv({ [chave(LADRAO)]: sessao() });
++    const res = await worker.fetch(new Request('https://fotos.lucafchala.com/api/sessions/revoke-others', {
++      method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' },
++    }), /** @type {any} */ (env(FOTOS)), /** @type {any} */ (ctx));
++    expect(res.status).toBe(401);
++    expect(FOTOS._log.filter(c => c.op !== 'get')).toEqual([]);
++  });
++
++  it('sessão que não existe no KV: 401, nada gravado', async () => {
++    const FOTOS = kv({ [chave(LADRAO)]: sessao() });
++    expect((await post(FOTOS, OUTRO)).status).toBe(401);
++    expect(FOTOS._log.filter(c => c.op !== 'get')).toEqual([]);
++  });
++
++  it('origem cruzada: 403 pelo portão do roteador, nada gravado', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    const res = await post(FOTOS, DONO, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
++    expect(res.status).toBe(403);
++    expect(FOTOS._log.filter(c => c.op !== 'get')).toEqual([]);
++  });
++
++  it('só POST: GET na mesma rota é 404, e nada é gravado', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    const res = await worker.fetch(pedido(DONO, '/api/sessions/revoke-others'), /** @type {any} */ (env(FOTOS)), /** @type {any} */ (ctx));
++    expect(res.status).toBe(404);
++    expect(FOTOS._store.has(chave(LADRAO))).toBe(true);
++  });
++
++  it('o KV recusando a escrita: 503 que diz o que houve, aviso no healthz, nada apagado', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    FOTOS.put = async () => { throw new Error('KV PUT failed: 429 Too Many Requests'); };
++    const res = await post(FOTOS);
++    expect(res.status).toBe(503);
++    expect((await res.json()).error).toMatch(/banco de dados do site não respondeu/);
++    expect(degradedHealth().map(p => p.label).join()).toMatch(/KV/);
++    expect(FOTOS._store.has(chave(LADRAO))).toBe(true);
++  });
++
++  it('o handler exportado faz o mesmo que a rota', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    const res = await handleRevokeOtherSessions(pedido(DONO, '/api/sessions/revoke-others', { method: 'POST' }), /** @type {any} */ (env(FOTOS)));
++    expect(await res.json()).toEqual({ ok: true, encerradas: 1 });
++  });
++});
++
++// ---------------------------------------------------------------------------
++describe('troca de senha e o marcador', () => {
++  const trocar = (/** @type {ReturnType<typeof kv>} */ FOTOS, token = DONO) => handleChangePassword(
++    pedido(token, '/api/settings/password', {
++      method: 'PUT',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ password: 'uma frase longa de teste 2026' }),
++    }),
++    /** @type {any} */ ({ FOTOS }),
++    /** @type {any} */ ({ waitUntil() {} }),
++  );
++
++  it('grava o marcador com o hash do token de quem trocou — e essa sessão continua entrando', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao({ createdAt: AGORA - 3 * 3600_000 }), [chave(LADRAO)]: sessao() });
++    const res = await trocar(FOTOS);
++    expect(res.status).toBe(200);
++
++    expect(JSON.parse(/** @type {string} */ (FOTOS._store.get(CORTE_DE_SESSOES_KEY)))).toEqual({ antes: AGORA, exceto: hash(DONO) });
++    expect(FOTOS._store.has('admin_password')).toBe(true);
++    expect(FOTOS._store.has(chave(LADRAO)), 'a outra sessão foi apagada').toBe(false);
++    // createdAt MAIS VELHO que o corte: só passa por ser a de quem trocou.
++    expect(await verifySession({ FOTOS }, pedido(DONO))).toBe(true);
++  });
++
++  it('a sessão que o apagamento não alcançou (ressuscitada) cai pelo marcador', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao({ createdAt: AGORA - 3 * 3600_000 }) });
++    await trocar(FOTOS);
++    FOTOS._store.set(chave(LADRAO), sessao({ createdAt: AGORA - 2 * 3600_000, lastSeen: AGORA - 500 }));
++    expect(await verifySession({ FOTOS }, pedido(LADRAO))).toBe(false);
++  });
++
++  it('a senha que não gravou não corta nada (o 503 de antes continua valendo)', async () => {
++    const FOTOS = kv({ [chave(DONO)]: sessao(), [chave(LADRAO)]: sessao() });
++    FOTOS.put = async () => { throw new Error('KV PUT failed: 429'); };
++    expect((await trocar(FOTOS)).status).toBe(503);
++    expect(FOTOS._store.has(CORTE_DE_SESSOES_KEY)).toBe(false);
++    expect(FOTOS._store.has(chave(LADRAO))).toBe(true);
++  });
++});
++
++// ---------------------------------------------------------------------------
++// O buraco inteiro, com a causa (cache por local) e não só o efeito.
++//
++// `kvCentral()` modela o que importa do KV da Cloudflare: uma verdade central,
++// e um cache em cada local — a leitura fica guardada por `cacheTtl` (60 s se
++// não disser), a escrita aparece na hora no local de quem escreve e só chega
++// aos outros quando o cache deles vence.
++describe('a janela de consistência do KV: dois locais, cache e a renovação que ressuscitava', () => {
++  function kvCentral() {
++    /** @type {Map<string, string>} */
++    const central = new Map();
++    const local = () => {
++      /** @type {Map<string, { v: string|null, ate: number }>} */
++      const cache = new Map();
++      return {
++        async get(/** @type {string} */ k, /** @type {{ cacheTtl?: number }} */ opts = {}) {
++          const c = cache.get(k);
++          if (c && c.ate > Date.now()) return c.v;
++          const v = central.has(k) ? /** @type {string} */ (central.get(k)) : null;
++          cache.set(k, { v, ate: Date.now() + (opts.cacheTtl ?? 60) * 1000 });
++          return v;
++        },
++        async put(/** @type {string} */ k, /** @type {string} */ v) { central.set(k, v); cache.set(k, { v, ate: Date.now() + 60_000 }); },
++        async delete(/** @type {string} */ k) { central.delete(k); cache.set(k, { v: null, ate: Date.now() + 60_000 }); },
++        async list(/** @type {{ prefix?: string }} */ { prefix = '' } = {}) {
++          return { keys: [...central.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name })), list_complete: true };
++        },
++      };
++    };
++    return { central, local };
++  }
++
++  it('o aparelho revogado passa no máximo até o cache vencer; a renovação dentro da janela não o ressuscita', async () => {
++    const { central, local } = kvCentral();
++    // A sessão do ladrão: aberta há 2 h, com a renovação do lastSeen a 5 s de vencer.
++    central.set(chave(LADRAO), sessao({ createdAt: AGORA - 2 * 3600_000, lastSeen: AGORA - 595_000 }));
++    central.set(chave(DONO), sessao({ createdAt: AGORA - 3 * 3600_000 }));
++
++    const emA = { FOTOS: local() };   // onde o dono pede o corte
++    const emB = { FOTOS: local() };   // onde o cookie roubado é usado
++
++    // 1 s antes do corte, B atende o ladrão: guarda em cache o registro e a
++    // AUSÊNCIA do marcador. A renovação ainda não venceu (594 s).
++    vi.setSystemTime(AGORA - 1000);
++    expect(await verifySession(/** @type {any} */ (emB), pedido(LADRAO))).toBe(true);
++
++    // O corte, em A.
++    vi.setSystemTime(AGORA);
++    expect(await encerraOutrasSessoes(/** @type {any} */ (emA), DONO)).toBe(1);
++    expect(central.has(chave(LADRAO)), 'apagado na verdade central').toBe(false);
++
++    // 10 s depois, B ainda tem o cache velho: aceita (a janela é de até 30 s —
++    // é o que a tela promete), e agora a renovação venceu (605 s) e REESCREVE o
++    // registro que acabou de ser apagado.
++    vi.setSystemTime(AGORA + 10_000);
++    expect(await verifySession(/** @type {any} */ (emB), pedido(LADRAO)), 'dentro da janela de cache').toBe(true);
++    expect(central.has(chave(LADRAO)), 'ressuscitado pela renovação').toBe(true);
++
++    // 40 s depois do corte o cache de B venceu: lê o registro ressuscitado E o
++    // marcador. Sem o marcador, esta sessão valia mais 24 h.
++    vi.setSystemTime(AGORA + 40_000);
++    expect(await verifySession(/** @type {any} */ (emB), pedido(LADRAO)), 'o marcador chegou a B').toBe(false);
++    expect(central.has(chave(LADRAO))).toBe(false);
++
++    // Horas depois, continua fora; e o dono, em B, continua dentro.
++    vi.setSystemTime(AGORA + 3 * 3600_000);
++    central.set(chave(LADRAO), sessao({ createdAt: AGORA - 2 * 3600_000, lastSeen: AGORA + 3 * 3600_000 - 1000 }));
++    expect(await verifySession(/** @type {any} */ ({ FOTOS: local() }), pedido(LADRAO)), 'ressuscitar de novo horas depois não adianta').toBe(false);
++    central.set(chave(DONO), sessao({ createdAt: AGORA - 3 * 3600_000, lastSeen: AGORA + 3 * 3600_000 - 1000 }));
++    expect(await verifySession(/** @type {any} */ ({ FOTOS: local() }), pedido(DONO))).toBe(true);
++  });
++});
+diff --git a/tests/workers/sessoes.workers.test.js b/tests/workers/sessoes.workers.test.js
+new file mode 100644
+index 0000000..14ccf35
+--- /dev/null
++++ b/tests/workers/sessoes.workers.test.js
+@@ -0,0 +1,66 @@
++import { env, SELF } from 'cloudflare:test';
++import { describe, it, expect } from 'vitest';
++
++// O corte de sessões (src/utils.js, `encerraOutrasSessoes`) no KV de VERDADE.
++//
++// A suíte `unit` prova a lógica contra um dublê; o que ela não pode afirmar é
++// que a plataforma ACEITA o que pedimos: `cacheTtl` de 30 s no `get`,
++// `expirationTtl` de 25 h no `put`, `list` por prefixo — e que a chave do
++// marcador (`admin_sessions_corte`) não casa com o prefixo `admin_session:`, ou
++// a varredura apagaria o próprio corte. A consistência eventual entre locais
++// não existe aqui (um só local); ela está modelada em tests/sessoes-corte.test.js.
++
++const DONO = 'a'.repeat(64);
++const LADRAO = 'b'.repeat(64);
++const chave = t => `admin_session:${t}`;
++const sessao = createdAt => JSON.stringify({ v: 1, createdAt, lastSeen: Date.now() - 1000 });
++const sha256 = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))]
++  .map(b => b.toString(16).padStart(2, '0')).join('');
++
++const pede = (caminho, token, metodo = 'GET') => SELF.fetch(`https://fotos.lucafchala.com${caminho}`, {
++  method: metodo, headers: { Cookie: `__Host-session=${token}` },
++});
++
++describe('"Sair dos outros aparelhos" no KV de verdade', () => {
++  it('apaga as outras, grava o marcador com TTL de 25 h e deixa a sessão de quem pediu entrar', async () => {
++    const agora = Date.now();
++    await env.FOTOS.put(chave(DONO), sessao(agora - 3 * 3600_000), { expirationTtl: 86400 });
++    await env.FOTOS.put(chave(LADRAO), sessao(agora - 2 * 3600_000), { expirationTtl: 86400 });
++
++    const res = await pede('/api/sessions/revoke-others', DONO, 'POST');
++    expect(res.status).toBe(200);
++    expect(await res.json()).toEqual({ ok: true, encerradas: 1 });
++
++    expect(await env.FOTOS.get(chave(LADRAO))).toBeNull();
++    const marcador = JSON.parse(await env.FOTOS.get('admin_sessions_corte'));
++    expect(marcador.exceto).toBe(await sha256(DONO));
++    expect(marcador.antes).toBeGreaterThanOrEqual(agora);
++
++    // O prefixo das sessões não enxerga o marcador, e ele leva expiração (~25 h).
++    const sessoes = await env.FOTOS.list({ prefix: 'admin_session:' });
++    expect(sessoes.keys.map(k => k.name)).toEqual([chave(DONO)]);
++    const [deCorte] = (await env.FOTOS.list({ prefix: 'admin_sessions_corte' })).keys;
++    expect(deCorte.expiration, 'o marcador expira').toBeGreaterThan(Date.now() / 1000 + 24 * 3600);
++    expect(deCorte.expiration).toBeLessThanOrEqual(Date.now() / 1000 + 25 * 3600 + 5);
++
++    // A sessão mais velha que o corte, mas de quem pediu, segue entrando.
++    expect((await pede('/api/categories', DONO)).status).toBe(200);
++  });
++
++  it('o registro posto de volta (ressurreição) continua recusado', async () => {
++    const agora = Date.now();
++    await env.FOTOS.put(chave(DONO), sessao(agora - 3 * 3600_000), { expirationTtl: 86400 });
++    await pede('/api/sessions/revoke-others', DONO, 'POST');
++
++    await env.FOTOS.put(chave(LADRAO), sessao(agora - 2 * 3600_000), { expirationTtl: 86400 });
++    expect((await pede('/api/categories', LADRAO)).status).toBe(401);
++    expect(await env.FOTOS.get(chave(LADRAO)), 'e o registro é apagado de novo').toBeNull();
++  });
++
++  it('uma sessão aberta depois do corte entra', async () => {
++    await env.FOTOS.put(chave(DONO), sessao(Date.now() - 3600_000), { expirationTtl: 86400 });
++    await pede('/api/sessions/revoke-others', DONO, 'POST');
++    await env.FOTOS.put(chave(LADRAO), sessao(Date.now() + 5000), { expirationTtl: 86400 });
++    expect((await pede('/api/categories', LADRAO)).status).toBe(200);
++  });
++});
+-- 
+2.43.0
+
