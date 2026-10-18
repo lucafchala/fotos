@@ -18,13 +18,14 @@ import { withDurableObjects } from './helpers/do.js';
 const SMOKE = readFileSync(new URL('../scripts/smoke.sh', import.meta.url), 'utf8');
 
 /**
- * Valor de uma atribuição `NOME='…'` do smoke.sh.
+ * Valor de uma atribuição `NOME='…'` ou `NOME="…"` do smoke.sh (as aspas duplas
+ * são para quem leva aspa simples no valor, como os 'nonce-' da CSP).
  * @param {string} nome
  */
 function doSmoke(nome) {
-  const m = SMOKE.match(new RegExp(`^${nome}='([^']*)'$`, 'm'));
+  const m = SMOKE.match(new RegExp(`^${nome}=(?:'([^']*)'|"([^"]*)")$`, 'm'));
   if (!m) throw new Error(`${nome} sumiu do scripts/smoke.sh`);
-  return m[1];
+  return m[1] ?? m[2];
 }
 
 // O alvo do smoke de produção (deploy.yml): o workers.dev, não o domínio.
@@ -139,5 +140,48 @@ describe('versão no healthz, como o smoke lê', () => {
     const valor = campo.split('.').reduce((/** @type {any} */ o, k) => (o == null ? o : o[k]), body);
     expect(valor).toBe('6a9c2f1e-4b7d-4f0a-9e3c-2d8b1a7f5e40');
     expect(body.versao.tag).toBe('3aba593');
+  });
+});
+
+describe('CSP aplicada, como o smoke lê (#126)', () => {
+  // O smoke de produção é o único olhar sobre a política DEPOIS do deploy: se
+  // ele esperasse a Report-Only (a de antes da virada) ou um nonce no lugar
+  // errado, reprovaria a primeira publicação com a estrita e reverteria a
+  // produção. Cada valor vem do próprio smoke.sh e é conferido contra a mesma
+  // resposta que ele recebe (GET / no workers.dev).
+  const pega = async () => {
+    const res = await chama({}, new Request(`${ALVO}/`));
+    // Como o `curl -I` do smoke mostra: `nome: valor`, um por linha.
+    const cabecalhos = [...res.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
+    return { res, cabecalhos, csp: res.headers.get('Content-Security-Policy') ?? '', corpo: await res.text() };
+  };
+  /** @param {string} csp @param {string} nome */
+  const diretivaDe = (csp, nome) => csp.split('; ').find(d => d.startsWith(`${nome} `)) ?? '';
+
+  it('o script-src do Worker tem o nonce que o smoke exige (CSP_NONCE_NO_SCRIPT_SRC)', async () => {
+    const { cabecalhos } = await pega();
+    expect(cabecalhos).toMatch(new RegExp(doSmoke('CSP_NONCE_NO_SCRIPT_SRC'), 'im'));
+  });
+
+  it('o nonce que o smoke extrai do cabeçalho é o da marcação da MESMA resposta', async () => {
+    const { csp, corpo } = await pega();
+    const achado = csp.match(new RegExp(doSmoke('CSP_NONCE_VALOR'), 'i'));
+    expect(achado, 'o smoke não acharia nonce nenhum no cabeçalho').not.toBeNull();
+    const nonce = (achado?.[0] ?? '').replace(/'/g, '').replace('nonce-', '');
+    expect(corpo).toContain(`nonce="${nonce}"`);
+  });
+
+  it('o que o smoke proíbe no script-src (CSP_PROIBIDO_NO_SCRIPT_SRC) não está lá', async () => {
+    const { csp } = await pega();
+    const proibido = doSmoke('CSP_PROIBIDO_NO_SCRIPT_SRC');
+    expect(diretivaDe(csp, 'script-src')).not.toContain(proibido);
+    // O contraexemplo: a política de ANTES da virada seria reprovada.
+    expect("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com").toContain(proibido);
+  });
+
+  it('o smoke não depende mais do cabeçalho Report-Only, que deixou de existir', async () => {
+    const { res } = await pega();
+    expect(res.headers.has('Content-Security-Policy-Report-Only')).toBe(false);
+    expect(SMOKE).not.toMatch(/^[^#\n]*content-security-policy-report-only/im);
   });
 });

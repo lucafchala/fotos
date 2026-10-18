@@ -20,18 +20,19 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import vm from 'node:vm';
-import { dashboardHTML, loginHTML } from '../src/ui/dashboard.js';
+import { dashboardHTML } from '../src/ui/dashboard.js';
 import { galleryHTML } from '../src/ui/gallery.js';
 import { eventHTML } from '../src/ui/event.js';
 import { aboutHTML } from '../src/ui/about.js';
 import { supportHTML } from '../src/ui/support.js';
-import { docHTML } from '../src/ui/doc.js';
-import { LEGAL_DOCS } from '../src/content/legal-docs.js';
 import { perfBootScript, degradedHealth, resetDegraded, fontPreloadHTML, fontFaceCSS } from '../src/utils.js';
 import { TURNSTILE_SITE_KEY } from '../src/config.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
-import { EVENTO, paginas, blocos, contaScriptTags, RE_SCRIPT_BLOCO, RE_STYLE_BLOCO } from './helpers/paginas.js';
+import {
+  EVENTO, paginas, variacoes, blocos, contaScriptTags, RE_SCRIPT_BLOCO, RE_STYLE_BLOCO,
+  handlersInline, scriptsSemNonce, urlsJavascript, tagsDeAbertura,
+} from './helpers/paginas.js';
 
 describe('scripts embutidos nas páginas', () => {
   it.each(Object.keys(paginas()))('o JavaScript emitido por %s é sintaticamente válido', nome => {
@@ -278,8 +279,8 @@ describe('galeria: prioridade e tamanho das capas', () => {
 
   it('nenhum handler inline sobrou nas capas', () => {
     // `load`/`error` são capturados por um par de listeners no bloco do <head>.
-    // Cada onload= a menos é um relatório a menos na CSP report-only estrita,
-    // que é o caminho para ela virar a enforced.
+    // Um onload= aqui seria bloqueado pela CSP estrita (a aplicada, #126) — a
+    // varredura de todas as páginas está em "CSP estrita" mais abaixo.
     const html = galeria(evento(0), evento(1));
     expect(html).not.toContain('onload="imgSettled');
     expect(html).not.toContain('onerror="imgSettled');
@@ -747,17 +748,8 @@ export function desbalanceamentos(html) {
 }
 
 describe('estrutura do HTML emitido', () => {
-  const variacoes = () => ({
-    ...paginas(),
-    loginComErro: loginHTML({ error: true }, 'NONCE'),
-    loginVerificacao: loginHTML({ verificacao: true }, 'NONCE'),
-    eventEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
-    eventCarrossel: eventHTML({ ...EVENTO, photos: [EVENTO.photos[0], 'https://lh3.googleusercontent.com/d/BBB'], driveUrlInstagram: 'https://drive.google.com/y' }, '2026', 'tok', 'NONCE', 'dn', 'ft'),
-    eventComAviso: eventHTML({ ...EVENTO, photosAlert: { active: true, addedAt: new Date().toISOString(), expiresAfterHours: 24 } }, '2026', null, 'NONCE', 'dn', 'ft'),
-    supportEnviado: supportHTML(true, '', {}, 'NONCE', 'ft'),
-    ...Object.fromEntries(LEGAL_DOCS.map(d => [`doc:${d.slug}`, docHTML(d)])),
-  });
-
+  // As variações vêm de tests/helpers/paginas.js (a mesma lista do lint dos
+  // scripts e da CSP estrita).
   it.each(Object.keys(variacoes()))('%s não tem tag órfã nem tag sem fechar', nome => {
     expect(desbalanceamentos(variacoes()[nome])).toEqual([]);
   });
@@ -768,6 +760,94 @@ describe('estrutura do HTML emitido', () => {
     expect(desbalanceamentos('<div><p>x</p>')).toEqual(['<div> nunca fechada']);
     expect(desbalanceamentos('<div><script>if (a < b) document.body.append("</div>")</script></div>')).toEqual([]);
     expect(desbalanceamentos('<div><!-- </div> --><img src="x"><br></div>')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CSP estrita (#126): nada na página depende de 'unsafe-inline'
+// ---------------------------------------------------------------------------
+// A política aplicada é `script-src 'self' 'nonce-…'` (src/security.js). Três
+// coisas na página, então, deixam de executar SEM aviso nenhum — a página segue
+// 200, o teste de string da política segue verde, e o botão não responde: um
+// <script> inline sem o nonce da requisição, um atributo `on…=` e um URL
+// `javascript:`. Esta varredura olha todas as variações da página RENDERIZADA
+// (a mesma lista do lint dos scripts), e os `verifica:*` provam o efeito num
+// navegador de verdade, com a política aplicada.
+describe('CSP estrita (#126): o que as páginas emitem', () => {
+  const todas = variacoes();
+  const nomes = Object.keys(todas);
+
+  it.each(nomes)('%s: nenhum handler inline (on…=), nem na marcação nem montado pelo script', nome => {
+    expect(handlersInline(todas[nome])).toEqual([]);
+  });
+
+  it.each(nomes)('%s: todo <script> carrega o nonce da requisição', nome => {
+    expect(scriptsSemNonce(todas[nome], 'NONCE')).toEqual([]);
+  });
+
+  it.each(nomes)('%s: nenhum URL javascript:', nome => {
+    expect(urlsJavascript(todas[nome])).toEqual([]);
+  });
+
+  it('as variações cobrem o que a CSP olha: script com e sem src, de dados e de regras', () => {
+    // Uma lista que perdesse as páginas com script deixaria as três varreduras
+    // acima verdes sobre o nada.
+    const scripts = Object.values(todas).flatMap(h => tagsDeAbertura(h).filter(t => t.tag === 'script'));
+    const tipo = (/** @type {{ attrs: { nome: string, valor: string }[] }} */ t) => t.attrs.find(a => a.nome === 'type')?.valor;
+    expect(scripts.length).toBeGreaterThan(25);
+    expect(scripts.some(t => t.attrs.some(a => a.nome === 'src'))).toBe(true);
+    expect(scripts.some(t => !t.attrs.some(a => a.nome === 'src') && t.corpo.trim().length > 200)).toBe(true);
+    expect(scripts.some(t => tipo(t) === 'speculationrules')).toBe(true);
+    expect(scripts.some(t => tipo(t) === 'application/ld+json')).toBe(true);
+    expect(scripts.some(t => tipo(t) === 'application/json')).toBe(true);
+    expect(nomes).toEqual(expect.arrayContaining([
+      'dashboard', 'login', 'gallery', 'event', 'support', 'privacy', 'terms', 'about', 'gear', 'legal', 'galeria', 'faixaDaPrevia',
+    ]));
+  });
+
+  describe('a própria varredura', () => {
+    // Sem isto, um verificador quebrado passaria verde sobre qualquer página
+    // (a mesma lição de `desbalanceamentos`).
+    it('acusa um handler em qualquer forma que o tokenizador aceita', () => {
+      for (const marcacao of [
+        '<button onclick="x()">',
+        '<BUTTON ONCLICK="x()">',
+        '<img src=a onerror=x()>',
+        '<img/onerror=x()>',
+        '<a href="x"onclick="y">',
+        "<svg onload='x()'>",
+        '<body\nonload="x()">',
+      ]) expect(handlersInline(marcacao), marcacao).toHaveLength(1);
+    });
+
+    it('acusa um handler montado como texto num script que executa, mas não num de dados', () => {
+      const montado = `<script nonce="N">el.innerHTML = '<button class="b" onclick="x()">ok</button>';</script>`;
+      expect(handlersInline(montado)).toHaveLength(1);
+      expect(handlersInline('<script type="application/ld+json" nonce="N">{"a":"<b onclick=1>"}</script>')).toEqual([]);
+    });
+
+    it('não confunde delegação (data-on…), propriedade de DOM ou prosa com handler', () => {
+      expect(handlersInline('<button data-onclick="abre" data-onerror="esconde">')).toEqual([]);
+      expect(handlersInline('<script nonce="N">t.onload = function () { fim(); }; // o antigo onclick="x" saiu</script>')).toEqual([]);
+      expect(handlersInline('<p title="clique em onclick=">on = 1 &lt; 2 e 1 < 2 onclick=</p>')).toEqual([]);
+      expect(handlersInline('<!-- <img onerror=x> --><p>ok</p>')).toEqual([]);
+    });
+
+    it('acusa <script> sem nonce, com nonce vazio ou com outro nonce', () => {
+      for (const marcacao of ['<script>1</script>', '<script nonce="">1</script>', '<script nonce="OUTRO">1</script>', '<SCRIPT SRC="x.js"></SCRIPT>', '<script src=x.js></script>']) {
+        expect(scriptsSemNonce(marcacao, 'NONCE'), marcacao).toHaveLength(1);
+      }
+      expect(scriptsSemNonce('<script nonce="NONCE">1</script><script nonce="NONCE" src="https://x/a.js"></script>', 'NONCE')).toEqual([]);
+      // Nonce vazio não é nonce: a página que o recebe vazio não se salva por ter `nonce=""`.
+      expect(scriptsSemNonce('<script nonce="">1</script>', '')).toHaveLength(1);
+    });
+
+    it('acusa javascript: como o navegador o lê (tabs, quebras, caixa, espaço à frente)', () => {
+      for (const href of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', '  javascript:alert(1)', 'java\tscript:alert(1)', 'java\nscript:alert(1)', '\x01javascript:x']) {
+        expect(urlsJavascript(`<a href="${href}">x</a>`), JSON.stringify(href)).toHaveLength(1);
+      }
+      expect(urlsJavascript('<a href="/javascript:">x</a><p>href="javascript:x"</p>')).toEqual([]);
+    });
   });
 });
 

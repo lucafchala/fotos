@@ -199,16 +199,19 @@ esquecido vira execução de script no browser do visitante.
 - Escape canônico de 5 caracteres, com gate de CI proibindo a variante fraca.
 - URLs passam por allowlist de esquema (`safeUrl`) **no ponto de uso**, não só na
   gravação — cobre dados legados e restaurados de backup.
-- CSP com nonce por requisição em todos os `<script>`; CSP estrita em
-  Report-Only, com coletor em `/api/csp-report`, medindo o que falta para
-  eliminar o `'unsafe-inline'`.
+- CSP estrita aplicada (#126): nonce por requisição em todos os `<script>` e
+  nenhum `'unsafe-inline'` em `script-src` — script sem nonce, handler inline e
+  URL `javascript:` não executam. Violações vão para o coletor em
+  `/api/csp-report`, e os roteiros de navegador reprovam com qualquer mensagem
+  de CSP no console.
 - `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, sem `unsafe-eval`.
 - Backup restaurado é higienizado (era o único caminho que gravava dados sem
   passar pelo normalizador).
 - CodeQL (`security-extended`) e invariantes de CI.
 
-**Risco residual: BAIXO.** Cai para **MUITO BAIXO** quando os handlers inline
-saírem e a política estrita puder ser imposta.
+**Risco residual: BAIXO.** A condição que este documento previa para baixá-lo a
+**MUITO BAIXO** — handlers inline fora e política estrita imposta — foi cumprida
+(#126); a reclassificação fica para a próxima revisão do RIPD.
 
 ---
 

@@ -931,9 +931,9 @@ tempo só aparece depois de recarregar.
 
 ### Eventos: delegação, nunca `on*=`
 
-A política estrita (hoje em report-only; vai virar a aplicada, #126) não aceita
-handler inline: com nonce, o navegador descarta o `'unsafe-inline'` e todo
-`onclick=` para de funcionar (`RETOMADA.md` §5.1). Além disso, as listas são
+A política aplicada é a estrita (desde o #126) e não aceita handler inline:
+`script-src` tem o nonce e nenhum `'unsafe-inline'`, então todo `onclick=` para
+de funcionar (`RETOMADA.md` §5.1). Além disso, as listas são
 refeitas por `innerHTML` — um listener ligado a um card sumiria no primeiro
 redesenho. Então não há `on*=` em lugar nenhum, e tudo é delegado, em contêineres
 que sobrevivem:
@@ -1125,9 +1125,10 @@ fixo no rodapé — não rola junto com os campos.
   plantava marcação dentro do painel logado.
 - **JSON dentro do `<script>`** passa por `jsonParaScript()`: `<` e `>` viram
   `\u003c` e `\u003e`, para um título com `</script>` não fechar o bloco.
-- **Sem handler inline** (§11): é o que deixa a política estrita (nonce, nenhum
-  `'unsafe-inline'`) virar a aplicada sem matar o painel. A aplicada de hoje ainda
-  tem `'unsafe-inline'` e **nunca** nonce (`RETOMADA.md` §5.1).
+- **Sem handler inline** (§11): é o que faz o painel funcionar sob a política
+  estrita (nonce, nenhum `'unsafe-inline'` em `script-src`), que é a aplicada
+  desde o #126. O `<script>` do painel leva o nonce da requisição; um handler
+  novo não executaria (`RETOMADA.md` §5.1).
 - **Confirmação digitada** para o que apaga ou muda o que é global (§9).
 - **`sessionStorage`**, nunca `localStorage`, para o rascunho, a seção e o período
   das Métricas: morrem com a aba e com o "Sair".
@@ -1264,8 +1265,9 @@ rascunho voltar) → excluir o evento de teste. No computador, o roteiro também
 baixa o backup e confere o aviso de Ajustes sujo (depois de trocar a senha), e,
 no fim, vê o backup com a sessão caída levar ao login.
 
-**O que cada checagem quer dizer** (211 em 17/10/2026: 70 em cada celular, 71 no
-computador; o número muda quando alguém acrescenta uma — não é contrato):
+**O que cada checagem quer dizer** (213 em 17/10/2026: duas da página-canário da
+CSP, 70 em cada celular e 71 no computador; o número muda quando alguém
+acrescenta uma — não é contrato):
 
 | Checagem | O que prova / se falhar, olhe |
 | --- | --- |
@@ -1336,7 +1338,7 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | (computador) "Baixar backup" com a sessão caída leva ao login, sem o JSON do erro | no fim do roteiro, para não precisar de sessão depois: apaga as sessões do KV e clica no backup; o 401 leva ao `form[action="/dashboard/login"]` (§9) |
 | (celular) os botões da confirmação têm 44 px | as alturas de `.confirm-foot button` na confirmação de excluir (eram 40) |
 | nenhum erro de JS | nenhum `pageerror` na sessão toda |
-| nenhuma violação da CSP aplicada | nenhuma mensagem de CSP no console, descontadas as de Report-Only |
+| nenhuma mensagem de CSP no console | nenhuma mensagem de CSP no console, aplicada ou report-only (o filtro é o de `scripts/vigia-csp.mjs`); o roteiro abre com a página-canário que prova que o vigia enxerga um script e um handler sem nonce e que a política os bloqueia |
 | o fluxo só grava o que deve no KV (13 escritas) | as chaves gravadas ⊆ `admin_password`, `admin_session:*`, `events`, `removal_request:*`. É o guarda da cota (§14): uma chave nova aqui tem de ser decisão, não surpresa |
 
 As treze escritas por aparelho são: a sessão do login; seis em `events` (criar,

@@ -2495,13 +2495,14 @@ function healthzResposta(request, env, medicao, cache) {
 // ---------------------------------------------------------------------------
 // Coletor de violações de CSP
 // ---------------------------------------------------------------------------
-// Recebe relatórios da política Report-Only (a estrita, sem 'unsafe-inline').
-// Serve para medir a migração (handler inline que sobrou vira relatório com
-// arquivo/linha) e para detectar tentativa de XSS (script externo que
-// ninguém colocou ali). Vai para log estruturado, não KV (mesma razão do
-// /api/perf: cota de escrita compartilhada, e este endpoint é acionável por
-// qualquer browser). Amostragem no servidor porque o corpo vem de fora —
-// um browser hostil pode despejar relatórios à vontade.
+// Recebe relatórios de violação da política APLICADA (a estrita, sem
+// 'unsafe-inline' — #126). Serve para ver em produção o que nenhum roteiro de
+// navegador alcança (um script novo que escapou do nonce; uma extensão do
+// visitante, que é ruído conhecido) e para detectar tentativa de XSS (script
+// externo que ninguém colocou ali). Vai para log estruturado, não KV (mesma
+// razão do /api/perf: cota de escrita compartilhada, e este endpoint é
+// acionável por qualquer browser). Amostragem no servidor porque o corpo vem
+// de fora — um browser hostil pode despejar relatórios à vontade.
 const CSP_REPORT_SAMPLE_RATE = 0.2;
 const CSP_REPORT_MAX_BYTES = 8192;
 

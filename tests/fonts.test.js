@@ -112,8 +112,8 @@ describe('páginas e CSP', () => {
     expect(fontPreloadHTML()).toBe(`<link rel="preload" href="${normal?.path}" as="font" type="font/woff2" crossorigin>`);
   });
 
-  it.each([false, true])('CSP (strict=%s) só aceita fonte e estilo da própria origem', strict => {
-    const csp = contentSecurityPolicy('N', { strict });
+  it('a CSP só aceita fonte e estilo da própria origem', () => {
+    const csp = contentSecurityPolicy('N');
     expect(csp).toContain("font-src 'self';");
     expect(csp).toContain("style-src 'self' 'unsafe-inline';");
     expect(csp).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);

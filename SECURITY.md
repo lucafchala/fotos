@@ -47,9 +47,13 @@ issue before any public disclosure.
   but submitting the domain to the preload list is a near-irreversible
   commitment covering the whole apex domain — that is the owner's call, not a
   side effect of a commit.
-- **`'unsafe-inline'` is still in the enforced `script-src`.** See "CSP: two
-  policies at once" below — this is a measured, staged migration, not an
-  oversight.
+- **`'unsafe-inline'` stays in `style-src`.** Scripts no longer accept it (see
+  "CSP: one policy, the strict one" below), but inline `style="…"` attributes
+  and `<style>` blocks are used on every page. CSS cannot run script under this
+  policy, so what is left is CSS injection (appearance and, in theory, leaking an
+  attribute value through a selector plus a background image, limited to the
+  `img-src` origins). It is a decision, not an oversight: a nonce on `style-src`
+  would make the browser discard the `'unsafe-inline'` the pages still depend on.
 - **The ad-blocker fallback path is intentionally weaker.** The Drive gate
   (`POST /api/drive-link`) fail-closes on a real Turnstile token: a
   missing/invalid token returns 403 and the link is never included in the
@@ -161,6 +165,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Control | Where | What it stops |
 | --- | --- | --- |
 | Same-origin gate on every write, **before routing** | `src/index.js` dispatcher | CSRF, including the same-site case a `SameSite=Strict` cookie still allows |
+| Strict CSP, **enforced**: per-request nonce, no `'unsafe-inline'` in `script-src`; violations reported to `/api/csp-report` | `contentSecurityPolicy()`, `htmlSecurityHeaders()` | A missed escape turning into code that runs on our origin: a `<script>` without the nonce, an `onclick="…"` attribute and a `javascript:` URL do not execute |
 | Signed page nonce (HMAC, slug-bound, 2 h) | `/api/drive-link` | Sweeping every slug with one valid Turnstile token |
 | Token-bucket limits with `Retry-After` | `RateLimiter.take()`, `takeToken()` | A flood on the crowd-facing endpoints — without locking out an event audience that shares one venue IP |
 | Stateless e-mail code (HMAC over slug + code + expiry) + per-IP/address/day caps | `/api/drive-code`, `handleDriveCode()` | A Turnstile failure (VPN, blocker) locking a real person out of the photos; the code path being used to mail-bomb a third party |
@@ -182,35 +187,46 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Drive API key used only server-side | `src/drive.js` | The key reaching a browser: the page's data island carries neither the key nor resource keys, originals go through the proxy, and error messages never include the request URL (which carries the key) |
 | Third-party code vendored, byte-exact and hash-named | `vendor/`, `src/content/vendor.js`, `/vendor/*` | A CDN or package swap changing the code that runs on our origin: PhotoSwipe is the npm tarball verified against its registry integrity, served from our origin under its content hash, and the suite fails if a byte differs |
 
-### CSP: two policies at once
+### CSP: one policy, the strict one
 
-Every HTML response carries **both** `Content-Security-Policy` and
-`Content-Security-Policy-Report-Only`, built from the same source
-(`contentSecurityPolicy()`) so they cannot drift apart.
+Every HTML response carries a single `Content-Security-Policy`, built by
+`contentSecurityPolicy()` — the strict one since #126. (Until then there were
+two: an enforced policy with `'unsafe-inline'` and the strict one in
+`Content-Security-Policy-Report-Only`, run side by side while the inline
+handlers were removed. The report-only header is gone: sending both would repeat
+every report and every console message.)
 
-- The **enforced** policy allows `'unsafe-inline'` and carries **no nonce**.
-  That combination is deliberate and load-bearing: per CSP Level 3, **a nonce
-  makes the browser discard `'unsafe-inline'`**. So `'self' 'unsafe-inline'
-  'nonce-abc'` is not "both" — it is effectively `'self' 'nonce-abc'`, and every
-  `onclick="…"` attribute handler stops firing. The UI had ~63 of them then, so
-  that silently killed the gallery, the event page, the Drive gate and the
-  dashboard. Since 2026-09-03 (`4552180`) none are left — they became delegated
-  listeners (`data-onclick` and friends) — but the rule stands until the flip
-  tracked in #126 is done with a real browser.
-  This was actually committed once and caught only by driving a real browser —
-  a unit test asserting the policy *string* contains `'unsafe-inline'` passes
-  happily while the browser ignores it.
-- The **report-only** policy is the one we want to enforce — `'nonce-…'` with no
-  `'unsafe-inline'`. Running it in report-only turns each remaining inline
-  handler into a report at `/api/csp-report` instead of a broken element. It is
-  the migration's task list, measured in production rather than guessed. The
-  `nonce="…"` attributes in the markup exist for *this* policy.
+- `script-src` is `'self'`, the per-request `'nonce-…'`, and the two origins the
+  site loads on purpose (Cloudflare Turnstile, and the Web Analytics beacon, by
+  host). No `'unsafe-inline'`, no `'strict-dynamic'`: a `<script>` without the
+  nonce, an `onclick="…"` attribute and a `javascript:` URL do not execute. Every
+  inline `<script>` carries `nonce="…"`, and events are wired by delegation
+  (`data-onclick`, `data-action`).
+- **A nonce makes the browser discard `'unsafe-inline'`** (CSP Level 3):
+  `'unsafe-inline' 'nonce-abc'` is just `'nonce-abc'`. So putting
+  `'unsafe-inline'` back "to unblock a page" does nothing except make the policy's
+  text lie. A script that does not run gets fixed by giving it the nonce; a
+  handler, by turning it into a delegated listener. The mirror image holds for
+  styles: `style-src` keeps `'unsafe-inline'` and must **never** get a nonce, or
+  every `style="…"` dies. This class of defect has already shipped with the whole
+  suite green — a nonce on a policy that still relied on `'unsafe-inline'` killed
+  ~63 handlers — because a unit test asserting the policy *string* cannot see what
+  the browser does with it.
+- The enforced policy **keeps reporting**: `report-uri /api/csp-report` and
+  `report-to csp` (with `Reporting-Endpoints`). A violation in production — a
+  script that slipped past the nonce, or a visitor's browser extension, which is
+  known noise — reaches the log as `csp-violation` (sampled at 20%).
 
-**The flip happens when the reports stop arriving**: remove the inline handlers,
-then let the enforced policy use `strict` too. Until then, a `<script>` without a
-nonce is invisible today and breaks silently on flip day — so CI rejects one, and
-the deploy smoke test rejects a nonce appearing in the enforced header
-(`.github/workflows/security.yml`, `deploy.yml`).
+How we know it holds: `tests/rendered-pages.test.js` fails on any `on…=`
+attribute, `javascript:` URL or `<script>` without the nonce in **every**
+rendered page; `tests/security.test.js` pins the policy (and that there is exactly
+one header); and the browser scripts (`npm run verifica:painel`, `:galeria`,
+`:evento`, `:previa`, `:navegador`) serve each page with the real headers and fail
+on **any** CSP message in the console (`scripts/vigia-csp.mjs`; each starts with a
+canary page that proves the watcher sees a violation and that the policy blocks
+it). CI rejects a `<script>` without a nonce in the source
+(`.github/workflows/security.yml`), and the deploy smoke test rejects a
+`script-src` that has `'unsafe-inline'` or no nonce (`scripts/smoke.sh`).
 
 ### Rate limits fail open when they cannot be recorded
 

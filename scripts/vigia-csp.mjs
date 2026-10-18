@@ -18,6 +18,7 @@
 // pela diretiva deixaria passar o aviso que não bloqueia nada mas diz que a
 // política não é a que escrevemos.
 
+/* global window */
 import { htmlSecurityHeaders } from '../src/security.js';
 
 /** @param {string} texto */
@@ -73,6 +74,10 @@ export async function provaOVigia(browser, registra) {
     await page.goto('https://csp.test/');
     await page.click('#b');
     await page.waitForTimeout(150);
+    const rodou = await page.evaluate(() => {
+      const w = /** @type {any} */ (window);
+      return { semNonce: w.__semNonce === 1, handler: w.__handler === 1, comNonce: w.__comNonce === 1 };
+    });
     const viu = {
       script: mensagens.some(t => /inline script/i.test(t)),
       handler: mensagens.some(t => /inline event handler/i.test(t)),
@@ -80,6 +85,13 @@ export async function provaOVigia(browser, registra) {
     registra(viu.script && viu.handler,
       'vigia de CSP: enxerga um script inline e um handler inline sem nonce (sem isto, "nenhuma violação" não prova nada)',
       { viu, mensagens });
+    // Só a política APLICADA barra: se este check cair, o cabeçalho servido
+    // voltou a aceitar 'unsafe-inline' (ou um Report-Only está fazendo as
+    // vezes dela) e a estrita deixou de valer — o que nenhuma outra checagem
+    // de ausência perceberia.
+    registra(!rodou.semNonce && !rodou.handler && rodou.comNonce,
+      'CSP servida pelo site: BLOQUEIA o script e o handler inline sem nonce e deixa rodar o que tem nonce',
+      rodou);
   } finally {
     await ctx.close();
   }
