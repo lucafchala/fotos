@@ -273,7 +273,8 @@ Regras da galeria:
 - `VERIFICA_PRINTS=<pasta> npm run verifica:galeria` salva capturas: compare antes e
   depois.
 
-Movimento, de um vídeo que o dono mandou ("considere, mas não cegamente"):
+Movimento, de um vídeo que o dono mandou ("considere, mas não cegamente"). Vale para todas
+as páginas (galeria, páginas públicas e painel), não só para a galeria:
 
 - Menus e folhas abrem em 150–200 ms com ease-out forte (por exemplo,
   `cubic-bezier(0.23, 1, 0.32, 1)`); a saída é mais rápida que a entrada.
@@ -281,6 +282,22 @@ Movimento, de um vídeo que o dono mandou ("considere, mas não cegamente"):
 - Com `prefers-reduced-motion`, um fade curto em vez de nada.
 - A escala inicial é 0,95, nunca 0. Anime só `transform` e `opacity`.
 - Use o que servir, não tudo.
+
+O vídeo mostra as skills de <https://github.com/emilkowalski/skills>. Leia cada uma antes de
+instalar (como a token-saver) e copie para `~/.claude/skills/` só as que servem a um site
+sem framework:
+
+- servem: `emil-design-eng`, `animation-performance`, `review-animations`,
+  `improve-animations`, `find-animation-opportunities`, `animation-vocabulary`;
+- não servem aqui (React, React Native, Swift ou escolha de biblioteca): `animate-expo`,
+  `mobile-native`, `write-swift`, `ask-sonner`, `pick-ui-library`;
+- as outras (`animate`, `apple-design`, `break-ui`, `prototype`): leia e decida.
+
+As regras do repo vencem as das skills:
+
+- nenhuma biblioteca de terceiros (nada de Motion, Sonner ou Vaul), sem framework nem build;
+- `nonce` em todo script, nada de `on*` inline;
+- contraste AA, alvos de 44 px e `prefers-reduced-motion` respeitado.
 
 ### 4.2 Páginas públicas: UI/UX
 
@@ -301,6 +318,7 @@ Escopo: `src/ui/event.js` (página do projeto e portão do Drive), página inici
   4. O campo de nome encosta no aviso de bloqueador.
 - Cada mudança vem com teste ou roteiro que falha sem ela. Claro e escuro, AA, 44 px,
   Esc e foco.
+- Movimento: siga as regras e as skills de animação da 4.1.
 
 ### 4.3 SEO
 
