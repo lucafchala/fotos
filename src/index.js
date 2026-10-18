@@ -230,6 +230,8 @@ const worker = {
     ctx.waitUntil(pushToKuma(env));
 
     try {
+      // O `return await handle…` abaixo é de propósito: sem o await, a rejeição
+      // de um handler assíncrono escapa deste catch (sem 500 nem alerta).
       // CSRF: um único portão antes do roteamento, não um guard por handler —
       // uma rota nova escrita daqui a um ano não pode depender de alguém
       // lembrar de chamá-lo. Ver isCrossSiteRequest() para o raciocínio.
@@ -241,59 +243,59 @@ const worker = {
       // marcação — se divergissem, seria o mesmo que não ter nonce nenhum.
       const nonce = generateNonce();
       // PWA assets
-      if (path === '/manifest.json' && method === 'GET') return handleManifest();
-      if (path === '/icon.svg' && method === 'GET') return handleIcon();
-      if (path === '/og-coming-soon.png' && method === 'GET') return handleComingSoonOgImage();
+      if (path === '/manifest.json' && method === 'GET') return await handleManifest();
+      if (path === '/icon.svg' && method === 'GET') return await handleIcon();
+      if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
-      if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
+      if (method === 'GET' && FONT_BY_PATH.has(path)) return await handleFont(path);
       // Bibliotecas vendorizadas (PhotoSwipe da galeria, #235). Mesmo
       // esquema das fontes: busca exata, nome com hash, cache imutável.
-      if (method === 'GET' && VENDOR_BY_PATH.has(path)) return handleVendor(path);
+      if (method === 'GET' && VENDOR_BY_PATH.has(path)) return await handleVendor(path);
 
       // SEO
-      if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
-      if (path === '/robots.txt' && method === 'GET') return handleRobots();
-      if (path === '/llms.txt' && method === 'GET') return handleLlmsTxt();
+      if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
+      if (path === '/robots.txt' && method === 'GET') return await handleRobots();
+      if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
       // (outra origem, por isso o CORS aberto). Ver handleRecentes().
-      if (path === '/api/recentes' && method === 'GET') return handleRecentes(env);
+      if (path === '/api/recentes' && method === 'GET') return await handleRecentes(env);
 
       // Security contact (RFC 9116)
-      if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
+      if (path === '/.well-known/security.txt' && method === 'GET') return await handleSecurityTxt();
       // Global Privacy Control — declares the site honors GPC opt-out signals
-      if (path === '/.well-known/gpc.json' && method === 'GET') return handleGpc();
+      if (path === '/.well-known/gpc.json' && method === 'GET') return await handleGpc();
 
       // Gallery index
-      if (path === '/' && method === 'GET') return handleGallery(env, nonce);
+      if (path === '/' && method === 'GET') return await handleGallery(env, nonce);
 
       // Dashboard routes
-      if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url, nonce);
-      if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env, ctx);
-      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env, ctx);
+      if (path === '/dashboard' && method === 'GET') return await handleDashboardPage(request, env, url, nonce);
+      if (path === '/dashboard/login' && method === 'POST') return await handleLogin(request, env, ctx);
+      if (path === '/dashboard/logout' && method === 'POST') return await handleLogout(request, env, ctx);
 
       // API routes (require auth)
-      if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
-      if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
-      if (path === '/api/events/bulk-access' && method === 'POST') return handleBulkAccessType(request, env);
-      if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
-      if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
-      if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
-      if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
-      if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
-      if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/metrics/diario' && method === 'GET') return handleMetricsDiario(request, env, url);
-      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
-      if (path === '/api/sessions/revoke-others' && method === 'POST') return handleRevokeOtherSessions(request, env);
-      if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
+      if (path === '/api/events' && method === 'POST') return await handleCreateEvent(request, env);
+      if (path === '/api/events/bulk-category' && method === 'POST') return await handleBulkCategory(request, env);
+      if (path === '/api/events/bulk-access' && method === 'POST') return await handleBulkAccessType(request, env);
+      if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
+      if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
+      if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
+      if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
+      if (path === '/api/categories/delete' && method === 'POST') return await handleDeleteCategory(request, env);
+      if (path === '/api/metrics' && method === 'GET') return await handleMetrics(request, env);
+      if (path === '/api/metrics/diario' && method === 'GET') return await handleMetricsDiario(request, env, url);
+      if (path === '/api/settings/password' && method === 'PUT') return await handleChangePassword(request, env, ctx);
+      if (path === '/api/sessions/revoke-others' && method === 'POST') return await handleRevokeOtherSessions(request, env);
+      if (path === '/api/settings/agenda' && method === 'PUT') return await handleSaveAgenda(request, env);
       // HEAD chega aqui como GET (ver o topo do fetch): ele não baixa nada, então
       // não pode marcar um backup como feito.
-      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env, ctx, interno.headOnly === true);
-      if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
-      if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
+      if (path === '/api/backup' && method === 'GET') return await handleGetBackup(request, env, ctx, interno.headOnly === true);
+      if (path === '/api/backup/restore' && method === 'POST') return await handleRestoreBackup(request, env);
+      if (path === '/api/consent/export' && method === 'GET') return await handleConsentExport(request, env);
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
-      if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+      if (path === '/api/healthz' && method === 'GET') return await handleHealthz(request, env);
 
       // Support page. ?tema= pre-fills the message field (used by the "reportar
       // bug"/"sugestão" links on the new-interface banner and footer) — cosmetic
@@ -306,7 +308,7 @@ const worker = {
         const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? /** @type {Record<string, string>} */ (TEMA_PREFILLS)[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
-      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce, ctx);
+      if (path === '/api/suporte' && method === 'POST') return await handleSupportRequest(request, env, nonce, ctx);
 
       // Privacy policy
       if (path === '/privacidade' && method === 'GET') return html(privacyHTML(), 200, nonce);
@@ -334,28 +336,28 @@ const worker = {
       if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);
 
       // Public API
-      if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
-      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env, ctx);
-      if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
-      if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
-      if (path === '/api/drive-code' && method === 'POST') return handleDriveCode(request, env, ctx);
-      if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
+      if (path === '/api/removal-request' && method === 'POST') return await handleRemovalRequest(request, env);
+      if (path === '/api/track-drive' && method === 'POST') return await handleTrackDrive(request, env, ctx);
+      if (path === '/api/perf' && method === 'POST') return await handlePerfBeacon(request, env);
+      if (path === '/api/drive-link' && method === 'POST') return await handleDriveLink(request, env, ctx);
+      if (path === '/api/drive-code' && method === 'POST') return await handleDriveCode(request, env, ctx);
+      if (path === '/api/csp-report' && method === 'POST') return await handleCspReport(request, env);
 
       // Admin API — removal requests
-      if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
+      if (path === '/api/removal-requests' && method === 'GET') return await handleGetRemovalRequests(request, env);
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
-      if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
+      if (resolveMatch && method === 'PUT') return await handleResolveRequest(request, env, resolveMatch[1]);
 
       // Galeria própria — PRÉVIA, só para o dono logado (#235). Para qualquer
       // outra pessoa é o mesmo 404 de uma rota que não existe.
       const galeriaMatch = path.match(GALERIA_PATH_RE);
-      if (galeriaMatch && method === 'GET') return handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
       const baixarMatch = path.match(GALERIA_BAIXAR_RE);
-      if (baixarMatch && method === 'GET') return handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
+      if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
 
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
-      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
+      if (slugMatch && method === 'GET') return await handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
       return notFound();
     } catch (err) {
