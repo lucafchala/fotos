@@ -102,6 +102,11 @@ describe('GET /api/backup marca backup:ultimo', () => {
 
   it('chamado sem ctx (o roteador sempre passa um), aguarda a gravação antes de responder', async () => {
     const FOTOS = kv();
+    // A gravação só pousa depois de um turno do laço de eventos: sem o `await`,
+    // a resposta sairia antes dela (no Worker, sem waitUntil, a escrita seria
+    // cortada com a requisição).
+    const real = FOTOS.put;
+    FOTOS.put = async (k, v) => { await new Promise(ok => setTimeout(ok, 0)); return real(k, v); };
     const res = await direto(FOTOS);
     expect(res.status).toBe(200);
     expect(FOTOS._store.get(BACKUP_ULTIMO_KEY)).toBe('2026-10-17T15:00:00.000Z');
@@ -318,7 +323,8 @@ describe('Ajustes: o bloco "Sair dos outros aparelhos" e o lembrete na página',
     expect(linha).toBeGreaterThan(titulo);
     expect(botao).toBeGreaterThan(linha);
     expect(html).toContain('let backupUltimo = "2026-10-17T15:00:00.000Z";');
-    expect(html).toContain('mostraUltimoBackup();');
+    // Na abertura, e não só depois do download: o texto de Ajustes nasce vazio.
+    expect(html).toMatch(/renderCategoryManager\(\);\s*mostraUltimoBackup\(\);\s*loadRequests\(\);/);
     // Depois do download: a linha muda no lugar, sem recarregar.
     expect(html).toMatch(/toast\('Backup baixado\.', 'ok'\);[\s\S]*?backupUltimo = new Date\(\)\.toISOString\(\);\s*mostraUltimoBackup\(\);/);
   });
