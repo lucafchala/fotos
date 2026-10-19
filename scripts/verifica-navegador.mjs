@@ -19,6 +19,7 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
+import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 
 // `document` só aparece dentro dos callbacks de `page.evaluate`, que o
 // Playwright serializa e executa NO NAVEGADOR — não no Node deste script.
@@ -60,19 +61,17 @@ async function abre(/** @type {import('playwright-core').Browser} */ browser, op
   /** @type {string[]} */
   const erros = [];
   page.on('pageerror', e => erros.push(`pageerror: ${e.message}`));
-  page.on('console', m => {
-    const t = m.text();
-    // Report-Only é ruído esperado: a política estrita existe para relatar.
-    if (m.type() === 'error' && /Content Security Policy/i.test(t) && !/Report Only/i.test(t)) {
-      erros.push(`CSP aplicada: ${t.slice(0, 160)}`);
-    }
-  });
+  // Qualquer mensagem de CSP é erro: a política estrita é a aplicada (#126), e
+  // não há mais Report-Only para descontar (scripts/vigia-csp.mjs).
+  vigiaCsp(page, erros);
   return { ctx, page, erros };
 }
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+// O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
+await provaOVigia(browser, (ok, nome, detalhe = '') => registra(ok, nome, typeof detalhe === 'string' ? detalhe : JSON.stringify(detalhe)));
 
-// 1. Toda página: responde, não lança, não viola a CSP aplicada, e o Inter
+// 1. Toda página: responde, não lança, não emite mensagem de CSP, e o Inter
 //    carrega (fonte que cai para a do sistema não dá erro nenhum sozinha).
 const lista = await paginas();
 for (const caminho of lista) {

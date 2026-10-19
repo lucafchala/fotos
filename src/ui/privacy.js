@@ -7,7 +7,8 @@ export function privacyHTML() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>Política de Privacidade · fotos</title>
   <link rel="canonical" href="https://fotos.lucafchala.com/privacidade">
@@ -23,14 +24,14 @@ export function privacyHTML() {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
-      --text-muted:#999; --text-dim:#666; --text-dim-2:#555; --border-dim:#1e1e1e; --border-hair:#141414;
+      --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888; --border-dim:#1e1e1e; --border-hair:#141414;
       --footer-link:#888; --accent:#c0a060;
       --warn-bg:#0f0d08; --warn-border:#3a3320; --warn-text-strong:#d8c89a;
     }
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-heading:#2a2521; --text-strong:#332d28;
-        --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490; --border-dim:#ddd9d4; --border-hair:#e5e1db;
+        --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560; --border-dim:#ddd9d4; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text-strong:#5c4310;
       }
@@ -72,7 +73,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 9 de outubro de 2026</p>
+    <p class="updated">Atualizada em 10 de outubro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -91,7 +92,7 @@ export function privacyHTML() {
     <p>Além disso, são usados cookies e medição estritamente funcionais:</p>
     <ul>
       <li><strong>Cookie de sessão</strong> (apenas no painel administrativo, restrito a mim).</li>
-      <li><strong>Cookie de contagem de visualização</strong> (<code>fv_…</code>, expira em 1 hora) para não contar a mesma visita várias vezes.</li>
+      <li><strong>Cookie de contagem de visualização</strong> (<code>fv_…</code>, expira em 1 hora) para não contar a mesma visita várias vezes. A contagem em si é só um número por projeto e por dia — quantas visitas e quantos acessos às fotos —, sem identificar quem visitou; a contagem por dia é apagada depois de 400 dias.</li>
       <li><strong>Medição de acesso anônima e sem cookies</strong> (Cloudflare Web Analytics), que não identifica visitantes individualmente.</li>
     </ul>
 

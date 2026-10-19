@@ -19,11 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { execPath } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { Linter } from 'eslint';
-import { paginas, blocos, EVENTO } from './helpers/paginas.js';
-import { eventHTML } from '../src/ui/event.js';
-import { galleryHTML } from '../src/ui/gallery.js';
-import { supportHTML } from '../src/ui/support.js';
-import { loginHTML } from '../src/ui/dashboard.js';
+import { variacoes, blocos } from './helpers/paginas.js';
 
 // Globais de browser que os scripts USAM de fato, uma por uma. Lista fechada
 // de propósito: um nome que não esteja aqui é erro de digitação ou global
@@ -34,6 +30,10 @@ const GLOBAIS_DO_BROWSER = [
   'localStorage', 'sessionStorage', 'fetch', 'URL', 'URLSearchParams', 'Blob', 'FileReader', 'Image',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame',
   'addEventListener', 'innerWidth', 'innerHeight', 'scrollY', 'scrollTo',
+  // Galeria própria (#235): diagramação (getComputedStyle, ResizeObserver), a
+  // seção ativa na faixa de chips (IntersectionObserver),
+  // detecção de toque (matchMedia) e o arquivo do "Salvar na galeria" (File).
+  'getComputedStyle', 'ResizeObserver', 'IntersectionObserver', 'matchMedia', 'File',
   // Carregado pelo <script> do Turnstile, de fora; os blocos testam
   // `typeof turnstile` antes de usar.
   'turnstile',
@@ -79,24 +79,8 @@ function lint(html, src) {
   }]).map(m => `${m.line - (prefixo ? 1 : 0)}:${m.column} ${m.ruleId}: ${m.message}`);
 }
 
-// Cada variação que muda o SCRIPT emitido, não só a marcação.
-function variacoes() {
-  const muitos = Array.from({ length: 15 }, (_, i) => ({ ...EVENTO, id: `e${i}`, slug: `evento-${i}`, date: `2025-01-${String(i + 1).padStart(2, '0')}` }));
-  return {
-    ...paginas(),
-    loginComErro: loginHTML({ error: true }, 'NONCE'),
-    loginVerificacao: loginHTML({ verificacao: true }, 'NONCE'),
-    galeriaComBeaconEMais: galleryHTML([...muitos, { ...EVENTO, pinned: true }], 'tok', 'NONCE'),
-    eventoEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
-    eventoCarrosselComBeacon: eventHTML({
-      ...EVENTO, photos: [EVENTO.photos[0], 'https://lh3.googleusercontent.com/d/BBB'],
-      driveUrlInstagram: 'https://drive.google.com/y', accessType: 'family',
-      photosAlert: { active: true, addedAt: '2026-06-19T00:00:00Z', expiresAfterHours: 0 },
-    }, '2026', 'tok', 'NONCE', 'dn', 'ft'),
-    suporteComErro: supportHTML(false, 'erro', { name: 'x' }, 'NONCE', 'ft'),
-  };
-}
-
+// As variações (cada uma que muda o SCRIPT emitido, não só a marcação) moram em
+// tests/helpers/paginas.js: a mesma lista serve à estrutura do HTML e à CSP.
 describe('lint dos scripts emitidos pelas páginas (#127)', () => {
   it.each(Object.keys(variacoes()))('%s: nenhum bloco tem global implícita, código morto ou uso antes da declaração', nome => {
     const html = variacoes()[nome];

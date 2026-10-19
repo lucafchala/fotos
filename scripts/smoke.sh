@@ -312,11 +312,19 @@ HS=$(http_code -I "$BASE/")
 [ "$HS" = "200" ] && registra "HEAD / == GET /" OK "200" \
                   || registra "HEAD / == GET /" FALHA "HEAD deu $HS (RFC 9110 §9.3.2)"
 
+# O que a CSP APLICADA tem de ter (#126). Em variáveis, e não dentro das
+# chamadas abaixo, para o tests/smoke.test.js conferir cada uma contra o Worker
+# de verdade (#181): uma cópia que diverge do código reverte a produção.
+CSP_NONCE_NO_SCRIPT_SRC="^content-security-policy:.*script-src [^;]*'nonce-"
+CSP_NONCE_VALOR="'nonce-[A-Za-z0-9_+/=-]*'"
+CSP_PROIBIDO_NO_SCRIPT_SRC="'unsafe-inline'"
+
 HDRS=$(curl -sI --max-time 20 "$BASE/" || true)
 # Sem cabeçalho nenhum (alvo fora do ar) toda checagem de AUSÊNCIA passaria de
 # graça — foi o que aconteceu na primeira execução deste script contra um
-# servidor morto: "enforced SEM nonce" deu OK porque não havia cabeçalho algum
-# para conter um nonce. Silêncio não é aprovação; sem resposta é falha.
+# servidor morto: a checagem "enforced SEM nonce" (a de antes da virada da CSP)
+# deu OK porque não havia cabeçalho algum para conter um nonce. Silêncio não é
+# aprovação; sem resposta é falha.
 if [ -z "$HDRS" ]; then
   registra "resposta com cabeçalhos" FALHA "nenhum cabeçalho — alvo fora do ar?"
 else
@@ -332,23 +340,27 @@ exige_header "X-Content-Type-Options"    '^x-content-type-options: *nosniff'
 exige_header "X-Frame-Options"           '^x-frame-options: *DENY'
 exige_header "Strict-Transport-Security" '^strict-transport-security: *max-age=[0-9]+'
 exige_header "CSP frame-ancestors"       "^content-security-policy:.*frame-ancestors 'none'"
-exige_header "CSP report-only (estrita)" '^content-security-policy-report-only:'
-exige_header "CSP-RO carrega nonce"      "^content-security-policy-report-only:.*'nonce-"
+exige_header "CSP script-src com nonce"  "$CSP_NONCE_NO_SCRIPT_SRC"
 exige_header "Permissions-Policy"        '^permissions-policy:.*camera=\(\)'
 exige_header "COOP"                      '^cross-origin-opener-policy: *same-origin'
 exige_header "Origin-Agent-Cluster"      '^origin-agent-cluster:'
 
-# A ENFORCED não pode ter nonce enquanto houver handler inline: pela CSP Level 3
-# o nonce descarta o 'unsafe-inline' e a interface inteira para de responder.
-# Já aconteceu; este check existe por isso.
-ENFORCED=$(printf '%s' "$HDRS" | grep -i '^content-security-policy:' || true)
+# A CSP aplicada é a ESTRITA (#126): o script-src não pode ter 'unsafe-inline'.
+# Pela CSP Level 3 o nonce faz o browser descartá-lo, então uma política com os
+# dois diria uma coisa e o browser faria outra; e sem o nonce (checado acima) o
+# script-src barraria toda página que tem script. As duas pontas são checadas,
+# porque cada uma sozinha passaria numa política errada.
+ENFORCED=$(printf '%s' "$HDRS" | grep -i '^content-security-policy:' | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' || true)
+SCRIPT_SRC=$(printf '%s' "$ENFORCED" | tr ';' '\n' | grep -E '^[[:space:]]*script-src[[:space:]]' | head -1 || true)
 if [ -z "$ENFORCED" ]; then
   # Não é "passou": é que não houve política nenhuma para inspecionar.
-  registra "enforced SEM nonce" FALHA "sem CSP enforced na resposta"
-elif printf '%s' "$ENFORCED" | grep -q 'nonce-'; then
-  registra "enforced SEM nonce" FALHA "nonce na enforced desativa o unsafe-inline e mata os handlers"
+  registra "script-src SEM unsafe-inline" FALHA "sem CSP na resposta"
+elif [ -z "$SCRIPT_SRC" ]; then
+  registra "script-src SEM unsafe-inline" FALHA "a CSP não tem script-src"
+elif printf '%s' "$SCRIPT_SRC" | grep -qF "$CSP_PROIBIDO_NO_SCRIPT_SRC"; then
+  registra "script-src SEM unsafe-inline" FALHA "o script-src aceita script e handler sem nonce"
 else
-  registra "enforced SEM nonce" OK "handlers inline preservados"
+  registra "script-src SEM unsafe-inline" OK "política estrita"
 fi
 
 # --- nonce ------------------------------------------------------------------
@@ -358,7 +370,7 @@ echo "Nonce"
 # requisição, então comparar duas nunca poderia passar. `-D -` com `-o` resolve.
 BODY=$(mktemp)
 H1=$(curl -s -D - -o "$BODY" --max-time 20 "$BASE/" || true)
-extrai_nonce() { grep -i '^content-security-policy-report-only:' | grep -io "'nonce-[A-Za-z0-9_+/=-]*'" | head -1 | tr -d "'" | sed 's/nonce-//'; }
+extrai_nonce() { grep -i '^content-security-policy:' | grep -io "$CSP_NONCE_VALOR" | head -1 | tr -d "'" | sed 's/nonce-//'; }
 N1=$(printf '%s' "$H1" | extrai_nonce)
 if [ -z "$N1" ]; then
   registra "nonce no cabeçalho" FALHA "não encontrado"

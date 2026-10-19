@@ -26,6 +26,7 @@ export default [
         btoa: 'readonly',
         atob: 'readonly',
         AbortSignal: 'readonly',
+        AbortController: 'readonly',
       },
     },
     rules: {
@@ -83,6 +84,13 @@ export default [
         // Global no Node 22 (engines do package.json); o roteiro de navegador
         // lê o sitemap com ele.
         fetch: 'readonly',
+        // scripts/worker-local.mjs monta Request/Response para o Worker de
+        // verdade, como o runtime faria (Node 22 tem os três globais).
+        Request: 'readonly',
+        Response: 'readonly',
+        Headers: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
     rules: {

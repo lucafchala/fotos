@@ -217,7 +217,8 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>fotos · Luca F. Chala</title>
   <link rel="canonical" href="${SITE_URL}/">
@@ -238,7 +239,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;
-      --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;
+      --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#999999;--text-dim:#8c8c8c;--text-ph:#808080;
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
       --cta-bg:#c0a060;--cta-text:#0a0a0a;
       --shimmer-a:#181818;--shimmer-b:#222;
@@ -246,7 +247,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;
-        --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;
+        --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#66605b;--text-ph:#6b6560;
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
         --cta-bg:#8a6428;--cta-text:#faf7f3;
         --shimmer-a:#ececec;--shimmer-b:#f5f5f5;

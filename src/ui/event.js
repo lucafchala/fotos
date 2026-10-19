@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -170,7 +170,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
   <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">
@@ -230,7 +231,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
-      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#555; --text-dim-2:#666;
+      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888;
       --bg-card:#141414; --bg-card-2:#1c1c1c; --bg-card-hover:#242424; --bg-card-border:#3a3a3a;
       --border-dim:#191919; --border-dim-2:#444; --border-hair:#111;
       --footer-link:#777; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
@@ -241,7 +242,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     }
     @media (prefers-color-scheme: light) {
       :root{
-        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#75706b;
+        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560;
         --bg-card:#fff; --bg-card-2:#f6f3ef; --bg-card-hover:#efece7; --bg-card-border:#ddd9d4;
         --border-dim:#ddd9d4; --border-dim-2:#c8c2ba; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428; --accent-hover:#a67d38; --cta-bg:#8a6428; --cta-text:#faf7f3;
@@ -385,7 +386,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* shared modal base — the scrim behind the sheet stays a fixed dark
        translucency regardless of theme (dimming, not page chrome); only the
        sheet itself (the card floating on it) follows the vars. */
-    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
+    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:85;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
     .modal-sheet{background:var(--bg-card);width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:1.5rem 1.5rem max(3rem,calc(2rem + env(safe-area-inset-bottom)))}
@@ -408,11 +409,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .dv-wait{color:var(--text-muted,var(--text));font-size:.85rem;line-height:1.6}
     .drive-email{margin-top:1rem}
     .drive-email .de-note{font-size:.85rem;line-height:1.6;color:var(--text)}
+    .drive-name-nota{font-size:.82rem;line-height:1.5;color:var(--text-2);margin:.4rem 0 0}
     .drive-email .de-row{display:flex;gap:.5rem;margin-top:.5rem;align-items:stretch}
     .drive-email .de-row input{flex:1;min-width:0}
     .drive-email .de-btn{flex:none;padding:.6rem .9rem;border-radius:8px;border:1px solid var(--border-dim);background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;cursor:pointer}
     .drive-email .de-btn:disabled{opacity:.5;cursor:default}
     .drive-email #drive-email-code{letter-spacing:.3em;font-variant-numeric:tabular-nums}
+    .drive-email .de-motivo{font-size:.85rem;line-height:1.55;margin-top:.5rem;padding:.55rem .75rem;border-radius:8px;background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text)}
     .drive-email .de-msg{font-size:.8rem;line-height:1.5;margin-top:.5rem;color:var(--text)}
     .spin{width:14px;height:14px;border:2px solid var(--border-dim);border-top-color:var(--text-muted);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -465,6 +468,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .radio-opt span{font-size:.875rem;color:var(--text-2)}
     .form-error{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);padding:.6rem .8rem;border-radius:8px;font-size:.78rem;line-height:1.5;margin-top:1rem}
     .adblock-warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.7rem .85rem;border-radius:8px;font-size:.78rem;line-height:1.55;margin-top:1rem}
+    #drive-adblock{margin-top:0;margin-bottom:1rem}
     .adblock-warn strong{color:var(--warn-text-strong)}
     .adblock-warn a{color:var(--warn-text-strong)}
     .adblock-warn button{background:none;border:none;color:var(--warn-text-strong);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
@@ -624,7 +628,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         -->
         <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" data-action="toggleDriveName">+ incluir meu nome (opcional)</button>
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
-          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name">
+          <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name" aria-label="Seu nome" data-onchange="onDriveConsent">
+          <p id="drive-name-nota" class="drive-name-nota" style="display:none">Sem a verificação de segurança, este álbum pede o seu nome para o registro do aceite.</p>
         </div>
         ${declaration ? `<label class="drive-consent">
           <input type="checkbox" id="drive-declaration" data-onchange="onDriveConsent">
@@ -652,7 +657,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           chegar; este caminho existe para ninguém de verdade ficar sem.
         -->
         <div id="drive-email" class="drive-email" style="display:none">
-          <p class="de-note">Mandamos um código de 6 dígitos para o seu e-mail. Seu e-mail não é guardado pelo site.</p>
+          <p class="de-note">Ao tocar em <strong>Enviar código</strong>, mandamos um código de 6 dígitos para o seu e-mail. Seu e-mail não é guardado pelo site.</p>
+          <p id="drive-email-motivo" class="de-motivo" role="status" style="display:none"></p>
           <div class="de-row rem-field" style="margin-top:.5rem">
             <input type="email" id="drive-email-addr" placeholder="seu@email.com" autocomplete="email" inputmode="email" maxlength="254" aria-label="Seu e-mail">
             <button type="button" class="de-btn" id="drive-email-send" data-action="sendDriveCode">Enviar código</button>
@@ -830,6 +836,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // seja reaproveitado pra varrer os slugs do site sem carregar a página.
     // Vazio quando SIGNING_SECRET não está configurado (ver src/index.js).
     const DRIVE_NONCE    = ${JSON.stringify(driveNonce || '')};
+    // Álbum de família ou privado (#146): sem o Turnstile, o portão pede o
+    // nome antes de liberar, e o servidor recusa sem ele. Com o Turnstile, ou
+    // pelo código por e-mail, o nome segue opcional.
+    const NOME_SEM_VERIFICACAO = ${restrictedAccess ? 'true' : 'false'};
+    const NOME_MIN = ${NOME_CONSENTIMENTO_MIN};
     // Mesma ideia para o formulário de remoção, com um piso de idade: um envio
     // que chega menos de 3 s depois de a página ser servida é automação.
     const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
@@ -1136,7 +1147,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
       // that must not brick delivery, so the server has its own (weaker,
       // rate-limited) path for this token value.
-      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; maybeFetchDriveLink(); return; }
+      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; exigeNome(); maybeFetchDriveLink(); return; }
       if (driveTsToken) {
         // Pre-fetched while the page was idle — nothing left to wait for.
         clearTimeout(driveTimeout);
@@ -1164,6 +1175,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       const c = document.getElementById('drive-consent');
       const decl = document.getElementById('drive-declaration');
       const consentOk = c && c.checked && (!decl || decl.checked);
+      if (consentOk && faltaNome()) {
+        // O pedido sai quando o campo do nome muda (data-onchange), já com o
+        // nome inteiro: disparar a cada tecla gravaria "Jo" no lugar de "João".
+        showDriveHint('escreva o seu nome acima para liberar');
+        const nomeEl = document.getElementById('drive-name');
+        if (nomeEl) nomeEl.focus();
+        return;
+      }
       if (consentOk && driveTsToken !== '') {
         fetchDriveLink();
       } else if (consentOk) {
@@ -1228,6 +1247,27 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             setDriveLinkUI('idle');
             setDriveEmailBusy(false);
             driveEmailMsg(errData.error || 'Não foi possível confirmar o código. Tente de novo.');
+            return;
+          }
+          // O servidor pediu o nome (álbum restrito sem o Turnstile, #146):
+          // volta ao começo com o campo aberto. Não é erro, e não gasta a
+          // tentativa automática.
+          if (status === 400 && errData.campo === 'nome') {
+            driveLinkState = 'idle';
+            setDriveLinkUI('idle');
+            exigeNome(true);
+            showDriveHint(errData.error || 'escreva o seu nome acima para liberar');
+            const nomeEl = document.getElementById('drive-name');
+            if (nomeEl) nomeEl.focus();
+            return;
+          }
+          // Passou do teto de álbuns restritos sem o Turnstile (#146): o
+          // código por e-mail é o caminho, e já abre pronto para receber.
+          if (status === 403 && errData.usarEmail) {
+            driveLinkState = 'idle';
+            setDriveLinkUI('idle');
+            showDriveEmail();
+            driveEmailMotivo(errData.error || 'Para abrir este álbum, receba um código por e-mail.');
             return;
           }
           // 429: espera o tempo que o servidor mandou e tenta de novo, com
@@ -1339,6 +1379,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     }
 
     // ---- Código por e-mail (último recurso) ----
+    function driveEmailMotivo(t) { const m = document.getElementById('drive-email-motivo'); if (m) { m.textContent = t; m.style.display = t ? '' : 'none'; } }
     function driveEmailMsg(t) { const m = document.getElementById('drive-email-msg'); if (m) m.textContent = t; }
     function setDriveEmailBusy(busy) {
       ['drive-email-send', 'drive-email-ok'].forEach(function(id) {
@@ -1478,9 +1519,40 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         document.querySelectorAll('.drive-consent').forEach(function(l) {
           l.classList.remove('flash-warn'); void l.offsetWidth; l.classList.add('flash-warn');
         });
+      } else if (faltaNome()) {
+        showDriveHint('escreva o seu nome acima para liberar');
       } else {
         showDriveHint('só um instante, o acesso ainda está carregando');
       }
+    }
+    // Mesma regra de nomeDeConsentimento() no servidor (src/utils.js), presa
+    // por um teste de par: 2+ caracteres, ao menos uma letra.
+    function nomeOk(v) {
+      const s = String(v || '').trim();
+      return s.length >= NOME_MIN && /\\p{L}/u.test(s);
+    }
+    let nomeExigido = false; // ligado por exigeNome(), vale até a página recarregar
+    // Abre o campo do nome como obrigatório (#146). forcar: o servidor pediu o
+    // nome numa página que não esperava pedir (uma aba aberta antes da troca).
+    function exigeNome(forcar) {
+      if (!NOME_SEM_VERIFICACAO && !forcar) return;
+      nomeExigido = true;
+      const w = document.getElementById('drive-name-wrap');
+      const t = document.getElementById('drive-name-toggle');
+      const i = document.getElementById('drive-name');
+      const nota = document.getElementById('drive-name-nota');
+      if (w) w.style.display = '';
+      if (t) t.style.display = 'none';
+      if (nota) nota.style.display = '';
+      if (i) {
+        i.setAttribute('required', '');
+        i.setAttribute('placeholder', 'Seu nome');
+        i.setAttribute('aria-describedby', 'drive-name-nota');
+      }
+    }
+    function faltaNome() {
+      const i = document.getElementById('drive-name');
+      return nomeExigido && driveTsToken === 'noscript' && !nomeOk(i ? i.value : '');
     }
     function toggleDriveName() {
       const w = document.getElementById('drive-name-wrap');

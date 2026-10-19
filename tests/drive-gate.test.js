@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleDriveLink, handleDriveCode, handlePerfBeacon, handleTrackDrive, toCount, mintDriveNonce } from '../src/index.js';
 import { signToken } from '../src/security.js';
-import { saveEvents, ACCESS_DECLARATIONS, readCounter, degradedHealth, resetDegraded } from '../src/utils.js';
+import { saveEvents, ACCESS_DECLARATIONS, readCounter, degradedHealth, resetDegraded, nomeDeConsentimento, NOME_CONSENTIMENTO_MIN } from '../src/utils.js';
+import { eventHTML } from '../src/ui/event.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
 import { DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, EMAIL_CODE_DAILY_CAP, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_TTL_SECS } from '../src/config.js';
 
@@ -304,6 +305,47 @@ describe('handleDriveLink — consent audit', () => {
     stubTurnstile(true);
     const res = await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), { ...env, CONSENT_DB: undefined }, fakeCtx());
     expect(res.status).toBe(200);
+  });
+});
+
+// Métricas v2: o painel mostra COMO as pessoas passam pelo portão — quantas
+// precisam do caminho sem script (bloqueador) ou do código por e-mail. É o
+// número que faltava para calibrar os baldes depois de um evento (#230). Só a
+// contagem por modo: a chave não leva slug, IP nem nada da pessoa.
+describe('handleDriveLink — contagem do modo de entrada', () => {
+  const chavesDoContador = () => [...env.COUNTER._instances.get('contadores').ctx.storage._map.keys()];
+
+  it('cada acesso liberado soma 1 no modo dele', async () => {
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(200);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(200);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'noscript', consent: true }, { ip: '5.6.7.8' }), env, ctx)).status).toBe(200);
+    await ctx.settle();
+    expect(await readCounter(env, 'gate:turnstile')).toBe(2);
+    expect(await readCounter(env, 'gate:noscript')).toBe(1);
+    expect(await readCounter(env, 'gate:email')).toBe(0);
+  });
+
+  it('a chave não leva slug nem nada da pessoa — só o modo (e o dia, na série)', async () => {
+    stubTurnstile(true);
+    const ctx = fakeCtx();
+    await handleDriveLink(req({ slug: 'familia-silva', turnstileToken: 't', consent: true, declaration: true, name: 'Ana' }), env, ctx);
+    await ctx.settle();
+    const chaves = chavesDoContador();
+    expect(chaves.length).toBeGreaterThan(0);
+    for (const k of chaves) expect(k).toMatch(/^(d:\d{4}-\d{2}-\d{2}:)?gate:(noscript|turnstile|email)$/);
+  });
+
+  it('recusa não conta: sem aceite, Turnstile recusado, projeto em breve', async () => {
+    const ctx = fakeCtx();
+    stubTurnstile(true);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 't', consent: false }), env, ctx)).status).toBe(400);
+    expect((await handleDriveLink(req({ slug: 'em-breve', turnstileToken: 't', consent: true }), env, ctx)).status).toBe(403);
+    stubTurnstile(false);
+    expect((await handleDriveLink(req({ slug: 'casamento-ana', turnstileToken: 'ruim', consent: true }), env, ctx)).status).toBe(403);
+    await ctx.settle();
+    expect(env.COUNTER._instances.size, 'o contador nem foi endereçado').toBe(0);
   });
 });
 
@@ -712,6 +754,22 @@ describe('código por e-mail', () => {
     expect((await ok.json()).driveUrl).toContain('drive.google.com');
     expect(db.rows[0].vals).toContain(2); // turnstile_ok = 2: verificado por e-mail
     expect(db.rows[0].vals).not.toContain('ana@exemplo.com'); // o e-mail não vai para o registro
+    expect(await readCounter(env, 'gate:email'), 'o painel conta o modo de entrada').toBe(1);
+  });
+
+  it('álbum restrito pelo código por e-mail: o nome segue opcional, e o teto do noscript não vale (#146)', async () => {
+    // O código prova uma caixa de e-mail; é o caminho que o teto oferece.
+    // Um D1 de mentira cuja contagem diria "teto estourado": se o caminho do
+    // e-mail consultasse o teto, a resposta seria 403.
+    const db = {
+      ...fakeD1(),
+      prepare: (/** @type {string} */ sql) => /^\s*SELECT/i.test(sql)
+        ? { bind: () => ({ first: async () => ({ slugs: 9, total: 9, restritos: 9, outrosRestritos: 9 }) }) }
+        : fakeD1().prepare(sql),
+    };
+    const { data, codigo, driveNonce } = await pedeCodigo('familia-silva');
+    const res = await handleDriveLink(req({ slug: 'familia-silva', turnstileToken: 'email', emailToken: data.token, emailCode: codigo, driveNonce, consent: true, declaration: true }), { ...env, CONSENT_DB: db }, fakeCtx());
+    expect(res.status).toBe(200);
   });
 
   it('código errado, token de outro projeto ou sem aceite: nada de link', async () => {
@@ -800,5 +858,33 @@ describe('código por e-mail', () => {
     const { res, data } = await pedeCodigo();
     expect(res.status).toBe(502);
     expect(data.token).toBeUndefined();
+  });
+});
+
+// A regra do nome (#146) vive em dois lugares: nomeDeConsentimento() no
+// servidor e nomeOk() no script da página, que decide quando pedir o link.
+// Se a página aceitar um nome que o servidor recusa, o visitante toma um 400
+// a cada tentativa; se recusar um que o servidor aceita, fica preso sem link.
+describe('nome do consentimento: servidor × página (#146)', () => {
+  const EVENTO = { id: 'x', slug: 'familia-silva', title: 'Família', accessType: 'family', driveUrl: 'https://drive.google.com/drive/folders/f', photos: [] };
+  const html = eventHTML(/** @type {any} */ (EVENTO), 2026, null, 'n0nce', 'drive-nonce', '');
+  const fn = html.match(/function nomeOk\(v\) \{[\s\S]*?\n {4}\}/);
+  const minimo = html.match(/const NOME_MIN = (\d+);/);
+
+  it('a página recebe o mesmo mínimo do servidor, e só álbum restrito liga a exigência', () => {
+    expect(minimo?.[1]).toBe(String(NOME_CONSENTIMENTO_MIN));
+    expect(html).toContain('const NOME_SEM_VERIFICACAO = true;');
+    const publico = eventHTML(/** @type {any} */ ({ ...EVENTO, accessType: 'public' }), 2026, null, 'n0nce', 'drive-nonce', '');
+    expect(publico).toContain('const NOME_SEM_VERIFICACAO = false;');
+  });
+
+  it('as duas cópias dão a mesma resposta para cada nome', () => {
+    expect(fn, 'nomeOk sumiu do script da página').not.toBeNull();
+    const nomeOk = new Function('NOME_MIN', `${/** @type {RegExpMatchArray} */ (fn)[0]}; return nomeOk;`)(NOME_CONSENTIMENTO_MIN);
+    const nomes = ['', ' ', 'A', 'Jo', ' Jo ', '42', '1 2', '!!', 'Ana', 'José da Silva', 'Ñ7', '李', '李明', 'Ana-Maria', '  ', '\t\n'];
+    const discordam = nomes.filter(n => nomeOk(n) !== nomeDeConsentimento(n));
+    expect(discordam).toEqual([]);
+    // Âncoras: duas cópias erradas do mesmo jeito não passam.
+    expect(nomes.filter(n => nomeDeConsentimento(n))).toEqual(['Jo', ' Jo ', 'Ana', 'José da Silva', 'Ñ7', '李明', 'Ana-Maria']);
   });
 });

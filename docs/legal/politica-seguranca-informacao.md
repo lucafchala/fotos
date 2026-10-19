@@ -48,7 +48,7 @@ foco é a conformidade.
 | --- | --- |
 | **XSS** | Escape canônico de 5 caracteres em toda interpolação; gate de CI proíbe a variante de 3 caracteres |
 | **XSS via URL** | `safeUrl()` — allowlist de esquema aplicada **no ponto de uso**, não só na gravação, cobrindo dados legados e restaurados |
-| **XSS** | CSP com nonce por requisição em todos os `<script>`; CSP estrita em Report-Only com coletor em `/api/csp-report` |
+| **XSS** | CSP estrita aplicada: nonce por requisição em todos os `<script>` e nenhum `'unsafe-inline'` em `script-src` (script sem nonce, handler inline e `javascript:` não executam); violações vão para o coletor em `/api/csp-report` |
 | **CSRF** | `Sec-Fetch-Site`/`Origin` verificados **antes do roteamento**, para todo método que escreve. Recusa `same-site`, que o cookie `SameSite=Strict` sozinho aceitava |
 | **Clickjacking** | `X-Frame-Options: DENY` + `frame-ancestors 'none'` |
 | **MIME sniffing** | `X-Content-Type-Options: nosniff` em todas as respostas |
@@ -140,10 +140,14 @@ fragilidades conhecidas, com o motivo de cada uma:
 1. **Link do Drive é redistribuível.** Inerente à entrega por Drive. Reduzir
    exigiria servir as fotos por rota própria, o que esbarra na cota de
    requisições do Worker.
-2. **`'unsafe-inline'` ainda vale para scripts.** A UI usa handlers inline
-   (`onclick="…"`), que nonce nenhum cobre. A política estrita já roda em
-   Report-Only, medindo o que falta; a virada acontece quando os relatórios
-   zerarem.
+2. **`'unsafe-inline'` continua valendo para estilos.** Para scripts ele saiu
+   (a CSP estrita é a aplicada: nonce por requisição, nenhum handler inline),
+   mas os atributos `style="…"` e os blocos `<style>` das páginas dependem dele.
+   CSS não executa script sob esta política; o que sobra é injeção de CSS
+   (aparência e, em teoria, vazamento do valor de um atributo por seletor mais
+   imagem de fundo, limitado às origens de `img-src`). Não dá para trocar por
+   nonce sem reescrever todo `style="…"`: com um nonce em `style-src` o
+   navegador descarta o `'unsafe-inline'`.
 3. **Caminho sem JavaScript é mais fraco.** Com o Turnstile bloqueado por
    ad-blocker, o cliente usa `turnstileToken: "noscript"`. Continua sendo um
    POST por evento, com balde de fichas mais apertado e auditado com
@@ -154,7 +158,12 @@ fragilidades conhecidas, com o motivo de cada uma:
    varredura por esse caminho gera alerta, mas não é bloqueada: 5 ou mais
    projetos distintos do mesmo IP em 24 h mandam e-mail ao controlador
    (`checkNoscriptSweep()` em `src/index.js`, `sendNoscriptSweepAlert()` em
-   `src/utils.js`).
+   `src/utils.js`). Para álbum de família ou privado o modelo é
+   **consentimento, não sigilo** (#146): por esse caminho o nome passa a ser
+   obrigatório, para o registro não sair anônimo, e cada IP abre no máximo 3
+   álbuns restritos distintos em 24 h — passado o teto, o portão oferece o
+   código por e-mail. A declaração registra o uso combinado; não é barreira
+   de acesso.
 4. **Sem segundo fator no painel.** Registrado no TODO (magic link ou TOTP).
 5. **Sem COEP.** `require-corp` quebraria as imagens do
    `lh3.googleusercontent.com`, que não enviam CORP.

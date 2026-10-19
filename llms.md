@@ -187,7 +187,15 @@ no #178.
    disto — comece por `npm run verifica:navegador` (ver `docs/VERIFICACAO.md`
    §3) e acrescente o que a sua mudança específica pede. Mudou o portão do
    Drive, as fotos da página de projeto ou um limite por IP? Rode
-   `npm run verifica:evento` (não precisa do wrangler). Mudou login,
+   `npm run verifica:evento` (não precisa do wrangler). Mudou a galeria
+   própria (`/galeria/<slug>`)? Rode `npm run verifica:galeria` com
+   `VERIFICA_PRINTS` e olhe as capturas. Mudou o painel? Rode
+   `npm run verifica:painel` (o fluxo logado inteiro, no celular e no
+   computador, contra o Worker de verdade). Mudou a prévia de PR
+   (`src/previa.js`, a faixa e o menu "Testes")? Rode
+   `npm run verifica:previa`. Os quatro `verifica:*` que dispensam o wrangler
+   também rodam na CI (job *Roteiros no navegador*), mas rode antes de
+   empurrar — a CI é a confirmação, não o primeiro aviso. Mudou login,
    healthz ou algo que o smoke do deploy olha? Rode também
    `npm run smoke:local` contra o mesmo `wrangler dev`: é o que vai decidir a
    reversão automática em produção. `npm test` verde já conviveu com a interface inteira quebrada (CSP

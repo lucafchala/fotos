@@ -10,16 +10,23 @@ import { legalHTML } from './ui/legal.js';
 import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
+import { VENDOR } from './content/vendor.js';
+import { galeriaHTML } from './ui/galeria.js';
+import { ICON_SVG } from './content/icon-svg.js';
+import { ICONES } from './content/icons.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
+import { ehPrevia, fetchDaPrevia } from './previa.js';
+import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
-  getAgenda, saveAgenda, limpaAgenda,
-  hashPassword, verifyPassword, generateToken,
-  verifySession, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
+  hashPassword, verifyPassword, generateToken, sha256Hex,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
-  bumpCounter, readCounters, deleteCounters,
+  bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
-  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess,
+  TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess, nomeDeConsentimento,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
@@ -32,10 +39,11 @@ import {
 import {
   SIGNING_SECRET_MIN_LENGTH, DRIVE_NONCE_TTL_SECS,
   FORM_TOKEN_TTL_SECS, FORM_TOKEN_MIN_AGE_SECS, DEFAULT_EVENT,
-  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, HEALTHZ_CONTRATO,
+  NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
+  METRICAS_DIAS_MAX, GATE_METODOS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -65,6 +73,8 @@ const TEMA_PREFILLS = {
   // Caminho alternativo para quem chega pela Central de Transparência sem
   // saber de qual projeto é a foto (o principal é o botão no rodapé do evento).
   remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
+  // "Pedir orçamento" (#210): um modelo curto, para a pessoa só completar.
+  orcamento: 'Olá! Quero pedir um orçamento.\n\nTipo de evento: \nData: \nLocal (cidade): \nQuantidade de pessoas (aprox.): \nObservações: ',
 };
 
 // KV guarda contador como string; `toCount()` é o portão que transforma lixo/
@@ -182,6 +192,8 @@ function stripBody(res) {
 const LEGAL_DOC_PATH_RE = /^\/legal\/([a-z0-9-]+)$/;
 const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$/;
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -222,6 +234,8 @@ const worker = {
     ctx.waitUntil(pushToKuma(env));
 
     try {
+      // O `return await handle…` abaixo é de propósito: sem o await, a rejeição
+      // de um handler assíncrono escapa deste catch (sem 500 nem alerta).
       // CSRF: um único portão antes do roteamento, não um guard por handler —
       // uma rota nova escrita daqui a um ano não pode depender de alguém
       // lembrar de chamá-lo. Ver isCrossSiteRequest() para o raciocínio.
@@ -233,52 +247,60 @@ const worker = {
       // marcação — se divergissem, seria o mesmo que não ter nonce nenhum.
       const nonce = generateNonce();
       // PWA assets
-      if (path === '/manifest.json' && method === 'GET') return handleManifest();
-      if (path === '/icon.svg' && method === 'GET') return handleIcon();
-      if (path === '/og-coming-soon.png' && method === 'GET') return handleComingSoonOgImage();
+      if (path === '/manifest.json' && method === 'GET') return await handleManifest();
+      if (path === '/icon.svg' && method === 'GET') return await handleIcon();
+      if (method === 'GET' && Object.hasOwn(ICONES_PNG, path)) return handleIconePng(path);
+      if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
-      if (method === 'GET' && FONT_BY_PATH.has(path)) return handleFont(path);
+      if (method === 'GET' && FONT_BY_PATH.has(path)) return await handleFont(path);
+      // Bibliotecas vendorizadas (PhotoSwipe da galeria, #235). Mesmo
+      // esquema das fontes: busca exata, nome com hash, cache imutável.
+      if (method === 'GET' && VENDOR_BY_PATH.has(path)) return await handleVendor(path);
 
       // SEO
-      if (path === '/sitemap.xml' && method === 'GET') return handleSitemap(env);
-      if (path === '/robots.txt' && method === 'GET') return handleRobots();
-      if (path === '/llms.txt' && method === 'GET') return handleLlmsTxt();
+      if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
+      if (path === '/robots.txt' && method === 'GET') return await handleRobots();
+      if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
       // (outra origem, por isso o CORS aberto). Ver handleRecentes().
-      if (path === '/api/recentes' && method === 'GET') return handleRecentes(env);
+      if (path === '/api/recentes' && method === 'GET') return await handleRecentes(env);
 
       // Security contact (RFC 9116)
-      if (path === '/.well-known/security.txt' && method === 'GET') return handleSecurityTxt();
+      if (path === '/.well-known/security.txt' && method === 'GET') return await handleSecurityTxt();
       // Global Privacy Control — declares the site honors GPC opt-out signals
-      if (path === '/.well-known/gpc.json' && method === 'GET') return handleGpc();
+      if (path === '/.well-known/gpc.json' && method === 'GET') return await handleGpc();
 
       // Gallery index
-      if (path === '/' && method === 'GET') return handleGallery(env, nonce);
+      if (path === '/' && method === 'GET') return await handleGallery(env, nonce);
 
       // Dashboard routes
-      if (path === '/dashboard' && method === 'GET') return handleDashboardPage(request, env, url, nonce);
-      if (path === '/dashboard/login' && method === 'POST') return handleLogin(request, env, ctx);
-      if (path === '/dashboard/logout' && method === 'POST') return handleLogout(request, env, ctx);
+      if (path === '/dashboard' && method === 'GET') return await handleDashboardPage(request, env, url, nonce);
+      if (path === '/dashboard/login' && method === 'POST') return await handleLogin(request, env, ctx);
+      if (path === '/dashboard/logout' && method === 'POST') return await handleLogout(request, env, ctx);
 
       // API routes (require auth)
-      if (path === '/api/events' && method === 'POST') return handleCreateEvent(request, env);
-      if (path === '/api/events/bulk-category' && method === 'POST') return handleBulkCategory(request, env);
-      if (path === '/api/events/bulk-access' && method === 'POST') return handleBulkAccessType(request, env);
-      if (path.startsWith('/api/events/') && method === 'PUT') return handleUpdateEvent(request, env, path);
-      if (path.startsWith('/api/events/') && method === 'DELETE') return handleDeleteEvent(request, env, path);
-      if (path === '/api/categories' && method === 'GET') return handleGetCategories(request, env);
-      if (path === '/api/categories' && method === 'POST') return handleCreateCategory(request, env);
-      if (path === '/api/categories/delete' && method === 'POST') return handleDeleteCategory(request, env);
-      if (path === '/api/metrics' && method === 'GET') return handleMetrics(request, env);
-      if (path === '/api/settings/password' && method === 'PUT') return handleChangePassword(request, env, ctx);
-      if (path === '/api/settings/agenda' && method === 'PUT') return handleSaveAgenda(request, env);
-      if (path === '/api/backup' && method === 'GET') return handleGetBackup(request, env);
-      if (path === '/api/backup/restore' && method === 'POST') return handleRestoreBackup(request, env);
-      if (path === '/api/consent/export' && method === 'GET') return handleConsentExport(request, env);
+      if (path === '/api/events' && method === 'POST') return await handleCreateEvent(request, env);
+      if (path === '/api/events/bulk-category' && method === 'POST') return await handleBulkCategory(request, env);
+      if (path === '/api/events/bulk-access' && method === 'POST') return await handleBulkAccessType(request, env);
+      if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
+      if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
+      if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
+      if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
+      if (path === '/api/categories/delete' && method === 'POST') return await handleDeleteCategory(request, env);
+      if (path === '/api/metrics' && method === 'GET') return await handleMetrics(request, env);
+      if (path === '/api/metrics/diario' && method === 'GET') return await handleMetricsDiario(request, env, url);
+      if (path === '/api/settings/password' && method === 'PUT') return await handleChangePassword(request, env, ctx);
+      if (path === '/api/sessions/revoke-others' && method === 'POST') return await handleRevokeOtherSessions(request, env);
+      if (path === '/api/settings/agenda' && method === 'PUT') return await handleSaveAgenda(request, env);
+      // HEAD chega aqui como GET (ver o topo do fetch): ele não baixa nada, então
+      // não pode marcar um backup como feito.
+      if (path === '/api/backup' && method === 'GET') return await handleGetBackup(request, env, ctx, interno.headOnly === true);
+      if (path === '/api/backup/restore' && method === 'POST') return await handleRestoreBackup(request, env);
+      if (path === '/api/consent/export' && method === 'GET') return await handleConsentExport(request, env);
 
       // Health check — tests Worker startup, KV connectivity, and hashing performance
-      if (path === '/api/healthz' && method === 'GET') return handleHealthz(request, env);
+      if (path === '/api/healthz' && method === 'GET') return await handleHealthz(request, env);
 
       // Support page. ?tema= pre-fills the message field (used by the "reportar
       // bug"/"sugestão" links on the new-interface banner and footer) — cosmetic
@@ -291,7 +313,7 @@ const worker = {
         const msg = tema && Object.hasOwn(TEMA_PREFILLS, tema) ? /** @type {Record<string, string>} */ (TEMA_PREFILLS)[tema] : undefined;
         return html(supportHTML(false, '', msg ? { message: msg } : {}, nonce, await mintFormToken(env, 'suporte')), 200, nonce);
       }
-      if (path === '/api/suporte' && method === 'POST') return handleSupportRequest(request, env, nonce, ctx);
+      if (path === '/api/suporte' && method === 'POST') return await handleSupportRequest(request, env, nonce, ctx);
 
       // Privacy policy
       if (path === '/privacidade' && method === 'GET') return html(privacyHTML(), 200, nonce);
@@ -319,21 +341,28 @@ const worker = {
       if (path === '/equipamentos' && method === 'GET') return html(gearHTML(), 200, nonce);
 
       // Public API
-      if (path === '/api/removal-request' && method === 'POST') return handleRemovalRequest(request, env);
-      if (path === '/api/track-drive' && method === 'POST') return handleTrackDrive(request, env, ctx);
-      if (path === '/api/perf' && method === 'POST') return handlePerfBeacon(request, env);
-      if (path === '/api/drive-link' && method === 'POST') return handleDriveLink(request, env, ctx);
-      if (path === '/api/drive-code' && method === 'POST') return handleDriveCode(request, env, ctx);
-      if (path === '/api/csp-report' && method === 'POST') return handleCspReport(request, env);
+      if (path === '/api/removal-request' && method === 'POST') return await handleRemovalRequest(request, env);
+      if (path === '/api/track-drive' && method === 'POST') return await handleTrackDrive(request, env, ctx);
+      if (path === '/api/perf' && method === 'POST') return await handlePerfBeacon(request, env);
+      if (path === '/api/drive-link' && method === 'POST') return await handleDriveLink(request, env, ctx);
+      if (path === '/api/drive-code' && method === 'POST') return await handleDriveCode(request, env, ctx);
+      if (path === '/api/csp-report' && method === 'POST') return await handleCspReport(request, env);
 
       // Admin API — removal requests
-      if (path === '/api/removal-requests' && method === 'GET') return handleGetRemovalRequests(request, env);
+      if (path === '/api/removal-requests' && method === 'GET') return await handleGetRemovalRequests(request, env);
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
-      if (resolveMatch && method === 'PUT') return handleResolveRequest(request, env, resolveMatch[1]);
+      if (resolveMatch && method === 'PUT') return await handleResolveRequest(request, env, resolveMatch[1]);
+
+      // Galeria própria — PRÉVIA, só para o dono logado (#235). Para qualquer
+      // outra pessoa é o mesmo 404 de uma rota que não existe.
+      const galeriaMatch = path.match(GALERIA_PATH_RE);
+      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      const baixarMatch = path.match(GALERIA_BAIXAR_RE);
+      if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
 
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
-      if (slugMatch && method === 'GET') return handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
+      if (slugMatch && method === 'GET') return await handleEventPage(request, env, slugMatch[1], ctx, nonce, interno.headOnly === true);
 
       return notFound();
     } catch (err) {
@@ -346,23 +375,22 @@ const worker = {
     }
   },
 
-  // Daily cron: purge resolved removal requests past the retention window so
-  // personal data (e-mail/phone) is not kept indefinitely. Configured in
-  // wrangler.toml ([triggers] crons).
+  // Cron de 5 em 5 minutos, só para o batimento do Kuma. As tarefas diárias
+  // (carimbo cron:last no KV, poda de pedidos e de consentimento) rodam só na
+  // execução das 03:00 UTC: gravar no KV a cada 5 min seriam 288 escritas/dia.
+  // Configurado em wrangler.toml ([triggers] crons).
   /**
    * @param {ScheduledController} event
    * @param {Env} env
    * @param {ExecutionContext} ctx
    */
   async scheduled(event, env, ctx) {
-    // Heartbeat first: stamp the wall-clock the cron last fired so /api/healthz
-    // (and the status dashboard) can detect a *silently dead* schedule — a job
-    // that stops running emits no error, so without this beat the failure is
-    // invisible until data quietly stops being pruned.
-    ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
-    // Batimento garantido uma vez por dia, mesmo sem visita nenhuma: `force`
-    // pula a trava de tempo, que serve ao tráfego, não ao cron.
+    // `force` pula a trava de tempo, que serve ao tráfego, não ao cron.
     ctx.waitUntil(pushToKuma(env, { force: true }));
+    if (!ehExecucaoDiaria(event)) return;
+    // Carimbo do último disparo diário: o /api/healthz (e o painel de status)
+    // detectam um agendamento morto em silêncio — um job parado não emite erro.
+    ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -374,7 +402,46 @@ const worker = {
   },
 };
 
-export default worker;
+/**
+ * A execução das 03:00 UTC (a única que faz as tarefas diárias). Sem
+ * `scheduledTime` (chamada direta, como nos testes) conta como diária.
+ * @param {{ scheduledTime?: number } | undefined} event
+ */
+export function ehExecucaoDiaria(event) {
+  const t = event && event.scheduledTime;
+  if (typeof t !== 'number') return true;
+  const d = new Date(t);
+  return d.getUTCHours() === 3 && d.getUTCMinutes() < 5;
+}
+
+// O que a Cloudflare chama. Em produção é `worker.fetch` direto; numa Prévia de
+// PR (Worker Previews, `AMBIENTE = "previa"` — só no bloco [previews] do
+// wrangler.toml) a camada de src/previa.js vem por fora: faixa, noindex,
+// Turnstile de teste. Ver o comentário no topo de lá.
+export default {
+  /**
+   * @param {Request} request
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  fetch(request, env, ctx) {
+    if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
+    return fetchDaPrevia(request, env, ctx, {
+      rotear: (r, e, c) => worker.fetch(r, e, c),
+      // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
+      // painel — a mesma checagem das rotas /api/ de admin.
+      autenticado: async (r, e) => (await checkAuth(r, e)) === null,
+    });
+  },
+  /**
+   * @param {ScheduledController} event
+   * @param {Env} env
+   * @param {ExecutionContext} ctx
+   */
+  scheduled(event, env, ctx) {
+    return worker.scheduled(event, env, ctx);
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Gallery
@@ -407,7 +474,8 @@ async function handleSitemap(env) {
   // crawler achar o slug sem nem visitar a galeria. Fora do sitemap +
   // X-Robots-Tag na própria página (handleEventPage) — a página continua
   // abrindo por link direto, só some da indexação de busca.
-  const visible = events.filter(e => e.visible !== false && !isRestrictedAccess(e));
+  // "Em breve" também fica de fora: a página ainda não tem o que indexar.
+  const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
   /** @param {Evento} e */
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
@@ -436,25 +504,21 @@ async function handleSitemap(env) {
 }
 
 function handleRobots() {
-  // Open to all crawlers and AI agents (training, search, live answering) —
-  // no disallow rules. /dashboard and /api/ aren't gated by robots.txt (that's
-  // advisory, not access control); they're protected by login + rate limiting.
-  const aiAgents = [
-    'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'Google-Extended',
-    'ClaudeBot', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
-    'PerplexityBot', 'CCBot', 'Bytespider', 'Amazonbot', 'Applebot-Extended',
-    'Meta-ExternalAgent', 'cohere-ai',
-  ];
-  const rules = 'Allow: /\n';
+  // Busca e resposta de IA são bem-vindas; treino de modelo não. O Content-Signal
+  // vale em cada grupo (um grupo próprio de um robô ignora o do `*`), e os robôs
+  // que existem só para treinar levam Disallow. /dashboard e /api/ não são
+  // protegidos por aqui (robots.txt é aviso, não controle de acesso): têm login
+  // e limite de taxa.
+  const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
+  const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
+  const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
     '# robots.txt — fotos.lucafchala.com\n' +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
-    '# Content usage preferences — all uses permitted (https://contentsignals.org).\n\n' +
-    'User-agent: *\n' +
-    'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n' +
-    rules + '\n' +
-    aiAgents.map(a => `User-agent: ${a}`).join('\n') + '\n' +
-    rules + '\n' +
+    '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
+    'User-agent: *\n' + sinal + 'Allow: /\n\n' +
+    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n\n' +
+    robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
     `Sitemap: ${SITE_URL}/sitemap.xml\n`;
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
@@ -471,11 +535,11 @@ function handleLlmsTxt() {
     'Disallow: /.well-known\n\n' +
     '# LLM Usage Policy\n' +
     'User-Agent: *\n' +
-    'Allow-User-Agent: GPTBot, ClaudeBot, PerplexityBot, Amazonbot, OAI-SearchBot\n' +
+    'Allow-User-Agent: PerplexityBot, Amazonbot, OAI-SearchBot, Claude-SearchBot\n' +
     'Crawl-delay: 1\n' +
     'Request-limit: 100/1h\n\n' +
     '# Data usage declaration\n' +
-    'Usage-Policy: Training allowed. Image-use consent required for sensitive content.\n' +
+    'Usage-Policy: Training not allowed. Image-use consent required for sensitive content.\n' +
     'Source: https://fotos.lucafchala.com\n' +
     'Maintainer: Luca F. Chala <security@lucafchala.com>\n';
   return new Response(body, {
@@ -614,7 +678,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted || restricted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (unlisted || restricted || event.comingSoon) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
@@ -654,7 +718,7 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   if (!stored) {
-    return adminHtml('<p style="font-family:monospace;padding:40px">Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.</p>', 503, nonce);
+    return adminHtml(paginaDeAviso('Painel não configurado — defina o secret <code>ADMIN_PASSWORD</code> no Worker.'), 503, nonce);
   }
   if (!authed || !dados) {
     // `?error=` só escolhe qual AVISO aparece; nunca decide acesso. Valor
@@ -664,10 +728,12 @@ async function handleDashboardPage(request, env, url, nonce) {
   }
 
   const [events, categories] = dados;
-  // Fora do `try` acima de propósito: getAgenda não lança, e o selo não pode
-  // ser motivo de "painel indisponível".
-  const agenda = await getAgenda(env, true);
-  return adminHtml(dashboardHTML(events, categories, nonce, agenda), 200, nonce);
+  // Fora do `try` acima de propósito: getAgenda e getUltimoBackup não lançam, e
+  // nem o selo nem o lembrete de backup podem ser motivo de "painel
+  // indisponível". Lidos juntos: o lembrete custa uma leitura de KV por abertura
+  // do painel, sem uma ida a mais.
+  const [agenda, backupUltimo] = await Promise.all([getAgenda(env, true), getUltimoBackup(env)]);
+  return adminHtml(dashboardHTML(events, categories, nonce, agenda, backupUltimo), 200, nonce);
 }
 
 // Texto de quem chega ao painel com o KV fora. Sem script, sem formulário: não
@@ -676,8 +742,19 @@ async function handleDashboardPage(request, env, url, nonce) {
 const PAINEL_INDISPONIVEL_MSG =
   'O painel está temporariamente indisponível: o banco de dados do site (KV) não respondeu. ' +
   'Nada foi alterado e o site público segue no ar. Tente de novo em alguns minutos.';
-const PAINEL_INDISPONIVEL_HTML =
-  `<p style="font-family:monospace;padding:40px;max-width:640px;line-height:1.6">${PAINEL_INDISPONIVEL_MSG}</p>`;
+const PAINEL_INDISPONIVEL_HTML = paginaDeAviso(PAINEL_INDISPONIVEL_MSG);
+
+// As páginas curtas do painel (KV fora, painel não configurado) eram um <p>
+// solto: sem `<meta name="viewport">`, o celular as desenhava numa largura de
+// 980 px e o texto saía minúsculo — justamente na hora em que o dono abre o
+// painel pelo celular para entender o que caiu. Agora são um documento
+// mínimo, com a mesma aparência.
+/** @param {string} conteudo HTML já pronto (texto fixo do código, nunca dado de fora) */
+function paginaDeAviso(conteudo) {
+  return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Painel</title></head>'
+    + `<body><p style="font-family:monospace;padding:40px 24px;max-width:640px;line-height:1.6">${conteudo}</p></body></html>`;
+}
 
 // ---------------------------------------------------------------------------
 // Login
@@ -977,7 +1054,9 @@ export function normalizeEventFields(body, base, cats) {
     comingSoon: pick('comingSoon', v => v === true),
     status: pick('status', v => (EVENT_STATUSES.includes(v) ? v : b.status)),
     accessType: pick('accessType', v => (ACCESS_TYPES.includes(v) ? v : b.accessType)),
-    category: pick('category', v => (cats.includes(v) ? v : b.category)),
+    // "Sem categoria" (o vazio) também vale: antes caía no "senão, fica a
+    // anterior", e o formulário não conseguia tirar a categoria de um evento.
+    category: pick('category', v => (v === '' || cats.includes(v) ? v : b.category)),
     internalNotes: pick('internalNotes', v => String(v).slice(0, 5000)),
     pinned: pick('pinned', v => v === true),
     photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
@@ -1068,16 +1147,23 @@ async function handleUpdateEvent(request, env, path) {
   const existing = events[idx];
   const cats = await getCategories(env);
 
-  const newPhotos = body.photos !== undefined && Array.isArray(body.photos)
-    ? normalizePhotos(body.photos)
-    : (existing.photos || []);
+  // Veio a lista de fotos (o formulário manda a lista inteira): a capa segue a
+  // lista. Esvaziar a lista TIRA a capa — antes a antiga ficava, e uma foto
+  // retirada (num pedido de remoção, por exemplo) seguia no card da galeria e
+  // no topo da página do projeto. A exceção é o registro antigo que só tem
+  // `thumbnailUrl`, sem `photos`: quem devolve o evento inteiro (o "Ocultar"
+  // do painel) devolve a capa dele junto, e ela fica.
+  const fotosVieram = body.photos !== undefined && Array.isArray(body.photos);
+  const newPhotos = fotosVieram ? normalizePhotos(body.photos) : (existing.photos || []);
+  const capaEnviada = typeof body.thumbnailUrl === 'string' ? (normalizePhotos([body.thumbnailUrl])[0] || '') : '';
+  const capa = newPhotos[0] || (fotosVieram ? capaEnviada : (existing.thumbnailUrl || ''));
 
   /** @type {Record<string, any>} */
   const updated = {
     ...existing,
     ...normalizeEventFields(body, existing, cats),
     photos: newPhotos,
-    thumbnailUrl: newPhotos[0] || existing.thumbnailUrl || '',
+    thumbnailUrl: capa,
     updatedAt: new Date().toISOString(),
   };
 
@@ -1299,6 +1385,64 @@ async function handleMetrics(request, env) {
   }));
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
+}
+
+// ---------------------------------------------------------------------------
+// API: Métricas por dia (v2, #215)
+// ---------------------------------------------------------------------------
+// A série diária dos contadores para o gráfico do painel: uma chamada ao
+// Durable Object, não uma por dia nem por projeto (#215 — chamada de DO é
+// subrequisição, 50 por invocação no gratuito). Devolve os dias em ordem e,
+// para cada projeto, os vetores de visitas e de cliques no Drive alinhados a
+// eles — o navegador só desenha. Projeto sem nenhum acesso no período não vem
+// (o painel trata ausente como zeros). `primeiroDia` é o dia mais antigo que a
+// série tem: antes dele, só o total existe.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleMetricsDiario(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  const pedido = parseInt(url.searchParams.get('dias') || '', 10);
+  const n = Number.isInteger(pedido) ? Math.min(METRICAS_DIAS_MAX, Math.max(1, pedido)) : 90;
+  const hoje = hojeEmSaoPaulo();
+  const dias = [];
+  for (let i = n - 1; i >= 0; i--) dias.push(diaMenos(hoje, i));
+  const indice = new Map(dias.map((d, i) => [d, i]));
+
+  const chavesGate = GATE_METODOS.map(m => `gate:${m}`);
+  const [events, { serie, primeiroDia, totais }] = await Promise.all([
+    getEvents(env, true),
+    readSerie(env, dias[0], chavesGate),
+  ]);
+  const conhecidos = new Set(events.map(e => e.slug));
+
+  const zeros = () => new Array(n).fill(0);
+  /** @type {Record<string, { views: number[], driveClicks: number[] }>} */
+  const projetos = {};
+  /** @type {Record<string, number[]>} */
+  const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
+  for (const [k, v] of Object.entries(serie)) {
+    // `d:AAAA-MM-DD:<chave>` — ver src/counters.js.
+    const i = indice.get(k.slice(2, 12));
+    if (i === undefined) continue;
+    const chave = k.slice(13);
+    const sep = chave.indexOf(':');
+    const tipo = chave.slice(0, sep);
+    const resto = chave.slice(sep + 1);
+    if (tipo === 'views' || tipo === 'drive_clicks') {
+      if (!conhecidos.has(resto)) continue;
+      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros() });
+      (tipo === 'views' ? p.views : p.driveClicks)[i] += v;
+    } else if (tipo === 'gate' && gate[resto]) {
+      gate[resto][i] += v;
+    }
+  }
+  const gateTotal = Object.fromEntries(GATE_METODOS.map(m => [m, totais[`gate:${m}`] || 0]));
+  return jsonOk({ hoje, dias, primeiroDia, projetos, gate, gateTotal });
 }
 
 // ---------------------------------------------------------------------------
@@ -1612,41 +1756,72 @@ export async function handleChangePassword(request, env, ctx) {
 
   // Trocar senha é reação padrão a "acho que invadiram". Sem esta varredura o
   // cookie roubado continuaria válido por até 24h. A sessão de quem está
-  // trocando é preservada; o resto é revogado. Best-effort: falha aqui não
-  // desfaz a troca de senha, que já valeu.
+  // trocando é preservada; o resto é revogado — pela MESMA função do "Sair dos
+  // outros aparelhos", que além de apagar os registros grava o marcador de
+  // revogação: só apagar deixava o cookie roubado valer por até 60 s noutro
+  // local e, se a renovação do lastSeen caísse nessa janela, ressuscitava a
+  // sessão por mais 24 h. Best-effort: falha aqui não desfaz a troca de senha,
+  // que já valeu.
   try {
     // Mesmo leitor do `verifySession`: a sessão preservada tem de ser a que
     // está fazendo a troca. Com o padrão antigo, um cookie legado plantado
     // fazia a varredura poupar o token do vizinho e apagar o do próprio admin,
     // deslogando quem acabou de trocar a senha. Ver utils.js.
     const currentToken = sessionTokenFromRequest(request);
-    // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
-    // sessões que o normal, que é justamente quando isto importa de verdade.
-    let cursor;
-    do {
-      /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
-      const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
-      await Promise.all(
-        page.keys
-          .filter(k => k.name !== `admin_session:${currentToken}`)
-          .map(k => env.FOTOS.delete(k.name))
-      );
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
+    if (currentToken) await encerraOutrasSessoes(env, currentToken);
   } catch (e) {
-    // Se a varredura falha, sessões antigas continuam abrindo o painel por
-    // até 24h enquanto o admin acha que fechou a porta — precisa aparecer,
-    // não só um console.error. (Promise.all acima rejeita no 1º delete que
-    // falhar, então a varredura pode ter sido parcial.)
+    // Se a revogação falha, sessões antigas podem continuar abrindo o painel
+    // por até 24h enquanto o admin acha que fechou a porta — precisa
+    // aparecer, não só um console.error. (A varredura rejeita no 1º delete que
+    // falhar, então pode ter sido parcial; o marcador, gravado antes, já vale
+    // se foi ele que passou.)
     noteDegraded(
       'troca de senha não encerrou as outras sessões',
-      'o KV recusou apagar os registros; a senha nova já vale, mas sessões antigas seguem abertas até expirarem',
+      'o KV recusou gravar o marcador de revogação ou apagar os registros; a senha nova já vale, mas sessões antigas podem seguir abertas até expirarem',
       e,
     );
     ctx?.waitUntil(sendErrorAlert(env, e, { path: 'PUT /api/settings/password (session sweep)' }).catch(() => {}));
   }
 
   return jsonOk({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// API: Sair dos outros aparelhos
+// ---------------------------------------------------------------------------
+// Encerra o painel em todos os aparelhos menos o de quem pede — o que se faz
+// ao perder o celular ou esquecer o painel aberto num computador alheio, sem
+// precisar trocar a senha. A implementação é `encerraOutrasSessoes` (utils.js),
+// a mesma da troca de senha; ver lá o marcador de revogação.
+//
+// POST sem corpo: admin-only (checkAuth) e atrás do portão de origem do
+// roteador, que vale para todo método que escreve. Custo: 1 put + 1 list + 1
+// delete por sessão encerrada (cota de escrita do KV: 1000/dia).
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleRevokeOtherSessions(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+
+  // checkAuth acabou de aceitar um token, então ele existe; o teste é só para o
+  // tipo — e para nunca varrer "todas menos null".
+  const token = sessionTokenFromRequest(request);
+  if (!token) return jsonErr('Não autorizado.', 401);
+
+  let encerradas;
+  try {
+    encerradas = await encerraOutrasSessoes(env, token);
+  } catch (e) {
+    // Sem o 500 genérico (e o e-mail de "erro no site"): a causa realista é o
+    // KV recusando escrita, e o painel só precisa dizer isso. A varredura pode
+    // ter sido parcial — repetir é seguro, e o marcador (gravado antes) já vale
+    // se foi ele que passou.
+    noteKvFailure('escrita', e, 'encerrar as outras sessões do painel');
+    return jsonErr('Não deu para encerrar as outras sessões: o banco de dados do site não respondeu. Tente de novo em alguns minutos.', 503);
+  }
+  return jsonOk({ ok: true, encerradas });
 }
 
 // ---------------------------------------------------------------------------
@@ -1811,29 +1986,20 @@ export async function handleRemovalRequest(request, env) {
   // direito da LGPD via "algo deu errado" e nada mais. Perder pedido de titular
   // por indisponibilidade de banco é negar o direito por motivo nosso.
   //
-  // `requests === null` daqui para baixo quer dizer "não está gravado": o
+  // `gravado === false` daqui para baixo quer dizer "não está gravado": o
   // e-mail passa a ser o único registro, e a resposta ao titular diz a verdade
   // sobre isso em vez de fingir 500 ou fingir sucesso.
-  /** @type {Record<string, any>[]|null} */
-  let requests = null;
+  //
+  // Uma chave só deste pedido (#198, src/pedidos.js): gravar não lê nem
+  // regrava a lista, então dois pedidos ao mesmo tempo não se apagam. A poda
+  // dos resolvidos antigos fica com o cron — antes ela vinha de carona aqui
+  // porque a lista inteira era regravada de qualquer jeito.
+  let gravado = false;
+  let gravadoEm = 0;
   try {
-    const stored = await getRemovalRequests(env);
-    // Defensive retention: drop resolved requests past the window even if the
-    // daily cron has not run yet.
-    const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-    /** @type {Record<string, any>[]} */
-    const lista = stored.filter(/** @param {Record<string, any>} r */ r => r.resolved
-      ? new Date(r.resolvedAt || r.createdAt || 0).getTime() >= cutoff
-      : true);
-    lista.push(newReq);
-
-    const MAX_REQUESTS = 500;
-    trimRequests(lista, MAX_REQUESTS);
-
-    await env.FOTOS.put('removal_requests', JSON.stringify(lista));
-    // Só depois da escrita: `requests` deixar de ser null é exatamente o que
-    // significa "este pedido está gravado", e é o que o resto da função lê.
-    requests = lista;
+    await gravaPedido(env, newReq);
+    gravado = true;
+    gravadoEm = Date.now();
   } catch (err) {
     noteDegraded(
       'pedido de remoção não gravado no painel',
@@ -1863,7 +2029,7 @@ export async function handleRemovalRequest(request, env) {
     if (!sent) {
       noteDegraded(
         'pedido de remoção sem aviso por e-mail',
-        requests
+        gravado
           ? 'RESEND_API_KEY não configurada. O pedido está salvo no painel, mas ninguém foi avisado'
           : 'RESEND_API_KEY não configurada E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
       );
@@ -1875,7 +2041,7 @@ export async function handleRemovalRequest(request, env) {
     newReq.emailStatus = 'error: ' + errMessage(adminMail.reason).slice(0, 200);
     noteDegraded(
       'pedido de remoção sem aviso por e-mail',
-      requests
+      gravado
         ? 'o envio falhou. O pedido está salvo no painel, com o motivo no campo emailStatus'
         : 'o envio falhou E o KV recusou a gravação. O pedido NÃO tem registro nenhum'
     );
@@ -1889,9 +2055,14 @@ export async function handleRemovalRequest(request, env) {
   // Se ela falhar, o pedido em si continua gravado pela primeira — o que se
   // perde é a explicação de por que um pedido não gerou aviso, e isso não vale
   // um erro na cara de quem pediu a remoção.
-  if (requests) {
+  //
+  // É a MESMA chave da primeira, e o KV recusa (429) a segunda escrita dentro
+  // de um segundo — os e-mails costumam voltar antes disso. `regravaPedido`
+  // espera o resto da janela: a resposta demora até ~1 s a mais, e em troca o
+  // "enviado" que a pessoa vê vale também para o registro do painel.
+  if (gravado) {
     try {
-      await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+      await regravaPedido(env, newReq, gravadoEm);
     } catch (err) {
       noteDegraded(
         'status de e-mail do pedido de remoção não gravado',
@@ -1901,7 +2072,7 @@ export async function handleRemovalRequest(request, env) {
     }
   }
 
-  if (requests) return jsonOk({ ok: true });
+  if (gravado) return jsonOk({ ok: true });
 
   // KV fora: o e-mail é o único registro que existe deste pedido. Se ele saiu,
   // o pedido chegou a quem tem de agir e o titular recebeu confirmação — o
@@ -1949,26 +2120,6 @@ export function trimRequests(requests, max) {
   return requests;
 }
 
-// Mesmo portão de forma que `parseEvents()` (utils.js) faz para a lista de
-// eventos, e pelo mesmo motivo: o valor pode vir de um restore de backup ou de
-// uma escrita truncada, e um `JSON.parse` cru devolvia o que estivesse lá.
-// Um objeto no lugar do array quebrava com `.filter is not a function` DENTRO
-// do POST público /api/removal-request — o canal de direito do titular virando
-// 500 por causa de um valor corrompido em KV.
-/**
- * @param {Env} env
- * @returns {Promise<Pedido[]>}
- */
-async function getRemovalRequests(env) {
-  const data = await env.FOTOS.get('removal_requests');
-  if (!data) return [];
-  try {
-    const parsed = JSON.parse(data);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(r => r && typeof r === 'object' && !Array.isArray(r));
-  } catch { return []; }
-}
-
 // Ordenação por data de criação, mais novo primeiro, à prova de registro sem
 // `createdAt`. `sanitizeRestoredRequest()` só copia o campo quando ele vem como
 // string, então um backup sem ele produz um registro válido e sem data — e o
@@ -1983,22 +2134,29 @@ function porCriacaoDesc(a, b) {
   return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 }
 
-// Drop resolved requests whose resolvedAt is older than the retention window.
-// Unresolved requests are always kept. Returns true if anything was removed.
+// Cron diário: primeiro termina a migração do array antigo para uma chave por
+// pedido (#198 — ver src/pedidos.js), depois apaga os RESOLVIDOS há mais que o
+// prazo de retenção. Pendente nunca sai. Devolve true se algo foi apagado ou
+// migrado. Falha do KV sobe: o cron registra e alerta (scheduled()).
+//
+// A poda roda mesmo que a migração falhe: são chaves diferentes, e um dia de
+// migração recusada (cota de escrita, KV fora) não pode virar um dia sem o
+// prazo de retenção cumprido. O erro da migração sobe depois da poda.
 /**
  * @param {Env} env
  */
-async function pruneResolvedRemovalRequests(env) {
-  const requests = await getRemovalRequests(env);
-  const cutoff = Date.now() - REMOVAL_RETENTION_DAYS * 86400_000;
-  const kept = requests.filter(/** @param {Record<string, any>} r */ r => {
-    if (!r.resolved) return true;
-    const t = new Date(r.resolvedAt || r.createdAt || 0).getTime();
-    return t >= cutoff;
-  });
-  if (kept.length === requests.length) return false;
-  await env.FOTOS.put('removal_requests', JSON.stringify(kept));
-  return true;
+export async function pruneResolvedRemovalRequests(env) {
+  let migrados = 0;
+  /** @type {unknown} */
+  let erroDaMigracao = null;
+  try {
+    ({ migrados } = await migraLegado(env));
+  } catch (e) {
+    erroDaMigracao = e;
+  }
+  const apagados = await podaResolvidos(env, Date.now() - REMOVAL_RETENTION_DAYS * 86400_000);
+  if (erroDaMigracao) throw erroDaMigracao;
+  return migrados > 0 || apagados > 0;
 }
 
 /**
@@ -2008,8 +2166,8 @@ async function pruneResolvedRemovalRequests(env) {
 async function handleGetRemovalRequests(request, env) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  return jsonOk([...requests].sort(porCriacaoDesc));
+  const requests = await listaPedidos(env);
+  return jsonOk(requests.sort(porCriacaoDesc));
 }
 
 /**
@@ -2020,11 +2178,10 @@ async function handleGetRemovalRequests(request, env) {
 async function handleResolveRequest(request, env, id) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const requests = await getRemovalRequests(env);
-  const idx = requests.findIndex(/** @param {Record<string, any>} r */ r => r.id === id);
-  if (idx === -1) return jsonErr('Solicitação não encontrada.', 404);
-
-  const req = requests[idx];
+  // Só o registro deste pedido (#198): resolver não regrava a lista e não
+  // apaga um pedido que chegou enquanto o e-mail saía.
+  const req = await lePedido(env, id);
+  if (!req) return jsonErr('Solicitação não encontrada.', 404);
 
   // Já resolvida: devolve o que está gravado, sem reenviar o e-mail. Resolver
   // de novo (retry depois de erro de rede, duas abas do painel) mandava outro
@@ -2040,7 +2197,7 @@ async function handleResolveRequest(request, env, id) {
     resolvedEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
   }
 
-  requests[idx] = {
+  const resolvido = {
     ...req,
     resolved: true,
     resolvedAt: new Date().toISOString(),
@@ -2050,7 +2207,7 @@ async function handleResolveRequest(request, env, id) {
   // o KV recusa uma segunda escrita na mesma chave dentro de um segundo — gravar
   // antes e atualizar depois falharia justamente em produção.
   try {
-    await env.FOTOS.put('removal_requests', JSON.stringify(requests));
+    await gravaPedido(env, resolvido);
   } catch (e) {
     // Era o 500 genérico. O dono precisa saber se o e-mail já saiu: resolver de
     // novo às cegas mandaria um segundo aviso à pessoa.
@@ -2060,7 +2217,7 @@ async function handleResolveRequest(request, env, id) {
       : 'Nenhum e-mail de confirmação foi enviado.';
     return jsonErr(`O pedido não foi marcado como resolvido: o banco de dados do site não respondeu. ${email} Tente de novo em alguns minutos.`, 503);
   }
-  return jsonOk(requests[idx]);
+  return jsonOk(resolvido);
 }
 
 // ---------------------------------------------------------------------------
@@ -2375,6 +2532,9 @@ function healthzResposta(request, env, medicao, cache) {
       signing: signingSecretProblem(env) === null,
     },
     termsVersion: TERMS_VERSION,
+    // As duas versões juntas (src/config.js, "Versões"): a do site, que diz o
+    // que mudou, e a implantação da Cloudflare, que diz qual build está no ar.
+    versaoSite: VERSAO,
     versao: versaoImplantada(env),
     colo: request.cf?.colo || null,
     country: request.cf?.country || null,
@@ -2389,13 +2549,14 @@ function healthzResposta(request, env, medicao, cache) {
 // ---------------------------------------------------------------------------
 // Coletor de violações de CSP
 // ---------------------------------------------------------------------------
-// Recebe relatórios da política Report-Only (a estrita, sem 'unsafe-inline').
-// Serve para medir a migração (handler inline que sobrou vira relatório com
-// arquivo/linha) e para detectar tentativa de XSS (script externo que
-// ninguém colocou ali). Vai para log estruturado, não KV (mesma razão do
-// /api/perf: cota de escrita compartilhada, e este endpoint é acionável por
-// qualquer browser). Amostragem no servidor porque o corpo vem de fora —
-// um browser hostil pode despejar relatórios à vontade.
+// Recebe relatórios de violação da política APLICADA (a estrita, sem
+// 'unsafe-inline' — #126). Serve para ver em produção o que nenhum roteiro de
+// navegador alcança (um script novo que escapou do nonce; uma extensão do
+// visitante, que é ruído conhecido) e para detectar tentativa de XSS (script
+// externo que ninguém colocou ali). Vai para log estruturado, não KV (mesma
+// razão do /api/perf: cota de escrita compartilhada, e este endpoint é
+// acionável por qualquer browser). Amostragem no servidor porque o corpo vem
+// de fora — um browser hostil pode despejar relatórios à vontade.
 const CSP_REPORT_SAMPLE_RATE = 0.2;
 const CSP_REPORT_MAX_BYTES = 8192;
 
@@ -2604,6 +2765,23 @@ export async function handleDriveLink(request, env, ctx) {
     return jsonErr('É necessário confirmar a declaração de acesso.', 400);
   }
 
+  // Álbum restrito sem o Turnstile (#146): o caminho sem desafio pede o nome
+  // e respeita o teto de álbuns distintos por IP (config.js). O Turnstile e o
+  // código por e-mail não passam por aqui: os dois já provam alguma coisa.
+  // `campo` e `usarEmail` dizem à página o que fazer, sem ela ler a frase.
+  const nome = String(body.name || '').trim().slice(0, 120);
+  if (isNoscript && isRestrictedAccess(event)) {
+    if (!nomeDeConsentimento(nome)) {
+      return jsonOk({ error: 'Sem a verificação de segurança, este álbum pede o seu nome.', campo: 'nome' }, 400);
+    }
+    if (await passouDoTetoDeRestritos(env, ip, slug)) {
+      return jsonOk({
+        error: `Sem a verificação de segurança, cada conexão abre até ${NOSCRIPT_RESTRITOS_POR_IP} álbuns de família ou privados por dia. Para abrir este, receba um código por e-mail.`,
+        usarEmail: true,
+      }, 403);
+    }
+  }
+
   // Audit — non-blocking, always using the server's canonical texts, never
   // whatever the client sends.
   if (env.CONSENT_DB) {
@@ -2620,7 +2798,7 @@ export async function handleDriveLink(request, env, ctx) {
       await getTermsHash(),
       CONSENT_LABEL,
       declarationText || null,
-      String(body.name || '').trim().slice(0, 120) || null,
+      nome || null,
       verificacao,
       ip.slice(0, 64),
       String(request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
@@ -2662,6 +2840,13 @@ export async function handleDriveLink(request, env, ctx) {
     ));
   }
 
+  // Métrica anônima de COMO a pessoa passou pelo portão (v2): só a contagem
+  // por modo — sem slug, sem IP. Mostra no painel quantos precisam do caminho
+  // sem script (bloqueador) ou do código por e-mail, e é o número que faltava
+  // para calibrar os baldes depois de um evento (#230). Fora do caminho da
+  // resposta, como os outros contadores.
+  bumpCounter(env, ctx, `gate:${GATE_METODOS[verificacao]}`);
+
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
@@ -2683,12 +2868,6 @@ function tooManyRequests(retryAfter) {
   const res = jsonOk({ error: 'Muita gente acessando agora. Tentando de novo em instantes.', retryAfter }, 429);
   res.headers.set('Retry-After', String(retryAfter));
   return res;
-}
-
-/** @param {string} s */
-async function sha256Hex(s) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // O último recurso do portão do Drive: um código de 6 dígitos por e-mail, para
@@ -2799,6 +2978,63 @@ export function driveTarget(event) {
   return event.driveUrlVideos ? `${base}+videos` : base;
 }
 
+// As concessões sem Turnstile deste IP na janela de 24 h: a conta do alerta de
+// varredura (#147) e a do teto de álbuns restritos (#146). Uma função só, para
+// as duas contas sobre o mesmo D1 não divergirem (um número no alerta, outro
+// no teto). `outrosRestritos` deixa de fora o álbum pedido agora: reabrir um
+// álbum que já conta não pode esbarrar no teto. Lança se o D1 falhar; quem
+// chama decide o que isso significa.
+/**
+ * @param {D1Database} db
+ * @param {string} ip
+ * @param {string} [slugAtual]
+ * @returns {Promise<{ slugs: number, total: number, restritos: number, outrosRestritos: number }>}
+ */
+async function concessoesSemTurnstile(db, ip, slugAtual = '') {
+  const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
+  const rede = ipParaLimite(ip);
+  if (rede.endsWith('::/64')) {
+    // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
+    // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
+    // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
+    // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
+    // consegue agrupar por prefixo: ele traz as concessões noscript da
+    // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
+    // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
+    // completo continua na coluna para auditoria. Concessão sem Turnstile é
+    // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
+    // pior caso.
+    const { results } = await db.prepare(
+      `SELECT ip, event_slug, access_type FROM image_use_consent
+        WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
+        LIMIT 5000`
+    ).bind(desde, `${ip.split(':')[0]}:%`).all();
+    const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
+      .filter(r => ipParaLimite(r.ip) === rede);
+    const restritos = new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug));
+    return {
+      slugs: new Set(daRede.map(r => r.event_slug)).size,
+      total: daRede.length,
+      restritos: restritos.size,
+      outrosRestritos: [...restritos].filter(s => s !== slugAtual).length,
+    };
+  }
+  /** @type {Record<string, unknown> | null} */
+  const linha = await db.prepare(
+    `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
+            COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos,
+            COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') AND event_slug <> ? THEN event_slug END) AS outrosRestritos
+       FROM image_use_consent
+      WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
+  ).bind(slugAtual, ip.slice(0, 64), desde).first();
+  return {
+    slugs: Number(linha?.slugs) || 0,
+    total: Number(linha?.total) || 0,
+    restritos: Number(linha?.restritos) || 0,
+    outrosRestritos: Number(linha?.outrosRestritos) || 0,
+  };
+}
+
 // Varredura pelo caminho noscript (#147): quantos projetos DISTINTOS este IP
 // abriu sem Turnstile na janela. O limiar e o porquê de não contar volume num
 // projeto só estão em config.js. Roda fora do caminho da resposta (waitUntil)
@@ -2810,53 +3046,39 @@ export function driveTarget(event) {
 async function checkNoscriptSweep(env, ip) {
   if (!env.CONSENT_DB) return;
   try {
-    const desde = new Date(Date.now() - NOSCRIPT_SWEEP_WINDOW_SECS * 1000).toISOString();
     const rede = ipParaLimite(ip);
-    /** @type {{ slugs: number, total: number, restritos: number } | null} */
-    let linha;
-    if (rede.endsWith('::/64')) {
-      // IPv6 conta pelo /64, como o rate limit (#200): o provedor entrega um
-      // /64 inteiro a UM cliente, e um script que troca o fim do endereço a
-      // cada pedido não somava aqui. A coluna `ip` guarda o endereço como o
-      // cliente apresentou (comprimido de jeitos diferentes), então o SQL não
-      // consegue agrupar por prefixo: ele traz as concessões noscript da
-      // janela que começam pelo mesmo primeiro grupo (LIKE, sem distinção de
-      // caixa), e o /64 sai do mesmo ipParaLimite(). Sem migração, e o IP
-      // completo continua na coluna para auditoria. Concessão sem Turnstile é
-      // rara (é o caminho de quem tem o script bloqueado) e o teto limita o
-      // pior caso.
-      const { results } = await env.CONSENT_DB.prepare(
-        `SELECT ip, event_slug, access_type FROM image_use_consent
-          WHERE turnstile_ok = 0 AND created_at >= ? AND ip LIKE ?
-          LIMIT 5000`
-      ).bind(desde, `${ip.split(':')[0]}:%`).all();
-      const daRede = /** @type {{ ip: string, event_slug: string, access_type: string|null }[]} */ (results || [])
-        .filter(r => ipParaLimite(r.ip) === rede);
-      linha = {
-        slugs: new Set(daRede.map(r => r.event_slug)).size,
-        total: daRede.length,
-        restritos: new Set(daRede.filter(r => r.access_type === 'family' || r.access_type === 'private').map(r => r.event_slug)).size,
-      };
-    } else {
-      linha = await env.CONSENT_DB.prepare(
-        `SELECT COUNT(DISTINCT event_slug) AS slugs, COUNT(*) AS total,
-                COUNT(DISTINCT CASE WHEN access_type IN ('family', 'private') THEN event_slug END) AS restritos
-           FROM image_use_consent
-          WHERE ip = ? AND turnstile_ok = 0 AND created_at >= ?`
-      ).bind(ip.slice(0, 64), desde).first();
-    }
-    const slugs = Number(linha?.slugs) || 0;
-    if (slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
+    const conta = await concessoesSemTurnstile(env.CONSENT_DB, ip);
+    if (conta.slugs < NOSCRIPT_SWEEP_MIN_SLUGS) return;
     await sendNoscriptSweepAlert(env, {
       // O /64 junto, quando for IPv6: é ele que vai numa regra de WAF.
       ip: rede.endsWith('::/64') ? `${ip} (rede ${rede})` : ip,
-      slugs,
-      restritos: Number(linha?.restritos) || 0,
-      total: Number(linha?.total) || 0,
+      slugs: conta.slugs,
+      restritos: conta.restritos,
+      total: conta.total,
       janelaHoras: Math.round(NOSCRIPT_SWEEP_WINDOW_SECS / 3600),
     });
   } catch (e) {
     noteDegraded('checagem de varredura noscript falhou', 'D1 não respondeu à contagem por IP; nenhum alerta sai enquanto isso', e);
+  }
+}
+
+// O teto de álbuns restritos do caminho noscript (#146; o número e o porquê
+// em config.js). Falha aberta, de propósito: sem D1, ou com ele fora, não há
+// como contar, e o portão existe para a foto chegar. A falha vai para o
+// /api/healthz, como a da checagem de varredura.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} slug
+ */
+async function passouDoTetoDeRestritos(env, ip, slug) {
+  if (!env.CONSENT_DB) return false;
+  try {
+    const { outrosRestritos } = await concessoesSemTurnstile(env.CONSENT_DB, ip, slug);
+    return outrosRestritos >= NOSCRIPT_RESTRITOS_POR_IP;
+  } catch (e) {
+    noteDegraded('teto de álbuns restritos sem Turnstile falhou', 'D1 não respondeu à contagem por IP; o portão liberou sem contar', e);
+    return false;
   }
 }
 
@@ -3005,7 +3227,10 @@ function handleManifest() {
     background_color: '#0a0a0a',
     theme_color: '#0a0a0a',
     icons: [
-      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
     ],
   };
   return new Response(JSON.stringify(manifest), {
@@ -3014,8 +3239,20 @@ function handleManifest() {
   });
 }
 
+const ICONES_PNG = Object.fromEntries(ICONES.map(i => [i.rota, i]));
+
+/** @param {string} rota */
+function handleIconePng(rota) {
+  const icone = ICONES_PNG[rota];
+  const bytes = Uint8Array.from(atob(icone.b64), c => c.charCodeAt(0));
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=604800' },
+  });
+}
+
 function handleIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="48" fill="#0a0a0a"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="140" font-weight="600" fill="#f0ebe5">f.</text></svg>`;
+  const svg = ICON_SVG;
   return new Response(svg, {
     status: 200,
     headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=604800' },
@@ -3068,6 +3305,218 @@ function handleFont(path) {
   });
 }
 
+const VENDOR_BY_PATH = new Map(VENDOR.map(v => [v.path, v]));
+
+/** @param {string} path */
+function handleVendor(path) {
+  const v = /** @type {typeof VENDOR[number]} */ (VENDOR_BY_PATH.get(path));
+  return new Response(v.texto, {
+    status: 200,
+    headers: { ...dataSecurityHeaders(v.contentType, { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Galeria própria — PRÉVIA (#234/#235)
+// ---------------------------------------------------------------------------
+// Fotos da pasta do Drive dentro do site, com visualizador e downloads
+// próprios. Por enquanto SÓ o dono logado no painel vê: para qualquer outra
+// pessoa as duas rotas devolvem o mesmo 404 de uma rota inexistente — nem a
+// existência da página vaza. A liberação gradual (testadores → porcentagem →
+// todos, #235) entra trocando só esta função, depois da aprovação do dono.
+//
+// Sem cookie de sessão, verifySession() responde sem tocar no KV: um robô
+// batendo em /galeria/… não custa leitura nenhuma.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function podeVerGaleria(request, env) {
+  return verifySession(env, request);
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {URL} url
+ * @param {string} nonce
+ */
+export async function handleGaleriaPagina(request, env, slug, url, nonce) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+
+  const pasta = pastaDoDrive(event.driveUrl);
+  /** @type {import('./drive.js').ListagemDrive | null} */
+  let listagem = null;
+  /** @type {{ codigo: string, mensagem: string } | null} */
+  let erro = null;
+  const atualizar = url.searchParams.has('atualizar');
+  if (!pasta) {
+    erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
+  } else {
+    try {
+      listagem = await listaPasta(env, pasta, { atualizar });
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      erro = { codigo: e.codigo, mensagem: e.message };
+    }
+  }
+  // Depois de reler, volta para o endereço limpo: recarregar a página não
+  // pode virar uma nova leitura forçada a cada F5.
+  if (atualizar && listagem) return redirect(`/galeria/${slug}`);
+  return adminHtml(galeriaHTML({ event, listagem, erro, nonce }), 200, nonce);
+}
+
+/**
+ * Download de uma foto da galeria. Proxy de propósito, e não link direto:
+ * (1) o original sai pela Drive API, que leva a chave — ela não pode ir para a
+ * página; (2) o nome do arquivo e o `Content-Disposition` são nossos; (3) sendo
+ * da mesma origem, o celular consegue montar o arquivo e oferecer "Salvar na
+ * galeria" (Web Share). Só entrega arquivo que ESTÁ na pasta do projeto —
+ * sem essa checagem, o Worker viraria um proxy aberto para qualquer arquivo
+ * público do Drive.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {URL} url
+ */
+export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
+  if (!await podeVerGaleria(request, env)) return notFound();
+  if (!idDriveValido(fileId)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  const pasta = event ? pastaDoDrive(event.driveUrl) : null;
+  if (!event || !pasta) return notFound();
+
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  try {
+    listagem = await listaPasta(env, pasta);
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return erroDownload(request, e.message, 502);
+  }
+  const foto = achaFoto(listagem, fileId);
+  if (!foto) return notFound();
+
+  const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
+  /** @type {Record<string, string>} */
+  const headers = {};
+  let alvo;
+  if (variante === 'max') {
+    alvo = urlOriginal(fileId, (env.GOOGLE_DRIVE_API_KEY || '').trim());
+    const rk = listagem.rk && listagem.rk[fileId];
+    if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${rk}`;
+  } else {
+    alvo = urlLh3(fileId, larguraRedes(foto[1], foto[2]));
+    // JPEG explícito: é o formato que toda rede aceita sem reconverter.
+    headers.Accept = 'image/jpeg,image/*;q=0.8';
+  }
+
+  // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
+  // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
+  // entregaria arquivo truncado.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let up;
+  try {
+    up = await fetch(alvo, { headers, signal: ctrl.signal });
+  } catch {
+    return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!up.ok) {
+    if (variante === 'max') {
+      const e = await erroDaApi(up);
+      // O caso mais provável num pico: a cota de download do arquivo (#233).
+      const msg = e.codigo === 'limite'
+        ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
+        : e.message;
+      return erroDownload(request, msg, up.status === 404 ? 404 : 502);
+    }
+    return erroDownload(request, `O Google recusou a foto (${up.status}).`, 502);
+  }
+
+  const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
+  const nome = nomeDownload(slug, foto[3], variante, tipo);
+  const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
+  h.set('Cache-Control', 'private, max-age=3600');
+  h.set('Content-Disposition', contentDisposition(nome));
+  // Lido pelo script da página para nomear o arquivo do "Salvar na galeria".
+  h.set('X-Nome-Arquivo', encodeURIComponent(nome));
+  const tamanho = up.headers.get('Content-Length');
+  if (tamanho) h.set('Content-Length', tamanho);
+  return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * Largura a pedir ao lh3 para a versão "para redes": o LADO MAIOR fica em
+ * GALERIA_LADO_REDES (o lh3 só aceita largura; numa foto em pé, a largura sai
+ * proporcional). Nunca acima do original.
+ * @param {number} w
+ * @param {number} h
+ */
+export function larguraRedes(w, h) {
+  if (!(w > 0 && h > 0)) return GALERIA_LADO_REDES;
+  if (w >= h) return Math.min(w, GALERIA_LADO_REDES);
+  return Math.min(w, Math.round(GALERIA_LADO_REDES * w / h));
+}
+
+/**
+ * Nome do arquivo baixado: <slug>-<nome original>[-redes].<ext>. O slug na
+ * frente evita que "001.jpg" de dois projetos se sobrescrevam na pasta de
+ * downloads.
+ * @param {string} slug
+ * @param {string} original
+ * @param {'redes'|'max'} variante
+ * @param {string} tipo
+ */
+export function nomeDownload(slug, original, variante, tipo) {
+  const ponto = original.lastIndexOf('.');
+  const extOriginal = ponto > 0 ? original.slice(ponto + 1).toLowerCase() : '';
+  const base = (ponto > 0 ? original.slice(0, ponto) : original)
+    .normalize('NFC')
+    .replace(/[\p{Cc}"\\/:*?<>|]+/gu, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'foto';
+  /** @type {Record<string, string>} */
+  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif', 'image/tiff': 'tif' };
+  const ext = variante === 'redes'
+    ? (EXT[tipo] || 'jpg')
+    : (/^[a-z0-9]{1,5}$/.test(extOriginal) ? extOriginal : (EXT[tipo] || 'jpg'));
+  const prefixo = base.toLowerCase().startsWith(slug) ? '' : `${slug}-`;
+  return `${prefixo}${base}${variante === 'redes' ? '-redes' : ''}.${ext}`;
+}
+
+/**
+ * `attachment` com o nome em UTF-8 (RFC 6266/5987) e um ASCII de reserva para
+ * quem não lê o `filename*`. O nome já chega sem aspas, barras nem controle.
+ * @param {string} nome
+ */
+export function contentDisposition(nome) {
+  const ascii = nome.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '') || 'foto.jpg';
+  const utf8 = encodeURIComponent(nome).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+}
+
+/**
+ * Erro de download: página para quem abriu o link (navegação), JSON para o
+ * script que montava o "Salvar na galeria".
+ * @param {Request} request
+ * @param {string} mensagem
+ * @param {number} status
+ */
+function erroDownload(request, mensagem, status) {
+  if ((request.headers.get('Accept') || '').includes('text/html')) {
+    return errorPage('Ops', escape(mensagem), status);
+  }
+  return jsonErr(mensagem, status);
+}
+
 // ---------------------------------------------------------------------------
 // Backup — full site state (v2), with v1-compatible restore
 // ---------------------------------------------------------------------------
@@ -3110,6 +3559,33 @@ function textoRestaurado(v) {
   // Número vira o texto dele ("title": 2026 → "2026"); objeto, lista e
   // booleano não têm leitura honesta como texto e viram vazio.
   return typeof v === 'number' && Number.isFinite(v) ? String(v) : '';
+}
+
+// Link de Drive falso que a PRÉVIA grava no lugar do real nos álbuns restritos.
+// Só precisa ser https e não vazio: a página e `driveTarget` olham se o campo
+// existe, e nenhum dos dois abre o álbum.
+const DRIVE_FALSO_DA_PREVIA = 'https://drive.google.com/drive/folders/previa-sem-album-real';
+const CAMPOS_DRIVE = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos'];
+
+// O Turnstile da prévia passa para qualquer visitante, então
+// `POST /api/drive-link` devolve o `driveUrl` de quem pedir. Restaurar o backup
+// de produção ali com os links reais dos álbuns private/family os entregaria a
+// qualquer pessoa: nas prévias eles entram trocados por um falso.
+/**
+ * @param {unknown[]} eventos
+ * @returns {unknown[]}
+ */
+export function neutralizaLinksRestritosNaPrevia(eventos) {
+  return eventos.map(ev => {
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return ev;
+    const e = /** @type {Record<string, any>} */ (ev);
+    if (!isRestrictedAccess(e)) return ev;
+    const out = { ...e };
+    for (const f of CAMPOS_DRIVE) {
+      if (typeof out[f] === 'string' && out[f].trim()) out[f] = DRIVE_FALSO_DA_PREVIA;
+    }
+    return out;
+  });
 }
 
 // Um evento do backup só entra com IDENTIDADE utilizável — sem ela ele não é
@@ -3214,18 +3690,31 @@ export function mergeRestore(current, backupEvents) {
   return { events: result, added, updated, skipped };
 }
 
+// Marca o instante da entrega em `backup:ultimo` (o lembrete "último backup há N
+// dias" do painel). Só depois de o arquivo estar pronto — um backup que falhou
+// não conta — e fora do caminho da resposta: o download não espera o KV nem
+// falha por ele (a recusa vai para o healthz, ver registraUltimoBackup).
+// `headOnly`: HEAD não baixa nada. Uma escrita por download.
 /**
  * @param {Request} request
  * @param {Env} env
+ * @param {ExecutionContext} [ctx]
+ * @param {boolean} [headOnly]
  */
-async function handleGetBackup(request, env) {
+export async function handleGetBackup(request, env, ctx, headOnly = false) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const [events, categories, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), getRemovalRequests(env),
+    getEvents(env, true), getCategories(env), listaPedidos(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  return new Response(buildBackup({ events, categories, removalRequests }), {
+  const arquivo = buildBackup({ events, categories, removalRequests });
+  if (!headOnly) {
+    const marcado = registraUltimoBackup(env);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(marcado);
+    else await marcado;
+  }
+  return new Response(arquivo, {
     headers: {
       // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
       // remoção, com e-mail e telefone de cada titular.
@@ -3251,7 +3740,8 @@ async function handleRestoreBackup(request, env) {
   // criado noutro isolate) ou, pior, sobre a cópia de sobrevivência de até 7
   // dias se o KV estivesse fora — e gravar isso como se fosse o estado atual.
   const current = await getEvents(env, true);
-  const { events: merged, added, updated, skipped } = mergeRestore(current, body.events);
+  const doBackup = ehPrevia(env) ? neutralizaLinksRestritosNaPrevia(body.events) : body.events;
+  const { events: merged, added, updated, skipped } = mergeRestore(current, doBackup);
   await saveEvents(env, merged);
   // `categories` e `removalRequestsAdded` entram depois, só quando o backup
   // traz essas seções (v2). A forma inferida do literal não as inclui.
@@ -3275,20 +3765,33 @@ async function handleRestoreBackup(request, env) {
     if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
-  if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await getRemovalRequests(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
-    let rAdded = 0;
+  // Na PRÉVIA de PR, os pedidos de remoção do backup ficam de fora: são dados
+  // pessoais de terceiros (e-mail, telefone), e a prévia manda e-mail de
+  // verdade — "resolver" um pedido lá escreveria para uma pessoa real sobre
+  // um teste. Para testar o fluxo, faça um pedido novo pela própria prévia.
+  if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
+    result.removalRequestsSkipped = body.removalRequests.length;
+  } else if (Array.isArray(body.removalRequests)) {
+    const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
+    /** @type {Record<string, any>[]} */
+    const novos = [];
     for (const r of body.removalRequests) {
       const clean = sanitizeRestoredRequest(r);
-      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); rAdded++; }
+      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
     }
-    // Teto no total: o corpo vem de um arquivo escolhido à mão e nada impedia
-    // um restore de inflar `removal_requests` além do limite de valor do KV,
-    // que falha a escrita e derruba a lista inteira, não só o excedente.
-    const merged = [...byId.values()];
-    trimRequests(merged, 500);
-    await env.FOTOS.put('removal_requests', JSON.stringify(merged));
-    result.removalRequestsAdded = rAdded;
+    // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
+    // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
+    // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
+    // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
+    // restaurar o mesmo arquivo de novo continua de onde parou (id que já
+    // existe é pulado).
+    trimRequests(novos, 500);
+    let gravados = 0;
+    try {
+      for (const r of novos) { await gravaPedido(env, r); gravados++; }
+    } finally {
+      result.removalRequestsAdded = gravados;
+    }
   }
 
   return jsonOk(result);

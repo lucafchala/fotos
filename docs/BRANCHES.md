@@ -27,8 +27,9 @@ Este é o único lugar onde estas regras estão escritas; `llms.md` e
 `<issue>` é o número da issue que o branch resolve (`fix/118-queda-do-kv`);
 sem issue, só o assunto. Minúsculas, palavras separadas por hífen.
 
-**Não há `develop` nem `staging`, de propósito.** Cada PR já ganha um build
-próprio (Workers Builds), e o deploy da `main` passa por versão sem tráfego,
+**Não há `develop` nem `staging`, de propósito.** Cada PR já ganha uma prévia
+própria, com dados próprios (Worker Previews; README, "Prévia de PR"), e o
+deploy da `main` passa por versão sem tráfego,
 smoke e reversão automática — o papel que um staging teria. Um branch de
 integração sem ambiente próprio só acumularia diferença em relação à
 produção.
@@ -150,10 +151,11 @@ Import a ruleset**, escolha o arquivo, confira e salve. O que ela impõe:
 - quem administra o repositório pode passar por cima **só dentro de um PR**
   (CI fora do ar numa emergência), nunca com push direto.
 
-Ficam de fora dos obrigatórios, de propósito: **Workers Builds**, que reprova
-por desenho em PR com migração de Durable Object (`RETOMADA.md` §5.3-b), e
-**CodeQL**, configurado fora do repositório — se for desligado, um check
-obrigatório que nunca chega trava todo merge. Aprovação obrigatória também
+Ficam de fora dos obrigatórios, de propósito, os dois checks configurados fora
+do repositório — se um for desligado, um check obrigatório que nunca chega
+trava todo merge: **Workers Builds** (a prévia de PR; até a troca para Worker
+Previews, em 12/10/2026, ele também reprovava por desenho em PR com migração
+de Durable Object — `RETOMADA.md` §5.3-b) e **CodeQL**. Aprovação obrigatória também
 fica de fora: com um mantenedor só, ela travaria tudo.
 
 Os nomes dos checks exigidos precisam existir num workflow que roda em
