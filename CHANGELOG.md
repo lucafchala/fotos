@@ -25,6 +25,13 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ### Novo
 
+- **"Sair dos outros aparelhos"** em Ajustes → Conta. Encerra a sessão do painel
+  em todos os aparelhos menos o atual (`POST /api/sessions/revoke-others`); em
+  outro lugar pode levar até 30 s.
+- **Lembrete de backup** em Ajustes → Dados: "Último backup: hoje / ontem / há N
+  dias", que vira aviso se o backup nunca foi baixado ou tem mais de 30 dias.
+  Nova chave KV `backup:ultimo`, gravada pelo `GET /api/backup` (o `HEAD` não
+  conta).
 - **Galeria própria, em prévia só do dono** (#235). As fotos da pasta do Drive
   de cada projeto dentro do site, em `/galeria/<slug>`: grade justificada na
   proporção real, visualizador na resolução física da tela, zoom que busca
@@ -175,6 +182,11 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ### Segurança e LGPD
 
+- **A revogação de sessões fecha a janela do cache do KV.** O "Sair dos outros
+  aparelhos" — e a troca de senha, que usa a mesma implementação — grava o
+  marcador `admin_sessions_corte` (TTL 25 h), que `verifySession` consulta antes
+  de renovar o `lastSeen`. Antes, o cache do KV deixava um aparelho revogado
+  entrar e a renovação do `lastSeen` ressuscitava a sessão por mais 24 h.
 - **Álbum de família ou privado: consentimento, não sigilo (#146).** A
   decisão do dono sobre o caminho sem a verificação de segurança (Turnstile
   bloqueado no navegador): ele continua entregando o álbum, mas pede o
@@ -203,11 +215,13 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 - `npm run verifica:painel`: o painel logado num Chromium de verdade, contra o
   `src/index.js` de verdade (`scripts/worker-local.mjs`), no iPhone, no
-  Android e no computador — 211 checagens em ~45 s, das Métricas com série
+  Android e no computador — 235 checagens em ~45 s, das Métricas com série
   sintética à troca de senha e à sessão que cai no meio de uma edição, com o
   foco (a lista, a folha, as Métricas, Pedidos e Ajustes percorridos pelo
   Tab), os alvos de toque de cada seção, todo `hidden` de fato escondido e o
   que o fluxo grava no KV. Ver `docs/VERIFICACAO.md`.
+- O roteiro do painel passou de 211 para 235 checagens, e as escritas no KV por
+  aparelho, de 13 para 16 (17 no computador).
 - `npm run verifica:previa`: a faixa e o menu "Testes" num Chromium de
   verdade, no celular e no computador — portão lotado de verdade no servidor,
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o

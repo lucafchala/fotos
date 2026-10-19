@@ -183,8 +183,10 @@ issue before any public disclosure.
 
 ## Controls / Controles
 
-A map of what protects what. Every item is pinned by `tests/security.test.js` or
-`tests/drive-gate.test.js`; the policy itself lives in one place, `src/security.js`.
+A map of what protects what. Every item is pinned by a test — `tests/security.test.js`,
+`tests/drive-gate.test.js`, and the session revocation marker by
+`tests/sessoes-corte.test.js` and `tests/workers/sessoes.workers.test.js`; the
+policy itself lives in one place, `src/security.js`.
 
 | Control | Where | What it stops |
 | --- | --- | --- |
@@ -195,6 +197,7 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Signed form token + honeypot | `/suporte`, removal form | Bots posting straight at the endpoints |
 | `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
 | Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
+| Session revocation marker `admin_sessions_corte` (TTL 25 h) | `encerraOutrasSessoes()`, checked by `verifySession()` | The window KV's eventual consistency leaves after a delete: a revoked device still passes for up to 30 s elsewhere, and a `lastSeen` renewal landing inside it resurrects the record for another 24 h. "Sair dos outros aparelhos" (`POST /api/sessions/revoke-others`) and the password sweep write the cutoff first; `verifySession` refuses any session created before it except the requester's own |
 | Layered login rate limit + e-mail alert | `handleLogin()` | Silent brute force |
 | Turnstile on the panel login | `handleLogin()`, `checkTurnstile()` | Password guessing spread across many IPs, which the per-IP limit never sees |
 | Password policy (12+, classes, weak patterns) | `validatePassword()` | An offline attack against a leaked hash |
@@ -372,14 +375,36 @@ the failure goes to `noteDegraded()` — so `/api/healthz` reports it and the
 status dashboard goes red — and to `sendErrorAlert()`. Pinned by
 `tests/kv.test.js`, verified failing against the previous code.
 
+Even a successful delete has a tail, and it is why logout alone is not a full
+answer. KV is **eventually consistent**: the delete reaches another region only
+after that region's cache expires. Inside that window the revoked token is still
+accepted — and if the `lastSeen` renewal lands there, the `put` in
+`verifySession` **resurrects** the deleted record, old `createdAt` and all, for
+another 24 hours. Bulk revocation therefore refuses *by creation time*, instead
+of trusting deletes: it first writes a marker, `admin_sessions_corte` —
+`{antes: <now>, exceto: <sha256 of the current token>}`, TTL 25 h (past the
+24-hour cap there is nothing left to cut) — and `verifySession` reads it
+alongside the session record and rejects any session created *before* `antes`
+that does not hash to `exceto`. The check runs deliberately **before** the
+renewal, so nothing resurrects under it. That is what "Sair dos outros
+aparelhos" does (`POST /api/sessions/revoke-others`, Ajustes → Conta; on another
+region the change can take up to 30 s to land), and the window it closes is the
+KV cache's own: from "up to 24 h" down to the 30 s `cacheTtl` both reads use.
+Pinned by `tests/sessoes-corte.test.js`, which models the propagation window,
+and by `tests/workers/sessoes.workers.test.js` against real KV.
+
 The same reasoning applies to the **session sweep after a password change**
 (`PUT /api/settings/password`). Changing the password is what you do when you
 believe it has leaked, and the sweep of the other sessions is what evicts
 whoever is already inside. The sweep is deliberately best-effort — a KV hiccup
 must not undo a password change that already succeeded — but its `Promise.all`
-rejects on the first delete that fails, so the sweep can also be *partial*.
-Either way the admin used to get a plain `ok: true` while old sessions stayed
-open for up to 24 hours. It now records a degradation and emails.
+rejects on the first delete that fails, so the sweep can also be *partial*. The
+sweep is now `encerraOutrasSessoes()`, the single implementation it shares with
+"Sair dos outros aparelhos" — and the marker it writes *first* (above) carries
+the revocation even when the deletes are partial: what a failure can still cost
+is the marker write itself. The admin who used to get a plain `ok: true` while
+old sessions stayed open for up to 24 hours now gets a degradation on
+`/api/healthz` and an email.
 
 ### A support message that was never sent no longer shows a success screen
 
