@@ -25,6 +25,7 @@ import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { sobeWorker, entraNoPainel } from './worker-local.mjs';
+import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -88,6 +89,8 @@ const TURNSTILE_FALSO = `window.turnstile = {
 };`;
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+// O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
+await provaOVigia(browser, registra);
 
 /** Toque no celular, clique no computador. */
 const aciona = async (/** @type {import('playwright-core').Locator} */ l, /** @type {boolean} */ toque) => (toque ? l.tap() : l.click());
@@ -138,10 +141,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
     const page = await ctx.newPage();
     const estado = { erros: /** @type {string[]} */ ([]), csp: /** @type {string[]} */ ([]) };
     page.on('pageerror', e => estado.erros.push(String(e)));
-    page.on('console', m => {
-      const t = m.text();
-      if (/Content Security Policy/i.test(t) && !/Report Only/i.test(t)) estado.csp.push(t.slice(0, 160));
-    });
+    vigiaCsp(page, estado.csp);
     await page.route(/lh3\.googleusercontent\.com/, r => r.fulfill({ contentType: 'image/png', body: PNG }));
     await page.route(/challenges\.cloudflare\.com/, r => r.fulfill({ contentType: 'text/javascript', body: TURNSTILE_FALSO }));
     try {
@@ -257,7 +257,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       }
 
       registra(estado.erros.length === 0, `${rotulo}: nenhum erro de JS`, estado.erros);
-      registra(estado.csp.length === 0, `${rotulo}: nenhuma violação da CSP aplicada`, estado.csp);
+      registra(estado.csp.length === 0, `${rotulo}: nenhuma mensagem de CSP no console`, estado.csp);
     } finally {
       await ctx.close();
       await w.fecha();

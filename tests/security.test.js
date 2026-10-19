@@ -275,29 +275,78 @@ describe('cabeçalhos de segurança', () => {
     expect(h['X-Robots-Tag']).toMatch(/noindex/);
     expect(h['Referrer-Policy']).toBe('no-referrer');
   });
+
+  it('sends exactly ONE CSP header, the strict one, and no Report-Only', () => {
+    // #126: com a estrita aplicada, um Report-Only ao lado dela repetiria cada
+    // relatório e cada mensagem de console — e esconderia no ruído a violação
+    // de verdade. O Reporting-Endpoints é o destino do `report-to csp` da
+    // própria política aplicada.
+    for (const perfil of [htmlSecurityHeaders, adminHtmlSecurityHeaders]) {
+      const h = perfil('abc123');
+      expect(h['Content-Security-Policy']).toBe(contentSecurityPolicy('abc123'));
+      expect(Object.keys(h).filter(k => /^content-security-policy/i.test(k))).toEqual(['Content-Security-Policy']);
+      expect(h['Reporting-Endpoints']).toBe('csp="/api/csp-report"');
+    }
+  });
 });
+
+// A diretiva `nome` de uma política, como o browser a lê (até o próximo `; `).
+const diretivaDa = (/** @type {string} */ csp, /** @type {string} */ nome) =>
+  csp.split('; ').find(d => d === nome || d.startsWith(`${nome} `)) || '';
 
 // ---------------------------------------------------------------------------
 describe('Content-Security-Policy', () => {
   const nonce = generateNonce();
 
-  it('NEVER puts a nonce in the enforced policy while inline handlers exist', () => {
-    // Este é o teste mais importante do arquivo. Pela CSP Level 3, a presença
-    // de um nonce faz o browser DESCARTAR o 'unsafe-inline'. Ou seja,
-    // `'self' 'unsafe-inline' 'nonce-x'` não é "os dois" — é só o nonce, e
-    // todo handler onclick="…" para de executar: galeria, carrossel, gate do
-    // Drive, modal de remoção e o painel inteiro morrem juntos.
+  it('is the STRICT policy: the nonce in script-src, and no unsafe-inline there', () => {
+    // O teste mais importante do arquivo (#126: a estrita é a única política).
+    // Pela CSP Level 3, a presença de um nonce faz o browser DESCARTAR o
+    // 'unsafe-inline': `'self' 'unsafe-inline' 'nonce-x'` não é "os dois" — é
+    // só o nonce. Então 'unsafe-inline' ao lado do nonce não afrouxa nada, só
+    // faz a string da política mentir; e SEM o nonce, todo <script> inline da
+    // página (o painel, o portão do Drive, a galeria) seria barrado.
     //
-    // Já aconteceu uma vez, e só foi pego em verificação com browser real —
-    // porque um teste sobre o TEXTO da política não enxerga a SEMÂNTICA dela.
-    // Este teste existe para que não aconteça de novo.
-    const enforced = contentSecurityPolicy(nonce);
-    expect(enforced).not.toContain('nonce-');
-    expect(enforced.split('; ').find(d => d.startsWith('script-src'))).toContain("'unsafe-inline'");
+    // O defeito que este arquivo já viu foi o espelho disto — um nonce numa
+    // política que ainda dependia de 'unsafe-inline', e a interface inteira
+    // morta com a suíte verde, porque um teste sobre o TEXTO da política não
+    // enxerga a SEMÂNTICA dela. Por isso, além daqui, os roteiros `verifica:*`
+    // rodam num browser de verdade com esta política aplicada.
+    const scriptSrc = diretivaDa(contentSecurityPolicy(nonce), 'script-src');
+    expect(scriptSrc).toContain(`'nonce-${nonce}'`);
+    expect(scriptSrc).toContain("'self'");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
-  it('carries the per-request nonce in the strict (report-only) policy', () => {
-    expect(contentSecurityPolicy(nonce, { strict: true })).toContain(`'nonce-${nonce}'`);
+  it('allows scripts only from self, the nonce, Turnstile and the analytics beacon', () => {
+    // Cada origem a mais em script-src é código de terceiro rodando na origem
+    // do site. 'strict-dynamic' fica de fora de propósito: ele faria o browser
+    // ignorar as origens daqui, e nada no site precisa dele (os roteiros
+    // provam Turnstile e beacon só com nonce + host). Quem quiser mudar isto
+    // muda este teste de olhos abertos.
+    expect(diretivaDa(contentSecurityPolicy(nonce), 'script-src')).toBe(
+      `script-src 'self' 'nonce-${nonce}' https://challenges.cloudflare.com https://static.cloudflareinsights.com`);
+  });
+
+  it('keeps unsafe-inline out of every directive except style-src', () => {
+    // 'unsafe-inline' em estilo é a concessão que sobra: os atributos style="…"
+    // e os <style> de cada página dependem dela, e CSS não executa script sob
+    // esta política. Em qualquer outra diretiva (default-src inclusive, de
+    // onde o script-src herdaria se sumisse) ele reabriria o buraco.
+    const csp = contentSecurityPolicy(nonce);
+    const com = csp.split('; ').filter(d => d.includes("'unsafe-inline'")).map(d => d.split(' ')[0]);
+    expect(com).toEqual(['style-src']);
+    expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).not.toContain("'unsafe-hashes'");
+    expect(csp).not.toContain("'strict-dynamic'");
+  });
+
+  it('NEVER puts a nonce in style-src (the same CSP3 trap, the other way round)', () => {
+    // Um nonce em style-src faz o browser descartar o 'unsafe-inline' DE
+    // ESTILO, e todo style="…" e todo <style> das páginas morre — o painel
+    // inteiro perde o layout, com o texto da política parecendo certo.
+    const styleSrc = diretivaDa(contentSecurityPolicy(nonce), 'style-src');
+    expect(styleSrc).toBe("style-src 'self' 'unsafe-inline'");
+    expect(styleSrc).not.toContain('nonce-');
   });
 
   it('never permits eval, plugins or framing', () => {
@@ -309,29 +358,21 @@ describe('Content-Security-Policy', () => {
     expect(csp).toContain("form-action 'self'");
   });
 
-  it('drops unsafe-inline in the strict (report-only) policy', () => {
-    // A política estrita é a que queremos passar a impor. Ela existe em
-    // Report-Only justamente para medir quantos handlers inline sobraram antes
-    // da virada — ver o comentário em contentSecurityPolicy().
-    const strict = contentSecurityPolicy(nonce, { strict: true });
-    const scriptSrc = strict.split('; ').find(d => d.startsWith('script-src'));
-    expect(scriptSrc).not.toContain("'unsafe-inline'");
-    expect(scriptSrc).toContain(`'nonce-${nonce}'`);
+  it('keeps upgrade-insecure-requests and reports violations to the collector', () => {
+    // A política aplicada continua relatando (a Report-Only saiu, #126): é por
+    // aqui que uma extensão do visitante ou um script novo sem nonce aparece
+    // no log de produção, onde nenhum roteiro alcança.
+    const csp = contentSecurityPolicy(nonce);
+    expect(csp.split('; ')).toContain('upgrade-insecure-requests');
+    expect(csp).toContain('report-uri /api/csp-report');
+    expect(csp).toContain('report-to csp');
   });
 
-  it('keeps the enforced policy hard everywhere except inline scripts', () => {
-    // O 'unsafe-inline' é a única concessão. Se alguém o remover antes de os
-    // handlers saírem do HTML, a UI quebra — e se acrescentar um nonce ao lado
-    // dele, quebra igual (teste acima). Todo o resto continua fechado.
-    const enforced = contentSecurityPolicy(nonce);
-    expect(enforced).toContain("object-src 'none'");
-    expect(enforced).toContain("base-uri 'none'");
-    expect(enforced).toContain("frame-ancestors 'none'");
-    expect(enforced).not.toContain("'unsafe-eval'");
-  });
-
-  it('routes violations to the collector', () => {
-    expect(contentSecurityPolicy(nonce, { strict: true })).toContain('report-uri /api/csp-report');
+  it('differs between two nonces only in the nonce itself', () => {
+    // O nonce é o único dado por requisição; todo o resto é a mesma política.
+    const a = contentSecurityPolicy('AAAAAAAAAAAAAAAAAAAAAA');
+    const b = contentSecurityPolicy('BBBBBBBBBBBBBBBBBBBBBB');
+    expect(a.replace('AAAAAAAAAAAAAAAAAAAAAA', 'N')).toBe(b.replace('BBBBBBBBBBBBBBBBBBBBBB', 'N'));
   });
 });
 
@@ -837,23 +878,57 @@ describe('CSRF no dispatcher', () => {
     }
   });
 
-  it('binds the report-only nonce to the one in the markup', async () => {
+  it('binds the nonce in the CSP header to the one in the markup', async () => {
     // Um nonce no HTML que não bate com o do cabeçalho equivale a não ter nonce
-    // nenhum. Como o nonce vive só na política estrita, é o cabeçalho
-    // Report-Only que precisa casar com a marcação — é ele que mede o que falta
-    // para a virada.
+    // nenhum — e agora, com a estrita aplicada, é a página sem script.
     const res = await worker.fetch(new Request('https://fotos.lucafchala.com/'), { FOTOS: kv() }, ctx);
-    const ro = res.headers.get('Content-Security-Policy-Report-Only');
-    const headerNonce = ro.match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
+    const headerNonce = res.headers.get('Content-Security-Policy').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
     expect(await res.text()).toContain(`nonce="${headerNonce}"`);
-    // E o enforced não pode carregar nonce nenhum, senão a página trava.
-    expect(res.headers.get('Content-Security-Policy')).not.toContain('nonce-');
+    // Um cabeçalho só: a Report-Only saiu com a virada (#126).
+    expect(res.headers.get('Content-Security-Policy-Report-Only')).toBeNull();
+  });
+
+  it('serves the strict policy on every page type, and every <script> carries the header nonce', async () => {
+    // O elo que o teste das páginas renderizadas (rendered-pages) não vê: o
+    // nonce que o roteador gera é o MESMO que ele passa ao template e ao
+    // cabeçalho. Um template chamado sem o nonce — ou com `''` — emitiria
+    // `nonce=""`, e o browser barraria todo script da página.
+    const evento = {
+      id: 'e1', slug: 'evento', title: 'Evento', accessType: 'public', driveUrl: 'https://drive.google.com/x',
+      visible: true, comingSoon: false, photos: ['https://lh3.googleusercontent.com/d/AAA'], thumbnailUrl: '',
+      date: '2026-01-15', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
+    };
+    const paginas = ['/', '/evento', '/suporte', '/sobre', '/privacidade', '/termos', '/legal', '/equipamentos',
+      '/legal/seguranca-da-informacao', '/dashboard', '/__nao_existe__'];
+    for (const path of paginas) {
+      // `admin_password` qualquer: sem ele o /dashboard responde "não configurado".
+      const env = withDurableObjects({ FOTOS: kv({ events: JSON.stringify([evento]), admin_password: 'pbkdf2:1:00:00' }) });
+      const res = await worker.fetch(new Request(`https://fotos.lucafchala.com${path}`), env, ctx);
+      const csp = res.headers.get('Content-Security-Policy') || '';
+      const scriptSrc = diretivaDa(csp, 'script-src');
+      expect(scriptSrc, `${path}: script-src`).toContain("'self'");
+      expect(scriptSrc, `${path}: sem unsafe-inline`).not.toContain("'unsafe-inline'");
+      expect(res.headers.get('Content-Security-Policy-Report-Only'), `${path}: sem Report-Only`).toBeNull();
+      const nonceDoCabecalho = scriptSrc.match(/'nonce-([A-Za-z0-9_-]+)'/)?.[1] ?? null;
+      const scripts = [...(await res.text()).matchAll(/<script\b[^>]*>/gi)].map(m => m[0]);
+      if (!nonceDoCabecalho) {
+        // Página de erro: sem nonce na política, tem de ser sem script.
+        expect(scripts, `${path}: script numa página sem nonce`).toEqual([]);
+        continue;
+      }
+      // As páginas estáticas (termos, privacidade…) recebem o nonce no cabeçalho
+      // mas não têm script; nas que têm, sem script o teste valeria nada.
+      if (['/', '/evento', '/suporte', '/dashboard'].includes(path)) {
+        expect(scripts.length, `${path}: a página tem script, o teste valeria nada sem ele`).toBeGreaterThan(0);
+      }
+      for (const tag of scripts) expect(tag, `${path}: script sem o nonce do cabeçalho`).toContain(`nonce="${nonceDoCabecalho}"`);
+    }
   });
 
   it('gives every response a fresh nonce', async () => {
     const get = async () => (await worker.fetch(
       new Request('https://fotos.lucafchala.com/'), { FOTOS: kv() }, ctx
-    )).headers.get('Content-Security-Policy-Report-Only').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
+    )).headers.get('Content-Security-Policy').match(/'nonce-([A-Za-z0-9_-]+)'/)[1];
     expect(await get()).not.toBe(await get());
   });
 });
@@ -863,7 +938,7 @@ describe('CSP sem nonce (páginas de erro)', () => {
     // `'nonce-'` vazio é sintaticamente inválido: o browser descarta o token e
     // a política passa a valer por acidente, não por intenção. Páginas de erro
     // não têm script, então a fonte simplesmente não aparece.
-    const csp = contentSecurityPolicy('', { strict: true });
+    const csp = contentSecurityPolicy('');
     expect(csp).not.toContain("'nonce-'");
     expect(csp).toContain("script-src 'self' https://challenges.cloudflare.com");
     // O resto da política continua inteiro numa página de erro.
@@ -1446,7 +1521,7 @@ describe('HEAD responde como GET', () => {
     // com `curl -sI`, caía na resposta 404 (que não tem script inline, logo não
     // tem nonce) e acusava a CSP. O sintoma apontava para a política; a causa
     // era o método.
-    expect(h.headers.get('Content-Security-Policy-Report-Only')).toMatch(/'nonce-/);
+    expect(h.headers.get('Content-Security-Policy')).toMatch(/'nonce-/);
     expect(h.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(h.headers.get('Content-Type')).toMatch(/text\/html/);
   });

@@ -146,5 +146,6 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · ⚖️ depende de parecer
    *(Feito em 23/09/2026 — o Inter sai de `/fonts/`, e o Google Fonts saiu da CSP.)*
 9. Segundo fator no painel.
 10. Concluir a migração da CSP (remover handlers inline, impor a política estrita).
+    *(Feito em 17/10/2026 — #126: nenhum handler inline sobrou, e a estrita é a política aplicada.)*
 11. Registrar formalmente o encarregado, conforme o enquadramento de porte.
 12. Ensaiar o plano de incidentes uma vez por ano.

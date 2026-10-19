@@ -22,6 +22,7 @@ import { chromium } from 'playwright-core';
 import { galeriaHTML } from '../src/ui/galeria.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
+import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../src/config.js';
 
 function chromiumLocal() {
@@ -105,6 +106,8 @@ async function imagem(id, pedida, webp) {
 }
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+// O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
+await provaOVigia(browser, registra);
 
 /**
  * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, escuro?: boolean }} o
@@ -135,14 +138,9 @@ async function abre(o = {}) {
     downloads: /** @type {string[]} */ ([]),
     erros: /** @type {string[]} */ ([]),
     csp: /** @type {string[]} */ ([]),
-    cspRO: /** @type {string[]} */ ([]),
   };
   page.on('pageerror', e => estado.erros.push(String(e)));
-  page.on('console', m => {
-    const t = m.text();
-    if (!/Content Security Policy/i.test(t)) return;
-    if (/Report Only/i.test(t)) estado.cspRO.push(t.slice(0, 160)); else estado.csp.push(t.slice(0, 160));
-  });
+  vigiaCsp(page, estado.csp);
   await page.route('**/*', async route => {
     const r = route.request();
     const u = new URL(r.url());
@@ -268,7 +266,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   const pedidas = new Set(estado.lh3.map(x => x.id)).size;
   registra(pedidas < TODAS.length, `${nome}: carga preguiçosa (pediu ${pedidas} de ${TODAS.length} miniaturas)`, pedidas);
   registra(estado.lh3.every(x => x.webp), `${nome}: WebP (o navegador decodifica)`, estado.lh3.slice(0, 2));
-  registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem bloqueio de CSP`, [...estado.erros, ...estado.csp]);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem mensagem de CSP`, [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, `grade-${nome.replace(/[^a-z0-9]+/gi, '-')}.png`) });
   await ctx.close();
   });
@@ -356,7 +354,7 @@ await cenario('Visualizador no iPhone', async () => {
   await page.touchscreen.tap(cx, cy);
   const zoom = await esperaLargura(page, ini.w + 1, 6000);
   registra(zoom.w > ini.w, 'iPhone: duplo toque amplia e pede resolução maior', { antes: ini.w, depois: zoom.w });
-  registra(estado.erros.length === 0, 'iPhone: sem erro de JS', estado.erros);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'visualizador-iphone.png') });
   await ctx.close();
 });
@@ -372,7 +370,7 @@ await cenario('Link direto', async () => {
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
     'Link direto: voltar fecha a foto e fica na galeria (não sai do site)', page.url());
-  registra(estado.erros.length === 0, 'Link direto: sem erro de JS', estado.erros);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Link direto: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -408,7 +406,7 @@ await cenario('Downloads no computador', async () => {
   await page.keyboard.press('Escape');
   await espera(page, 400);
   registra(await page.locator('#g-folha').isHidden() && (await page.locator('.pswp--open').count()) === 1, 'Computador: Esc fecha a folha e mantém o visualizador', '');
-  registra(estado.erros.length === 0, 'Computador: downloads sem erro de JS', estado.erros);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Computador: downloads sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -450,7 +448,7 @@ for (const [nome, viewport, dpr] of /** @type {const} */ ([
     const depois2 = { foto: (await page.locator('.pswp--open').count()) === 1, url: page.url() };
     registra(depois1.folha && depois1.foto && !depois2.foto && depois2.url === 'https://fotos.test/galeria/formatura',
       `${nome}: voltar fecha a folha, depois a foto, e fica na galeria`, { depois1, depois2 });
-    registra(estado.erros.length === 0, `${nome}: sem erro de JS`, estado.erros);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
     await ctx.close();
   });
 }
@@ -478,7 +476,7 @@ await cenario('Seleção', async () => {
   await espera(page, 3200);
   registra(pedidos.join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes,RAIZFOTO_000007?v=redes',
     'Seleção: três downloads "para redes" no computador, um por foto marcada', pedidos);
-  registra(estado.erros.length === 0, 'Seleção: sem erro de JS', estado.erros);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 

@@ -13,15 +13,23 @@
 // comportamento do script da página; o do servidor está na suíte
 // (tests/drive-gate.test.js e tests/workers/counters.workers.test.js).
 //
+// A página sai com os cabeçalhos REAIS do site (htmlSecurityHeaders, o mesmo
+// que `html()` aplica em src/index.js), a CSP estrita inclusive: antes saía sem
+// cabeçalho nenhum, e este roteiro — o que mais mexe em script, Turnstile e
+// beacon — nunca teria visto um script sem nonce. Qualquer mensagem de CSP no
+// console de qualquer cenário é uma FALHA (scripts/vigia-csp.mjs).
+//
 // Nasceu da rodada de out/2026 (evento com ~750 pessoas): o portão repetia o
 // pedido sozinho e sem teto a cada erro — 27 pedidos em 8 s por celular — e
 // os celulares baixavam 3 fotos de 1600 px só para abrir a página.
 
 // As funções passadas a addInitScript/evaluate rodam DENTRO do Chromium.
-/* global navigator, MouseEvent, document */
+/* global navigator, MouseEvent, document, window */
 import { existsSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { eventHTML } from '../src/ui/event.js';
+import { htmlSecurityHeaders } from '../src/security.js';
+import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -45,9 +53,16 @@ const EVENTO = {
   category: 'Casamento', date: '2026-01-15', eventCredits: '', longDescription: 'x',
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
 };
-const HTML = eventHTML(/** @type {any} */ (EVENTO), 2026, '', 'n0nce', 'drive-nonce', '');
+// O nonce da página E o do cabeçalho são o mesmo, como em src/index.js: um
+// nonce no HTML que não casa com o do cabeçalho seria um script bloqueado.
+const NONCE = 'n0nce';
+const HTML = eventHTML(/** @type {any} */ (EVENTO), 2026, '', NONCE, 'drive-nonce', '');
 // Álbum de família: sem o Turnstile, o portão pede o nome (#146).
-const HTML_FAMILIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'familia', title: 'Família', accessType: 'family' }), 2026, '', 'n0nce', 'drive-nonce', '');
+const HTML_FAMILIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'familia', title: 'Família', accessType: 'family' }), 2026, '', NONCE, 'drive-nonce', '');
+// Com o token da Web Analytics da Cloudflare (CF_ANALYTICS_TOKEN em produção): a
+// página ganha o <script> do beacon, de um host de fora, que a CSP tem de deixar
+// carregar e falar com o cloudflareinsights.com.
+const HTML_COM_BEACON = eventHTML(/** @type {any} */ (EVENTO), 2026, 'tok-de-teste', NONCE, 'drive-nonce', '');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 // Turnstile de mentira: `modo` 'ok' entrega ficha em 300 ms; 'erro' chama o
@@ -60,7 +75,23 @@ const turnstileFalso = modo => `window.turnstile = {
   reset() {},
 };`;
 
+// O beacon da Cloudflare de mentira: lê o `data-cf-beacon` do próprio <script>
+// e manda um sendBeacon para o host de coleta, como o de verdade faz — é essa
+// chamada que a diretiva `connect-src` tem de deixar passar.
+const BEACON_FALSO = `(function(){
+  var s = document.currentScript;
+  window.__beacon = { cfg: s ? s.getAttribute('data-cf-beacon') : null };
+  navigator.sendBeacon('https://cloudflareinsights.com/cdn-cgi/rum?', '{}');
+})();`;
+
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+// O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
+await provaOVigia(browser, registra);
+
+// Todas as páginas abertas, com o que o vigia de CSP anotou em cada uma: o
+// veredito é um só, no fim, e diz QUAL cenário acusou.
+/** @type {{ nome: string, csp: string[] }[]} */
+const abertas = [];
 
 /**
  * @param {{ viewport?: { width: number, height: number }, dpr?: number, turnstile?: 'ok'|'erro'|'bloqueado', html?: string,
@@ -75,8 +106,17 @@ async function abre(o = {}) {
       Object.defineProperty(navigator, 'connection', { value: { saveData: true, effectiveType: '4g' } });
     });
   }
-  const estado = { fotos: /** @type {string[]} */ ([]), driveLink: 0, driveCode: 0, erros: /** @type {string[]} */ ([]), corpos: /** @type {any[]} */ ([]) };
+  const estado = {
+    fotos: /** @type {string[]} */ ([]), driveLink: 0, driveCode: 0, erros: /** @type {string[]} */ ([]), corpos: /** @type {any[]} */ ([]),
+    csp: /** @type {string[]} */ ([]), beacon: { script: 0, envio: 0 },
+  };
+  abertas.push({
+    nome: `${o.html === HTML_FAMILIA ? 'família' : o.html === HTML_COM_BEACON ? 'beacon' : 'público'} ${(o.viewport || { width: 390 }).width}@${o.dpr || 3}`
+      + `${o.turnstile && o.turnstile !== 'ok' ? ` turnstile ${o.turnstile}` : ''}${o.saveData ? ' economia de dados' : ''}`,
+    csp: estado.csp,
+  });
   page.on('pageerror', e => estado.erros.push(String(e)));
+  vigiaCsp(page, estado.csp);
   await page.route('**/*', async route => {
     const r = route.request();
     const u = new URL(r.url());
@@ -85,8 +125,11 @@ async function abre(o = {}) {
       return route.fulfill({ contentType: 'text/javascript', body: turnstileFalso(o.turnstile || 'ok') });
     }
     if (u.host === 'lh3.googleusercontent.com') { estado.fotos.push(u.pathname.replace('/d/', '')); return route.fulfill({ contentType: 'image/png', body: PNG }); }
+    if (u.host === 'static.cloudflareinsights.com') { estado.beacon.script++; return route.fulfill({ contentType: 'text/javascript', body: BEACON_FALSO }); }
+    if (u.host === 'cloudflareinsights.com') { estado.beacon.envio++; return route.fulfill({ status: 204, body: '' }); }
     if (u.host !== 'fotos.test') return route.fulfill({ status: 204, body: '' });
-    if (u.pathname === '/evento') return route.fulfill({ contentType: 'text/html', body: o.html || HTML });
+    // Os cabeçalhos de verdade (CSP estrita com o nonce da página inclusive).
+    if (u.pathname === '/evento') return route.fulfill({ status: 200, headers: htmlSecurityHeaders(NONCE), body: o.html || HTML });
     if (u.pathname === '/api/drive-link') {
       estado.driveLink++;
       const corpo = JSON.parse(r.postData() || '{}');
@@ -312,6 +355,24 @@ try {
       'público sem Turnstile: o nome segue opcional e o link sai depois do aceite', { pedidos: estado.driveLink });
     await ctx.close();
   }
+
+  // ---- 7. Web Analytics da Cloudflare (CF_ANALYTICS_TOKEN) --------------------
+  // O beacon é script de OUTRO host. A CSP estrita só o deixa rodar pelo nonce
+  // do <script> e pelo host liberado em script-src, e só o deixa falar com o
+  // cloudflareinsights.com pelo connect-src: se qualquer um dos três cair, o
+  // site segue de pé e a análise de visitas para em silêncio.
+  {
+    const { ctx, page, estado } = await abre({ html: HTML_COM_BEACON });
+    await page.waitForTimeout(500);
+    const cfg = await page.evaluate(() => (/** @type {any} */ (window)).__beacon?.cfg || '');
+    registra(estado.beacon.script === 1 && estado.beacon.envio === 1 && cfg.includes('tok-de-teste'),
+      'Web Analytics: o beacon carrega (nonce + host liberado) e fala com o cloudflareinsights.com (connect-src)', { ...estado.beacon, cfg });
+    await ctx.close();
+  }
+
+  // ---- 8. O veredito da CSP, de todas as páginas abertas -----------------------
+  const acusadas = abertas.filter(a => a.csp.length);
+  registra(abertas.length > 0 && acusadas.length === 0, `nenhuma mensagem de CSP no console, nas ${abertas.length} páginas abertas`, acusadas);
 
 } catch (e) {
   registra(false, 'o roteiro parou no meio de um cenário', String(e instanceof Error ? e.message : e).split('\n')[0].slice(0, 300));

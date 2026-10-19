@@ -2690,8 +2690,8 @@ const IMG_SLOW_MS = 4000;
 // A galeria NÃO carrega mais `onload=`/`onerror=` por <img>. Dois motivos:
 // `load` e `error` não borbulham, mas CAPTURAM, então um par de listeners no
 // documento cobre toda foto que existir — inclusive as que entram depois — e
-// cada handler inline a menos é um relatório a menos na CSP report-only
-// estrita, que é o caminho para ela virar a enforced. O `<picture>` do
+// handler inline é justamente o que a CSP estrita (a aplicada, #126) não
+// executa. O `<picture>` do
 // `srcset` também obrigava: com ele o pai da <img> passa a ser o <picture>,
 // não o `.thumb`, e por isso imgSettled sobe por `closest('.thumb')`.
 //
@@ -2712,10 +2712,11 @@ const IMG_SLOW_MS = 4000;
 //
 // NONCE OBRIGATÓRIO. A versão anterior omitia o atributo quando o argumento
 // vinha vazio (`<script${nonce ? …}>`), o que produzia um bloco inline que a
-// política estrita bloquearia no dia em que ela virar a enforced — e a
-// invariante da CI não pegaria, porque ela lê o TEXTO da marcação e ali o
-// `nonce=` aparece dentro do ternário. Ou seja: um <script> sem nonce que
-// passa por um gate cujo nome é "todo <script> carrega nonce".
+// política estrita bloqueia — e a invariante da CI não pegaria, porque ela
+// lê o TEXTO da marcação e ali o `nonce=` aparece dentro do ternário. Ou seja:
+// um <script> sem nonce que passa por um gate cujo nome é "todo <script>
+// carrega nonce". (Quem pega é tests/rendered-pages.test.js, que confere a
+// página RENDERIZADA.)
 //
 // Hoje os dois chamadores sempre passam o nonce da requisição, então isto
 // nunca acontece — e é exatamente por isso que a hora de fechar é agora, antes

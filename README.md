@@ -665,6 +665,7 @@ fotos/
 │   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
+│   ├── vigia-csp.mjs        ← o vigia de CSP dos cinco roteiros: qualquer mensagem de CSP no console reprova, e uma página-canário prova que o vigia enxerga e a política bloqueia (#126)
 │   ├── worker-local.mjs     ← o `src/index.js` de verdade num servidor HTTP local: KV e Durable Objects em memória, Turnstile e Resend interceptados, outros hosts recebem 599 (o harness de docs/VERIFICACAO.md §2)
 │   ├── node-com-workers.mjs ← gancho do Node (`--import`) que troca `cloudflare:workers` pelo dublê de tests/stubs/, para rodar o `src/index.js` fora do workerd
 │   ├── smoke.sh             ← ~50 checagens (mais as de segredo com --expect-configured); roda contra wrangler dev, preview ou produção (npm run smoke)
@@ -920,7 +921,7 @@ compatibilidade sem comprar segurança.
 | POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), balde de fichas por IP (429 com `Retry-After` em segundos — dimensionado para o público de um evento atrás do mesmo Wi-Fi/NAT, ver "Rate limiting") — e grava o aceite em D1 (best-effort, no-op sem D1), com `turnstile_ok` = 1 (Turnstile), 0 (`noscript`) ou 2 (código por e-mail). Três caminhos: token do Turnstile, `noscript` (Turnstile bloqueado) e `email` (+ `emailToken`/`emailCode` de `/api/drive-code`). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147). Em álbum `family`/`private`, só nesse caminho (#146): exige `name` (400 com `campo: "nome"`) e para no 3º álbum restrito distinto do IP em 24 h (403 com `usarEmail: true` — a página abre o código por e-mail) |
 | POST | `/api/drive-code` | `handleDriveCode` | **Último recurso do gate:** manda um código de 6 dígitos para o e-mail informado e devolve um token HMAC sobre (slug, código, 15 min) que não contém o código — nada é guardado. Exige o nonce da página. Recusa apelido `+etiqueta` (400, com a saída); pontos do Gmail e `googlemail.com` contam como um endereço só (`emailCanonico()`). Limites: balde por IP, 3/h por endereço (hash do endereço canônico), 40/dia na conta (503 + WhatsApp quando acaba). 503 sem `SIGNING_SECRET` ou `RESEND_API_KEY` |
 | POST | `/api/perf` | `handlePerfBeacon` | Beacon de performance (Web Vitals) enviado por `navigator.sendBeacon`, amostrado a 10% no cliente. Responde sempre `204` sem corpo, inclusive para payload inválido — é fire-and-forget e nunca pode 500. **Não escreve em KV** (a cota de escrita é reservada para eventos/sessões/consentimento): o destino é log estruturado e, se o binding `PERF` existir, um dataset do Analytics Engine. Sem rate-limit por KV (custaria mais que o beacon economiza); um beacon com `Origin` de outro site é descartado |
-| POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP estrita (que roda em Report-Only). Serve a dois fins: medir quantos handlers inline faltam para a virada da política, e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
+| POST | `/api/csp-report` | `handleCspReport` | Coletor das violações da CSP aplicada (a estrita, #126). Serve a dois fins: ver em produção o que nenhum roteiro de navegador alcança (um script novo que escapou do nonce; a extensão de navegador de um visitante é ruído conhecido), e detectar tentativa de XSS — um relatório apontando para script que ninguém colocou ali chega antes de qualquer reclamação. **Não escreve em KV** (mesma razão do `/api/perf`): vai para log estruturado. Amostrado a 20% e limitado a 8 KB no servidor, porque quem chama este endpoint não somos nós |
 | POST | `/api/suporte` | `handleSupportRequest` | Envia e-mail do formulário de suporte (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`) |
 | GET | `/api/healthz` | `handleHealthz` | `{contrato, ok, kv, events, d1, …}` (+ `kvLatencyMs`, `cron`, `config`, `versaoSite`, `versao`, …; 2 leituras de KV) — usado pelo CI e pelo dashboard de status; contrato em `docs/healthz-contrato.json` |
 
@@ -967,7 +968,7 @@ Há três perfis, e cada rota só escolhe qual deles se aplica:
 
 | Perfil | Onde | O que tem a mais |
 | --- | --- | --- |
-| `htmlSecurityHeaders()` | Páginas públicas | CSP com nonce, COOP/CORP, `Reporting-Endpoints` |
+| `htmlSecurityHeaders()` | Páginas públicas | CSP estrita (nonce, sem `'unsafe-inline'` em `script-src`), COOP/CORP, `Reporting-Endpoints` |
 | `adminHtmlSecurityHeaders()` | `/dashboard`, login | `no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer` |
 | `dataSecurityHeaders()` | JSON, CSV, texto, imagem | `default-src 'none'; sandbox`, `no-store` (salvo opt-in explícito) |
 
@@ -996,30 +997,44 @@ o `lh3.googleusercontent.com` não envia CORP. **HSTS sem `preload`**: é
 compromisso de domínio inteiro, praticamente irreversível, e portanto decisão do
 dono — não efeito colateral de um commit.
 
-#### CSP: duas políticas ao mesmo tempo
+#### CSP: uma política só, a estrita
 
-Toda página HTML sai com `Content-Security-Policy` **e**
-`Content-Security-Policy-Report-Only`, construídas pela mesma função para que não
-possam divergir:
+Toda página HTML sai com **um** `Content-Security-Policy`, o de
+`contentSecurityPolicy()` — a estrita, desde o #126. (Até então eram dois: a
+aplicada, com `'unsafe-inline'`, e a estrita em `Content-Security-Policy-Report-Only`,
+lado a lado enquanto os handlers inline saíam do HTML. O Report-Only foi
+removido: mandar os dois repetiria cada relatório e cada mensagem de console.)
 
-- A **enforced** tem `'unsafe-inline'` e **nenhum nonce**. Essa combinação é
-  deliberada: pela CSP Level 3, **a presença de um nonce faz o browser descartar
-  o `'unsafe-inline'`**. Ou seja, `'self' 'unsafe-inline' 'nonce-abc'` não é "os
-  dois" — é só o nonce, e todo `onclick="…"` para de executar. A UI tem uns 63
-  deles; o resultado é galeria, página de evento, gate do Drive e painel mortos
-  ao mesmo tempo. Isso chegou a ser commitado e só foi pego dirigindo um browser
-  de verdade: um teste que afirma que a string da política contém
-  `'unsafe-inline'` passa tranquilo enquanto o browser a ignora.
-- A **report-only** é a política que queremos impor — `'nonce-…'` sem
-  `'unsafe-inline'`. Em Report-Only, cada handler remanescente vira um relatório
-  em `/api/csp-report` em vez de um elemento quebrado. É a lista de tarefas da
-  migração, medida em produção e não chutada. Os `nonce="…"` na marcação existem
-  para *essa* política.
+- O `script-src` é `'self'`, o `'nonce-…'` da requisição e as duas origens que o
+  site carrega de propósito (Turnstile, e o beacon da Web Analytics por host).
+  **Sem `'unsafe-inline'`** e sem `'strict-dynamic'`: um `<script>` sem nonce, um
+  atributo `onclick="…"` e um URL `javascript:` não executam. Todo `<script>`
+  inline leva `nonce="…"`, e os eventos são ligados por delegação
+  (`data-onclick`, `data-action`).
+- **Um nonce faz o browser descartar o `'unsafe-inline'`** (CSP Level 3):
+  `'unsafe-inline' 'nonce-abc'` é só `'nonce-abc'`. Por isso recolocar o
+  `'unsafe-inline'` "para destravar uma página" não destrava nada — só faz o
+  texto da política mentir. Script que não roda se conserta dando o nonce a ele;
+  handler, trocando-o por listener delegado. O espelho vale para estilo: o
+  `style-src` tem `'unsafe-inline'` e **nunca** nonce, senão todo `style="…"`
+  morre. Esse tipo de defeito já passou com a suíte inteira verde (um nonce numa
+  política que ainda dependia de `'unsafe-inline'` matou ~63 handlers): um teste
+  sobre a *string* da política não enxerga a semântica dela.
+- A política aplicada **continua relatando** (`report-uri /api/csp-report` e
+  `report-to csp`, com o `Reporting-Endpoints`): uma violação em produção — um
+  script que escapou do nonce, ou a extensão de navegador de um visitante, que é
+  ruído conhecido — chega ao log como `csp-violation`.
 
-A virada acontece quando os relatórios zerarem: tirar os handlers inline e então
-deixar a enforced usar `strict` também. Até lá, um `<script>` sem nonce é
-invisível hoje e quebra no dia da virada — por isso a CI recusa um, e o smoke
-test do deploy recusa um nonce aparecendo no cabeçalho enforced.
+Como se sabe que funciona: `tests/rendered-pages.test.js` reprova qualquer atributo
+`on…=`, URL `javascript:` ou `<script>` sem o nonce em **toda** página renderizada;
+`tests/security.test.js` prende a política (e que há um cabeçalho só); e os
+roteiros de navegador (`verifica:painel`, `:galeria`, `:evento`, `:previa` e
+`:navegador`) servem cada página com os cabeçalhos de verdade e reprovam com
+**qualquer** mensagem de CSP no console (`scripts/vigia-csp.mjs`; cada roteiro
+abre com uma página-canário que prova que o vigia enxerga uma violação e que a
+política a bloqueia). A CI recusa um `<script>` sem nonce no código-fonte
+(`security.yml`), e o smoke do deploy recusa um `script-src` com
+`'unsafe-inline'` ou sem nonce (`scripts/smoke.sh`).
 
 ---
 
@@ -1219,7 +1234,7 @@ Os blocos que mudam dados globais ou a credencial têm borda vermelha e o selo "
 ### Verificar o painel
 
 - **`tests/painel.test.js`** — o card idêntico no servidor e no navegador (inclusive depois da transformação do deploy), a estrutura (uma nav, quatro seções, seis blocos, todo `for=` apontando para um campo que existe), os selos e o dado hostil virando texto. O resto do painel é prendido por `tests/rendered-pages.test.js`, `tests/scripts-embutidos.test.js` (lint e tsc do script emitido) e os pares cliente/servidor de `tests/security.test.js`.
-- **`npm run verifica:painel`** — o `src/index.js` de verdade num servidor local (`scripts/worker-local.mjs`: KV e Durable Objects em memória, Turnstile e Resend interceptados, qualquer outro host recebe 599; `scripts/node-com-workers.mjs` troca `cloudflare:workers` pelo dublê da suíte), dirigido por um Chromium logado no iPhone (390@3), no Android (360@2) e no computador (1440@1): entrar pelo formulário, filtrar a lista, criar, editar e marcar entregue, ocultar pelo menu, resolver um pedido, as Métricas com série sintética, trocar a senha (a antiga é recusada) e entrar com a nova, baixar o backup (e, com a sessão caída, ir ao login), o "Sair do site?" de Ajustes com texto não salvo, a sessão que cai no meio de uma edição (o rascunho volta, sem o "Sair do site?"), excluir — mais o layout (nada vaza para o lado em nenhuma seção, nem a barra do "Selecionar vários"; alvos de toque de 44 px, campo de 16 px), a seleção em massa só com o que está à vista, a acessibilidade que só o navegador mostra (contorno de foco à vista e sem corte em cada parada do Tab na lista, no formulário, nas Métricas, em Pedidos e em Ajustes; página atrás de diálogo `inert`), nenhum erro de JS nem violação da CSP, e as chaves que o fluxo gravou no KV. `VERIFICA_PRINTS=<pasta>` salva as capturas. Roda na CI (job *Roteiros no navegador (Chromium)*, desde o #232); detalhes em `docs/PAINEL.md` §15 e `docs/VERIFICACAO.md`.
+- **`npm run verifica:painel`** — o `src/index.js` de verdade num servidor local (`scripts/worker-local.mjs`: KV e Durable Objects em memória, Turnstile e Resend interceptados, qualquer outro host recebe 599; `scripts/node-com-workers.mjs` troca `cloudflare:workers` pelo dublê da suíte), dirigido por um Chromium logado no iPhone (390@3), no Android (360@2) e no computador (1440@1): entrar pelo formulário, filtrar a lista, criar, editar e marcar entregue, ocultar pelo menu, resolver um pedido, as Métricas com série sintética, trocar a senha (a antiga é recusada) e entrar com a nova, baixar o backup (e, com a sessão caída, ir ao login), o "Sair do site?" de Ajustes com texto não salvo, a sessão que cai no meio de uma edição (o rascunho volta, sem o "Sair do site?"), excluir — mais o layout (nada vaza para o lado em nenhuma seção, nem a barra do "Selecionar vários"; alvos de toque de 44 px, campo de 16 px), a seleção em massa só com o que está à vista, a acessibilidade que só o navegador mostra (contorno de foco à vista e sem corte em cada parada do Tab na lista, no formulário, nas Métricas, em Pedidos e em Ajustes; página atrás de diálogo `inert`), nenhum erro de JS nem mensagem de CSP no console (a estrita é a aplicada; vale para todos os roteiros, `scripts/vigia-csp.mjs`), e as chaves que o fluxo gravou no KV. `VERIFICA_PRINTS=<pasta>` salva as capturas. Roda na CI (job *Roteiros no navegador (Chromium)*, desde o #232); detalhes em `docs/PAINEL.md` §15 e `docs/VERIFICACAO.md`.
 - **`npm run verifica:previa`** — o mesmo servidor local com `AMBIENTE = "previa"`: a faixa e o menu **Testes** no celular e no computador (cabe na tela, alvos de 44 px, nada da página cobre o menu aberto), o portão lotado de verdade no servidor, a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o dono e as métricas de exemplo enchendo o gráfico. Também na CI.
 
 ---

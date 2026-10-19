@@ -125,8 +125,8 @@ globalThis.fetch = async (input, init) => {
 
 **O roteiro versionado vem primeiro:** com o `wrangler dev` de pé e projetos
 semeados (§1–2), `npm run verifica:navegador` abre toda página do sitemap no
-Chromium e confere o que só um navegador enxerga — erro de script, violação da
-CSP aplicada, fonte que não carregou, galeria sem JavaScript, lightbox, login.
+Chromium e confere o que só um navegador enxerga — erro de script, qualquer
+mensagem de CSP, fonte que não carregou, galeria sem JavaScript, lightbox, login.
 Sai com 1 se algo falhar. O que segue aqui é para a verificação específica da
 sua mudança, que nenhum roteiro genérico cobre.
 
@@ -153,14 +153,19 @@ const browser = await chromium.launch({
 ```js
 page.on('pageerror', e => erros.push(e.message));
 page.on('console', m => {
-  // Report-Only é ruído esperado: a política estrita existe para gerar relatório.
-  if (m.type() === 'error' && /Content Security Policy/i.test(m.text())
-      && !/Report Only/i.test(m.text())) erros.push(m.text());
+  // QUALQUER mensagem de CSP é erro: desde o #126 a política estrita é a
+  // aplicada, e não existe mais Report-Only para descontar.
+  if (/Content[ -]Security[ -]Policy|\[Report Only\]/i.test(m.text())) erros.push(m.text());
 });
 ```
 
-Um erro de CSP **aplicada** no console é a interface quebrando. Um de
-report-only é o sistema funcionando como projetado.
+Uma mensagem de CSP no console é um `<script>` sem nonce ou um handler inline
+que **não executou**: a interface quebrando, com a suíte inteira verde. Os
+cinco roteiros versionados já fazem isto (`scripts/vigia-csp.mjs`, a definição
+única do filtro), servem cada página com os cabeçalhos de verdade e, antes de
+tudo, abrem uma página-canário com um script e um handler sem nonce: se o vigia
+não os vir, ou a política não os bloquear, o roteiro reprova — "nenhuma
+violação" é uma checagem de ausência e passaria sozinha com o vigia cego.
 
 ### Erros de método que já custaram tempo
 
@@ -178,10 +183,11 @@ report-only é o sistema funcionando como projetado.
 ### Véspera de evento — `npm run verifica:evento`
 
 Roteiro versionado para o que só aparece com público: **não precisa do
-`wrangler dev`** — renderiza a página com o `eventHTML()` de verdade e
-intercepta a rede (Turnstile simulado, `/api/drive-link` e `/api/drive-code`
-respondendo o que cada cenário pede, `lh3` devolvendo um PNG de 1 px e
-registrando a largura/formato pedidos). Cobre:
+`wrangler dev`** — renderiza a página com o `eventHTML()` de verdade, servida
+com `htmlSecurityHeaders()` (os cabeçalhos reais, CSP estrita inclusive: até o
+#126 saía sem cabeçalho nenhum), e intercepta a rede (Turnstile simulado,
+`/api/drive-link` e `/api/drive-code` respondendo o que cada cenário pede, `lh3`
+devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
 
 - **fotos por aparelho** — iPhone 390@3, três Androids (360@2, Pixel 412@2,625,
   Galaxy 384@3,75) e desktop: a largura é a menor da escada 800/1200/1600 que
@@ -194,6 +200,11 @@ registrando a largura/formato pedidos). Cobre:
 - **VPN/bloqueador** — Turnstile no `error-callback` → o modal já abre com a
   opção do código por e-mail; código errado mostra a mensagem do servidor,
   código certo libera;
+- **Web Analytics da Cloudflare** — com o token, o beacon (script de outro
+  host) carrega pelo nonce e pelo host em `script-src` e fala com o
+  `cloudflareinsights.com` pelo `connect-src`;
+- **CSP** — nenhuma mensagem de CSP no console de nenhuma das páginas abertas
+  (um veredito só, que diz qual cenário acusou);
 - **álbum restrito com o Turnstile bloqueado (#146)** — o pedido do script é
   abortado, como um bloqueador faz: num álbum de família o campo do nome abre
   sozinho e obrigatório, o aceite sem nome não pede o link (a dica diz o que
@@ -204,7 +215,7 @@ registrando a largura/formato pedidos). Cobre:
 
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 46 checagens em 17/10/2026.
+falhas já registradas. 50 checagens em 18/10/2026.
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
@@ -266,9 +277,10 @@ No caminho: navegação no lugar certo (barra de baixo no celular, lateral no
 computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 44 px (botões, campos e seletores), campo de 16 px (o iPhone não dá zoom),
 contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
-de JS, nenhuma violação da CSP aplicada, e que o fluxo só gravou no KV as
+de JS, nenhuma mensagem de CSP no console, e que o fluxo só gravou no KV as
 chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
-`admin_password`, sessão) — 16 escritas por aparelho (17 no computador), 235 checagens no total,
+`admin_password`, sessão) — 16 escritas por aparelho (17 no computador), 237 checagens no total
+(duas são a página-canário da CSP),
 em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
 Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
 depois do deploy da v2.0: um no array antigo `removal_requests`, outro na
@@ -311,7 +323,10 @@ Cobre:
   "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
 - **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
   de tela ouve "selecionada";
-- **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP.
+- **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
+- **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
+  na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
+  foi ao console.
 
 `VERIFICA_PRINTS=/caminho npm run verifica:galeria` salva as capturas (grade
 por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-as:
@@ -353,7 +368,7 @@ no Resend de verdade). No iPhone 390@3 e no computador 1440@1:
   dono com o destinatário no assunto; **gerar métricas de exemplo** volta
   com o menu aberto e o aviso, e o gráfico de acessos enche; apagar e zerar
   avisam; no computador, o menu abre pelo teclado;
-- nenhum erro de JS, nenhuma violação da CSP aplicada.
+- nenhum erro de JS, nenhuma mensagem de CSP no console.
 
 `VERIFICA_PRINTS=/caminho npm run verifica:previa` salva as capturas (menu,
 lotado, KV fora, painel, aviso, métricas).

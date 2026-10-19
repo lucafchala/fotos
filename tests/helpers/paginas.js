@@ -16,6 +16,7 @@ import { legalHTML } from '../../src/ui/legal.js';
 import { docHTML } from '../../src/ui/doc.js';
 import { LEGAL_DOCS } from '../../src/content/legal-docs.js';
 import { galeriaHTML } from '../../src/ui/galeria.js';
+import { comFaixa, SIMULACOES } from '../../src/previa.js';
 
 export const EVENTO = {
   id: 'a1b2c3', slug: 'evento', title: 'Evento', status: 'entregue',
@@ -54,6 +55,182 @@ export function paginas() {
       nonce: 'NONCE',
     }),
   };
+}
+
+/**
+ * Cada variação que muda o que SAI da página — o script ou a marcação —, e não
+ * só um argumento: a MESMA lista para as três suítes que olham a página
+ * renderizada (o lint/tsc dos scripts, a estrutura do HTML e a CSP estrita).
+ * Antes cada uma tinha a sua, e a CSP precisa ver todas: um handler ou um
+ * <script> sem nonce só aparece na variação que o emite.
+ */
+export function variacoes() {
+  const muitos = Array.from({ length: 15 }, (_, i) => ({ ...EVENTO, id: `e${i}`, slug: `evento-${i}`, date: `2025-01-${String(i + 1).padStart(2, '0')}` }));
+  const tudoLigado = Object.fromEntries(Object.entries(SIMULACOES).map(([nome, s]) => [nome, Object.keys(s.opcoes).at(-1)]));
+  return {
+    ...paginas(),
+    // O JSON-LD só sai com nonce (sem ele, sem bloco): a variação com nonce é a
+    // que um <script> sem o atributo poderia atingir.
+    aboutComNonce: aboutHTML('Agenda aberta para 2027', 'NONCE'),
+    loginComErro: loginHTML({ error: true }, 'NONCE'),
+    loginIndisponivel: loginHTML({ indisponivel: true }, 'NONCE'),
+    loginVerificacao: loginHTML({ verificacao: true }, 'NONCE'),
+    dashboardComAgenda: dashboardHTML([EVENTO], ['Casamento'], 'NONCE', 'Agenda aberta para 2027'),
+    galeriaComBeaconEMais: galleryHTML([...muitos, { ...EVENTO, pinned: true }], 'tok', 'NONCE', 'Agenda aberta para 2027'),
+    eventoEmBreve: eventHTML({ ...EVENTO, comingSoon: true }, '2026', null, 'NONCE', 'dn', 'ft'),
+    eventoCarrosselComBeacon: eventHTML({
+      ...EVENTO, photos: [EVENTO.photos[0], 'https://lh3.googleusercontent.com/d/BBB'],
+      driveUrlInstagram: 'https://drive.google.com/y', accessType: 'family',
+      photosAlert: { active: true, addedAt: '2026-06-19T00:00:00Z', expiresAfterHours: 0 },
+    }, '2026', 'tok', 'NONCE', 'dn', 'ft'),
+    eventoComAviso: eventHTML({ ...EVENTO, photosAlert: { active: true, addedAt: new Date().toISOString(), expiresAfterHours: 24 } }, '2026', null, 'NONCE', 'dn', 'ft'),
+    eventoComVideo: eventHTML({ ...EVENTO, youtubeId: 'dQw4w9WgXcQ' }, '2026', null, 'NONCE', 'dn', 'ft'),
+    suporteComErro: supportHTML(false, 'erro', { name: 'x' }, 'NONCE', 'ft'),
+    suporteEnviado: supportHTML(true, '', {}, 'NONCE', 'ft'),
+    galeriaPropriaComErro: galeriaHTML({ event: EVENTO, listagem: null, erro: { codigo: 'chave-ausente', mensagem: 'Falta a chave.' }, nonce: 'NONCE' }),
+    // A faixa da prévia de PR (src/previa.js) entra por cima de qualquer página:
+    // com tudo desligado e com toda simulação ligada e um aviso aberto.
+    faixaDaPrevia: comFaixa(paginas().gallery, 'passa', '/'),
+    faixaDaPreviaLigada: comFaixa(paginas().event, /** @type {any} */ (tudoLigado), '/evento', { aviso: 'metricas-geradas', versao: 'Versão 2.0.0' }),
+    // Doze páginas de documento saem de uma função só; cada uma traz o texto
+    // do seu markdown, e é ali que um HTML cru poderia entrar.
+    ...Object.fromEntries(LEGAL_DOCS.map(d => [`doc:${d.slug}`, docHTML(d)])),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A CSP estrita (#126): o que a página emitida pode e não pode conter
+// ---------------------------------------------------------------------------
+// Com `script-src 'self' 'nonce-…'` e sem 'unsafe-inline', três coisas deixam
+// de executar: um <script> inline sem o nonce, um atributo `on…=` e um URL
+// `javascript:`. Nenhum teste de string da política enxerga isso — por isso a
+// varredura olha a página RENDERIZADA, como o navegador a lê.
+//
+// Sem regex para "a tag inteira", pelo motivo da lição nº 2 logo abaixo: o
+// padrão certo é o que o TOKENIZADOR aceita, e `<img/onerror=x>` (a barra como
+// separador), `<a href="x"onclick="y">` (atributo colado no anterior) e
+// `ONCLICK=` (caixa) são todos handlers para ele. A varredura anda como o
+// tokenizador: nome da tag, atributos (aspas simples, duplas ou nenhuma), e o
+// corpo de <script> e <style> como texto cru até o fechamento.
+
+/**
+ * @param {string} html
+ * @returns {{ tag: string, attrs: { nome: string, valor: string }[], corpo: string }[]} as tags
+ *   de abertura (com o corpo cru, quando é <script> ou <style>), fora dos comentários
+ */
+export function tagsDeAbertura(html) {
+  const baixo = html.toLowerCase();
+  /** @type {{ tag: string, attrs: { nome: string, valor: string }[], corpo: string }[]} */
+  const tags = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    if (html.startsWith('<!--', lt)) {
+      const fim = html.indexOf('-->', lt + 4);
+      i = fim < 0 ? html.length : fim + 3;
+      continue;
+    }
+    // `</x>`, `<!doctype>` e um `a < b` solto no texto não abrem tag.
+    if (!/[a-zA-Z]/.test(html.charAt(lt + 1))) { i = lt + 1; continue; }
+    let j = lt + 1;
+    while (j < html.length && !/[\s/>]/.test(html.charAt(j))) j++;
+    const tag = baixo.slice(lt + 1, j);
+    /** @type {{ nome: string, valor: string }[]} */
+    const attrs = [];
+    for (;;) {
+      while (j < html.length && /[\s/]/.test(html.charAt(j))) j++;
+      if (j >= html.length || html.charAt(j) === '>') break;
+      const ini = j;
+      while (j < html.length && !/[\s/>=]/.test(html.charAt(j))) j++;
+      if (j === ini) { j++; continue; } // um '=' no lugar do nome: anda
+      const nome = baixo.slice(ini, j);
+      while (j < html.length && /\s/.test(html.charAt(j))) j++;
+      let valor = '';
+      if (html.charAt(j) === '=') {
+        j++;
+        while (j < html.length && /\s/.test(html.charAt(j))) j++;
+        const aspas = html.charAt(j);
+        if (aspas === '"' || aspas === "'") {
+          const fim = html.indexOf(aspas, j + 1);
+          valor = html.slice(j + 1, fim < 0 ? html.length : fim);
+          j = fim < 0 ? html.length : fim + 1;
+        } else {
+          const ini2 = j;
+          while (j < html.length && !/[\s>]/.test(html.charAt(j))) j++;
+          valor = html.slice(ini2, j);
+        }
+      }
+      attrs.push({ nome, valor });
+    }
+    j++; // o '>'
+    let corpo = '';
+    if (tag === 'script' || tag === 'style') {
+      // Texto cru até o primeiro `</script` (ou `</style`) seguido de espaço,
+      // `/` ou `>` — o que o tokenizador fecha.
+      let fecha = baixo.indexOf(`</${tag}`, j);
+      while (fecha >= 0 && !/[\s/>]/.test(baixo.charAt(fecha + tag.length + 2))) fecha = baixo.indexOf(`</${tag}`, fecha + 1);
+      corpo = html.slice(j, fecha < 0 ? html.length : fecha);
+      const fimDaTag = fecha < 0 ? -1 : baixo.indexOf('>', fecha);
+      j = fimDaTag < 0 ? html.length : fimDaTag + 1;
+    }
+    tags.push({ tag, attrs, corpo });
+    i = j;
+  }
+  return tags;
+}
+
+/**
+ * Handlers inline: atributos `on…=` nas tags da página e, dentro dos
+ * <script> que executam, HTML montado como texto com um `on…=` dentro
+ * (`'<button onclick="…">'`) — o servidor não o vê, e a CSP o barra do mesmo
+ * jeito quando o script o põe na página.
+ * @param {string} html
+ */
+export function handlersInline(html) {
+  /** @type {string[]} */
+  const achados = [];
+  for (const t of tagsDeAbertura(html)) {
+    for (const a of t.attrs) if (/^on[a-z]+$/.test(a.nome)) achados.push(`<${t.tag} ${a.nome}=…>`);
+    if (t.tag !== 'script' || ehDados(t.attrs.map(a => `${a.nome}="${a.valor}"`).join(' '))) continue;
+    for (const m of t.corpo.matchAll(/<([a-zA-Z][\w-]*)[^<>]*?[\s"'/](on[a-z]{3,})\s*=/g)) {
+      achados.push(`<script> monta <${m[1]} ${m[2]}=…> como texto`);
+    }
+  }
+  return achados;
+}
+
+/**
+ * Os <script> que não levam o nonce da requisição (vazio não vale como nonce).
+ * Todos, com ou sem `src`: os de fora (Turnstile, beacon) passam pelo host, mas
+ * o gate da CI exige o atributo em qualquer um, e é ele que mantém o script
+ * funcionando se o host sair da lista.
+ * @param {string} html
+ * @param {string} nonce
+ */
+export function scriptsSemNonce(html, nonce) {
+  return tagsDeAbertura(html)
+    .filter(t => t.tag === 'script')
+    .filter(t => !nonce || !t.attrs.some(a => a.nome === 'nonce' && a.valor === nonce))
+    .map(t => `<script ${t.attrs.map(a => a.nome).join(' ')}>`);
+}
+
+/**
+ * Atributos cujo valor é um URL `javascript:` — como o navegador o lê: tabs e
+ * quebras de linha dentro do esquema são descartados, e controles/espaços à
+ * frente também.
+ * @param {string} html
+ */
+export function urlsJavascript(html) {
+  /** @type {string[]} */
+  const achados = [];
+  for (const t of tagsDeAbertura(html)) {
+    for (const a of t.attrs) {
+      const limpo = a.valor.replace(/[\t\n\r]/g, '').replace(/^[\0-\x20]+/, '');
+      if (/^javascript:/i.test(limpo)) achados.push(`<${t.tag} ${a.nome}="${a.valor.slice(0, 40)}…">`);
+    }
+  }
+  return achados;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,9 +6,9 @@
 // perceba.
 // ---------------------------------------------------------------------------
 
-// Origens externas que o site realmente precisa carregar. Escritas uma vez e
-// reaproveitadas na CSP para que a política enforced e a report-only não possam
-// divergir com o tempo (divergir é o que faz a report-only virar ruído).
+// Origens externas que o site realmente precisa carregar. Escritas uma vez, aqui,
+// e reaproveitadas na CSP (e na Permissions-Policy): origem nova ou removida é
+// uma linha só, e a política não diverge do que as páginas de fato pedem.
 const CSP_TURNSTILE = 'https://challenges.cloudflare.com';
 const CSP_CF_INSIGHTS_SCRIPT = 'https://static.cloudflareinsights.com';
 const CSP_CF_INSIGHTS_CONNECT = 'https://cloudflareinsights.com';
@@ -66,41 +66,43 @@ export function generateNonce() {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// CSP das páginas HTML.
+// CSP das páginas HTML: a estrita, e a única (#126).
+//
+// `script-src` aceita só 'self', o nonce da requisição e as duas origens que o
+// site carrega de propósito (Turnstile e a Web Analytics, esta por host). Não
+// há 'unsafe-inline': um <script> sem nonce, um atributo `onclick="…"` e um
+// URL `javascript:` não executam — é isso que impede um escape esquecido de
+// virar código rodando na origem do site. Toda página emite os <script> com
+// `nonce="${nonce}"` e liga os eventos por delegação (`data-onclick`,
+// `data-action`…); o que fugir disso é bloqueado e relatado.
 //
 // CUIDADO: por CSP Level 3, a presença de um nonce faz o browser DESCARTAR
-// 'unsafe-inline' — `'unsafe-inline' 'nonce-abc'` vira só `'nonce-abc'`, e todo
-// handler inline (onclick="…") para de funcionar. Pego só em teste com browser
-// real: testes de unidade que checam a STRING da política não veem isso, já
-// que 'unsafe-inline' continua lá no texto.
+// 'unsafe-inline' — `'unsafe-inline' 'nonce-abc'` vira só `'nonce-abc'`. Logo,
+// acrescentar 'unsafe-inline' de volta ao lado do nonce, "para destravar uma
+// página", não destrava nada: o browser o ignora e o texto da política passa a
+// mentir. Script que não roda se conserta dando o nonce a ele; handler inline,
+// trocando-o por listener delegado. Nunca mexendo aqui. (Teste de unidade que
+// só olha a STRING da política não vê isso: o efeito só aparece num browser de
+// verdade, e por isso os roteiros `verifica:*` reprovam com QUALQUER mensagem
+// de CSP no console.)
 //
-// Por isso o nonce só entra na política estrita (strict=true):
-//  - strict=false (enforced hoje): 'unsafe-inline' sem nonce — mantém os
-//    handlers inline vivos.
-//  - strict=true (report-only): 'nonce-…' sem 'unsafe-inline' — a política
-//    que queremos impor. Cada handler inline que sobrar vira relatório em
-//    /api/csp-report em vez de quebrar a página; quando os relatórios
-//    zerarem, strict passa a valer no enforced também.
+// O inverso vale para estilo: `style-src` tem 'unsafe-inline' e NUNCA nonce —
+// com um nonce ali o browser descartaria o 'unsafe-inline' e todo style="…" e
+// todo <style> das páginas morreria.
 /**
  * @param {string} nonce
- * @param {{ strict?: boolean }} [opts]
  */
-export function contentSecurityPolicy(nonce, { strict = false } = {}) {
+export function contentSecurityPolicy(nonce) {
   // Sem nonce (páginas de erro, sem script) a fonte é omitida em vez de virar
   // um 'nonce-' vazio, que o browser trataria como token sintaticamente
   // inválido.
   const nonceSrc = nonce ? ` 'nonce-${nonce}'` : '';
-  const scriptSrc = strict
-    ? `'self'${nonceSrc} ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`
-    // Nada de nonce aqui — ver o aviso acima. Acrescentar um é o mesmo que
-    // apagar o 'unsafe-inline' e quebrar toda a interface.
-    : `'self' 'unsafe-inline' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`;
 
   return [
     "default-src 'self'",
-    `script-src ${scriptSrc}`,
+    `script-src 'self'${nonceSrc} ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_SCRIPT}`,
     // 'unsafe-inline' aqui é seguro: CSS não executa script sob esta CSP
-    // (sem 'unsafe-eval', sem script-src aberto).
+    // (sem 'unsafe-eval', script-src fechado). Sem nonce, pelo aviso acima.
     "style-src 'self' 'unsafe-inline'",
     // Só a própria origem: o Inter sai de /fonts/ desde o #131. Voltar a
     // carregar fonte de terceiro exige reabrir isto E refazer o registro de
@@ -118,15 +120,21 @@ export function contentSecurityPolicy(nonce, { strict = false } = {}) {
     "frame-ancestors 'none'",
     "base-uri 'none'", // era 'self'; nenhuma página usa <base>, então 'none' é mais apertado
     "form-action 'self'",
-    // Só na política aplicada: numa report-only o Chrome a ignora mas ainda
-    // loga um aviso no console a cada carga de página, o que é ruído puro.
-    ...(strict ? [] : ['upgrade-insecure-requests']),
+    // O browser troca qualquer http:// por https://: um link antigo de foto no
+    // KV não vira conteúdo misto.
+    'upgrade-insecure-requests',
+    // A política aplicada continua relatando: violação de verdade (extensão do
+    // visitante, marcação injetada, um script novo que escapou do nonce) chega
+    // ao log como `csp-violation` (handleCspReport). `report-to csp` aponta
+    // para o endpoint de mesmo nome em `Reporting-Endpoints`, abaixo.
     'report-uri /api/csp-report',
     'report-to csp',
   ].join('; ');
 }
 
-// Cabeçalhos de uma página HTML pública.
+// Cabeçalhos de uma página HTML pública. UM cabeçalho de CSP só: a estrita é a
+// aplicada, e um `Content-Security-Policy-Report-Only` ao lado dela repetiria
+// cada relatório e cada mensagem de console.
 /** @param {string} nonce */
 export function htmlSecurityHeaders(nonce) {
   return {
@@ -138,7 +146,6 @@ export function htmlSecurityHeaders(nonce) {
     // Sem COEP de propósito: as fotos vêm de lh3.googleusercontent.com, que
     // não manda CORP, e `require-corp` apagaria a galeria inteira.
     'Content-Security-Policy': contentSecurityPolicy(nonce),
-    'Content-Security-Policy-Report-Only': contentSecurityPolicy(nonce, { strict: true }),
     'Reporting-Endpoints': 'csp="/api/csp-report"',
   };
 }

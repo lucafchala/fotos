@@ -106,14 +106,13 @@ describe('página do projeto com vídeo', () => {
 });
 
 describe('cabeçalhos para o player', () => {
-  it('a CSP libera só a miniatura e o player nocookie — nas duas políticas', () => {
-    for (const csp of [contentSecurityPolicy('n'), contentSecurityPolicy('n', { strict: true })]) {
-      const diretiva = (/** @type {string} */ nome) => csp.split('; ').find(d => d.startsWith(nome + ' ')) || '';
-      expect(diretiva('frame-src')).toBe('frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com');
-      expect(diretiva('img-src')).toContain('https://i.ytimg.com');
-      expect(csp).not.toMatch(/https:\/\/(www\.)?youtube\.com/);
-      expect(diretiva('media-src')).toBe("media-src 'none'");
-    }
+  it('a CSP libera só a miniatura e o player nocookie', () => {
+    const csp = contentSecurityPolicy('n');
+    const diretiva = (/** @type {string} */ nome) => csp.split('; ').find(d => d.startsWith(nome + ' ')) || '';
+    expect(diretiva('frame-src')).toBe('frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com');
+    expect(diretiva('img-src')).toContain('https://i.ytimg.com');
+    expect(csp).not.toMatch(/https:\/\/(www\.)?youtube\.com/);
+    expect(diretiva('media-src')).toBe("media-src 'none'");
   });
 
   it('a Permissions-Policy delega autoplay e tela cheia só ao player', () => {

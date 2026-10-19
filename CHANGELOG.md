@@ -197,6 +197,11 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   marcador `admin_sessions_corte` (TTL 25 h), que `verifySession` consulta antes
   de renovar o `lastSeen`. Antes, o cache do KV deixava um aparelho revogado
   entrar e a renovação do `lastSeen` ressuscitava a sessão por mais 24 h.
+- **CSP estrita aplicada (#126).** Toda página HTML sai com um único cabeçalho
+  `Content-Security-Policy`, com `nonce` por resposta e sem `'unsafe-inline'`
+  em `script-src` (o `style-src` mantém `'unsafe-inline'`). Violações chegam a
+  `/api/csp-report`. Deixou de existir o cabeçalho Report-Only, e os roteiros de
+  navegador reprovam qualquer mensagem de CSP no console.
 - **Álbum de família ou privado: consentimento, não sigilo (#146).** A
   decisão do dono sobre o caminho sem a verificação de segurança (Turnstile
   bloqueado no navegador): ele continua entregando o álbum, mas pede o

@@ -109,6 +109,7 @@ scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail,
 scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
 scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
 scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
+scripts/vigia-csp.mjs           ← o vigia de CSP dos roteiros: qualquer mensagem de CSP reprova; a página-canário prova que ele enxerga (#126, §5.1)
 scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
 scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
@@ -117,6 +118,7 @@ tests/          ← suíte unit (node) + workers (workerd); security.test.js é 
   smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
   scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas EMITEM (#127)
   helpers/scripts-embutidos.d.ts ← o que o tsc não sabe desses scripts, em listas fechadas
+  helpers/paginas.js ← toda variação de página renderizada (a mesma lista do lint, da estrutura e da CSP) e a varredura da CSP estrita: `on…=`, `<script>` sem nonce, `javascript:` (#126)
   painel.test.js ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle)
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
@@ -134,21 +136,37 @@ pode mostrar texto diferente do documento oficial.
 Estas custaram horas. Todas têm teste ou portão de CI hoje, mas o portão só
 protege quem entende o porquê.
 
-### 5.1. Nonce na CSP aplicada quebra a interface inteira
+### 5.1. A CSP aplicada é a estrita: script sem nonce e handler inline não executam
 
-Pela CSP nível 3, **um nonce faz o browser descartar `'unsafe-inline'`**. Este
-site tinha ~63 handlers inline (`onclick=`, `onchange=`) quando isto mordeu:
-adicionar um nonce à política aplicada matou todos de uma vez — e **os testes
-continuaram passando**, porque eles conferem o texto da política, não o efeito
-dela. Desde 03/09/2026 (`4552180`) não sobra nenhum: viraram listeners
-delegados (`data-onclick` e afins). A regra abaixo continua valendo até o #126
-fazer a virada com o navegador aberto e os relatórios da report-only zerados.
+Desde o #126 a política aplicada é a **estrita**: `script-src 'self'`, o nonce
+da requisição e as origens do Turnstile e da Web Analytics — **sem
+`'unsafe-inline'`** (e sem Report-Only: é um cabeçalho de CSP só). Um `<script>`
+sem `nonce="${nonce}"`, um `onclick="…"` e um `javascript:` não executam, e
+**nenhum teste de unidade acusa**: a página segue 200 e o botão fica mudo. Já
+custou caro: com ~63 handlers inline, um nonce na política aplicada matou todos
+de uma vez com a suíte verde, porque os testes conferiam o texto da política, não
+o efeito dela. Desde 03/09/2026 (`4552180`) viraram listeners delegados
+(`data-onclick` e afins), e a virada só foi feita com o navegador aberto.
 
-- A política **aplicada** tem `'unsafe-inline'` e **nunca** nonce.
-- A política **report-only** (estrita) tem nonce e nenhum `'unsafe-inline'`.
-- Portão de CI + smoke test do deploy barram a reintrodução.
+- Todo `<script>` inline leva `nonce="${nonce}"` — a CI olha o código-fonte e
+  `tests/rendered-pages.test.js`, a página **renderizada** (um `<script${nonce ? …}>`
+  passa no primeiro e não no segundo).
+- Evento é delegação (`data-onclick`, `data-action`…), nunca `on…=`.
+- **Não "conserte" recolocando `'unsafe-inline'`**: com o nonce na política o
+  navegador o descarta (CSP Level 3) — não destrava nada, e o texto da política
+  passa a mentir. Dê o nonce ao script. **E nunca ponha nonce no `style-src`**:
+  aí cai o `'unsafe-inline'` de *estilo*, e todo `style="…"` das páginas morre.
+- Os cinco `verifica:*` servem a página com os cabeçalhos de verdade e reprovam
+  com QUALQUER mensagem de CSP no console (`scripts/vigia-csp.mjs`). Cada um abre
+  com uma página-canário: se o vigia ficar cego (o Chromium muda o texto de uma
+  mensagem) ou a política deixar de bloquear, ele mesmo reprova.
+- Em produção a política segue relatando para `/api/csp-report`: procure
+  `csp-violation` no log do Worker. Extensão de navegador de visitante é ruído
+  conhecido; um relatório de `inline` num documento nosso não é.
+- O smoke do deploy exige o nonce e proíbe `'unsafe-inline'` no `script-src` do
+  cabeçalho que o site de verdade manda.
 
-Só se descobre isso abrindo o site num navegador de verdade.
+Só se descobre o resto abrindo o site num navegador de verdade.
 
 ### 5.2. `getEvents()` tem cache de módulo
 
