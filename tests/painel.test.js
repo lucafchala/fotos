@@ -326,7 +326,7 @@ describe('formulário: "Visível na galeria" explica o que "oculto" quer dizer (
     const html = dashboardHTML([], [], 'N');
     const dica = html.match(/<div class="field-hint" id="dica-visivel"[^>]*>([\s\S]*?)<\/div>/);
     expect(dica, 'dica ausente').not.toBeNull();
-    const texto = dica[1].replace(/<[^>]+>/g, '');
+    const texto = dica[1].replace(/<[^>]+>/g, '').replace(/[<>]/g, '');
     expect(texto).toContain('oculto');
     expect(texto).toContain('não listado');
     expect(texto).toContain('quem tem o link ainda abre');
