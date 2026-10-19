@@ -323,6 +323,10 @@ Cobre:
   "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
 - **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
   de tela ouve "selecionada";
+- **cabeçalho e favoritas** — chips por seção (com contagem, a atual marcada,
+  tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
+  aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,
+  Shift+clique para intervalo e "voltar ao topo" (foco no título);
 - **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
 - **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP

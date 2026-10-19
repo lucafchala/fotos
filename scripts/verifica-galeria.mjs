@@ -480,6 +480,74 @@ await cenario('Seleção', async () => {
   await ctx.close();
 });
 
+// ---- 6b. Cabeçalho, chips, favoritas, "Baixar tudo" e voltar ao topo ----------
+await cenario('Cabeçalho e favoritas', async () => {
+  const { ctx, page, estado } = await abre({});
+  const chips = await page.locator('.g-chip[data-acao="ir-sec"]').allTextContents();
+  registra(chips.join('|') === 'Fotos24|Festa220', 'Chips: uma por seção, com a contagem', chips);
+  registra(await page.locator('.g-chip[aria-current="true"]').count() === 1, 'Chips: exatamente uma seção está marcada como atual', '');
+  await page.locator('.g-chip[data-sec="1"]').click();
+  await espera(page, 1200);
+  const atual = await page.locator('.g-chip[aria-current="true"]').textContent();
+  registra(/^Festa/.test(atual || ''), 'Chips: tocar numa seção leva até ela e a marca como atual', atual);
+
+  // Favoritar pelo coração da miniatura (no desktop ele aparece ao passar o mouse).
+  await page.locator('.g-chip[data-sec="0"]').click();
+  await espera(page, 800);
+  await page.locator('.g-t').nth(1).hover();
+  await page.locator('.g-t').nth(1).locator('.g-fav').click();
+  await page.locator('.g-t').nth(4).hover();
+  await page.locator('.g-t').nth(4).locator('.g-fav').click();
+  registra(await page.locator('.g-t.fav').count() === 2 && (await page.locator('.pswp--open').count()) === 0,
+    'Favoritas: o coração marca sem abrir a foto', await page.locator('.g-t.fav').count());
+  const chipFav = await page.locator('.g-chip[data-acao="filtro-fav"]').textContent();
+  registra(chipFav === 'Favoritas2', 'Favoritas: aparece o chip com a contagem', chipFav);
+  const guardado = await page.evaluate(() => localStorage.getItem('galeria:fav:formatura'));
+  registra(!!guardado && guardado.includes('RAIZFOTO_000001') && guardado.includes('RAIZFOTO_000004'), 'Favoritas: ficam guardadas só neste aparelho (localStorage)', guardado || '');
+
+  await page.locator('.g-chip[data-acao="filtro-fav"]').click();
+  await espera(page, 600);
+  registra(await page.locator('.g-t:visible').count() === 2 && (await page.locator('.g-chip[data-acao="ir-sec"]').count()) === 0,
+    'Favoritas: o filtro mostra só as favoritas e esconde os chips de seção', await page.locator('.g-t:visible').count());
+  await page.reload();
+  await espera(page, 900);
+  registra(await page.locator('.g-t.fav').count() === 2, 'Favoritas: sobrevivem a recarregar a página', '');
+
+  // Fora do filtro: "Baixar tudo" oferece o Drive e as favoritas.
+  const filtrando = await page.locator('.g-chip[aria-pressed="true"]').count();
+  if (filtrando) await page.locator('.g-chip[data-acao="filtro-fav"]').click();
+  await page.locator('[data-acao="baixar-tudo"]').click();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const titulo = await page.locator('#g-folha-t').textContent();
+  const ops = await page.locator('.g-op strong').allTextContents();
+  registra(titulo === 'Baixar tudo' && ops.some(t => /Google Drive/.test(t)) && ops.some(t => /favoritas \(2\)/.test(t)),
+    '"Baixar tudo": oferece o Drive e as favoritas', { titulo, ops });
+  await page.keyboard.press('Escape');
+  await espera(page, 400);
+
+  // Seleção: "Selecionar todas" por seção e Shift+clique para intervalo.
+  await page.locator('#g-sel').click();
+  await page.locator('[data-acao="sel-secao"][data-sec="0"]').click();
+  registra(await page.locator('.g-t.sel').count() === 24, '"Selecionar todas" marca a seção inteira', await page.locator('.g-t.sel').count());
+  await page.locator('[data-acao="limpar-sel"]').click();
+  await page.locator('.g-t').nth(2).click();
+  await page.locator('.g-t').nth(6).click({ modifiers: ['Shift'] });
+  registra(await page.locator('.g-t.sel').count() === 5, 'Shift+clique seleciona o intervalo', await page.locator('.g-t.sel').count());
+  await page.locator('[data-acao="fim-sel"]').click();
+
+  // Voltar ao topo: some no topo, aparece rolando, volta e leva o foco ao título.
+  registra(!(await page.locator('#g-topo').evaluate(e => e.classList.contains('on'))), 'Voltar ao topo: escondido no começo da página', '');
+  await page.evaluate(() => window.scrollTo(0, 3000));
+  await espera(page, 600);
+  registra(await page.locator('#g-topo').evaluate(e => e.classList.contains('on')), 'Voltar ao topo: aparece depois de rolar', '');
+  await page.locator('#g-topo').click();
+  await espera(page, 1200);
+  const volta = await page.evaluate(() => ({ y: window.scrollY, foco: document.activeElement && document.activeElement.id }));
+  registra(volta.y === 0 && volta.foco === 'g-h1', 'Voltar ao topo: volta ao início e leva o foco ao título', volta);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Cabeçalho e favoritas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {
   const { ctx, page, estado } = await abre({ pagina: PAGINA_ERRO });
