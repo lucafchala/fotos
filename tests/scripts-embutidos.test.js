@@ -30,9 +30,10 @@ const GLOBAIS_DO_BROWSER = [
   'localStorage', 'sessionStorage', 'fetch', 'URL', 'URLSearchParams', 'Blob', 'FileReader', 'Image',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'requestAnimationFrame',
   'addEventListener', 'innerWidth', 'innerHeight', 'scrollY', 'scrollTo',
-  // Galeria própria (#235): diagramação (getComputedStyle, ResizeObserver),
+  // Galeria própria (#235): diagramação (getComputedStyle, ResizeObserver), a
+  // seção ativa na faixa de chips (IntersectionObserver),
   // detecção de toque (matchMedia) e o arquivo do "Salvar na galeria" (File).
-  'getComputedStyle', 'ResizeObserver', 'matchMedia', 'File',
+  'getComputedStyle', 'ResizeObserver', 'IntersectionObserver', 'matchMedia', 'File',
   // Carregado pelo <script> do Turnstile, de fora; os blocos testam
   // `typeof turnstile` antes de usar.
   'turnstile',

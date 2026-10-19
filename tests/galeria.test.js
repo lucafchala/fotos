@@ -415,26 +415,64 @@ describe('foraDosScripts — fecha o bloco onde o navegador fecha', () => {
   });
 });
 
-describe('galeriaHTML — sem contagem de fotos', () => {
-  // TODO.md, "Decidido não fazer": a contagem de fotos (inclusive a automática
-  // pela Drive API) foi removida do site por completo, a pedido do dono — as
-  // fotos já vêm numeradas. A galeria lê a pasta inteira e teria o número à
-  // mão; não o mostra.
-  it('o cabeçalho diz de quando é a lista, não quantas fotos há', () => {
-    const fotos = Array.from({ length: 37 }, (_, i) => [`FOTO_${String(i).padStart(10, '0')}`, 6000, 4000, `${i + 1}.jpg`, 1]);
-    const html = galeriaHTML({
-      event: { ...EVENTOS[0] },
-      listagem: {
-        v: 1, pasta: RAIZ, em: '2026-10-10T12:00:00.000Z', truncada: true, total: 37, videos: 0, outros: 0, rk: {},
-        secoes: [{ nome: '', caminho: '', fotos }, { nome: 'Festa', caminho: 'Festa', fotos: [] }],
-      },
-      erro: null,
-      nonce: 'N',
-    });
-    const semScripts = foraDosScripts(html);
-    expect(semScripts).toMatch(/Lista do Drive de 10\/10, 09:00/);
-    expect(semScripts).not.toMatch(/\b37\b/);
-    expect(semScripts).not.toMatch(/\d+\s+fotos\b/);
+describe('galeriaHTML — cabeçalho de galeria', () => {
+  // A contagem de fotos tinha sido removida do painel (TODO.md, "Decidido não
+  // fazer": as fotos já vêm numeradas). Na galeria que o convidado vai receber
+  // ela volta, por pedido do dono (handoff 4.1): o Drive mostra quantos itens
+  // há, e a galeria própria tem de ser melhor. O número vem da lista lida do
+  // Drive, nunca de cadastro manual.
+  const fotos37 = Array.from({ length: 37 }, (_, i) => [`FOTO_${String(i).padStart(10, '0')}`, 6000, 4000, `${i + 1}.jpg`, 1]);
+  const bruto = (/** @type {any[]} */ fotos, total = fotos.length, evento = {}) => galeriaHTML({
+    event: { ...EVENTOS[0], ...evento },
+    listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T12:00:00.000Z', truncada: false, total, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos }] },
+    erro: null,
+    nonce: 'N',
+  });
+  const render = (/** @type {any[]} */ fotos, total = fotos.length, evento = {}) => foraDosScripts(bruto(fotos, total, evento));
+
+  it('o cabeçalho traz a data do evento e quantas fotos há', () => {
+    const html = render(fotos37, 37, { date: '2026-03-14' });
+    expect(html).toMatch(/<p class="g-meta">14 de março de 2026 · 37 fotos<\/p>/);
+  });
+
+  it('no singular, e sem data quando o evento não tem', () => {
+    expect(render(fotos37.slice(0, 1), 1, { date: '' })).toMatch(/<p class="g-meta">1 foto<\/p>/);
+  });
+
+  it('os controles do dono ficam numa faixa própria, fora do cabeçalho fixo', () => {
+    const html = render(fotos37);
+    const dono = html.match(/<div class="g-dono">([\s\S]*?)<\/div>\s*<header/);
+    expect(dono).not.toBeNull();
+    for (const t of ['← Painel', 'Página do projeto', 'Atualizar lista', 'Lista do Drive de 10/10, 09:00']) expect(dono?.[1]).toContain(t);
+    const cab = html.match(/<header class="g-top"[\s\S]*?<\/header>/);
+    expect(cab?.[0]).not.toContain('Atualizar lista');
+    expect(cab?.[0]).not.toContain('← Painel');
+  });
+
+  it('as ações do convidado são "Selecionar" e "Baixar tudo"', () => {
+    const html = render(fotos37);
+    expect(html).toMatch(/<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar<\/button>/);
+    expect(html).toMatch(/<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo<\/button>/);
+  });
+
+  it('a pasta sem fotos não mostra Selecionar nem Baixar tudo', () => {
+    const html = render([], 0);
+    expect(html).not.toContain('data-acao="baixar-tudo"');
+    expect(html).not.toContain('id="g-sel"');
+  });
+
+  it('o botão "Voltar ao topo" tem 44 px e nome acessível', () => {
+    const html = bruto(fotos37);
+    expect(html).toMatch(/<button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo">/);
+    expect(html).toMatch(/\.g-topo\{[^}]*width:44px;height:44px/);
+  });
+
+  it('a faixa de chips existe (a página decide se aparece) e o link do Drive vai nos dados', () => {
+    const html = bruto(fotos37.slice(0, 1));
+    expect(html).toContain('id="g-chips"');
+    const ilha = html.match(/<script type="application\/json" id="g-dados" nonce="N">([\s\S]*?)<\/script>/);
+    expect(JSON.parse(/** @type {RegExpMatchArray} */ (ilha)[1]).drive).toBe(EVENTOS[0].driveUrl);
+    expect(html).not.toContain(CHAVE);
   });
 });
 
