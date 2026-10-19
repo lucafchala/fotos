@@ -5,7 +5,7 @@ import { EVENTO } from './helpers/paginas.js';
 
 const html = eventHTML(EVENTO, '2026', null, 'NONCE', 'nonce-drive', 'form-token');
 const css = (/** @type {string} */ seletor) => {
-  const m = html.match(new RegExp(seletor.replace(/[.#[\]]/g, '\\$&') + '\\{([^}]*)\\}'));
+  const m = html.match(new RegExp(seletor.replace(/[.#[\]\\]/g, '\\$&') + '\\{([^}]*)\\}'));
   return m ? m[1] : '';
 };
 
