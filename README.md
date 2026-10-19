@@ -21,6 +21,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Stack e arquitetura](#stack-e-arquitetura)
 - [Como rodar localmente](#como-rodar-localmente)
 - [Verificação (rodar o site de verdade)](./docs/VERIFICACAO.md)
+- [Publicar uma versão (checklist, rollback, Access)](./docs/RELEASE.md)
 - [Configuração (KV, secrets, env vars)](#configuração-kv-secrets-env-vars)
 - [Deploy](#deploy)
   - [Migrações do D1](#migrações-do-d1)
