@@ -190,6 +190,17 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 - **O "Todos" do "Selecionar vários" acompanha as caixas**: desmarcar um card
   deixava o "Todos" marcado até a lista ser redesenhada.
 
+- **Portão do Drive, quatro acertos.** O texto do código por e-mail não afirma
+  mais que ele já foi enviado ("Ao tocar em Enviar código, mandamos…"); o motivo
+  do teto de álbuns restritos aparece antes do campo, perto da ação; a janela do
+  portão fica acima do aviso de cookies no celular; e o aviso de bloqueador tem
+  folga antes do campo de nome.
+- **"Pedir orçamento" (#210).** O botão da página /sobre leva ao /suporte com um
+  modelo de mensagem já preenchido (tipo de evento, data, local, pessoas).
+- **Contraste AA nas páginas públicas.** Os textos apagados (`text-dim`,
+  `text-dim-2`, placeholders) passam de 4,5:1 nos dois temas;
+  `tests/contraste-publico.test.js` mede o CSS de cada página.
+
 ### Segurança e LGPD
 
 - **A revogação de sessões fecha a janela do cache do KV.** O "Sair dos outros

@@ -46,7 +46,7 @@ export function aboutHTML(agenda = '', nonce = '') {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
-      --text-muted:#999; --text-dim:#666; --text-dim-2:#555; --border-dim:#1e1e1e; --border-hair:#141414;
+      --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888; --border-dim:#1e1e1e; --border-hair:#141414;
       --footer-link:#888; --accent:#c0a060;
       --ok-border:#1a2e1a; --ok-text:#4a8a4a; --ok-border-hover:#2a4a2a; --ok-text-hover:#6aaa6a; --ok-bg-hover:#0a120a;
       --btn-border:#2a2a2a; --btn-text:#888; --btn-border-hover:#555; --btn-text-hover:#ccc; --btn-bg-hover:#111;
@@ -54,7 +54,7 @@ export function aboutHTML(agenda = '', nonce = '') {
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-heading:#2a2521; --text-strong:#332d28;
-        --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490; --border-dim:#ddd9d4; --border-hair:#e5e1db;
+        --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560; --border-dim:#ddd9d4; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428;
         --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
         --btn-border:#ddd9d4; --btn-text:#6b6460; --btn-border-hover:#b8b2ab; --btn-text-hover:#332d28; --btn-bg-hover:#fff;
@@ -139,9 +139,9 @@ export function aboutHTML(agenda = '', nonce = '') {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
         @lucafchala
       </a>
-      <a href="/suporte" class="cta-btn btn-default">
+      <a href="/suporte?tema=orcamento" class="cta-btn btn-default">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2,4 12,13 22,4"/></svg>
-        Enviar mensagem
+        Pedir orçamento
       </a>
     </div>
 

@@ -318,7 +318,12 @@ try {
     await page.locator('#drive-declaration').check();
     await page.locator('#drive-consent').check();
     await page.waitForTimeout(2500);
-    const msg = (await page.locator('#drive-email-msg').textContent()) || '';
+    const msg = (await page.locator('#drive-email-motivo').textContent()) || '';
+    const ordem = await page.evaluate(() => {
+      const y = id => document.getElementById(id)?.getBoundingClientRect().top ?? -1;
+      return y('drive-email-motivo') < y('drive-email-addr') && y('drive-email-addr') < y('drive-email-send') + 1;
+    });
+    registra(ordem, 'teto de álbuns restritos: o motivo aparece antes do campo de e-mail, perto da ação');
     registra(await page.locator('#drive-email').isVisible() && msg === frase && estado.driveLink === 1 && !(await page.locator('#drive-link-error').isVisible()),
       'teto de álbuns restritos: abre o código por e-mail com a frase do servidor, sem repetir o pedido', { pedidos: estado.driveLink, msg });
     await ctx.close();

@@ -215,7 +215,7 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
 
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 50 checagens em 18/10/2026.
+falhas já registradas. 51 checagens em 18/10/2026.
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a

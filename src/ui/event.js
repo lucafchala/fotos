@@ -230,7 +230,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
-      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#555; --text-dim-2:#666;
+      --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888;
       --bg-card:#141414; --bg-card-2:#1c1c1c; --bg-card-hover:#242424; --bg-card-border:#3a3a3a;
       --border-dim:#191919; --border-dim-2:#444; --border-hair:#111;
       --footer-link:#777; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
@@ -241,7 +241,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     }
     @media (prefers-color-scheme: light) {
       :root{
-        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#75706b;
+        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560;
         --bg-card:#fff; --bg-card-2:#f6f3ef; --bg-card-hover:#efece7; --bg-card-border:#ddd9d4;
         --border-dim:#ddd9d4; --border-dim-2:#c8c2ba; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428; --accent-hover:#a67d38; --cta-bg:#8a6428; --cta-text:#faf7f3;
@@ -385,7 +385,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* shared modal base — the scrim behind the sheet stays a fixed dark
        translucency regardless of theme (dimming, not page chrome); only the
        sheet itself (the card floating on it) follows the vars. */
-    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:none;align-items:flex-end;justify-content:center}
+    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:85;display:none;align-items:flex-end;justify-content:center}
     .modal-ov.open{display:flex}
     @media(min-width:580px){.modal-ov{align-items:center;padding:1.5rem}}
     .modal-sheet{background:var(--bg-card);width:100%;max-width:500px;border-radius:18px 18px 0 0;max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:1.5rem 1.5rem max(3rem,calc(2rem + env(safe-area-inset-bottom)))}
@@ -414,6 +414,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .drive-email .de-btn{flex:none;padding:.6rem .9rem;border-radius:8px;border:1px solid var(--border-dim);background:var(--bg-card);color:var(--text);font:inherit;font-size:.85rem;cursor:pointer}
     .drive-email .de-btn:disabled{opacity:.5;cursor:default}
     .drive-email #drive-email-code{letter-spacing:.3em;font-variant-numeric:tabular-nums}
+    .drive-email .de-motivo{font-size:.85rem;line-height:1.55;margin-top:.5rem;padding:.55rem .75rem;border-radius:8px;background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text)}
     .drive-email .de-msg{font-size:.8rem;line-height:1.5;margin-top:.5rem;color:var(--text)}
     .spin{width:14px;height:14px;border:2px solid var(--border-dim);border-top-color:var(--text-muted);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -466,6 +467,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .radio-opt span{font-size:.875rem;color:var(--text-2)}
     .form-error{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);padding:.6rem .8rem;border-radius:8px;font-size:.78rem;line-height:1.5;margin-top:1rem}
     .adblock-warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.7rem .85rem;border-radius:8px;font-size:.78rem;line-height:1.55;margin-top:1rem}
+    #drive-adblock{margin-top:0;margin-bottom:1rem}
     .adblock-warn strong{color:var(--warn-text-strong)}
     .adblock-warn a{color:var(--warn-text-strong)}
     .adblock-warn button{background:none;border:none;color:var(--warn-text-strong);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
@@ -654,7 +656,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           chegar; este caminho existe para ninguém de verdade ficar sem.
         -->
         <div id="drive-email" class="drive-email" style="display:none">
-          <p class="de-note">Mandamos um código de 6 dígitos para o seu e-mail. Seu e-mail não é guardado pelo site.</p>
+          <p class="de-note">Ao tocar em <strong>Enviar código</strong>, mandamos um código de 6 dígitos para o seu e-mail. Seu e-mail não é guardado pelo site.</p>
+          <p id="drive-email-motivo" class="de-motivo" role="status" style="display:none"></p>
           <div class="de-row rem-field" style="margin-top:.5rem">
             <input type="email" id="drive-email-addr" placeholder="seu@email.com" autocomplete="email" inputmode="email" maxlength="254" aria-label="Seu e-mail">
             <button type="button" class="de-btn" id="drive-email-send" data-action="sendDriveCode">Enviar código</button>
@@ -1263,7 +1266,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             driveLinkState = 'idle';
             setDriveLinkUI('idle');
             showDriveEmail();
-            driveEmailMsg(errData.error || 'Para abrir este álbum, receba um código por e-mail.');
+            driveEmailMotivo(errData.error || 'Para abrir este álbum, receba um código por e-mail.');
             return;
           }
           // 429: espera o tempo que o servidor mandou e tenta de novo, com
@@ -1375,6 +1378,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     }
 
     // ---- Código por e-mail (último recurso) ----
+    function driveEmailMotivo(t) { const m = document.getElementById('drive-email-motivo'); if (m) { m.textContent = t; m.style.display = t ? '' : 'none'; } }
     function driveEmailMsg(t) { const m = document.getElementById('drive-email-msg'); if (m) m.textContent = t; }
     function setDriveEmailBusy(busy) {
       ['drive-email-send', 'drive-email-ok'].forEach(function(id) {

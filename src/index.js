@@ -71,6 +71,8 @@ const TEMA_PREFILLS = {
   // Caminho alternativo para quem chega pela Central de Transparência sem
   // saber de qual projeto é a foto (o principal é o botão no rodapé do evento).
   remocao: 'Gostaria de solicitar a remoção de uma foto minha. Evento (se souber): ',
+  // "Pedir orçamento" (#210): um modelo curto, para a pessoa só completar.
+  orcamento: 'Olá! Quero pedir um orçamento.\n\nTipo de evento: \nData: \nLocal (cidade): \nQuantidade de pessoas (aprox.): \nObservações: ',
 };
 
 // KV guarda contador como string; `toCount()` é o portão que transforma lixo/
