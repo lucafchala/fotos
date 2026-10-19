@@ -775,10 +775,11 @@ site (`VERSAO`, `src/config.js`) e a lista do que ela trouxe.
 | --- | --- | --- | --- | --- |
 | **Site** | Selo de agenda | campo `#agenda-texto` (≤ 80 caracteres; Enter salva) e **Salvar** | `PUT /api/settings/agenda` `{ texto }` | — |
 | | Categorias | chips com × (`data-cat-del`), campo `#cat-new` (≤ 40; Enter cria) e **Adicionar** | `POST /api/categories` · `POST /api/categories/delete` | excluir pede **digitar o nome**; avisa em quantos eventos a categoria está |
-| **Dados** | Backup dos dados | **⬇ Baixar backup JSON** | `GET /api/backup` | — |
+| **Dados** | Backup dos dados | **⬇ Baixar backup JSON** e a linha `#backup-ultimo` ("Último backup: …") | `GET /api/backup` | — |
 | | Exportar planilhas | **Consentimentos**, **Pedidos de remoção**, **Métricas: totais** e **Métricas por dia** (CSV) | `GET /api/consent/export` · `GET /api/removal-requests` · `GET /api/metrics` · `GET /api/metrics/diario?dias=180` | — |
 | | **Restaurar backup** *(sensível)* | arquivo `#restore-file` (`.json`) e **↩ Restaurar backup** | `POST /api/backup/restore` | digitar `RESTAURAR` |
 | **Conta** | **Trocar a senha do painel** *(sensível)* | `#new-pass`, `#new-pass2` e **Salvar nova senha** | `PUT /api/settings/password` `{ password }` | digitar `TROCAR` |
+| | Sair dos outros aparelhos | botão `data-onclick="revokeOtherSessions"` | `POST /api/sessions/revoke-others` | simples: "Encerrar sessões", sem digitar |
 | **Sobre** | Versão (`#bloco-versao`) | só leitura: "Versão X.Y.Z" e "O que esta versão trouxe" | — | — |
 
 Os dois blocos **sensíveis** têm borda vermelha e o selo "Pede confirmação
@@ -801,6 +802,12 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   (`downloadBackup()`) e depois um `<a download>` com o blob, como o CSV. Com a
   sessão expirada, o 401 leva ao login pelo mesmo `vaiParaOLogin()` do `api()`:
   antes, o navegador mostrava o JSON do erro.
+- **Lembrete de backup.** Sob o botão, a linha `#backup-ultimo` diz "Último
+  backup: hoje", "ontem" ou "há N dias (dd/mm/aaaa)" — a conta é por dia de São
+  Paulo (`hojeEmSaoPaulo`); nunca baixado ou há mais de 30 dias, vira aviso em
+  âmbar. A chave `backup:ultimo` (o instante da **entrega**, não o de gravar o
+  arquivo) é gravada por `GET /api/backup`; o `HEAD` não conta. Depois do
+  download, a linha muda no lugar, sem recarregar a página.
 - **Planilhas.** O CSV de consentimentos vem do servidor (D1; 503 sem o banco
   provisionado); os de pedidos e de métricas (totais e por dia) são montados no
   navegador por `toCSV()`, com BOM, citação e a defesa contra injeção de
@@ -815,7 +822,16 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   `validatePassword`, `src/security.js`): três tipos de caractere, ou uma frase
   de 20 ou mais. O cliente só confere "preenchida", "iguais" e o mínimo; o resto é
   do servidor, e o toast mostra o motivo. A sessão de quem trocou continua; as
-  outras são revogadas.
+  outras são revogadas pela mesma `encerraOutrasSessoes` do "Sair dos outros
+  aparelhos" (§14).
+- **Sair dos outros aparelhos.** Encerra a sessão do painel em todos os aparelhos
+  menos o atual; em outro local, pode levar até 30 s. É a mesma função da troca de
+  senha (`encerraOutrasSessoes`, `src/utils.js`): grava primeiro o marcador
+  `admin_sessions_corte` no KV (TTL de 25 h) e depois apaga os outros registros. O
+  `verifySession` consulta o marcador **antes** de renovar o `lastSeen` — sem ele,
+  o cache do KV deixava um aparelho revogado entrar por até 30 s e a renovação
+  ressuscitava a sessão por mais 24 h. A confirmação é simples, sem digitar, e o
+  toast conta "N sessões encerradas."
 - **Sair com algo não salvo.** A nova senha, a categoria nova, o texto do selo
   e o arquivo escolhido para restaurar pedem "Sair do site?" ao recarregar ou
   sair (`ajustesSujos()`, no `beforeunload`). Na saída para o login por sessão
@@ -847,8 +863,9 @@ O diálogo prende o foco entre o campo, "Cancelar" e o botão; `Esc` cancela;
 
 ## 10. Endpoints: o que a página chama
 
-Nenhum endpoint mudou no redesenho; a v2.0 acrescentou um, o da série por dia
-(`/api/metrics/diario`, §8). Todo `/api/*` daqui exige sessão
+Nenhum endpoint mudou no redesenho; a v2.0 acrescentou o da série por dia
+(`/api/metrics/diario`, §8) e, depois dela, o "Sair dos outros aparelhos" trouxe
+`/api/sessions/revoke-others`. Todo `/api/*` daqui exige sessão
 (`checkAuth`) e, para escrita, passa pelo portão de CSRF do roteador (README,
 "Rotas HTTP").
 
@@ -865,7 +882,8 @@ Nenhum endpoint mudou no redesenho; a v2.0 acrescentou um, o da série por dia
 | Excluir categoria | `POST /api/categories/delete` | `{ name }` | `{ categories, cleared }` |
 | Salvar selo de agenda | `PUT /api/settings/agenda` | `{ texto }` | `{ texto }` já limpo |
 | Trocar a senha | `PUT /api/settings/password` | `{ password }` | `{ ok: true }`; 400 com o motivo da política |
-| Baixar backup | `GET /api/backup` | — | arquivo `.json`, por `fetch` e blob; 401 leva ao login (`vaiParaOLogin()`) |
+| Sair dos outros aparelhos (`revokeOtherSessions`) | `POST /api/sessions/revoke-others` | — | `{ ok: true, encerradas }`; preserva a sessão atual e encerra as outras (noutro local, até 30 s); grava o marcador `admin_sessions_corte` no KV |
+| Baixar backup | `GET /api/backup` | — | arquivo `.json`, por `fetch` e blob; grava `backup:ultimo` (o lembrete de Ajustes → Dados; o `HEAD` não conta); 401 leva ao login (`vaiParaOLogin()`) |
 | Restaurar backup | `POST /api/backup/restore` | o JSON do backup | `{ ok, added, updated, skipped, total }`; no backup v2, também `categories` (a contagem gravada, não a lista), `categoriesDropped` (se passou de 30) e `removalRequestsAdded` — na prévia de PR, `removalRequestsSkipped` no lugar dos pedidos |
 | Planilha de consentimentos | `GET /api/consent/export` | — | CSV (`fetch` e blob); 503 sem D1 |
 | Planilha de pedidos | `GET /api/removal-requests` | — | CSV montado no navegador |
@@ -1140,7 +1158,9 @@ fixo no rodapé — não rola junto com os campos.
 ### Cota de escrita do KV
 
 A cota é de **1000 escritas por dia para a conta inteira**. O redesenho não
-acrescentou nenhuma; `verifica:painel` prova isso por fluxo (§15).
+acrescentou nenhuma; as que vieram depois dele — o marcador `admin_sessions_corte`
+e o lembrete `backup:ultimo` — são uma por ação, e o `verifica:painel` as prende
+por fluxo (§15).
 
 | Ação | Escritas no KV |
 | --- | --- |
@@ -1148,8 +1168,10 @@ acrescentou nenhuma; `verifica:painel` prova isso por fluxo (§15).
 | criar categoria / excluir categoria | 1, em `categories` (+1 em `events` se a exclusão limpou eventos) |
 | salvar o selo de agenda | 1, em `agenda` (ou 1 exclusão, se vazio) |
 | resolver pedido | 1, só na chave do pedido, `removal_request:<id>` (+ 1 e-mail) — desde a v2.0 (#198) |
-| trocar a senha | 1, em `admin_password` (+ exclusões das outras sessões) |
+| trocar a senha | 1, em `admin_password` + 1 no marcador `admin_sessions_corte` (+ exclusões das outras sessões) |
+| sair dos outros aparelhos | 1, no marcador `admin_sessions_corte` (+ 1 `list` e 1 exclusão por sessão encerrada) |
 | restaurar backup | `events` e `categories`, mais 1 por pedido de remoção novo (`removal_request:<id>`, até 500 por arquivo; na prévia, nenhum) |
+| baixar backup | 1, em `backup:ultimo` (o `HEAD` não conta) |
 | entrar | 1, em `admin_session:<token>` |
 | sessão em uso | o `lastSeen` é reescrito **no máximo a cada 10 min** |
 
@@ -1260,12 +1282,14 @@ Não precisa do `wrangler dev`. Sai com 1 se alguma checagem falhar, e roda em u
 
 **O fluxo**, em cada aparelho: entrar → criar um evento → editar e marcar
 entregue → ocultar pelo menu → resolver um pedido → métricas → trocar a senha (a
-antiga é recusada, a nova entra) → a sessão cair no meio de uma edição (e o
-rascunho voltar) → excluir o evento de teste. No computador, o roteiro também
-baixa o backup e confere o aviso de Ajustes sujo (depois de trocar a senha), e,
-no fim, vê o backup com a sessão caída levar ao login.
+antiga é recusada, a nova entra) → "Sair dos outros aparelhos" (um segundo
+aparelho logado cai no login; este fica) → a sessão cair no meio de uma edição (e
+o rascunho voltar) → excluir o evento de teste. No computador, o roteiro também
+baixa o backup — e a linha "Último backup" passa a dizer hoje — e confere o aviso
+de Ajustes sujo (depois de trocar a senha), e, no fim, vê o backup com a sessão
+caída levar ao login.
 
-**O que cada checagem quer dizer** (211 em 17/10/2026: 70 em cada celular, 71 no
+**O que cada checagem quer dizer** (235 em 18/10/2026: 77 em cada celular, 81 no
 computador; o número muda quando alguém acrescenta uma — não é contrato):
 
 | Checagem | O que prova / se falhar, olhe |
@@ -1323,10 +1347,19 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | as métricas desenhadas não vazam para o lado | a mesma medida do vazamento, com os gráficos desenhados |
 | ajustes em quatro grupos (o último diz a versão) | `.grupo-titulo`: Site, Dados, Conta, Sobre |
 | trocar a senha | a confirmação digitada (`TROCAR`) e o toast |
+| com o segundo aparelho dentro, há duas sessões abertas | um segundo contexto do navegador entra com a senha nova; o KV passa de uma para duas `admin_session:*` |
+| "Sair dos outros aparelhos" pede uma confirmação simples (sem digitar) e o aviso diz "1 sessão encerrada." | abre o `confirmDialog` **sem** campo de digitação, confirma, e o toast conta as sessões; o botão volta a habilitar |
+| no KV só fica a sessão deste, e o corte (o marcador de revogação) fica gravado | depois do clique sobra só a `admin_session` deste, e `admin_sessions_corte` traz `antes` (número) e `exceto` (o sha256 do token atual) |
+| o outro aparelho, no gesto seguinte, cai no login — mesmo com o registro posto de volta no KV (o marcador o recusa) | o registro apagado é recolocado no KV à mão (a renovação de um local com cache velho); a próxima ação cai no login |
+| o registro ressuscitado é apagado de novo | o `verifySession` derruba e apaga o registro que o marcador recusou |
+| este aparelho continua logado depois do corte (a sessão dele é mais velha que o corte) | recarregar devolve o painel, não o login |
 | recarregar a página volta para a mesma seção | `sessionStorage` e `voltaParaSecao()` |
 | a senha antiga não entra mais | depois do "Sair", `entraNoPainel()` com a senha da semente lança "login recusado" |
 | entrar de novo com a senha nova | entra com a senha nova pelo formulário e chega à `nav.nav` sem `?error=` |
-| (computador) "Baixar backup" baixa `fotos-backup-AAAA-MM-DD.json`, com a lista de eventos | `waitForEvent('download')`: o nome casa `/^fotos-backup-.*\.json$/` e o JSON tem `events`. Só lê, sem escrita no KV (§9) |
+| (computador) "Baixar backup" baixa `fotos-backup-AAAA-MM-DD.json`, com a lista de eventos | `waitForEvent('download')`: o nome casa `/^fotos-backup-.*\.json$/` e o JSON tem `events`. Grava só `backup:ultimo` no KV (§9, §14) |
+| (todos) sem backup baixado, a linha de Ajustes avisa "Nenhum backup baixado ainda." em âmbar | `#backup-ultimo` com esse texto, a classe `aviso` e o fundo âmbar calculado (a semente não tem `backup:ultimo`) |
+| (computador) "Baixar backup" muda a linha para "Último backup: hoje", sem recarregar e sem o aviso | assim que o `fetch` do backup termina, `#backup-ultimo` vira "Último backup: hoje" e perde o âmbar, sem reload |
+| (computador) recarregar a página mantém "Último backup: hoje" | o servidor gravou `backup:ultimo` no download e a página o leu na abertura |
 | (computador) Ajustes com texto não salvo: recarregar pergunta "Sair do site?" uma vez, e a página fica | `#cat-new` preenchido e `reload()`: um diálogo `beforeunload` (dispensado, a recarga para e o texto continua). Uma marca na janela prova que não recarregou (§9) |
 | (computador) Ajustes sem texto não salvo: recarregar não pergunta nada | campo limpo e `reload()`: nenhum diálogo, e a marca some, porque a página recarregou |
 | desligar e religar o aviso conta como alteração (fechar pergunta antes de descartar) | numa edição aberta, liga-desliga-liga o aviso de novidade e fecha: aparece o "Descartar alterações?" (o `snapshotForm` inclui `alertWasActive`), e "Cancelar" mantém a folha |
@@ -1339,14 +1372,18 @@ computador; o número muda quando alguém acrescenta uma — não é contrato):
 | (celular) os botões da confirmação têm 44 px | as alturas de `.confirm-foot button` na confirmação de excluir (eram 40) |
 | nenhum erro de JS | nenhum `pageerror` na sessão toda |
 | nenhuma violação da CSP aplicada | nenhuma mensagem de CSP no console, descontadas as de Report-Only |
-| o fluxo só grava o que deve no KV (13 escritas) | as chaves gravadas ⊆ `admin_password`, `admin_session:*`, `events`, `removal_request:*`. É o guarda da cota (§14): uma chave nova aqui tem de ser decisão, não surpresa |
+| o fluxo só grava o que deve no KV (16 escritas; 17 no computador) | as chaves gravadas ⊆ `admin_password`, `admin_session:*`, `admin_sessions_corte`, `events`, `removal_request:*` (+ `backup:ultimo`, só no computador). É o guarda da cota (§14): uma chave nova aqui tem de ser decisão, não surpresa |
 
-As treze escritas por aparelho são: a sessão do login; seis em `events` (criar,
-editar e marcar entregue, os três salvamentos do aviso "Novas fotos", ocultar);
-uma em `removal_request:<id>` (resolver — só a chave do pedido resolvido, #198);
-a senha; duas sessões novas (depois da troca de senha e depois da queda
-simulada da sessão); e duas em `events` (salvar o rascunho recuperado e
-excluir). A senha antiga recusada não grava nada.
+As dezesseis escritas por aparelho são: a sessão do login; seis em `events`
+(criar, editar e marcar entregue, os três salvamentos do aviso "Novas fotos",
+ocultar); uma em `removal_request:<id>` (resolver — só a chave do pedido
+resolvido, #198); a senha **e** o marcador `admin_sessions_corte` da troca de
+senha; o marcador do "Sair dos outros aparelhos"; a sessão do segundo aparelho
+(entra e logo cai); duas sessões novas do aparelho do roteiro (depois da troca de
+senha e depois da queda simulada); e duas em `events` (salvar o rascunho
+recuperado e excluir). O computador grava ainda uma em `backup:ultimo` ao baixar
+o backup — 17 no total, porque só ele baixa. A senha antiga recusada não grava
+nada.
 
 **O que o roteiro não prova.** Chromium emulando um celular não é o Safari do
 iPhone: o roteiro prova os **critérios** que causam o zoom (fonte menor que 16
@@ -1618,7 +1655,13 @@ pedido de remoção e trocar a senha.
   saiu da lista, §4.4), e a barra do "Selecionar vários" empilha os pares no
   celular (§13);
 - o **backup** com a sessão expirada leva ao login, em vez de mostrar o JSON do
-  erro, e Ajustes com texto não salvo pergunta antes de sair (§9).
+  erro, e Ajustes com texto não salvo pergunta antes de sair (§9);
+- o **"Sair dos outros aparelhos"** (Ajustes → Conta) encerra a sessão do painel
+  nos outros aparelhos pelo marcador `admin_sessions_corte` no KV — a mesma
+  `encerraOutrasSessoes` da troca de senha —, e o **lembrete do último backup**
+  (Ajustes → Dados) diz quando foi o último download, pela chave `backup:ultimo`;
+  o roteiro do painel passou a 235 checagens (16 escritas por aparelho; 17 no
+  computador).
 
 ---
 
