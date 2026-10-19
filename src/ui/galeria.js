@@ -346,7 +346,7 @@ const SCRIPT = `
   const D = JSON.parse(dadosEl.textContent || '{}');
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, i: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -432,7 +432,7 @@ const SCRIPT = `
         a.appendChild(ck);
         a.appendChild(fv);
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, i: i, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
         fotos.push(foto);

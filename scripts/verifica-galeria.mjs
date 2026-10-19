@@ -15,7 +15,7 @@
 // direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history */
+/* global document, window, navigator, getComputedStyle, history, localStorage */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
