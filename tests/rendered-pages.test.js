@@ -495,12 +495,13 @@ describe('cartão de pré-visualização do link', () => {
     expect(m['og:description']).toMatch(/^Em breve/);
   });
 
-  it('um projeto sem foto nenhuma sai sem tag de imagem, não com tag vazia', () => {
+  it('um projeto sem foto nenhuma usa o cartão padrão, não uma tag vazia', () => {
     const m = metas(eventHTML(
       { ...EVENTO, photos: [], thumbnailUrl: '' }, '2026', null, 'N', 'nd', 'ft',
     ));
-    expect(m['og:image']).toBeUndefined();
-    expect(m['twitter:card']).toBe('summary');
+    expect(m['og:image']).toBe('https://fotos.lucafchala.com/og-padrao.png');
+    expect(m['og:image:width']).toBe('1200');
+    expect(m['twitter:card']).toBe('summary_large_image');
   });
 
   it('a home resume o acervo em vez de repetir o título', () => {

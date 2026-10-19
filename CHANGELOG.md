@@ -218,6 +218,24 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   em `script-src` (o `style-src` mantém `'unsafe-inline'`). Violações chegam a
   `/api/csp-report`. Deixou de existir o cabeçalho Report-Only, e os roteiros de
   navegador reprovam qualquer mensagem de CSP no console.
+- **Termos 2026-10-18.** O §3 deixa de dizer "acesso restrito a membros da
+  família" e "a participantes ou pessoas autorizadas": nos álbuns de família e
+  privados o acesso se apoia no consentimento, não em senha. As finalidades não
+  mudam (quem aceitou os Termos de 2026-06-18 segue coberto). `TERMS_VERSION`
+  sobe, e os novos aceites ficam atrelados ao texto novo.
+- **IA e treino.** `robots.txt` e `llms.txt` passam a dizer `ai-train=no` /
+  "Training not allowed" em todos os grupos, e os robôs que só treinam (GPTBot,
+  ClaudeBot, Google-Extended, CCBot, entre outros) levam `Disallow: /`. Busca e
+  resposta de IA continuam permitidas.
+- **"Em breve" fora da busca.** A página de um projeto "em breve" manda
+  `noindex` e sai do `sitemap.xml` até ser publicada.
+- **Cartão de link padrão.** Toda página pública sem foto própria ganha
+  `og:image` 1200×630 (`/og-padrao.png`, gerado por `npm run build:icons`).
+- **Cron de 5 em 5 minutos só para o Kuma.** O carimbo `cron:last` e as podas
+  seguem uma vez por dia, na execução das 03:00 UTC: nenhuma escrita extra no
+  KV (288 por dia comeriam quase 30% da cota grátis).
+- **Traces a 10%** (`wrangler.toml`), antes do corte do plano grátis de logs em
+  1º/12/2026. Os logs seguem em 100%.
 - **Álbum de família ou privado: consentimento, não sigilo (#146).** A
   decisão do dono sobre o caminho sem a verificação de segurança (Turnstile
   bloqueado no navegador): ele continua entregando o álbum, mas pede o

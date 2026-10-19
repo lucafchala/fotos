@@ -375,23 +375,22 @@ const worker = {
     }
   },
 
-  // Daily cron: purge resolved removal requests past the retention window so
-  // personal data (e-mail/phone) is not kept indefinitely. Configured in
-  // wrangler.toml ([triggers] crons).
+  // Cron de 5 em 5 minutos, só para o batimento do Kuma. As tarefas diárias
+  // (carimbo cron:last no KV, poda de pedidos e de consentimento) rodam só na
+  // execução das 03:00 UTC: gravar no KV a cada 5 min seriam 288 escritas/dia.
+  // Configurado em wrangler.toml ([triggers] crons).
   /**
    * @param {ScheduledController} event
    * @param {Env} env
    * @param {ExecutionContext} ctx
    */
   async scheduled(event, env, ctx) {
-    // Heartbeat first: stamp the wall-clock the cron last fired so /api/healthz
-    // (and the status dashboard) can detect a *silently dead* schedule — a job
-    // that stops running emits no error, so without this beat the failure is
-    // invisible until data quietly stops being pruned.
-    ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
-    // Batimento garantido uma vez por dia, mesmo sem visita nenhuma: `force`
-    // pula a trava de tempo, que serve ao tráfego, não ao cron.
+    // `force` pula a trava de tempo, que serve ao tráfego, não ao cron.
     ctx.waitUntil(pushToKuma(env, { force: true }));
+    if (!ehExecucaoDiaria(event)) return;
+    // Carimbo do último disparo diário: o /api/healthz (e o painel de status)
+    // detectam um agendamento morto em silêncio — um job parado não emite erro.
+    ctx.waitUntil(env.FOTOS.put('cron:last', new Date().toISOString()).catch(e => console.error('cron heartbeat failed', e)));
     ctx.waitUntil(pruneResolvedRemovalRequests(env).catch(e => {
       console.error('retention prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneResolvedRemovalRequests' }).catch(() => {});
@@ -402,6 +401,18 @@ const worker = {
     }));
   },
 };
+
+/**
+ * A execução das 03:00 UTC (a única que faz as tarefas diárias). Sem
+ * `scheduledTime` (chamada direta, como nos testes) conta como diária.
+ * @param {{ scheduledTime?: number } | undefined} event
+ */
+export function ehExecucaoDiaria(event) {
+  const t = event && event.scheduledTime;
+  if (typeof t !== 'number') return true;
+  const d = new Date(t);
+  return d.getUTCHours() === 3 && d.getUTCMinutes() < 5;
+}
 
 // O que a Cloudflare chama. Em produção é `worker.fetch` direto; numa Prévia de
 // PR (Worker Previews, `AMBIENTE = "previa"` — só no bloco [previews] do
@@ -463,7 +474,8 @@ async function handleSitemap(env) {
   // crawler achar o slug sem nem visitar a galeria. Fora do sitemap +
   // X-Robots-Tag na própria página (handleEventPage) — a página continua
   // abrindo por link direto, só some da indexação de busca.
-  const visible = events.filter(e => e.visible !== false && !isRestrictedAccess(e));
+  // "Em breve" também fica de fora: a página ainda não tem o que indexar.
+  const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
   /** @param {Evento} e */
   const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
@@ -492,25 +504,21 @@ async function handleSitemap(env) {
 }
 
 function handleRobots() {
-  // Open to all crawlers and AI agents (training, search, live answering) —
-  // no disallow rules. /dashboard and /api/ aren't gated by robots.txt (that's
-  // advisory, not access control); they're protected by login + rate limiting.
-  const aiAgents = [
-    'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'Google-Extended',
-    'ClaudeBot', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
-    'PerplexityBot', 'CCBot', 'Bytespider', 'Amazonbot', 'Applebot-Extended',
-    'Meta-ExternalAgent', 'cohere-ai',
-  ];
-  const rules = 'Allow: /\n';
+  // Busca e resposta de IA são bem-vindas; treino de modelo não. O Content-Signal
+  // vale em cada grupo (um grupo próprio de um robô ignora o do `*`), e os robôs
+  // que existem só para treinar levam Disallow. /dashboard e /api/ não são
+  // protegidos por aqui (robots.txt é aviso, não controle de acesso): têm login
+  // e limite de taxa.
+  const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
+  const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
+  const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
     '# robots.txt — fotos.lucafchala.com\n' +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
-    '# Content usage preferences — all uses permitted (https://contentsignals.org).\n\n' +
-    'User-agent: *\n' +
-    'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n' +
-    rules + '\n' +
-    aiAgents.map(a => `User-agent: ${a}`).join('\n') + '\n' +
-    rules + '\n' +
+    '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
+    'User-agent: *\n' + sinal + 'Allow: /\n\n' +
+    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n\n' +
+    robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
     `Sitemap: ${SITE_URL}/sitemap.xml\n`;
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
@@ -527,11 +535,11 @@ function handleLlmsTxt() {
     'Disallow: /.well-known\n\n' +
     '# LLM Usage Policy\n' +
     'User-Agent: *\n' +
-    'Allow-User-Agent: GPTBot, ClaudeBot, PerplexityBot, Amazonbot, OAI-SearchBot\n' +
+    'Allow-User-Agent: PerplexityBot, Amazonbot, OAI-SearchBot, Claude-SearchBot\n' +
     'Crawl-delay: 1\n' +
     'Request-limit: 100/1h\n\n' +
     '# Data usage declaration\n' +
-    'Usage-Policy: Training allowed. Image-use consent required for sensitive content.\n' +
+    'Usage-Policy: Training not allowed. Image-use consent required for sensitive content.\n' +
     'Source: https://fotos.lucafchala.com\n' +
     'Maintainer: Luca F. Chala <security@lucafchala.com>\n';
   return new Response(body, {
@@ -670,7 +678,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted || restricted) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (unlisted || restricted || event.comingSoon) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }

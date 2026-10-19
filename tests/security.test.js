@@ -2356,6 +2356,31 @@ describe('auditoria: página de evento restrito sai da indexação de busca (F1,
   });
 });
 
+describe('"Em breve": fora do sitemap e com noindex até publicar', () => {
+  const kv = (/** @type {any[]} */ events) => {
+    const store = new Map(Object.entries({ events: JSON.stringify(events) }));
+    return { async get(/** @type {string} */ k) { return store.has(k) ? store.get(k) : null; },
+      async put() {}, async delete() {}, async list() { return { keys: [], list_complete: true }; } };
+  };
+  const ctx = { waitUntil: () => {} };
+
+  it('a página manda noindex e o sitemap não a lista; publicada, volta a ser indexável', async () => {
+    const mk = (/** @type {boolean} */ comingSoon) => withDurableObjects({
+      FOTOS: kv([{ id: 'a', slug: 'breve', title: 'B', visible: true, comingSoon, accessType: 'public', driveUrl: 'https://drive.google.com/x' }]),
+    });
+    vi.resetModules();
+    const { default: w } = await import('../src/index.js');
+    const emBreve = mk(true);
+    expect((await w.fetch(new Request('https://fotos.lucafchala.com/breve'), emBreve, ctx)).headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    expect(await (await w.fetch(new Request('https://fotos.lucafchala.com/sitemap.xml'), emBreve, ctx)).text()).not.toContain('/breve<');
+    vi.resetModules();
+    const { default: w2 } = await import('../src/index.js');
+    const publicado = mk(false);
+    expect((await w2.fetch(new Request('https://fotos.lucafchala.com/breve'), publicado, ctx)).headers.get('X-Robots-Tag')).toBeNull();
+    expect(await (await w2.fetch(new Request('https://fotos.lucafchala.com/sitemap.xml'), publicado, ctx)).text()).toContain('/breve</loc>');
+  });
+});
+
 // ---------------------------------------------------------------------------
 describe('export de CSV do navegador: mesma defesa do servidor', () => {
   // O `csvCell()` do servidor (testado lá em cima) neutraliza injeção de

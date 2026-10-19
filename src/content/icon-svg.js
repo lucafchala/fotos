@@ -7,3 +7,7 @@ export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25
 // Maskable: o fundo vai até a borda (o sistema recorta) e a letra fica na zona
 // segura de 80% no centro.
 export const ICON_MASKABLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" fill="#0a0a0a"/>${TEXTO(104)}</svg>`;
+
+// Cartão de link padrão (1200×630) das páginas sem foto própria: sem imagem o
+// WhatsApp e o Discord mostram um quadrado vazio.
+export const OG_PADRAO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0a0a0a"/><text x="600" y="300" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="150" font-weight="700" fill="#fafafa">fotos</text><text x="600" y="395" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="44" fill="#a1a1aa">Luca F. Chala · fotografia de eventos</text></svg>`;

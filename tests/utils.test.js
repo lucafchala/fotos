@@ -491,10 +491,11 @@ describe('socialMetaHTML', () => {
     expect(html).toContain('<meta name="twitter:card" content="summary">');
   });
 
-  it('omite as tags de imagem inteiras quando não há imagem', () => {
+  it('sem imagem, usa o cartão padrão 1200×630 em vez de omitir as tags', () => {
     const html = socialMetaHTML(base);
-    expect(html).not.toContain('og:image');
-    expect(html).not.toContain('twitter:image');
+    expect(html).toContain('<meta property="og:image" content="https://fotos.lucafchala.com/og-padrao.png">');
+    expect(html).toContain('<meta property="og:image:width" content="1200">');
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
   });
 
   it('usa o título como alt quando nenhum é dado', () => {

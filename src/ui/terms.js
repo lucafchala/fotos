@@ -89,8 +89,8 @@ export function termsHTML() {
     <div class="key">
       <p>O acesso às galerias varia conforme a natureza do projeto:</p>
       <ul>
-        <li><strong>Projetos Familiares:</strong> Acesso restrito a membros da família (uso doméstico).</li>
-        <li><strong>Projetos Privados:</strong> Acesso restrito a participantes ou pessoas autorizadas. A entrega ocorre sob a base do legítimo interesse.</li>
+        <li><strong>Projetos Familiares:</strong> Álbuns feitos para a família, para uso doméstico. O acesso se apoia no seu consentimento, não em senha: o link da pasta é de quem o recebe, e peço que ele fique dentro do círculo a que se destina.</li>
+        <li><strong>Projetos Privados:</strong> Álbuns feitos para quem participou do evento. Também aqui o acesso se apoia no seu consentimento, não em senha, e o link é para quem esteve lá. A entrega ocorre sob a base do legítimo interesse.</li>
         <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita.</li>
       </ul>
       <p>Como parte da dinâmica do trabalho, eu realizo curadoria de imagens (exceto nas familiares) para meu portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>

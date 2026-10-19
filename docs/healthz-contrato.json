@@ -63,7 +63,7 @@
       "sample": "piauifest2025"
     },
     "config": { "resend": true, "turnstile": true, "consentDb": true, "adminEmail": true, "signing": true },
-    "termsVersion": "2026-06-18",
+    "termsVersion": "2026-10-18",
     "versaoSite": "2.0.0",
     "versao": { "id": "6a9c2f1e-4b7d-4f0a-9e3c-2d8b1a7f5e40", "tag": "3aba593", "em": "2026-09-24T09:12:40.000Z" },
     "colo": "IAD",

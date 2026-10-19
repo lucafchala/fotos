@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import worker from '../src/index.js';
-import { ICON_SVG, ICON_MASKABLE_SVG } from '../src/content/icon-svg.js';
+import { ICON_SVG, ICON_MASKABLE_SVG, OG_PADRAO_SVG } from '../src/content/icon-svg.js';
 import { ICONES } from '../src/content/icons.js';
 import { variacoes } from './helpers/paginas.js';
 
@@ -19,19 +19,19 @@ const dimensoes = b => {
 
 describe('ícones PNG', () => {
   it('o módulo gerado está em sincronia com o SVG de origem (rode npm run build:icons)', () => {
-    const esperado = { '/apple-touch-icon.png': ICON_SVG, '/icon-192.png': ICON_SVG, '/icon-512.png': ICON_SVG, '/icon-512-maskable.png': ICON_MASKABLE_SVG };
+    const esperado = { '/apple-touch-icon.png': ICON_SVG, '/icon-192.png': ICON_SVG, '/icon-512.png': ICON_SVG, '/icon-512-maskable.png': ICON_MASKABLE_SVG, '/og-padrao.png': OG_PADRAO_SVG };
     expect(ICONES.map(i => i.rota).sort()).toEqual(Object.keys(esperado).sort());
     for (const i of ICONES) expect(i.sourceSha256, `${i.rota} mudou — rode npm run build:icons`).toBe(sha(/** @type {any} */ (esperado)[i.rota]));
   });
 
-  for (const [rota, lado] of [['/apple-touch-icon.png', 180], ['/icon-192.png', 192], ['/icon-512.png', 512], ['/icon-512-maskable.png', 512]]) {
+  for (const [rota, lado] of [['/apple-touch-icon.png', 180], ['/icon-192.png', 192], ['/icon-512.png', 512], ['/icon-512-maskable.png', 512], ['/og-padrao.png', 1200]]) {
     it(`${rota}: PNG de verdade, ${lado}×${lado}, com cache longo`, async () => {
       const res = await pega(String(rota));
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toBe('image/png');
       expect(res.headers.get('Cache-Control')).toMatch(/max-age=\d{6,}/);
       const d = dimensoes(new Uint8Array(await res.arrayBuffer()));
-      expect(d).toEqual({ assinatura: '137,80,78,71,13,10,26,10', largura: lado, altura: lado });
+      expect(d).toEqual({ assinatura: '137,80,78,71,13,10,26,10', largura: lado, altura: rota === '/og-padrao.png' ? 630 : lado });
     });
   }
 
@@ -54,6 +54,17 @@ describe('ícones PNG', () => {
     for (const [nome, html] of Object.entries(paginas)) {
       expect(html, nome).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
       expect(html, nome).not.toMatch(/apple-touch-icon" href="\/icon\.svg/);
+    }
+  });
+});
+
+describe('cartão de link padrão', () => {
+  it('toda página pública ganha og:image 1200×630, a própria ou a padrão', () => {
+    for (const [nome, html] of Object.entries(variacoes())) {
+      if (/name="robots" content="noindex/.test(html)) continue;
+      expect(html, nome).toMatch(/<meta property="og:image" content="https:\/\/[^"]+">/);
+      expect(html, nome).toContain('<meta property="og:image:width" content="1200">');
+      expect(html, nome).toContain('<meta property="og:image:height" content="630">');
     }
   });
 });

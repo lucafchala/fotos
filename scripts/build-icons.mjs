@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { ICON_SVG, ICON_MASKABLE_SVG } from '../src/content/icon-svg.js';
+import { ICON_SVG, ICON_MASKABLE_SVG, OG_PADRAO_SVG } from '../src/content/icon-svg.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (/** @type {string} */ t) => createHash('sha256').update(t, 'utf8').digest('hex');
@@ -22,12 +22,13 @@ const ALVOS = [
   { rota: '/icon-192.png', lado: 192, svg: ICON_SVG },
   { rota: '/icon-512.png', lado: 512, svg: ICON_SVG },
   { rota: '/icon-512-maskable.png', lado: 512, svg: ICON_MASKABLE_SVG },
+  { rota: '/og-padrao.png', lado: 1200, altura: 630, svg: OG_PADRAO_SVG },
 ];
 
 const icones = [];
-for (const { rota, lado, svg } of ALVOS) {
-  const png = await sharp(Buffer.from(svg), { density: 384 }).resize(lado, lado).png({ compressionLevel: 9 }).toBuffer();
-  icones.push({ rota, lado, sourceSha256: sha(svg), bytes: png.length, b64: png.toString('base64') });
+for (const { rota, lado, altura = lado, svg } of ALVOS) {
+  const png = await sharp(Buffer.from(svg), { density: 384 }).resize(lado, altura).png({ compressionLevel: 9 }).toBuffer();
+  icones.push({ rota, lado, altura, sourceSha256: sha(svg), bytes: png.length, b64: png.toString('base64') });
 }
 
 const out = `// ARQUIVO GERADO — não edite à mão.

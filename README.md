@@ -169,8 +169,9 @@ database_id = "d6bed362-4ddf-459d-a088-48b42aa11fdc"
 migrations_dir = "migrations"
 
 [triggers]
-# Diário 03:00 UTC — purga solicitações resolvidas + consentimentos expirados.
-crons = ["0 3 * * *"]
+# A cada 5 min: batimento do Kuma. Só a execução das 03:00 UTC faz o resto
+# (cron:last, purga de solicitações resolvidas e de consentimentos expirados).
+crons = ["*/5 * * * *"]
 ```
 
 Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). A versão que o deploy sobe sem tráfego é o portão do deploy (seção abaixo) — e roda com os dados de produção.
@@ -1723,6 +1724,7 @@ logs_enabled: observability?.logs?.enabled ?? observability?.enabled === true
 | `logs.persist` | `true` | Grava os logs na plataforma da Cloudflare, consultáveis no painel |
 | `logs.invocation_logs` | `true` | Uma linha por invocação, além do que o código escreve |
 | `logs.head_sampling_rate` | `1` | 100% — o volume deste site não justifica amostrar |
+| `traces.head_sampling_rate` | `0.1` | 10% — antes do corte do plano grátis de logs (1º/12/2026: 0,5 GB/dia, 7 dias) |
 | `traces.persist` | `true` | Idem para traces |
 
 O orçamento de CPU do hashing é vigiado pelo sinal real, não por um número: estourá-lo mata a requisição, então o CI reprova pelo `healthz` não voltar `ok:true` e pelo login não voltar 302. (Havia aqui um portão `hashMs > 200`; ele nunca podia reprovar, porque o Workers congela `Date.now()` durante execução síncrona — RETOMADA §5.9.) O smoke test pós-deploy (`deploy.yml`) também cobre as páginas públicas mais novas (`/sobre`, `/equipamentos`, `/termos`, `/privacidade`, `/suporte`) e os endpoints de SEO/segurança (`/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/.well-known/security.txt`, `/.well-known/gpc.json`) com `check_status`, e loga (sem falhar o build) se `selftest.problems` do healthz vier não-vazio — isso é sinal de dado de evento mal configurado, não de regressão de código.

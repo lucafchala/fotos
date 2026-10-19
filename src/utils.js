@@ -75,7 +75,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-06-18';
+export const TERMS_VERSION = '2026-10-18';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -1295,6 +1295,7 @@ export const PERSON_LD = {
 // em /og-coming-soon.png, então a mesma constante serve aos dois casos.
 export const OG_IMAGE_W = 1200;
 export const OG_IMAGE_H = 630;
+export const OG_PADRAO_URL = 'https://fotos.lucafchala.com/og-padrao.png';
 
 // Capa do evento no tamanho e no recorte do cartão. O `-c` do lh3 recorta em
 // vez de encaixar (o scraper recortaria de qualquer jeito, mas aí sem saber
@@ -1365,6 +1366,12 @@ export function socialMetaHTML({
   title, description, url, type = 'website',
   image = '', imageAlt = '', imageWidth = 0, imageHeight = 0,
 }) {
+  if (!image) {
+    image = OG_PADRAO_URL;
+    imageWidth = OG_IMAGE_W;
+    imageHeight = OG_IMAGE_H;
+    imageAlt = imageAlt || SITE_NAME;
+  }
   const desc = truncateText(description, 300);
   const big = !!image && imageWidth > 0 && imageHeight > 0;
   const alt = imageAlt || title;

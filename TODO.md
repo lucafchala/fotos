@@ -502,7 +502,8 @@ fases; o que sobra abaixo são ideias que ainda não entraram em nenhuma fase.
 - **Pagar por qualquer serviço da Cloudflare ALÉM do Workers Paid** — Cloudflare
   Images, Stream, plano Pro. Registrado aqui para não ser redescutido a cada
   aperto.
-  > 🔜 **O Workers Paid saiu desta lista**: o dono decidiu assinar. Ver
+  > O **Workers Paid** também não está nesta lista, mas **não foi assinado**
+  > (decisão do dono em 18/10/2026: só quando um limite *medido* apertar). Ver
   > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md), que traz o que ele compra —
   > teto de CPU, requisições e escrita em KV sem limite diário — e o que **não**
   > muda com dinheiro (o limite de 1 escrita/s por chave).

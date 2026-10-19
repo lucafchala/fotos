@@ -107,6 +107,61 @@ describe('handleHealthz', () => {
   });
 });
 
+describe('scheduled() — cron de 5 em 5 minutos', () => {
+  const KUMA = 'https://kuma.example/api/push/abc';
+  const env = (kv) => ({ FOTOS: kv, KUMA_PUSH_URL: KUMA });
+
+  it('fora das 03:00 UTC só bate no Kuma: nenhuma escrita no KV, nenhuma poda', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const kv = fakeKV({});
+    const put = vi.spyOn(kv, 'put');
+    const get = vi.spyOn(kv, 'get');
+    const ctx = fakeCtx();
+    for (const hora of ['2026-10-18T03:05:00Z', '2026-10-18T12:00:00Z', '2026-10-18T02:55:00Z']) {
+      await worker.scheduled({ scheduledTime: Date.parse(hora) }, env(kv), ctx);
+    }
+    await ctx.settle();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String(fetch.mock.calls[0][0])).toContain(KUMA);
+    expect(put).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('às 03:00 UTC faz também o carimbo e as podas', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const kv = fakeKV({});
+    const ctx = fakeCtx();
+    await worker.scheduled({ scheduledTime: Date.parse('2026-10-18T03:00:00Z') }, env(kv), ctx);
+    await ctx.settle();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await kv.get('cron:last')).not.toBeNull();
+  });
+});
+
+describe('robots.txt e llms.txt: busca e resposta sim, treino não', () => {
+  const pede = (caminho) => worker.fetch(new Request(`${SITE}${caminho}`), { FOTOS: fakeKV({}) }, fakeCtx());
+
+  it('todo grupo declara ai-train=no e os robôs só de treino levam Disallow', async () => {
+    const txt = await (await pede('/robots.txt')).text();
+    expect(txt).not.toContain('ai-train=yes');
+    const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
+    expect(grupos.length).toBe(3);
+    for (const g of grupos) expect(g).toContain('ai-train=no');
+    const treino = grupos.find(g => g.includes('User-agent: GPTBot'));
+    expect(treino).toContain('Disallow: /');
+    expect(treino).toContain('User-agent: Google-Extended');
+    const busca = grupos.find(g => g.includes('User-agent: OAI-SearchBot'));
+    expect(busca).toContain('Allow: /');
+    expect(busca).not.toContain('Disallow');
+  });
+
+  it('o llms.txt diz que treino não é permitido e não libera robô de treino', async () => {
+    const txt = await (await pede('/llms.txt')).text();
+    expect(txt).toContain('Training not allowed');
+    expect(txt).not.toMatch(/Allow-User-Agent:.*(GPTBot|ClaudeBot)/);
+  });
+});
+
 describe('scheduled() — daily retention cron', () => {
   it('still writes the heartbeat and alerts when one prune task fails (fault isolation)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));

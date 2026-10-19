@@ -128,8 +128,9 @@ new_sqlite_classes = ["Counter", "RateLimiter"]
 binding = "CF_VERSION_METADATA"
 
 [triggers]
-# Daily 03:00 UTC — purge resolved removal requests + expired consent rows.
-crons = ["0 3 * * *"]
+# A cada 5 min: batimento do Kuma. Só a execução das 03:00 UTC faz o resto
+# (cron:last, poda de pedidos resolvidos e de consentimento vencido).
+crons = ["*/5 * * * *"]
 
 # ---------------------------------------------------------------------------
 # Observabilidade
@@ -168,9 +169,12 @@ head_sampling_rate = 1
 persist = true
 invocation_logs = true
 
+# 10% dos traces: a partir de 1º/12/2026 o plano grátis de logs cai para
+# 0,5 GB/dia e 7 dias, e num dia de evento grande os traces seriam os primeiros
+# a estourar. Os logs (erros, alertas) seguem em 100%.
 [observability.traces]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 persist = true
 
 # Sem `[env.*]`, de propósito (#166). Existia um `[env.preview]` que declarava
