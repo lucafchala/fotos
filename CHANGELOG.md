@@ -72,6 +72,16 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ### Melhorado e corrigido
 
+- **Um handler que rejeita agora vira 500 e alerta.** Em `worker.fetch`, as rotas
+  devolviam `handleX(...)` dentro do `try/catch` sem `await`: a rejeição de um
+  handler assíncrono (por exemplo, o KV recusando a leitura em `GET /api/backup`)
+  escapava do catch-all, sem página 500 e sem o e-mail de `sendErrorAlert`.
+- **Segurança da prévia de PR.** Restaurar um backup numa prévia (pública, com o
+  Turnstile de teste) entregaria o link real do Drive dos álbuns `private` e
+  `family` a quem chamasse `POST /api/drive-link`. Agora, na prévia, o restore
+  troca esses links por um falso.
+- **Dica sob "Visível na galeria" (#128).** "Oculto" quer dizer não listado: some
+  da página inicial, mas quem tem o link ainda abre.
 - **Contraste AA em todo texto do painel.** O cinza apagado era `#555` (2,5:1
   sobre os blocos) e virou `#8a8a8a` (5,3:1): datas, dicas e rótulos ficam
   legíveis no celular, na rua. Abaixo de 4,5:1 também estavam os selos
