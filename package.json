@@ -13,6 +13,7 @@
     "build:legal": "node scripts/build-legal-docs.mjs",
     "build:fonts": "node scripts/build-fonts.mjs",
     "build:vendor": "node scripts/build-vendor.mjs",
+    "build:icons": "node scripts/build-icons.mjs",
     "smoke": "bash scripts/smoke.sh",
     "smoke:local": "bash scripts/smoke.sh http://127.0.0.1:8787",
     "predeploy:check": "wrangler versions upload --env= --dry-run --outdir /tmp/bundle-check",

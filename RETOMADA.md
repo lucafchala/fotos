@@ -94,12 +94,14 @@ src/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
     fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
     vendor.js      ← GERADO de vendor/ (npm run build:vendor). Não edite.
+    icons.js       ← GERADO de icon-svg.js (npm run build:icons): os PNG do apple-touch-icon e do manifest. Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
 fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
 vendor/         ← bibliotecas de terceiros servidas em /vendor/ (hoje, o PhotoSwipe 5, MIT) + licença
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
 scripts/build-vendor.mjs      ← vendor/ → vendor.js, com o hash do conteúdo no nome publicado
+scripts/build-icons.mjs       ← icon-svg.js → icons.js (PNG 180/192/512/512 maskable, via sharp)
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)

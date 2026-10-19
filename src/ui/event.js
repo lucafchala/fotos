@@ -170,7 +170,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>${escape(event.title)} · fotos</title>
   <link rel="canonical" href="${SITE_URL}/${escape(event.slug)}">

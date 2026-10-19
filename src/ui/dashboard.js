@@ -60,8 +60,8 @@ export function loginHTML(opts = {}, nonce = '') {
   <title>Dashboard · fotos</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   ${fontPreloadHTML()}
   <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onerror="loginTsBlocked"></script>
   <script nonce="${nonce}">document.addEventListener('error', function(e){ if (e.target && e.target.dataset && e.target.dataset.onerror === 'loginTsBlocked') window.__loginTsBlocked = true; }, true);</script>
@@ -296,8 +296,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
   <title>Dashboard · fotos</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   ${fontPreloadHTML()}
   <style>
     ${BASE}

@@ -12,6 +12,8 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
+import { ICON_SVG } from './content/icon-svg.js';
+import { ICONES } from './content/icons.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
 import { ehPrevia, fetchDaPrevia } from './previa.js';
 import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
@@ -247,6 +249,7 @@ const worker = {
       // PWA assets
       if (path === '/manifest.json' && method === 'GET') return await handleManifest();
       if (path === '/icon.svg' && method === 'GET') return await handleIcon();
+      if (method === 'GET' && Object.hasOwn(ICONES_PNG, path)) return handleIconePng(path);
       if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
@@ -3216,7 +3219,10 @@ function handleManifest() {
     background_color: '#0a0a0a',
     theme_color: '#0a0a0a',
     icons: [
-      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
     ],
   };
   return new Response(JSON.stringify(manifest), {
@@ -3225,8 +3231,20 @@ function handleManifest() {
   });
 }
 
+const ICONES_PNG = Object.fromEntries(ICONES.map(i => [i.rota, i]));
+
+/** @param {string} rota */
+function handleIconePng(rota) {
+  const icone = ICONES_PNG[rota];
+  const bytes = Uint8Array.from(atob(icone.b64), c => c.charCodeAt(0));
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=604800' },
+  });
+}
+
 function handleIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="48" fill="#0a0a0a"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,BlinkMacSystemFont,'Inter',sans-serif" font-size="140" font-weight="600" fill="#f0ebe5">f.</text></svg>`;
+  const svg = ICON_SVG;
   return new Response(svg, {
     status: 200,
     headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=604800' },

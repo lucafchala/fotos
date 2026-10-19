@@ -124,6 +124,7 @@ npm run build:fonts
 #    (Só se você trocou um arquivo em vendor/) Regerar o módulo das
 #    bibliotecas vendorizadas — mesmo contrato das fontes.
 npm run build:vendor
+npm run build:icons     # só quando src/content/icon-svg.js mudar
 
 # 4. Subir o dev server
 npm run dev
@@ -660,6 +661,7 @@ fotos/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
 │   ├── build-fonts.mjs      ← empacota fonts/*.woff2 em src/content/fonts.js (npm run build:fonts)
 │   ├── build-vendor.mjs     ← empacota vendor/ em src/content/vendor.js, com o hash no nome publicado (npm run build:vendor)
+│   ├── build-icons.mjs      ← rasteriza src/content/icon-svg.js em PNG (src/content/icons.js, npm run build:icons)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail, álbum restrito sem Turnstile) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
 │   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
@@ -712,6 +714,7 @@ fotos/
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
     │   ├── fonts.js        ← GERADO por scripts/build-fonts.mjs — não editar à mão
+    │   ├── icons.js        ← GERADO por scripts/build-icons.mjs — não editar à mão
     │   └── vendor.js       ← GERADO por scripts/build-vendor.mjs — não editar à mão
     └── ui/
         ├── gallery.js      ← HTML da galeria pública /

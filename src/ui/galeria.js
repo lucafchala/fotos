@@ -137,6 +137,8 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   <meta name="robots" content="noindex,nofollow">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <title>Galeria · ${escape(titulo)} · prévia</title>
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}

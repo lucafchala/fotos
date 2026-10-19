@@ -195,6 +195,11 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   do teto de álbuns restritos aparece antes do campo, perto da ação; a janela do
   portão fica acima do aviso de cookies no celular; e o aviso de bloqueador tem
   folga antes do campo de nome.
+- **Ícones PNG de verdade.** O `apple-touch-icon` apontava para o SVG, que o iOS
+  ignora, e o manifest não tinha PNG. Agora há `/apple-touch-icon.png` (180),
+  `/icon-192.png`, `/icon-512.png` e `/icon-512-maskable.png`, gerados por
+  `npm run build:icons` (sharp), e toda página liga o manifest. O `/suporte`
+  ganhou o canonical que faltava.
 - **"Pedir orçamento" (#210).** O botão da página /sobre leva ao /suporte com um
   modelo de mensagem já preenchido (tipo de evento, data, local, pessoas).
 - **Contraste AA nas páginas públicas.** Os textos apagados (`text-dim`,
