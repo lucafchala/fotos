@@ -754,6 +754,22 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 
 ---
 
+### Inventário de validades
+
+O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, mude aqui.
+
+| O quê | Prazo | Onde |
+| --- | --- | --- |
+| Sessão do painel | 24 h | `SESSION_TTL_SECS` (`src/utils.js`) |
+| Código por e-mail do portão | 15 min | `EMAIL_CODE_TTL_SECS` (`src/config.js`) |
+| Nonce do Drive e token de formulário | 2 h | `DRIVE_NONCE_TTL_SECS`, `FORM_TOKEN_TTL_SECS` |
+| Listagem da galeria própria (cache) | 10 min | `GALERIA_LISTA_TTL_S` |
+| Pedido de remoção resolvido | 180 dias, poda às 03:00 UTC | `REMOVAL_RETENTION_DAYS` (`src/index.js`) |
+| Registro de consentimento (D1) | 1825 dias (~5 anos), poda às 03:00 UTC | `CONSENT_RETENTION_DAYS` |
+| Aviso de "novas fotos" | 24 h por padrão | `photosAlert.expiresAfterHours` (`src/config.js`) |
+| Lembrete de backup | `backup:ultimo` no KV | painel, Ajustes |
+| Revisão anual dos documentos legais | 12 meses | `docs/legal/README.md` |
+
 ## 9. Documentos, e para que serve cada um
 
 | Arquivo | Quando ler |

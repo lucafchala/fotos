@@ -51,6 +51,9 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/**/*.test.js'],
           exclude: ['tests/workers/**'],
+          // Com a máquina carregada (vários workers, cobertura v8), os testes de
+          // limite de taxa passavam dos 5 s padrão sem haver defeito nenhum.
+          testTimeout: 20_000,
         },
         resolve: {
           alias: {
