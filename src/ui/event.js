@@ -59,6 +59,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     : img;
 
   const photosJSON  = jsonParaScript(displayPhotos);
+  // Texto alternativo por foto (opcional); a que não tem usa o título do projeto.
+  const altsDoEvento = Array.isArray(event.photoAlts) ? event.photoAlts : [];
+  const altDe = /** @param {number} i */ i => String(altsDoEvento[i] || '').trim() || String(event.title || '');
+  const altsJSON = jsonParaScript(displayPhotos.map((_, i) => altDe(i)));
   const slugJSON    = JSON.stringify(event.slug || '');
   // Imagem do cartão de link. O PNG de "em breve" tem exatamente OG_IMAGE_W ×
   // OG_IMAGE_H (ver handleComingSoonOgImage), então nos dois caminhos as
@@ -152,7 +156,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       : photos.length === 1
         ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
         : `<div class="carousel" id="carousel">
-          ${comWebp(`<img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">`)}
+          ${comWebp(`<img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">`)}
           <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
@@ -859,6 +863,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Ampliar (duplo toque/clique no lightbox) troca por esta largura — igual
     // para todo aparelho: o zoom de 2,2× pede mais pixels que a tela.
     const PHOTO_ZOOM_W = 2400;
+    const ALTS = ${altsJSON};
     const PHOTOS = (${photosJSON}).map(function(u) {
       return u.indexOf(LH3) === 0 && u.slice(-PHOTO_MAX_SUFFIX.length) === PHOTO_MAX_SUFFIX
         ? u.slice(0, -PHOTO_MAX_SUFFIX.length) + '=w' + PHOTO_W
@@ -1647,6 +1652,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           img.parentNode.querySelectorAll('source').forEach(function(so) { so.remove(); });
         }
         img.src = PHOTOS[cur];
+        img.setAttribute('alt', ALTS[cur] || '');
         // Imagem já em cache decodifica antes do próximo frame: só marcamos
         // como "carregando" se ela realmente não estiver pronta, senão o
         // indicador pisca à toa em toda navegação.
@@ -1658,7 +1664,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       preloadAround();
       const lb = document.getElementById('lightbox');
       if (lb && lb.classList.contains('open')) {
-        const lbImg = document.getElementById('lb-img'); if (lbImg) lbImg.src = PHOTOS[cur];
+        const lbImg = document.getElementById('lb-img'); if (lbImg) { lbImg.src = PHOTOS[cur]; lbImg.setAttribute('alt', ALTS[cur] || ''); }
         const lbCnt = document.getElementById('lb-count'); if (lbCnt) lbCnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       }
     }

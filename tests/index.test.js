@@ -712,3 +712,18 @@ describe('contagem de visita da página de projeto', () => {
     expect(await readCounter(env, 'views:casamento-ana')).toBe(0);
   });
 });
+
+describe('normalizeEventFields — photoAlts', () => {
+  const base = { photoAlts: ['antiga'] };
+  it('corta em 6 linhas de até 140 caracteres e apara espaços', () => {
+    const r = normalizeEventFields({ photoAlts: Array.from({ length: 9 }, (_, i) => `  d${i}  `.padEnd(200, 'x')) }, base, []);
+    expect(r.photoAlts).toHaveLength(6);
+    expect(r.photoAlts.every(t => t.length <= 140)).toBe(true);
+    expect(r.photoAlts[0].startsWith('d0')).toBe(true);
+  });
+  it('o que não é lista vira lista vazia, e o campo ausente preserva o anterior', () => {
+    expect(normalizeEventFields({ photoAlts: 'texto' }, base, []).photoAlts).toEqual([]);
+    expect(normalizeEventFields({ photoAlts: [null, 7] }, base, []).photoAlts).toEqual(['', '7']);
+    expect(normalizeEventFields({}, base, []).photoAlts).toEqual(['antiga']);
+  });
+});

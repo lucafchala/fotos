@@ -912,3 +912,27 @@ describe('página de projeto: fotos do tamanho da tela', () => {
     expect(html.indexOf('img.src = PHOTOS[cur];', i)).toBeGreaterThan(i);
   });
 });
+
+describe('texto alternativo por foto', () => {
+  const comAlts = { ...EVENTO, photos: ['https://lh3.googleusercontent.com/d/AAA=w2400', 'https://lh3.googleusercontent.com/d/BBB=w2400'], photoAlts: ['A turma no palco', '', 'sobra'] };
+
+  it('a 1ª foto leva a descrição própria; as demais, a do índice ou o título', () => {
+    const html = eventHTML(comAlts, '2026', null, 'N', 'nd', 'ft');
+    expect(html).toContain('id="c-img"');
+    expect(html).toMatch(/id="c-img"[^>]*alt="A turma no palco"/);
+    const alts = JSON.parse(html.match(/const ALTS = (\[.*?\]);/)[1]);
+    expect(alts).toEqual(['A turma no palco', EVENTO.title]);
+  });
+
+  it('sem descrição nenhuma, cai no título (nada de alt vazio na capa)', () => {
+    const html = eventHTML({ ...comAlts, photoAlts: undefined }, '2026', null, 'N', 'nd', 'ft');
+    expect(html).toMatch(new RegExp(`id="c-img"[^>]*alt="${EVENTO.title}"`));
+  });
+
+  it('lixo vindo de um backup editado à mão não derruba a página nem injeta HTML', () => {
+    for (const lixo of ['texto', 42, { a: 1 }, [null, 7, '<img src=x onerror=alert(1)>']]) {
+      const html = eventHTML({ ...comAlts, photoAlts: lixo }, '2026', null, 'N', 'nd', 'ft');
+      expect(html).not.toContain('<img src=x');
+    }
+  });
+});

@@ -1097,6 +1097,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <button type="button" class="btn-sm" data-onclick="closePastePhotos">Cancelar</button>
               </div>
             </div>
+            <label for="f-photo-alts" style="display:block;margin-top:.875rem;font-size:.8125rem;font-weight:600">Descrição das fotos (para leitor de tela)</label>
+            <textarea id="f-photo-alts" rows="4" maxlength="900" placeholder="Uma descrição por linha, na ordem das fotos. Linha vazia = usa o título do projeto." aria-describedby="dica-photo-alts" style="width:100%"></textarea>
+            <div class="field-hint" id="dica-photo-alts">Descreva o que se vê, em uma frase curta (até 140 caracteres), sem “foto de”.</div>
           </div>
           <div class="field">
             <label for="f-drive-ig">Link do Drive para o Instagram <span class="dica-rotulo">(opcional)</span></label>
@@ -1684,6 +1687,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         : [];
       photoList = [...initPhotos];
       renderPhotoList();
+      document.getElementById('f-photo-alts').value = Array.isArray(e?.photoAlts) ? e.photoAlts.join('\\n') : '';
       closePastePhotos();
       // Todo formulário abre igual: o essencial aberto, o resto recolhido com
       // o resumo à vista. Rola para o topo (o sheet guardava a rolagem anterior).
@@ -1724,6 +1728,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // então conta como alteração e vai junto no rascunho.
         alertWasActive: document.getElementById('f-alert-active')?.dataset.wasActive ?? '',
         photos: photoList,
+        photoAlts: document.getElementById('f-photo-alts')?.value ?? '',
       });
     }
     function isFormDirty() {
@@ -1778,6 +1783,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (f.alertWasActive === '0') document.getElementById('f-alert-active').dataset.wasActive = '0';
       toggleAlertOpts(!!f.alertActive);
       if (Array.isArray(f.photos)) { photoList = [...f.photos]; renderPhotoList(); }
+      if (typeof f.photoAlts === 'string') document.getElementById('f-photo-alts').value = f.photoAlts;
       atualizaResumos();
       // NÃO atualiza formSnapshot: o rascunho é justamente "alterações não
       // salvas", e fechar sem salvar tem que continuar pedindo confirmação.
@@ -2012,6 +2018,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         title,
         longDescription: document.getElementById('f-long').value.trim(),
         photos,
+        photoAlts: document.getElementById('f-photo-alts').value.split('\\n').slice(0, 6).map(t => t.trim().slice(0, 140)),
         thumbnailUrl: photos[0] || '',
         driveUrl: drive,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),

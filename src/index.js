@@ -1058,6 +1058,8 @@ export function normalizeEventFields(body, base, cats) {
     // anterior", e o formulário não conseguia tirar a categoria de um evento.
     category: pick('category', v => (v === '' || cats.includes(v) ? v : b.category)),
     internalNotes: pick('internalNotes', v => String(v).slice(0, 5000)),
+    // Texto alternativo das fotos de capa, na mesma ordem de `photos` (no máximo 6).
+    photoAlts: pick('photoAlts', v => (Array.isArray(v) ? v.slice(0, 6).map(t => String(t ?? '').trim().slice(0, 140)) : [])),
     pinned: pick('pinned', v => v === true),
     photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
   };

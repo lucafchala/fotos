@@ -223,6 +223,10 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   privados o acesso se apoia no consentimento, não em senha. As finalidades não
   mudam (quem aceitou os Termos de 2026-06-18 segue coberto). `TERMS_VERSION`
   sobe, e os novos aceites ficam atrelados ao texto novo.
+- **Texto alternativo por foto.** No formulário do projeto, "Descrição das fotos
+  (para leitor de tela)": uma linha por foto de capa, na ordem, até 140
+  caracteres. A página usa a descrição no carrossel e no visualizador; a foto
+  sem descrição segue com o título do projeto.
 - **IA e treino.** `robots.txt` e `llms.txt` passam a dizer `ai-train=no` /
   "Training not allowed" em todos os grupos, e os robôs que só treinam (GPTBot,
   ClaudeBot, Google-Extended, CCBot, entre outros) levam `Disallow: /`. Busca e
