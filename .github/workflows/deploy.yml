@@ -1,28 +1,42 @@
 name: Deploy
 
 # ---------------------------------------------------------------------------
-# O portão que faltava: a versão é VERIFICADA antes de qualquer cliente vê-la
+# Onde a versão é verificada: no PR (prévia) e, em produção, com reversão
 # ---------------------------------------------------------------------------
-# Como era: `wrangler deploy` publicava direto em produção e o smoke test rodava
-# DEPOIS. O próprio README admitia a consequência — "qualquer falha no smoke
-# test marca o deploy como vermelho mas o Worker já foi publicado, então um
-# deploy vermelho ainda alterou produção". Todo deploy era um incidente em
-# potencial, e o teste que existia para dizer "está bom" só rodava quando já
-# não dava para mudar de ideia.
+# Merge na `main` é deploy. Por isso a verificação de uma mudança acontece ANTES
+# do merge, na prévia do PR (Cloudflare Worker Previews, `[previews]` do
+# wrangler.toml): o Workers Builds publica cada PR com `npm run previa` e posta
+# o endereço no próprio PR. Lá se confere o que o smoke não confere — painel,
+# fluxos com e-mail, galeria (README, "Prévia de PR"; docs/RELEASE.md).
 #
-# Como é: `versions upload` publica a versão SEM ROTEAR TRÁFEGO. Ela ganha uma
-# URL de preview própria, o smoke test roda contra ELA, e só então
-# `versions deploy` manda 100% do tráfego para essa mesma versão — o artefato
-# idêntico, não uma recompilação. Se o smoke reprovar, produção nunca soube que
-# existiu uma versão nova.
-#
-# O que isso compra, na ordem em que importa:
-#   1. Cliente nenhum vê código que não passou pelo smoke.
-#   2. Rollback vira promover uma versão anterior (input `version_id`), sem
+# Este workflow cuida do resto, e em ordem:
+#   1. `versions upload` publica a versão SEM ROTEAR TRÁFEGO (com `--tag <sha>`).
+#   2. `versions deploy <id>@100` manda 100% do tráfego para ESSA versão — o
+#      artefato idêntico, não uma recompilação.
+#   3. `scripts/smoke.sh` confere produção (~55 checagens) e, se reprovar,
+#      `wrangler rollback` volta sozinho para a versão anotada antes da
+#      promoção. A exposição é de segundos, não zero — é o preço de não haver
+#      verificação anterior à promoção neste Worker (abaixo).
+#   4. Rollback manual é promover uma versão anterior (input `version_id`), sem
 #      recompilar e sem mexer no Git.
-#   3. O mesmo `scripts/smoke.sh` roda local (`wrangler dev`), no preview e em
-#      produção — "passou no preview" quer dizer exatamente o mesmo que
-#      "passou em produção".
+#
+# POR QUE NÃO HÁ SMOKE ANTES DA PROMOÇÃO (#179). Existiu um portão assim: o
+# smoke rodava contra a URL de preview da versão recém-enviada. Ela NUNCA veio:
+# o `versions upload` volta com `metadata.has_preview = false` (decidido pelo
+# servidor; `previews_enabled` estava `true`) e a URL derivada do ID responde
+# 404. A causa provável é este Worker implementar Durable Objects, que a
+# Cloudflare não serve em Preview URLs de versão (a confirmar no #179). Em
+# três execuções reais não houve flag que resolvesse, e o portão virou
+# "oportunista": 60 s de espera inútil, um passo que mexia na configuração do
+# Worker pela API e um resumo que dizia "indisponível" em todo deploy. Saiu.
+#
+# POR QUE NÃO `wrangler preview` AQUI. É o mecanismo de Worker Previews, que
+# funciona com Durable Objects, mas não serve de portão da promoção: sobe OUTRO
+# artefato (com os bindings de `[previews]`, `AMBIENTE = "previa"`, Turnstile de
+# teste e KV/D1 próprios), então o smoke de produção reprovaria nele por
+# desenho (o login sem token passa pelo Turnstile de teste) e, se passasse, não
+# provaria nada sobre a versão que vai receber tráfego. Faria falta um smoke
+# próprio de prévia e segredos PREVIA_* no GitHub; o PR já tem a prévia.
 #
 # ⚠️ LIMITE CONHECIDO — migração de Durable Object.
 # `versions upload` NÃO aplica migração de DO: a API recusa com o código 10211
@@ -30,8 +44,9 @@ name: Deploy
 # `[[migrations]]` do wrangler.toml tiver só a tag `v1` (já aplicada), nada
 # acontece. No dia em que entrar uma `v2`, este workflow FALHA no upload — de
 # propósito, com a mensagem explicando — e o caminho é disparar manualmente com
-# `unversioned: true`, que usa `wrangler deploy` e ABRE MÃO do portão de preview
-# naquele deploy. Falhar alto é melhor que pular a verificação em silêncio.
+# `unversioned: true`, que usa `wrangler deploy` e publica direto, sem passar
+# por versão sem tráfego (o smoke e a reversão automática continuam valendo).
+# Falhar alto é melhor que pular a verificação em silêncio.
 
 on:
   push:
@@ -43,7 +58,7 @@ on:
   workflow_dispatch:
     inputs:
       promote:
-        description: 'Promover para produção depois do smoke do preview'
+        description: 'Promover para produção. Desligado = só sobe a versão, sem tráfego e sem smoke (promova depois com version_id).'
         type: boolean
         default: true
       version_id:
@@ -51,7 +66,7 @@ on:
         type: string
         default: ''
       unversioned:
-        description: 'Usar wrangler deploy (sem portão de preview). Só para migração de Durable Object — ver 10211.'
+        description: 'Usar wrangler deploy (publica direto, sem versão sem tráfego). Só para migração de Durable Object — ver 10211.'
         type: boolean
         default: false
 
@@ -163,9 +178,9 @@ jobs:
       - name: Testes (unit + workers)
         run: npm test
 
-      # Schema ANTES do código novo servir qualquer requisição, inclusive na URL
-      # de preview: o smoke roda contra o preview, e um INSERT de consentimento
-      # numa coluna que ainda não existe falharia ali.
+      # Schema ANTES do código novo servir qualquer requisição: o smoke de
+      # produção roda logo após a promoção, e um INSERT de consentimento numa
+      # coluna que ainda não existe falharia ali.
       #
       # Era `continue-on-error: true` com `wrangler d1 migrations apply` direto.
       # O primeiro deploy real mostrou o custo disso: o passo vinha falhando com
@@ -207,7 +222,7 @@ jobs:
       # ---------------------------------------------------------------------
       # Caminho de escape: deploy não-versionado (só migração de DO)
       # ---------------------------------------------------------------------
-      - name: Deploy não-versionado (SEM portão de preview)
+      - name: Deploy não-versionado (direto, sem versão sem tráfego)
         id: unversioned
         if: inputs.unversioned
         uses: cloudflare/wrangler-action@v4
@@ -217,83 +232,16 @@ jobs:
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
           command: deploy --env=
 
-      - name: Avisar que o portão foi pulado
+      - name: Avisar que o deploy foi não-versionado
         if: inputs.unversioned
         run: |
           {
-            echo "### ⚠️ Deploy sem portão de preview"
+            echo "### ⚠️ Deploy não-versionado"
             echo
             echo "Publicado direto em produção com \`wrangler deploy\`, o que só se"
             echo "justifica para aplicar migração de Durable Object (erro 10211)."
-            echo "**O smoke rodou depois da publicação**, como no fluxo antigo."
+            echo "**O smoke roda depois da publicação** (e reverte sozinho se reprovar)."
           } >> "$GITHUB_STEP_SUMMARY"
-
-      # ---------------------------------------------------------------------
-      # Pré-requisito do portão: Preview URLs precisam estar LIGADAS
-      # ---------------------------------------------------------------------
-      # Isto foi o que derrubou a primeira execução real deste workflow. O
-      # `versions upload` funcionou (versão 45e9e38c publicada), mas não
-      # imprimiu URL de preview nenhuma, e o portão — corretamente — recusou
-      # promover algo que não pôde verificar.
-      #
-      # O motivo está no código do wrangler. Ele só imprime a URL depois de
-      # perguntar ao servidor (`GET .../subdomain`) se `previews_enabled` é
-      # verdadeiro. E quem ESCREVE esse campo é `wrangler deploy` /
-      # `triggers deploy`, nunca `versions upload` — é configuração
-      # não-versionada. Com `preview_urls` ausente do wrangler.toml, o wrangler
-      # manda `undefined` e o valor do servidor prevalece para sempre. Ou seja:
-      # o Worker estava com Preview URLs desligadas e nada no repositório era
-      # capaz de ligá-las.
-      #
-      # A chamada abaixo é a MESMA que o wrangler faz, feita direto para mexer
-      # só nisto. `triggers deploy` também resolveria, mas reescreveria rotas e
-      # crons a partir da configuração — e as rotas deste Worker moram no
-      # painel, não no wrangler.toml (a mesma armadilha que o bloco
-      # [observability] documenta). Trocar um deploy quebrado por um domínio
-      # apagado não é conserto.
-      - name: Garantir Preview URLs ligadas
-        if: ${{ !inputs.unversioned && inputs.version_id == '' }}
-        env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_CONTA: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -uo pipefail
-          API="https://api.cloudflare.com/client/v4/accounts/$CF_CONTA/workers/scripts/$WORKER_NAME/subdomain"
-          CAB=(-H "Authorization: Bearer $CF_TOKEN"
-               -H "Content-Type: application/json"
-               -H "Cloudflare-Workers-Script-Api-Date: 2025-08-01")
-
-          # `campo <chave> <json>` -> true | false | (vazio, se ausente/ilegível)
-          campo() {
-            node -e '
-              let r; try { r = JSON.parse(process.argv[2]); } catch { console.log(""); process.exit(0); }
-              const v = r && r.result ? r.result[process.argv[1]] : undefined;
-              console.log(v === true ? "true" : v === false ? "false" : "");
-            ' "$1" "$2"
-          }
-
-          ANTES=$(curl -s --max-time 20 "${CAB[@]}" "$API" || true)
-          echo "antes:  $ANTES"
-
-          # `enabled` (a rota workers.dev) é preservado como está. Este passo
-          # tem uma responsabilidade só, e desligar workers.dev por descuido
-          # derrubaria o alvo dos dois smokes.
-          QUERO_ENABLED=true
-          if [ "$(campo enabled "$ANTES")" = "false" ]; then QUERO_ENABLED=false; fi
-
-          curl -s --max-time 20 -X POST "${CAB[@]}" \
-            --data "{\"enabled\":$QUERO_ENABLED,\"previews_enabled\":true}" "$API" >/dev/null || true
-
-          # Confere lendo o servidor de novo, e não a resposta do POST: o que
-          # importa é o estado que o `versions upload` vai ler daqui a pouco.
-          DEPOIS=$(curl -s --max-time 20 "${CAB[@]}" "$API" || true)
-          echo "depois: $DEPOIS"
-          if [ "$(campo previews_enabled "$DEPOIS")" != "true" ]; then
-            echo "::error::Preview URLs continuam desligadas no Worker '$WORKER_NAME' — sem elas não há como verificar antes de promover."
-            echo "::error::Ligue em Workers & Pages -> $WORKER_NAME -> Settings -> Domains & Routes -> Preview URLs, ou dê ao token do CI a permissão 'Workers Scripts: Edit'."
-            exit 1
-          fi
-          echo "Preview URLs ligadas e confirmadas."
 
       # ---------------------------------------------------------------------
       # Caminho normal: sobe a versão SEM rotear tráfego
@@ -318,15 +266,14 @@ jobs:
                  --message "$(git log -1 --pretty=%s | head -c 100)" 2>&1 | tee "$SAIDA"; then
             if grep -q '10211' "$SAIDA"; then
               echo "::error::Migração de Durable Object pendente: 'versions upload' não a aplica (10211)."
-              echo "::error::Redispare este workflow manualmente com 'unversioned: true' — ele publica com 'wrangler deploy' e ABRE MÃO do portão de preview neste deploy."
+              echo "::error::Redispare este workflow manualmente com 'unversioned: true' — ele publica direto com 'wrangler deploy', sem passar por versão sem tráfego."
             fi
             exit 1
           fi
 
           # O ID da versão sai do próprio upload — a linha `Worker Version ID:`
           # que o wrangler imprime depois de `Uploaded fotos`. É o MESMO
-          # identificador que `versions deploy <id>@100` aceita, e é também a
-          # raiz da URL de preview, então ele vem primeiro.
+          # identificador que `versions deploy <id>@100` aceita.
           #
           # UUID conferido por inteiro, não por "parece um UUID": este valor vai
           # direto para uma promoção.
@@ -336,103 +283,6 @@ jobs:
             echo "Versão: $ID"
           else
             echo "A linha 'Worker Version ID' não trouxe um UUID (veio: '$ID'). O passo seguinte resolve pela etiqueta."
-            ID=""
-          fi
-
-          # ---------------------------------------------------------------
-          # A URL de preview — construída e depois PROVADA
-          # ---------------------------------------------------------------
-          # O run #136 mostrou que esperar o wrangler IMPRIMIR a URL não basta.
-          # Ele só imprime sob duas condições:
-          #
-          #     if (versionId && hasPreview) {
-          #       const { previews_enabled } = await fetch(`${worker}/subdomain`);
-          #       if (previews_enabled) { … }
-          #     }
-          #
-          # `previews_enabled` estava `true` (o passo anterior leu e confirmou,
-          # antes e depois). Logo quem barra é `hasPreview`, que vem de
-          # `metadata.has_preview` na RESPOSTA DO UPLOAD e é decidido inteiramente
-          # do lado do servidor — não há flag do wrangler nem chave de
-          # configuração que o mude. Esperar por ele é esperar por algo que não
-          # controlamos.
-          #
-          # Mas a URL é derivável: o próprio wrangler a monta como
-          # `https://<8 primeiros do id>-<worker>.<subdominio>.workers.dev`, e o
-          # subdomínio da conta sai de `GET /accounts/<id>/workers/subdomain`.
-          #
-          # Derivar não é adivinhar, porque não paramos na construção: a URL só
-          # é aceita depois de RESPONDER. Uma URL construída que não responde não
-          # é portão nenhum, e aqui ela é descartada como se não existisse. Isso
-          # é prova melhor que a flag de metadados que estávamos esperando —
-          # `has_preview` diz o que a API acha; um 200 diz o que existe.
-          PREVIEW=$(sed -n 's/^[[:space:]]*Version Preview URL:[[:space:]]*//p' "$SAIDA" | head -1 || true)
-
-          if [ -z "$PREVIEW" ] && [ -n "$ID" ]; then
-            echo "O wrangler não imprimiu a URL de preview. Construindo a partir do ID e testando."
-            SUB=$(curl -s --max-time 20 \
-                    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
-                  | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{const r=JSON.parse(b);console.log((r&&r.result&&r.result.subdomain)||"")}catch{console.log("")}})' || true)
-            if [ -z "$SUB" ]; then
-              echo "::error::Não consegui descobrir o subdomínio workers.dev da conta (GET /accounts/../workers/subdomain)."
-            else
-              CANDIDATA="https://${ID:0:8}-${WORKER_NAME}.${SUB}.workers.dev"
-              echo "Candidata: $CANDIDATA"
-              # `/api/healthz` responde 200 mesmo com `ok:false` (jsonOk), então
-              # 200 aqui significa ALCANÇÁVEL, não SAUDÁVEL — que é exatamente a
-              # pergunta deste laço. Quem julga a saúde é o smoke, logo adiante.
-              for i in $(seq 1 20); do
-                CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$CANDIDATA/api/healthz" || true)
-                if [ "$CODE" = "200" ]; then
-                  PREVIEW="$CANDIDATA"
-                  echo "respondeu 200 na tentativa $i"
-                  break
-                fi
-                sleep 3
-              done
-              if [ -z "$PREVIEW" ]; then
-                echo "::error::A URL construída não respondeu 200 em ~60s: $CANDIDATA"
-                echo "::error::Último status visto: ${CODE:-nenhum}. Abra essa URL no navegador para ver o que a Cloudflare devolve."
-              fi
-            fi
-          fi
-
-          # ------------------------------------------------------------------
-          # Sem URL de preview: o portão não roda — e isso é DITO, não escondido
-          # ------------------------------------------------------------------
-          # Três execuções reais (#135, #136, #137) estabeleceram que este Worker
-          # não recebe URL de preview de versão. `previews_enabled` está `true`
-          # no endpoint /subdomain (lido e confirmado antes e depois, duas vezes);
-          # quem barra é `metadata.has_preview`, decidido só do lado do servidor.
-          # A URL derivada responde 404 por ~60s, 20 tentativas. Não é bug nosso
-          # e não há flag que resolva.
-          #
-          # Antes, isso travava o deploy para sempre. Trocar "sem verificação
-          # nenhuma" por "pipeline permanentemente vermelho" não é segurança: é
-          # a garantia de que ninguém publica nunca, e o incentivo a contornar o
-          # workflow por fora — que é pior que qualquer coisa que o portão evita.
-          #
-          # Então o portão passa a ser OPORTUNISTA, nunca silencioso:
-          #   · veio URL  -> smoke ANTES de promover; reprovou, ninguém promove;
-          #   · não veio  -> promove e verifica DEPOIS, com REVERSÃO AUTOMÁTICA
-          #                  se o smoke de produção reprovar (passo mais abaixo).
-          #
-          # A segunda é mais fraca — clientes ficam expostos por segundos, não
-          # zero. Mas é automática, não depende de ninguém perceber, e é MUITO
-          # mais forte que o fluxo anterior a este trabalho, onde um smoke
-          # vermelho deixava a versão ruim servindo até alguém agir à mão.
-          #
-          # No dia em que a Cloudflare passar a servir preview para este Worker,
-          # a sondagem acima encontra a URL e o portão forte volta sozinho, sem
-          # mudar uma linha aqui.
-          if [ -z "$PREVIEW" ]; then
-            echo "::warning::Sem URL de preview: o smoke NÃO roda antes da promoção. Produção será verificada depois, com reversão automática se reprovar."
-            echo "portao=indisponivel" >> "$GITHUB_OUTPUT"
-          else
-            echo "Preview: $PREVIEW"
-            echo "portao=ativo" >> "$GITHUB_OUTPUT"
-            echo "preview_url=$PREVIEW" >> "$GITHUB_OUTPUT"
           fi
           echo "version_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
@@ -483,7 +333,7 @@ jobs:
           # resposta, e não de um flag documentado. Então: tenta as formas
           # conhecidas e, se nenhuma casar, MORRE mostrando o que veio — nunca
           # cai para "a mais recente", que promoveria uma versão que ninguém
-          # verificou e desfaria o portão inteiro em silêncio.
+          # verificou e desfaria a rastreabilidade do deploy em silêncio.
           ID=$(node -e '
             const v = require("./versoes.json");
             const alvo = process.argv[1];
@@ -501,19 +351,6 @@ jobs:
           fi
           echo "version_id=$ID" >> "$GITHUB_OUTPUT"
           echo "Versão $ID etiquetada como $TAG"
-
-      # ---------------------------------------------------------------------
-      # O PORTÃO: smoke contra o preview, antes de qualquer tráfego
-      # ---------------------------------------------------------------------
-      - name: Smoke do PREVIEW (antes de qualquer cliente)
-        if: ${{ !inputs.unversioned && inputs.version_id == '' && steps.upload.outputs.preview_url != '' }}
-        run: |
-          echo "### 🔎 Smoke do preview" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ steps.upload.outputs.preview_url }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          bash scripts/smoke.sh "${{ steps.upload.outputs.preview_url }}" \
-            --expect-configured --summary "$GITHUB_STEP_SUMMARY"
 
       # ---------------------------------------------------------------------
       # Rede de segurança: para onde voltar se a promoção der errado
@@ -610,7 +447,7 @@ jobs:
             --expect-configured --summary "$GITHUB_STEP_SUMMARY"
 
       # ---------------------------------------------------------------------
-      # Reversão automática: o que substitui o portão quando ele não pôde rodar
+      # Reversão automática: a rede de segurança da promoção
       # ---------------------------------------------------------------------
       # O fluxo anterior a este trabalho publicava e rodava o smoke depois; um
       # smoke vermelho marcava o deploy como falho e ia embora, deixando a
@@ -771,18 +608,16 @@ jobs:
             echo "| Disparo | \`${{ github.event_name }}\` |"
             echo "| Wrangler | \`${WRANGLER_VERSION:-?}\` |"
             echo "| Versão | \`${{ steps.resolve.outputs.version_id || '—' }}\` |"
-            echo "| Preview | ${{ steps.upload.outputs.preview_url || '—' }} |"
-            echo "| Promovido | ${{ steps.promote.outputs.promoted == 'true' && '✅ 100% do tráfego' || '⏸️ não (só preview)' }} |"
+            echo "| Promovido | ${{ steps.promote.outputs.promoted == 'true' && '✅ 100% do tráfego' || '⏸️ não (só enviada, sem tráfego)' }} |"
             echo "| Propagação | ${{ steps.readiness.outputs.tentativas && format('{0} tentativa(s)', steps.readiness.outputs.tentativas) || '—' }} |"
             echo "| Migrações D1 | ${{ steps.migrations.outputs.estado == 'ok' && '✅ esquema no lugar' || (steps.migrations.outputs.estado == 'indeterminado' && '⚠️ indeterminado (deploy seguiu)' || '❌ esquema quebrado') }} |"
-            echo "| Portão de preview | ${{ steps.upload.outputs.portao == 'ativo' && '✅ smoke rodou ANTES da promoção' || '⚠️ indisponível — verificado depois, com reversão automática' }} |"
             echo "| Smoke de produção | ${{ steps.smoke_prod.outcome == 'success' && '✅ passou' || (steps.smoke_prod.outcome == 'failure' && '❌ reprovou' || '—') }} |"
             echo "| Reversão | ${{ steps.reversao.outputs.revertido == 'sim' && '🔙 revertido — o commit NÃO está em produção' || (steps.reversao.outputs.revertido && '🚨 reversão com problema — confira o site' || '—') }} |"
             echo "| Tag | \`${TAG_CRIADA:-—}\` |"
             echo "| Release | ${{ steps.release.outcome == 'success' && format('✅ https://github.com/{0}/releases/tag/{1}', github.repository, steps.tag.outputs.tag) || (steps.release.outcome == 'failure' && '⚠️ tag criada, Release falhou — ver log do passo' || '—') }} |"
             echo
             if [ "${{ steps.promote.outputs.promoted }}" != "true" ] && [ "$UNVERSIONED" != "true" ]; then
-              echo "> A versão foi publicada e verificada, mas **não** recebeu tráfego."
+              echo "> A versão foi enviada à Cloudflare, mas **não** recebeu tráfego nem smoke."
               echo "> Para promovê-la: rode este workflow com \`version_id\` = \`${{ steps.resolve.outputs.version_id }}\`."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
