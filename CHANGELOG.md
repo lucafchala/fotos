@@ -287,6 +287,12 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   a saída "Voltar tudo ao normal" com o KV fora, o e-mail desviado para o
   dono, as métricas de exemplo enchendo o gráfico. Os quatro roteiros de
   navegador rodam na CI.
+- **Deploy sem o smoke antes da promoção** (#179). O portão que testava a URL
+  de preview da versão saiu do `deploy.yml`: a URL nunca veio (`has_preview`
+  falso, provável efeito dos Durable Objects) e o passo custava ~60 s e mexia
+  na configuração do Worker. Ficam versão sem tráfego, promoção, smoke de
+  produção e reversão automática; a verificação anterior ao merge é a prévia
+  do PR.
 - Testes novos: `tests/metricas.test.js`, `tests/metricas-painel.test.js`,
   `tests/previa.test.js`, `tests/pedidos.test.js`, `tests/painel.test.js`,
   `tests/galeria.test.js`, e a atomicidade da série por dia na suíte
@@ -297,4 +303,5 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 - Limpeza: o CSS do desenho antigo que nada mais usava (`.filter-row`,
   `.search-row`, `.info-box` e a segunda regra `.tab-badge`) saiu.
 - **Nenhuma migração** de Durable Object nem de D1 nesta versão: o deploy
-  segue o caminho normal (versão sem tráfego → smoke → promoção).
+  segue o caminho normal (versão sem tráfego → promoção → smoke de produção,
+  com reversão automática se reprovar).

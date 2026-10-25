@@ -75,7 +75,7 @@ O design é totalmente dark (`#0a0a0a` base, `#f0ebe5` texto), fonte Inter servi
 | E-mail | Resend API (`https://api.resend.com/emails`) |
 | Frontend | HTML/CSS/JS renderizado no Worker (sem build) |
 | Dev tooling | Wrangler ≥ 4 (`npm run dev` / `npm run deploy`), Vitest (`npm test`), ESLint (`npm run lint`) — **Node ≥ 22** |
-| CI/CD | GitHub Actions (`deploy.yml`: portão completo → versão sem tráfego → **smoke no preview** → promoção → smoke em produção → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
+| CI/CD | GitHub Actions (`deploy.yml`: lint, tipos e testes → migrações D1 → versão sem tráfego → promoção → **smoke em produção** → reversão automática se reprovar → tag; `checks.yml`: lint, tipos, testes, cobertura, bundle dry-run) |
 | Retenção | Cron diário (`scheduled`) apaga solicitações de remoção resolvidas > 180 dias |
 | Fontes | Inter variável (SIL OFL 1.1), servido pela própria origem em `/fonts/` — nenhuma fonte de terceiro |
 | Imagens | Hospedadas no Google Drive, servidas via `lh3.googleusercontent.com/d/<fileId>`. A galeria e a página de projeto pedem a largura da tela (`=w800`/`=w1200`/`=w1600`, srcset + script) e WebP (`-rw`) para quem decodifica; o zoom do lightbox pede `=w2400` |
@@ -175,7 +175,7 @@ migrations_dir = "migrations"
 crons = ["*/5 * * * *"]
 ```
 
-Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). A versão que o deploy sobe sem tráfego é o portão do deploy (seção abaixo) — e roda com os dados de produção.
+Não há `[env.*]`: o antigo `[env.preview]` criava um Worker `fotos-preview` com o **mesmo KV de produção** e sem D1, e saiu (#166). A versão que o deploy sobe sem tráfego (seção abaixo) roda com os dados de produção.
 
 Desde a v2.0 há um bloco **`[previews]`**: a configuração das [prévias de PR](#prévia-de-pr-testar-antes-do-merge), com KV e D1 **próprios** (`fotos-previa`, `fotos-consent-previa`) e a variável `AMBIENTE = "previa"`. `tests/wrangler-ambientes.test.js` recusa qualquer `[env.*]` ou `[previews]` que aponte para o KV ou o D1 de produção, e recusa `AMBIENTE` fora do bloco de prévias.
 
@@ -293,14 +293,13 @@ O heartbeat:
 
 ## Deploy
 
-**A versão é verificada antes de qualquer cliente vê-la.** Esse é o ponto do
-pipeline, e é o que ele *não* fazia antes: `wrangler deploy` publicava direto e
-o smoke test rodava depois, então um smoke vermelho já era um incidente — este
-README dizia isso com todas as letras.
-
-Hoje o fluxo é **subir a versão sem tráfego → testar a URL de preview →
-promover a mesma versão**. Se o smoke reprovar, produção nunca soube que existiu
-uma versão nova.
+**Merge na `main` é deploy**, então a verificação de uma mudança acontece
+**antes do merge**, na [prévia do PR](#prévia-de-pr-testar-antes-do-merge).
+Depois dele, o `deploy.yml` sobe a versão **sem tráfego**, promove a mesma
+versão e confere produção com o smoke; se o smoke reprovar, o workflow
+**reverte sozinho** para a versão anterior. A exposição de uma versão ruim é de
+segundos, não zero — não existe smoke antes da promoção (ver "Por que não há
+smoke antes da promoção", abaixo).
 
 ### 1. Automático (push na `main`)
 
@@ -310,102 +309,57 @@ uma versão nova.
 | --- | --- | --- |
 | 0 | Job `duplicado`: o mesmo commit já teve execução por `push`? | Um push publica uma vez só. Se o GitHub entregar o mesmo push duas vezes, a segunda execução pula o deploy inteiro (#186). Falha aberta: se a API não responder, o deploy segue, com aviso |
 | 1 | `npm ci` + versão do wrangler derivada de `node_modules` | A produção sobe pela versão que os testes usaram |
-| 2 | `lint` + `typecheck` + `test` | Portão completo, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
+| 2 | `lint` + `typecheck` + `test` | Verificação completa, não só `npm test` — os dois primeiros já pegaram defeito que a suíte não pega |
 | 3 | `scripts/d1-migrate.mjs` | Schema existe antes de o código novo servir qualquer requisição — e **para o deploy** se não existir |
-| 4 | `POST .../subdomain` (Preview URLs) | Garante o pré-requisito do portão em vez de supô-lo |
-| 5 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego**; a URL de preview é derivada do ID e **testada** antes de valer |
-| 6 | **`scripts/smoke.sh <preview> --expect-configured`** | **O portão**, quando há URL de preview: ~55 checagens antes de qualquer cliente. Sem ela, o passo é pulado e a verificação vira o item 9 |
-| 7 | `versions deploy <id>@100` | Promove **a mesma versão** que passou — não uma recompilação |
-| 8 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
-| 9 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
-| 10 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
-| 11 | GitHub Release na mesma tag, com changelog automático | Registro navegável (aba **Releases**), sem curadoria manual — `continue-on-error`, mas nunca silencioso: falha vira `::warning::` no resumo, e não afeta o deploy (que já publicou e passou nos dois smokes) |
+| 4 | `versions upload --tag <sha>` | Publica a versão **sem rotear tráfego** |
+| 5 | `versions deploy <id>@100` | Promove **a versão enviada** — não uma recompilação |
+| 6 | Espera por sinal (`healthz` 200), não por relógio | Substitui o `sleep 20`, que era chute nos dois sentidos |
+| 7 | `scripts/smoke.sh <produção>` | Confirma a promoção — e **reprovar dispara `wrangler rollback` automático** |
+| 8 | `git tag deploy-<data>-<sha>` | Rollback vira um SHA conhecido, sem depender de alguém lembrar |
+| 9 | GitHub Release na mesma tag, com changelog automático | Registro navegável (aba **Releases**), sem curadoria manual — `continue-on-error`, mas nunca silencioso: falha vira `::warning::` no resumo, e não afeta o deploy (que já publicou e passou no smoke) |
 
 O resumo do job (aba **Actions** → run → topo) responde "o que foi para
-produção e passou?" sem abrir log de step nenhum: commit, ID da versão, URL de
-preview, tabela de todas as checagens, tag criada.
+produção e passou?" sem abrir log de step nenhum: commit, ID da versão, se foi
+promovida, migrações, resultado do smoke de produção, reversão, tag e Release.
 
-#### O que a primeira execução real ensinou
+#### Por que não há smoke antes da promoção
 
-O pipeline acima estreou no merge do PR #108 e **falhou de propósito**, no
-lugar certo: o `versions upload` funcionou, mas a Cloudflare não devolveu URL
-de preview, e o portão recusou promover uma versão que não pôde verificar.
-Produção seguiu servindo a versão anterior. Três defeitos vieram junto, e todos
-estão corrigidos:
+O pipeline estreou no merge do PR #108 com um portão: o smoke rodava contra a
+URL de preview da versão recém-enviada, antes de ela receber tráfego. Essa URL
+**nunca veio** (#179). Nas três execuções reais, `versions upload` voltou com
+`metadata.has_preview = false` (decidido pelo servidor, sem flag que mude),
+`previews_enabled` estava `true`, e a URL derivada do ID respondeu **404**
+durante ~60 s. A causa provável é este Worker usar Durable Objects, que a
+Cloudflare não serve em Preview URLs de versão — a confirmar no #179.
 
-| Defeito | Por que passou despercebido | Correção |
-| --- | --- | --- |
-| Preview URLs desligadas no Worker | `preview_urls` é configuração **não-versionada**: `versions upload` só a lê, e com a chave ausente do `wrangler.toml` o valor do servidor prevalecia para sempre | `preview_urls = true` no `wrangler.toml` + passo que garante e **confere** o estado pela API antes de subir a versão |
-| As mensagens de erro do portão nunca chegaram ao log | `grep` sem correspondência sai com 1; com `pipefail` e o `bash -e` do runner, o step morria **na atribuição**, antes dos `echo ::error` escritos para exatamente este caso | `\|\| true` na atribuição, e o shell dos workflows passou a ser conferido no `checks.yml` |
-| A regex casava com qualquer `*.workers.dev` | Incluindo a rota de **produção** — se as Preview URLs estivessem ligadas, o "portão" teria testado produção e aprovado a si mesmo | Ancorado no rótulo `Version Preview URL:`, com o formato `<8-hex>-<worker>` como reserva |
+O portão virou "oportunista" (promovia sem verificar quando a URL não vinha) e
+passou a custar ~60 s de espera, um passo que mexia na configuração do Worker
+pela API e um resumo que dizia "indisponível" em todo deploy. Saiu no commit
+`1e5b5b2`: ficaram `versions upload` sem tráfego, promoção, smoke de produção e
+reversão automática.
 
-E um quarto, que o portão só tornou visível: `d1 migrations apply` falhava com
-`duplicate column name: access_type` **em todo deploy desde 09/08**, engolido
-por um `continue-on-error`. Detalhe em [Migrações do D1](#migrações-do-d1).
+**Por que não `wrangler preview` no lugar.** Ele funciona com Durable Objects,
+mas sobe **outro artefato**: os bindings de `[previews]`, `AMBIENTE = "previa"`,
+Turnstile de teste e KV/D1 próprios. O smoke de produção reprovaria nele por
+desenho e, se passasse, não provaria nada sobre a versão que vai receber
+tráfego. Servir de portão exigiria um smoke próprio de prévia e segredos
+`PREVIA_*` no GitHub.
 
-#### E o que a segunda ensinou
+**O que cobre o trabalho do portão hoje:**
 
-O run #136 passou pelas migrações e pelas Preview URLs, e parou de novo no
-upload — pelo mesmo sintoma, por uma causa diferente e mais fundamental.
-
-O passo novo leu o estado do servidor e confirmou `previews_enabled: true`,
-antes **e** depois. Mesmo assim o wrangler não imprimiu a URL. A explicação está
-nas duas condições que ele exige:
-
-```js
-if (versionId && hasPreview) {                       // hasPreview = metadata.has_preview
-  const { previews_enabled } = await fetch(`${worker}/subdomain`);
-  if (previews_enabled) { … }                        // este estava true
-}
-```
-
-Quem barra é `hasPreview`, que vem de `metadata.has_preview` na resposta do
-upload e é decidido **inteiramente do lado do servidor**: não há flag do
-wrangler nem chave de configuração que o mude. Esperar por ele é esperar por
-algo que não controlamos.
-
-Só que a URL é **derivável**. O próprio wrangler a monta como
-`https://<8 primeiros do id>-<worker>.<subdominio>.workers.dev`, e o subdomínio
-sai de `GET /accounts/<id>/workers/subdomain`. Então o workflow passou a
-construí-la — e, o que importa, a **provar** que ela responde antes de aceitá-la.
-Uma URL construída que não responde é descartada como se não existisse.
-
-Derivar-e-provar é evidência melhor que a flag que estávamos esperando:
-`has_preview` diz o que a API acha; um 200 diz o que existe.
-
-E o desfecho do (4) foi o melhor possível: as duas colunas responderam
-**`já estava:`**. Não havia perda de registro de consentimento — só o
-livro-razão desatualizado. Depois do conserto, `✅ No migrations to apply!`.
-
-#### E o que a terceira encerrou
-
-O run #137 rodou a URL derivada e ela respondeu **404, vinte vezes, por ~60 s**.
-Não é timeout nem falha de conexão: a Cloudflare atende no curinga
-`*.workers.dev` e diz que ali não há nada. Somado a `previews_enabled: true`
-(lido no servidor em duas execuções) e a `has_preview` falso, o veredito é um
-só: **este Worker não recebe URL de preview de versão**, e não há chave de
-configuração que mude isso.
-
-Três execuções, três causas distintas, e a terceira não é defeito nosso.
-
-**O que se decidiu, e por quê.** Um portão que nunca pode passar não é
-segurança: é a garantia de que ninguém publica, e o convite a contornar o
-workflow por fora — pior que qualquer coisa que o portão evitaria. Então ele
-passou a ser **oportunista, nunca silencioso**:
-
-| Situação | O que acontece |
+| Antes da promoção | Depois dela |
 | --- | --- |
-| Veio URL de preview | Smoke **antes** de promover. Reprovou, ninguém promove. Cliente nenhum vê. |
-| Não veio (hoje) | Promove, verifica em seguida e **reverte sozinho** se o smoke reprovar. |
+| A [prévia do PR](#prévia-de-pr-testar-antes-do-merge), publicada pelo Workers Builds: ali se confere o que o smoke não confere (painel, fluxos com e-mail, galeria) | Smoke de produção e [reversão automática](#reversão-automática) |
 
-A segunda é mais fraca — a exposição é de segundos, não zero. Mas é automática,
-não depende de alguém perceber, e é muito mais forte que o fluxo anterior a
-este trabalho, em que um smoke vermelho marcava o deploy como falho **e ia
-embora, deixando a versão ruim servindo**. O resumo do job diz qual dos dois
-caminhos rodou, sempre.
+É mais fraco que um smoke antes de promover: a prévia é conferida por gente,
+não pelo CI, e a versão ruim fica no ar por alguns segundos até a reversão.
 
-E é reversível sozinho: no dia em que a Cloudflare servir preview para este
-Worker, a sondagem acha a URL e o portão forte volta, sem mudar uma linha.
+#### Migração de D1 que falhava sem ninguém ver
+
+`d1 migrations apply` falhava com `duplicate column name: access_type` **em todo
+deploy desde 09/08**, engolido por um `continue-on-error`. Eram duas colunas já
+aplicadas fora do livro-razão: não houve perda de registro de consentimento, só
+o livro-razão desatualizado. Detalhe em [Migrações do D1](#migrações-do-d1).
 
 #### Reversão automática
 
@@ -502,15 +456,14 @@ depois.
 
 **Actions** → **Deploy** → **Run workflow**. Três entradas:
 
-- **`promote`** (padrão ligado). Desligue para **só publicar e verificar**: a
-  versão sobe, o smoke roda contra o preview e ela **não** recebe tráfego. O
-  resumo imprime o `version_id` para promover depois. É o "deixa eu ver isso
-  publicado antes de mandar para cliente" sem prazo para decidir.
+- **`promote`** (padrão ligado). Desligue para **só publicar**: a versão sobe e
+  **não** recebe tráfego nem smoke. O resumo imprime o `version_id` para
+  promover depois.
 - **`version_id`**. Promove uma versão **já existente**, pulando build e upload
   — é o rollback: segundos, sem recompilar e sem mexer no Git. Tem de ser o ID
   inteiro (UUID, como `0e65efc8-c701-47b1-9b50-21108d826fce`); qualquer outra
   coisa para o workflow antes de tocar em produção.
-- **`unversioned`**. Publica com `wrangler deploy`, **sem** o portão de preview.
+- **`unversioned`**. Publica com `wrangler deploy`, **sem** passar por versão sem tráfego (o smoke de produção e a reversão automática continuam).
   Existe por um motivo só: `versions upload` não aplica migração de Durable
   Object (a API recusa com o código **10211**). Enquanto `[[migrations]]` tiver
   só a `v1` já aplicada, nunca é necessário. Quando entrar uma `v2`, o workflow
@@ -523,7 +476,7 @@ depois.
 npx wrangler deploy
 ```
 
-Atalho de emergência. Pula suíte, migrações, portão de preview e smoke —
+Atalho de emergência. Pula suíte, migrações, smoke e reversão automática —
 publica o que estiver na sua árvore, inclusive o que você esqueceu de commitar.
 Prefira o Actions.
 
@@ -626,7 +579,7 @@ Tudo isto existe **só** com `AMBIENTE = "previa"`: em produção as rotas `/__p
 - Migração nova de D1 num PR: aplique também no banco da prévia antes de testar — `node scripts/d1-migrate.mjs fotos-consent-previa migrations` (com `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` no ambiente).
 - **Cota:** a escrita no KV da prévia conta nas **mesmas 1000 escritas/dia da conta** que produção usa. Testar à vontade num dia de evento não é boa ideia.
 - Prévias antigas: `npx wrangler preview delete --name <prévia>` (ou pelo painel). O plano gratuito permite 100 prévias por Worker.
-- A versão sem tráfego que o `deploy.yml` sobe no merge (o portão do deploy) continua existindo e continua com os dados de produção — ela não é a prévia de PR.
+- A versão sem tráfego que o `deploy.yml` sobe no merge continua existindo e continua com os dados de produção — ela não é a prévia de PR.
 
 ---
 
@@ -679,7 +632,7 @@ fotos/
 │   └── verifica-shell-dos-workflows.py ← bash -n em cada `run:` dos workflows; recusa `${{ inputs.* }}` neles
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml      ← CI: portão completo → migrações D1 → versão sem tráfego → smoke no PREVIEW → promoção → smoke em produção → tag
+│       ├── deploy.yml      ← CI: lint, tipos e testes → migrações D1 → versão sem tráfego → promoção → smoke em produção (reverte se reprovar) → tag
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
 │       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
 ├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto

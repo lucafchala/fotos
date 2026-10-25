@@ -44,7 +44,7 @@ O que o rollback **não** desfaz:
 3. Política *Allow* para o e-mail do administrador, login por One-time PIN.
 4. Teste em janela anônima: `/dashboard` pede o PIN antes da senha do painel.
 
-Para as prévias de PR: uma segunda aplicação em `*.preview.fotos.lucafchala.com` com a mesma política, e *Cloudflare Access* ligado em Workers & Pages > fotos > Settings > Domains & Routes (workers.dev e Preview URLs). Com isso o smoke do deploy não alcança as prévias; se o CI passar a falhar ali, é por isso.
+Para as prévias de PR: uma segunda aplicação em `*.preview.fotos.lucafchala.com` com a mesma política, e *Cloudflare Access* ligado em Workers & Pages > fotos > Settings > Domains & Routes para as **Preview URLs**. Só as prévias de PR ficam atrás do Access; o smoke de produção do `deploy.yml` não passa por elas e não é afetado. Atenção: esse smoke usa o endereço `workers.dev` do Worker de produção (o domínio `fotos.lucafchala.com` responde 403 a cliente que não é navegador). Se o Access for ligado também na rota `workers.dev` de produção, o CI não alcança o smoke e a reversão automática entra em ação — se o CI falhar ali, é por isso.
 
 ## Limpar o KV da prévia
 

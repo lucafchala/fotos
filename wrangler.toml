@@ -40,24 +40,23 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 # Ver a justificativa completa em signingSecret(), src/index.js.
 
 # ---------------------------------------------------------------------------
-# Preview URLs — o pré-requisito do portão de deploy
+# Preview URLs de versão (nada do deploy depende delas)
 # ---------------------------------------------------------------------------
-# Cada `wrangler versions upload` ganha um endereço próprio
-# (https://<8-primeiros-do-id>-fotos.<subdominio>.workers.dev) que serve AQUELA
-# versão sem receber tráfego nenhum de produção. É contra ele que o
-# .github/workflows/deploy.yml roda o smoke antes de promover. Sem Preview
-# URLs não existe "verificar antes de entregar" — existe publicar e torcer.
+# A chave liga, para este Worker, o endereço próprio de cada versão enviada por
+# `wrangler versions upload` (https://<8-primeiros-do-id>-fotos.<subdominio>
+# .workers.dev). O .github/workflows/deploy.yml NÃO usa esse endereço: ele nunca
+# chegou (`metadata.has_preview = false`; a URL derivada respondia 404), a causa
+# provável são os Durable Objects (a confirmar no #179), e o smoke antes da
+# promoção saiu do workflow. A verificação anterior ao merge é a prévia do PR
+# (bloco [previews], no fim deste arquivo).
 #
-# Está declarado aqui pelo mesmo motivo do bloco [observability] abaixo: com a
+# Segue declarada pelo mesmo motivo do bloco [observability] abaixo: com a
 # chave AUSENTE, o wrangler manda `previews_enabled: undefined` e o valor que
-# estiver no servidor prevalece indefinidamente. Foi assim que este Worker
-# ficou com Preview URLs desligadas sem ninguém ter decidido isso — e a
-# descoberta veio do jeito caro, com o primeiro deploy do portão morrendo por
-# não achar a URL.
+# estiver no servidor prevalece indefinidamente — ninguém decide isso por
+# omissão.
 #
 # ⚠️ É configuração NÃO-VERSIONADA: `versions upload` só a LÊ. Quem a escreve é
-# `wrangler deploy` / `triggers deploy` — por isso o deploy.yml garante o
-# estado por API antes de subir a versão, em vez de confiar nesta linha.
+# `wrangler deploy` / `triggers deploy`; o deploy.yml não a confere mais por API.
 preview_urls = true
 
 [[kv_namespaces]]
@@ -90,10 +89,10 @@ migrations_dir = "migrations"
 # A API recusa com o código 10211: "migrations must be fully applied via a
 # non-versioned deployment". Ou seja, quem cria a classe é `wrangler deploy`
 # (não-versionado). O .github/workflows/deploy.yml sobe por `versions upload`
-# (o portão sem tráfego): com uma migração nova ele FALHA no upload, de
+# (a versão sem tráfego): com uma migração nova ele FALHA no upload, de
 # propósito e com a mensagem explicando, e o caminho é redisparar à mão com
-# `unversioned: true` — que usa `wrangler deploy` e abre mão do portão naquele
-# deploy. Não existe atalho: migração e código sobem juntos, não dá para
+# `unversioned: true` — que usa `wrangler deploy` e publica direto, sem versão
+# sem tráfego naquele deploy (o smoke de produção e a reversão seguem). Não existe atalho: migração e código sobem juntos, não dá para
 # aplicar só a migração antes.
 #
 # Os builds de PR já não passam por aí. Até 12/10/2026 o Cloudflare Workers
@@ -181,7 +180,7 @@ persist = true
 # um Worker à parte (`fotos-preview`) com o MESMO KV de produção e sem D1:
 # quem rodasse `--env preview` achando que estava isolado gravava nos dados
 # reais, sem registro de consentimento. A versão que o deploy.yml sobe sem
-# tráfego (`versions upload`) é o portão do deploy — com os dados de produção.
+# tráfego (`versions upload`) usa os dados de produção.
 # Um ambiente isolado precisa de KV e D1 PRÓPRIOS — nunca do id acima. É o que
 # o bloco abaixo faz (tests/wrangler-ambientes.test.js confere).
 
