@@ -15,7 +15,7 @@
 // direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage */
+/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -309,7 +309,7 @@ await cenario('Visualizador no desktop', async () => {
   await page.mouse.move(720, 450);
   for (let k = 0; k < 14; k++) { await page.mouse.wheel(0, -400); await page.waitForTimeout(60); }
   const max = await esperaLargura(page, 6000, 6000);
-  registra(max.w === 6000, 'Desktop: zoom máximo pede o ORIGINAL (6000 px)', { pedida: max.w });
+  registra(max.w === 6000, 'Desktop: zoom máximo pede o ORIGINAL (6000 px)', { pedida: max.w, src: max.src.slice(-60), itens: await page.evaluate(() => [...document.querySelectorAll('.pswp__item')].map(it => `${it.getAttribute('aria-hidden')}:${[...it.querySelectorAll('img')].map(im => im.className + '/' + im.currentSrc.slice(-12)).join(',')}`)) });
   const pedidasDaFoto = estado.lh3.filter(x => x.id === 'RAIZFOTO_000000').map(x => x.w);
   registra(pedidasDaFoto.includes(6000) && Math.min(...pedidasDaFoto.filter(w => w > 1000)) < 6000, 'Desktop: a resolução sobe por degraus, não começa no original', pedidasDaFoto);
   // Teclado: → troca a foto e o link; Esc fecha e limpa o link.
@@ -545,6 +545,36 @@ await cenario('Cabeçalho e favoritas', async () => {
   const volta = await page.evaluate(() => ({ y: window.scrollY, foco: document.activeElement && document.activeElement.id }));
   registra(volta.y === 0 && volta.foco === 'g-h1', 'Voltar ao topo: volta ao início e leva o foco ao título', volta);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Cabeçalho e favoritas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// ---- 6c. Centenas de fotos: carga preguiçosa e custo do layout -------------
+await cenario('Centenas de fotos', async () => {
+  const N = 800;
+  const muitas = Array.from({ length: N }, (_, i) => {
+    const [w, h] = FORMATOS[i % FORMATOS.length];
+    return /** @type {[string, number, number, string, number]} */ ([pid('MUITAFOTO', i), w, h, `m-${i + 1}.jpg`, 9_000_000]);
+  });
+  for (const f of muitas) POR_ID.set(f[0], f);
+  const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
+  const pagina = galeriaHTML({ event: EVENTO, listagem, erro: null, nonce: NONCE });
+  const { ctx, page, estado } = await abre({ pagina, viewport: { width: 1440, height: 900 } });
+  const miniaturas = await page.locator('.g-t').count();
+  registra(miniaturas === N, `${N} fotos: todas as miniaturas existem na grade`, miniaturas);
+  registra(estado.lh3.length <= 80, `${N} fotos: só as da tela (e um pouco mais) são pedidas ao carregar`, estado.lh3.length);
+  const custo = await page.evaluate(() => {
+    const t0 = performance.now();
+    window.dispatchEvent(new Event('resize'));
+    document.body.getBoundingClientRect();
+    return performance.now() - t0;
+  });
+  registra(custo < 250, `${N} fotos: refazer a grade (resize) leva menos de 250 ms`, `${Math.round(custo)} ms`);
+  for (let y = 0; y <= 12000; y += 3000) { await page.evaluate(v => window.scrollTo(0, v), y); await page.waitForTimeout(60); }
+  await page.waitForTimeout(500);
+  registra(estado.lh3.length < N * 0.5, `${N} fotos: rolar 12 mil px não baixa tudo (${estado.lh3.length} pedidos)`, estado.lh3.length);
+  const tarefas = await page.evaluate(() => performance.getEntriesByType('longtask').length);
+  registra(tarefas <= 8, `${N} fotos: poucas tarefas longas na rolagem`, tarefas);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, `${N} fotos: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 

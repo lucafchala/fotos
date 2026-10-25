@@ -517,6 +517,19 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(ligado.active === true && !!ligado.addedAt && religado.active === true && religado.addedAt !== ligado.addedAt && intocado.addedAt === religado.addedAt,
         `${rotulo}: "Novas fotos": religar reinicia o contador; salvar sem mexer, não`, { ligado: ligado.addedAt, religado: religado.addedAt, intocado: intocado.addedAt });
 
+      // Texto alternativo por foto: uma linha por foto, aparado, linha vazia
+      // mantida (= usa o título); o que foi salvo volta ao reabrir o formulário.
+      await salvaAviso(async () => { await page.fill('#f-photo-alts', '  Noiva sorrindo \n\nBolo de três andares'); });
+      const altsSalvos = (JSON.parse(w.kv.get('events') || '[]').find((/** @type {any} */ e) => e.slug === 'teste-do-roteiro') || {}).photoAlts;
+      await someAviso(page);
+      await aciona(novo.locator('[data-action="edit"]'), toque);
+      await page.waitForSelector('#overlay.open');
+      const altsNoCampo = await page.inputValue('#f-photo-alts');
+      await aciona(page.locator('#overlay button.btn-secondary[data-onclick="closeForm"]'), toque);
+      await page.waitForSelector('#overlay.open', { state: 'hidden' });
+      registra(JSON.stringify(altsSalvos) === JSON.stringify(['Noiva sorrindo', '', 'Bolo de três andares']) && altsNoCampo === 'Noiva sorrindo\n\nBolo de três andares',
+        `${rotulo}: descrição das fotos: salva uma por linha (aparada) e volta ao reabrir`, { altsSalvos, altsNoCampo });
+
       // ---- 4. Menu "Mais ações": ocultar ----------------------------------
       await someAviso(page);
       const mais = novo.locator('[data-action="menu"]');
@@ -965,7 +978,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       // A conta é exata de propósito: uma escrita a mais numa chave permitida
       // também gasta a cota (16 por aparelho; 17 no computador — docs/PAINEL.md §15.2).
       const permitidas = ['admin_password', 'admin_session:*', 'admin_sessions_corte', 'events', 'removal_request:*', ...(toque ? [] : ['backup:ultimo'])];
-      const esperadas = toque ? 16 : 17;
+      const esperadas = toque ? 17 : 18;
       registra(chaves.every(k => permitidas.includes(k)) && w.escritas.length === esperadas,
         `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, { chaves, esperadas });
     } finally {

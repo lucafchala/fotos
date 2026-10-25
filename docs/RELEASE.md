@@ -6,12 +6,13 @@
 
 - [ ] CI verde no PR: `checks`, CodeQL, Invariantes de segurança, Dependências e Roteiros no navegador.
 - [ ] `npm run lint`, `npm run typecheck` e `npm test` (com `--maxWorkers=2` se a máquina estiver carregada: os testes de limite de taxa estouram os 5 s do vitest sob carga).
-- [ ] `npm run verifica:painel`, `verifica:evento`, `verifica:galeria` e `verifica:previa`, com `PLAYWRIGHT_BROWSERS_PATH` apontando para o Chromium.
+- [ ] `npm run verifica:painel`, `verifica:evento`, `verifica:galeria` e `verifica:previa`, com `PLAYWRIGHT_BROWSERS_PATH` apontando para o Chromium (rode um de cada vez: com a máquina carregada, o zoom do visualizador da galeria já oscilou uma vez em dez). Última rodada de 24/10/2026: painel 240 ok, evento 55 ok, galeria 101 ok, 0 falhas.
 - [ ] `VERSAO` (`src/config.js`), `version` do `package.json` e a seção do `CHANGELOG.md` batem.
 - [ ] Na prévia do PR: entrar no painel, abrir um projeto, `/robots.txt`, `/sitemap.xml` e `/og-padrao.png`.
 - [ ] Migração D1 conferida na prévia (ela tem o banco `fotos-consent-previa`): `node scripts/d1-migrate.mjs` sai com 0.
-- [ ] Galeria própria sem `GOOGLE_DRIVE_API_KEY`: a página mostra o passo a passo, sem erro de JS nem de CSP (coberto por `verifica:galeria`).
-- [ ] Galeria própria com centenas de fotos: rolar, filtrar favoritas e abrir o visualizador sem travar (o roteiro usa 244 fotos).
+- [x] Galeria própria sem `GOOGLE_DRIVE_API_KEY`: a página mostra o passo a passo, sem erro de JS nem de CSP (automático em `verifica:galeria`, cenário "Página de erro").
+- [x] Galeria própria com centenas de fotos: carga preguiçosa, refazer a grade e poucas tarefas longas (automático em `verifica:galeria`: 244 fotos na grade por aparelho e 800 no cenário "Centenas de fotos"; o visualizador abre sob a CSP estrita, sem mensagem de CSP). Falta só olhar a galeria real com uma pasta grande do Drive.
+- [x] Texto alternativo por foto de capa (`photoAlts`): o alt troca no carrossel e no visualizador, com uma foto só vale o da capa, e o campo do painel salva e reabre (automático em `verifica:evento` e `verifica:painel`). Falta só um leitor de tela de verdade.
 
 ## Depois do merge
 

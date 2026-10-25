@@ -213,9 +213,15 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
   a frase do servidor; o 400 com `campo: "nome"` numa página que não esperava
   pedir abre o campo sem tela de erro; num álbum público o nome segue opcional.
 
+- **texto alternativo por foto (`photoAlts`)** — o carrossel troca o `alt` junto
+  com a foto (descrição vazia = título do projeto), o visualizador abre e navega
+  com o `alt` da foto da vez e, com uma foto só (sem carrossel), a imagem da
+  capa também usa a descrição. Foi esse roteiro que mostrou a capa única
+  ignorando o texto.
+
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 51 checagens em 18/10/2026.
+falhas já registradas. 55 checagens em 24/10/2026.
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
@@ -242,7 +248,8 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
    num campo, e fechar com só a URL digitada pergunta antes de descartar; no
    computador, a folha inteira percorrida pelo Tab;
 3. editar e marcar entregue (o bloco recolhido mostra o resumo, e acompanha
-   colar e remover fotos); o "Novas fotos": ligar marca a hora, desligar e
+   colar e remover fotos; a "Descrição das fotos" é salva uma por linha, aparada,
+   e volta ao reabrir); o "Novas fotos": ligar marca a hora, desligar e
    religar na mesma edição reinicia, salvar sem mexer mantém (lido do KV);
 4. ocultar pelo menu "⋯" sem desfazer o que outro aparelho editou (no celular,
    folha embaixo com itens de 48 px; no computador, teclado: foco no 1º item,
@@ -279,7 +286,7 @@ computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
 de JS, nenhuma mensagem de CSP no console, e que o fluxo só gravou no KV as
 chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
-`admin_password`, sessão) — 16 escritas por aparelho (17 no computador), 237 checagens no total
+`admin_password`, sessão) — 17 escritas por aparelho (18 no computador), 240 checagens no total
 (duas são a página-canário da CSP),
 em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
 Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
@@ -327,10 +334,19 @@ Cobre:
   tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
   aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,
   Shift+clique para intervalo e "voltar ao topo" (foco no título);
+- **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
+  tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
+  depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
+  (o roteiro reprova se a carga preguiçosa virar ansiosa);
 - **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
 - **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
   foi ao console.
+
+101 checagens em 24/10/2026. O PhotoSwipe (visualizador) roda sob a CSP estrita
+sem nenhuma mensagem de violação. O zoom máximo do visualizador ("pede o
+ORIGINAL") oscilou uma vez em dez com a máquina carregada; rode os roteiros
+um de cada vez.
 
 `VERIFICA_PRINTS=/caminho npm run verifica:galeria` salva as capturas (grade
 por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-as:

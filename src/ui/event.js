@@ -154,7 +154,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(event.title)}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
+        ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
         : `<div class="carousel" id="carousel">
           ${comWebp(`<img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">`)}
           <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">

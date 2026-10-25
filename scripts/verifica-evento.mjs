@@ -205,6 +205,45 @@ try {
     await ctx.close();
   }
 
+  // ---- 2b. Texto alternativo por foto: carrossel e visualizador ----------------
+  // Foto com descrição usa a dela; sem descrição, o título do projeto. O <img>
+  // do carrossel e o do visualizador trocam o alt junto com a foto.
+  {
+    const htmlAlts = eventHTML(/** @type {any} */ ({ ...EVENTO, photoAlts: ['Noiva sorrindo', '', 'Bolo de três andares'] }), 2026, '', NONCE, 'drive-nonce', '');
+    const { ctx, page, estado } = await abre({ html: htmlAlts });
+    const altC = () => page.locator('#c-img').getAttribute('alt');
+    const altL = () => page.locator('#lb-img').getAttribute('alt');
+    const a0 = await altC();
+    await page.locator('.c-next').click();
+    await page.waitForTimeout(150);
+    const a1 = await altC();
+    await page.locator('.c-next').click();
+    await page.waitForTimeout(150);
+    const a2 = await altC();
+    registra(a0 === 'Noiva sorrindo' && a1 === 'Evento' && a2 === 'Bolo de três andares',
+      'texto alternativo: o carrossel troca o alt junto com a foto (vazio = título do projeto)', { a0, a1, a2 });
+    await page.locator('#c-img').dispatchEvent('click');
+    await page.waitForTimeout(200);
+    const l2 = await altL();
+    await page.locator('.lb-prev').dispatchEvent('click');
+    await page.waitForTimeout(150);
+    const l1 = await altL();
+    await page.locator('.lb-prev').dispatchEvent('click');
+    await page.waitForTimeout(150);
+    const l0 = await altL();
+    registra(l2 === 'Bolo de três andares' && l1 === 'Evento' && l0 === 'Noiva sorrindo',
+      'texto alternativo: o visualizador abre e navega com o alt da foto da vez', { l2, l1, l0 });
+    registra(estado.erros.length === 0, 'texto alternativo: sem erro de JS', estado.erros);
+    await ctx.close();
+
+    // Uma foto só (sem carrossel): o alt da capa também vale.
+    const htmlUma = eventHTML(/** @type {any} */ ({ ...EVENTO, photos: [FOTOS[0]], thumbnailUrl: FOTOS[0], photoAlts: ['Noiva sorrindo'] }), 2026, '', NONCE, 'drive-nonce', '');
+    const uma = await abre({ html: htmlUma });
+    const altHero = await uma.page.locator('.hero img').first().getAttribute('alt');
+    registra(altHero === 'Noiva sorrindo', 'texto alternativo: com uma foto só, a imagem da capa usa a descrição', altHero);
+    await uma.ctx.close();
+  }
+
   // ---- 3. 429 (Wi-Fi do evento): espera o que o servidor manda e tenta sozinho --
   {
     const { ctx, page, estado } = await abre({
