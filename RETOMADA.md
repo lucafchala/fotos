@@ -730,27 +730,27 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   dono pode fazer: importar a proteção da `main` e apagar os 72 branches
   entregues (#177); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
-  rollback manual (#178); e decidir o portão de preview (#179).
+  rollback manual (#178). O portão de preview (#179) saiu do `deploy.yml` no PR #236 (a URL nunca chegava).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
   confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
   e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
   (#232) entrou no PR #236, junto com os outros roteiros de navegador.
 - **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
-  blocos, pedidos de remoção por chave): o dono liga as prévias (três passos
-  no painel da Cloudflare — README, "Prévia de PR"), testa no celular com o
-  menu "Testes" e só então mergeia. Merge é deploy.
+  blocos, pedidos de remoção por chave): o dono testa a prévia (atrás do
+  Cloudflare Access desde 25/10/2026) e só então mergeia. Merge é deploy.
+  Depois do merge: tag `v2.0.0` e Release no commit de merge, pelos comandos
+  de `docs/NOTAS-v2.0.0.md`; roteiro e rollback em `docs/RELEASE.md`.
 - **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
   inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
   usar no celular dele e, gostando, fechar o #220.
 - **Galeria própria** (#235): **prévia só do dono**. Falta o dono
   configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
   depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
-- **Termos e o modelo do #146**: `/termos` ainda diz "Acesso restrito a
-  membros da família" e "a participantes ou pessoas autorizadas". Combina com
-  a intenção do álbum, mas não com "a declaração não é barreira" (§5.18).
-  Mudar o texto dos Termos pede `TERMS_VERSION` nova (cada registro de
-  consentimento fixa a versão) — decisão do dono.
+- **Termos e o modelo do #146**: reescritos na v2.0 (`TERMS_VERSION`
+  2026-10-18) — Familiares e Privados falam em consentimento, não senha. Falta
+  só a revisão jurídica (ECA Digital, LBI) e a declaração de acessibilidade
+  (`docs/ACESSIBILIDADE-RASCUNHO.md`, não publicar antes dela).
 
 ---
 
