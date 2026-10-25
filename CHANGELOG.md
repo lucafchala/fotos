@@ -25,6 +25,13 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ### Novo
 
+- **Beacon de performance com INP, CLS e erros de JavaScript.** O beacon
+  amostrado de `/api/perf` passa a medir interação (INP) e estabilidade
+  visual (CLS) e a relatar até 3 erros de JS por visita (`error` e
+  `unhandledrejection`), com mensagem de no máximo 200 caracteres e sem URL,
+  e-mail nem token. Segue anônimo (sem cookie) e **sem escrita em KV**: tudo
+  vai para o log (`wrangler tail`) e, se existir, para o Analytics Engine, com
+  teto de 120 erros por minuto por isolate.
 - **"Sair dos outros aparelhos"** em Ajustes → Conta. Encerra a sessão do painel
   em todos os aparelhos menos o atual (`POST /api/sessions/revoke-others`); em
   outro lugar pode levar até 30 s.

@@ -2677,6 +2677,34 @@ export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) 
 // já dá volume de sobra para medir tendência sem competir com o tráfego real.
 const PERF_SAMPLE_RATE = 0.1;
 
+// Limites do relato de erros de JavaScript que viaja no beacon de performance.
+// Os dois lados usam os mesmos números: o cliente já entrega aparado, o
+// servidor aplica de novo porque o corpo pode ser forjado.
+export const PERF_ERR_MAX = 3;
+export const PERF_ERR_LEN = 200;
+
+// Deixa de uma mensagem de erro só o que ajuda a achar o defeito: sem URL
+// (com o caminho e a query que ela carrega), sem e-mail, sem token comprido
+// (slug de pedido, id do Drive, sessão) e sem quebra de linha. Mensagem de erro
+// do browser cita valores da página, e a página do evento tem nome de cliente
+// e id de pasta — nada disso deve parar num log.
+//
+// CÓPIA: perfBootScript() repete esta função à mão dentro do script emitido (o
+// browser não importa nada de fora do template literal). tests/perf-beacon.test.js
+// extrai a cópia do texto do script e compara as saídas.
+/** @param {unknown} v */
+export function limparMensagemErro(v) {
+  return String(v == null ? '' : v)
+    .slice(0, 2000)
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s)'"]*/gi, '<url>')
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '<email>')
+    .replace(/\?[^\s)'"]+/g, '?')
+    .replace(/[A-Za-z0-9_-]{24,}/g, '<tok>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, PERF_ERR_LEN);
+}
+
 // Depois de quanto tempo o esqueleto passa a DIZER que está esperando.
 //
 // O par com o atraso de 600 ms do CSS (`.thumb.loading::after`): abaixo dele
@@ -2766,13 +2794,55 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
   var m={page:${JSON.stringify(page)},marks:{filterMs:null,navCount:0}};
   window.__perf=m;
   function pct(a,q){if(!a.length)return null;var s=a.slice().sort(function(x,y){return x-y;});return Math.round(s[Math.min(s.length-1,Math.floor(s.length*q))]);}
+  var obs=[],cls=0,cws=0,cwf=0,cwl=0,ix={},nix=0,errs=[],seen={};
+  function watch(type,fn,extra){
+    try{
+      var o=new PerformanceObserver(function(l){fn(l.getEntries());});
+      var c={type:type,buffered:true},x;
+      if(extra)for(x in extra)c[x]=extra[x];
+      o.observe(c);obs.push([o,fn]);
+    }catch(e){}
+  }
+  watch('layout-shift',function(es){
+    for(var i=0;i<es.length;i++){
+      var e=es[i];
+      if(e['hadRecentInput'])continue;
+      if(cws&&e.startTime-cwl<1000&&e.startTime-cwf<5000){cws+=e['value'];}else{cws=e['value'];cwf=e.startTime;}
+      cwl=e.startTime;
+      if(cws>cls)cls=cws;
+    }
+  });
+  watch('event',function(es){
+    for(var i=0;i<es.length;i++){
+      var e=es[i],id=e['interactionId'];
+      if(!id)continue;
+      if(!(id in ix)){if(nix>=500)continue;nix++;ix[id]=0;}
+      if(e.duration>ix[id])ix[id]=e.duration;
+    }
+  },{durationThreshold:40});
+  function clean(v){return String(v==null?'':v).slice(0,2000).replace(/[a-z][a-z0-9+.-]*:\\/\\/[^\\s)'"]*/gi,'<url>').replace(/[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+/g,'<email>').replace(/\\?[^\\s)'"]+/g,'?').replace(/[A-Za-z0-9_-]{24,}/g,'<tok>').replace(/\\s+/g,' ').trim().slice(0,${PERF_ERR_LEN});}
+  function report(k,v){
+    if(errs.length>=${PERF_ERR_MAX})return;
+    var t=clean(v);
+    if(!t||seen['$'+t])return;
+    seen['$'+t]=1;errs.push({k:k,m:t});
+  }
+  window.addEventListener('error',function(e){if(e&&e.message)report('error',e.message);});
+  window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;report('rejection',r&&r.message?r.message:r);});
   var sent=false;
   function flush(){
     if(sent)return;sent=true;
-    var imgs=[],nav=null,lcp=null,fcp=null;
+    var imgs=[],nav=null,lcp=null,fcp=null,inp=null,i;
+    try{
+      for(i=0;i<obs.length;i++){obs[i][1](obs[i][0].takeRecords());}
+      var ds=[];
+      for(var id in ix)ds.push(ix[id]);
+      ds.sort(function(a,b){return b-a;});
+      if(ds.length)inp=Math.round(ds[Math.min(ds.length-1,Math.floor(ds.length/50))]);
+    }catch(e){}
     try{
       var rs=performance.getEntriesByType('resource');
-      for(var i=0;i<rs.length;i++){if(rs[i].initiatorType==='img'&&rs[i].duration>0)imgs.push(rs[i].duration);}
+      for(i=0;i<rs.length;i++){if(rs[i].initiatorType==='img'&&rs[i].duration>0)imgs.push(rs[i].duration);}
       var ns=performance.getEntriesByType('navigation')[0];
       if(ns)nav={ttfb:Math.round(ns.responseStart),dcl:Math.round(ns.domContentLoadedEventEnd),load:Math.round(ns.loadEventEnd)};
       var le=performance.getEntriesByType('largest-contentful-paint');
@@ -2780,7 +2850,7 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
       var fe=performance.getEntriesByName('first-contentful-paint');
       if(fe.length)fcp=Math.round(fe[0].startTime);
     }catch(e){}
-    var body=JSON.stringify({page:m.page,fcp:fcp,lcp:lcp,nav:nav,imgCount:imgs.length,imgP50:pct(imgs,.5),imgP95:pct(imgs,.95),filterMs:m.marks.filterMs,navCount:m.marks.navCount,vw:innerWidth});
+    var body=JSON.stringify({page:m.page,fcp:fcp,lcp:lcp,nav:nav,imgCount:imgs.length,imgP50:pct(imgs,.5),imgP95:pct(imgs,.95),filterMs:m.marks.filterMs,navCount:m.marks.navCount,vw:innerWidth,inp:inp,cls:Math.round(cls*1000)/1000,errs:errs});
     try{navigator.sendBeacon('/api/perf',new Blob([body],{type:'application/json'}));}catch(e){}
   }
   addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});

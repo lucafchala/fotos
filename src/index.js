@@ -28,6 +28,7 @@ import {
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess, nomeDeConsentimento,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
+  limparMensagemErro, PERF_ERR_MAX,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
@@ -1495,13 +1496,48 @@ export async function handleTrackDrive(request, env, ctx) {
 }
 
 // Beacon de performance real dos visitantes (um por visita, amostrado a 10%
-// no cliente — ver perfBootScript em utils.js).
+// no cliente — ver perfBootScript em utils.js). Além dos tempos de carga leva
+// INP e CLS (PerformanceObserver) e até PERF_ERR_MAX erros de JavaScript da
+// visita, já sem URL/e-mail/token (ver limparMensagemErro).
 //
 // Não escreve em KV de propósito: a cota (1000/dia) é compartilhada com
 // eventos/sessões/consentimento. Vai para log estruturado (grátis, visível em
-// `wrangler tail`) e opcionalmente Analytics Engine se o binding PERF existir.
-// Sem rate limit por KV também de propósito — custaria mais do que o beacon
-// economiza; quem limita o volume é a amostragem no cliente.
+// `wrangler tail`) e opcionalmente Analytics Engine se o binding PERF existir —
+// os erros e as novas métricas pegam carona nessas duas saídas, então o ritmo
+// de escrita em KV continua exatamente zero. Sem rate limit por KV também de
+// propósito — custaria mais do que o beacon economiza; quem limita o volume é a
+// amostragem no cliente, mais um teto por minuto de erros registrados no
+// próprio isolate (em memória, sem I/O), para que um loop de erro de um
+// visitante não vire inundação de log.
+//
+// Sem cookie, sem identificador e sem consentimento: o beacon é anônimo (nem
+// IP vai para o log) e não há modo "Não rastrear" a honrar. Continue assim.
+const PERF_ERR_POR_MIN = 120;
+const perfErrJanela = { desde: 0, n: 0 };
+
+/**
+ * Valida a lista de erros do corpo: só strings, no máximo PERF_ERR_MAX, sem
+ * repetição, sem URL. Qualquer outra forma (objeto, número, null) é descartada.
+ * @param {unknown} v
+ * @returns {{ k: 'error' | 'rejection', m: string }[]}
+ */
+export function errosDoBeacon(v) {
+  if (!Array.isArray(v)) return [];
+  /** @type {{ k: 'error' | 'rejection', m: string }[]} */
+  const out = [];
+  const vistos = new Set();
+  // Percorre só o começo: um array de 100 mil itens não custa CPU.
+  for (const e of v.slice(0, PERF_ERR_MAX * 4)) {
+    if (out.length >= PERF_ERR_MAX) break;
+    if (!e || typeof e !== 'object' || typeof e.m !== 'string') continue;
+    const m = limparMensagemErro(e.m);
+    if (!m || vistos.has(m)) continue;
+    vistos.add(m);
+    out.push({ k: e.k === 'rejection' ? 'rejection' : 'error', m });
+  }
+  return out;
+}
+
 /**
  * @param {Request} request
  * @param {Env} env
@@ -1542,19 +1578,45 @@ export async function handlePerfBeacon(request, env) {
     filterMs: num(body.filterMs, 60000),
     navCount: num(body.navCount, 10000),
     vw: num(body.vw, 20000),
+    // INP em ms; CLS é adimensional (0 = nada se mexeu), três casas.
+    inp: num(body.inp, 60000),
+    cls: typeof body.cls === 'number' && Number.isFinite(body.cls) && body.cls >= 0 && body.cls <= 100
+      ? Math.round(body.cls * 1000) / 1000 : null,
     colo: request.cf?.colo ?? null,
     country: request.cf?.country ?? null,
   };
 
   console.log(`perf ${JSON.stringify(sample)}`);
 
+  // Erros de JS: teto por minuto neste isolate (memória, sem I/O). Passou do
+  // teto, descarta os erros e mantém as métricas.
+  let erros = errosDoBeacon(body.errs);
+  if (erros.length) {
+    const agora = Date.now();
+    if (agora - perfErrJanela.desde >= 60000) { perfErrJanela.desde = agora; perfErrJanela.n = 0; }
+    if (perfErrJanela.n + erros.length > PERF_ERR_POR_MIN) erros = [];
+    else perfErrJanela.n += erros.length;
+  }
+  for (const e of erros) {
+    console.log(`perf-error ${JSON.stringify({ page: sample.page, k: e.k, m: e.m, colo: sample.colo, country: sample.country })}`);
+  }
+
   if (env.PERF && typeof env.PERF.writeDataPoint === 'function') {
     try {
       env.PERF.writeDataPoint({
         blobs: [sample.page, sample.colo, sample.country],
-        doubles: [sample.fcp, sample.lcp, sample.ttfb, sample.imgP50, sample.imgP95, sample.filterMs].map(v => v ?? -1),
+        // Posições antigas intactas; inp e cls entram no fim.
+        doubles: [sample.fcp, sample.lcp, sample.ttfb, sample.imgP50, sample.imgP95, sample.filterMs, sample.inp, sample.cls].map(v => v ?? -1),
         indexes: [sample.page],
       });
+      // Um ponto por erro, com índice próprio: não polui AVG() das métricas.
+      for (const e of erros) {
+        env.PERF.writeDataPoint({
+          blobs: [sample.page, sample.colo, sample.country, e.k, e.m],
+          doubles: [1],
+          indexes: ['error'],
+        });
+      }
     } catch (e) { console.error('perf writeDataPoint failed', e); }
   }
   return done();

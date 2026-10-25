@@ -34,6 +34,8 @@ const GLOBAIS_DO_BROWSER = [
   // seção ativa na faixa de chips (IntersectionObserver),
   // detecção de toque (matchMedia) e o arquivo do "Salvar na galeria" (File).
   'getComputedStyle', 'ResizeObserver', 'IntersectionObserver', 'matchMedia', 'File',
+  // Beacon de performance: INP e CLS vêm de PerformanceObserver.
+  'PerformanceObserver',
   // Carregado pelo <script> do Turnstile, de fora; os blocos testam
   // `typeof turnstile` antes de usar.
   'turnstile',
