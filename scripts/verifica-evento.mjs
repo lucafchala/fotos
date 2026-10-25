@@ -30,6 +30,7 @@ import { chromium } from 'playwright-core';
 import { eventHTML } from '../src/ui/event.js';
 import { htmlSecurityHeaders } from '../src/security.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
+import { verificaAxe } from './axe.mjs';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -96,10 +97,10 @@ const abertas = [];
 /**
  * @param {{ viewport?: { width: number, height: number }, dpr?: number, turnstile?: 'ok'|'erro'|'bloqueado', html?: string,
  *   driveLink?: (n: number, body: any) => { status: number, json: any },
- *   driveCode?: (body: any) => { status: number, json: any }, saveData?: boolean }} o
+ *   driveCode?: (body: any) => { status: number, json: any }, saveData?: boolean, escuro?: boolean }} o
  */
 async function abre(o = {}) {
-  const ctx = await browser.newContext({ viewport: o.viewport || { width: 390, height: 844 }, deviceScaleFactor: o.dpr || 3 });
+  const ctx = await browser.newContext({ viewport: o.viewport || { width: 390, height: 844 }, deviceScaleFactor: o.dpr || 3, colorScheme: o.escuro ? 'dark' : 'light' });
   const page = await ctx.newPage();
   if (o.saveData) {
     await page.addInitScript(() => {
@@ -112,7 +113,7 @@ async function abre(o = {}) {
   };
   abertas.push({
     nome: `${o.html === HTML_FAMILIA ? 'família' : o.html === HTML_COM_BEACON ? 'beacon' : 'público'} ${(o.viewport || { width: 390 }).width}@${o.dpr || 3}`
-      + `${o.turnstile && o.turnstile !== 'ok' ? ` turnstile ${o.turnstile}` : ''}${o.saveData ? ' economia de dados' : ''}`,
+      + `${o.turnstile && o.turnstile !== 'ok' ? ` turnstile ${o.turnstile}` : ''}${o.saveData ? ' economia de dados' : ''}${o.escuro ? ' escuro' : ''}`,
     csp: estado.csp,
   });
   page.on('pageerror', e => estado.erros.push(String(e)));
@@ -181,6 +182,8 @@ try {
     registra(todasNaLargura && w >= Math.min(fisico, 1600), `${nome}: fotos em w${w} WebP (tela ${fisico} px)`, estado.fotos);
     const repetida = estado.fotos.filter(f => f.startsWith('FOTO0=')).length;
     registra(repetida === 1, `${nome}: a 1ª foto é baixada uma vez só`, primeira);
+    // Acessibilidade automática (axe) da página com o carrossel, em dois aparelhos.
+    if (/^(iPhone|Desktop)/.test(nome)) await verificaAxe(page, registra, `${nome}: página com o carrossel (tema claro)`);
     await page.locator('.c-next').click();
     await page.waitForTimeout(400);
     const atual = await page.locator('#c-img').evaluate(i => /** @type {HTMLImageElement} */ (i).currentSrc);
@@ -190,10 +193,23 @@ try {
     // para o Playwright aceitar um clique "de verdade".
     await page.locator('#c-img').dispatchEvent('click');
     await page.waitForTimeout(200);
+    if (/^(iPhone|Desktop)/.test(nome)) await verificaAxe(page, registra, `${nome}: lightbox aberto (tema claro)`);
     await page.locator('#lb-img').evaluate(el => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 10 })));
     await page.waitForTimeout(300);
     registra(estado.fotos.some(f => f === 'FOTO1=w2400-rw'), `${nome}: ampliar pede w2400`, estado.fotos.slice(-2));
     registra(estado.erros.length === 0, `${nome}: sem erro de JS`, estado.erros);
+    await ctx.close();
+  }
+
+  // ---- 1b. Tema escuro: carrossel e lightbox pelo axe ------------------------
+  {
+    const { ctx, page, estado } = await abre({ escuro: true });
+    await page.waitForTimeout(700);
+    await verificaAxe(page, registra, 'iPhone 390@3: página com o carrossel (tema escuro)');
+    await page.locator('#c-img').dispatchEvent('click');
+    await page.waitForTimeout(200);
+    await verificaAxe(page, registra, 'iPhone 390@3: lightbox aberto (tema escuro)');
+    registra(estado.erros.length === 0, 'tema escuro: sem erro de JS', estado.erros);
     await ctx.close();
   }
 

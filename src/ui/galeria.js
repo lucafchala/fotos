@@ -156,8 +156,8 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
     }
     @media (prefers-color-scheme: light){
       :root{
-        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#8a8480;
-        --bg-card:#e5e1db; --bg-card-2:#fff; --esqueleto:#dcd7d0; --border:#ddd9d4; --accent:#8a6428; --accent-text:#faf7f3;
+        --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#665f5b; --text-dim:#8a8480;
+        --bg-card:#e5e1db; --bg-card-2:#fff; --esqueleto:#dcd7d0; --border:#ddd9d4; --accent:#7d5a22; --accent-text:#faf7f3;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17;
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#8c1d18;
       }

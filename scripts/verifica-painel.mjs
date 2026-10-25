@@ -37,6 +37,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
+import { verificaAxe } from './axe.mjs';
 import { metricasDeExemplo } from '../src/previa.js';
 import { hojeEmSaoPaulo } from '../src/utils.js';
 
@@ -981,6 +982,42 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const esperadas = toque ? 17 : 18;
       registra(chaves.every(k => permitidas.includes(k)) && w.escritas.length === esperadas,
         `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, { chaves, esperadas });
+    } finally {
+      await ctx.close();
+      await w.fecha();
+    }
+  });
+}
+
+// ---- Acessibilidade automática (axe-core), tela de login e painel, claro e escuro
+// Um Worker novo por tema; a CSP segue valendo (o axe entra por CDP, ver
+// scripts/axe.mjs) e o vigia continua de olho em qualquer mensagem dela.
+for (const escuro of [false, true]) {
+  const tema = escuro ? 'tema escuro' : 'tema claro';
+  await cenario(`axe, ${tema}`, async () => {
+    const w = await sobeWorker({ kv: SEMENTE, contadores: CONTADORES });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: escuro ? 'dark' : 'light' });
+    try {
+      const page = await ctx.newPage();
+      /** @type {string[]} */
+      const csp = [];
+      /** @type {string[]} */
+      const erros = [];
+      page.on('pageerror', e => erros.push(String(e)));
+      vigiaCsp(page, csp);
+      await page.route(/lh3\.googleusercontent\.com/, r => r.fulfill({ contentType: 'image/png', body: PIXEL }));
+      // Só a tela de login, antes de entrar (o widget do Turnstile não carrega aqui).
+      await page.route(/challenges\.cloudflare\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+      await page.goto(w.url + '/dashboard');
+      await espera(page, 500);
+      await verificaAxe(page, registra, `painel: tela de login (${tema})`);
+      await entraNoPainel(page, w.url);
+      await espera(page, 800);
+      await verificaAxe(page, registra, `painel: lista de eventos (${tema})`);
+      await page.evaluate(() => /** @type {HTMLElement} */ (document.querySelector('nav.nav [data-tab="metrics"]')).click());
+      await espera(page, 800);
+      await verificaAxe(page, registra, `painel: Métricas (${tema})`);
+      registra(csp.length === 0 && erros.length === 0, `axe (${tema}): sem erro de JS nem mensagem de CSP`, [...erros, ...csp]);
     } finally {
       await ctx.close();
       await w.fecha();

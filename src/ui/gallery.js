@@ -365,7 +365,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
-    .cookie-notice a{color:var(--accent);text-decoration:none}
+    .cookie-notice a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
     .cookie-notice a:hover{text-decoration:underline}
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}

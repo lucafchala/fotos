@@ -238,7 +238,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888;
       --bg-card:#141414; --bg-card-2:#1c1c1c; --bg-card-hover:#242424; --bg-card-border:#3a3a3a;
       --border-dim:#191919; --border-dim-2:#444; --border-hair:#111;
-      --footer-link:#777; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
+      --footer-link:#888; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
       --ok-bg:#0d1a0d; --ok-border:#1a3a1a; --ok-text:#8ac88a; --ok-text-strong:#a8d8a8; --ok-text-muted:#6aaa6a; --ok-dot:#5aaa5a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#cc8888; --err-text-strong:#e0a0a0;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
@@ -263,8 +263,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* Chrome sobre a foto (back-pill, controles do carrossel) fica sempre
        escuro/translúcido nos dois temas — contraste contra a FOTO, não contra
        a página, então nunca usa as vars de tema. Idem .c-btn/.c-dots/.c-count. */
-    .back-pill{position:absolute;top:.875rem;left:.875rem;z-index:3;display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;color:#f0ebe5;font-size:.8rem;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:.5rem .8rem .5rem .65rem;border-radius:20px;transition:background .2s}
-    .back-pill:hover{background:rgba(0,0,0,.65)}
+    .back-pill{position:absolute;top:.875rem;left:.875rem;z-index:3;display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;color:#f0ebe5;font-size:.8rem;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:.5rem .8rem .5rem .65rem;border-radius:20px;transition:background .2s}
+    .back-pill:hover{background:rgba(0,0,0,.75)}
     .back-pill svg{width:14px;height:14px;flex-shrink:0}
     /* hero */
     .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative;display:flex;align-items:center;justify-content:center}
@@ -491,7 +491,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
-    .cookie-notice a{color:var(--accent);text-decoration:none}
+    .cookie-notice a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
     .cookie-notice a:hover{text-decoration:underline}
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}

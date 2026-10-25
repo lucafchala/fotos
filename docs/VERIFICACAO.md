@@ -221,7 +221,7 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
 
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 55 checagens em 24/10/2026.
+falhas já registradas. 62 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade).
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
@@ -286,7 +286,7 @@ computador), nada vazando para o lado **em nenhuma seção**, alvos de toque de
 contorno de foco nos campos, a aba tocada com o branco da ativa, nenhum erro
 de JS, nenhuma mensagem de CSP no console, e que o fluxo só gravou no KV as
 chaves esperadas (`events`, `removal_request:<id>` do pedido resolvido,
-`admin_password`, sessão) — 17 escritas por aparelho (18 no computador), 240 checagens no total
+`admin_password`, sessão) — 17 escritas por aparelho (18 no computador), 248 checagens no total (8 delas do axe, §Acessibilidade)
 (duas são a página-canário da CSP),
 em ~45 s. Os alvos de toque são medidos em Eventos, na folha do formulário, em
 Pedidos e em Ajustes. Os pedidos semeados vêm nos dois formatos que produção tem logo
@@ -343,7 +343,7 @@ Cobre:
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
   foi ao console.
 
-101 checagens em 24/10/2026. O PhotoSwipe (visualizador) roda sob a CSP estrita
+107 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
 sem nenhuma mensagem de violação. O zoom máximo do visualizador ("pede o
 ORIGINAL") oscilou uma vez em dez com a máquina carregada; rode os roteiros
 um de cada vez.
@@ -363,6 +363,51 @@ isso o roteiro confere a URL do download (foto e variante), e o nome do arquivo
 (`Content-Disposition`) fica com a suíte. Para ver o nome de verdade no
 navegador, sirva o `src/index.js` num servidor HTTP local (§2) — com o
 `fetch` do Node interceptando `www.googleapis.com` e o `lh3`.
+
+### Acessibilidade automática — axe-core nos três roteiros
+
+`scripts/axe.mjs` exporta `verificaAxe(page, registra, nome)`: roda o
+[axe-core](https://github.com/dequelabs/axe-core) na página **como ela está
+naquele instante** e registra UMA checagem (`axe (WCAG A/AA): <nome>`), que
+falha com a regra, o impacto, o total de nós, os 3 primeiros seletores e a
+mensagem do primeiro nó (no contraste, as cores e a razão medida). Regras: tags
+`wcag2a`, `wcag2aa`, `wcag21a` e `wcag21aa` (`best-practice` fica de fora; o
+contraste de cor, ligado). O `axe-core` é **devDependency**: lido de
+`node_modules` pelo roteiro, nunca vai para `src/` nem para o navegador de quem
+visita o site.
+
+- **A CSP continua valendo.** `page.addScriptTag({ content })` cria um `<script>`
+  inline sem nonce, e a política estrita o barra. O código entra por
+  `page.evaluate` (CDP, `Runtime.evaluate`), sem `bypassCSP`: o vigia de
+  `scripts/vigia-csp.mjs` segue enxergando qualquer violação do app.
+- **Onde roda** (25/10/2026, 18 checagens): `verifica:galeria` — grade em
+  desktop e iPhone, tema escuro (grade e visualizador), visualizador aberto e a
+  folha de download; `verifica:evento` — carrossel e lightbox em iPhone e
+  desktop (claro) e iPhone (escuro; o roteiro ganhou a opção `escuro`);
+  `verifica:painel` — tela de login, lista de eventos e Métricas, em claro e
+  escuro (cenário novo "axe, tema …", desktop 1440).
+- **Exceção só estreita:** `verificaAxe(..., { ignorar: [{ regra, seletor,
+  motivo }] })` descarta UMA regra num seletor exato, com o motivo escrito. Não
+  há como desligar uma regra inteira. Hoje a lista está vazia.
+- **Achados reais na primeira rodada, corrigidos em `src/ui/`** (e com teste em
+  `tests/contraste-publico.test.js`): galeria — `color-contrast` do selo
+  "Prévia" (dourado `#8a6428` → `#7d5a22`) e do texto apagado
+  (`#6b6460` → `#665f5b`) sobre o cartão `#e5e1db` no tema claro; evento —
+  "‹ voltar" sobre a foto (fundo da pílula `.45` → `.6` de preto: com foto
+  clara dava 3,2:1), rodapé no escuro (`#777` → `#888`, 4,42 → 5,5:1) e o link
+  do aviso de cookies sem sublinhado (`link-in-text-block`, 1,08:1 com o texto
+  ao redor). A página da galeria passou a entrar no teste de contraste dos
+  tokens (só mede o que é usado como `color:`).
+- **Prova de que o axe enxerga** (mutação, restaurada depois): tirar o `alt` de
+  `#c-img` (evento) → `image-alt` crítico; tirar o `aria-label` das fotos da
+  galeria → `link-name` em 244 nós; tirar o `aria-label` do filtro de
+  categoria do painel → `select-name` crítico.
+
+Limite honesto: o axe acha só uma parte dos problemas de WCAG (a conta
+costuma ser citada em 30–40%). Verde aqui quer dizer "nenhum defeito que uma
+máquina enxerga nessas telas e estados", não "acessível": falta leitor de tela
+de verdade, e o contraste contra FOTO real (texto sobre imagem) o axe só mede
+contra a imagem de teste.
 
 ### Prévia de PR — `npm run verifica:previa`
 

@@ -23,6 +23,7 @@ import { galeriaHTML } from '../src/ui/galeria.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
+import { verificaAxe } from './axe.mjs';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../src/config.js';
 
 function chromiumLocal() {
@@ -266,6 +267,8 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   const pedidas = new Set(estado.lh3.map(x => x.id)).size;
   registra(pedidas < TODAS.length, `${nome}: carga preguiçosa (pediu ${pedidas} de ${TODAS.length} miniaturas)`, pedidas);
   registra(estado.lh3.every(x => x.webp), `${nome}: WebP (o navegador decodifica)`, estado.lh3.slice(0, 2));
+  // Acessibilidade automática (axe) da grade, em dois aparelhos: nome das fotos, contraste, alvos.
+  if (/^(Desktop|iPhone)/.test(nome)) await verificaAxe(page, registra, `${nome}: grade (tema claro)`);
   registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem mensagem de CSP`, [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, `grade-${nome.replace(/[^a-z0-9]+/gi, '-')}.png`) });
   await ctx.close();
@@ -289,6 +292,11 @@ await cenario('Tema escuro', async () => {
   // TODO.md, "Decidido não fazer": nada de contagem de fotos na página.
   const titulos = await page.locator('.g-sec h2').allTextContents();
   registra(titulos.join('|') === 'Fotos|Festa', 'Seções sem contagem de fotos (decisão do dono)', titulos);
+  await verificaAxe(page, registra, 'Tema escuro: grade');
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(page, 900);
+  await verificaAxe(page, registra, 'Tema escuro: visualizador aberto');
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Tema escuro: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'grade-escuro-iphone.png') });
   await ctx.close();
@@ -301,6 +309,7 @@ await cenario('Visualizador no desktop', async () => {
   await page.locator('.g-t').first().click();
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(page, 1200);
+  await verificaAxe(page, registra, 'Desktop: visualizador aberto (tema claro)');
   const ini = await larguraAtualDoVisualizador(page);
   const esperado = degrau([...GALERIA_LARGURAS.filter(x => x < 6000), 6000], ini.exibida * 1);
   registra(ini.w === esperado, 'Desktop: abre na resolução da tela (menor degrau que cobre a foto exibida)', { pedida: ini.w, exibida: Math.round(ini.exibida), esperado });
@@ -382,6 +391,7 @@ await cenario('Downloads no computador', async () => {
   await espera(page, 800);
   await page.locator('.pswp__button--g-baixar').click();
   await page.waitForSelector('#g-folha:not([hidden])');
+  await verificaAxe(page, registra, 'Computador: folha de download aberta sobre o visualizador');
   const ops = await page.locator('.g-op strong').allTextContents();
   const detalhe = await page.locator('.g-op span').nth(1).textContent();
   registra(ops.join('|') === 'Para redes sociais|Tamanho máximo', 'Computador: a folha oferece "para redes" e "tamanho máximo"', ops);
