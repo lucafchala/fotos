@@ -1,5 +1,9 @@
-// Galeria própria — PRÉVIA (#234/#235). Só o dono logado no painel chega aqui;
-// para qualquer outra pessoa a rota é um 404 (ver handleGaleriaPagina).
+// Galeria própria (#234/#235). Nos álbuns PÚBLICOS abre a todos, sem login e
+// sem o portão do Drive; nos de família e privados, só com o passe que o
+// portão emite depois da declaração de acesso (cookie assinado "galeria",
+// 12 h, preso a /galeria/<slug>). Álbuns "Em breve" seguem fechados (404).
+// A faixa do dono e o ?atualizar só valem para o dono logado
+// (ver handleGaleriaPagina).
 //
 // O que ela faz melhor que a pasta do Drive:
 //  - grade justificada com a proporção REAL de cada foto (nada cortado, nada

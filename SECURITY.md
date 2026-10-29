@@ -33,7 +33,7 @@ issue before any public disclosure.
   deployment.
 - The Worker code in this repository (`src/`): the admin dashboard
   (`/dashboard`), the public APIs (`/api/*`), the LGPD removal/consent
-  flows, and the owner-only gallery preview (`/galeria/*`).
+  flows, and the gallery (`/galeria/*`).
 
 **Out of scope / known by design:**
 
@@ -213,7 +213,7 @@ policy itself lives in one place, `src/security.js`.
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
-| Owner-only gallery preview: the **same 404** as an unknown route, decided before any KV read when there is no cookie | `podeVerGaleria()`, `/galeria/*` | The preview (or its download proxy, which spends our Google API quota) being reachable — or even detectable — by anyone but the logged-in owner |
+| Gallery access decided by album access: **public** albums open to everyone with no gate, **family**/private require the Drive gate's signed pass (cookie `galeria`, 12 h, bound to the `/galeria/<slug>` path), and "coming soon" keeps the **same 404** as an unknown route | `podeVerGaleria()`, `/galeria/*` | Family and private galleries being reachable — or even detectable — without the pass the Drive gate issues after the access declaration; "coming soon" remaining closed |
 | Download proxy serves only files listed in **that project's** folder | `handleGaleriaBaixar()`, `achaFoto()` | The proxy turning into an open relay for any public Drive file, on our API key and quota |
 | Drive API key used only server-side | `src/drive.js` | The key reaching a browser: the page's data island carries neither the key nor resource keys, originals go through the proxy, and error messages never include the request URL (which carries the key) |
 | Third-party code vendored, byte-exact and hash-named | `vendor/`, `src/content/vendor.js`, `/vendor/*` | A CDN or package swap changing the code that runs on our origin: PhotoSwipe is the npm tarball verified against its registry integrity, served from our origin under its content hash, and the suite fails if a byte differs |
@@ -716,8 +716,8 @@ encoder output for HEIC and GIF alongside the hand-built ones.
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
 **`SIGNING_SECRET`** — see `wrangler.toml` for what each does.
 
-`GOOGLE_DRIVE_API_KEY` is optional: it only powers the owner-only gallery
-preview. Restrict it to the Drive API in Google Cloud. An API key can only read
+`GOOGLE_DRIVE_API_KEY` is optional: it only powers the gallery. Restrict it to
+the Drive API in Google Cloud. An API key can only read
 what is already shared as "anyone with the link", so a leaked key exposes
 nothing private — its cost would be quota, which is why it never leaves the
 server.

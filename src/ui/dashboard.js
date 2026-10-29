@@ -226,7 +226,7 @@ export function cardProjetoPainel(e, h, marcado) {
     + '</div>'
     + '<div class="evt-actions">'
     + '<button type="button" class="act act-edit" data-action="edit" data-id="' + id + '">' + h.icones.editar + '<span>Editar</span></button>'
-    + '<a class="act act-gal" href="/galeria/' + slug + '" title="Galeria no site (prévia, só você vê)">' + h.icones.galeria + '<span>Galeria</span></a>'
+    + '<a class="act act-gal" href="/galeria/' + slug + '" title="Galeria no site (aberta a todos nos álbuns públicos)">' + h.icones.galeria + '<span>Galeria</span></a>'
     + '<div class="mais">'
     + '<button type="button" class="act act-mais" data-action="menu" data-id="' + id + '" aria-haspopup="menu" aria-expanded="false" aria-label="Mais ações: ' + titulo + '">' + h.icones.mais + '</button>'
     + '<div class="menu" role="menu" aria-label="Ações: ' + titulo + '" hidden>'
@@ -1012,7 +1012,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         <ul class="novidades">
           <li><strong>Painel em blocos</strong> — navegação de app (barra de baixo no celular), card com estado escrito e menu "⋯", formulário em seis blocos.</li>
           <li><strong>Métricas com gráfico</strong> — visitas e aberturas do Drive por dia, comparação com o período anterior, dia da semana, modos do portão e cada projeto com a sua curva.</li>
-          <li><strong>Galeria própria</strong> (prévia, só você) — as fotos na resolução da tela, zoom que busca mais pixels e download "para redes" ou "tamanho máximo".</li>
+          <li><strong>Galeria própria</strong> (aberta a todos nos álbuns públicos) — as fotos na resolução da tela, zoom que busca mais pixels e download "para redes" ou "tamanho máximo".</li>
           <li><strong>Prévia de cada PR</strong> — um site de teste com dados próprios, faixa "PRÉVIA" e controle do Turnstile para testar as salvaguardas.</li>
         </ul>
       </div>

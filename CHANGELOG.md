@@ -18,10 +18,49 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [2.0.0] — ainda não publicada
+## [2.1.0] — 29/10/2026
 
-> Merge é deploy. Esta versão está no PR #236 e só vai para produção quando o
-> dono aprovar — depois de testar na [prévia do PR](./README.md#prévia-de-pr-testar-antes-do-merge).
+### Novo
+
+- **Galeria própria aberta aos álbuns públicos** (#244). `/galeria/<slug>` de
+  um álbum público abre para qualquer visitante, sem login e sem o portão do
+  Drive; nos álbuns de **família e privados**, só com o **passe "galeria"** —
+  um cookie assinado de 12 h, preso ao caminho `/galeria/<slug>`, que o
+  portão do Drive emite depois da declaração de acesso. Álbuns "Em breve"
+  continuam fechados (o mesmo 404).
+- **Popup "Nova galeria de fotos"** na página do álbum público. Aparece uma
+  vez por visitante, centralizado, não fecha nos primeiros 4 segundos, lista
+  as funções e mantém o link de texto para o Drive.
+- **Ícone de bug no cabeçalho da galeria**, que leva ao formulário de suporte
+  (`/suporte`).
+- **Botão Compartilhar no topo da galeria.** Compartilha a página do projeto
+  (com capa e resumo nas redes); no celular abre o menu do aparelho, no
+  computador copia o link.
+
+### Mudou
+
+- **Página do álbum público: a galeria é o caminho principal.** O botão
+  principal e o botão fixo viram "Ver e baixar as fotos" e levam direto à
+  galeria, com instruções; o Google Drive vira opção secundária ("Prefere o
+  Google Drive? Abrir no Drive").
+- **A galeria deixa de falar em "prévia".** O título não diz mais; a faixa do
+  dono (atalhos do painel e "Atualizar lista") só aparece para o dono logado;
+  o `?atualizar` só relê o Drive para ele; e o aviso "A pasta também tem N
+  vídeos" saiu.
+- **Fotos maiores no celular.** A altura-alvo da linha da grade sobe de 118
+  para 300 px (foto deitada ocupa a largura toda; em pé, duas por linha), e as
+  miniaturas vão até 1600 px de largura para não borrar em tela densa.
+- **Popup com ícones**: um ícone por função, animação de entrada e o botão
+  "Ver a nova galeria →".
+
+### A rever
+
+- **Galeria dos álbuns públicos sem registro de consentimento nem Turnstile.**
+  Decisão do dono, para reavaliar — já anotada no ROPA.
+
+## [2.0.0] — 29/10/2026
+
+> Publicada em 29/10/2026 (PR #236).
 
 ### Novo
 
