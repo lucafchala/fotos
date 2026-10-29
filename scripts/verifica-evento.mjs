@@ -24,7 +24,7 @@
 // os celulares baixavam 3 fotos de 1600 px só para abrir a página.
 
 // As funções passadas a addInitScript/evaluate rodam DENTRO do Chromium.
-/* global navigator, MouseEvent, document, window */
+/* global navigator, MouseEvent, document, window, localStorage */
 import { existsSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { eventHTML } from '../src/ui/event.js';
@@ -64,6 +64,10 @@ const HTML_FAMILIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'familia',
 // página ganha o <script> do beacon, de um host de fora, que a CSP tem de deixar
 // carregar e falar com o cloudflareinsights.com.
 const HTML_COM_BEACON = eventHTML(/** @type {any} */ (EVENTO), 2026, 'tok-de-teste', NONCE, 'drive-nonce', '');
+// Pasta de verdade (id com 10+ caracteres): só assim a página é "galeria
+// pública" e ganha o popup da nova galeria. O EVENTO acima usa 'x' de
+// propósito — o popup cobriria a página nos outros cenários.
+const HTML_GALERIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'galeria-teste', driveUrl: 'https://drive.google.com/drive/folders/PASTA_TESTE_00001' }), 2026, '', NONCE, 'drive-nonce', '');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 // Turnstile de mentira: `modo` 'ok' entrega ficha em 300 ms; 'erro' chama o
@@ -112,7 +116,7 @@ async function abre(o = {}) {
     csp: /** @type {string[]} */ ([]), beacon: { script: 0, envio: 0 },
   };
   abertas.push({
-    nome: `${o.html === HTML_FAMILIA ? 'família' : o.html === HTML_COM_BEACON ? 'beacon' : 'público'} ${(o.viewport || { width: 390 }).width}@${o.dpr || 3}`
+    nome: `${o.html === HTML_FAMILIA ? 'família' : o.html === HTML_COM_BEACON ? 'beacon' : o.html === HTML_GALERIA ? 'galeria' : 'público'} ${(o.viewport || { width: 390 }).width}@${o.dpr || 3}`
       + `${o.turnstile && o.turnstile !== 'ok' ? ` turnstile ${o.turnstile}` : ''}${o.saveData ? ' economia de dados' : ''}${o.escuro ? ' escuro' : ''}`,
     csp: estado.csp,
   });
@@ -413,6 +417,48 @@ try {
     await page.waitForTimeout(500);
     registra(estado.driveLink === 1 && (estado.corpos[0] || {}).turnstileToken === 'noscript' && !(await page.locator('#drive-name').isVisible()) && await pronto(page),
       'público sem Turnstile: o nome segue opcional e o link sai depois do aceite', { pedidos: estado.driveLink });
+    await ctx.close();
+  }
+
+  // ---- 6b. Popup da nova galeria ------------------------------------------------
+  // Pedido do dono: centralizado, uma vez por visitante, e não fecha nos
+  // primeiros 4 s — nem pelo Esc, nem por clique fora. "Abrir no Drive" é a
+  // exceção: quem prefere o Drive não espera a contagem.
+  {
+    const { ctx, page, estado } = await abre({ html: HTML_GALERIA });
+    await page.waitForTimeout(900);
+    const aberto = () => page.locator('#gal-novo').evaluate(d => /** @type {HTMLDialogElement} */ (d).open);
+    const caixa = await page.locator('#gal-novo').boundingBox();
+    registra(await aberto() && !!caixa && Math.abs(caixa.x + caixa.width / 2 - 195) < 2 && caixa.y >= 0 && caixa.y + caixa.height <= 844,
+      'popup da galeria: abre sozinho, centralizado e inteiro na tela', caixa);
+    registra(await page.locator('#gn-fechar').isDisabled(), 'popup da galeria: "Agora não" começa desabilitado (contagem)');
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+    await page.waitForTimeout(200);
+    registra(await aberto(), 'popup da galeria: Esc e clique fora não fecham durante a contagem');
+    registra(await page.locator('#gal-novo a.gn-ir').getAttribute('href') === '/galeria/galeria-teste', 'popup da galeria: o link leva a /galeria/<slug>');
+    await page.waitForTimeout(4200);
+    const rotulo = ((await page.locator('#gn-fechar').textContent()) || '').trim();
+    registra(await page.locator('#gn-fechar').isEnabled() && rotulo === 'Agora não', 'popup da galeria: depois da contagem, "Agora não" habilita', rotulo);
+    await page.locator('#gn-fechar').click();
+    await page.waitForTimeout(200);
+    const visto = await page.evaluate(() => localStorage.getItem('fotos:gal_novo'));
+    registra(!(await aberto()) && visto === '1', 'popup da galeria: "Agora não" fecha e lembra', { visto });
+    await page.reload();
+    await page.waitForTimeout(1200);
+    registra(!(await aberto()), 'popup da galeria: não volta para quem já viu');
+    registra(estado.erros.length === 0, 'popup da galeria: sem erro de JS', estado.erros);
+    await ctx.close();
+  }
+  {
+    const { ctx, page, estado } = await abre({ html: HTML_GALERIA });
+    await page.waitForTimeout(900);
+    await page.locator('#gal-novo [data-action="galNovoDrive"]').click();
+    await page.waitForTimeout(300);
+    const fechou = !(await page.locator('#gal-novo').evaluate(d => /** @type {HTMLDialogElement} */ (d).open));
+    registra(fechou && await page.locator('#modal').evaluate(m => m.classList.contains('open')),
+      'popup da galeria: "Abrir no Drive" fecha na hora, mesmo na contagem, e abre o portão do Drive');
+    registra(estado.erros.length === 0, 'popup da galeria → Drive: sem erro de JS', estado.erros);
     await ctx.close();
   }
 

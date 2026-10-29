@@ -18,6 +18,27 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [2.1.1] — ainda não publicada
+
+### Mudou
+
+- **Cabeçalho da galeria no celular.** O botão Compartilhar vira só o ícone
+  em telas estreitas (o nome continua para leitor de tela), e os quatro
+  botões cabem numa linha: as fotos sobem na tela. Acima do título, um link
+  "‹ Página do projeto" para o visitante voltar ao álbum — antes só o dono
+  tinha esse caminho, na faixa do painel.
+- **Selo "Novidade" do popup** com um ícone desenhado no lugar do emoji ✨,
+  que aparecia como um quadrado em aparelhos sem fonte de emoji.
+
+### Corrigido
+
+- **Roteiro de navegador da prévia** (`npm run verifica:previa`) voltou a
+  passar: o popup da nova galeria cobria a faixa da prévia e o clique
+  esperava 30 s. O roteiro entra como quem já viu o popup, e o popup ganhou
+  roteiro próprio em `scripts/verifica-evento.mjs` (abre centralizado, não
+  fecha durante a contagem, fecha depois e não volta; "Abrir no Drive" fecha
+  na hora e abre o portão).
+
 ## [2.1.0] — 29/10/2026
 
 ### Novo
