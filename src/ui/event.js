@@ -1068,11 +1068,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // ---- Popup da nova galeria: uma vez por visitante ----
     function fechaGalNovo() {
       try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {}
-      const d = document.getElementById('gal-novo');
+      const d = /** @type {HTMLDialogElement|null} */ (document.getElementById('gal-novo'));
       if (d && d.open) d.close();
     }
     (function(){
-      const d = document.getElementById('gal-novo');
+      const d = /** @type {HTMLDialogElement|null} */ (document.getElementById('gal-novo'));
       if (!d || typeof d.showModal !== 'function') return;
       let visto = false;
       try { visto = !!localStorage.getItem('fotos:gal_novo'); } catch(_) {}
