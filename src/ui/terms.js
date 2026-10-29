@@ -7,7 +7,8 @@ export function termsHTML() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>Termos de Uso · fotos</title>
   <link rel="canonical" href="https://fotos.lucafchala.com/termos">
@@ -23,14 +24,14 @@ export function termsHTML() {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
-      --text-muted:#999; --text-dim:#666; --text-dim-2:#555; --border-dim:#1e1e1e; --border-hair:#141414;
+      --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888; --border-dim:#1e1e1e; --border-hair:#141414;
       --footer-link:#888; --accent:#c0a060;
       --warn-bg:#0f0d08; --warn-border:#3a3320; --warn-text-strong:#d8c89a;
     }
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-heading:#2a2521; --text-strong:#332d28;
-        --text-muted:#6b6460; --text-dim:#8a8480; --text-dim-2:#9a9490; --border-dim:#ddd9d4; --border-hair:#e5e1db;
+        --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560; --border-dim:#ddd9d4; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text-strong:#5c4310;
       }
@@ -88,8 +89,8 @@ export function termsHTML() {
     <div class="key">
       <p>O acesso às galerias varia conforme a natureza do projeto:</p>
       <ul>
-        <li><strong>Projetos Familiares:</strong> Acesso restrito a membros da família (uso doméstico).</li>
-        <li><strong>Projetos Privados:</strong> Acesso restrito a participantes ou pessoas autorizadas. A entrega ocorre sob a base do legítimo interesse.</li>
+        <li><strong>Projetos Familiares:</strong> Álbuns feitos para a família, para uso doméstico. O acesso se apoia no seu consentimento, não em senha: o link da pasta é de quem o recebe, e peço que ele fique dentro do círculo a que se destina.</li>
+        <li><strong>Projetos Privados:</strong> Álbuns feitos para quem participou do evento. Também aqui o acesso se apoia no seu consentimento, não em senha, e o link é para quem esteve lá. A entrega ocorre sob a base do legítimo interesse.</li>
         <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita.</li>
       </ul>
       <p>Como parte da dinâmica do trabalho, eu realizo curadoria de imagens (exceto nas familiares) para meu portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>

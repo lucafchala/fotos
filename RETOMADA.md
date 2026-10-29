@@ -44,7 +44,7 @@ build**: o que está no arquivo é o que roda.
 ```bash
 git pull
 npm ci
-npm test          # ~880 testes em duas suítes (node + workerd), ~25 s — out/2026
+npm test          # ~950 testes em duas suítes (node + workerd), ~50 s — out/2026
 npm run lint
 ```
 
@@ -55,6 +55,9 @@ npx wrangler dev
 npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
+npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
+npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
+npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -77,28 +80,51 @@ src/
                   `export const` lá derruba o workerd na inicialização.
   counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
                   (janela fixa `check()` e balde de fichas `take()`)
+  drive.js      ← galeria própria (prévia): Drive API (lista a pasta, mapeia erros), URLs do
+                  lh3 e do original. A chave só existe aqui e no proxy de download.
+  pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
+                  que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
+  previa.js     ← a camada da PRÉVIA DE PR, por fora do roteador: faixa, noindex, menu
+                  "Testes" (simulações por cookie, ações com sessão). Só com AMBIENTE =
+                  "previa"; em produção nenhuma linha dela roda (§5.16)
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
+    galeria.js  ← galeria própria /galeria/<slug> (prévia, só o dono): grade + PhotoSwipe + downloads
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
     fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
+    vendor.js      ← GERADO de vendor/ (npm run build:vendor). Não edite.
+    icons.js       ← GERADO de icon-svg.js (npm run build:icons): os PNG do apple-touch-icon e do manifest. Não edite.
 docs/legal/     ← os documentos de conformidade, em markdown. A FONTE da verdade.
 fonts/          ← o Inter servido em /fonts/ (desde #131, sem Google Fonts) + licença OFL
+vendor/         ← bibliotecas de terceiros servidas em /vendor/ (hoje, o PhotoSwipe 5, MIT) + licença
 scripts/build-legal-docs.mjs  ← markdown → legal-docs.js
 scripts/build-fonts.mjs       ← WOFF2 → fonts.js
+scripts/build-vendor.mjs      ← vendor/ → vendor.js, com o hash do conteúdo no nome publicado
+scripts/build-icons.mjs       ← icon-svg.js → icons.js (PNG 180/192/512/512 maskable, via sharp)
 scripts/smoke.sh              ← smoke do deploy (e `npm run smoke:local`)
 scripts/fonte-do-preload.mjs  ← acha a fonte pré-carregada no HTML; o smoke e a suíte usam o mesmo
 scripts/deploy-duplicado.mjs  ← um push publica uma vez só: o deploy.yml pula o push repetido (#186)
+scripts/previa-publica.mjs    ← `npm run previa`, o "Preview command" do Workers Builds: publica a prévia com os segredos PREVIA_* do build (§5.17)
 scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:navegador`)
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
+scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
+scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
+scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
+scripts/vigia-csp.mjs           ← o vigia de CSP dos roteiros: qualquer mensagem de CSP reprova; a página-canário prova que ele enxerga (#126, §5.1)
+scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
+scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
 scripts/verifica-shell-dos-workflows.py  ← bash -n e regras de conteúdo nos `run:` dos workflows
 tests/          ← suíte unit (node) + workers (workerd); security.test.js é o maior
   helpers/d1.js ← D1 de verdade (node:sqlite + as migrações reais) para testar SQL sem dublê
   smoke.test.js ← confere contra o Worker cada valor que o smoke.sh exige (#181)
   scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas EMITEM (#127)
   helpers/scripts-embutidos.d.ts ← o que o tsc não sabe desses scripts, em listas fechadas
+  helpers/paginas.js ← toda variação de página renderizada (a mesma lista do lint, da estrutura e da CSP) e a varredura da CSP estrita: `on…=`, `<script>` sem nonce, `javascript:` (#126)
+  painel.test.js ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle)
 .github/rulesets/main-protegida.json  ← proteção da main, para importar (#177)
 docs/BRANCHES.md  ← como uma mudança chega à produção (branches, PR empilhado, um merge por vez)
+docs/PAINEL.md    ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, como verificar
 ```
 
 **Regra do conteúdo legal:** edite o markdown em `docs/legal/`, rode
@@ -112,21 +138,37 @@ pode mostrar texto diferente do documento oficial.
 Estas custaram horas. Todas têm teste ou portão de CI hoje, mas o portão só
 protege quem entende o porquê.
 
-### 5.1. Nonce na CSP aplicada quebra a interface inteira
+### 5.1. A CSP aplicada é a estrita: script sem nonce e handler inline não executam
 
-Pela CSP nível 3, **um nonce faz o browser descartar `'unsafe-inline'`**. Este
-site tinha ~63 handlers inline (`onclick=`, `onchange=`) quando isto mordeu:
-adicionar um nonce à política aplicada matou todos de uma vez — e **os testes
-continuaram passando**, porque eles conferem o texto da política, não o efeito
-dela. Desde 03/09/2026 (`4552180`) não sobra nenhum: viraram listeners
-delegados (`data-onclick` e afins). A regra abaixo continua valendo até o #126
-fazer a virada com o navegador aberto e os relatórios da report-only zerados.
+Desde o #126 a política aplicada é a **estrita**: `script-src 'self'`, o nonce
+da requisição e as origens do Turnstile e da Web Analytics — **sem
+`'unsafe-inline'`** (e sem Report-Only: é um cabeçalho de CSP só). Um `<script>`
+sem `nonce="${nonce}"`, um `onclick="…"` e um `javascript:` não executam, e
+**nenhum teste de unidade acusa**: a página segue 200 e o botão fica mudo. Já
+custou caro: com ~63 handlers inline, um nonce na política aplicada matou todos
+de uma vez com a suíte verde, porque os testes conferiam o texto da política, não
+o efeito dela. Desde 03/09/2026 (`4552180`) viraram listeners delegados
+(`data-onclick` e afins), e a virada só foi feita com o navegador aberto.
 
-- A política **aplicada** tem `'unsafe-inline'` e **nunca** nonce.
-- A política **report-only** (estrita) tem nonce e nenhum `'unsafe-inline'`.
-- Portão de CI + smoke test do deploy barram a reintrodução.
+- Todo `<script>` inline leva `nonce="${nonce}"` — a CI olha o código-fonte e
+  `tests/rendered-pages.test.js`, a página **renderizada** (um `<script${nonce ? …}>`
+  passa no primeiro e não no segundo).
+- Evento é delegação (`data-onclick`, `data-action`…), nunca `on…=`.
+- **Não "conserte" recolocando `'unsafe-inline'`**: com o nonce na política o
+  navegador o descarta (CSP Level 3) — não destrava nada, e o texto da política
+  passa a mentir. Dê o nonce ao script. **E nunca ponha nonce no `style-src`**:
+  aí cai o `'unsafe-inline'` de *estilo*, e todo `style="…"` das páginas morre.
+- Os cinco `verifica:*` servem a página com os cabeçalhos de verdade e reprovam
+  com QUALQUER mensagem de CSP no console (`scripts/vigia-csp.mjs`). Cada um abre
+  com uma página-canário: se o vigia ficar cego (o Chromium muda o texto de uma
+  mensagem) ou a política deixar de bloquear, ele mesmo reprova.
+- Em produção a política segue relatando para `/api/csp-report`: procure
+  `csp-violation` no log do Worker. Extensão de navegador de visitante é ruído
+  conhecido; um relatório de `inline` num documento nosso não é.
+- O smoke do deploy exige o nonce e proíbe `'unsafe-inline'` no `script-src` do
+  cabeçalho que o site de verdade manda.
 
-Só se descobre isso abrindo o site num navegador de verdade.
+Só se descobre o resto abrindo o site num navegador de verdade.
 
 ### 5.2. `getEvents()` tem cache de módulo
 
@@ -136,6 +178,15 @@ vaza**: um teste vê a lista de eventos de outro e você recebe um 404 confuso.
 ele guarda a própria medição por 10 s por `env` quando responde `ok` (#195):
 com o **mesmo** `env` no mesmo arquivo, o segundo healthz não relê nada
 (cabeçalho `X-Healthz-Cache: hit`).
+
+E por baixo do cache do isolate há outro: o KV guarda cópia em cada local da
+Cloudflare, por 60 s se ninguém disser nada, e uma escrita feita em outro
+local só aparece quando essa cópia vence. As leituras do site público (a
+lista e o selo de agenda) pedem `cacheTtl: 30`, o mínimo aceito: somado aos
+30 s do isolate, uma mudança do painel chega a qualquer visitante em **até
+1 min** — é o que o toast de salvar promete. Tirar o `cacheTtl` volta o pior
+caso para 90 s e faz o aviso mentir para quem está longe de quem salvou;
+`tests/kv.test.js` prende os dois pedidos.
 
 ### 5.3. Cota de KV é 1000 escritas/dia — mas os contadores saíram do KV
 
@@ -200,26 +251,31 @@ dublê tinha sido escrita por nós. Ele afirmava o que queríamos ouvir. Só qua
 o mesmo teste rodou dentro do workerd (`npm run test:workers`) o `3` apareceu.
 **Não teste contra dublê aquilo que a plataforma é que garante.**
 
-### 5.3-b. Migração de Durable Object quebra o preview do Workers Builds
+### 5.3-b. Migração de Durable Object não sobe por `versions upload`
 
-O Cloudflare Workers Builds — configurado no **painel**, não neste repositório —
-roda `npx wrangler versions upload` a cada PR. Esse caminho **não aplica
-migração de Durable Object**: a API recusa com o código **10211**, dizendo que
-"migrations must be fully applied via a non-versioned deployment".
+`versions upload` **não aplica migração de Durable Object**: a API recusa com o
+código **10211**, dizendo que "migrations must be fully applied via a
+non-versioned deployment". Isso pega o `deploy.yml`, que sobe a versão do
+portão por esse caminho: depois do merge de um PR com migração nova
+(`[[migrations]]` com uma tag nova no `wrangler.toml`), o deploy **falha no
+upload**, de propósito e com a mensagem explicando, e o caminho é redisparar à
+mão com `unversioned: true` (README, deploy manual). Não há atalho: migração e
+código sobem juntos, não dá para aplicar só a migração antes.
 
-Então, sempre que um PR introduzir uma migração nova (`[[migrations]]` com uma
-tag nova no `wrangler.toml`), **o build de preview daquele PR vai falhar**. Isso
-é esperado. Não é sinal de código quebrado, e não adianta mexer no código para
-tentar consertar.
+Até 12/10/2026 isso pegava também **todo build de PR**: o Cloudflare Workers
+Builds — configurado no **painel**, não neste repositório — rodava
+`npx wrangler versions upload` a cada PR, e o build de um PR com migração nova
+falhava por desenho (aconteceu na estreia dos contadores em DO, migração `v1`).
+Nesse modelo a versão do PR rodava com a configuração de **produção**, e o
+comentário do bot no PR não trazia link nenhum: só "Deployment successful" e,
+no check, um Version ID.
 
-A ordem que funciona:
-
-1. merge → o `deploy.yml` roda `wrangler deploy` (não-versionado) → a migração
-   é aplicada e as classes passam a existir;
-2. a partir daí os previews de PR voltam a passar sozinhos.
-
-Não há atalho: migração e código sobem juntos, não dá para aplicar só a migração
-antes. Aconteceu na estreia dos contadores em DO (migração `v1`).
+Desde então os builds de PR saem por **`npx wrangler preview`** (Worker
+Previews; README, "Prévia de PR"): cada prévia tem dados próprios e um
+namespace de Durable Object próprio, criado a partir das migrações do topo do
+`wrangler.toml`. Como uma migração **nova** chega a uma prévia que já existe
+ainda não foi visto — o primeiro PR com `v2` responde, e o resultado entra
+aqui.
 
 ### 5.4. `SIGNING_SECRET` falha ABERTO
 
@@ -313,9 +369,13 @@ portão do Drive.
 ### 5.11. O smoke roda depois da promoção — o portão de preview está indisponível
 
 O `deploy.yml` foi feito para rodar o smoke numa versão sem tráfego e só então
-promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker
-(provável causa: ele implementa Durable Objects — #179), e o resumo de todo
-deploy diz "Portão de preview: ⚠️ indisponível". O deploy então promove, roda o
+promover. Na prática a Cloudflare nunca entrega a URL de preview deste Worker,
+e não vai entregar: a documentação dela diz que "Version URLs are not generated
+for Workers that implement a Durable Object" (Versions & Deployments → Version
+URLs → Limitations; #179). O resumo de todo deploy diz "Portão de preview: ⚠️
+indisponível". O caminho para um portão antes da promoção são as Worker
+Previews, que têm Durable Objects próprios (o `[previews]` do `wrangler.toml`
+já existe) — isso muda o `deploy.yml` e espera o ok do dono. O deploy então promove, roda o
 smoke em produção e **reverte sozinho** se reprovar. Três consequências:
 
 - clientes ficam expostos por segundos a uma versão não verificada;
@@ -371,6 +431,206 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
+### 5.13. Galeria própria: prévia só do dono, e o portão é UMA função
+
+Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
+Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
+"tamanho máximo". **Ainda é prévia**: só quem está logado no painel vê; para
+qualquer outra pessoa, a página e o download são o 404 de rota inexistente. A
+liberação (testadores → porcentagem → todos) espera a aprovação do dono e troca
+**só** `podeVerGaleria()` em `src/index.js` — nada de espalhar `if` de acesso
+pelas rotas. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
+"Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link".
+
+O que já mordeu, ou morderia:
+
+- **A chave nunca vai à página.** A lista que a página recebe não tem nem a
+  chave nem as resource keys; o original sai pelo proxy
+  `/galeria/<slug>/baixar/<id>`. O teste "sem a chave na página" prende isso.
+- **O proxy só serve o que está na pasta do projeto.** Sem a checagem de
+  pertencimento (`achaFoto`), ele seria um proxy aberto para qualquer arquivo
+  público do Drive com a nossa cota. Há teste que falha se ela sumir.
+- **A lista não grava em KV.** Fica na memória do isolate e na Cache API
+  (chave `https://fotos.invalid/__galeria/<id>`, o mesmo truque da cópia de
+  sobrevivência da lista de eventos), 10 min. A cota de 1000 escritas/dia (§5.3)
+  não é tocada.
+- **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
+  subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
+  (30) e a página avisa que a lista é parcial.
+- **"Salvar na galeria" no iPhone precisa de DOIS toques.** O
+  `navigator.share()` exige um toque recente, e baixar 20 MB demora mais que
+  isso: o primeiro toque prepara o arquivo, o segundo compartilha.
+- **O zoom só sobe a resolução porque o `srcset` vai até o original.** O
+  PhotoSwipe nunca baixa o `sizes` de um slide (guarda o maior já usado); se a
+  escada parar antes do original, o zoom estica pixel.
+- **O voltar fecha a foto, não a galeria.** Abrir o visualizador (e a folha
+  de download) EMPILHA uma entrada no histórico; trocar de foto só a
+  reescreve. Com `replaceState` puro, o voltar do Android com uma foto aberta
+  levava de volta ao painel. O roteiro confere voltar no desktop, no link
+  direto, no iPhone e no Android.
+- **O script da página mora numa template string** (`SCRIPT` em
+  `src/ui/galeria.js`): crase num comentário dele fecha a string e derruba o
+  módulo inteiro na importação.
+- **No Playwright, `page.route` não intercepta o `<a download>`** — a
+  navegação vira download antes da rota. O `verifica:galeria` confere a URL do
+  download; o nome do arquivo (o `Content-Disposition`) está na suíte.
+
+### 5.14. Painel: o card de evento vai ao navegador por `toString()` — e o bundle mexe nele
+
+Desde out/2026 o painel é em blocos (#220; tudo em `docs/PAINEL.md`). O card
+de cada evento é UMA função, `cardProjetoPainel()` em `src/ui/dashboard.js`:
+o servidor a chama na primeira pintura, e o script da página recebe o código
+dela por `Function.prototype.toString()` para redesenhar depois de cada ação.
+Acabou a duplicação servidor × cliente que fazia o card ser consertado "só no
+CSS". Mas a função tem duas regras, e as duas já foram testadas de verdade:
+
+- **Nada de fora dela.** No navegador não existe o escopo do módulo: tudo o
+  que ela usa chega pelo parâmetro `h` (escape, safeUrl, rótulos, ícones).
+  `tests/painel.test.js` executa o texto injetado isolado.
+- **Nenhuma função NOMEADA dentro dela.** O deploy empacota com esbuild e
+  `keepNames`, que embrulha toda função nomeada num `__name(fn, "nome")` —
+  e `__name` é definido no topo do BUNDLE, não no navegador. Com um
+  `const item = (...) => ...` lá dentro, a suíte inteira passava (ela roda o
+  fonte cru) e o painel em produção quebraria no primeiro redesenho com
+  `__name is not defined`. Foi pego montando o bundle de verdade
+  (`npx wrangler deploy --dry-run --outdir …`) e rodando a função de lá; hoje
+  o teste aplica a mesma transformação (`transformSync` com `keepNames`).
+
+Duas do celular, que o `npm run verifica:painel` prende:
+
+- **Algo 25 px largo demais afasta a página inteira.** No celular, conteúdo
+  mais largo que a tela faz o navegador alargar a "janela de layout" e dar
+  zoom para fora — e a barra de baixo sai do lugar. Grade com coluna `1fr` e
+  campo de texto numa linha flex é a receita (o campo não encolhe abaixo da
+  largura natural); `minmax(0,1fr)` e `min-width:0` desfazem.
+- **Campo com letra menor que 16 px faz o iPhone dar zoom ao tocar.** Por isso
+  os campos do painel têm 16 px abaixo de 900 px de largura.
+
+### 5.15. Pedidos de remoção: uma chave por pedido — e o KV aceita UMA escrita por segundo na mesma chave
+
+Até a v2.0 os pedidos de remoção eram UM array no KV (`removal_requests`),
+regravado inteiro por cinco caminhos. O KV é *last-write-wins*: dois pedidos no
+mesmo instante, ou um pedido chegando durante um "resolver", e a gravação de
+depois apagava do painel o registro de antes (#198). Hoje cada pedido mora em
+`removal_request:<id>` e tudo passa por `src/pedidos.js`. Três regras que os
+testes prendem (`tests/pedidos.test.js`, com um KV de teste que cobra os
+limites do de verdade):
+
+- **Nada regrava o que não é seu.** Criar não lê a lista; resolver lê e grava
+  só o próprio registro; restore grava um por um, e id que já existe é pulado.
+- **Uma escrita por segundo NA MESMA CHAVE** — a segunda, dentro da janela,
+  volta `429`. O envio grava o pedido ANTES dos e-mails (se o cliente fechar a
+  aba no meio, o registro existe) e carimba o status deles DEPOIS, na mesma
+  chave; os e-mails costumam voltar em menos de um segundo, então
+  `regravaPedido()` espera o resto da janela. Sem a espera o carimbo falhava
+  justamente no caso normal — e falhava desde antes da v2.0, quando a chave
+  era o array. Nos testes a espera vira relógio adiantado
+  (`relogioAdiantavel()` em `tests/helpers/pedidos.js`).
+- **Leitura em lote.** A lista lê os registros com `get(chaves[])`, até 100 por
+  operação: o plano gratuito permite 1000 operações de KV por invocação, e um
+  `get` por pedido quebraria o painel no milésimo.
+
+A migração do array antigo roda **no cron**, não em rota GET (abrir o painel
+não gasta escrita): copia o que falta, nunca sobrescreve registro próprio (que
+é mais novo), e só apaga o array depois de todo pedido ter a sua chave. Até lá
+a lista lê os dois juntos. A poda dos resolvidos (180 dias) também é só do
+cron — a verificação que vinha de carona em cada envio dependia de regravar a
+lista inteira e saiu com ela.
+
+### 5.16. Prévia de PR: a faixa vem antes da página — e as simulações trocam o `env`, não o código
+
+A prévia de cada PR (Cloudflare Worker Previews; README, "Prévia de PR") roda
+o código de produção com uma camada por fora do roteador, `src/previa.js`,
+ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
+`wrangler.toml` declara). Quatro coisas que valem saber antes de mexer nela:
+
+- **As simulações do menu "Testes" trocam o `env` daquela requisição**, não o
+  código: a chave do Turnstile, a do Resend, um KV que recusa, um RateLimiter
+  cujo portão diz "lotado". Do roteador para dentro roda o caminho de
+  produção. Se uma simulação nova precisar de um `if` dentro do roteador, ela
+  está no lugar errado — o que se testa deixa de ser o que produção faz. A
+  única exceção é o e-mail "tudo para o dono", que mora em `corpoResend()`
+  (utils.js), o ponto único por onde passa todo envio.
+- **As ferramentas leem o `env` VERDADEIRO.** Com "KV não lê" ligado, "Voltar
+  tudo ao normal" e "Zerar os limites" continuam funcionando — senão a
+  simulação trancaria quem a ligou.
+- **A faixa entra antes do conteúdo da página, com formulários próprios.**
+  Script que pega "o primeiro `<form>`" (ou o primeiro `<details>`, botão…)
+  pega o da faixa — só na prévia. Os do site usam id, classe e `data-action`;
+  a faixa usa `previa-*` e `data-acao` para não esbarrar. E ela entra também
+  em página sem `<body>` (as de erro curtas): a de "KV fora" ficava sem a
+  saída.
+- **Menu aberto por cima de tudo, faixa fechada embaixo do que é tela
+  cheia.** Fechada, z-index 40: o visualizador de fotos e a folha do portão
+  passam por cima e o botão de fechar deles continua alcançável. Aberta
+  (`:has(details[open])`), por cima de tudo — senão o aviso de cookies cobria
+  metade do menu no celular. O `verifica:previa` confere com
+  `elementFromPoint` em cada opção.
+
+### 5.17. Segredo de prévia: a configuração base só vale na criação
+
+A Cloudflare oferece uma "configuração base" de segredos para as prévias, e
+parece o lugar óbvio. Não é: ela só vale quando uma prévia **nasce**. Mudar a
+base depois não chega às prévias que já existem, e o valor de um segredo não
+se lê de volta, então não há como copiá-lo para elas. Na estreia (12/10/2026)
+a prévia do PR #236 nasceu só com o `ADMIN_PASSWORD`, e cadastrar o resto na
+base não mudaria nada nela.
+
+Por isso a fonte dos segredos das prévias é o **build**: as variáveis do
+Workers Builds com o prefixo `PREVIA_`, e o "Preview command" é
+`npm run previa` (`scripts/previa-publica.mjs`), que publica com
+`wrangler preview --secrets-file` — os valores entram na mesma implantação
+que o código, a cada push. Duas consequências:
+
+- só os cinco nomes de `SEGREDOS_DA_PREVIA` sobem, e só com o prefixo; um
+  `PREVIA_*` a mais é ignorado com aviso. Segredo novo de prévia: acrescente
+  lá, e o teste exige a linha dele no README;
+- o script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma
+  prévia que já o recebeu (`npx wrangler preview secret delete`);
+- sem `PREVIA_SIGNING_SECRET`, o build **gera** um a cada publicação (64
+  caracteres aleatórios, nunca impressos). O que foi assinado antes de um push
+  (nonce do Drive, token de formulário — 2 h) deixa de valer depois dele. Só
+  na prévia, e é o preço de não exigir do dono um segredo que ele teria de
+  inventar.
+
+**Para saber se pegou, sem acesso à conta da Cloudflare:** `config.signing`
+no `/api/healthz` da prévia. O script sempre leva um `SIGNING_SECRET`, então
+`false` quer dizer que ele não rodou naquele build: o Preview command não está
+salvo como `npm run previa`, ou o build começou antes da troca (mudar a
+configuração não dispara build). E o caminho script → wrangler → publicação se
+prova sem conta nenhuma: `tests/previa-publica.test.js` roda o wrangler de
+verdade contra uma API falsa e confere que os segredos e os bindings da prévia
+vão na publicação. Foi assim, em 12/10/2026, que "o script não funciona" virou
+"o build não rodou o script".
+
+### 5.18. Álbum de família ou privado: consentimento, não sigilo (#146)
+
+A caixa de declaração **não é barreira de acesso**: registra o uso que a
+pessoa reconheceu, e o link do Drive, liberado, abre para quem o tiver. Foi a
+escolha do dono em out/2026. O que muda é só o caminho sem desafio — o
+`noscript`, de quem tem o Turnstile bloqueado no navegador:
+
+- **nome obrigatório** num álbum restrito (`nomeDeConsentimento()`), para o
+  registro não sair anônimo. A regra existe duas vezes, no servidor e na
+  página (`nomeOk()` em `src/ui/event.js`), presas por um teste de par em
+  `tests/drive-gate.test.js`. A página pede o link no `change` do campo, não
+  no `input`: disparar a cada tecla gravaria "Jo" no lugar de "João";
+- **teto de 3 álbuns restritos distintos por IP em 24 h**. Conta álbuns, não
+  pedidos, pelo mesmo motivo do §5.12: o público de um evento é um IP só, e
+  todo mundo pedindo o mesmo álbum não pode esbarrar em nada. A conta é a
+  mesma do alerta de varredura (#147), numa função só
+  (`concessoesSemTurnstile()`, `src/index.js`) — mexer numa é mexer nas duas.
+  Com o D1 fora, libera (o portão existe para a foto chegar) e avisa no
+  healthz;
+- passado o teto, o 403 traz `usarEmail` e a página abre o código por
+  e-mail, que prova uma caixa e não conta no teto. O 400 do nome traz
+  `campo: "nome"`. A página decide pelo campo, nunca pela frase.
+
+O `verifica:evento` roda os quatro casos com o pedido do Turnstile abortado,
+como um bloqueador faz. Desde então uma exceção no meio de um cenário vira
+FALHA no relatório: antes, um campo que não aparecia derrubava o roteiro sem
+imprimir nada, e uma mutação "escapava" só porque o processo morria.
+
 ---
 
 ## 6. Como fazer uma mudança
@@ -401,10 +661,17 @@ roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelh
      falhar, escreva o teste que falta em vez de baixar o número.
 4. Mexeu em UI, CSP ou rota? **Abra num navegador.** Ver `docs/VERIFICACAO.md`.
 5. Mexeu em `docs/legal/`? `npm run build:legal`.
-6. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de
+6. **Versão.** Mudou o que vai ao ar? Suba `VERSAO` (`src/config.js`) e o
+   `version` do `package.json` juntos e escreva a seção nova no topo do
+   `CHANGELOG.md` — uma vez por PR, "ainda não publicada" até o merge. Maior,
+   menor ou correção: a regra está no comentário de `VERSAO`. Só README,
+   testes ou CI não sobem número. A versão do site (o que mudou) não é a
+   implantação da Cloudflare (`versao.id` no healthz, usada no rollback) nem a
+   etiqueta `deploy-…` do git; o mesmo comentário explica as três.
+7. PR. A CI roda testes, lint, invariantes de segurança, CodeQL e auditoria de
    dependências. O CodeQL só analisa PR com base na `main` — PR empilhado
    passa sem ele até a base ser trocada (`docs/BRANCHES.md`).
-7. Merge → deploy automático → smoke test contra a produção. **Um merge por
+8. Merge → deploy automático → smoke test contra a produção. **Um merge por
    vez**: espere o deploy anterior terminar verde (§5.11).
 
 **Deploy manual** (sem commit): Actions → Deploy → Run workflow. Funciona do
@@ -427,6 +694,13 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | Contagem de visitas estranha | Robô batendo GET; HEAD não conta |
 | Visitantes vendo "Muita gente acessando agora — liberando em N s" | O balde do portão do Drive esvaziou para aquele IP (público num NAT só). A página espera e tenta sozinha (até 5×). Se for frequente, subir `DRIVE_GATE_BUCKET` em `src/config.js` (§5.12, #230) |
 | Código por e-mail não chega / "verificação por e-mail indisponível" | `healthz` → `problems` ("código por e-mail esgotado hoje" = teto de 40/dia; "não saiu" = Resend recusou). Sem `RESEND_API_KEY` ou `SIGNING_SECRET`, o caminho responde 503. Pedir para olhar o spam; o WhatsApp é a saída |
+| Painel: a lista some ou não redesenha depois de uma ação; console com `__name is not defined` ou `X is not defined` | O card de evento ganhou uma função nomeada ou uma variável de fora (§5.14). `npx vitest run tests/painel.test.js` aponta qual |
+| Painel no celular "afastado" (página pequena, barra de baixo fora do lugar) | Algum bloco mais largo que a tela (§5.14). `npm run verifica:painel` diz em qual seção |
+| Galeria própria: "Falta conectar o site ao Google Drive" | Falta o secret `GOOGLE_DRIVE_API_KEY` — a própria página mostra o passo a passo (§5.13) |
+| `healthz` → "status de e-mail do pedido de remoção não gravado" | O pedido está salvo; o carimbo dos e-mails não. Se for frequente, alguém regravou a mesma chave sem esperar a janela de 1 s do KV (§5.15) |
+| O array `removal_requests` ainda no KV dias depois do deploy da v2.0 (o painel lê os dois juntos, então nada some — mas a migração parou) | O cron não está migrando: `healthz` → `cron:last` (§5.15) |
+| Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
+| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -456,14 +730,45 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   dono pode fazer: importar a proteção da `main` e apagar os 72 branches
   entregues (#177); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
-  rollback manual (#178); e decidir o portão de preview (#179).
+  rollback manual (#178). O portão de preview (#179) saiu do `deploy.yml` no PR #236 (a URL nunca chegava).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
-  confirmar o plano do Resend e testar o código com e-mail de verdade (#231),
-  pôr o `verifica:evento` na CI (#232) e a cota de download do Drive num pico
-  (#233).
+  confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
+  e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
+  (#232) entrou no PR #236, junto com os outros roteiros de navegador.
+- **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
+  blocos, pedidos de remoção por chave): o dono testa a prévia (atrás do
+  Cloudflare Access desde 25/10/2026) e só então mergeia. Merge é deploy.
+  Depois do merge: tag `v2.0.0` e Release no commit de merge, pelos comandos
+  de `docs/NOTAS-v2.0.0.md`; roteiro e rollback em `docs/RELEASE.md`.
+- **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
+  inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
+  usar no celular dele e, gostando, fechar o #220.
+- **Galeria própria** (#235): **prévia só do dono**. Falta o dono
+  configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
+  depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
+- **Termos e o modelo do #146**: reescritos na v2.0 (`TERMS_VERSION`
+  2026-10-18) — Familiares e Privados falam em consentimento, não senha. Falta
+  só a revisão jurídica (ECA Digital, LBI) e a declaração de acessibilidade
+  (`docs/ACESSIBILIDADE-RASCUNHO.md`, não publicar antes dela).
 
 ---
+
+### Inventário de validades
+
+O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, mude aqui.
+
+| O quê | Prazo | Onde |
+| --- | --- | --- |
+| Sessão do painel | 24 h | `SESSION_TTL_SECS` (`src/utils.js`) |
+| Código por e-mail do portão | 15 min | `EMAIL_CODE_TTL_SECS` (`src/config.js`) |
+| Nonce do Drive e token de formulário | 2 h | `DRIVE_NONCE_TTL_SECS`, `FORM_TOKEN_TTL_SECS` |
+| Listagem da galeria própria (cache) | 10 min | `GALERIA_LISTA_TTL_S` |
+| Pedido de remoção resolvido | 180 dias, poda às 03:00 UTC | `REMOVAL_RETENTION_DAYS` (`src/index.js`) |
+| Registro de consentimento (D1) | 1825 dias (~5 anos), poda às 03:00 UTC | `CONSENT_RETENTION_DAYS` |
+| Aviso de "novas fotos" | 24 h por padrão | `photosAlert.expiresAfterHours` (`src/config.js`) |
+| Lembrete de backup | `backup:ultimo` no KV | painel, Ajustes |
+| Revisão anual dos documentos legais | 12 meses | `docs/legal/README.md` |
 
 ## 9. Documentos, e para que serve cada um
 
@@ -477,6 +782,7 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 | [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |
 | [Issues](https://github.com/lucafchala/fotos/issues) | O que falta fazer — cada item de ação vive aqui, não em TODO.md |
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
+| [docs/PAINEL.md](./docs/PAINEL.md) | O painel por dentro: seções, blocos, ações, endpoints, como verificar |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
 | [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |

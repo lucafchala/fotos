@@ -97,7 +97,11 @@ describe('painel com o KV fora', () => {
     await ctx.settle();
 
     expect(res.status).toBe(503);
-    expect(await res.text()).toMatch(/temporariamente indispon[ií]vel/);
+    const html = await res.text();
+    expect(html).toMatch(/temporariamente indispon[ií]vel/);
+    // Documento de verdade: sem o viewport, o celular desenhava o aviso em
+    // 980 px de largura e o texto saía minúsculo.
+    expect(html).toMatch(/^<!DOCTYPE html>[\s\S]*<meta name="viewport" content="width=device-width, initial-scale=1">/);
     // Cabeçalhos do painel mesmo no erro: noindex e sem cache.
     expect(res.headers.get('Cache-Control')).toMatch(/no-store/);
     // 500 passa pelo catch do roteador, que manda e-mail de alerta. 503 não.

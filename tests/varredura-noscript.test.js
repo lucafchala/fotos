@@ -37,6 +37,10 @@ const EVENTOS = [
   ...['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(l => evento(`projeto-${l}`)),
   evento('familia-silva', 'family'),
   evento('turma-privada', 'private'),
+  // Mais três restritos, para o teto de álbuns restritos do #146 (3 por IP).
+  evento('familia-souza', 'family'),
+  evento('familia-lima', 'family'),
+  evento('aniversario-bia', 'private'),
 ];
 
 let env;
@@ -49,10 +53,13 @@ function fakeCtx() {
   return { waitUntil: (/** @type {Promise<unknown>} */ p) => pendentes.push(p), settle: () => Promise.all(pendentes) };
 }
 
-/** Uma liberação pelo portão; espera o `waitUntil` (INSERT + checagem). */
-async function libera(/** @type {string} */ slug, { ip = '203.0.113.7', token = 'noscript' } = {}) {
+/**
+ * Uma liberação pelo portão; espera o `waitUntil` (INSERT + checagem). Vai com
+ * nome por padrão: álbum restrito sem Turnstile exige um (#146).
+ */
+async function libera(/** @type {string} */ slug, { ip = '203.0.113.7', token = 'noscript', name = 'Ana Teste' } = {}) {
   const ctx = fakeCtx();
-  const body = { slug, turnstileToken: token, consent: true, declaration: true };
+  const body = { slug, turnstileToken: token, consent: true, declaration: true, name };
   const res = await handleDriveLink(new Request(`${SITE}/api/drive-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
@@ -174,5 +181,105 @@ describe('alerta de varredura pelo caminho noscript (#147)', () => {
     expect((await res.json()).driveUrl).toContain('projeto-e');
     expect(emails).toEqual([]);
     expect(degradedHealth().map(p => p.label)).toContain('checagem de varredura noscript falhou');
+  });
+});
+
+// #146, modelo "consentimento, não sigilo": o caminho sem Turnstile continua
+// entregando álbum restrito (família/privado), mas pede o nome e para no 3º
+// álbum restrito DISTINTO do mesmo IP em 24 h. O que estes testes travam é o
+// que NÃO pode acontecer junto: travar o público de um evento atrás do mesmo
+// Wi-Fi (volume num álbum só), pedir nome a quem passou pelo Turnstile, ou
+// derrubar a entrega quando o D1 cai.
+describe('álbum restrito pelo caminho noscript (#146)', () => {
+  /** @param {Response} res */
+  const corpo = async res => /** @type {any} */ (await res.json());
+  const linhas = () => /** @type {any[]} */ (env.CONSENT_DB.sqlite.prepare('SELECT event_slug, consenter_name, turnstile_ok FROM image_use_consent').all());
+
+  it('sem nome, volta 400 com campo "nome", sem link e sem linha gravada', async () => {
+    const res = await libera('familia-silva', { name: '' });
+    expect(res.status).toBe(400);
+    const dados = await corpo(res);
+    expect(dados.campo).toBe('nome');
+    expect(JSON.stringify(dados)).not.toContain('drive.google.com');
+    expect(linhas()).toEqual([]);
+  });
+
+  it('nome que não parece nome é recusado; dois caracteres com letra passam', async () => {
+    for (const name of ['   ', 'A', '42', '!!', '1 2']) {
+      expect((await libera('familia-silva', { name })).status, JSON.stringify(name)).toBe(400);
+    }
+    const res = await libera('familia-silva', { name: '  Jo  ' });
+    expect(res.status).toBe(200);
+    expect(linhas()).toEqual([{ event_slug: 'familia-silva', consenter_name: 'Jo', turnstile_ok: 0 }]);
+  });
+
+  it('álbum público pelo noscript continua sem pedir nome', async () => {
+    expect((await libera('projeto-a', { name: '' })).status).toBe(200);
+  });
+
+  it('com Turnstile de verdade, o nome segue opcional em álbum restrito', async () => {
+    expect((await libera('familia-silva', { token: 'token-real', name: '' })).status).toBe(200);
+  });
+
+  it('3 álbuns restritos distintos passam; o 4º volta 403 com usarEmail, sem link e sem linha', async () => {
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) expect((await libera(s)).status, s).toBe(200);
+    const res = await libera('familia-lima');
+    expect(res.status).toBe(403);
+    const dados = await corpo(res);
+    expect(dados.usarEmail).toBe(true);
+    expect(dados.error).toMatch(/até 3 álbuns/);
+    expect(JSON.stringify(dados)).not.toContain('drive.google.com');
+    expect(linhas().map(l => l.event_slug)).not.toContain('familia-lima');
+  });
+
+  it('o teto conta álbuns, não pedidos: reabrir um dos 3, e 20 pedidos num álbum só, passam', async () => {
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) await libera(s);
+    expect((await libera('turma-privada')).status, 'reabrir um que já conta').toBe(200);
+    // O público de um evento, atrás do Wi-Fi do local, com bloqueador.
+    for (let i = 0; i < 20; i++) expect((await libera('familia-souza', { name: `Convidado ${i}` })).status).toBe(200);
+  });
+
+  it('álbuns públicos não contam para o teto', async () => {
+    for (const l of ['a', 'b', 'c', 'd', 'e']) await libera(`projeto-${l}`);
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) expect((await libera(s)).status, s).toBe(200);
+  });
+
+  it('concessões com Turnstile não contam para o teto', async () => {
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza', 'familia-lima']) await libera(s, { token: 'token-real' });
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) expect((await libera(s)).status, s).toBe(200);
+  });
+
+  it('o teto é por IP: outro IP abre o 4º; linha fora das 24 h não conta', async () => {
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) await libera(s);
+    expect((await libera('familia-lima', { ip: '198.51.100.9' })).status).toBe(200);
+
+    const velho = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+    const semear = env.CONSENT_DB.sqlite.prepare(
+      `INSERT INTO image_use_consent (id, created_at, event_slug, access_type, terms_version, turnstile_ok, ip)
+       VALUES (?, ?, ?, 'family', 'v', 0, '192.0.2.50')`);
+    for (const s of ['familia-silva', 'turma-privada', 'familia-souza']) semear.run(`velho-${s}`, velho, s);
+    expect((await libera('familia-lima', { ip: '192.0.2.50' })).status).toBe(200);
+  });
+
+  it('IPv6: o mesmo /64 soma no teto, como no alerta (#200)', async () => {
+    const ips = ['2001:db8:abcd:12::1', '2001:DB8:ABCD:12:ffff::2', '2001:db8:abcd:12:0:0:0:3', '2001:0db8:abcd:0012::4'];
+    for (const [i, s] of ['familia-silva', 'turma-privada', 'familia-souza'].entries()) expect((await libera(s, { ip: ips[i] })).status).toBe(200);
+    expect((await libera('familia-lima', { ip: ips[3] })).status).toBe(403);
+    expect((await libera('familia-lima', { ip: '2001:db8:abcd:13::1' })).status, 'o /64 vizinho é outro cliente').toBe(200);
+  });
+
+  it('D1 fora na contagem do teto: libera (falha aberta) e o healthz diz', async () => {
+    const real = env.CONSENT_DB;
+    env.CONSENT_DB = {
+      ...real,
+      prepare(/** @type {string} */ sql) {
+        if (/^\s*SELECT/i.test(sql)) return { bind: () => ({ first: async () => { throw new Error('D1_ERROR: timeout'); } }) };
+        return real.prepare(sql);
+      },
+    };
+    const res = await libera('familia-silva');
+    expect(res.status).toBe(200);
+    expect((await corpo(res)).driveUrl).toContain('familia-silva');
+    expect(degradedHealth().map(p => p.label)).toContain('teto de álbuns restritos sem Turnstile falhou');
   });
 });

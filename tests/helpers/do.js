@@ -20,8 +20,19 @@ function fakeStorage() {
   let alarme = null;
   return {
     async get(k) { return m.get(k); },
-    async put(k, v) { m.set(k, v); },
-    async delete(k) { return m.delete(k); },
+    // As duas formas da API de verdade: chave e valor, ou um objeto com
+    // várias chaves (gravadas juntas). A série diária (#215) grava o total e
+    // o balde do dia numa chamada só.
+    async put(k, v) {
+      if (k && typeof k === 'object') { for (const [kk, vv] of Object.entries(k)) m.set(kk, vv); return; }
+      m.set(k, v);
+    },
+    // Idem para apagar: uma chave (devolve booleano) ou uma lista (devolve
+    // quantas existiam).
+    async delete(k) {
+      if (Array.isArray(k)) { let n = 0; for (const kk of k) if (m.delete(kk)) n++; return n; }
+      return m.delete(k);
+    },
     // Devolve uma cópia: o Counter guarda o resultado de `list()` como espelho
     // em memória, e entregar o Map interno faria os dois virarem o mesmo
     // objeto — o dublê esconderia qualquer escrita que esquecesse o storage.
@@ -131,6 +142,7 @@ export function brokenDONamespace(message = 'DO indisponível') {
         async snapshot() { throw new Error(message); },
         async seed() { throw new Error(message); },
         async remove() { throw new Error(message); },
+        async serie() { throw new Error(message); },
         async check() { throw new Error(message); },
       };
     },

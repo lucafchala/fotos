@@ -32,8 +32,8 @@ issue before any public disclosure.
 - The production site `https://fotos.lucafchala.com` and its `*.workers.dev`
   deployment.
 - The Worker code in this repository (`src/`): the admin dashboard
-  (`/dashboard`), the public APIs (`/api/*`), and the LGPD removal/consent
-  flows.
+  (`/dashboard`), the public APIs (`/api/*`), the LGPD removal/consent
+  flows, and the owner-only gallery preview (`/galeria/*`).
 
 **Out of scope / known by design:**
 
@@ -47,9 +47,13 @@ issue before any public disclosure.
   but submitting the domain to the preload list is a near-irreversible
   commitment covering the whole apex domain — that is the owner's call, not a
   side effect of a commit.
-- **`'unsafe-inline'` is still in the enforced `script-src`.** See "CSP: two
-  policies at once" below — this is a measured, staged migration, not an
-  oversight.
+- **`'unsafe-inline'` stays in `style-src`.** Scripts no longer accept it (see
+  "CSP: one policy, the strict one" below), but inline `style="…"` attributes
+  and `<style>` blocks are used on every page. CSS cannot run script under this
+  policy, so what is left is CSS injection (appearance and, in theory, leaking an
+  attribute value through a selector plus a background image, limited to the
+  `img-src` origins). It is a decision, not an oversight: a nonce on `style-src`
+  would make the browser discard the `'unsafe-inline'` the pages still depend on.
 - **The ad-blocker fallback path is intentionally weaker.** The Drive gate
   (`POST /api/drive-link`) fail-closes on a real Turnstile token: a
   missing/invalid token returns 403 and the link is never included in the
@@ -77,10 +81,37 @@ issue before any public disclosure.
   served `X-Robots-Tag: noindex` (next bullet) so this path can't be reached
   by discovering the slug through search first — but the same noscript
   bypass still works against a restricted slug obtained any other way (direct
-  link, backlink). Tightening that further (per-event throttling, requiring a
-  real Turnstile pass for restricted events, or an identity requirement) is
-  an open decision the owner still needs to make, not something this
-  paragraph resolves on its own.
+  link, backlink).
+- **The owner's decision for `private`/`family` albums (#146, 2026-10):
+  consent, not confidentiality.** The declaration records how the visitor
+  agreed to use the photos; it is not an access barrier, and the album's Drive
+  link is anyone-with-the-link once released. So the noscript path stays —
+  but for a restricted album, and only on that path (the one with no
+  challenge), it is tightened:
+  - **a name is required** (2+ characters, at least one letter —
+    `nomeDeConsentimento()` in `src/utils.js`), so the consent record of an
+    unverified grant is not anonymous. It is not verified and can be made up;
+    what it changes is that a scripted grant now carries a declaration in
+    somebody's name. The page opens the field by itself and only asks for the
+    link once the name is there (`exigeNome()` in `src/ui/event.js`);
+  - **one IP opens at most 3 _distinct_ restricted albums in 24 h** this way
+    (`NOSCRIPT_RESTRITOS_POR_IP` in `src/config.js`), counted in D1 by the
+    same function the sweep alert uses (`concessoesSemTurnstile()`), IPv6 per
+    /64. It counts albums, not requests: the same album opens as often as
+    needed, so an event audience behind one venue NAT never gets near it. Past
+    the cap the answer is a 403 with `usarEmail`, and the page opens the
+    e-mail code straight away — that path proves a mailbox and is not capped
+    here. Known limits: IP rotation splits the count; two simultaneous
+    requests can both pass the check; with D1 down (or not configured) the
+    cap fails open and says so in `/api/healthz`.
+  - **the declarations were reworded** so they don't read as a password to a
+    lay guest: "Este é um álbum de família: reconheço que as imagens são de
+    uso estritamente particular e doméstico." instead of "Declaro ser membro
+    da família…". Each consent row keeps the exact text the person saw.
+  With Turnstile, or with the e-mail code, nothing changes: the name stays
+  optional and the cap doesn't apply. Closing the album for real
+  (per-person Drive sharing, guest sessions) remains outside what this
+  Worker can do, and is not the chosen model.
 - **A sweep through the noscript path now raises an alert — it does not
   block (#147).** After each noscript grant is logged, the Worker counts how
   many *distinct* projects that IP opened without Turnstile in the last 24 h;
@@ -125,10 +156,11 @@ issue before any public disclosure.
   delete it or leave the Drive URL empty. Tracked in [`TODO.md`](./TODO.md) as
   a semantics decision.
 - **`private`/`family` events are excluded from `sitemap.xml` and served
-  `X-Robots-Tag: noindex`**, same as an unlisted one — the accessType
-  declaration gate exists to restrict the album to a member/participant, so
-  the page being search-indexable would work against that even though it's a
-  consent gate, not a confidentiality ACL. The event still opens on a direct
+  `X-Robots-Tag: noindex`**, same as an unlisted one — the album is meant
+  for the family or the event's participants (the declaration records that
+  use; it doesn't enforce it, see the #146 bullet above), so the page being
+  search-indexable would work against that even though it's a consent gate,
+  not a confidentiality ACL. The event still opens on a direct
   link and appears in the gallery/self-test like any other visible event;
   only search-engine discovery is affected (`isRestrictedAccess()` in
   `src/utils.js`).
@@ -155,18 +187,22 @@ issue before any public disclosure.
 
 ## Controls / Controles
 
-A map of what protects what. Every item is pinned by `tests/security.test.js` or
-`tests/drive-gate.test.js`; the policy itself lives in one place, `src/security.js`.
+A map of what protects what. Every item is pinned by a test — `tests/security.test.js`,
+`tests/drive-gate.test.js`, and the session revocation marker by
+`tests/sessoes-corte.test.js` and `tests/workers/sessoes.workers.test.js`; the
+policy itself lives in one place, `src/security.js`.
 
 | Control | Where | What it stops |
 | --- | --- | --- |
 | Same-origin gate on every write, **before routing** | `src/index.js` dispatcher | CSRF, including the same-site case a `SameSite=Strict` cookie still allows |
+| Strict CSP, **enforced**: per-request nonce, no `'unsafe-inline'` in `script-src`; violations reported to `/api/csp-report` | `contentSecurityPolicy()`, `htmlSecurityHeaders()` | A missed escape turning into code that runs on our origin: a `<script>` without the nonce, an `onclick="…"` attribute and a `javascript:` URL do not execute |
 | Signed page nonce (HMAC, slug-bound, 2 h) | `/api/drive-link` | Sweeping every slug with one valid Turnstile token |
 | Token-bucket limits with `Retry-After` | `RateLimiter.take()`, `takeToken()` | A flood on the crowd-facing endpoints — without locking out an event audience that shares one venue IP |
 | Stateless e-mail code (HMAC over slug + code + expiry) + per-IP/address/day caps | `/api/drive-code`, `handleDriveCode()` | A Turnstile failure (VPN, blocker) locking a real person out of the photos; the code path being used to mail-bomb a third party |
 | Signed form token + honeypot | `/suporte`, removal form | Bots posting straight at the endpoints |
 | `__Host-` session cookie | `sessionCookie()` | A neighbouring host on `lucafchala.com` planting a session |
 | Session idle timeout + client binding | `verifySession()` | A stolen cookie staying useful for a full 24 h |
+| Session revocation marker `admin_sessions_corte` (TTL 25 h) | `encerraOutrasSessoes()`, checked by `verifySession()` | The window KV's eventual consistency leaves after a delete: a revoked device still passes for up to 30 s elsewhere, and a `lastSeen` renewal landing inside it resurrects the record for another 24 h. "Sair dos outros aparelhos" (`POST /api/sessions/revoke-others`) and the password sweep write the cutoff first; `verifySession` refuses any session created before it except the requester's own |
 | Layered login rate limit + e-mail alert | `handleLogin()` | Silent brute force |
 | Turnstile on the panel login | `handleLogin()`, `checkTurnstile()` | Password guessing spread across many IPs, which the per-IP limit never sees |
 | Password policy (12+, classes, weak patterns) | `validatePassword()` | An offline attack against a leaked hash |
@@ -177,36 +213,51 @@ A map of what protects what. Every item is pinned by `tests/security.test.js` or
 | Attachment filename sanitisation | `sanitizeFilename()` | Path traversal and CRLF in the MIME attachment header |
 | Escape-before-format markdown rendering | `src/ui/markdown.js` | HTML in a compliance document becoming markup on the page |
 | Link allowlist in rendered documents | `resolveDocHref()` | Dead links, `javascript:` targets, and any link off to GitHub |
+| Owner-only gallery preview: the **same 404** as an unknown route, decided before any KV read when there is no cookie | `podeVerGaleria()`, `/galeria/*` | The preview (or its download proxy, which spends our Google API quota) being reachable — or even detectable — by anyone but the logged-in owner |
+| Download proxy serves only files listed in **that project's** folder | `handleGaleriaBaixar()`, `achaFoto()` | The proxy turning into an open relay for any public Drive file, on our API key and quota |
+| Drive API key used only server-side | `src/drive.js` | The key reaching a browser: the page's data island carries neither the key nor resource keys, originals go through the proxy, and error messages never include the request URL (which carries the key) |
+| Third-party code vendored, byte-exact and hash-named | `vendor/`, `src/content/vendor.js`, `/vendor/*` | A CDN or package swap changing the code that runs on our origin: PhotoSwipe is the npm tarball verified against its registry integrity, served from our origin under its content hash, and the suite fails if a byte differs |
 
-### CSP: two policies at once
+### CSP: one policy, the strict one
 
-Every HTML response carries **both** `Content-Security-Policy` and
-`Content-Security-Policy-Report-Only`, built from the same source
-(`contentSecurityPolicy()`) so they cannot drift apart.
+Every HTML response carries a single `Content-Security-Policy`, built by
+`contentSecurityPolicy()` — the strict one since #126. (Until then there were
+two: an enforced policy with `'unsafe-inline'` and the strict one in
+`Content-Security-Policy-Report-Only`, run side by side while the inline
+handlers were removed. The report-only header is gone: sending both would repeat
+every report and every console message.)
 
-- The **enforced** policy allows `'unsafe-inline'` and carries **no nonce**.
-  That combination is deliberate and load-bearing: per CSP Level 3, **a nonce
-  makes the browser discard `'unsafe-inline'`**. So `'self' 'unsafe-inline'
-  'nonce-abc'` is not "both" — it is effectively `'self' 'nonce-abc'`, and every
-  `onclick="…"` attribute handler stops firing. The UI had ~63 of them then, so
-  that silently killed the gallery, the event page, the Drive gate and the
-  dashboard. Since 2026-09-03 (`4552180`) none are left — they became delegated
-  listeners (`data-onclick` and friends) — but the rule stands until the flip
-  tracked in #126 is done with a real browser.
-  This was actually committed once and caught only by driving a real browser —
-  a unit test asserting the policy *string* contains `'unsafe-inline'` passes
-  happily while the browser ignores it.
-- The **report-only** policy is the one we want to enforce — `'nonce-…'` with no
-  `'unsafe-inline'`. Running it in report-only turns each remaining inline
-  handler into a report at `/api/csp-report` instead of a broken element. It is
-  the migration's task list, measured in production rather than guessed. The
-  `nonce="…"` attributes in the markup exist for *this* policy.
+- `script-src` is `'self'`, the per-request `'nonce-…'`, and the two origins the
+  site loads on purpose (Cloudflare Turnstile, and the Web Analytics beacon, by
+  host). No `'unsafe-inline'`, no `'strict-dynamic'`: a `<script>` without the
+  nonce, an `onclick="…"` attribute and a `javascript:` URL do not execute. Every
+  inline `<script>` carries `nonce="…"`, and events are wired by delegation
+  (`data-onclick`, `data-action`).
+- **A nonce makes the browser discard `'unsafe-inline'`** (CSP Level 3):
+  `'unsafe-inline' 'nonce-abc'` is just `'nonce-abc'`. So putting
+  `'unsafe-inline'` back "to unblock a page" does nothing except make the policy's
+  text lie. A script that does not run gets fixed by giving it the nonce; a
+  handler, by turning it into a delegated listener. The mirror image holds for
+  styles: `style-src` keeps `'unsafe-inline'` and must **never** get a nonce, or
+  every `style="…"` dies. This class of defect has already shipped with the whole
+  suite green — a nonce on a policy that still relied on `'unsafe-inline'` killed
+  ~63 handlers — because a unit test asserting the policy *string* cannot see what
+  the browser does with it.
+- The enforced policy **keeps reporting**: `report-uri /api/csp-report` and
+  `report-to csp` (with `Reporting-Endpoints`). A violation in production — a
+  script that slipped past the nonce, or a visitor's browser extension, which is
+  known noise — reaches the log as `csp-violation` (sampled at 20%).
 
-**The flip happens when the reports stop arriving**: remove the inline handlers,
-then let the enforced policy use `strict` too. Until then, a `<script>` without a
-nonce is invisible today and breaks silently on flip day — so CI rejects one, and
-the deploy smoke test rejects a nonce appearing in the enforced header
-(`.github/workflows/security.yml`, `deploy.yml`).
+How we know it holds: `tests/rendered-pages.test.js` fails on any `on…=`
+attribute, `javascript:` URL or `<script>` without the nonce in **every**
+rendered page; `tests/security.test.js` pins the policy (and that there is exactly
+one header); and the browser scripts (`npm run verifica:painel`, `:galeria`,
+`:evento`, `:previa`, `:navegador`) serve each page with the real headers and fail
+on **any** CSP message in the console (`scripts/vigia-csp.mjs`; each starts with a
+canary page that proves the watcher sees a violation and that the policy blocks
+it). CI rejects a `<script>` without a nonce in the source
+(`.github/workflows/security.yml`), and the deploy smoke test rejects a
+`script-src` that has `'unsafe-inline'` or no nonce (`scripts/smoke.sh`).
 
 ### Rate limits fail open when they cannot be recorded
 
@@ -340,14 +391,36 @@ the failure goes to `noteDegraded()` — so `/api/healthz` reports it and the
 status dashboard goes red — and to `sendErrorAlert()`. Pinned by
 `tests/kv.test.js`, verified failing against the previous code.
 
+Even a successful delete has a tail, and it is why logout alone is not a full
+answer. KV is **eventually consistent**: the delete reaches another region only
+after that region's cache expires. Inside that window the revoked token is still
+accepted — and if the `lastSeen` renewal lands there, the `put` in
+`verifySession` **resurrects** the deleted record, old `createdAt` and all, for
+another 24 hours. Bulk revocation therefore refuses *by creation time*, instead
+of trusting deletes: it first writes a marker, `admin_sessions_corte` —
+`{antes: <now>, exceto: <sha256 of the current token>}`, TTL 25 h (past the
+24-hour cap there is nothing left to cut) — and `verifySession` reads it
+alongside the session record and rejects any session created *before* `antes`
+that does not hash to `exceto`. The check runs deliberately **before** the
+renewal, so nothing resurrects under it. That is what "Sair dos outros
+aparelhos" does (`POST /api/sessions/revoke-others`, Ajustes → Conta; on another
+region the change can take up to 30 s to land), and the window it closes is the
+KV cache's own: from "up to 24 h" down to the 30 s `cacheTtl` both reads use.
+Pinned by `tests/sessoes-corte.test.js`, which models the propagation window,
+and by `tests/workers/sessoes.workers.test.js` against real KV.
+
 The same reasoning applies to the **session sweep after a password change**
 (`PUT /api/settings/password`). Changing the password is what you do when you
 believe it has leaked, and the sweep of the other sessions is what evicts
 whoever is already inside. The sweep is deliberately best-effort — a KV hiccup
 must not undo a password change that already succeeded — but its `Promise.all`
-rejects on the first delete that fails, so the sweep can also be *partial*.
-Either way the admin used to get a plain `ok: true` while old sessions stayed
-open for up to 24 hours. It now records a degradation and emails.
+rejects on the first delete that fails, so the sweep can also be *partial*. The
+sweep is now `encerraOutrasSessoes()`, the single implementation it shares with
+"Sair dos outros aparelhos" — and the marker it writes *first* (above) carries
+the revocation even when the deletes are partial: what a failure can still cost
+is the marker write itself. The admin who used to get a plain `ok: true` while
+old sessions stayed open for up to 24 hours now gets a degradation on
+`/api/healthz` and an email.
 
 ### A support message that was never sent no longer shows a success screen
 
@@ -379,7 +452,8 @@ notified, and the person was told nothing more than "something went wrong".
 The request is now recorded by **two independent channels**, and only the first
 depends on KV:
 
-1. **KV** (`removal_requests`) — what the dashboard lists.
+1. **KV** (`removal_request:<id>`, one key per request since v2.0 — #198) —
+   what the dashboard lists.
 2. **Email** — the admin notification and the requester's confirmation, which is
    what actually makes someone act inside the deadline.
 
@@ -642,6 +716,12 @@ encoder output for HEIC and GIF alongside the hand-built ones.
 `ADMIN_PASSWORD`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, `ADMIN_EMAIL` and
 **`SIGNING_SECRET`** — see `wrangler.toml` for what each does.
 
+`GOOGLE_DRIVE_API_KEY` is optional: it only powers the owner-only gallery
+preview. Restrict it to the Drive API in Google Cloud. An API key can only read
+what is already shared as "anyone with the link", so a leaked key exposes
+nothing private — its cost would be quota, which is why it never leaves the
+server.
+
 `SIGNING_SECRET` deserves a note: unlike the others, its absence **breaks
 nothing**. The Drive page nonce and the form tokens simply stop being required,
 and the site keeps serving as if it were protected. That is a deliberate
@@ -656,8 +736,8 @@ npx wrangler secret put SIGNING_SECRET
 
 ## Invariants for contributors / Invariantes ao mexer no código
 
-Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.test.js`,
-`tests/utils.test.js`) — if you change either, expect a red suite.
+Three guards are easy to half-apply. All are pinned by tests (`tests/drive-gate.test.js`,
+`tests/utils.test.js`, `tests/galeria.test.js`) — if you change one, expect a red suite.
 
 - **`safeUrl()` is a scheme allowlist, not an HTML escaper.** It strips
   `javascript:`/`data:` and upgrades `http:` — it does *not* escape quotes, so
@@ -665,6 +745,9 @@ Two guards are easy to half-apply. Both are pinned by tests (`tests/drive-gate.t
   attribute needs both: `escape(safeUrl(v))`. Assigning to a DOM property in the
   client (`el.href = v`) needs only `safeUrl()`, because no HTML is parsed.
   Neither function alone covers both attacks.
+- **The gallery proxy checks membership before fetching.** Any new route that
+  fetches a Drive file by id must first find that id in the project's own
+  listing (`achaFoto()`); `tests/galeria.test.js` fails if the check is removed.
 - **KV counters go through `toCount()`.** Counters are stored as plain strings;
   a corrupted value read back with a bare `parseInt` yields `NaN`, and
   `String(NaN)` written back poisons the counter permanently. `toCount()`

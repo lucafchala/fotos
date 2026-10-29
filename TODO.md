@@ -70,14 +70,52 @@ automática tem teto e, quando o servidor diz quanto esperar (`Retry-After`),
 espera — ver `RETOMADA.md` §5.12.
 
 **Escrita de Durable Object por visitante** (100 mil linhas/dia, plano
-gratuito): ~1 da visualização, ~1 do balde do portão (+1 do alarme quando o
-balde nasce), ~1–2 do clique. Um evento de 750 pessoas gasta poucos milhares.
+gratuito, para a conta inteira): 2 da visualização (o total e, desde a v2.0, o
+balde do dia — na MESMA gravação, nenhuma chamada a mais), ~1 do balde do
+portão (+1 do alarme quando o balde nasce), 2 da liberação pelo portão (o modo
+de verificação, `gate:<modo>`, total e dia — v2.0) e ~3 do clique (o balde
+do clique e o contador, total e dia). Um visitante que vê, passa pelo portão e
+abre o Drive fica em ~8 linhas; um evento de 750 pessoas, em ~6 mil. Folga de
+sobra — mas é o número a olhar se um dia a contagem por dia ganhar mais
+dimensões.
+
+**Pedidos de remoção, um por chave (v2.0, #198)**: as escritas não mudaram (2
+por pedido — o pedido e o carimbo dos e-mails; 1 por "resolver"), e a migração
+do array antigo é uma vez só (≤ 500 escritas, no primeiro cron depois do
+deploy). O que é novo é a **operação `list` do KV**: abrir o painel (o selo
+de pedidos pendentes da navegação), baixar o backup, restaurar e o cron listam
+o prefixo `removal_request:`. O plano
+gratuito permite **1000 `list` por dia** na conta (e 1000 exclusões — a poda
+do cron gasta dessas) — longe disso para um dono só, porque o painel não fica
+relendo sozinho. Nunca ponha um `list` em caminho público. As leituras vão em
+lote: uma operação a cada 100 pedidos no teto de operações por invocação; a
+cota diária de leitura conta chave por chave (100 mil/dia).
+
+**A prévia de PR gasta da mesma conta.** O KV, o D1 e os Durable Objects das
+prévias são separados dos de produção, mas a COTA é da conta: escrita de KV,
+linhas de DO, e-mail do Resend (se a chave for a mesma). Testar à vontade num
+dia de evento não é boa ideia; o "zerar os limites" da prévia deixa de fora,
+de propósito, o teto diário de códigos por e-mail.
 
 **E-mail (Resend)** é a franquia mais apertada depois do KV, e é UMA para
 tudo: confirmação e aviso de remoção, suporte, alertas ao dono e o código de
 acesso por e-mail do portão. O código tem teto próprio
 (`EMAIL_CODE_DAILY_CAP` = 40/dia em `src/config.js`) para nunca calar os
 outros; subir esse número é decisão de orçamento de e-mail, não de UX.
+
+**Galeria própria** (`/galeria/<slug>`, hoje prévia só do dono — #235). A
+grade e o visualizador continuam saindo do `lh3` direto para o navegador (0
+requisição de Worker por foto vista). O que muda é o **download**: cada um
+passa pelo Worker (o proxy que esconde a chave e põe o nome do arquivo) — 1
+requisição de Worker + 1 subrequest por foto, só repassando o corpo, sem
+processar imagem (a CPU não cresce com o tamanho do arquivo). Um "baixar 30
+para redes" são 30 requisições; 750 pessoas × 20 downloads = 15 mil, que cabe
+nas 100 mil/dia mas deixa de ser irrelevante — é a conta a refazer antes de a
+distribuição abrir para o público. A página custa 1 requisição + até 30
+subrequests à Drive API a cada 10 min por pasta e data center (Cache API), e
+**nenhuma escrita de KV**. O limite que aparece primeiro num pico é o do
+Google, não o nosso: a Drive API recusa o original de um arquivo muito baixado
+(`downloadQuotaExceeded`, #233) — o *para redes* (lh3) segue funcionando.
 
 ### O que acontece se estourar
 
@@ -417,6 +455,18 @@ suíte inteira já passou verde sobre a CSP matando ~68 handlers inline e sobre 
 galeria ilegível sem JS. Mudança em página pública ou no painel se verifica com
 browser.
 
+### O que roda em produção é o bundle, não o fonte
+
+A suíte roda `src/` cru; o deploy roda o que o esbuild do wrangler fez dele.
+Quase sempre é a mesma coisa — até o código virar TEXTO: o card de evento do
+painel vai ao navegador por `toString()` (`docs/PAINEL.md`), e o esbuild, com
+`keepNames`, embrulha toda função nomeada num `__name(...)` que só existe no
+topo do bundle. A suíte passava inteira; o painel em produção quebraria no
+primeiro redesenho. Código que sai como texto se testa **depois** da mesma
+transformação do deploy (`tests/painel.test.js` faz isso), e quando houver
+dúvida sobre o que o bundle faz, monte-o: `npx wrangler deploy --dry-run
+--outdir <pasta>` não publica nada.
+
 ---
 
 ## Ideias não priorizadas
@@ -452,7 +502,8 @@ fases; o que sobra abaixo são ideias que ainda não entraram em nenhuma fase.
 - **Pagar por qualquer serviço da Cloudflare ALÉM do Workers Paid** — Cloudflare
   Images, Stream, plano Pro. Registrado aqui para não ser redescutido a cada
   aperto.
-  > 🔜 **O Workers Paid saiu desta lista**: o dono decidiu assinar. Ver
+  > O **Workers Paid** também não está nesta lista, mas **não foi assinado**
+  > (decisão do dono em 18/10/2026: só quando um limite *medido* apertar). Ver
   > [`docs/PLANO-PAGO.md`](./docs/PLANO-PAGO.md), que traz o que ele compra —
   > teto de CPU, requisições e escrita em KV sem limite diário — e o que **não**
   > muda com dinheiro (o limite de 1 escrita/s por chave).

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleRemovalRequest } from '../src/index.js';
 import { degradedHealth, resetDegraded } from '../src/utils.js';
 import { withDurableObjects } from './helpers/do.js';
+import { pedidosGravados, relogioAdiantavel } from './helpers/pedidos.js';
 
 // O formulário de remoção é o canal por onde um titular exerce um direito da
 // LGPD, com prazo correndo. O que estes testes travam não é o caminho feliz —
@@ -102,6 +103,8 @@ describe('handleRemovalRequest', () => {
     resetDegraded();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', fetchStub());
+    // O carimbo dos e-mails espera a janela de 1 s do KV (tests/helpers/pedidos.js).
+    relogioAdiantavel();
   });
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); resetDegraded(); });
 
@@ -111,7 +114,7 @@ describe('handleRemovalRequest', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 
-    const [stored] = JSON.parse(env.FOTOS._store.get('removal_requests'));
+    const [stored] = pedidosGravados(env.FOTOS._store);
     expect(stored).toMatchObject({
       eventSlug: 'casamento-ana',
       email: 'ana@example.com',
@@ -168,7 +171,7 @@ describe('handleRemovalRequest', () => {
     const res = await handleRemovalRequest(req(), baseEnv({ FOTOS: kv }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(JSON.parse(kv._store.get('removal_requests'))).toHaveLength(1);
+    expect(pedidosGravados(kv._store)).toHaveLength(1);
     expect(degradedHealth().map(d => d.label)).toContain('status de e-mail do pedido de remoção não gravado');
   });
 
@@ -178,7 +181,7 @@ describe('handleRemovalRequest', () => {
     const res = await handleRemovalRequest(req(), env);
     expect(res.status).toBe(200);
 
-    const [stored] = JSON.parse(env.FOTOS._store.get('removal_requests'));
+    const [stored] = pedidosGravados(env.FOTOS._store);
     expect(stored.emailStatus).toMatch(/^error: Resend 503/);
     expect(degradedHealth().map(d => d.label)).toContain('pedido de remoção sem aviso por e-mail');
   });
@@ -195,6 +198,6 @@ describe('handleRemovalRequest', () => {
     const semTurnstile = await handleRemovalRequest(req(), env);
     expect(semTurnstile.status).toBe(403);
 
-    expect(env.FOTOS._store.has('removal_requests')).toBe(false);
+    expect(pedidosGravados(env.FOTOS._store)).toEqual([]);
   });
 });

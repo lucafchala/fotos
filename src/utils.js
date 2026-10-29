@@ -27,9 +27,23 @@ import { FONTS } from './content/fonts.js';
  *   SIGNING_SECRET?: string,
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
+ *   GOOGLE_DRIVE_API_KEY?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
+ *   AMBIENTE?: string,
+ *   PREVIA_EMAIL?: string,
  * }} Env
  */
+
+/**
+ * Esta requisição está numa PRÉVIA de PR? (`AMBIENTE = "previa"`, que só o
+ * bloco [previews] do wrangler.toml declara — produção não tem a variável.)
+ * A camada da prévia inteira está em src/previa.js; mora aqui só esta
+ * pergunta, que o e-mail (corpoResend) também faz.
+ * @param {{ AMBIENTE?: string } | null | undefined} env
+ */
+export function ehPrevia(env) {
+  return !!env && env.AMBIENTE === 'previa';
+}
 
 /**
  * Um pedido de remoção / mensagem de suporte, como lido do KV. Índice aberto
@@ -42,6 +56,12 @@ import { FONTS } from './content/fonts.js';
 let _cache = null;
 let _cacheAt = 0;
 const CACHE_TTL = 30_000;
+// O KV tem o próprio cache em cada local da Cloudflare (60 s por padrão): uma
+// escrita feita em outro local só aparece aqui quando ele vence. 30 s é o
+// mínimo aceito (desde jan/2026). Somado aos 30 s do cache do isolate, uma
+// mudança do painel chega a qualquer visitante em até 1 min, que é o que o
+// toast do painel promete. Só a lista e o selo: são o que o site público lê.
+const KV_CACHE_TTL_S = 30;
 // Abort outbound transactional-email calls if Resend hangs, so a slow upstream
 // never holds the request past this budget.
 const EMAIL_TIMEOUT_MS = 10_000;
@@ -55,7 +75,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-06-18';
+export const TERMS_VERSION = '2026-10-18';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -70,9 +90,17 @@ export const ACCESS_TYPES = ['public', 'private', 'family'];
 // before the Drive link unlocks, for 'family' and 'private' projects. Stored verbatim with
 // each consent record for non-repudiation — the canonical source, like CONSENT_LABEL.
 // 'public' has no extra declaration (Terms acceptance only).
+//
+// O modelo é consentimento, não sigilo (#146): a caixa registra o uso
+// combinado, não barra ninguém — o link do Drive, depois de liberado, abre
+// para quem o tiver. Por isso o texto diz o que o álbum é e o que a pessoa
+// reconhece sobre o uso, sem pedir que ela "declare ser" alguém: até a v2.0,
+// "Declaro ser membro da família" lia, para um convidado leigo, como uma senha.
+// Cada registro guarda o texto que a pessoa viu; os antigos continuam com o
+// antigo.
 export const ACCESS_DECLARATIONS = {
-  family:  'Declaro ser membro da família e reconheço que estas imagens são de uso estritamente particular e doméstico.',
-  private: 'Declaro que sou participante deste evento ou possuo autorização para acessar estas imagens. Estou ciente de que o material destina-se ao meu uso pessoal e não deve ser comercializado.',
+  family:  'Este é um álbum de família: reconheço que as imagens são de uso estritamente particular e doméstico.',
+  private: 'Este é um álbum de quem participou do evento: reconheço que o material é para meu uso pessoal e não deve ser comercializado.',
 };
 
 // True for 'private'/'family' events — a self-declaration gate on top of the
@@ -84,6 +112,19 @@ export const ACCESS_DECLARATIONS = {
 /** @param {Evento} event */
 export function isRestrictedAccess(event) {
   return event.accessType === 'private' || event.accessType === 'family';
+}
+
+// Nome no registro de consentimento de um álbum restrito aberto SEM o
+// Turnstile (#146): nesse caminho ele é obrigatório, para o registro não sair
+// anônimo. Não dá para conferir se é verdadeiro; dá para exigir que pareça um
+// nome: 2+ caracteres, ao menos uma letra. A página tem a mesma regra, para
+// só pedir o link quando ele vai passar (src/ui/event.js, nomeOk) — as duas
+// cópias estão presas por um teste de par em tests/drive-gate.test.js.
+export const NOME_CONSENTIMENTO_MIN = 2;
+/** @param {unknown} v */
+export function nomeDeConsentimento(v) {
+  const s = String(v ?? '').trim();
+  return s.length >= NOME_CONSENTIMENTO_MIN && /\p{L}/u.test(s);
 }
 
 // Cópia de sobrevivência da lista de eventos, via Cache API. KV é a única
@@ -180,7 +221,7 @@ export async function getEvents(env, fresh = false) {
 
   let data;
   try {
-    data = await env.FOTOS.get('events');
+    data = await env.FOTOS.get('events', { cacheTtl: KV_CACHE_TTL_S });
   } catch (e) {
     // `fresh` NUNCA cai para a cópia: quem pede fresh é admin ou
     // read-modify-write, onde dado velho não degrada com elegância — o
@@ -318,7 +359,7 @@ export async function getAgenda(env, fresh = false) {
   const now = Date.now();
   if (!fresh && _agenda !== null && now - _agendaAt < CACHE_TTL) return _agenda;
   try {
-    _agenda = limpaAgenda(await env.FOTOS.get('agenda'));
+    _agenda = limpaAgenda(await env.FOTOS.get('agenda', { cacheTtl: KV_CACHE_TTL_S }));
     _agendaAt = now;
     return _agenda;
   } catch (e) {
@@ -340,6 +381,58 @@ export async function saveAgenda(env, texto) {
   _agendaAt = Date.now();
 }
 
+// Lembrete de backup (Ajustes → Dados): a hora em que o painel entregou o
+// último arquivo, em ISO. Não há backup automático, e o que o dono vê é "há N
+// dias" — a conta é do navegador, por dia de São Paulo. O instante é o da
+// ENTREGA: o servidor não sabe se o arquivo foi salvo, só que saiu.
+export const BACKUP_ULTIMO_KEY = 'backup:ultimo';
+
+// O valor vai para dentro de uma página, então só passa a forma que NÓS
+// gravamos (toISOString); qualquer outra coisa conta como "nunca". O instante
+// de volta tem de dar o mesmo texto: 31/02 o Date "corrige" para março em
+// silêncio, e o lembrete mostraria uma data que ninguém gravou.
+/**
+ * @param {unknown} v
+ * @returns {string|null}
+ */
+export function limpaBackupUltimo(v) {
+  if (typeof v !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d{1,3})?Z$/.exec(v);
+  const t = m ? Date.parse(v) : NaN;
+  return m && Number.isFinite(t) && new Date(t).toISOString().startsWith(m[1]) ? v : null;
+}
+
+// Nunca lança: o lembrete é enfeite, e uma leitura que falha não pode virar
+// "painel indisponível" — sai como se nunca tivesse havido backup, e a falha
+// vai para o healthz.
+/**
+ * @param {Env} env
+ * @returns {Promise<string|null>}
+ */
+export async function getUltimoBackup(env) {
+  try {
+    return limpaBackupUltimo(await env.FOTOS.get(BACKUP_ULTIMO_KEY, { cacheTtl: KV_CACHE_TTL_S }));
+  } catch (e) {
+    noteKvFailure('leitura', e, 'último backup');
+    return null;
+  }
+}
+
+// Uma escrita por download. Nunca rejeita: quem chama a entrega a `waitUntil`
+// (ou a aguarda), e a recusa do KV — a cota de 1000/dia — vira aviso no healthz
+// em vez de derrubar um download que já está pronto.
+/**
+ * @param {Env} env
+ * @returns {Promise<void>}
+ */
+export async function registraUltimoBackup(env) {
+  try {
+    await env.FOTOS.put(BACKUP_ULTIMO_KEY, new Date().toISOString());
+  } catch (e) {
+    noteKvFailure('escrita', e, 'registro do último backup');
+  }
+}
+
 
 /**
  * @param {string} hex
@@ -355,6 +448,15 @@ function hexToBytes(hex) {
  */
 function bytesToHex(u8) {
   return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * SHA-256 de um texto, em hexadecimal minúsculo.
+ * @param {string} s
+ */
+export async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return bytesToHex(new Uint8Array(buf));
 }
 
 /**
@@ -439,6 +541,24 @@ export const SESSION_COOKIE = '__Host-session';
 export const SESSION_TTL_SECS = 86400;     // teto absoluto: 24 h, como antes
 export const SESSION_IDLE_SECS = 7200;     // 2 h sem uso encerram a sessão
 const SESSION_REFRESH_SECS = 600;          // só reescreve o "lastSeen" a cada 10 min
+
+// Marcador de revogação (ver `encerraOutrasSessoes`): "toda sessão aberta antes
+// de `antes` morre, menos a de quem pediu". Mora numa chave própria, e não em
+// cada registro, por causa do KV: ele é eventualmente consistente, e um
+// apagamento só chega a outro local da Cloudflare quando o cache de lá vence.
+// Nessa janela o aparelho revogado ainda é aceito — e, se a renovação do
+// `lastSeen` (a cada 10 min) cair nela, o `put` do verifySession RESSUSCITA o
+// registro apagado, por mais 24 h. O registro ressuscitado guarda o `createdAt`
+// antigo, então o marcador o derruba assim que chega ao local: a janela cai de
+// "até 24 h" para o cacheTtl da leitura (30 s, o mínimo do KV).
+export const CORTE_DE_SESSOES_KEY = 'admin_sessions_corte';
+// Passadas 25 h, toda sessão anterior ao corte já estourou o teto de 24 h por
+// si, e o marcador não tem mais o que cortar.
+const CORTE_TTL_SECS = SESSION_TTL_SECS + 3600;
+// Relógios de locais diferentes divergem em milissegundos. Um `antes` mais de
+// 1 min À FRENTE de agora não é divergência, é lixo — e valeria contra a sessão
+// que o dono abrir depois, trancando-o fora do painel por até 25 h.
+const CORTE_FUTURO_MAX_MS = 60_000;
 
 /**
  * @param {string} token
@@ -533,9 +653,35 @@ function parseSessionRecord(raw) {
   return rec;
 }
 
-// Encerra a sessão por TTL, inatividade OU fingerprint trocado — antes era só
-// uma comparação com a string 'valid', sem inatividade nem vínculo com o
-// cliente que abriu a sessão.
+// Marcador ausente = sem corte. Marcador ilegível TAMBÉM = sem corte, mas
+// avisado: tratá-lo como corte total trancaria o dono fora do painel por causa
+// de um valor corrompido, e calar deixaria a revogação de deixar de valer sem
+// ninguém saber (o aviso fica em /api/healthz até o próximo "sair dos outros
+// aparelhos" regravar a chave).
+/**
+ * @param {string|null} raw
+ * @param {number} now
+ * @returns {{ antes: number, exceto: string } | null}
+ */
+function parseCorte(raw, now) {
+  if (raw === null || raw === undefined) return null;
+  let c;
+  try { c = JSON.parse(raw); } catch { c = null; }
+  if (!c || typeof c !== 'object' || Array.isArray(c)
+    || typeof c.antes !== 'number' || !Number.isFinite(c.antes) || c.antes > now + CORTE_FUTURO_MAX_MS
+    || typeof c.exceto !== 'string' || !/^[0-9a-f]{64}$/.test(c.exceto)) {
+    noteDegraded(
+      'marcador de revogação de sessões ilegível',
+      `${CORTE_DE_SESSOES_KEY} está fora da forma esperada e foi ignorado: a revogação de sessões pode não valer em outro local até "Sair dos outros aparelhos" regravá-lo`,
+    );
+    return null;
+  }
+  return { antes: c.antes, exceto: c.exceto };
+}
+
+// Encerra a sessão por TTL, inatividade, fingerprint trocado OU revogação
+// (marcador de `encerraOutrasSessoes`) — antes era só uma comparação com a
+// string 'valid', sem inatividade nem vínculo com o cliente que abriu a sessão.
 /**
  * @param {Env} env
  * @param {Request} request
@@ -547,7 +693,15 @@ export async function verifySession(env, request) {
   if (!token) return false;
 
   const key = `admin_session:${token}`;
-  const raw = await env.FOTOS.get(key);
+  // O registro e o marcador de revogação vêm juntos (uma ida só ao KV), os dois
+  // com o cacheTtl mínimo: o padrão do KV é 60 s de cache em cada local, e é
+  // nessa janela que um aparelho já revogado ainda passa. Falha de leitura de
+  // qualquer um PROPAGA, como a do registro sempre propagou: quem chama
+  // responde 503 e o painel falha FECHADO, nunca aberto.
+  const [raw, rawCorte] = await Promise.all([
+    env.FOTOS.get(key, { cacheTtl: KV_CACHE_TTL_S }),
+    env.FOTOS.get(CORTE_DE_SESSOES_KEY, { cacheTtl: KV_CACHE_TTL_S }),
+  ]);
   if (!raw) return false;
 
   // O valor legado `'valid'` (sessão sem metadado, anterior a 2026-08) não
@@ -581,6 +735,15 @@ export async function verifySession(env, request) {
     await env.FOTOS.delete(key).catch(() => {});
     return false;
   }
+  // Revogada por "sair dos outros aparelhos" ou pela troca de senha: aberta
+  // antes do corte, e não é a sessão de quem o pediu. ANTES da renovação logo
+  // abaixo, de propósito — é o `put` dela que ressuscitaria o registro. A conta
+  // do hash só roda para quem está antes do corte (raro), não a cada pedido.
+  const corte = parseCorte(rawCorte, now);
+  if (corte && createdAt < corte.antes && !timingSafeEqual(await sha256Hex(token), corte.exceto)) {
+    await env.FOTOS.delete(key).catch(() => {});
+    return false;
+  }
 
   // Renovação travada a 1x/10min por sessão, não por requisição: o painel faz
   // várias chamadas por tela e a cota de escrita do KV é 1000/dia.
@@ -591,6 +754,48 @@ export async function verifySession(env, request) {
       .catch(e => noteKvFailure('escrita', e, 'session refresh'));
   }
   return true;
+}
+
+// Encerra o painel em todos os aparelhos MENOS o de quem pediu. É a ÚNICA
+// implementação: o "Sair dos outros aparelhos" (POST /api/sessions/revoke-others)
+// e a troca de senha chamam esta função — uma regra escrita duas vezes é
+// corrigida uma vez só.
+//
+// O marcador vai PRIMEIRO, de propósito: ele é a revogação de verdade. Vale em
+// qualquer local, inclusive para o registro que o apagamento ainda não
+// alcançou, que o `list` (também eventual) não enxergou ou que uma renovação
+// ressuscitou; apagar os registros é a faxina. Se a varredura cair no meio, o
+// corte já vale.
+//
+// Custo: 1 put + 1 list (mais um por 1000 chaves) + 1 delete por sessão, tudo da
+// cota de escrita do KV (1000/dia). Falha LANÇA — quem chama decide a resposta —
+// e repetir é seguro.
+/**
+ * @param {Env} env
+ * @param {string} tokenAtual o token do pedido: a sessão que fica
+ * @returns {Promise<number>} quantas sessões foram encerradas
+ */
+export async function encerraOutrasSessoes(env, tokenAtual) {
+  await env.FOTOS.put(
+    CORTE_DE_SESSOES_KEY,
+    JSON.stringify({ antes: Date.now(), exceto: await sha256Hex(tokenAtual) }),
+    { expirationTtl: CORTE_TTL_SECS },
+  );
+  const fica = `admin_session:${tokenAtual}`;
+  let encerradas = 0;
+  // list() pagina (máx. 1000 chaves/página) — o laço cobre o caso de mais
+  // sessões que o normal, que é justamente quando isto importa de verdade.
+  /** @type {string|undefined} */
+  let cursor;
+  do {
+    /** @type {{ keys: {name: string}[], list_complete: boolean, cursor?: string }} */
+    const page = await env.FOTOS.list({ prefix: 'admin_session:', cursor });
+    const outras = page.keys.map(k => k.name).filter(nome => nome !== fica);
+    await Promise.all(outras.map(nome => env.FOTOS.delete(nome)));
+    encerradas += outras.length;
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return encerradas;
 }
 
 // Cota de escrita do KV: 1000/dia na conta toda, e passada ela a escrita
@@ -716,6 +921,7 @@ const COUNTER_OBJ = 'contadores';
  *   snapshot: (keys: string[]) => Promise<{ counts: Record<string, number>, missing: string[] }>,
  *   seed: (map: Record<string, unknown>) => Promise<void>,
  *   remove: (keys: string[]) => Promise<void>,
+ *   serie: (desde: string, totais?: string[]) => Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>,
  * }} CounterRPC
  */
 
@@ -723,7 +929,7 @@ const COUNTER_OBJ = 'contadores';
  * @param {Env} env
  * @returns {CounterRPC}
  */
-function counterStub(env) {
+export function counterStub(env) {
   return /** @type {any} */ (env.COUNTER.get(env.COUNTER.idFromName(COUNTER_OBJ)));
 }
 
@@ -789,6 +995,24 @@ export async function readCounters(env, keys) {
   } catch (e) {
     noteDegraded('contadores não lidos', `lote de ${keys.length} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return {};
+  }
+}
+
+// A série diária inteira desde `desde`, mais os totais pedidos, numa chamada
+// só ao objeto (#215). Nunca lança: o painel mostra "sem dados" em vez de 500.
+/**
+ * @param {Env} env
+ * @param {string} desde
+ * @param {string[]} [totais]
+ * @returns {Promise<{ serie: Record<string, number>, primeiroDia: string, totais: Record<string, number> }>}
+ */
+export async function readSerie(env, desde, totais = []) {
+  try {
+    const r = await counterStub(env).serie(desde, totais);
+    return { serie: r.serie || {}, primeiroDia: r.primeiroDia || '', totais: r.totais || {} };
+  } catch (e) {
+    noteDegraded('série diária não lida', umaLinha(errMessage(e)).slice(0, 120), e);
+    return { serie: {}, primeiroDia: '', totais: {} };
   }
 }
 
@@ -1071,6 +1295,7 @@ export const PERSON_LD = {
 // em /og-coming-soon.png, então a mesma constante serve aos dois casos.
 export const OG_IMAGE_W = 1200;
 export const OG_IMAGE_H = 630;
+export const OG_PADRAO_URL = 'https://fotos.lucafchala.com/og-padrao.png';
 
 // Capa do evento no tamanho e no recorte do cartão. O `-c` do lh3 recorta em
 // vez de encaixar (o scraper recortaria de qualquer jeito, mas aí sem saber
@@ -1141,6 +1366,12 @@ export function socialMetaHTML({
   title, description, url, type = 'website',
   image = '', imageAlt = '', imageWidth = 0, imageHeight = 0,
 }) {
+  if (!image) {
+    image = OG_PADRAO_URL;
+    imageWidth = OG_IMAGE_W;
+    imageHeight = OG_IMAGE_H;
+    imageAlt = imageAlt || SITE_NAME;
+  }
   const desc = truncateText(description, 300);
   const big = !!image && imageWidth > 0 && imageHeight > 0;
   const alt = imageAlt || title;
@@ -1179,6 +1410,10 @@ export function socialMetaHTML({
 export const RESERVED_SLUGS = new Set([
   'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
+  // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
+  // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
+  // que é da estrutura do site.
+  'galeria', 'vendor', 'fonts',
 ]);
 
 /**
@@ -1234,6 +1469,21 @@ export const FUSO_DONO = 'America/Sao_Paulo';
  */
 export function hojeEmSaoPaulo(agora = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO_DONO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+}
+
+/**
+ * O dia `n` dias antes de `dia` ('AAAA-MM-DD' → 'AAAA-MM-DD'; n negativo vai
+ * para a frente). Conta em dias de CALENDÁRIO, por texto, sem fuso: a série de
+ * métricas é indexada pelo dia de São Paulo já calculado, e misturar Date com
+ * fuso aqui faria um dia "pular" na virada do horário de verão de outro país.
+ * Meio-dia UTC como âncora: longe de qualquer meia-noite.
+ * @param {string} dia
+ * @param {number} n
+ */
+export function diaMenos(dia, n) {
+  const t = Date.parse(dia + 'T12:00:00Z');
+  if (!Number.isFinite(t)) return '';
+  return new Date(t - n * 86400000).toISOString().slice(0, 10);
 }
 
 /**
@@ -1957,7 +2207,36 @@ export function csvResponse(filename, cols, rows) {
   });
 }
 
-
+// Corpo de toda chamada ao Resend. Numa PRÉVIA de PR (`AMBIENTE = "previa"`,
+// só no bloco [previews] do wrangler.toml — ver src/previa.js) o assunto ganha
+// "[PRÉVIA] " na frente: o e-mail sai de verdade, para dar para testar o
+// fluxo inteiro, mas ninguém o confunde com um do site real. Em produção a
+// variável não existe e o corpo sai idêntico ao JSON.stringify de antes.
+//
+// Com a ferramenta "E-mail → tudo para o dono" da prévia (`PREVIA_EMAIL =
+// "dono"`, que só src/previa.js põe no env), todo e-mail vai para ADMIN_EMAIL
+// e o assunto diz para quem ele iria: dá para testar a confirmação de um
+// pedido ou o código por e-mail com qualquer endereço inventado sem escrever
+// para ninguém de fora.
+/**
+ * @param {{ AMBIENTE?: string, PREVIA_EMAIL?: string, ADMIN_EMAIL?: string } | null | undefined} env
+ * @param {Record<string, unknown>} dados
+ */
+export function corpoResend(env, dados) {
+  if (!env || !ehPrevia(env)) return JSON.stringify(dados);
+  /** @type {Record<string, unknown>} */
+  const corpo = { ...dados };
+  let marca = '[PRÉVIA] ';
+  if (env.PREVIA_EMAIL === 'dono' && env.ADMIN_EMAIL) {
+    const para = /** @type {unknown[]} */ ([]).concat(dados.to ?? []).map(String).join(', ');
+    corpo.to = env.ADMIN_EMAIL;
+    delete corpo.cc;
+    delete corpo.bcc;
+    if (para.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) marca = `[PRÉVIA → ${para}] `;
+  }
+  if (typeof dados.subject === 'string' && !dados.subject.startsWith('[PRÉVIA')) corpo.subject = marca + dados.subject;
+  return JSON.stringify(corpo);
+}
 /**
  * @param {Env} env
  * @param {Pedido} req
@@ -2005,7 +2284,7 @@ export async function sendRemovalEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: corpoResend(env, body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.status);
@@ -2039,7 +2318,7 @@ export async function sendResolvedEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação atendida — ${req.eventTitle}`,
@@ -2079,7 +2358,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [env.ADMIN_EMAIL],
       reply_to: email || undefined,
@@ -2149,7 +2428,7 @@ export async function sendErrorAlert(env, err, context = {}) {
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: `🔴 Erro no site${context.path ? ` — ${context.path}` : ''}`,
@@ -2204,7 +2483,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔐 Tentativas de login no painel — fotos.lucafchala.com',
@@ -2268,7 +2547,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
       method: 'POST',
       signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: corpoResend(env, {
         from: 'Fotos <noreply@lucafchala.com>',
         to: [env.ADMIN_EMAIL],
         subject: '🔎 Possível varredura de projetos — fotos.lucafchala.com',
@@ -2312,7 +2591,7 @@ export async function sendConfirmationEmail(env, req) {
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação recebida — ${req.eventTitle}`,
@@ -2379,7 +2658,7 @@ export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) 
     method: 'POST',
     signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: corpoResend(env, {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [to],
       subject: `${code} é o seu código — ${eventTitle}`,
@@ -2397,6 +2676,34 @@ export async function sendDriveCodeEmail(env, { to, code, eventTitle, ttlMin }) 
 // uma requisição de Worker (cota gratuita: 100 mil/dia), então amostramos: 10%
 // já dá volume de sobra para medir tendência sem competir com o tráfego real.
 const PERF_SAMPLE_RATE = 0.1;
+
+// Limites do relato de erros de JavaScript que viaja no beacon de performance.
+// Os dois lados usam os mesmos números: o cliente já entrega aparado, o
+// servidor aplica de novo porque o corpo pode ser forjado.
+export const PERF_ERR_MAX = 3;
+export const PERF_ERR_LEN = 200;
+
+// Deixa de uma mensagem de erro só o que ajuda a achar o defeito: sem URL
+// (com o caminho e a query que ela carrega), sem e-mail, sem token comprido
+// (slug de pedido, id do Drive, sessão) e sem quebra de linha. Mensagem de erro
+// do browser cita valores da página, e a página do evento tem nome de cliente
+// e id de pasta — nada disso deve parar num log.
+//
+// CÓPIA: perfBootScript() repete esta função à mão dentro do script emitido (o
+// browser não importa nada de fora do template literal). tests/perf-beacon.test.js
+// extrai a cópia do texto do script e compara as saídas.
+/** @param {unknown} v */
+export function limparMensagemErro(v) {
+  return String(v == null ? '' : v)
+    .slice(0, 2000)
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s)'"]*/gi, '<url>')
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '<email>')
+    .replace(/\?[^\s)'"]+/g, '?')
+    .replace(/[A-Za-z0-9_-]{24,}/g, '<tok>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, PERF_ERR_LEN);
+}
 
 // Depois de quanto tempo o esqueleto passa a DIZER que está esperando.
 //
@@ -2418,8 +2725,8 @@ const IMG_SLOW_MS = 4000;
 // A galeria NÃO carrega mais `onload=`/`onerror=` por <img>. Dois motivos:
 // `load` e `error` não borbulham, mas CAPTURAM, então um par de listeners no
 // documento cobre toda foto que existir — inclusive as que entram depois — e
-// cada handler inline a menos é um relatório a menos na CSP report-only
-// estrita, que é o caminho para ela virar a enforced. O `<picture>` do
+// handler inline é justamente o que a CSP estrita (a aplicada, #126) não
+// executa. O `<picture>` do
 // `srcset` também obrigava: com ele o pai da <img> passa a ser o <picture>,
 // não o `.thumb`, e por isso imgSettled sobe por `closest('.thumb')`.
 //
@@ -2440,10 +2747,11 @@ const IMG_SLOW_MS = 4000;
 //
 // NONCE OBRIGATÓRIO. A versão anterior omitia o atributo quando o argumento
 // vinha vazio (`<script${nonce ? …}>`), o que produzia um bloco inline que a
-// política estrita bloquearia no dia em que ela virar a enforced — e a
-// invariante da CI não pegaria, porque ela lê o TEXTO da marcação e ali o
-// `nonce=` aparece dentro do ternário. Ou seja: um <script> sem nonce que
-// passa por um gate cujo nome é "todo <script> carrega nonce".
+// política estrita bloqueia — e a invariante da CI não pegaria, porque ela
+// lê o TEXTO da marcação e ali o `nonce=` aparece dentro do ternário. Ou seja:
+// um <script> sem nonce que passa por um gate cujo nome é "todo <script>
+// carrega nonce". (Quem pega é tests/rendered-pages.test.js, que confere a
+// página RENDERIZADA.)
 //
 // Hoje os dois chamadores sempre passam o nonce da requisição, então isto
 // nunca acontece — e é exatamente por isso que a hora de fechar é agora, antes
@@ -2486,13 +2794,55 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
   var m={page:${JSON.stringify(page)},marks:{filterMs:null,navCount:0}};
   window.__perf=m;
   function pct(a,q){if(!a.length)return null;var s=a.slice().sort(function(x,y){return x-y;});return Math.round(s[Math.min(s.length-1,Math.floor(s.length*q))]);}
+  var obs=[],cls=0,cws=0,cwf=0,cwl=0,ix={},nix=0,errs=[],seen={};
+  function watch(type,fn,extra){
+    try{
+      var o=new PerformanceObserver(function(l){fn(l.getEntries());});
+      var c={type:type,buffered:true},x;
+      if(extra)for(x in extra)c[x]=extra[x];
+      o.observe(c);obs.push([o,fn]);
+    }catch(e){}
+  }
+  watch('layout-shift',function(es){
+    for(var i=0;i<es.length;i++){
+      var e=es[i];
+      if(e['hadRecentInput'])continue;
+      if(cws&&e.startTime-cwl<1000&&e.startTime-cwf<5000){cws+=e['value'];}else{cws=e['value'];cwf=e.startTime;}
+      cwl=e.startTime;
+      if(cws>cls)cls=cws;
+    }
+  });
+  watch('event',function(es){
+    for(var i=0;i<es.length;i++){
+      var e=es[i],id=e['interactionId'];
+      if(!id)continue;
+      if(!(id in ix)){if(nix>=500)continue;nix++;ix[id]=0;}
+      if(e.duration>ix[id])ix[id]=e.duration;
+    }
+  },{durationThreshold:40});
+  function clean(v){return String(v==null?'':v).slice(0,2000).replace(/[a-z][a-z0-9+.-]*:\\/\\/[^\\s)'"]*/gi,'<url>').replace(/[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+/g,'<email>').replace(/\\?[^\\s)'"]+/g,'?').replace(/[A-Za-z0-9_-]{24,}/g,'<tok>').replace(/\\s+/g,' ').trim().slice(0,${PERF_ERR_LEN});}
+  function report(k,v){
+    if(errs.length>=${PERF_ERR_MAX})return;
+    var t=clean(v);
+    if(!t||seen['$'+t])return;
+    seen['$'+t]=1;errs.push({k:k,m:t});
+  }
+  window.addEventListener('error',function(e){if(e&&e.message)report('error',e.message);});
+  window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;report('rejection',r&&r.message?r.message:r);});
   var sent=false;
   function flush(){
     if(sent)return;sent=true;
-    var imgs=[],nav=null,lcp=null,fcp=null;
+    var imgs=[],nav=null,lcp=null,fcp=null,inp=null,i;
+    try{
+      for(i=0;i<obs.length;i++){obs[i][1](obs[i][0].takeRecords());}
+      var ds=[];
+      for(var id in ix)ds.push(ix[id]);
+      ds.sort(function(a,b){return b-a;});
+      if(ds.length)inp=Math.round(ds[Math.min(ds.length-1,Math.floor(ds.length/50))]);
+    }catch(e){}
     try{
       var rs=performance.getEntriesByType('resource');
-      for(var i=0;i<rs.length;i++){if(rs[i].initiatorType==='img'&&rs[i].duration>0)imgs.push(rs[i].duration);}
+      for(i=0;i<rs.length;i++){if(rs[i].initiatorType==='img'&&rs[i].duration>0)imgs.push(rs[i].duration);}
       var ns=performance.getEntriesByType('navigation')[0];
       if(ns)nav={ttfb:Math.round(ns.responseStart),dcl:Math.round(ns.domContentLoadedEventEnd),load:Math.round(ns.loadEventEnd)};
       var le=performance.getEntriesByType('largest-contentful-paint');
@@ -2500,7 +2850,7 @@ ${enabled ? `  if(Math.random()>=${PERF_SAMPLE_RATE})return;
       var fe=performance.getEntriesByName('first-contentful-paint');
       if(fe.length)fcp=Math.round(fe[0].startTime);
     }catch(e){}
-    var body=JSON.stringify({page:m.page,fcp:fcp,lcp:lcp,nav:nav,imgCount:imgs.length,imgP50:pct(imgs,.5),imgP95:pct(imgs,.95),filterMs:m.marks.filterMs,navCount:m.marks.navCount,vw:innerWidth});
+    var body=JSON.stringify({page:m.page,fcp:fcp,lcp:lcp,nav:nav,imgCount:imgs.length,imgP50:pct(imgs,.5),imgP95:pct(imgs,.95),filterMs:m.marks.filterMs,navCount:m.marks.navCount,vw:innerWidth,inp:inp,cls:Math.round(cls*1000)/1000,errs:errs});
     try{navigator.sendBeacon('/api/perf',new Blob([body],{type:'application/json'}));}catch(e){}
   }
   addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});

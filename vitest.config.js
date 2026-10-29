@@ -39,10 +39,10 @@ export default defineConfig({
       // `node:inspector`, que não existe no workerd, então `--coverage` com a
       // suíte `workers` junto quebra. Ver o script `test:coverage`.
       thresholds: {
-        statements: 76,
-        branches: 74,
-        functions: 76,
-        lines: 81,
+        statements: 85,
+        branches: 81,
+        functions: 83,
+        lines: 89,
       },
     },
     projects: [
@@ -51,6 +51,9 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/**/*.test.js'],
           exclude: ['tests/workers/**'],
+          // Com a máquina carregada (vários workers, cobertura v8), os testes de
+          // limite de taxa passavam dos 5 s padrão sem haver defeito nenhum.
+          testTimeout: 20_000,
         },
         resolve: {
           alias: {

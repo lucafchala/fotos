@@ -217,7 +217,8 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <title>fotos · Luca F. Chala</title>
   <link rel="canonical" href="${SITE_URL}/">
@@ -238,7 +239,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;
-      --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#777;--text-dim:#555;--text-ph:#444;
+      --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#999999;--text-dim:#8c8c8c;--text-ph:#808080;
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
       --cta-bg:#c0a060;--cta-text:#0a0a0a;
       --shimmer-a:#181818;--shimmer-b:#222;
@@ -246,7 +247,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;
-        --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#8a8480;--text-ph:#9a9490;
+        --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#66605b;--text-ph:#6b6560;
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
         --cta-bg:#8a6428;--cta-text:#faf7f3;
         --shimmer-a:#ececec;--shimmer-b:#f5f5f5;
@@ -364,7 +365,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
     .cookie-notice.show{display:flex}
-    .cookie-notice a{color:var(--accent);text-decoration:none}
+    .cookie-notice a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
     .cookie-notice a:hover{text-decoration:underline}
     .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
     .cookie-notice button:hover{opacity:.85}
