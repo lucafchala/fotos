@@ -492,6 +492,16 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
     /* new-interface banner */
+    .gal-novo{max-width:420px;width:calc(100% - 32px);border:1px solid var(--bg-card-border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.5rem 1.25rem 1.1rem}
+    .gal-novo::backdrop{background:rgba(0,0,0,.6)}
+    .gal-novo h2{font-size:1.2rem;margin:.25rem 0 .4rem}
+    .gn-selo{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
+    .gn-sub{font-size:.88rem;color:var(--text-2);margin:0 0 .9rem;line-height:1.5}
+    .gn-lista{list-style:none;padding:0;margin:0 0 1.1rem;display:grid;gap:.55rem;font-size:.86rem;line-height:1.45}
+    .gn-lista li{padding-left:1.4rem;position:relative}
+    .gn-lista li::before{content:"✓";position:absolute;left:0;color:var(--ok-dot);font-weight:700}
+    .gn-ir{display:block;text-align:center;background:var(--cta-bg);color:var(--cta-text);border-radius:9px;padding:.8rem 1rem;font-weight:600;text-decoration:none}
+    .gn-depois{display:block;width:100%;margin-top:.5rem;background:none;border:none;color:var(--text-2);padding:.6rem;font-size:.85rem;cursor:pointer}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -849,6 +859,20 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
 
+  ${galeriaPublica ? `<dialog id="gal-novo" class="gal-novo" aria-labelledby="gal-novo-t">
+    <p class="gn-selo">Novidade</p>
+    <h2 id="gal-novo-t">Nova galeria de fotos</h2>
+    <p class="gn-sub">Agora dá para ver e baixar tudo aqui mesmo, sem sair do site.</p>
+    <ul class="gn-lista">
+      <li><strong>Tela cheia</strong> com zoom e deslizar entre as fotos</li>
+      <li><strong>Selecionar</strong> várias fotos ou <strong>Baixar tudo</strong> de uma vez</li>
+      <li><strong>Para redes sociais</strong>: leve, pronta para Instagram e WhatsApp</li>
+      <li><strong>Tamanho máximo</strong>: o arquivo original, em alta qualidade</li>
+      <li>No celular, <strong>salve direto na galeria</strong> do aparelho</li>
+    </ul>
+    <a class="gn-ir" href="/galeria/${escape(event.slug)}">Testar a nova galeria</a>
+    <button type="button" class="gn-depois" data-action="fechaGalNovo">Agora não</button>
+  </dialog>` : ''}
   <script nonce="${nonce}">
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
@@ -971,6 +995,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       switch (el.dataset.action) {
         case 'openSoonModal': openSoonModal(); break;
         case 'openModal': openModal(); break;
+        case 'fechaGalNovo': fechaGalNovo(); break;
         case 'closeModal': closeModal(); break;
         case 'doNativeShare': doNativeShare(); break;
         case 'copyLink': copyLink(); break;
@@ -1039,6 +1064,23 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       else                el.textContent = \`— há \${days} dia\${days !== 1 ? 's' : ''}\`;
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
+
+    // ---- Popup da nova galeria: uma vez por visitante ----
+    function fechaGalNovo() {
+      try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {}
+      const d = document.getElementById('gal-novo');
+      if (d && d.open) d.close();
+    }
+    (function(){
+      const d = document.getElementById('gal-novo');
+      if (!d || typeof d.showModal !== 'function') return;
+      let visto = false;
+      try { visto = !!localStorage.getItem('fotos:gal_novo'); } catch(_) {}
+      if (visto) return;
+      d.addEventListener('close', function(){ try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {} });
+      d.addEventListener('click', function(e){ if (e.target === d) fechaGalNovo(); });
+      setTimeout(function(){ try { d.showModal(); } catch(_) {} }, 600);
+    })();
 
     // ---- Cookie / analytics notice ----
     try {
