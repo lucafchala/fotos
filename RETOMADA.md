@@ -422,7 +422,11 @@ Gmail contam como um endereço só (`emailCanonico()`). Duas armadilhas dele:
 o **teto do dia** (`EMAIL_CODE_DAILY_CAP`) existe porque a franquia do Resend é
 a MESMA do suporte e da remoção — subir o teto pode calar os outros e-mails; e
 sem `SIGNING_SECRET` ou `RESEND_API_KEY` o caminho responde 503 (indisponível,
-nunca aberto).
+nunca aberto). **Números conferidos pelo dono (29/10/2026, #231):** o Resend
+está no plano grátis — 100 e-mails/dia e 3.000/mês para a conta inteira; o
+pico medido foi de 36 e-mails em 12/10/2026 (dia de evento), com o teto de 40
+códigos/dia. O teto fica em 40: cabe no dia com folga para suporte, remoção e
+alertas. Subir só junto de um plano maior do Resend.
 
 Mesma família no servidor: a trava do alerta de erro por e-mail era só no
 KV, e a leitura que deu `null` fica em cache no colo — numa onda de 500 cada
@@ -735,12 +739,13 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   mais relevante em aberto.
 - **Depois da rodada de 23–24/09/2026** (14 PRs, #161–#176), três coisas só o
   dono pode fazer: importar a proteção da `main` e apagar os 72 branches
-  entregues (#177); conferir em produção o que a sessão não alcançava — login
+  entregues (#177, fechada em 29/10/2026: ruleset `main-protegida` ativa,
+  "apagar branch no merge" ligado e faxina feita); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
   rollback manual (#178). O portão de preview (#179) saiu do `deploy.yml` no PR #236 (a URL nunca chegava).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
-  confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
+  o plano do Resend já foi conferido (#231, ver o código por e-mail acima),
   e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
   (#232) entrou no PR #236, junto com os outros roteiros de navegador.
 - **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
