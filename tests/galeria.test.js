@@ -108,6 +108,12 @@ beforeEach(async () => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const ctx = { waitUntil() {} };
+// Álbum público agora é aberto a todos; o fechamento vale para família/privado.
+async function virarFamilia() {
+  const eventos = structuredClone(EVENTOS);
+  eventos[0].accessType = 'family';
+  await saveEvents(env, eventos);
+}
 function get(path, { logado = true, accept = '*/*' } = {}) {
   return worker.fetch(new Request(SITE + path, {
     headers: { Accept: accept, ...(logado ? { Cookie: `__Host-session=${TOKEN}` } : {}) },
@@ -245,7 +251,8 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
 
 // ---------------------------------------------------------------------------
 describe('/galeria/<slug> — só o dono', () => {
-  it('sem sessão: o 404 de rota inexistente, sem chamar o Google nem ler sessão no KV', async () => {
+  it('álbum de família, sem sessão: o 404 de rota inexistente, sem chamar o Google nem ler sessão no KV', async () => {
+    await virarFamilia();
     const res = await get('/galeria/formatura', { logado: false });
     expect(res.status).toBe(404);
     expect(await res.text()).toContain('Página não encontrada');
@@ -253,7 +260,8 @@ describe('/galeria/<slug> — só o dono', () => {
     expect(env.FOTOS._leituras.some(k => k.startsWith('admin_session:'))).toBe(false);
   });
 
-  it('cookie de sessão inválido também é 404', async () => {
+  it('álbum de família, cookie de sessão inválido também é 404', async () => {
+    await virarFamilia();
     const res = await worker.fetch(new Request(SITE + '/galeria/formatura', { headers: { Cookie: `__Host-session=${'f'.repeat(64)}` } }), env, ctx);
     expect(res.status).toBe(404);
     expect(chamadas).toHaveLength(0);
@@ -308,7 +316,8 @@ describe('/galeria/<slug> — só o dono', () => {
 
 // ---------------------------------------------------------------------------
 describe('/galeria/<slug>/baixar/<id> — downloads', () => {
-  it('sem sessão: 404, sem chamar o Google', async () => {
+  it('álbum de família, sem sessão: 404, sem chamar o Google', async () => {
+    await virarFamilia();
     const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max', { logado: false });
     expect(res.status).toBe(404);
     expect(chamadas).toHaveLength(0);
@@ -524,5 +533,48 @@ describe('painel: o atalho para a galeria no card de cada evento', () => {
   it('o card (o mesmo no servidor e no script, ver tests/painel.test.js) aponta para /galeria/<slug>', () => {
     const html = dashboardHTML([{ ...EVENTOS[0], status: 'entregue' }], [], 'NONCE');
     expect(html).toContain('href="/galeria/formatura"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Álbum público: aberto a todos. Família/privado: só com o passe do portão.
+import { signToken as assinaPasse } from '../src/security.js';
+describe('galeria aberta ao visitante', () => {
+  const SEGREDO = 's'.repeat(48);
+  const passe = (slug, purpose = 'galeria') => assinaPasse(SEGREDO, { purpose, scope: slug, ttlSecs: 3600 });
+  const visita = (path, token) => worker.fetch(new Request(SITE + path, {
+    headers: { Accept: 'text/html', ...(token ? { Cookie: `galeria=${token}` } : {}) },
+  }), env, ctx);
+  async function comFamilia() {
+    const eventos = structuredClone(EVENTOS);
+    eventos[0].accessType = 'family';
+    await saveEvents(env, eventos);
+  }
+  beforeEach(() => { env.SIGNING_SECRET = SEGREDO; });
+
+  it('álbum público: página e download abrem sem login nem passe', async () => {
+    expect((await visita('/galeria/formatura')).status).toBe(200);
+    expect((await visita('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(200);
+  });
+
+  it('álbum de família sem passe, com passe de outro álbum, de outro propósito ou forjado: 404', async () => {
+    await comFamilia();
+    expect((await visita('/galeria/formatura')).status).toBe(404);
+    expect((await visita('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(404);
+    expect((await visita('/galeria/formatura', await passe('outro-album'))).status).toBe(404);
+    expect((await visita('/galeria/formatura', await passe('formatura', 'drive'))).status).toBe(404);
+    expect((await visita('/galeria/formatura', 'zzz.forjado')).status).toBe(404);
+  });
+
+  it('álbum de família com o passe do álbum: abre', async () => {
+    await comFamilia();
+    expect((await visita('/galeria/formatura', await passe('formatura'))).status).toBe(200);
+  });
+
+  it('álbum "Em breve" continua fechado', async () => {
+    const eventos = structuredClone(EVENTOS);
+    eventos[0].comingSoon = true;
+    await saveEvents(env, eventos);
+    expect((await visita('/galeria/formatura')).status).toBe(404);
   });
 });

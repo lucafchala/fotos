@@ -1,6 +1,7 @@
 import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
+import { pastaDoDrive } from '../drive.js';
 
 // Larguras das fotos do carrossel/hero, da menor para a maior. A última é a
 // que o servidor emite no src (e o fallback de quem não entende srcset); o
@@ -77,6 +78,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // informação que o destinatário procura quando o evento é de uma instituição
   // — e porque o WhatsApp corta o resto.
   const restrictedAccess = isRestrictedAccess(event);
+  // Galeria própria aberta a todos nos álbuns públicos com pasta do Drive:
+  // o botão sai pronto, sem portão. Restritos ganham o botão depois do portão.
+  const galeriaPublica = !restrictedAccess && !event.comingSoon && !!pastaDoDrive(event.driveUrl);
   const ogDescription = previewDescription([
     event.comingSoon ? 'Em breve' : '',
     event.date ? formatDatePT(event.date) : '',
@@ -555,7 +559,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             As fotos virão em breve
           </button>`
-        : `<button class="btn-drive" data-action="openModal">
+        : galeriaPublica
+          ? `<a class="btn-drive" href="/galeria/${escape(event.slug)}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
+            Ver e baixar as fotos
+          </a>
+          <p class="drive-dl-tip" style="text-align:left">📸 Toque numa foto para ver em tela cheia. Para baixar, use <strong>Selecionar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (leve, pronta para Instagram e WhatsApp) ou <strong>Tamanho máximo</strong> (o original). No celular, dá para salvar direto na galeria do aparelho.</p>
+          <button type="button" class="btn-drive-alt" data-action="openModal" style="margin-top:.75rem;background:none;border:none;color:var(--text-2);text-decoration:underline;cursor:pointer;font-size:.85rem">Prefere o Google Drive? Abrir no Drive</button>`
+          : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             ${ctaLabel}
           </button>`}
@@ -599,7 +610,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${footerLegalLinksHTML()}
   </footer>
 
-  ${!event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="${ctaLabel}">
+  ${galeriaPublica ? `<a class="sticky-cta" id="sticky-cta" href="/galeria/${escape(event.slug)}">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
+    Ver e baixar as fotos
+  </a>` : !event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="${ctaLabel}">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
     ${ctaLabel}
   </button>` : ''}
@@ -676,6 +690,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         <div id="drive-refreshed-note" class="drive-verifying" style="display:none">
           <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
         </div>
+        ${galeriaPublica
+          ? `<a id="galeria-link" href="/galeria/${escape(event.slug)}" class="btn-drive-go" style="margin-top:1rem">Ver as fotos e baixar aqui no site</a>`
+          : '<a id="galeria-link" href="#" class="btn-drive-go" style="display:none;margin-top:1rem">Ver as fotos e baixar aqui no site</a>'}
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
         ${event.driveUrlInstagram || hasVideos
           ? `<div class="drive-opts">
@@ -703,6 +720,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
               Ir para o Google Drive
             </a>`}
         </div>
+        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}>📸 <strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, usa <strong>Selecionar</strong> para escolher várias (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (leve, pronta para Instagram e WhatsApp) ou em <strong>Tamanho máximo</strong> (o original). No celular, dá para salvar direto na galeria do aparelho.</p>
         <p class="drive-dl-tip">💡 No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
         <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
@@ -1492,6 +1510,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
         const videos = document.getElementById('drive-link-videos');
         if (videos) videos.href = (data && data.driveUrlVideos) || '#';
+        const gal = document.getElementById('galeria-link');
+        if (gal && data && typeof data.galeriaUrl === 'string' && data.galeriaUrl.indexOf('/galeria/') === 0) {
+          gal.href = data.galeriaUrl;
+          gal.style.display = '';
+          const galTip = document.getElementById('galeria-tip');
+          if (galTip) galTip.style.display = '';
+        }
         driveAttnTimer = setTimeout(function() { wrap.classList.add('drive-attn'); }, 7000);
       } else if (state === 'error') {
         wrap.classList.add('drive-locked');
