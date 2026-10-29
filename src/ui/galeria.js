@@ -449,7 +449,7 @@ const SCRIPT = `
     const W = Math.floor(main.clientWidth - parseFloat(estilo.paddingLeft) - parseFloat(estilo.paddingRight));
     if (!W || W < 50) return;
     larguraDiagramada = main.clientWidth;
-    const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 220 : W < 900 ? 220 : 240;
+    const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 300 : W < 900 ? 260 : 240;
     const gap = W < 520 ? 3 : 5;
     grades.forEach(function (g) { diagrama(g, W, alvo, gap); });
   }

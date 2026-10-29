@@ -147,7 +147,7 @@ export const GALERIA_LADO_REDES = 2048;
 // Degraus acima do tamanho real da foto são cortados na hora de montar.
 export const GALERIA_LARGURAS = [480, 800, 1200, 1600, 2048, 2560, 3200, 4096, 5120, 6400];
 // Miniaturas da grade: a menor que cobre o quadradinho em pixels físicos.
-export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 600, 800, 1000];
+export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 600, 800, 1000, 1200, 1600];
 
 // ---------------------------------------------------------------------------
 // Métricas por dia (v2, #215)
