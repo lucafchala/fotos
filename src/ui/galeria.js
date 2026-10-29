@@ -96,9 +96,10 @@ const CONSERTOS = {
  *   erro: { codigo: string, mensagem: string } | null,
  *   nonce: string,
  *   dono?: boolean,
+ *   ocultas?: string[],
  * }} p
  */
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [] }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -124,6 +125,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
     grade: GALERIA_LARGURAS_GRADE,
     ladoRedes: GALERIA_LADO_REDES,
     drive: drive || '',
+    // Só o dono recebe a lista do que está oculto (o visitante já recebe a
+    // listagem sem essas fotos) e o botão de ocultar no visualizador.
+    dono: !!dono,
+    ocultas: dono ? ocultas : [],
     lightbox: vendorPath('vendor/photoswipe/photoswipe-lightbox.esm.min.js'),
     core: vendorPath('vendor/photoswipe/photoswipe.esm.min.js'),
   } : null;
@@ -228,6 +233,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
     .g-t.sel .g-ck{display:block;background:var(--accent);border-color:var(--accent)}
     .g-t.sel .g-ck::after{content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;border:solid var(--accent-text);border-width:0 2px 2px 0;transform:rotate(45deg)}
     .g-t.sel img{opacity:.78}
+    .g-t.oculta img.ok{opacity:.3}
+    .g-t .g-oc{position:absolute;left:6px;top:6px;padding:.15rem .45rem;border-radius:4px;background:rgba(0,0,0,.7);color:#fff;font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:none}
+    .g-t.oculta .g-oc{display:block}
     .g-barra{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem .5rem 1rem;border-radius:999px;background:var(--bg-card-2);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:.85rem;max-width:calc(100vw - 24px)}
     .g-barra[hidden]{display:none}
     .g-topo{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.3);opacity:0;visibility:hidden;transform:translateY(8px);pointer-events:none;transition:opacity .15s ease-out,transform .15s var(--sai),visibility 0s .15s}
@@ -276,6 +284,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
     .pswp:not(.pswp--ui-visible) .pswp__g-legenda{opacity:0}
     .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
+    .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
+    .pswp__counter{white-space:nowrap}
     @media (prefers-reduced-motion: reduce){
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
       .g-topo,.g-folha-c,.g-aviso-flut{transition:opacity .1s linear;transform:none}
@@ -296,6 +306,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
     ${drive ? `<a href="${escape(drive)}" target="_blank" rel="noopener">Abrir no Drive</a>` : ''}
     ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
     ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
+    ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
   </div>` : ''}
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
@@ -353,8 +364,10 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, lightbox: string, core: string }} */
+  /** @type {{ slug: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
+  // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
+  const ocultas = new Set(D.ocultas || []);
 
   // ---- Dados ----
   /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
@@ -442,6 +455,13 @@ const SCRIPT = `
         a.appendChild(img);
         a.appendChild(ck);
         a.appendChild(fv);
+        if (D.dono) {
+          const oc = document.createElement('span');
+          oc.className = 'g-oc';
+          oc.textContent = 'Oculta';
+          a.appendChild(oc);
+          if (ocultas.has(f[0])) a.classList.add('oculta');
+        }
         /** @type {Foto} */
         const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
         img.addEventListener('load', function () { carregou(foto); });
@@ -785,6 +805,7 @@ const SCRIPT = `
   const ICONE_BAIXAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M15 6h2v12.2l4.3-4.3 1.4 1.4-6.7 6.7-6.7-6.7 1.4-1.4 4.3 4.3zM8 24h16v2H8z"/></svg>';
   const ICONE_CORACAO_PSWP = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 27.500 14.300 26C8.600 20.900 5 17.700 5 13.600 5 10.400 7.500 8 10.600 8c1.800 0 3.500.8 4.600 2.100l.8.9.8-.9C18 8.800 19.700 8 21.500 8 24.500 8 27 10.400 27 13.600c0 4.100-3.600 7.300-9.300 12.400z"/></svg>';
   const ICONE_COMPARTILHAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 5l6 6-1.400 1.400L17 8.800V20h-2V8.800l-3.600 3.600L10 11zM8 15h4v2h-2v9h12v-9h-2v-2h4v13H8z"/></svg>';
+  const ICONE_OCULTAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 9c-5.500 0-9.300 4.400-10.500 7 1.200 2.600 5 7 10.500 7s9.300-4.400 10.500-7C25.300 13.400 21.500 9 16 9zm0 11.500a4.500 4.500 0 1 1 0-9 4.500 4.500 0 0 1 0 9zM6.400 5 5 6.400 25.600 27 27 25.600z"/></svg>';
   const ICONE_SEL = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 6a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.5 14.6-4.6-4.6 1.4-1.4 3.2 3.2 6.6-6.6 1.4 1.4z"/></svg>';
 
   // ---- Voltar fecha a camada de cima, como num app ----
@@ -816,6 +837,10 @@ const SCRIPT = `
         arrowNextTitle: 'Próxima',
         errorMsg: 'A foto não carregou.',
         indexIndicatorSep: ' de ',
+        // O dono tem um botão a mais (ocultar). Em celular estreito, a lupa
+        // sai para a barra caber sem espremer o contador: ali o zoom é pinça
+        // e toque duplo.
+        zoom: !(D.dono && toqueEstreito()),
       });
       lightbox.addFilter('numItems', function () { return vistas.length; });
       lightbox.addFilter('itemData', function (_d, index) { return dadosSlide(vistas[index]); });
@@ -859,6 +884,38 @@ const SCRIPT = `
 
   /** @type {() => void} */
   let sincronizaFavUi = function () {};
+  /** @type {() => void} */
+  let sincronizaOcultaUi = function () {};
+
+  // ---- Ocultar dos visitantes (só o dono) ----
+  // Uma foto por vez, gravada no servidor na hora: o visitante deixa de
+  // receber a foto na lista e o download dela vira 404. A foto segue no Drive.
+  let ocultando = false;
+  function alternaOculta(f) {
+    if (ocultando) return;
+    ocultando = true;
+    const querOculta = !ocultas.has(f.id);
+    fetch('/api/galeria/ocultar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: D.slug, foto: f.id, oculta: querOculta }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ('Erro ' + r.status));
+        return j;
+      });
+    }).then(function (j) {
+      ocultas.clear();
+      (j.ocultas || []).forEach(function (id) { ocultas.add(id); });
+      fotos.forEach(function (x) { x.el.classList.toggle('oculta', ocultas.has(x.id)); });
+      const n = document.getElementById('g-n-ocultas');
+      if (n) n.textContent = ocultas.size ? ocultas.size + (ocultas.size === 1 ? ' oculta' : ' ocultas') + ' para os visitantes' : 'Nenhuma foto oculta';
+      sincronizaOcultaUi();
+      avisa(querOculta ? 'Oculta para os visitantes (some para todos em até 2 min)' : 'Visível de novo para os visitantes');
+    }).catch(function (e) {
+      avisa(e && e.message ? e.message : 'Não deu para gravar. Tente de novo.');
+    }).then(function () { ocultando = false; });
+  }
   function registraUi() {
     const pswp = lightbox.pswp;
     pswp.ui.registerElement({
@@ -915,6 +972,28 @@ const SCRIPT = `
         if (f) compartilhaFoto(f);
       },
     });
+    if (D.dono) {
+      pswp.ui.registerElement({
+        name: 'g-ocultar', order: 11, isButton: true, title: 'Ocultar dos visitantes', html: ICONE_OCULTAR,
+        onInit: function (el, p) {
+          const sync = function () {
+            const f = vistas[p.currIndex];
+            const on = !!f && ocultas.has(f.id);
+            el.classList.toggle('on', on);
+            el.setAttribute('aria-pressed', String(on));
+            el.title = on ? 'Oculta: toque para mostrar aos visitantes' : 'Ocultar dos visitantes';
+            el.setAttribute('aria-label', el.title);
+          };
+          sincronizaOcultaUi = sync;
+          p.on('change', sync);
+          sync();
+        },
+        onClick: function (_e, _el, p) {
+          const f = vistas[p.currIndex];
+          if (f) alternaOculta(f);
+        },
+      });
+    }
     pswp.ui.registerElement({
       name: 'g-legenda', order: 9, isButton: false, appendTo: 'root', html: '',
       onInit: function (el, p) {
@@ -928,6 +1007,10 @@ const SCRIPT = `
         sync();
       },
     });
+  }
+
+  function toqueEstreito() {
+    try { return matchMedia('(pointer: coarse) and (max-width: 419px)').matches; } catch (e) { return false; }
   }
 
   function abre(i) {

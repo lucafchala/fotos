@@ -111,7 +111,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, escuro?: boolean }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, escuro?: boolean, ocultas?: string[] }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -139,7 +139,10 @@ async function abre(o = {}) {
     downloads: /** @type {string[]} */ ([]),
     erros: /** @type {string[]} */ ([]),
     csp: /** @type {string[]} */ ([]),
+    ocultar: /** @type {{ foto: string, oculta: boolean }[]} */ ([]),
   };
+  /** @type {Set<string>} */
+  const ocultasNoServidor = new Set(o.ocultas || []);
   page.on('pageerror', e => estado.erros.push(String(e)));
   vigiaCsp(page, estado.csp);
   await page.route('**/*', async route => {
@@ -155,6 +158,12 @@ async function abre(o = {}) {
     if (u.host !== 'fotos.test') return route.fulfill({ status: 204, body: '' });
     if (u.pathname === '/galeria/formatura') {
       return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE), body: o.pagina || PAGINA });
+    }
+    if (u.pathname === '/api/galeria/ocultar' && r.method() === 'POST') {
+      const corpo = JSON.parse(r.postData() || '{}');
+      estado.ocultar.push({ foto: corpo.foto, oculta: corpo.oculta });
+      if (corpo.oculta) ocultasNoServidor.add(corpo.foto); else ocultasNoServidor.delete(corpo.foto);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ocultas: [...ocultasNoServidor] }) });
     }
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
@@ -586,6 +595,62 @@ await cenario('Centenas de fotos', async () => {
   registra(tarefas <= 8, `${N} fotos: poucas tarefas longas na rolagem`, tarefas);
   registra(estado.erros.length === 0 && estado.csp.length === 0, `${N} fotos: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
   await ctx.close();
+});
+
+// ---- 6d. Ocultar dos visitantes (só o dono) ---------------------------------
+await cenario('Ocultar', async () => {
+  const JA = pid('RAIZFOTO', 1);
+  const ALVO = pid('RAIZFOTO', 0);
+  const pagina = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA] });
+  const { ctx, page, estado } = await abre({ pagina, ocultas: [JA] });
+  const marcada = await page.evaluate(id => {
+    const a = document.querySelector('.g-t[href="#foto=' + id + '"]');
+    const selo = a && a.querySelector('.g-oc');
+    return { classe: !!a && a.classList.contains('oculta'), selo: selo ? getComputedStyle(selo).display : '' };
+  }, JA);
+  registra(marcada.classe && marcada.selo === 'block', 'Dono: a foto já oculta aparece apagada, com o selo "Oculta"', marcada);
+  registra((await page.locator('#g-n-ocultas').textContent()) === '1 oculta para os visitantes', 'Dono: a faixa diz quantas estão ocultas');
+  await page.locator(`.g-t[href="#foto=${ALVO}"]`).click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(page, 500);
+  const botao = page.locator('.pswp__button--g-ocultar');
+  registra((await botao.count()) === 1 && (await botao.getAttribute('aria-pressed')) === 'false', 'Dono: o visualizador tem o botão de ocultar, desligado numa foto visível');
+  await botao.click();
+  await espera(page, 400);
+  const depois = await page.evaluate(id => document.querySelector('.g-t[href="#foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
+  registra(estado.ocultar.length === 1 && estado.ocultar[0].foto === ALVO && estado.ocultar[0].oculta === true && depois === true
+    && (await botao.getAttribute('aria-pressed')) === 'true', 'Dono: ocultar grava no servidor e marca a miniatura', estado.ocultar);
+  registra((await page.locator('#g-aviso-flut').textContent() || '').startsWith('Oculta para os visitantes'), 'Dono: um aviso confirma que ocultou');
+  registra((await page.locator('#g-n-ocultas').textContent()) === '2 ocultas para os visitantes', 'Dono: a contagem da faixa acompanha');
+  await botao.click();
+  await espera(page, 400);
+  const voltou = await page.evaluate(id => document.querySelector('.g-t[href="#foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
+  registra(estado.ocultar.length === 2 && estado.ocultar[1].oculta === false && voltou === false, 'Dono: tocar de novo mostra a foto aos visitantes', estado.ocultar);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-ocultar.png') });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Ocultar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+
+  // No celular, a barra do dono tem um botão a mais: todos cabem na tela.
+  const cel = await abre({ pagina, ocultas: [JA], viewport: { width: 360, height: 780 }, dpr: 3, toque: true });
+  await cel.page.locator('.g-t').first().click();
+  await cel.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(cel.page, 500);
+  const caixas = await cel.page.evaluate(() => [...document.querySelectorAll('.pswp__top-bar .pswp__button')]
+    .filter(b => getComputedStyle(b).display !== 'none')
+    .map(b => { const r = b.getBoundingClientRect(); return { n: b.className.replace(/.*pswp__button--/, ''), l: Math.round(r.left), r: Math.round(r.right) }; }));
+  const cont = await cel.page.evaluate(() => { const c = document.querySelector('.pswp__counter'); const r = c ? c.getBoundingClientRect() : null; return r ? { dir: Math.round(r.right), alt: Math.round(r.height) } : { dir: 0, alt: 0 }; });
+  registra(caixas.some(c => c.n === 'g-ocultar') && caixas.every(c => c.l >= 0 && c.r <= 360) && Math.min(...caixas.map(c => c.l)) >= cont.dir && cont.alt <= 40,
+    'Dono no celular (360 px): a barra do visualizador cabe, com o contador numa linha só', { cont, caixas });
+  if (PRINTS) await cel.page.screenshot({ path: join(PRINTS, 'galeria-ocultar-celular.png') });
+  await cel.ctx.close();
+
+  const visit = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false }) });
+  await visit.page.locator('.g-t').first().click();
+  await visit.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(visit.page, 400);
+  registra((await visit.page.locator('.pswp__button--g-ocultar').count()) === 0 && (await visit.page.locator('.g-oc').count()) === 0,
+    'Visitante: nem botão de ocultar nem selo "Oculta"');
+  await visit.ctx.close();
 });
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------

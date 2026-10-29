@@ -18,7 +18,29 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [2.1.1] — ainda não publicada
+## [2.2.0] — ainda não publicada
+
+### Novo
+
+- **Ocultar uma foto da galeria.** O dono abre a foto na galeria e toca no
+  olho ("Ocultar dos visitantes"): a foto some para o público em até 2 min —
+  o visitante recebe a lista já sem ela, e o download dela vira 404. O dono
+  continua vendo, apagada e com o selo "Oculta", e toca de novo para mostrar.
+  É o caminho de um pedido de remoção (LGPD) enquanto a foto não sai do
+  Drive; o texto dos pedidos no painel diz isso. Até 500 por projeto, uma
+  escrita de KV por clique.
+- **Downloads da galeria contados por versão.** Cada foto baixada por
+  visitante soma em "para redes" ou "tamanho máximo" (Durable Object, nunca
+  KV por visitante). O painel mostra a coluna "Galeria ↓" nas métricas, e o
+  CSV ganhou `baixarRedes` e `baixarMax`.
+
+### Mudou
+
+- **Documentação** deixa de chamar a galeria de "prévia só do dono": diz quem
+  vê (álbum público, todos; família e privado, com o passe; "Em breve",
+  ninguém).
+
+## [2.1.1] — 29/10/2026
 
 ### Mudou
 

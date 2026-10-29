@@ -491,7 +491,7 @@ async function acao(request, url, env, autenticado) {
  */
 function chavesDeMetricas(eventos) {
   const chaves = ['gate:turnstile', 'gate:email', 'gate:noscript'];
-  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`);
+  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`);
   return chaves;
 }
 

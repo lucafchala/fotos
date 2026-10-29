@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, photoAlts: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, photoAlts: [], fotosOcultas: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -122,7 +122,7 @@ export const NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS = 6 * 3600;
 export const HEALTHZ_CONTRATO = 1;
 
 // ---------------------------------------------------------------------------
-// Galeria própria (#234/#235) — PRÉVIA, só para o dono logado no painel
+// Galeria própria (#234/#235) — aberta nos álbuns públicos; família/privado com passe
 // ---------------------------------------------------------------------------
 // A lista da pasta do Drive fica guardada por 10 min (memória do isolate +
 // Cache API, sem escrita de KV). "Atualizar lista" na página força a releitura.
@@ -141,6 +141,10 @@ export const GALERIA_MAX_CHAMADAS = 30;
 // largura (1440 de altura no 4:5) e o WhatsApp recomprime; 2048 dá folga para
 // recorte sem virar arquivo pesado (~0,5–1 MB em JPEG).
 export const GALERIA_LADO_REDES = 2048;
+// Teto de fotos ocultas por projeto (o dono esconde uma foto da galeria pelo
+// visualizador, #235). A lista mora no próprio evento, no KV `events`, que
+// toda página lê: 500 IDs são ~20 KB a mais, longe do 1 MB por chave.
+export const GALERIA_MAX_OCULTAS = 500;
 // Escada de larguras do visualizador, do menor ao maior. O navegador escolhe a
 // menor que cobre a foto NA TELA em pixels físicos (srcset + sizes), e o zoom
 // sobe o `sizes` — então ampliar busca o próximo degrau, até o original.
@@ -205,4 +209,4 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '2.1.1';
+export const VERSAO = '2.2.0';

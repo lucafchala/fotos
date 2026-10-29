@@ -14,7 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -46,7 +46,7 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES, GALERIA_MAX_OCULTAS,
   METRICAS_DIAS_MAX, GATE_METODOS,
 } from './config.js';
 
@@ -288,6 +288,7 @@ const worker = {
       if (path === '/api/events/bulk-category' && method === 'POST') return await handleBulkCategory(request, env);
       if (path === '/api/events/bulk-access' && method === 'POST') return await handleBulkAccessType(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
+      if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
       if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
@@ -357,12 +358,12 @@ const worker = {
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
       if (resolveMatch && method === 'PUT') return await handleResolveRequest(request, env, resolveMatch[1]);
 
-      // Galeria própria — PRÉVIA, só para o dono logado (#235). Para qualquer
-      // outra pessoa é o mesmo 404 de uma rota que não existe.
+      // Galeria própria (#235). Quem vê decide podeVerGaleria(); para quem não
+      // pode, o mesmo 404 de uma rota que não existe.
       const galeriaMatch = path.match(GALERIA_PATH_RE);
       if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
       const baixarMatch = path.match(GALERIA_BAIXAR_RE);
-      if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url);
+      if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
 
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
@@ -1066,6 +1067,10 @@ export function normalizeEventFields(body, base, cats) {
     photoAlts: pick('photoAlts', v => (Array.isArray(v) ? v.slice(0, 6).map(t => String(t ?? '').trim().slice(0, 140)) : [])),
     pinned: pick('pinned', v => v === true),
     photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
+    // IDs do Drive das fotos que a galeria esconde do público (#235). O
+    // visualizador do dono muda um por vez (POST /api/galeria/ocultar); aqui
+    // passa quem devolve o evento inteiro (o formulário, o "Ocultar" da lista).
+    fotosOcultas: pick('fotosOcultas', normalizaOcultas),
   };
 }
 
@@ -1204,10 +1209,10 @@ async function handleDeleteEvent(request, env, path) {
 
   const [removed] = events.splice(idx, 1);
   await saveEvents(env, events);
-  // Os dois contadores, não só o de visitas: `drive_clicks:<slug>` ficava para
-  // trás na versão em KV e ressurgia somado se um projeto novo reaproveitasse o
-  // slug.
-  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`]);
+  // Todos os contadores do projeto, não só o de visitas: `drive_clicks:<slug>`
+  // ficava para trás na versão em KV e ressurgia somado se um projeto novo
+  // reaproveitasse o slug. Os downloads da galeria, pelo mesmo motivo.
+  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
   return jsonOk({ deleted: true });
 }
 
@@ -1381,13 +1386,22 @@ async function handleMetrics(request, env) {
   // subrequisição (limite de 50/invocação no plano free), e 28 projetos já
   // estourava esse teto no laço antigo. Ver src/counters.js.
   const chaves = events.flatMap(e => [`views:${e.slug}`, `drive_clicks:${e.slug}`]);
-  const contagens = await readCounters(env, chaves);
+  // Os downloads da galeria nasceram no Durable Object (nunca estiveram no
+  // KV): sem assentamento, chave ausente é zero — e nenhuma leitura de KV a
+  // mais por projeto.
+  const chavesBaixar = events.flatMap(e => [`baixar_redes:${e.slug}`, `baixar_max:${e.slug}`]);
+  const [contagens, baixados] = await Promise.all([
+    readCounters(env, chaves),
+    readCounters(env, chavesBaixar, { legado: false }),
+  ]);
 
   const metrics = events.map(e => ({
     slug: e.slug,
     title: e.title,
     views: contagens[`views:${e.slug}`] || 0,
     driveClicks: contagens[`drive_clicks:${e.slug}`] || 0,
+    baixarRedes: baixados[`baixar_redes:${e.slug}`] || 0,
+    baixarMax: baixados[`baixar_max:${e.slug}`] || 0,
   }));
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
@@ -3389,7 +3403,7 @@ function handleVendor(path) {
 }
 
 // ---------------------------------------------------------------------------
-// Galeria própria — PRÉVIA (#234/#235)
+// Galeria própria (#234/#235)
 // ---------------------------------------------------------------------------
 // Fotos da pasta do Drive dentro do site, com visualizador e downloads
 // próprios. Desde 29/10/2026, aberta a todos nos álbuns públicos, sem portão
@@ -3463,7 +3477,13 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
   // Depois de reler, volta para o endereço limpo: recarregar a página não
   // pode virar uma nova leitura forçada a cada F5.
   if (atualizar && listagem) return redirect(`/galeria/${slug}`);
-  return adminHtml(galeriaHTML({ event, listagem, erro, nonce, dono: !!dono }), 200, nonce);
+  const ocultas = normalizaOcultas(event.fotosOcultas);
+  // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
+  // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
+  if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
+  return adminHtml(galeriaHTML({
+    event, listagem, erro, nonce, dono: !!dono, ...(dono ? { ocultas } : {}),
+  }), 200, nonce);
 }
 
 /**
@@ -3479,8 +3499,9 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
  * @param {string} slug
  * @param {string} fileId
  * @param {URL} url
+ * @param {ExecutionContext} [ctx]
  */
-export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
+export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   if (!idDriveValido(fileId)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
@@ -3497,6 +3518,9 @@ export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
   }
   const foto = achaFoto(listagem, fileId);
   if (!foto) return notFound();
+  // Foto oculta é, para o público, foto que não existe. O dono ainda baixa.
+  const dono = await verifySession(env, request);
+  if (!dono && normalizaOcultas(event.fotosOcultas).includes(fileId)) return notFound();
 
   const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
   /** @type {Record<string, string>} */
@@ -3546,7 +3570,42 @@ export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
   h.set('X-Nome-Arquivo', encodeURIComponent(nome));
   const tamanho = up.headers.get('Content-Length');
   if (tamanho) h.set('Content-Length', tamanho);
+  // Quantas baixadas de cada versão por projeto (#235), no Durable Object —
+  // nunca KV por visitante. O dono testando não conta.
+  if (!dono) bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
   return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * Oculta (ou mostra de novo) UMA foto da galeria de um projeto — o caminho
+ * de um pedido de remoção (LGPD) ou de uma foto que não devia estar lá. Só o
+ * dono. A foto continua no Drive: ocultar tira da galeria e do download do
+ * site; para tirar de vez, apaga-se no Drive. Uma escrita de KV por clique.
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleOcultarFoto(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const { slug, foto } = body;
+  if (typeof foto !== 'string' || !idDriveValido(foto)) return jsonErr('Foto inválida.', 400);
+  if (typeof body.oculta !== 'boolean') return jsonErr('Diga se a foto fica oculta (true) ou visível (false).', 400);
+
+  const events = await getEvents(env, true);
+  const idx = events.findIndex(e => e.slug === slug);
+  if (idx === -1) return jsonErr('Projeto não encontrado.', 404);
+  const atual = normalizaOcultas(events[idx].fotosOcultas);
+  const ja = atual.includes(foto);
+  if (ja === body.oculta) return jsonOk({ ocultas: atual });
+  if (body.oculta && atual.length >= GALERIA_MAX_OCULTAS) {
+    return jsonErr(`Este projeto já tem ${GALERIA_MAX_OCULTAS} fotos ocultas. Apague as que não servem no Drive.`, 409);
+  }
+  const ocultas = body.oculta ? [...atual, foto] : atual.filter(id => id !== foto);
+  events[idx] = { ...events[idx], fotosOcultas: ocultas, updatedAt: new Date().toISOString() };
+  await saveEvents(env, events);
+  return jsonOk({ ocultas });
 }
 
 /**
@@ -3728,6 +3787,8 @@ function sanitizeRestoredEvent(ev) {
   // Vira pedaço de URL (src do iframe e da miniatura): só um ID válido passa.
   if (out.youtubeId !== undefined) out.youtubeId = youtubeIdFrom(out.youtubeId);
   if (out.youtubeMais !== undefined) out.youtubeMais = youtubeMaisFrom(out.youtubeMais);
+  // Decide o que o público vê na galeria: só IDs do Drive válidos.
+  if (out.fotosOcultas !== undefined) out.fotosOcultas = normalizaOcultas(out.fotosOcultas);
   return out;
 }
 
