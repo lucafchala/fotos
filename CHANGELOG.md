@@ -18,6 +18,18 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [2.2.1] — ainda não publicada
+
+### Mudou
+
+- **Dependências de desenvolvimento** atualizadas num PR só (juntando os PRs
+  do Dependabot #228, #237, #238, #240 e #243): `eslint` 10.13.0, `wrangler`
+  4.152.0, `@cloudflare/workers-types` 5.20261026.1, `playwright-core`
+  1.64.1 (Chromium 156 nos roteiros) e `@cloudflare/vitest-pool-workers`
+  0.23.0. Nada muda no que vai ao ar além do bundle gerado pelo `wrangler`
+  novo. O `vitest-pool-workers` avisa que passou a se chamar
+  `@cloudflare/vitest-plugin`; a troca fica para o #180.
+
 ## [2.2.0] — ainda não publicada
 
 ### Novo
