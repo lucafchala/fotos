@@ -294,6 +294,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
       <div class="g-acoes">
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
+        ${listagem && total ? '<button type="button" class="g-btn" data-acao="compartilhar" aria-label="Compartilhar a página do projeto"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar</span></button>' : ''}
         <a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>
       </div>
     </div>
@@ -1173,6 +1174,23 @@ const SCRIPT = `
     flutT = setTimeout(function () { flut.classList.remove('on'); }, 1800);
   }
 
+  // Compartilhar a PÁGINA DO PROJETO (não a galeria): é o link que o dono
+  // divulga, com a capa e o resumo certos nas redes.
+  function compartilhaPagina() {
+    const url = location.origin + '/' + encodeURIComponent(D.slug);
+    const h1 = document.getElementById('g-h1');
+    const titulo = h1 ? (h1.textContent || '') : document.title;
+    if (navigator.share) {
+      navigator.share({ title: titulo, url: url }).catch(function () {});
+      return;
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(function () { avisa('Link copiado'); }, function () { avisa(url); });
+    } else {
+      avisa(url);
+    }
+  }
+
   // ---- Eventos ----
   main.addEventListener('click', function (e) {
     const alvo = /** @type {Element} */ (e.target);
@@ -1208,6 +1226,7 @@ const SCRIPT = `
       if (lista.length) abreFolha(lista); else avisa('Nenhuma foto selecionada');
     }
     else if (acao === 'baixar-tudo') abreFolhaTudo();
+    else if (acao === 'compartilhar') compartilhaPagina();
     else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);

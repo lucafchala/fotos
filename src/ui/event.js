@@ -498,8 +498,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .gn-selo{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
     .gn-sub{font-size:.88rem;color:var(--text-2);margin:0 0 .9rem;line-height:1.5}
     .gn-lista{list-style:none;padding:0;margin:0 0 1.1rem;display:grid;gap:.55rem;font-size:.86rem;line-height:1.45}
-    .gn-lista li{padding-left:1.4rem;position:relative}
-    .gn-lista li::before{content:"✓";position:absolute;left:0;color:var(--ok-dot);font-weight:700}
+    .gn-lista li{display:flex;gap:.7rem;align-items:center}
+    .gn-ic{flex-shrink:0;width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:var(--bg-card-2, rgba(127,127,127,.12));color:var(--accent)}
+    .gn-topo{display:flex;align-items:center;gap:.75rem;margin-bottom:.35rem}
+    .gn-hero{width:52px;height:52px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;background:var(--cta-bg);color:var(--cta-text)}
+    .gal-novo[open]{animation:gnEntra .28s cubic-bezier(.23,1,.32,1)}
+    @keyframes gnEntra{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion: reduce){.gal-novo[open]{animation:none}}
     .gn-ir{display:block;text-align:center;background:var(--cta-bg);color:var(--cta-text);border-radius:9px;padding:.8rem 1rem;font-weight:600;text-decoration:none}
     .gn-depois{display:block;width:100%;margin-top:.35rem;background:none;border:none;color:var(--text-2);padding:.55rem;font-size:.85rem;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
     .gn-depois:disabled{opacity:.55;cursor:default;text-decoration:none}
@@ -861,17 +866,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   ${galeriaPublica ? `<dialog id="gal-novo" class="gal-novo" aria-labelledby="gal-novo-t">
-    <p class="gn-selo">Novidade</p>
+    <div class="gn-topo"><span class="gn-hero" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><p class="gn-selo">✨ Novidade</p></div>
     <h2 id="gal-novo-t">Nova galeria de fotos</h2>
     <p class="gn-sub">Agora dá para ver e baixar tudo aqui mesmo, sem sair do site.</p>
     <ul class="gn-lista">
-      <li><strong>Tela cheia</strong> com zoom e deslizar entre as fotos</li>
-      <li><strong>Selecionar</strong> várias fotos ou <strong>Baixar tudo</strong> de uma vez</li>
-      <li><strong>Para redes sociais</strong>: leve, pronta para Instagram e WhatsApp</li>
-      <li><strong>Tamanho máximo</strong>: o arquivo original, em alta qualidade</li>
-      <li>No celular, <strong>salve direto na galeria</strong> do aparelho</li>
+      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span><strong>Tela cheia</strong> com zoom e deslizar entre as fotos</span></li>
+      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span><span><strong>Selecionar</strong> várias fotos ou <strong>Baixar tudo</strong> de uma vez</span></li>
+      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg></span><span><strong>Para redes sociais</strong>: leve, pronta para Instagram e WhatsApp</span></li>
+      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span><span><strong>Tamanho máximo</strong>: o arquivo original, em alta qualidade</span></li>
+      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></span><span>No celular, <strong>salve direto na galeria</strong> do aparelho</span></li>
     </ul>
-    <a class="gn-ir" href="/galeria/${escape(event.slug)}">Testar a nova galeria</a>
+    <a class="gn-ir" href="/galeria/${escape(event.slug)}">Ver a nova galeria <span aria-hidden="true">→</span></a>
     <button type="button" class="gn-depois" data-action="galNovoDrive">Prefere o Google Drive? Abrir no Drive</button>
     <button type="button" class="gn-depois" id="gn-fechar" data-action="fechaGalNovo" disabled>Agora não (<span id="gn-seg">4</span>)</button>
   </dialog>` : ''}
