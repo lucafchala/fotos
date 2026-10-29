@@ -888,3 +888,27 @@ describe('nome do consentimento: servidor × página (#146)', () => {
     expect(nomes.filter(n => nomeDeConsentimento(n))).toEqual(['Jo', ' Jo ', 'Ana', 'José da Silva', 'Ñ7', '李明', 'Ana-Maria']);
   });
 });
+
+describe('passe da galeria própria', () => {
+  it('portão aprovado em álbum de família com pasta e chave: devolve galeriaUrl e o cookie preso ao álbum', async () => {
+    env.SIGNING_SECRET = 's'.repeat(48);
+    env.GOOGLE_DRIVE_API_KEY = 'AIzaX';
+    await saveEvents(env, [{ id: '1', slug: 'gala', title: 'Gala', accessType: 'family', driveUrl: 'https://drive.google.com/drive/folders/PASTA_GALA_0001' }]);
+    stubTurnstile(true);
+    const nonce = await mintDriveNonce(env, 'gala');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 120000);
+    try {
+      const res = await handleDriveLink(req({ slug: 'gala', turnstileToken: 't', consent: true, declaration: true, driveNonce: nonce }), env, fakeCtx());
+      const corpo = await res.json();
+      expect(res.status, JSON.stringify(corpo)).toBe(200);
+      expect(corpo.galeriaUrl).toBe('/galeria/gala');
+      const ck = res.headers.get('Set-Cookie') || '';
+      expect(ck).toMatch(/^galeria=[^;]+; Path=\/galeria\/gala; /);
+      expect(ck).toContain('HttpOnly');
+      expect(ck).toContain('Secure');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

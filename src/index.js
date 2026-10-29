@@ -15,6 +15,9 @@ import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
+
+// Validade do passe da galeria própria (12 h: o dia do evento inteiro).
+const GALERIA_PASSE_SECS = 12 * 60 * 60;
 import { ehPrevia, fetchDaPrevia } from './previa.js';
 import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
@@ -2914,12 +2917,17 @@ export async function handleDriveLink(request, env, ctx) {
   // safeUrl at the sink: these land straight in an <a href> on the client, so a
   // `javascript:` value that reached KV through a restored backup (merged
   // verbatim) or a legacy row would otherwise be one click from executing.
-  return jsonOk({
+  const temGaleria = !!pastaDoDrive(event.driveUrl) && !!(env.GOOGLE_DRIVE_API_KEY || '').trim();
+  const passe = temGaleria ? await cookieGaleria(env, slug) : '';
+  const res = jsonOk({
     ok: true,
     driveUrl: safeUrl(event.driveUrl),
     driveUrlInstagram: safeUrl(event.driveUrlInstagram),
     driveUrlVideos: safeUrl(event.driveUrlVideos),
+    ...(passe ? { galeriaUrl: `/galeria/${slug}` } : {}),
   });
+  if (passe) res.headers.append('Set-Cookie', passe);
+  return res;
 }
 
 // 429 com o tempo de espera: no cabeçalho padrão (Retry-After) e no corpo,
@@ -3384,19 +3392,42 @@ function handleVendor(path) {
 // Galeria própria — PRÉVIA (#234/#235)
 // ---------------------------------------------------------------------------
 // Fotos da pasta do Drive dentro do site, com visualizador e downloads
-// próprios. Por enquanto SÓ o dono logado no painel vê: para qualquer outra
-// pessoa as duas rotas devolvem o mesmo 404 de uma rota inexistente — nem a
-// existência da página vaza. A liberação gradual (testadores → porcentagem →
-// todos, #235) entra trocando só esta função, depois da aprovação do dono.
-//
-// Sem cookie de sessão, verifySession() responde sem tocar no KV: um robô
-// batendo em /galeria/… não custa leitura nenhuma.
+// próprios. Desde 29/10/2026, aberta a todos nos álbuns públicos, sem portão
+// (decisão do dono). Família/privado exigem o passe que o portão do Drive
+// emite; "Em breve" fica fechado. Fechado, as rotas devolvem o mesmo 404 de
+// uma rota inexistente.
 /**
  * @param {Request} request
  * @param {Env} env
+ * @param {string} slug
  */
-async function podeVerGaleria(request, env) {
-  return verifySession(env, request);
+async function podeVerGaleria(request, env, slug) {
+  if (await verifySession(env, request)) return true;
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event || event.comingSoon) return false;
+  // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
+  if (!isRestrictedAccess(event)) return true;
+  // Família/privado: só com o passe que o portão do Drive emite depois da
+  // declaração de acesso. Sem passe, o mesmo 404 de rota inexistente.
+  const secret = signingSecret(env);
+  if (!secret) return false;
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)galeria=([^;]+)/);
+  if (!m) return false;
+  const chk = await verifyToken(secret, m[1], { purpose: 'galeria', scope: slug });
+  return chk.ok;
+}
+
+/**
+ * Passe da galeria própria, emitido pelo portão do Drive depois do aceite.
+ * Cookie preso ao caminho do álbum: não vale para outro slug.
+ * @param {Env} env
+ * @param {string} slug
+ */
+async function cookieGaleria(env, slug) {
+  const secret = signingSecret(env);
+  if (!secret) return '';
+  const token = await signToken(secret, { purpose: 'galeria', scope: slug, ttlSecs: GALERIA_PASSE_SECS });
+  return `galeria=${token}; Path=/galeria/${slug}; Max-Age=${GALERIA_PASSE_SECS}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 /**
@@ -3407,7 +3438,7 @@ async function podeVerGaleria(request, env) {
  * @param {string} nonce
  */
 export async function handleGaleriaPagina(request, env, slug, url, nonce) {
-  if (!await podeVerGaleria(request, env)) return notFound();
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return notFound();
 
@@ -3448,7 +3479,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
  * @param {URL} url
  */
 export async function handleGaleriaBaixar(request, env, slug, fileId, url) {
-  if (!await podeVerGaleria(request, env)) return notFound();
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
   if (!idDriveValido(fileId)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   const pasta = event ? pastaDoDrive(event.driveUrl) : null;
