@@ -138,6 +138,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
     // do worker-local, que os anota em `w.emails`).
     const w = await sobeWorker({ kv: SEMENTE, env: { AMBIENTE: 'previa', RESEND_API_KEY: 're_teste' } });
     const ctx = await browser.newContext({ viewport, deviceScaleFactor: dpr, hasTouch: toque, isMobile: toque });
+    // O popup da nova galeria (modal, uma vez por visitante) cobre a página
+    // nos primeiros segundos; este roteiro é da faixa de prévia, então entra
+    // como quem já o viu. O popup tem roteiro próprio em verifica-evento.mjs.
+    await ctx.addInitScript(() => { try { localStorage.setItem('fotos:gal_novo', '1'); } catch { /* sem storage */ } });
     const page = await ctx.newPage();
     const estado = { erros: /** @type {string[]} */ ([]), csp: /** @type {string[]} */ ([]) };
     page.on('pageerror', e => estado.erros.push(String(e)));
