@@ -495,7 +495,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .gal-novo{position:fixed;inset:0;margin:auto;max-height:calc(100dvh - 32px);overflow:auto;max-width:420px;width:calc(100% - 32px);border:1px solid var(--bg-card-border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.5rem 1.25rem 1.1rem}
     .gal-novo::backdrop{background:rgba(0,0,0,.6)}
     .gal-novo h2{font-size:1.2rem;margin:.25rem 0 .4rem}
-    .gn-selo{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
+    .gn-selo{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
     .gn-sub{font-size:.88rem;color:var(--text-2);margin:0 0 .9rem;line-height:1.5}
     .gn-lista{list-style:none;padding:0;margin:0 0 1.1rem;display:grid;gap:.55rem;font-size:.86rem;line-height:1.45}
     .gn-lista li{display:flex;gap:.7rem;align-items:center}
@@ -866,7 +866,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   ${galeriaPublica ? `<dialog id="gal-novo" class="gal-novo" aria-labelledby="gal-novo-t">
-    <div class="gn-topo"><span class="gn-hero" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><p class="gn-selo">✨ Novidade</p></div>
+    <div class="gn-topo"><span class="gn-hero" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><p class="gn-selo"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg> Novidade</p></div>
     <h2 id="gal-novo-t">Nova galeria de fotos</h2>
     <p class="gn-sub">Agora dá para ver e baixar tudo aqui mesmo, sem sair do site.</p>
     <ul class="gn-lista">

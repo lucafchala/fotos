@@ -237,6 +237,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
     .g-vendo .g-topo{display:none}
     .g-barra .g-btn{padding:.45rem .8rem}
     .g-bug{padding:.5rem;min-width:44px}
+    /* Celular: o Compartilhar vira só ícone (o aria-label diz o que é), para os
+       quatro botões caberem numa linha só e as fotos subirem na tela. */
+    @media (max-width:519px){
+      .g-btn[data-acao="compartilhar"]{padding:.5rem;min-width:44px}
+      .g-btn[data-acao="compartilhar"] span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+    }
+    .g-voltar{display:inline-flex;align-items:center;gap:.25rem;min-height:32px;font-size:.85rem;color:var(--text-muted);text-decoration:none;margin-bottom:.15rem}
+    @media (hover:hover){ .g-voltar:hover{color:var(--text)} }
     .g-barra .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     #g-barra-n{white-space:nowrap;margin-right:.25rem}
     /* Folha de download: por cima do visualizador (o PhotoSwipe usa z-index 100000). */
@@ -292,6 +300,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
       <div class="g-tit">
+        <a class="g-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span> Página do projeto</a>
         <h1 id="g-h1" tabindex="-1">${escape(titulo)}</h1>
         ${meta ? `<p class="g-meta">${escape(meta)}</p>` : ''}
       </div>

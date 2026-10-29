@@ -20,7 +20,7 @@
 // O Turnstile é o de mentira do verifica:evento (entrega ficha); o servidor
 // confere contra o fetch interceptado do worker-local, que aprova.
 
-/* global document, window */
+/* global document, window, localStorage */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
