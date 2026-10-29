@@ -578,6 +578,11 @@ const SCRIPT = `
   const fav = leLista(CHAVE_FAV);
   let modoSel = false;
   let filtroFav = false;
+  // Seleção que chegou por link (#sel=id.id.id, #213): a galeria abre só com
+  // essas fotos. Vive no fragmento — não vai ao servidor nem é gravada.
+  /** @type {Set<string> | null} */
+  let filtroLink = null;
+  const MAX_LINK = 300;
   let vendo = false;
   const chips = document.getElementById('g-chips');
   const cab = document.getElementById('g-topo-cab');
@@ -594,11 +599,18 @@ const SCRIPT = `
   const barraN = document.getElementById('g-barra-n');
   const botaoSel = document.getElementById('g-sel');
 
+  function filtroAtivo() {
+    if (filtroLink) { const l = filtroLink; return function (f) { return l.has(f.id); }; }
+    if (filtroFav) return function (f) { return fav.has(f.id); };
+    return null;
+  }
   function visiveisDe(g) {
-    return filtroFav ? g.lista.filter(function (f) { return fav.has(f.id); }) : g.lista;
+    const fn = filtroAtivo();
+    return fn ? g.lista.filter(fn) : g.lista;
   }
   function recalculaVistas() {
-    vistas = filtroFav ? fotos.filter(function (f) { return fav.has(f.id); }) : fotos;
+    const fn = filtroAtivo();
+    vistas = fn ? fotos.filter(fn) : fotos;
   }
   function salvaSel() { gravaLista(CHAVE_SEL, sel); }
   function salvaFav() { gravaLista(CHAVE_FAV, fav); }
@@ -680,6 +692,63 @@ const SCRIPT = `
     }
     return !era;
   }
+  // ---- Seleção por link (#213) ----
+  // As favoritas viram um link com os ids no fragmento: quem abre vê só elas.
+  // Num álbum de família ou privado o link não fura nada — o servidor segue
+  // pedindo o passe do portão para abrir a galeria.
+  function linkDasFavoritas() {
+    const ids = fotos.filter(function (f) { return fav.has(f.id); }).map(function (f) { return f.id; });
+    return { url: location.origin + location.pathname + '#sel=' + ids.slice(0, MAX_LINK).join('.'), n: Math.min(ids.length, MAX_LINK), cortou: ids.length > MAX_LINK };
+  }
+  function compartilhaFavoritas() {
+    const l = linkDasFavoritas();
+    if (!l.n) { avisa('Marque fotos com o coração primeiro'); return; }
+    const aviso = l.cortou ? 'Link com as primeiras ' + MAX_LINK + ' favoritas copiado' : 'Link com ' + l.n + (l.n === 1 ? ' foto copiado' : ' fotos copiado');
+    const h1 = document.getElementById('g-h1');
+    const titulo = (h1 ? (h1.textContent || '') : document.title) + ' — minha seleção';
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      navigator.share({ title: titulo, url: l.url }).catch(function () {});
+      return;
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(l.url).then(function () { avisa(aviso); }, function () { avisa(l.url); });
+    } else {
+      avisa(l.url);
+    }
+  }
+  /** Lê #sel= do endereço. Devolve quantas fotos do link existem aqui. */
+  function leSelecaoDoLink() {
+    const m = location.hash.match(/^#sel=([A-Za-z0-9_.-]+)$/);
+    if (!m) return -1;
+    const pedidas = m[1].split('.').filter(function (id) { return /^[A-Za-z0-9_-]{10,200}$/.test(id); }).slice(0, MAX_LINK);
+    const aqui = new Set(pedidas.filter(function (id) { return fotos.some(function (f) { return f.id === id; }); }));
+    if (!aqui.size) return 0;
+    filtroLink = aqui;
+    document.body.classList.add('g-so-link');
+    recalculaVistas();
+    return aqui.size;
+  }
+  function saiDoLink() {
+    filtroLink = null;
+    document.body.classList.remove('g-so-link');
+    history.replaceState(history.state, '', location.pathname + location.search);
+    recalculaVistas();
+    montaChips();
+    diagramaTudo();
+    atualizaBarra();
+    window.scrollTo(0, 0);
+  }
+  /** Guarda as fotos do link nas favoritas deste aparelho. */
+  function guardaDoLink() {
+    if (!filtroLink) return;
+    let novas = 0;
+    filtroLink.forEach(function (id) { if (!fav.has(id)) { fav.add(id); novas++; } });
+    salvaFav();
+    fotos.forEach(pintaSel);
+    montaChips();
+    avisa(novas ? novas + (novas === 1 ? ' foto guardada nas favoritas' : ' fotos guardadas nas favoritas') : 'Já estavam nas suas favoritas');
+  }
+
   function ligaFiltroFav(liga) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-fav';
     filtroFav = liga;
@@ -710,6 +779,23 @@ const SCRIPT = `
     if (!chips) return;
     chips.replaceChildren();
     chipsSec = [];
+    if (filtroLink) {
+      const b = botaoChip('Seleção recebida', filtroLink.size);
+      b.dataset.acao = 'sai-link';
+      b.setAttribute('aria-pressed', 'true');
+      b.title = 'Toque para ver todas as fotos';
+      chips.appendChild(b);
+      const g = document.createElement('button');
+      g.type = 'button';
+      g.className = 'g-chip';
+      g.dataset.acao = 'guarda-link';
+      g.textContent = 'Guardar nas minhas favoritas';
+      chips.appendChild(g);
+      chipFav = null;
+      chips.hidden = false;
+      medeTopo();
+      return;
+    }
     if (D.secoes.length > 1 && !filtroFav) {
       D.secoes.forEach(function (sec, k) {
         const b = botaoChip(sec.nome || 'Fotos', sec.fotos.length);
@@ -728,6 +814,15 @@ const SCRIPT = `
       b.title = 'Fica só neste aparelho';
       chips.appendChild(b);
       chipFav = b;
+      if (filtroFav && fav.size) {
+        const c = document.createElement('button');
+        c.type = 'button';
+        c.className = 'g-chip';
+        c.dataset.acao = 'compartilhar-fav';
+        c.title = 'Um link que abre a galeria só com estas fotos';
+        c.textContent = 'Compartilhar as favoritas';
+        chips.appendChild(c);
+      }
     }
     chips.hidden = !chips.childElementCount;
     medeTopo();
@@ -735,6 +830,7 @@ const SCRIPT = `
   }
   function atualizaChips() {
     if (!chips) return;
+    if (filtroLink) return;
     if (!!chipFav !== !!(fav.size || filtroFav)) { montaChips(); return; }
     const n = chipFav ? chipFav.querySelector('small') : null;
     if (n) n.textContent = String(fav.size);
@@ -1326,6 +1422,9 @@ const SCRIPT = `
     else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
+    else if (acao === 'compartilhar-fav') compartilhaFavoritas();
+    else if (acao === 'sai-link') saiDoLink();
+    else if (acao === 'guarda-link') guardaDoLink();
     else if (acao === 'topo') {
       window.scrollTo({ top: 0, behavior: reduz() ? 'auto' : 'smooth' });
       const h1 = document.getElementById('g-h1');
@@ -1358,10 +1457,17 @@ const SCRIPT = `
     fotos.forEach(pintaSel);
     sel.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) sel.delete(id); });
     fav.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) fav.delete(id); });
+    const doLink = leSelecaoDoLink();
     atualizaBarra();
     montaChips();
     diagramaTudo();
     observaSecoes();
+    if (doLink === 0) {
+      avisa('As fotos deste link não estão mais nesta galeria');
+      history.replaceState(null, '', location.pathname + location.search);
+    } else if (doLink > 0) {
+      avisa(doLink === 1 ? '1 foto escolhida por quem mandou o link' : doLink + ' fotos escolhidas por quem mandou o link');
+    }
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(function () { if (main.clientWidth !== larguraDiagramada) agendaDiagrama(); }).observe(main);
       if (cab) new ResizeObserver(medeTopo).observe(cab);
