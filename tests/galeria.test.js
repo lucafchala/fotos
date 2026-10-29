@@ -277,9 +277,9 @@ describe('/galeria/<slug> — só o dono', () => {
     expect(html).not.toContain('rkFoto'); // resource key é do servidor
     expect(html).toContain('FOTO_DEZ_00010');
     expect(html).toContain('Formatura 2026');
-    expect(html).toContain('Prévia');
+    expect(html).toContain('class="g-dono"');
     for (const v of VENDOR) expect(html).toContain(v.path);
-    expect(html).toMatch(/1 vídeo e 1 outro arquivo/);
+    expect(html).not.toMatch(/vídeo/); // aviso de vídeos removido (29/10/2026)
   });
 
   it('logado, projeto inexistente: 404', async () => {
@@ -576,5 +576,19 @@ describe('galeria aberta ao visitante', () => {
     eventos[0].comingSoon = true;
     await saveEvents(env, eventos);
     expect((await visita('/galeria/formatura')).status).toBe(404);
+  });
+});
+
+describe('galeria para o visitante', () => {
+  it('sem a faixa do dono, sem "prévia" no título, e ?atualizar não relê o Drive', async () => {
+    const res = await worker.fetch(new Request(SITE + '/galeria/formatura', { headers: { Accept: 'text/html' } }), env, ctx);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).not.toContain('class="g-dono"');
+    expect(html).not.toMatch(/<title>[^<]*prévia/i);
+    const antes = chamadasDrive().length;
+    const r2 = await worker.fetch(new Request(SITE + '/galeria/formatura?atualizar=1', { headers: { Accept: 'text/html' } }), env, ctx);
+    expect(r2.status).toBe(200);
+    expect(chamadasDrive().length).toBe(antes);
   });
 });

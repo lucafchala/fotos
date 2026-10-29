@@ -91,9 +91,10 @@ const CONSERTOS = {
  *   listagem: import('../drive.js').ListagemDrive | null,
  *   erro: { codigo: string, mensagem: string } | null,
  *   nonce: string,
+ *   dono?: boolean,
  * }} p
  */
-export function galeriaHTML({ event, listagem, erro, nonce }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -110,12 +111,6 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   const avisos = [];
   if (listagem && listagem.truncada) {
     avisos.push('Lista parcial: pastas muito grandes ou subpastas além de dois níveis ficam de fora — o Drive continua com tudo.');
-  }
-  if (listagem && (listagem.videos || listagem.outros)) {
-    const partes = [];
-    if (listagem.videos) partes.push(`${listagem.videos} vídeo${listagem.videos > 1 ? 's' : ''}`);
-    if (listagem.outros) partes.push(`${listagem.outros} outro${listagem.outros > 1 ? 's' : ''} arquivo${listagem.outros > 1 ? 's' : ''}`);
-    avisos.push(`A pasta também tem ${partes.join(' e ')}, que ficam só no Drive.`);
   }
 
   const dados = listagem ? {
@@ -139,7 +134,7 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
-  <title>Galeria · ${escape(titulo)} · prévia</title>
+  <title>Galeria · ${escape(titulo)}</title>
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
   <link rel="stylesheet" href="${vendorPath('vendor/photoswipe/photoswipe.css')}">
@@ -237,6 +232,7 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
     .g-com-barra .g-topo{bottom:calc(84px + env(safe-area-inset-bottom))}
     .g-vendo .g-topo{display:none}
     .g-barra .g-btn{padding:.45rem .8rem}
+    .g-bug{padding:.5rem;min-width:44px}
     .g-barra .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     #g-barra-n{white-space:nowrap;margin-right:.25rem}
     /* Folha de download: por cima do visualizador (o PhotoSwipe usa z-index 100000). */
@@ -280,15 +276,15 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
   </style>
 </head>
 <body>
-  <div class="g-dono">
-    <b>Prévia</b>
-    <span>Só você (logado no painel) vê esta página. O público continua indo para o Drive.</span>
+  ${dono ? `<div class="g-dono">
+    <b>Painel</b>
+    <span>Só você (logado) vê esta faixa.</span>
     <a href="/dashboard">← Painel</a>
     <a href="/${escape(slug)}">Página do projeto</a>
     ${drive ? `<a href="${escape(drive)}" target="_blank" rel="noopener">Abrir no Drive</a>` : ''}
     ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
     ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
-  </div>
+  </div>` : ''}
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
       <div class="g-tit">
@@ -298,6 +294,7 @@ export function galeriaHTML({ event, listagem, erro, nonce }) {
       <div class="g-acoes">
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
+        <a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>
       </div>
     </div>
     ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções e favoritas" hidden></nav>' : ''}
@@ -452,7 +449,7 @@ const SCRIPT = `
     const W = Math.floor(main.clientWidth - parseFloat(estilo.paddingLeft) - parseFloat(estilo.paddingRight));
     if (!W || W < 50) return;
     larguraDiagramada = main.clientWidth;
-    const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 118 : W < 900 ? 170 : 230;
+    const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 220 : W < 900 ? 220 : 240;
     const gap = W < 520 ? 3 : 5;
     grades.forEach(function (g) { diagrama(g, W, alvo, gap); });
   }

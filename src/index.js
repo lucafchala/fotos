@@ -3447,7 +3447,9 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
   let listagem = null;
   /** @type {{ codigo: string, mensagem: string } | null} */
   let erro = null;
-  const atualizar = url.searchParams.has('atualizar');
+  const dono = await verifySession(env, request);
+  // Só o dono força a releitura do Drive: visitante não gasta cota do Google.
+  const atualizar = !!dono && url.searchParams.has('atualizar');
   if (!pasta) {
     erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
   } else {
@@ -3461,7 +3463,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
   // Depois de reler, volta para o endereço limpo: recarregar a página não
   // pode virar uma nova leitura forçada a cada F5.
   if (atualizar && listagem) return redirect(`/galeria/${slug}`);
-  return adminHtml(galeriaHTML({ event, listagem, erro, nonce }), 200, nonce);
+  return adminHtml(galeriaHTML({ event, listagem, erro, nonce, dono: !!dono }), 200, nonce);
 }
 
 /**

@@ -492,7 +492,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
     /* new-interface banner */
-    .gal-novo{max-width:420px;width:calc(100% - 32px);border:1px solid var(--bg-card-border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.5rem 1.25rem 1.1rem}
+    .gal-novo{position:fixed;inset:0;margin:auto;max-height:calc(100dvh - 32px);overflow:auto;max-width:420px;width:calc(100% - 32px);border:1px solid var(--bg-card-border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.5rem 1.25rem 1.1rem}
     .gal-novo::backdrop{background:rgba(0,0,0,.6)}
     .gal-novo h2{font-size:1.2rem;margin:.25rem 0 .4rem}
     .gn-selo{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
@@ -501,7 +501,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .gn-lista li{padding-left:1.4rem;position:relative}
     .gn-lista li::before{content:"✓";position:absolute;left:0;color:var(--ok-dot);font-weight:700}
     .gn-ir{display:block;text-align:center;background:var(--cta-bg);color:var(--cta-text);border-radius:9px;padding:.8rem 1rem;font-weight:600;text-decoration:none}
-    .gn-depois{display:block;width:100%;margin-top:.5rem;background:none;border:none;color:var(--text-2);padding:.6rem;font-size:.85rem;cursor:pointer}
+    .gn-depois{display:block;width:100%;margin-top:.35rem;background:none;border:none;color:var(--text-2);padding:.55rem;font-size:.85rem;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+    .gn-depois:disabled{opacity:.55;cursor:default;text-decoration:none}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -871,7 +872,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       <li>No celular, <strong>salve direto na galeria</strong> do aparelho</li>
     </ul>
     <a class="gn-ir" href="/galeria/${escape(event.slug)}">Testar a nova galeria</a>
-    <button type="button" class="gn-depois" data-action="fechaGalNovo">Agora não</button>
+    <button type="button" class="gn-depois" data-action="galNovoDrive">Prefere o Google Drive? Abrir no Drive</button>
+    <button type="button" class="gn-depois" id="gn-fechar" data-action="fechaGalNovo" disabled>Agora não (<span id="gn-seg">4</span>)</button>
   </dialog>` : ''}
   <script nonce="${nonce}">
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
@@ -996,6 +998,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         case 'openSoonModal': openSoonModal(); break;
         case 'openModal': openModal(); break;
         case 'fechaGalNovo': fechaGalNovo(); break;
+        case 'galNovoDrive': galNovoDrive(); break;
         case 'closeModal': closeModal(); break;
         case 'doNativeShare': doNativeShare(); break;
         case 'copyLink': copyLink(); break;
@@ -1066,7 +1069,12 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
 
     // ---- Popup da nova galeria: uma vez por visitante ----
+    // Fica alguns segundos na tela antes de poder fechar (pedido do dono):
+    // Esc, clique fora e "Agora não" só valem depois da contagem.
+    let galNovoLiberado = false;
+    function galNovoDrive() { galNovoLiberado = true; fechaGalNovo(); openModal(); }
     function fechaGalNovo() {
+      if (!galNovoLiberado) return;
       try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {}
       const d = /** @type {HTMLDialogElement|null} */ (document.getElementById('gal-novo'));
       if (d && d.open) d.close();
@@ -1079,7 +1087,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (visto) return;
       d.addEventListener('close', function(){ try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {} });
       d.addEventListener('click', function(e){ if (e.target === d) fechaGalNovo(); });
-      setTimeout(function(){ try { d.showModal(); } catch(_) {} }, 600);
+      d.addEventListener('cancel', function(e){ if (!galNovoLiberado) e.preventDefault(); });
+      setTimeout(function(){
+        try { d.showModal(); } catch(_) { return; }
+        let seg = 4;
+        const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('gn-fechar'));
+        const cont = document.getElementById('gn-seg');
+        const timer = setInterval(function(){
+          seg--;
+          if (cont) cont.textContent = String(seg);
+          if (seg <= 0) {
+            clearInterval(timer);
+            galNovoLiberado = true;
+            if (btn) { btn.disabled = false; btn.textContent = 'Agora não'; }
+          }
+        }, 1000);
+      }, 600);
     })();
 
     // ---- Cookie / analytics notice ----
