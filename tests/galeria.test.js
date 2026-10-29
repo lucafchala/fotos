@@ -708,3 +708,30 @@ describe('downloads contados por versão', () => {
     expect(env.FOTOS._leituras.filter(k => k.startsWith('baixar_'))).toEqual([]);
   });
 });
+
+describe('aberturas da galeria contadas para as métricas', () => {
+  const abre = (cookie = '') => worker.fetch(new Request(SITE + '/galeria/formatura', {
+    headers: { Accept: 'text/html', ...(cookie ? { Cookie: cookie } : {}) },
+  }), env, ctx);
+  async function aberturas() {
+    const r = await get('/api/metrics');
+    return (await r.json()).find(m => m.slug === 'formatura').galeriaViews;
+  }
+
+  it('visitante conta uma vez por hora (cookie preso à galeria); o dono e o prefetch não contam', async () => {
+    const r1 = await abre();
+    const ck = r1.headers.get('Set-Cookie') || '';
+    expect(ck).toMatch(/gv_formatura=1; Max-Age=3600; Path=\/galeria\/formatura/);
+    await abre('gv_formatura=1');
+    await get('/galeria/formatura', { accept: 'text/html' });
+    await worker.fetch(new Request(SITE + '/galeria/formatura', { headers: { Accept: 'text/html', 'Sec-Purpose': 'prefetch' } }), env, ctx);
+    expect(await aberturas()).toBe(1);
+  });
+
+  it('galeria sem lista (erro do Drive) não conta', async () => {
+    delete env.GOOGLE_DRIVE_API_KEY;
+    const r = await abre();
+    expect(r.headers.get('Set-Cookie') || '').not.toMatch(/gv_/);
+    expect(await aberturas()).toBe(0);
+  });
+});

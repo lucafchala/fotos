@@ -89,6 +89,22 @@ describe('recorteMetricas — o período escolhido', () => {
     expect(r.totD).toBe(4);
   });
 
+  it('galeria e downloads somados no período; série antiga, sem esses campos, vale zero', () => {
+    const r = G.recorteMetricas(d, 3, '');
+    expect(r.galeria).toEqual([0, 0, 0]);
+    expect(r.totG).toBe(0);
+    const g = { ...d, projetos: { ...d.projetos, c: {
+      views: new Array(10).fill(0), driveClicks: new Array(10).fill(0),
+      galeria: [0, 0, 0, 0, 0, 0, 0, 1, 2, 3], baixarRedes: [0, 0, 0, 0, 0, 0, 0, 4, 0, 1], baixarMax: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    } } };
+    const rg = G.recorteMetricas(g, 3, '');
+    expect(rg.galeria).toEqual([1, 2, 3]);
+    expect(rg.totG).toBe(6);
+    expect(rg.redes).toEqual([4, 0, 1]);
+    expect(rg.totR + rg.totM).toBe(6);
+    expect(rg.antG, 'período anterior (índices 4..6) sem galeria').toBe(0);
+  });
+
   it('só o projeto escolhido; projeto sem série vira zeros (a contagem existia)', () => {
     expect(G.recorteMetricas(d, 3, 'b').views).toEqual([0, 0, 1]);
     expect(G.recorteMetricas(d, 3, 'fantasma').views).toEqual([0, 0, 0]);

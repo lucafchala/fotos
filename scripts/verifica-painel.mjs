@@ -610,7 +610,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(corDaAtiva === 'rgb(240, 235, 229)', `${rotulo}: a aba tocada fica com o branco da ativa`, corDaAtiva);
       await page.waitForSelector('#grafico-acessos svg', { timeout: 6000 });
       const rotulos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
-      registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período`, rotulos);
+      registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Abriram a galeria|Fotos baixadas|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período (Drive e galeria)`, rotulos);
       if (toque) {
         const alturaProjeto = Math.round(((await page.locator('#metrics-projeto').boundingBox()) || { height: 0 }).height * 10) / 10;
         registra(alturaProjeto >= 44, `${rotulo}: o seletor de projeto das métricas tem 44 px`, { alturaProjeto });
@@ -621,7 +621,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const pontos = await desenho.getAttribute('data-pontos');
       const linhas = await desenho.locator('path[fill="none"]').count();
       const itensLegenda = await page.locator('#acessos-legenda span').count();
-      registra(pontos === '30' && linhas === 2 && itensLegenda === 2, `${rotulo}: gráfico de 30 dias, duas linhas e a legenda`, { pontos, linhas, itensLegenda });
+      registra(pontos === '30' && linhas === 3 && itensLegenda === 3, `${rotulo}: gráfico de 30 dias, três linhas (visitas, Drive, galeria) e a legenda`, { pontos, linhas, itensLegenda });
+      const baixadas = page.locator('#grafico-baixadas svg');
+      registra((await baixadas.count()) === 1 && (await baixadas.locator('path[fill="none"]').count()) === 2 && (await page.locator('#baixadas-legenda span').count()) === 2,
+        `${rotulo}: "Fotos baixadas na galeria" desenha "para redes" e "tamanho máximo"`);
 
       await aciona(page.locator('#metrics-periodo [data-dias="7"]'), toque);
       await espera(page, 250);
@@ -640,8 +643,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 200);
       const dica = page.locator('#dica-acessos');
       const textoDica = ((await dica.textContent()) || '').trim();
-      registra(await dica.isVisible() && /Visitas/.test(textoDica) && /Abriram o Drive/.test(textoDica),
-        `${rotulo}: ${toque ? 'tocar' : 'passar o mouse'} no gráfico mostra o dia e os dois números`, textoDica);
+      registra(await dica.isVisible() && /Visitas/.test(textoDica) && /Abriram o Drive/.test(textoDica) && /Abriram a galeria/.test(textoDica),
+        `${rotulo}: ${toque ? 'tocar' : 'passar o mouse'} no gráfico mostra o dia e os três números`, textoDica);
       const caixaDica = await dica.boundingBox();
       registra(!!caixaDica && caixaDica.x >= 0 && caixaDica.x + caixaDica.width <= viewport.width + 1, `${rotulo}: a dica cabe na tela`, caixaDica);
       if (PRINTS) await print(page, `${id}-metricas-dica`);

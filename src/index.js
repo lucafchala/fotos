@@ -361,7 +361,7 @@ const worker = {
       // Galeria própria (#235). Quem vê decide podeVerGaleria(); para quem não
       // pode, o mesmo 404 de uma rota que não existe.
       const galeriaMatch = path.match(GALERIA_PATH_RE);
-      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce, ctx);
       const baixarMatch = path.match(GALERIA_BAIXAR_RE);
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
 
@@ -1212,7 +1212,7 @@ async function handleDeleteEvent(request, env, path) {
   // Todos os contadores do projeto, não só o de visitas: `drive_clicks:<slug>`
   // ficava para trás na versão em KV e ressurgia somado se um projeto novo
   // reaproveitasse o slug. Os downloads da galeria, pelo mesmo motivo.
-  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
+  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
   return jsonOk({ deleted: true });
 }
 
@@ -1389,7 +1389,7 @@ async function handleMetrics(request, env) {
   // Os downloads da galeria nasceram no Durable Object (nunca estiveram no
   // KV): sem assentamento, chave ausente é zero — e nenhuma leitura de KV a
   // mais por projeto.
-  const chavesBaixar = events.flatMap(e => [`baixar_redes:${e.slug}`, `baixar_max:${e.slug}`]);
+  const chavesBaixar = events.flatMap(e => [`galeria_views:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`]);
   const [contagens, baixados] = await Promise.all([
     readCounters(env, chaves),
     readCounters(env, chavesBaixar, { legado: false }),
@@ -1400,6 +1400,7 @@ async function handleMetrics(request, env) {
     title: e.title,
     views: contagens[`views:${e.slug}`] || 0,
     driveClicks: contagens[`drive_clicks:${e.slug}`] || 0,
+    galeriaViews: baixados[`galeria_views:${e.slug}`] || 0,
     baixarRedes: baixados[`baixar_redes:${e.slug}`] || 0,
     baixarMax: baixados[`baixar_max:${e.slug}`] || 0,
   }));
@@ -1441,8 +1442,12 @@ export async function handleMetricsDiario(request, env, url) {
   const conhecidos = new Set(events.map(e => e.slug));
 
   const zeros = () => new Array(n).fill(0);
-  /** @type {Record<string, { views: number[], driveClicks: number[] }>} */
+  /** @type {Record<string, { views: number[], driveClicks: number[], galeria: number[], baixarRedes: number[], baixarMax: number[] }>} */
   const projetos = {};
+  // Tipo do contador → campo do projeto na resposta. A galeria (aberturas e
+  // downloads) entra ao lado das visitas e do Drive.
+  /** @type {Record<string, 'views'|'driveClicks'|'galeria'|'baixarRedes'|'baixarMax'>} */
+  const CAMPO = { views: 'views', drive_clicks: 'driveClicks', galeria_views: 'galeria', baixar_redes: 'baixarRedes', baixar_max: 'baixarMax' };
   /** @type {Record<string, number[]>} */
   const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
   for (const [k, v] of Object.entries(serie)) {
@@ -1453,10 +1458,10 @@ export async function handleMetricsDiario(request, env, url) {
     const sep = chave.indexOf(':');
     const tipo = chave.slice(0, sep);
     const resto = chave.slice(sep + 1);
-    if (tipo === 'views' || tipo === 'drive_clicks') {
+    if (CAMPO[tipo]) {
       if (!conhecidos.has(resto)) continue;
-      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros() });
-      (tipo === 'views' ? p.views : p.driveClicks)[i] += v;
+      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros(), galeria: zeros(), baixarRedes: zeros(), baixarMax: zeros() });
+      p[CAMPO[tipo]][i] += v;
     } else if (tipo === 'gate' && gate[resto]) {
       gate[resto][i] += v;
     }
@@ -3450,8 +3455,9 @@ async function cookieGaleria(env, slug) {
  * @param {string} slug
  * @param {URL} url
  * @param {string} nonce
+ * @param {ExecutionContext} [ctx]
  */
-export async function handleGaleriaPagina(request, env, slug, url, nonce) {
+export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return notFound();
@@ -3481,9 +3487,32 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
   // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
   if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
-  return adminHtml(galeriaHTML({
+  const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && !!listagem);
+  const res = adminHtml(galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, ...(dono ? { ocultas } : {}),
   }), 200, nonce);
+  if (contaGaleria) res.headers.append('Set-Cookie', contaGaleria);
+  return res;
+}
+
+/**
+ * Conta uma abertura da galeria (`galeria_views:<slug>`), com a mesma noção
+ * de "visita" da página do projeto: um navegador por hora, por projeto
+ * (cookie `gv_<slug>`, preso ao caminho da galeria). O dono, o HEAD e o
+ * prefetch não contam. Devolve o Set-Cookie a pôr na resposta, ou ''.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext | undefined} ctx
+ * @param {string} slug
+ * @param {boolean} pode visitante com a lista carregada
+ */
+function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
+  if (!pode || request.method !== 'GET') return '';
+  const nome = `gv_${slug}`;
+  if ((request.headers.get('Cookie') || '').includes(`${nome}=1`)) return '';
+  if ((request.headers.get('Sec-Purpose') || '').includes('prefetch')) return '';
+  bumpCounter(env, ctx || null, `galeria_views:${slug}`);
+  return `${nome}=1; Max-Age=3600; Path=/galeria/${slug}; SameSite=Lax; Secure`;
 }
 
 /**
