@@ -308,7 +308,7 @@ Dois tropeços que o roteiro ensinou:
 
 ### Galeria própria — `npm run verifica:galeria`
 
-Roteiro versionado da galeria própria (`/galeria/<slug>`, prévia só do dono).
+Roteiro versionado da galeria própria (`/galeria/<slug>`).
 Também **não precisa do `wrangler dev` nem da Drive API**: renderiza a página
 com o `galeriaHTML()` de verdade, servida com os cabeçalhos reais do painel
 (CSP inclusive), e intercepta a rede — o `lh3` devolve uma imagem gerada **na
@@ -334,6 +334,10 @@ Cobre:
   tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
   aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,
   Shift+clique para intervalo e "voltar ao topo" (foco no título);
+- **ocultar do dono** — logado, o botão do olho grava e alterna: a foto
+  oculta aparece apagada, com o selo "Oculta", a faixa do dono conta
+  quantas estão ocultas, no celular (360 px) a barra do visualizador cabe
+  com o contador numa linha, e o visitante não vê nem botão nem selo;
 - **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
@@ -352,7 +356,7 @@ um de cada vez.
 por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-as:
 o roteiro prova o comportamento, não a aparência.
 
-Prova o comportamento da **página**. O do servidor (portão só do dono, Drive
+Prova o comportamento da **página**. O do servidor (quem vê, Drive
 API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
 o workerd garante (bundle byte a byte, Cache API de verdade) em
 `tests/workers/galeria.workers.test.js`.

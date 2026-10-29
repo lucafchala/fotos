@@ -101,7 +101,7 @@ Métricas
   Dia da semana .... média de visitas por dia da semana
   Portão ........... Como passaram pelo portão (Verificação automática · Código por e-mail · Sem JavaScript)
   Projetos ......... Projetos no período (ordem: Visitas · Abriram o Drive · Taxa)
-  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa
+  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa · Galeria ↓
 Ajustes
   Site ............. Selo de agenda · Categorias
   Dados ............ Backup dos dados · Exportar planilhas · Restaurar backup (sensível)
@@ -209,7 +209,7 @@ Cada evento é um card (`.evt-item`, `id="evt-<id>"`), desenhado por
 | Linha de meta | `/slug · dd/mm/aaaa · categoria · prazo dd/mm`, uma linha, com reticências (no celular, categoria e prazo podem ficar cortados). A data do evento é um dia de calendário: vira dd/mm/aaaa **por texto**, sem passar por `Date`, que a moveria de fuso. O "prazo" só aparece enquanto o evento não está entregue nem arquivado |
 | Selos | o estado, escrito (tabela abaixo) |
 | **Editar** | abre o formulário preenchido |
-| **Galeria** | link para `/galeria/<slug>`, na mesma aba — a [galeria própria](../README.md#galeria-própria-prévia-só-o-dono), prévia que só o dono vê |
+| **Galeria** | link para `/galeria/<slug>`, na mesma aba — a [galeria própria](../README.md#galeria-própria), onde o dono também oculta fotos |
 | **⋯** | o menu "Mais ações" (§4.3) |
 | Caixa de seleção | só no modo "Selecionar vários", antes da miniatura (`aria-label="Selecionar <título>"`) |
 
@@ -727,11 +727,13 @@ De cima para baixo, na ordem em que se lê:
    tocar de novo volta a todos. No fim, quantos projetos não tiveram visita.
 7. **Total desde o início** (`#metrics-body`): a tabela de antes da v2.0 —
    Projeto (título e `/slug`), Visitas (com uma barra proporcional atrás do
-   número), Drive e Taxa; clicar no cabeçalho ordena (a primeira vez,
+   número), Drive, Taxa e Galeria ↓ (downloads da galeria feitos por
+   visitante — "para redes" e "tamanho máximo"); clicar no cabeçalho ordena (a primeira vez,
    decrescente; a segunda inverte; ▲/▼ e `aria-sort` dizem o sentido). Inclui o
    que o KV contava antes do Durable Object, por isso é maior que a soma dos
    dias. **⬇ CSV** (`#metrics-export`, escondido sem dados):
-   `metricas-AAAA-MM-DD.csv`, colunas `title`, `slug`, `views`, `driveClicks`.
+   `metricas-AAAA-MM-DD.csv`, colunas `title`, `slug`, `views`, `driveClicks`,
+   `baixarRedes`, `baixarMax`.
    A nota lembra: conta **visitante único por hora, não recarregamento** (cookie
    `fv_<slug>` de 1 h; HEAD e prefetch também não contam) — recarregar para
    testar não mexe no número, de propósito.
@@ -891,7 +893,7 @@ Nenhum endpoint mudou no redesenho; a v2.0 acrescentou o da série por dia
 | Planilha da série por dia (`exportSerieCSV`) | `GET /api/metrics/diario?dias=180` (se ainda não carregou) | — | CSV montado no navegador: `metricas-por-dia-AAAA-MM-DD.csv` |
 | Carregar pedidos (`loadRequests`) | `GET /api/removal-requests` | — | lista, mais recente primeiro |
 | Resolver pedido (`resolveRequest`) | `PUT /api/removal-requests/<id>/resolve` | — | o pedido atualizado e o e-mail ao solicitante |
-| Carregar métricas (`loadMetrics`) | `GET /api/metrics` e `GET /api/metrics/diario?dias=180`, em paralelo | — | os totais: `[{ slug, title, views, driveClicks }]`; a série: `{ hoje, dias, primeiroDia, projetos, gate, gateTotal }` (§8). Cada uma com o seu erro |
+| Carregar métricas (`loadMetrics`) | `GET /api/metrics` e `GET /api/metrics/diario?dias=180`, em paralelo | — | os totais: `[{ slug, title, views, driveClicks, baixarRedes, baixarMax }]`; a série: `{ hoje, dias, primeiroDia, projetos, gate, gateTotal }` (§8). Cada uma com o seu erro |
 | Entrar | `POST /dashboard/login` (formulário) | senha e token do Turnstile | 302 para `/dashboard` |
 | Sair | `POST /dashboard/logout` (formulário) | — | 302 e `Clear-Site-Data` |
 

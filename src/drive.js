@@ -16,7 +16,7 @@
 
 import {
   GALERIA_LISTA_TTL_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
-  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS,
+  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -318,6 +318,41 @@ export function achaFoto(dados, id) {
 
 /** @param {string} id */
 export const idDriveValido = id => ID_RE.test(id);
+
+/**
+ * A listagem sem as fotos que o dono ocultou (pedido de remoção, foto ruim).
+ * Seção que fica vazia sai; o total acompanha. Sem nada oculto, devolve a
+ * MESMA listagem (nenhuma cópia por visita).
+ * @param {ListagemDrive} dados
+ * @param {readonly string[] | undefined} ocultas
+ * @returns {ListagemDrive}
+ */
+export function semOcultas(dados, ocultas) {
+  if (!ocultas || !ocultas.length) return dados;
+  const fora = new Set(ocultas);
+  const secoes = dados.secoes
+    .map(s => ({ ...s, fotos: s.fotos.filter(f => !fora.has(f[0])) }))
+    .filter(s => s.fotos.length);
+  const total = secoes.reduce((n, s) => n + s.fotos.length, 0);
+  return { ...dados, secoes, total };
+}
+
+/**
+ * Lista de fotos ocultas como o evento grava: IDs do Drive válidos, sem
+ * repetição, no máximo GALERIA_MAX_OCULTAS. Qualquer outra forma vira lista
+ * vazia — este campo decide o que o público vê, não pode guardar lixo.
+ * @param {unknown} v
+ * @returns {string[]}
+ */
+export function normalizaOcultas(v) {
+  if (!Array.isArray(v)) return [];
+  const out = new Set();
+  for (const id of v) {
+    if (typeof id === 'string' && ID_RE.test(id)) out.add(id);
+    if (out.size >= GALERIA_MAX_OCULTAS) break;
+  }
+  return [...out];
+}
 
 /**
  * URL da foto redimensionada pelo próprio Google (lh3), sem chave. A largura é
