@@ -342,6 +342,8 @@ Cobre:
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
   (o roteiro reprova se a carga preguiçosa virar ansiosa);
+- **alt das fotos** — na grade e no visualizador, "<evento> — foto i de n"
+  (SEO e leitor de tela), em todos os aparelhos;
 - **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
 - **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
@@ -357,7 +359,8 @@ por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-
 o roteiro prova o comportamento, não a aparência.
 
 Prova o comportamento da **página**. O do servidor (quem vê, Drive
-API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
+API, cache, proxy que não é aberto, indexação por tipo de álbum, sitemaps de
+imagens, downloads fora do robô) está em `tests/galeria.test.js`, e o que só
 o workerd garante (bundle byte a byte, Cache API de verdade) em
 `tests/workers/galeria.workers.test.js`.
 

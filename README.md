@@ -874,6 +874,8 @@ compatibilidade sem comprar segurança.
 | GET | `/vendor/<nome>.<hash>.(js\|css)` | `handleVendor` | Bibliotecas vendorizadas (hoje, o PhotoSwipe da galeria própria). Busca **exata** no mapa de `src/content/vendor.js`; cache `immutable` de um ano, seguro porque o nome leva o hash do conteúdo |
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | GET | `/api/recentes` | `handleRecentes` | As 5 galerias mais recentes em JSON (`{galerias:[{slug, titulo, data, url, destaque, emBreve}]}`), na ordem da galeria (fixados primeiro) e com o filtro do sitemap (sem ocultos nem `private`/`family`). **Único endpoint com CORS aberto** (`Access-Control-Allow-Origin: *`, CORP `cross-origin`, `max-age=300`): quem lê é o widget "Galerias recentes" da home lucafchala.com, que assim mostra projeto novo sem ninguém editar o HTML de lá. Só leitura, nenhum campo além do que o widget desenha (nada de Drive, capa ou tipo de acesso) — mudar o formato quebra a home, então mude os dois juntos |
+| GET | `/sitemap-galerias.xml` | `handleSitemapGalerias` | Índice (sitemapindex) dos sitemaps de imagens, um por galeria indexável. Só lê a lista de eventos |
+| GET | `/sitemap-galeria-<slug>.xml` | `handleSitemapGaleria` | A URL da galeria com até 1000 `<image:image>` (lh3, sem as ocultas) e o `lastmod` do evento. Custa o mesmo que uma visita à galeria (a listagem de 10 min); Drive fora → 503 com `Retry-After`; galeria não indexável → 404 |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (balde por IP: 1000 de rajada, 200/h — ver "Rate limiting") |
 | POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), balde de fichas por IP (429 com `Retry-After` em segundos — dimensionado para o público de um evento atrás do mesmo Wi-Fi/NAT, ver "Rate limiting") — e grava o aceite em D1 (best-effort, no-op sem D1), com `turnstile_ok` = 1 (Turnstile), 0 (`noscript`) ou 2 (código por e-mail). Três caminhos: token do Turnstile, `noscript` (Turnstile bloqueado) e `email` (+ `emailToken`/`emailCode` de `/api/drive-code`). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147). Em álbum `family`/`private`, só nesse caminho (#146): exige `name` (400 com `campo: "nome"`) e para no 3º álbum restrito distinto do IP em 24 h (403 com `usarEmail: true` — a página abre o código por e-mail) |
@@ -899,8 +901,8 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
-| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo |
-| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público |
+| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo. **Indexada no Google** só a de álbum público e listado, vista por visitante, fora da prévia e com fotos (`galeriaIndexavel()`; ver [No Google](#no-google)); o resto leva `noindex` |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
@@ -1867,6 +1869,47 @@ no Drive. É o caminho de um pedido de remoção (LGPD) — o texto do painel na
 seção de pedidos agora diz para ocultar na galeria e depois remover no Drive. O
 backup/restauração e o formulário do painel só gravam IDs válidos.
 
+### No Google
+
+Desde 29/10/2026 (decisão do dono), a galeria de álbum **público e listado**
+é indexável: sem `noindex` (meta `index,follow,max-image-preview:large`, sem
+`X-Robots-Tag`), título "Fotos de <evento> — <data>", descrição própria,
+`canonical`, cartão de link com a capa (lh3, não passa pelo Worker) e JSON-LD
+`ImageGallery` com o `author` no mesmo `Person` (`@id`) do resto do site. O
+alt de cada foto é "<evento> — foto i de n". **Continuam com `noindex`:**
+família, privado (com o perfil do painel: `no-store`), não listado
+(`visible: false`), a prévia de PR, a visão do dono e a página de erro/pasta
+vazia; "Em breve" é 404. A regra é `galeriaIndexavel()` em `src/index.js`
+(sitemap e página usam a mesma).
+
+**Cache.** Visitante de álbum público recebe `Cache-Control: private,
+no-cache`: `private` porque a página leva o nonce da CSP (um cache
+compartilhado o repetiria); `no-cache` para foto oculta sair na próxima
+visita; sem `no-store`, o voltar do navegador usa o bfcache. A economia de cota
+é a listagem de 10 min, não o HTML. Família/privado e dono seguem `no-store`.
+
+**Sitemaps.** O `/sitemap.xml` lista a URL de cada galeria indexável com
+`lastmod`, sem chamar o Drive. As fotos (`image:image`, até 1000 por URL) ficam
+num sitemap por galeria, `/sitemap-galeria-<slug>.xml`, anunciado pelo índice
+`/sitemap-galerias.xml` (linha `Sitemap:` no `robots.txt`). Um por galeria por
+causa do plano gratuito: uma listagem fria custa até 30 subrequests
+(`GALERIA_MAX_CHAMADAS`) e o teto é 50 — duas no mesmo pedido estourariam.
+Ficam na raiz porque um sitemap só vale para URLs do próprio diretório para
+baixo.
+
+**Downloads fora.** `Disallow: /galeria/*/baixar/` nos grupos `*` e de busca do
+`robots.txt`, `X-Robots-Tag: noindex` em toda resposta do proxy e
+`rel="nofollow"` nos links de download e do Drive: robô baixando original
+gastaria a cota do Drive e do Worker. O `Content-Signal` (`ai-train=no`) fica
+em todos os grupos — o Lighthouse o acusa como diretiva desconhecida (é a
+única falha do SEO, 92), e o Google ignora a linha.
+
+**Foto oculta ou pedido de remoção:** sai do HTML e do sitemap de imagens no
+próximo pedido (o mesmo prazo de qualquer mudança do painel, até ~2 min), e o
+`lastmod` muda, para o Google reler. Para tirar **do Google** com urgência:
+Search Console → **Remoções** → *Nova solicitação* com a URL da imagem
+(`https://lh3.googleusercontent.com/d/<id>…`) ou da galeria.
+
 ### Por que o download passa pelo Worker
 
 `/galeria/<slug>/baixar/<id>?v=redes|max`: o original só sai com a chave, que
@@ -1893,7 +1936,8 @@ de Worker + 1 subrequest.
 
 ### Verificação
 
-`tests/galeria.test.js` (servidor: quem vê, ocultar, Drive API, cache, proxy) e
+`tests/galeria.test.js` (servidor: quem vê, ocultar, Drive API, cache, proxy,
+indexação, sitemaps, downloads fora do robô) e
 `npm run verifica:galeria` (a página num Chromium de verdade, por aparelho —
 ver `docs/VERIFICACAO.md`).
 

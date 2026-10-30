@@ -22,9 +22,16 @@
 // /galeria/<slug>/baixar/<id>, que só entrega arquivo que está na pasta do
 // projeto. A chave da Drive API nunca chega a esta página.
 
-import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_LADO_REDES } from '../config.js';
+import { urlLh3 } from '../drive.js';
+
+const SITE_URL = 'https://fotos.lucafchala.com';
+// Quantas fotos o JSON-LD descreve como ImageObject. Poucas: o sitemap de
+// imagens (/sitemap-galeria-<slug>.xml) é quem lista todas; aqui é só o
+// bastante para o buscador ligar fotos, galeria e autor sem inchar o HTML.
+const LD_FOTOS = 12;
 
 /** @param {string} source */
 const vendorPath = source => {
@@ -97,9 +104,13 @@ const CONSERTOS = {
  *   nonce: string,
  *   dono?: boolean,
  *   ocultas?: string[],
+ *   indexavel?: boolean,
  * }} p
  */
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [] }) {
+// `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
+// quem decide é handleGaleriaPagina (álbum público e listado, visitante, fora
+// da prévia, com fotos). Com false, sai o noindex de antes.
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], indexavel = false }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -112,6 +123,43 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const contagem = total === 1 ? '1 foto' : `${total} fotos`;
   const meta = listagem && total ? [dataEvento, contagem].filter(Boolean).join(' · ') : dataEvento;
 
+  // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
+  // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
+  // Person (@id) do resto do site.
+  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const urlPagina = `${SITE_URL}/galeria/${slug}`;
+  const descricao = previewDescription(
+    [dataEvento, listagem && total ? contagem : ''],
+    `Galeria de fotos de ${titulo}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
+  );
+  const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
+  // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
+  const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
+  // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
+  // pelo Worker — o robô do cartão não gasta cota nossa.
+  const ogImage = ogImageFor(event.thumbnailUrl || (todasFotos[0] ? urlLh3(todasFotos[0][0], 1600) : ''));
+  const jsonLd = todasFotos.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'ImageGallery',
+    '@id': `${urlPagina}#galeria`,
+    name: tituloPagina,
+    url: urlPagina,
+    inLanguage: 'pt-BR',
+    description: descricao,
+    author: PERSON_LD,
+    isPartOf: { '@type': 'PhotoGallery', name: titulo, url: `${SITE_URL}/${slug}` },
+    ...(ogImage.url ? { image: ogImage.url } : {}),
+    ...(event.date ? { datePublished: event.date } : {}),
+    numberOfItems: total,
+    associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => ({
+      '@type': 'ImageObject',
+      contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
+      name: altFoto(i),
+      creator: PERSON_LD,
+      creditText: 'Luca F. Chala',
+    })),
+  } : null;
+
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
@@ -120,6 +168,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 
   const dados = listagem ? {
     slug,
+    titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos })),
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
@@ -138,12 +187,23 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="robots" content="noindex,nofollow">
+  <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
-  <title>Galeria · ${escape(titulo)}</title>
+  <title>${escape(tituloPagina)}</title>
+  <link rel="canonical" href="${escape(urlPagina)}">
+  ${socialMetaHTML({
+    title: tituloPagina,
+    description: descricao,
+    url: urlPagina,
+    image: ogImage.url,
+    imageAlt: `Fotos de ${titulo}`,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
+  ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
   <link rel="stylesheet" href="${vendorPath('vendor/photoswipe/photoswipe.css')}">
@@ -303,7 +363,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     <span>Só você (logado) vê esta faixa.</span>
     <a href="/dashboard">← Painel</a>
     <a href="/${escape(slug)}">Página do projeto</a>
-    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="noopener">Abrir no Drive</a>` : ''}
+    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="nofollow noopener">Abrir no Drive</a>` : ''}
     ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
     ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
@@ -332,7 +392,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
+  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
     <span id="g-barra-n" aria-live="polite">0 selecionadas</span>
@@ -345,7 +405,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
       <div id="g-folha-ops"></div>
       <p class="g-folha-msg" id="g-folha-msg" aria-live="polite"></p>
-      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
+      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="nofollow noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
     </div>
   </div>
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
@@ -364,13 +424,17 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
+  // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
+  // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
+  const TOTAL = D.secoes.reduce(function (n, s) { return n + s.fotos.length; }, 0);
+  const altDe = function (i) { return (D.titulo ? D.titulo + ' — ' : '') + 'foto ' + (i + 1) + ' de ' + TOTAL; };
   // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
   const ocultas = new Set(D.ocultas || []);
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -440,7 +504,7 @@ const SCRIPT = `
         a.dataset.i = String(i);
         a.setAttribute('aria-label', 'Foto ' + semExt(f[3]));
         const img = document.createElement('img');
-        img.alt = '';
+        img.alt = altDe(i);
         img.decoding = 'async';
         img.loading = i < 16 ? 'eager' : 'lazy';
         if (i < 4) img.setAttribute('fetchpriority', 'high');
@@ -463,7 +527,7 @@ const SCRIPT = `
           if (ocultas.has(f[0])) a.classList.add('oculta');
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
         fotos.push(foto);
@@ -797,7 +861,7 @@ const SCRIPT = `
       width: f.w || LONGO_ESTIMADO,
       height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
       msrc: f.img.currentSrc || undefined,
-      alt: 'Foto ' + semExt(f.nome),
+      alt: f.alt,
       element: f.el,
     };
   }
@@ -1045,6 +1109,8 @@ const SCRIPT = `
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
+    // Download passa pelo Worker (cota do Drive): nada de robô seguindo.
+    a.rel = 'nofollow';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1127,7 +1193,7 @@ const SCRIPT = `
       a.className = 'g-op';
       a.href = D.drive;
       a.target = '_blank';
-      a.rel = 'noopener';
+      a.rel = 'nofollow noopener';
       const t = document.createElement('strong');
       t.textContent = 'Pelo Google Drive';
       const d = document.createElement('span');

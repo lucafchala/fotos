@@ -478,6 +478,16 @@ O que já mordeu, ou morderia:
 - **O script da página mora numa template string** (`SCRIPT` em
   `src/ui/galeria.js`): crase num comentário dele fecha a string e derruba o
   módulo inteiro na importação.
+- **Galeria pública no Google (29/10/2026).** Só a de álbum público e
+  listado, vista por visitante, fora da prévia e com fotos, sai sem `noindex`
+  — a regra é `galeriaIndexavel()` (sitemap e página usam a mesma); família e
+  privado seguem com o perfil do painel (`no-store`, `noindex`). As fotos vão
+  para o Google por `/sitemap-galeria-<slug>.xml` (um por galeria: duas
+  listagens frias no mesmo pedido estourariam as 50 subrequests). Downloads:
+  `Disallow` no `robots.txt`, `X-Robots-Tag: noindex` e `rel="nofollow"`. A
+  página do visitante é `private, no-cache` (leva o nonce da CSP; nunca
+  `public`). Foto oculta sai do HTML e do sitemap no próximo pedido; **para
+  tirar do Google com urgência: Search Console → Remoções** (`docs/RELEASE.md`).
 - **No Playwright, `page.route` não intercepta o `<a download>`** — a
   navegação vira download antes da rota. O `verifica:galeria` confere a URL do
   download; o nome do arquivo (o `Content-Disposition`) está na suíte.

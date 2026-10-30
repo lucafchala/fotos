@@ -198,6 +198,10 @@ const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
+// Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
+// sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
+// "Sitemap file location"), e a página da galeria fica fora de /galeria/<slug>/.
+const SITEMAP_GALERIA_RE = /^\/sitemap-galeria-([a-z0-9][a-z0-9-]*)\.xml$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -264,6 +268,9 @@ const worker = {
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
+      if (path === '/sitemap-galerias.xml' && method === 'GET') return await handleSitemapGalerias(env);
+      const sitemapGaleriaMatch = path.match(SITEMAP_GALERIA_RE);
+      if (sitemapGaleriaMatch && method === 'GET') return await handleSitemapGaleria(env, sitemapGaleriaMatch[1]);
       if (path === '/robots.txt' && method === 'GET') return await handleRobots();
       if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
@@ -481,8 +488,6 @@ async function handleSitemap(env) {
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
   const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
-  /** @param {Evento} e */
-  const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
@@ -502,9 +507,86 @@ async function handleSitemap(env) {
       `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`
     );
   }
+  // A galeria própria de cada álbum público (decisão do dono, 29/10/2026): só a
+  // URL e o lastmod — as fotos (image:image) ficam no sitemap de cada galeria
+  // (handleSitemapGaleria), para este aqui nunca chamar o Drive.
+  for (const e of events.filter(galeriaIndexavel)) {
+    const lastmod = lastmodOf(e);
+    urls.push(`  <url><loc>${SITE_URL}/galeria/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`);
+  }
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   return new Response(xml, {
     headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
+  });
+}
+
+/** @param {Evento} e */
+const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
+
+// Google: até 1000 <image:image> por <url>. A galeria pode ter até
+// GALERIA_MAX_FOTOS; o resto o Google acha pela própria página.
+const SITEMAP_IMAGENS_POR_URL = 1000;
+
+/**
+ * Índice dos sitemaps de imagens das galerias: um por galeria indexável. Só
+ * lê a lista de eventos (KV com cache) — nenhuma chamada ao Drive.
+ * @param {Env} env
+ */
+async function handleSitemapGalerias(env) {
+  const events = (await getEvents(env)).filter(galeriaIndexavel);
+  const itens = events.map(e => {
+    const lastmod = lastmodOf(e);
+    return `  <sitemap><loc>${SITE_URL}/sitemap-galeria-${escape(e.slug)}.xml</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</sitemap>`;
+  });
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${itens.join('\n')}${itens.length ? '\n' : ''}</sitemapindex>\n`;
+  return new Response(xml, {
+    headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
+  });
+}
+
+/**
+ * Sitemap de imagens de UMA galeria pública: a URL da galeria com as fotos
+ * (até 1000) em <image:image>. Um por galeria, e não todas no /sitemap.xml, por
+ * causa do plano gratuito: cada listagem fria da pasta custa até
+ * GALERIA_MAX_CHAMADAS (30) subrequisições, e o teto é 50 por invocação — dois
+ * álbuns frios no mesmo pedido já estourariam. Assim cada pedido custa o mesmo
+ * que UMA visita à galeria (a listagem de 10 min do listaPasta, compartilhada
+ * com a página). Foto oculta nunca entra (semOcultas), e o lastmod é o do
+ * evento — ocultar uma foto o atualiza, então o Google relê.
+ * @param {Env} env
+ * @param {string} slug
+ */
+async function handleSitemapGaleria(env, slug) {
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  const pasta = event && galeriaIndexavel(event) ? pastaDoDrive(event.driveUrl) : null;
+  if (!event || !pasta) return notFound();
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  try {
+    listagem = await listaPasta(env, pasta);
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
+    // vez de entender que as fotos sumiram.
+    return new Response('Drive indisponível.', {
+      status: 503,
+      headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), 'Retry-After': '3600' },
+    });
+  }
+  const fotos = semOcultas(listagem, normalizaOcultas(event.fotosOcultas)).secoes
+    .flatMap(s => s.fotos)
+    .slice(0, SITEMAP_IMAGENS_POR_URL);
+  if (!fotos.length) return notFound();
+  const lastmod = lastmodOf(event);
+  // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
+  const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+    + `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}\n    ${imagens.join('\n    ')}\n  </url>\n`
+    + '</urlset>\n';
+  return new Response(xml, {
+    // no-cache: foto oculta sai do sitemap no próximo pedido, não daqui a 1 h.
+    headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
   });
 }
 
@@ -514,17 +596,28 @@ function handleRobots() {
   // que existem só para treinar levam Disallow. /dashboard e /api/ não são
   // protegidos por aqui (robots.txt é aviso, não controle de acesso): têm login
   // e limite de taxa.
+  //
+  // O download da galeria (/galeria/<slug>/baixar/<id>) leva Disallow nos dois
+  // grupos que podem rastrear: cada pedido dele é um original pela Drive API ou
+  // uma cópia pelo lh3 passando PELO Worker — cota do Drive e do plano
+  // gratuito gastas por robô. As fotos que o Google indexa são as do lh3
+  // (sitemap de imagens e a própria página), que não passam pelo Worker.
+  // O Content-Signal faz o Lighthouse acusar "Unknown directive" (robots-txt);
+  // fica assim de propósito — o Google ignora a linha, e o ai-train=no é
+  // decisão do dono.
   const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
+  const fechado = 'Disallow: /galeria/*/baixar/\n';
   const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
   const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
     '# robots.txt — fotos.lucafchala.com\n' +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
     '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
-    'User-agent: *\n' + sinal + 'Allow: /\n\n' +
-    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n\n' +
+    'User-agent: *\n' + sinal + 'Allow: /\n' + fechado + '\n' +
+    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
-    `Sitemap: ${SITE_URL}/sitemap.xml\n`;
+    `Sitemap: ${SITE_URL}/sitemap.xml\n` +
+    `Sitemap: ${SITE_URL}/sitemap-galerias.xml\n`;
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
@@ -3432,6 +3525,19 @@ async function podeVerGaleria(request, env, slug) {
 }
 
 /**
+ * A galeria deste projeto pode entrar no Google (decisão do dono, 29/10/2026)?
+ * Só a de álbum PÚBLICO, listado (visible !== false — "não listado" segue fora
+ * de busca, como a página do projeto) e publicado (não "Em breve"), com uma
+ * pasta do Drive de verdade. UMA regra para o sitemap, o índice de sitemaps
+ * de imagens e o noindex da página — família e privado nunca. A página ainda
+ * soma o que só ela sabe (dono logado, prévia de PR, pasta lida com fotos).
+ * @param {Evento} event
+ */
+export function galeriaIndexavel(event) {
+  return event.visible !== false && !event.comingSoon && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
+}
+
+/**
  * Passe da galeria própria, emitido pelo portão do Drive depois do aceite.
  * Cookie preso ao caminho do álbum: não vale para outro slug.
  * @param {Env} env
@@ -3481,9 +3587,24 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
   // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
   if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
-  return adminHtml(galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, ...(dono ? { ocultas } : {}),
-  }), 200, nonce);
+  // Indexável: álbum público listado, visto por visitante, fora da prévia, e
+  // com fotos (página de erro ou pasta vazia não vai para o Google).
+  const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && !!listagem && listagem.total > 0;
+  const pagina = galeriaHTML({
+    event, listagem, erro, nonce, dono: !!dono, indexavel, ...(dono ? { ocultas } : {}),
+  });
+  // Dono e família/privado: o perfil do painel (no-store, noindex) — o que é
+  // de passe nunca fica em cache nem vai para busca.
+  if (dono || isRestrictedAccess(event)) return adminHtml(pagina, 200, nonce);
+  // Visitante de álbum público: o perfil de página pública. `private`: a
+  // página leva o nonce da CSP, e um cache compartilhado o repetiria para
+  // todos; `no-cache`: cada visita revalida, então foto oculta some na hora (a
+  // economia de cota é a listagem de 10 min do listaPasta, não este HTML). Sem
+  // `no-store`, o voltar/avançar do navegador funciona (bfcache).
+  const res = html(pagina, 200, nonce);
+  res.headers.set('Cache-Control', 'private, no-cache');
+  if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return res;
 }
 
 /**
@@ -3502,6 +3623,23 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
  * @param {ExecutionContext} [ctx]
  */
 export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) {
+  const res = await baixaDaGaleria(request, env, slug, fileId, url, ctx);
+  // Toda resposta do proxy, 200 ou erro: nada daqui vai para o índice (nem
+  // para o Google Imagens). O Disallow do robots.txt evita o pedido; isto
+  // cobre quem chega por link de fora sem ter lido o robots.txt.
+  res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return res;
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {URL} url
+ * @param {ExecutionContext} [ctx]
+ */
+async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   if (!idDriveValido(fileId)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);

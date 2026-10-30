@@ -9,6 +9,7 @@
 - [ ] `npm run verifica:painel`, `verifica:evento`, `verifica:galeria` e `verifica:previa`, com `PLAYWRIGHT_BROWSERS_PATH` apontando para o Chromium (rode um de cada vez: com a máquina carregada, o zoom do visualizador da galeria já oscilou uma vez em dez). Última rodada de 24/10/2026: painel 240 ok, evento 55 ok, galeria 101 ok, 0 falhas.
 - [ ] `VERSAO` (`src/config.js`), `version` do `package.json` e a seção do `CHANGELOG.md` batem.
 - [ ] Na prévia do PR: entrar no painel, abrir um projeto, `/robots.txt`, `/sitemap.xml` e `/og-padrao.png`.
+- [ ] Galeria no Google (29/10/2026): na prévia, `/robots.txt` fecha tudo e a galeria sai com `noindex` (prévia nunca indexa). Depois do merge, em produção: `/sitemap-galerias.xml` lista as galerias públicas, `/sitemap-galeria-<slug>.xml` traz as fotos, e o `robots.txt` tem `Disallow: /galeria/*/baixar/`. Enviar `/sitemap-galerias.xml` no Search Console (Sitemaps).
 - [ ] Migração D1 conferida na prévia (ela tem o banco `fotos-consent-previa`): `node scripts/d1-migrate.mjs` sai com 0.
 - [x] Galeria própria sem `GOOGLE_DRIVE_API_KEY`: a página mostra o passo a passo, sem erro de JS nem de CSP (automático em `verifica:galeria`, cenário "Página de erro").
 - [x] Galeria própria com centenas de fotos: carga preguiçosa, refazer a grade e poucas tarefas longas (automático em `verifica:galeria`: 244 fotos na grade por aparelho e 800 no cenário "Centenas de fotos"; o visualizador abre sob a CSP estrita, sem mensagem de CSP). Falta só olhar a galeria real com uma pasta grande do Drive.
@@ -54,6 +55,10 @@ A prévia restaurada de um backup guarda os links reais dos álbuns. O namespace
 npx wrangler kv key list   --namespace-id e059470a54d34b93a65402bbcd0fa310 --remote
 npx wrangler kv key delete <chave> --namespace-id e059470a54d34b93a65402bbcd0fa310 --remote
 ```
+
+## Tirar uma foto do Google com urgência
+
+Ocultar a foto no painel (ou atender o pedido de remoção) tira a foto do HTML da galeria e do sitemap de imagens no próximo pedido (até ~2 min). O Google, porém, só esquece quando voltar a rastrear. Para ser rápido: **Search Console → Remoções → Nova solicitação**, com a URL da imagem (`https://lh3.googleusercontent.com/d/<id>…`) ou da galeria (`/galeria/<slug>`). Vale por ~6 meses; até lá a foto já saiu do sitemap e da página. Para tirar de vez, apague no Drive.
 
 ## Decisões que valem aqui
 
