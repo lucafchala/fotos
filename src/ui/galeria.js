@@ -22,9 +22,16 @@
 // /galeria/<slug>/baixar/<id>, que só entrega arquivo que está na pasta do
 // projeto. A chave da Drive API nunca chega a esta página.
 
-import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_LADO_REDES } from '../config.js';
+import { urlLh3 } from '../drive.js';
+
+const SITE_URL = 'https://fotos.lucafchala.com';
+// Quantas fotos o JSON-LD descreve como ImageObject. Poucas: o sitemap de
+// imagens (/sitemap-galeria-<slug>.xml) é quem lista todas; aqui é só o
+// bastante para o buscador ligar fotos, galeria e autor sem inchar o HTML.
+const LD_FOTOS = 12;
 
 /** @param {string} source */
 const vendorPath = source => {
@@ -97,9 +104,13 @@ const CONSERTOS = {
  *   nonce: string,
  *   dono?: boolean,
  *   ocultas?: string[],
+ *   indexavel?: boolean,
  * }} p
  */
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [] }) {
+// `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
+// quem decide é handleGaleriaPagina (álbum público e listado, visitante, fora
+// da prévia, com fotos). Com false, sai o noindex de antes.
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], indexavel = false }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -112,6 +123,53 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const contagem = total === 1 ? '1 foto' : `${total} fotos`;
   const meta = listagem && total ? [dataEvento, contagem].filter(Boolean).join(' · ') : dataEvento;
 
+  // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
+  // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
+  // Person (@id) do resto do site.
+  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const urlPagina = `${SITE_URL}/galeria/${slug}`;
+  const descricao = previewDescription(
+    [dataEvento, listagem && total ? contagem : ''],
+    `Galeria de fotos de ${titulo}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
+  );
+  const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
+  // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
+  const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
+  // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
+  // pelo Worker — o robô do cartão não gasta cota nossa.
+  const ogImage = ogImageFor(event.thumbnailUrl || (todasFotos[0] ? urlLh3(todasFotos[0][0], 1600) : ''));
+  const jsonLd = todasFotos.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'ImageGallery',
+    '@id': `${urlPagina}#galeria`,
+    name: tituloPagina,
+    url: urlPagina,
+    inLanguage: 'pt-BR',
+    description: descricao,
+    author: PERSON_LD,
+    isPartOf: { '@type': 'PhotoGallery', name: titulo, url: `${SITE_URL}/${slug}` },
+    ...(ogImage.url ? { image: ogImage.url } : {}),
+    ...(event.date ? { datePublished: event.date } : {}),
+    numberOfItems: total,
+    associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => ({
+      '@type': 'ImageObject',
+      contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
+      name: altFoto(i),
+      creator: PERSON_LD,
+      creditText: 'Luca F. Chala',
+    })),
+  } : null;
+
+  // Pré-carga da miniatura do LCP no celular (até 430 px): lá a primeira foto,
+  // se for deitada, ocupa a linha inteira — largura conhecida antes do script
+  // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
+  // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
+  // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
+  const lcp = todasFotos[0];
+  const preloadLcp = lcp && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    : '';
+
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
@@ -120,6 +178,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 
   const dados = listagem ? {
     slug,
+    titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos })),
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
@@ -130,6 +189,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     dono: !!dono,
     ocultas: dono ? ocultas : [],
     lightbox: vendorPath('vendor/photoswipe/photoswipe-lightbox.esm.min.js'),
+    // O CSS do visualizador entra junto com ele (preparaLightbox), não no
+    // <head>: lá ele bloqueava a primeira pintura da grade.
+    css: vendorPath('vendor/photoswipe/photoswipe.css'),
     core: vendorPath('vendor/photoswipe/photoswipe.esm.min.js'),
   } : null;
 
@@ -138,15 +200,26 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="robots" content="noindex,nofollow">
+  <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
-  <title>Galeria · ${escape(titulo)}</title>
+  <title>${escape(tituloPagina)}</title>
+  <link rel="canonical" href="${escape(urlPagina)}">
+  ${socialMetaHTML({
+    title: tituloPagina,
+    description: descricao,
+    url: urlPagina,
+    image: ogImage.url,
+    imageAlt: `Fotos de ${titulo}`,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
+  ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
-  <link rel="stylesheet" href="${vendorPath('vendor/photoswipe/photoswipe.css')}">
+  ${preloadLcp}
   <style>
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -218,13 +291,18 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
     .g-t img.ok{opacity:1}
+    /* A primeira linha (a do LCP) aparece sem esperar o fade do "load": com
+       opacidade 0 o navegador nem conta a foto como pintada. */
+    .g-t img[fetchpriority="high"]{opacity:1;transition:none}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
     .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
     .g-modo-sel .g-t .g-ck{display:block}
     .g-fav{position:absolute;left:0;bottom:0;width:44px;height:44px;display:grid;place-items:center;color:#fff;opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .12s cubic-bezier(.23,1,.32,1)}
-    .g-fav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
+    /* O coração é um fundo em CSS, não um <svg> por miniatura: com centenas de
+       fotos, eram dois elementos e um innerHTML a mais por foto na carga. */
+    .g-fav::before{content:"";width:22px;height:22px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/contain no-repeat;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
     .g-t.fav .g-fav{opacity:1}
-    .g-t.fav .g-fav svg{fill:#ff6b86;stroke:#ff6b86}
+    .g-t.fav .g-fav::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='%23ff6b86' stroke='%23ff6b86' stroke-width='2'/%3E%3C/svg%3E")}
     .g-modo-sel .g-fav{display:none}
     @media (hover:hover){
       .g-t:hover .g-fav,.g-t:focus-visible .g-fav{opacity:1;pointer-events:auto}
@@ -303,7 +381,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     <span>Só você (logado) vê esta faixa.</span>
     <a href="/dashboard">← Painel</a>
     <a href="/${escape(slug)}">Página do projeto</a>
-    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="noopener">Abrir no Drive</a>` : ''}
+    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="nofollow noopener">Abrir no Drive</a>` : ''}
     ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
     ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
@@ -332,7 +410,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
+  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
     <span id="g-barra-n" aria-live="polite">0 selecionadas</span>
@@ -345,7 +423,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
       <div id="g-folha-ops"></div>
       <p class="g-folha-msg" id="g-folha-msg" aria-live="polite"></p>
-      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
+      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="nofollow noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
     </div>
   </div>
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
@@ -364,13 +442,17 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
+  // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
+  // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
+  const TOTAL = D.secoes.reduce(function (n, s) { return n + s.fotos.length; }, 0);
+  const altDe = function (i) { return (D.titulo ? D.titulo + ' — ' : '') + 'foto ' + (i + 1) + ' de ' + TOTAL; };
   // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
   const ocultas = new Set(D.ocultas || []);
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -380,7 +462,6 @@ const SCRIPT = `
   const reduz = function () {
     try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
   };
-  const ICONE_CORACAO = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20.5 10.9 19.5C6.2 15.3 3.5 12.800 3.500 9.700 3.500 7.300 5.400 5.500 7.700 5.500c1.600 0 3.200.8 4.300 2.100 1.100-1.300 2.700-2.100 4.300-2.100 2.300 0 4.200 1.800 4.200 4.200 0 3.100-2.700 5.600-7.400 9.800z"/></svg>';
 
   // Unidades decimais (1 MB = 1.000.000 bytes): é o que o iPhone, o Mac e o
   // Android mostram para o arquivo baixado — o número aqui tem de bater com o
@@ -392,8 +473,21 @@ const SCRIPT = `
     return mb.toLocaleString('pt-BR', { maximumFractionDigits: mb < 10 ? 1 : 0 }) + ' MB';
   }
 
-  // ---- WebP: decide por decodificação de verdade, não por user-agent ----
+  // ---- WebP: decide pelo que o navegador faz, não por user-agent ----
+  // Primeiro o caminho síncrono: quem CODIFICA WebP num canvas também o
+  // decodifica, e a grade sai no mesmo passo do script (a miniatura do LCP é
+  // pedida antes). Quem não codifica (Safari antigo) cai na decodificação de
+  // verdade, assíncrona, como antes.
+  function webpPorCanvas() {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      return c.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+    } catch (e) { return false; }
+  }
   function detectaWebp(pronto) {
+    if (webpPorCanvas()) { rw = '-rw'; pronto(); return; }
     const t = new Image();
     let feito = false;
     const fim = function (ok) { if (feito) return; feito = true; rw = ok ? '-rw' : ''; pronto(); };
@@ -440,10 +534,11 @@ const SCRIPT = `
         a.dataset.i = String(i);
         a.setAttribute('aria-label', 'Foto ' + semExt(f[3]));
         const img = document.createElement('img');
-        img.alt = '';
+        img.alt = altDe(i);
         img.decoding = 'async';
-        img.loading = i < 16 ? 'eager' : 'lazy';
-        if (i < 4) img.setAttribute('fetchpriority', 'high');
+        // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
+        // cai na primeira tela (ver dimensiona).
+        img.loading = 'lazy';
         const ck = document.createElement('span');
         ck.className = 'g-ck';
         ck.setAttribute('aria-hidden', 'true');
@@ -451,7 +546,6 @@ const SCRIPT = `
         fv.className = 'g-fav';
         fv.setAttribute('aria-hidden', 'true');
         fv.title = 'Favoritar (tecla F)';
-        fv.innerHTML = ICONE_CORACAO;
         a.appendChild(img);
         a.appendChild(ck);
         a.appendChild(fv);
@@ -463,7 +557,7 @@ const SCRIPT = `
           if (ocultas.has(f[0])) a.classList.add('oculta');
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
         fotos.push(foto);
@@ -485,10 +579,14 @@ const SCRIPT = `
     larguraDiagramada = main.clientWidth;
     const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 300 : W < 900 ? 260 : 240;
     const gap = W < 520 ? 3 : 5;
-    grades.forEach(function (g) { diagrama(g, W, alvo, gap); });
+    // Onde cada linha cai na página, aproximado (o título da seção conta como
+    // 48 px): decide o que é "primeira tela" na primeira diagramação.
+    const pos = { y: main.getBoundingClientRect().top + window.scrollY, primeira: true };
+    grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
-  function diagrama(g, W, alvo, gap) {
+  function diagrama(g, W, alvo, gap, pos) {
+    if (pos && D.secoes.length > 1) pos.y += 48;
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
@@ -506,16 +604,19 @@ const SCRIPT = `
       row.className = 'g-linha';
       row.style.height = h + 'px';
       let usado = 0;
+      const topo = pos ? pos.y : Infinity;
+      const primeira = !!pos && pos.primeira;
       linha.forEach(function (f, k) {
         let w = Math.floor(proporcao(f) * h);
         if (k === linha.length - 1 && !naoEstica) w = Math.max(20, livre - usado);
         usado += w;
         f.el.style.width = w + 'px';
-        dimensiona(f, w);
+        dimensiona(f, w, topo, primeira);
         row.appendChild(f.el);
       });
       frag.appendChild(row);
       altura += h + gap;
+      if (pos) { pos.y += h + gap; pos.primeira = false; }
       linha = [];
       soma = 0;
     };
@@ -531,8 +632,14 @@ const SCRIPT = `
 
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
-  function dimensiona(f, w) {
+  function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
+      // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
+      // e a primeira linha — onde está a maior foto da tela, o LCP — vai na
+      // frente das outras. O resto espera chegar perto (loading=lazy), sem
+      // disputar a banda com o que se vê.
+      if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
+      if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
       f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
       f.img.src = lh3(f.id, 400);
     }
@@ -893,7 +1000,7 @@ const SCRIPT = `
       width: f.w || LONGO_ESTIMADO,
       height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
       msrc: f.img.currentSrc || undefined,
-      alt: 'Foto ' + semExt(f.nome),
+      alt: f.alt,
       element: f.el,
     };
   }
@@ -914,12 +1021,25 @@ const SCRIPT = `
     return !!(history.state && history.state.g === marca);
   }
 
+  // O CSS do visualizador, antes do <style> da página: a mesma ordem de
+  // cascata de quando ele vinha no <head> (as regras .pswp da página vencem).
+  function carregaCssLb() {
+    return new Promise(function (pronto) {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = D.css;
+      l.addEventListener('load', function () { pronto(true); });
+      l.addEventListener('error', function () { pronto(false); });
+      document.head.insertBefore(l, document.head.querySelector('style'));
+    });
+  }
+
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
     const urlCore = D.core;
-    carregandoLb = import(urlLb).then(function (mod) {
-      const PhotoSwipeLightbox = mod.default;
+    carregandoLb = Promise.all([import(urlLb), carregaCssLb()]).then(function (r) {
+      const PhotoSwipeLightbox = r[0].default;
       lightbox = new PhotoSwipeLightbox({
         dataSource: [],
         pswpModule: function () { return import(urlCore); },
@@ -1141,6 +1261,8 @@ const SCRIPT = `
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
+    // Download passa pelo Worker (cota do Drive): nada de robô seguindo.
+    a.rel = 'nofollow';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1223,7 +1345,7 @@ const SCRIPT = `
       a.className = 'g-op';
       a.href = D.drive;
       a.target = '_blank';
-      a.rel = 'noopener';
+      a.rel = 'nofollow noopener';
       const t = document.createElement('strong');
       t.textContent = 'Pelo Google Drive';
       const d = document.createElement('span');

@@ -152,7 +152,20 @@ describe('robots.txt e llms.txt: busca e resposta sim, treino não', () => {
     expect(treino).toContain('User-agent: Google-Extended');
     const busca = grupos.find(g => g.includes('User-agent: OAI-SearchBot'));
     expect(busca).toContain('Allow: /');
-    expect(busca).not.toContain('Disallow');
+    // Robô de busca só fica fora do download da galeria — nunca do site.
+    expect(busca).not.toMatch(/^Disallow: \/$/m);
+  });
+
+  it('download da galeria fechado para todo robô que rastreia; sitemaps das galerias anunciados', async () => {
+    // Cada download passa pelo Worker (original pela Drive API, cópia pelo
+    // lh3): robô baixando gasta a cota do Drive e do plano gratuito.
+    const txt = await (await pede('/robots.txt')).text();
+    const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
+    for (const g of grupos.filter(x => !x.includes('User-agent: GPTBot'))) {
+      expect(g).toMatch(/^Disallow: \/galeria\/\*\/baixar\/$/m);
+    }
+    expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap.xml');
+    expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap-galerias.xml');
   });
 
   it('o llms.txt diz que treino não é permitido e não libera robô de treino', async () => {

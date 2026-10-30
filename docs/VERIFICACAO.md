@@ -352,12 +352,21 @@ Cobre:
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
   (o roteiro reprova se a carga preguiçosa virar ansiosa);
+- **carga da página** — `fetchpriority=high` só na primeira linha (a do
+  LCP); `eager` só o que cai na primeira tela, o resto `lazy`; miniatura no
+  menor degrau que cobre largura × DPR (degraus de 100 px até 800); o CSS do
+  PhotoSwipe fora do HTML servido (entra com o visualizador, antes do
+  `<style>` da página: mesma cascata); coração da miniatura em CSS, sem `<svg>`
+  por foto; no celular até 430 px, a pré-carga da primeira foto pede o mesmo
+  arquivo que a `<img>` (um pedido só);
+- **alt das fotos** — na grade e no visualizador, "<evento> — foto i de n"
+  (SEO e leitor de tela), em todos os aparelhos;
 - **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
 - **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
   foi ao console.
 
-107 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
+152 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
 sem nenhuma mensagem de violação. O zoom máximo do visualizador ("pede o
 ORIGINAL") oscilou uma vez em dez com a máquina carregada; rode os roteiros
 um de cada vez.
@@ -367,7 +376,8 @@ por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-
 o roteiro prova o comportamento, não a aparência.
 
 Prova o comportamento da **página**. O do servidor (quem vê, Drive
-API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
+API, cache, proxy que não é aberto, indexação por tipo de álbum, sitemaps de
+imagens, downloads fora do robô) está em `tests/galeria.test.js`, e o que só
 o workerd garante (bundle byte a byte, Cache API de verdade) em
 `tests/workers/galeria.workers.test.js`.
 

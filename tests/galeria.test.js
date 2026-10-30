@@ -735,3 +735,203 @@ describe('aberturas da galeria contadas para as métricas', () => {
     expect(await aberturas()).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Galeria de álbum PÚBLICO no Google (decisão do dono, 29/10/2026). Família,
+// privado, "Em breve", não listado, prévia e a visão do dono continuam fora de
+// busca; downloads nunca entram (cota do Drive e do Worker).
+import { handleGaleriaPagina, galeriaIndexavel } from '../src/index.js';
+describe('galeria pública no Google', () => {
+  const SEGREDO = 's'.repeat(48);
+  const visitante = (path, cookie = '') => worker.fetch(new Request(SITE + path, {
+    headers: { Accept: 'text/html', ...(cookie ? { Cookie: cookie } : {}) },
+  }), env, ctx);
+  const metaRobots = html => (html.match(/<meta name="robots" content="([^"]*)">/) || [])[1];
+  async function comEventos(muda) {
+    const eventos = structuredClone(EVENTOS);
+    muda(eventos);
+    await saveEvents(env, eventos);
+  }
+  beforeEach(() => { env.SIGNING_SECRET = SEGREDO; });
+
+  it('álbum público, visitante: indexável no cabeçalho e na meta, sem no-store, CSP com nonce mantida', async () => {
+    const res = await visitante('/galeria/formatura');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Robots-Tag')).toBeNull();
+    expect(res.headers.get('Cache-Control')).toBe('private, no-cache');
+    expect(res.headers.get('Content-Security-Policy')).toMatch(/script-src 'self' 'nonce-[\w-]+'/);
+    const html = await res.text();
+    expect(metaRobots(html)).toBe('index,follow,max-image-preview:large');
+    expect(html).not.toMatch(/noindex/);
+  });
+
+  it('título, descrição, canonical, og:image da capa e JSON-LD ImageGallery ligado ao Person do site', async () => {
+    await comEventos(ev => {
+      ev[0].date = '2026-01-15';
+      ev[0].thumbnailUrl = 'https://lh3.googleusercontent.com/d/CAPA_DO_EVENTO1=w800';
+    });
+    const html = await (await visitante('/galeria/formatura')).text();
+    expect(html).toContain('<title>Fotos de Formatura 2026 — 15 de janeiro de 2026</title>');
+    expect(html).toContain('<link rel="canonical" href="https://fotos.lucafchala.com/galeria/formatura">');
+    expect(html).toMatch(/<meta name="description" content="15 de janeiro de 2026 · 5 fotos — Galeria de fotos de Formatura 2026/);
+    expect(html).toContain('<meta property="og:image" content="https://lh3.googleusercontent.com/d/CAPA_DO_EVENTO1=w1200-h630-c">');
+    expect(html).toContain('<meta property="og:url" content="https://fotos.lucafchala.com/galeria/formatura">');
+    const ld = JSON.parse(html.match(/<script type="application\/ld\+json" nonce="[^"]+">([^<]*)<\/script>/)[1]);
+    expect(ld['@type']).toBe('ImageGallery');
+    expect(ld.author['@id']).toBe('https://lucafchala.com/#person');
+    expect(ld.url).toBe('https://fotos.lucafchala.com/galeria/formatura');
+    expect(ld.numberOfItems).toBe(5);
+    expect(ld.associatedMedia[0]).toMatchObject({ '@type': 'ImageObject', name: 'Formatura 2026 — foto 1 de 5' });
+    expect(ld.associatedMedia[0].creator['@id']).toBe('https://lucafchala.com/#person');
+    // O alt da grade sai do mesmo título (o script monta "<evento> — foto i de n").
+    expect(html).toContain('"titulo":"Formatura 2026"');
+  });
+
+  it('família e privado (mesmo com o passe): noindex no cabeçalho e na meta, e nunca em cache', async () => {
+    for (const tipo of ['family', 'private']) {
+      await comEventos(ev => { ev[0].accessType = tipo; });
+      const token = await assinaPasse(SEGREDO, { purpose: 'galeria', scope: 'formatura', ttlSecs: 3600 });
+      const res = await visitante('/galeria/formatura', `galeria=${token}`);
+      expect(res.status, tipo).toBe(200);
+      expect(res.headers.get('X-Robots-Tag'), tipo).toMatch(/noindex/);
+      expect(res.headers.get('Cache-Control'), tipo).toMatch(/no-store/);
+      expect(metaRobots(await res.text()), tipo).toBe('noindex,nofollow');
+      // E sem o passe, o 404 de sempre.
+      expect((await visitante('/galeria/formatura')).status, tipo).toBe(404);
+    }
+  });
+
+  it('"Em breve" é 404; não listado, prévia de PR e a visão do dono ficam com noindex', async () => {
+    await comEventos(ev => { ev[0].comingSoon = true; });
+    expect((await visitante('/galeria/formatura')).status).toBe(404);
+
+    await comEventos(ev => { ev[0].visible = false; });
+    const oculto = await visitante('/galeria/formatura');
+    expect(oculto.status).toBe(200);
+    expect(oculto.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    expect(metaRobots(await oculto.text())).toBe('noindex,nofollow');
+
+    await saveEvents(env, structuredClone(EVENTOS));
+    const req = new Request(SITE + '/galeria/formatura', { headers: { Accept: 'text/html' } });
+    const previa = await handleGaleriaPagina(req, { ...env, AMBIENTE: 'previa' }, 'formatura', new URL(req.url), 'n0nce');
+    expect(previa.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    expect(metaRobots(await previa.text())).toBe('noindex,nofollow');
+
+    const dono = await get('/galeria/formatura', { accept: 'text/html' });
+    expect(dono.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    expect(metaRobots(await dono.text())).toBe('noindex,nofollow');
+  });
+
+  it('página de erro (pasta inacessível) não vai para o índice', async () => {
+    rotaExtra = url => (url.host === 'www.googleapis.com' ? Response.json({ error: { code: 404, errors: [{ reason: 'notFound' }] } }, { status: 404 }) : null);
+    const res = await visitante('/galeria/formatura');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+  });
+
+  it('galeriaIndexavel: só público, listado, publicado e com pasta', () => {
+    const base = EVENTOS[0];
+    expect(galeriaIndexavel(base)).toBe(true);
+    expect(galeriaIndexavel({ ...base, accessType: 'family' })).toBe(false);
+    expect(galeriaIndexavel({ ...base, accessType: 'private' })).toBe(false);
+    expect(galeriaIndexavel({ ...base, comingSoon: true })).toBe(false);
+    expect(galeriaIndexavel({ ...base, visible: false })).toBe(false);
+    expect(galeriaIndexavel(EVENTOS[1])).toBe(false); // link de arquivo, não de pasta
+  });
+
+  it('sitemap.xml lista a galeria pública (com lastmod) e não as de família, privado, não listado ou "Em breve" — sem chamar o Drive', async () => {
+    await comEventos(ev => {
+      ev[0].updatedAt = '2026-10-29T10:00:00.000Z';
+      const pasta = ev[0].driveUrl;
+      ev.push(
+        { id: '3', slug: 'da-familia', title: 'F', accessType: 'family', driveUrl: pasta },
+        { id: '4', slug: 'participantes', title: 'P', accessType: 'private', driveUrl: pasta },
+        { id: '5', slug: 'nao-listado', title: 'N', accessType: 'public', visible: false, driveUrl: pasta },
+        { id: '6', slug: 'em-breve', title: 'B', accessType: 'public', comingSoon: true, driveUrl: pasta },
+      );
+    });
+    const xml = await (await visitante('/sitemap.xml')).text();
+    expect(xml).toContain('<url><loc>https://fotos.lucafchala.com/galeria/formatura</loc><lastmod>2026-10-29</lastmod></url>');
+    for (const s of ['da-familia', 'participantes', 'nao-listado', 'em-breve', 'so-arquivo']) {
+      expect(xml).not.toContain(`/galeria/${s}<`);
+    }
+    const indice = await (await visitante('/sitemap-galerias.xml')).text();
+    expect(indice).toContain('<sitemapindex');
+    expect(indice).toContain('<loc>https://fotos.lucafchala.com/sitemap-galeria-formatura.xml</loc><lastmod>2026-10-29</lastmod>');
+    expect(indice.match(/<sitemap>/g)).toHaveLength(1);
+    expect(chamadas).toHaveLength(0);
+  });
+
+  it('sitemap de imagens da galeria: cada foto do lh3 em image:image, sem a oculta, e família/privado/não listado são 404', async () => {
+    await comEventos(ev => { ev[0].fotosOcultas = ['FOTO_DOIS_0002']; ev[0].updatedAt = '2026-10-29T10:00:00.000Z'; });
+    const res = await visitante('/sitemap-galeria-formatura.xml');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toMatch(/application\/xml/);
+    expect(res.headers.get('Cache-Control')).toBe('no-cache');
+    const xml = await res.text();
+    expect(xml).toContain('xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"');
+    expect(xml).toContain('<loc>https://fotos.lucafchala.com/galeria/formatura</loc><lastmod>2026-10-29</lastmod>');
+    expect(xml.match(/<image:image>/g)).toHaveLength(4);
+    expect(xml).toContain('<image:loc>https://lh3.googleusercontent.com/d/FOTO_DEZ_00010=w1600</image:loc>');
+    expect(xml).not.toContain('FOTO_DOIS_0002');
+    expect(xml).not.toContain(CHAVE);
+    for (const muda of [ev => { ev[0].accessType = 'family'; }, ev => { ev[0].accessType = 'private'; }, ev => { ev[0].visible = false; }, ev => { ev[0].comingSoon = true; }]) {
+      await comEventos(muda);
+      expect((await visitante('/sitemap-galeria-formatura.xml')).status).toBe(404);
+    }
+  });
+
+  it('sitemap de imagens: até 1000 por URL, e custa o mesmo que uma visita (a listagem em cache não chama o Drive de novo)', async () => {
+    const muitas = Array.from({ length: 1200 }, (_, i) => ({ id: `MUITAS_${String(i).padStart(6, '0')}`, name: `${i}.jpg`, mimeType: 'image/jpeg', imageMediaMetadata: { width: 3000, height: 2000 } }));
+    rotaExtra = url => (url.host === 'www.googleapis.com' && url.pathname === '/drive/v3/files' ? Response.json({ files: muitas }) : null);
+    const xml = await (await visitante('/sitemap-galeria-formatura.xml')).text();
+    expect(xml.match(/<image:image>/g)).toHaveLength(1000);
+    const frias = chamadasDrive().length;
+    expect(frias).toBeLessThanOrEqual(30); // GALERIA_MAX_CHAMADAS: dentro das 50 subrequisições do plano gratuito
+    await visitante('/galeria/formatura');
+    await visitante('/sitemap-galeria-formatura.xml');
+    expect(chamadasDrive().length).toBe(frias);
+  });
+
+  it('Drive fora: o sitemap de imagens responde 503 com Retry-After (o Google guarda a versão anterior)', async () => {
+    rotaExtra = url => (url.host === 'www.googleapis.com' ? Response.json({ error: { code: 500 } }, { status: 500 }) : null);
+    const res = await visitante('/sitemap-galeria-formatura.xml');
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('3600');
+  });
+
+  it('download: X-Robots-Tag noindex em toda resposta do proxy (a foto, o 404 e o recusado)', async () => {
+    for (const caminho of ['/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes', '/galeria/formatura/baixar/FOTO_DEZ_00010?v=max', '/galeria/formatura/baixar/FORA_DA_PASTA_1?v=redes']) {
+      const res = await visitante(caminho);
+      expect(res.headers.get('X-Robots-Tag'), caminho).toMatch(/noindex/);
+    }
+    await comEventos(ev => { ev[0].accessType = 'family'; });
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).headers.get('X-Robots-Tag')).toMatch(/noindex/);
+  });
+
+  it('links de download e do Drive levam rel="nofollow"', async () => {
+    const html = await (await visitante('/galeria/formatura')).text();
+    expect(html).toMatch(/<a id="g-folha-drive"[^>]* rel="nofollow noopener"/);
+    expect(html).toMatch(/href="https:\/\/drive\.google\.com\/[^"]*" rel="nofollow">Abrir a pasta no Drive/);
+    // O <a download> que o script cria para o download e o "Pelo Google Drive".
+    const script = html.slice(html.indexOf('function linkDireto'));
+    expect(script.slice(0, 300)).toContain("a.rel = 'nofollow';");
+    expect(html).toContain("a.rel = 'nofollow noopener';");
+    expect(html).not.toMatch(/a\.rel = 'noopener';/);
+  });
+});
+
+describe('desempenho da carga da galeria', () => {
+  it('escada das miniaturas em degraus de 100 px até 800 (no celular, um degrau largo baixava até 30% a mais)', async () => {
+    const { GALERIA_LARGURAS_GRADE: escada } = await import('../src/config.js');
+    for (let w = 200; w <= 800; w += 100) expect(escada).toContain(w);
+    expect([...escada].sort((a, b) => a - b)).toEqual(escada);
+  });
+
+  it('o CSS do visualizador não vai no <head> (bloquearia a pintura): vai nos dados, para entrar com ele', () => {
+    const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
+    const css = VENDOR.find(v => v.source.endsWith('photoswipe.css')).path;
+    expect(html).not.toMatch(/<link rel="stylesheet"/);
+    expect(html).toContain(`"css":"${css}"`);
+  });
+});

@@ -266,8 +266,41 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));
-      return { util, desvio, tiles, nan, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
+      const alts = [...document.querySelectorAll('.g-t img')].map(im => /** @type {HTMLImageElement} */ (im).alt);
+      // Desempenho da carga: o que é "eager"/prioritário e onde está.
+      const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-t img')]);
+      const topoDe = (/** @type {HTMLElement} */ el) => el.getBoundingClientRect().top + window.scrollY;
+      const primeiraLinha = /** @type {HTMLElement} */ (document.querySelector('.g-linha'));
+      const altas = imgs.filter(im => im.getAttribute('fetchpriority') === 'high');
+      const carga = {
+        altasNaPrimeiraLinha: altas.length > 0 && altas.every(im => im.closest('.g-linha') === primeiraLinha) && altas.length === primeiraLinha.querySelectorAll('img').length,
+        eagerLonge: imgs.filter(im => im.loading === 'eager' && topoDe(im) > window.innerHeight * 1.5).length,
+        lazyNaTela: imgs.filter(im => im.loading !== 'eager' && topoDe(im) < window.innerHeight * 0.9).length,
+        coracaoCss: getComputedStyle(/** @type {Element} */ (document.querySelector('.g-fav')), '::before').backgroundImage.includes('svg'),
+        svgPorFoto: document.querySelectorAll('.g-t svg').length,
+      };
+      return { util, desvio, tiles, nan, alts, carga, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
   });
+  // SEO e leitor de tela: o alt diz o evento e a posição, não o nome do arquivo.
+  const altEsperado = (/** @type {number} */ i) => `Formatura 2026 — foto ${i + 1} de ${TODAS.length}`;
+  // Carga: só a primeira linha (a do LCP) é prioritária, só a primeira tela é
+  // "eager", o CSS do visualizador não bloqueia a pintura e o coração não é um
+  // <svg> por miniatura.
+  registra(g.carga.altasNaPrimeiraLinha, `${nome}: fetchpriority=high só na primeira linha (a do LCP)`, g.carga);
+  registra(g.carga.eagerLonge === 0 && g.carga.lazyNaTela === 0, `${nome}: "eager" só na primeira tela; o resto preguiçoso`, g.carga);
+  // No HTML servido, nada de <link rel=stylesheet> do PhotoSwipe (bloquearia a
+  // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
+  registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
+  registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
+  const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dpr));
+  registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais)`, g.tiles.slice(0, 4));
+  // A pré-carga do LCP (celular até 430 px) pede o MESMO arquivo que a <img>:
+  // uma requisição só da primeira foto, sem desperdício.
+  if (viewport.width <= 430) {
+    const daPrimeira = estado.lh3.filter(x => x.id === TODAS[0][0]);
+    registra(daPrimeira.length === 1, `${nome}: pré-carga da primeira foto = a miniatura que a página usa (1 pedido só)`, daPrimeira);
+  }
+  registra(g.alts.length === TODAS.length && g.alts.every((a, i) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
   registra(g.total === TODAS.length, `${nome}: todas as ${TODAS.length} fotos na grade`, g.total);
   registra(g.desvio >= 0 && g.desvio <= 2, `${nome}: linhas justificadas (cada linha fecha na largura, ±2 px)`, { desvio: g.desvio });
   registra(!g.nan && !g.rolagemLateral, `${nome}: nenhuma largura inválida, sem rolagem lateral`, { nan: g.nan, lateral: g.rolagemLateral });
@@ -322,6 +355,12 @@ await cenario('Visualizador no desktop', async () => {
   const ini = await larguraAtualDoVisualizador(page);
   const esperado = degrau([...GALERIA_LARGURAS.filter(x => x < 6000), 6000], ini.exibida * 1);
   registra(ini.w === esperado, 'Desktop: abre na resolução da tela (menor degrau que cobre a foto exibida)', { pedida: ini.w, exibida: Math.round(ini.exibida), esperado });
+  const cssLb = await page.evaluate(() => {
+    const l = document.querySelector('link[rel="stylesheet"][href*="photoswipe"]');
+    const pswp = document.querySelector('.pswp');
+    return { link: !!l, antesDoStyle: !!l && !!l.nextElementSibling && l.nextElementSibling.tagName === 'STYLE', fixo: !!pswp && getComputedStyle(pswp).position === 'fixed' };
+  });
+  registra(cssLb.link && cssLb.antesDoStyle && cssLb.fixo, 'Desktop: o CSS do visualizador entra ao abrir, antes do <style> da página (mesma cascata)', cssLb);
   registra(/[#]foto=RAIZFOTO_000000$/.test(page.url()), 'Desktop: o endereço ganha o link direto da foto', page.url());
   // Zoom máximo com a roda: tem de chegar ao original.
   await page.mouse.move(720, 450);
@@ -336,6 +375,8 @@ await cenario('Visualizador no desktop', async () => {
   registra(/[#]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
   const legenda = await page.locator('.pswp__g-legenda').textContent();
   registra(legenda === '002', 'Desktop: legenda mostra o número da foto', legenda);
+  const altAberta = await page.evaluate(() => [...document.querySelectorAll('.pswp__item[aria-hidden="false"] img')].map(im => /** @type {HTMLImageElement} */ (im).alt).find(Boolean) || '');
+  registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && !page.url().includes('#foto='), 'Desktop: Esc fecha e limpa o link', page.url());
