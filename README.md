@@ -1168,7 +1168,7 @@ Pedidos de remoção (LGPD) **agrupados por evento**: cada grupo é um bloco, co
 
 #### Seção Métricas
 
-Métricas v2 (#215), de cima para baixo: o **filtro** numa linha só (7, 30 ou 90 dias; um projeto ou todos — o período escolhido volta ao recarregar); os **números do período** (Visitas, Abriram o Drive, Taxa de abertura, Hoje), cada um comparado ao período anterior de mesmo tamanho — só quando aquele período inteiro já tinha contagem por dia; o **gráfico de acessos por dia** (Visitas × Abriram o Drive, uma escala só, o pico rotulado, legenda com os totais) com a cruz que mostra o dia no mouse, no toque e no teclado (setas, Home, End, Esc — e cada passo anunciado ao leitor de tela), **"Ver como tabela"** e o CSV da série; a **média por dia da semana**; os **modos do portão** (verificação automática, código por e-mail, sem JavaScript) em barras com %; e a **lista de projetos do período**, com a curva das visitas de cada um, que foca os gráficos no projeto ao toque. No fim, o **Total desde o início** (a tabela de antes, ordenável, com o histórico inteiro e o CSV dos totais). Dia de antes do começo da contagem por dia aparece em branco, não como zero. Tudo vem de duas leituras feitas ao abrir a seção (ou em "Atualizar"): `GET /api/metrics` e `GET /api/metrics/diario?dias=180` — trocar o filtro não pede nada ao servidor. Detalhes e decisões em [`docs/PAINEL.md`](./docs/PAINEL.md) §8.
+Métricas v2 (#215), de cima para baixo: o **filtro** numa linha só (7, 30 ou 90 dias; um projeto ou todos — o período escolhido volta ao recarregar); os **números do período** (Visitas, Abriram o Drive, Abriram a galeria, Fotos baixadas, Taxa de abertura — Drive ou galeria ÷ visitas —, Hoje), cada um comparado ao período anterior de mesmo tamanho — só quando aquele período inteiro já tinha contagem por dia; o **gráfico de acessos por dia** (Visitas, Abriram o Drive e Abriram a galeria, uma escala só, o pico rotulado, legenda com os totais) com a cruz que mostra o dia no mouse, no toque e no teclado (setas, Home, End, Esc — e cada passo anunciado ao leitor de tela), **"Ver como tabela"** e o CSV da série; o bloco **Fotos baixadas na galeria** (para redes × tamanho máximo, por dia); a **média por dia da semana**; os **modos do portão** (verificação automática, código por e-mail, sem JavaScript) em barras com %; e a **lista de projetos do período**, com a curva das visitas de cada um, que foca os gráficos no projeto ao toque. No fim, o **Total desde o início** (a tabela de antes, ordenável, com o histórico inteiro e o CSV dos totais). Dia de antes do começo da contagem por dia aparece em branco, não como zero. Tudo vem de duas leituras feitas ao abrir a seção (ou em "Atualizar"): `GET /api/metrics` e `GET /api/metrics/diario?dias=180` — trocar o filtro não pede nada ao servidor. Detalhes e decisões em [`docs/PAINEL.md`](./docs/PAINEL.md) §8.
 
 #### Seção Ajustes
 
@@ -1956,6 +1956,15 @@ próximo pedido (o mesmo prazo de qualquer mudança do painel, até ~2 min), e o
 `lastmod` muda, para o Google reler. Para tirar **do Google** com urgência:
 Search Console → **Remoções** → *Nova solicitação* com a URL da imagem
 (`https://lh3.googleusercontent.com/d/<id>…`) ou da galeria.
+
+### Compartilhar as favoritas
+
+Com o filtro **Favoritas** ligado, o botão **"Compartilhar as favoritas"**
+gera `/galeria/<slug>#sel=<id>.<id>…` (até 300 fotos; no celular, pela folha
+do sistema; no computador, copia o link). Quem abre vê só essas fotos, com o
+chip **"Seleção recebida"** (toque para ver todas) e **"Guardar nas minhas
+favoritas"**. O fragmento não vai ao servidor: nada é gravado nem contado. Em
+álbum de família ou privado o link continua pedindo o passe do portão (#213).
 
 ### Por que o download passa pelo Worker
 

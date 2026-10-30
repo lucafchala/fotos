@@ -18,6 +18,82 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.0.0] — ainda não publicada
+
+**Maior** porque muda o que o visitante aceita (Termos e Privacidade
+2026-10-29) e o formato do backup (v3).
+
+### Novo
+
+- **Galerias dos álbuns públicos no Google.** `/galeria/<slug>` de álbum
+  público sai com `index, follow`; família, privado, "Em breve", não
+  listado, prévia de PR e a visão do dono continuam `noindex`. As galerias
+  entram no `/sitemap.xml`, e o `/sitemap-galerias.xml` aponta um sitemap
+  de imagens por galeria (até 1000 fotos, com `lastmod`). Título "Fotos de
+  <evento> — <data>", canonical, JSON-LD `ImageGallery` ligado ao `Person`,
+  `og:image` da capa e alt "<evento> — foto i de n". Downloads fora dos
+  buscadores (`Disallow` no `robots.txt`, `X-Robots-Tag: noindex`,
+  `rel="nofollow"`); `ai-train=no` mantido. Foto oculta sai do HTML e do
+  sitemap na hora; para tirar do Google com urgência, Search Console →
+  Remoções (docs/RELEASE.md).
+- **Download do arquivo exato.** "Tamanho máximo" entrega o original do
+  Drive, byte a byte, com o nome exato (sem o prefixo do projeto). "Para
+  redes" entrega, também sem alterar, o arquivo correspondente da pasta "Para
+  o Instagram" do projeto; foto sem versão lá não oferece "para redes". Nada
+  é redimensionado no download.
+- **Salvar por aparelho.** Android e computador baixam o arquivo direto, sem
+  a folha de compartilhar. No iPhone e no iPad, "Salvar no Fotos" abre a
+  folha do sistema com o arquivo exato ("Salvar imagem" põe direto no app
+  Fotos), e "Baixar arquivo" salva no app Arquivos.
+- **Compartilhar as favoritas** (#213). Com o filtro "Favoritas", o botão
+  "Compartilhar as favoritas" gera um link `#sel=…` que abre a galeria só
+  com essas fotos ("Seleção recebida", com "Guardar nas minhas favoritas").
+  Nada gravado no servidor; até 300 fotos; família e privado continuam
+  pedindo o passe.
+- **Galeria nas métricas do painel.** Aberturas da galeria (uma por hora por
+  navegador; o dono não conta) e fotos baixadas por versão, por dia: linha
+  da galeria no gráfico de acessos, bloco "Fotos baixadas na galeria",
+  cartões, ranking, tabelas e CSVs. A taxa de abertura passa a ser (Drive ou
+  galeria) ÷ visitas.
+- **Backup v3 com o registro de consentimento.** A tabela
+  `image_use_consent` entra no backup em formato compacto (até as 1500
+  linhas mais recentes; acima disso o arquivo diz que é parcial, e o
+  `wrangler d1 export` é o caminho completo — docs/RELEASE.md). A
+  restauração só acrescenta (`INSERT OR IGNORE`), valida cada linha e é
+  pulada na prévia. Backups v1 e v2 restauram como antes. O arquivo de
+  backup passa a ter IP: ROPA e política de retenção atualizadas.
+- **Declaração de acessibilidade** publicada em
+  `/legal/declaracao-de-acessibilidade`.
+
+### Mudou
+
+- **Termos e Privacidade 2026-10-29.** A galeria dos projetos públicos abre
+  sem aceite; as galerias públicas podem aparecer em buscadores; cookies
+  `gv_…` e `galeria` listados; cópia do registro de aceite no backup. Os
+  textos legais valem sem revisão jurídica, por decisão do responsável
+  (#125 fechada).
+- **Capas responsivas** (#141). Carrossel, visualizador e pré-carga pedem
+  800, 1200 ou 1600 px conforme os pixels físicos da tela, em vez de sempre
+  1600.
+- **Turnstile só na hora.** Na página do projeto ele carrega na primeira
+  interação ou ao abrir o portão. Lighthouse celular (cópia local do
+  `/ecp125`): desempenho 82–86 → 95–99, TBT 470–620 → 116–250 ms.
+- **Galeria mais leve na primeira tela**: só as fotos da primeira tela
+  carregam de imediato, escada da grade de 100 em 100 px até 800, CSS do
+  visualizador fora do `<head>`, coração em CSS. Lighthouse celular local:
+  SEO 50 → 92, desempenho 72–80 → 84–90.
+- **`scripts/smoke.sh`** reprova HSTS abaixo de 1 ano (a borda da Cloudflare
+  respondia 180 dias no domínio próprio — #257).
+
+### Corrigido
+
+- **CLS da página do projeto** (0,334 no PageSpeed): a capa e o carrossel
+  reservam uma caixa 3:2 antes de a foto chegar, com a foto inteira dentro.
+- **Corrida do portão**: abri-lo antes de o script do Turnstile terminar
+  caía no caminho sem JavaScript.
+- **Testes instáveis** do portão do Drive e do login, que dependiam do
+  relógio real sob carga.
+
 ## [2.2.1] — ainda não publicada
 
 ### Mudou

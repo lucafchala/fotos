@@ -805,6 +805,20 @@ revertido.
 
 ## 8. O que fica pendente
 
+**Depois da v3.0.0 (30/10/2026)** — cada item é uma issue:
+- uso: ZIP no computador (#248), faixa de fotos na página do projeto (#249),
+  selo de fotos novas (#250), QR code no painel (#251), duplicar evento
+  (#140), painel no celular (#220);
+- desempenho: script da galeria como arquivo com cache (#252), primeira
+  fileira no servidor (#253), proporção real das capas (#254), medição de
+  desempenho com p75 no painel (#134, trabalho começado no branch local
+  `v3-beacon`);
+- código e testes: dividir o `src/index.js` (#255), testes pesados sob carga
+  (#256), `@cloudflare/vitest-plugin` (#180), teste visual (#135);
+- fora do código: HSTS da borda e "JavaScript detections" na Cloudflare
+  (#257), WAF (#132), vigia do Homelab e as checagens novas da v3 no status
+  (status.lucafchala.com #64 e #63), autorização de menores (#119).
+
 Lista completa nas [Issues do GitHub](https://github.com/lucafchala/fotos/issues)
 — desde 2026-09, item de ação vive lá, não em `TODO.md` (que guarda só
 política, orçamento de cota e as regras vivas — ver a nota no topo dele e

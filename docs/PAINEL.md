@@ -101,7 +101,8 @@ Métricas
   Dia da semana .... média de visitas por dia da semana
   Portão ........... Como passaram pelo portão (Verificação automática · Código por e-mail · Sem JavaScript)
   Projetos ......... Projetos no período (ordem: Visitas · Abriram o Drive · Taxa)
-  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa · Galeria ↓
+  Baixadas ......... Fotos baixadas na galeria: para redes × tamanho máximo, por dia
+  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa · Galeria · Galeria ↓
 Ajustes
   Site ............. Selo de agenda · Categorias
   Dados ............ Backup dos dados · Exportar planilhas · Restaurar backup (sensível)
@@ -727,13 +728,18 @@ De cima para baixo, na ordem em que se lê:
    tocar de novo volta a todos. No fim, quantos projetos não tiveram visita.
 7. **Total desde o início** (`#metrics-body`): a tabela de antes da v2.0 —
    Projeto (título e `/slug`), Visitas (com uma barra proporcional atrás do
-   número), Drive, Taxa e Galeria ↓ (downloads da galeria feitos por
+   número), Drive, Taxa (Drive ou galeria ÷ visitas), Galeria (aberturas,
+   uma por hora por navegador) e Galeria ↓ (downloads da galeria feitos por
    visitante — "para redes" e "tamanho máximo"); clicar no cabeçalho ordena (a primeira vez,
    decrescente; a segunda inverte; ▲/▼ e `aria-sort` dizem o sentido). Inclui o
    que o KV contava antes do Durable Object, por isso é maior que a soma dos
    dias. **⬇ CSV** (`#metrics-export`, escondido sem dados):
    `metricas-AAAA-MM-DD.csv`, colunas `title`, `slug`, `views`, `driveClicks`,
-   `baixarRedes`, `baixarMax`.
+   `galeriaViews`, `baixarRedes`, `baixarMax`. Os cartões do topo, o gráfico
+   de acessos (com a linha da galeria), o bloco "Fotos baixadas na galeria",
+   os chips do ranking ("Abriram a galeria", "Fotos baixadas") e o CSV por
+   dia (`abriram_galeria`, `baixadas_redes`, `baixadas_max`) seguem a mesma
+   contagem (v3.0).
    A nota lembra: conta **visitante único por hora, não recarregamento** (cookie
    `fv_<slug>` de 1 h; HEAD e prefetch também não contam) — recarregar para
    testar não mexe no número, de propósito.
