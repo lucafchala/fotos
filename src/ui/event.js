@@ -44,7 +44,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   const displayPhotos = photos.map(/** @param {string} u */ u => sizedDriveThumb(u, PHOTO_WIDTHS[PHOTO_WIDTHS.length - 1]));
 
   // A 1ª foto sai com srcset: o browser escolhe a largura pela tela ANTES de
-  // qualquer JS rodar. As seguintes são escolhidas pelo carrossel (PHOTO_W, no
+  // qualquer JS rodar. As seguintes são escolhidas pelo carrossel (fotoUrl, no
   // script abaixo) com a mesma escada — num Wi-Fi de evento, centenas de
   // celulares baixando 1600 px cada um é o que satura o link do local.
   const firstSrcset = photos.length ? driveSrcset(photos[0], PHOTO_WIDTHS) : '';
@@ -158,7 +158,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     : photos.length === 0
       ? `<div class="hero"><div class="hero-ph">${camIcon(48)}</div></div>`
       : photos.length === 1
-        ? `<div class="hero">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
+        ? `<div class="hero hero-foto">${comWebp(`<img src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onerror="heroImgError" tabindex="0" role="button" aria-label="Ampliar foto" data-action="openLightbox" data-i="0" data-keydown="openLightbox0">`)}</div>`
         : `<div class="carousel" id="carousel">
           ${comWebp(`<img id="c-img" src="${escape(displayPhotos[0])}"${firstSrcsetAttr} alt="${escape(altDe(0))}" fetchpriority="high" decoding="async" data-onload="cImgLoad" data-onerror="cImgError" data-action="openLightbox">`)}
           <button class="c-btn c-prev" data-action="cGoPrev" aria-label="Anterior">
@@ -276,6 +276,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
        mantendo a proporção real, em vez de ser cortada — aspect-ratio+cover
        às vezes cortava cabeças em foto de grupo. */
     .hero img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
+    /* Caixa da capa (foto única e carrossel), com o tamanho reservado ANTES de
+       a foto chegar: sem ela o hero nascia com altura 0 e a página inteira
+       descia quando a capa carregava — CLS 0,334 no PageSpeed (#141). O site
+       não sabe a proporção de cada capa (o evento só guarda as URLs), então a
+       caixa é 3:2, a da maioria delas, e a foto encolhe para caber INTEIRA
+       (contain), nunca cortada: foto de outra proporção ganha faixa escura do
+       lado ou em cima, como já acontecia no desktop. Fixa, a caixa também não
+       muda de altura de uma foto do carrossel para a outra — nem no modo
+       apresentação, que troca a foto sem toque nenhum. */
+    .hero-foto,.carousel{aspect-ratio:3/2;max-height:72vh}
+    .hero-foto img,.carousel img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
@@ -303,7 +314,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .btn-soon:hover,.btn-soon:active{background:var(--bg-card);opacity:1;transform:none}
     /* carousel */
     .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
-    .carousel img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
+    .carousel img{display:block;transition:opacity .25s ease;cursor:zoom-in}
     .hero picture,.carousel picture{display:contents}
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
     .c-btn:hover{background:rgba(0,0,0,.8)}
@@ -519,7 +530,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
        contrast against the photo not the page" rule as the carousel controls. */
     .lightbox-ov{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;display:none;align-items:center;justify-content:center}
     .lightbox-ov.open{display:flex}
-    #lb-img{max-width:100vw;max-height:100vh;object-fit:contain;transition:transform .2s ease;touch-action:pan-y}
+    /* A tela inteira é a caixa, e a foto cabe nela (contain): trocar de foto
+       — inclusive no modo apresentação, sem toque — não mexe em layout. Clique
+       na faixa fora da foto fecha, como no fundo (lbForaDaFoto). */
+    #lb-img{width:100%;height:100%;object-fit:contain;transition:transform .2s ease;touch-action:pan-y}
     .lb-close{position:absolute;top:1rem;right:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:1.4rem;line-height:1;cursor:pointer;z-index:2}
     .lb-prev{left:1rem}.lb-next{right:1rem}
     #lb-count{bottom:1rem;left:50%;transform:translateX(-50%)}
@@ -898,41 +912,49 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // que chega menos de 3 s depois de a página ser servida é automação.
     const REMOVAL_FORM_TOKEN = ${JSON.stringify(removalFormToken || '')};
     // Largura das fotos para ESTA tela, na mesma escada do srcset da 1ª foto
-    // (PHOTO_WIDTHS): a menor que cobre a largura da janela em pixels físicos.
-    // O servidor manda tudo em =w1600; aqui só troca o sufixo, e só em URL do
-    // lh3 — qualquer outra passa intacta, como em sizedDriveThumb().
+    // (PHOTO_WIDTHS): a menor que cobre a caixa em pixels físicos (largura CSS
+    // × devicePixelRatio) — nunca por modelo de aparelho, então Android e
+    // iPhone seguem o mesmo critério. A caixa do carrossel e a do lightbox
+    // ocupam a largura da janela inteira (100vw), daí innerWidth. A conta é
+    // refeita a cada troca de foto: um tablet girado, ou o lightbox aberto
+    // com o celular deitado, pede a largura da janela de AGORA, não a da
+    // carga. O servidor manda tudo em =w1600; aqui só troca o sufixo, e só em
+    // URL do lh3 — qualquer outra passa intacta, como em sizedDriveThumb().
     const PHOTO_WS = ${JSON.stringify(PHOTO_WIDTHS)};
-    const PHOTO_W = (function() {
-      const need = innerWidth * (window.devicePixelRatio || 1);
-      for (let i = 0; i < PHOTO_WS.length; i++) if (need <= PHOTO_WS[i]) return PHOTO_WS[i];
-      return PHOTO_WS[PHOTO_WS.length - 1];
-    })();
     const PHOTO_MAX_SUFFIX = '=w' + PHOTO_WS[PHOTO_WS.length - 1];
     const LH3 = 'https://lh3.googleusercontent.com/d/';
+    // ---- escolha da largura (início) ----
+    // Funções puras: tests/capas.test.js as executa como saem da página.
+    function larguraParaTela(cssW, dpr, ws) {
+      const need = cssW * (dpr || 1);
+      for (let i = 0; i < ws.length; i++) if (need <= ws[i]) return ws[i];
+      return ws[ws.length - 1];
+    }
+    function urlNaLargura(u, w, webp, lh3, maxSuffix) {
+      if (u.indexOf(lh3) !== 0 || u.slice(-maxSuffix.length) !== maxSuffix) return u;
+      return u.slice(0, -maxSuffix.length) + '=w' + w + (webp ? '-rw' : '');
+    }
+    // ---- escolha da largura (fim) ----
     // Ampliar (duplo toque/clique no lightbox) troca por esta largura — igual
     // para todo aparelho: o zoom de 2,2× pede mais pixels que a tela.
     const PHOTO_ZOOM_W = 2400;
     const ALTS = ${altsJSON};
-    const PHOTOS = (${photosJSON}).map(function(u) {
-      return u.indexOf(LH3) === 0 && u.slice(-PHOTO_MAX_SUFFIX.length) === PHOTO_MAX_SUFFIX
-        ? u.slice(0, -PHOTO_MAX_SUFFIX.length) + '=w' + PHOTO_W
-        : u;
-    });
+    // As URLs como o servidor mandou (=w1600); a da vez sai de fotoUrl().
+    const PHOTOS = ${photosJSON};
     // WebP: decide uma vez, por decodificação de verdade (não por user-agent —
     // Android e iPhone recebem o mesmo tratamento pelo que o navegador faz).
     // Até decidir, nada é pré-carregado; decidido, as URLs do lh3 ganham -rw
     // e a vizinhança do carrossel é aquecida já no formato certo.
-    let PHOTO_WEBP_READY = false;
+    let PHOTO_WEBP_READY = false, PHOTO_WEBP = false;
+    function fotoUrl(i) {
+      return urlNaLargura(PHOTOS[i], larguraParaTela(innerWidth, window.devicePixelRatio, PHOTO_WS), PHOTO_WEBP, LH3, PHOTO_MAX_SUFFIX);
+    }
     (function() {
       const t = new Image();
       function pronto(ok) {
         if (PHOTO_WEBP_READY) return;
         PHOTO_WEBP_READY = true;
-        if (ok) {
-          for (let i = 0; i < PHOTOS.length; i++) {
-            if (PHOTOS[i].indexOf(LH3) === 0 && /=w[0-9]+$/.test(PHOTOS[i])) PHOTOS[i] += '-rw';
-          }
-        }
+        PHOTO_WEBP = !!ok;
         if (document.getElementById('carousel')) preloadAround();
       }
       t.onload = function() { pronto(t.width === 1); };
@@ -951,6 +973,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Foto corrente do carrossel/lightbox. Declarada aqui em cima, antes de
     // qualquer função que a leia: o clique delegado logo abaixo já a usa.
     let cur = 0;
+    // Lightbox ampliado? O clique delegado também lê (fora da foto só fecha sem zoom).
+    let lbZoomed = false;
 
     // ---- Delegated handlers (CSP: no inline on* attributes) ----
     // 'load'/'error' don't bubble, but a capture-phase listener on document
@@ -981,13 +1005,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (!t || !t.dataset) return;
       if (t.dataset.onerror === 'heroImgError') heroImgError(t);
       else if (t.dataset.onerror === 'cImgError') cImgError(t);
-      else if (t.dataset.onerror === 'tsBlocked') window.__tsBlocked = true;
     }, true);
     document.addEventListener('load', function(e) {
       var t = e.target;
       if (!t || !t.dataset) return;
       if (t.dataset.onload === 'cImgLoad') cImgLoad(t);
-      else if (t.dataset.onload === 'initDriveTurnstile') initDriveTurnstile();
     }, true);
     document.addEventListener('click', function(e) {
       var t = e.target;
@@ -997,6 +1019,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (t.id === 'rem-modal') { closeRemModal(); return; }
       if (t.id === 'soon-modal') { closeSoonModal(); return; }
       if (t.id === 'lightbox') { closeLightbox(); return; }
+      if (t.id === 'lb-img' && !lbZoomed && lbForaDaFoto(t, e.clientX, e.clientY)) { closeLightbox(); return; }
       var el = t.closest('[data-action]');
       if (!el) return;
       switch (el.dataset.action) {
@@ -1050,6 +1073,47 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // set by the script tag's onerror at the bottom of the page.)
     window.__tsBlocked = window.__tsBlocked || false;
     function tsUnavailable() { return window.__tsBlocked || typeof turnstile === 'undefined'; }
+
+    // ---- Turnstile sob demanda ----
+    // O script do Turnstile custava ~0,5–1 s de thread principal no celular
+    // logo na abertura (o grosso do TBT do PageSpeed), para um portão que a
+    // maioria nem abre — no álbum público o caminho principal é a galeria.
+    // Agora ele só carrega com um sinal de intenção: o primeiro toque, tecla
+    // ou rolagem na página (o desafio ainda fica pronto antes de a pessoa
+    // chegar aos Termos, como o pré-aquecimento de antes), ou abrir o portão
+    // ou o formulário de remoção direto. Quem espera o script passa por
+    // comTurnstile(): roda na hora se ele já carregou (ou já falhou), senão
+    // quando terminar. Falhou (bloqueador, rede) = window.__tsBlocked, o mesmo
+    // caminho de antes: aviso, 'noscript', código por e-mail.
+    const TS_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    let tsEstado = 'fora'; // 'fora' | 'carregando' | 'pronto' | 'falhou'
+    const tsEspera = [];
+    function tsFim(ok) {
+      if (tsEstado === 'pronto' || tsEstado === 'falhou') return;
+      tsEstado = ok ? 'pronto' : 'falhou';
+      if (!ok) window.__tsBlocked = true;
+      else initDriveTurnstile();
+      tsEspera.splice(0).forEach(function(f) { f(); });
+    }
+    function carregaTurnstile() {
+      if (tsEstado !== 'fora') return;
+      tsEstado = 'carregando';
+      const sc = document.createElement('script');
+      sc.src = TS_SRC;
+      sc.async = true;
+      // Carregou mas não definiu o objeto (extensão que troca o script): falhou.
+      sc.onload = function() { tsFim(typeof turnstile !== 'undefined'); };
+      sc.onerror = function() { tsFim(false); };
+      document.head.appendChild(sc);
+    }
+    function comTurnstile(fn) {
+      if (tsEstado === 'pronto' || tsEstado === 'falhou') { fn(); return; }
+      tsEspera.push(fn);
+      carregaTurnstile();
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'scroll'].forEach(function(ev) {
+      addEventListener(ev, carregaTurnstile, { once: true, passive: true, capture: true });
+    });
     function showAdblockWarn(id) { var el = document.getElementById(id); if (el) el.style.display = ''; }
     function hideAdblockWarn(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
@@ -1237,16 +1301,22 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       clearTimeout(driveTimeout);
       driveTimeout = setTimeout(function() { if (!driveTsToken) driveVerifyError(); }, 9000);
       if (driveTsFailed && !driveTsToken) driveVerifyError();
-      // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
-      // that must not brick delivery, so the server has its own (weaker,
-      // rate-limited) path for this token value.
-      if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; exigeNome(); maybeFetchDriveLink(); return; }
-      if (driveTsToken) {
-        // Pre-fetched while the page was idle — nothing left to wait for.
-        clearTimeout(driveTimeout);
-      }
-      // else: initDriveTurnstile()'s callback is still resolving in the
-      // background and will call revealDriveGate() once it lands.
+      // O script pode ainda estar chegando (carrega sob demanda): a decisão
+      // espera por ele — antes, abrir o portão antes de o script terminar
+      // caía no 'noscript' sem precisar.
+      comTurnstile(function() {
+        if (!document.getElementById('modal').classList.contains('open') || driveLinkResult) return;
+        // Only bypass when the Turnstile *script* can't load (e.g. blocked CDN) —
+        // that must not brick delivery, so the server has its own (weaker,
+        // rate-limited) path for this token value.
+        if (tsUnavailable()) { showAdblockWarn('drive-adblock'); driveTsToken = 'noscript'; exigeNome(); maybeFetchDriveLink(); return; }
+        if (driveTsToken) {
+          // Pre-fetched while the page was idle — nothing left to wait for.
+          clearTimeout(driveTimeout);
+        }
+        // else: initDriveTurnstile()'s callback is still resolving in the
+        // background and will call revealDriveGate() once it lands.
+      });
     }
     function revealDriveGate() {
       clearTimeout(driveTimeout);
@@ -1721,9 +1791,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       for (let off = -reach; off <= reach; off++) {
         if (off === 0) continue;
         const i = (((cur + off) % PHOTOS.length) + PHOTOS.length) % PHOTOS.length;
-        if (_preloaded[i]) continue;
-        _preloaded[i] = true;
-        const im = new Image(); im.src = PHOTOS[i];
+        const u = fotoUrl(i);
+        if (_preloaded[u]) continue;
+        _preloaded[u] = true;
+        const im = new Image(); im.src = u;
       }
     }
     // O contador vira o retorno visual da navegação: se a próxima foto ainda não
@@ -1746,7 +1817,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         if (img.parentNode && img.parentNode.nodeName === 'PICTURE') {
           img.parentNode.querySelectorAll('source').forEach(function(so) { so.remove(); });
         }
-        img.src = PHOTOS[cur];
+        img.src = fotoUrl(cur);
         img.setAttribute('alt', ALTS[cur] || '');
         // Imagem já em cache decodifica antes do próximo frame: só marcamos
         // como "carregando" se ela realmente não estiver pronta, senão o
@@ -1759,14 +1830,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       preloadAround();
       const lb = document.getElementById('lightbox');
       if (lb && lb.classList.contains('open')) {
-        const lbImg = document.getElementById('lb-img'); if (lbImg) { lbImg.src = PHOTOS[cur]; lbImg.setAttribute('alt', ALTS[cur] || ''); }
+        const lbImg = document.getElementById('lb-img'); if (lbImg) { lbImg.src = fotoUrl(cur); lbImg.setAttribute('alt', ALTS[cur] || ''); }
         const lbCnt = document.getElementById('lb-count'); if (lbCnt) lbCnt.textContent = (cur + 1) + ' / ' + PHOTOS.length;
       }
     }
     function cGo(dir) { if (window.perfCount) window.perfCount('navCount'); cGoto(cur + dir); }
 
     // ---- Lightbox (preview photos only — not the Drive delivery flow) ----
-    let lbLastFocused = null, lbZoomed = false;
+    let lbLastFocused = null;
     function openLightbox(i) {
       if (!PHOTOS.length) return;
       lbLastFocused = document.activeElement;
@@ -1785,6 +1856,17 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       lbResetZoom();
       if (lbLastFocused && lbLastFocused.focus) lbLastFocused.focus();
     }
+    // O <img> do lightbox ocupa a tela inteira e a foto, com object-fit:
+    // contain, só parte dela: o clique na faixa escura ao redor é "fora".
+    function lbForaDaFoto(img, x, y) {
+      const r = img.getBoundingClientRect();
+      const nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh || !r.width || !r.height) return false;
+      const k = Math.min(r.width / nw, r.height / nh);
+      const w = nw * k, h = nh * k;
+      const l = r.left + (r.width - w) / 2, t = r.top + (r.height - h) / 2;
+      return x < l || x > l + w || y < t || y > t + h;
+    }
     function lbResetZoom() {
       lbZoomed = false;
       const img = document.getElementById('lb-img');
@@ -1797,7 +1879,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (lbZoomed) {
         // Mais pixels para o zoom, em qualquer aparelho. Navegar volta ao
         // tamanho de tela (cGoto troca o src).
-        const alta = photoZoomUrl(PHOTOS[cur]);
+        const alta = photoZoomUrl(fotoUrl(cur));
         if (img.src !== alta) img.src = alta;
         const r = img.getBoundingClientRect();
         img.style.transformOrigin = ((x - r.left) / r.width * 100) + '% ' + ((y - r.top) / r.height * 100) + '%';
@@ -1919,7 +2001,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       document.getElementById('rem-modal').classList.add('open');
       document.body.style.overflow = 'hidden';
       updateStickyCta();
-      setTimeout(() => {
+      setTimeout(() => comTurnstile(() => {
         // No Turnstile (blocked by an ad-blocker / privacy extension): this form
         // requires server-side verification, so warn the visitor and keep submit
         // disabled rather than letting every attempt fail with a 403.
@@ -1933,7 +2015,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             'expired-callback': () => { remTsToken = ''; if (btn) btn.disabled = true; },
           });
         }
-      }, 80);
+      }), 80);
     }
     function closeRemModal() {
       document.getElementById('rem-modal').classList.remove('open');
@@ -2119,7 +2201,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     })();
 
   </script>
-  <script nonce="${nonce}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer data-onload="initDriveTurnstile" data-onerror="tsBlocked"></script>
   ${analyticsBeaconHTML(analyticsToken, nonce)}
 </body>
 </html>`;
