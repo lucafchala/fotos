@@ -798,9 +798,13 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   formulário. Até a primeira alteração valem Formatura, Casamento, Ensaio, Evento
   e Outro; o máximo é 30, de até 40 caracteres, sem repetir (maiúsculas não
   contam). Excluir uma categoria a tira de todos os eventos que a usavam.
-- **Backup.** `fotos-backup-AAAA-MM-DD.json`, versão 2: eventos, categorias e
-  pedidos de remoção — estes com e-mail e telefone de quem pediu, então o arquivo
-  pede cuidado. Não há backup automático. O download é um `fetch`
+- **Backup.** `fotos-backup-AAAA-MM-DD.json`, versão 3: eventos, categorias,
+  pedidos de remoção (com e-mail e telefone de quem pediu) e o registro de
+  consentimento (com IP e aparelho de cada aceite; até 1500, os mais recentes —
+  o completo é o `wrangler d1 export`, `docs/RELEASE.md`), então o arquivo pede
+  cuidado: guardar protegido e apagar no prazo do registro. O toast lê o
+  cabeçalho `X-Backup-Consentimento` (`avisoDoBackup()`) e avisa em vermelho
+  quando o registro veio só em parte ou não veio (D1 fora). Não há backup automático. O download é um `fetch`
   (`downloadBackup()`) e depois um `<a download>` com o blob, como o CSV. Com a
   sessão expirada, o 401 leva ao login pelo mesmo `vaiParaOLogin()` do `api()`:
   antes, o navegador mostrava o JSON do erro.
@@ -817,8 +821,11 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   do navegador é justamente o que carrega texto cru digitado por visitante.
 - **Restaurar.** *Merge*, nada é apagado: eventos com o mesmo `id` são
   atualizados só se o do backup for mais recente; categorias são unidas; pedidos
-  entram por `id`. O toast conta o que entrou ("Restaurado: N adicionados, M
-  atualizados, K ignorados (sem id ou URL válida)") e a página recarrega em 1,8 s
+  entram por `id`; aceites do registro de consentimento só entram se faltarem
+  (nunca alteram um existente; não entram na prévia). A confirmação diz quantos
+  aceites o arquivo traz, e o toast conta o que entrou ("Restaurado: N
+  adicionados, M atualizados, K ignorados (sem id ou URL válida)", mais
+  `textoConsentRestaurado()` para o registro) e a página recarrega em 1,8 s
   — voltando para Ajustes (§3).
 - **Trocar a senha.** O mínimo é 12 caracteres (a política completa está em
   `validatePassword`, `src/security.js`): três tipos de caractere, ou uma frase

@@ -30,8 +30,28 @@ O workflow `deploy.yml` roda lint, tipos e testes, aplica as migrações D1, sob
 
 O que o rollback **não** desfaz:
 - migrações D1 (só avançam; as colunas novas ficam, e o código antigo as ignora);
-- o que foi gravado no KV com o formato novo. Antes de um deploy que muda formato, baixe o backup em *Ajustes > Baixar backup JSON*;
+- o que foi gravado no KV com o formato novo. Antes de um deploy que muda formato, baixe o backup em *Ajustes > Baixar backup JSON* (e, se mexer no D1, o `wrangler d1 export` da seção abaixo);
 - o `TERMS_VERSION`: aceites já gravados guardam a versão que a pessoa viu.
+
+## Backup do registro de consentimento (D1)
+
+O backup do painel (*Ajustes > Baixar backup JSON*, v3) já leva o registro de consentimento, mas com teto: até **1500 aceites** (os mais recentes), porque o JSON tem de caber nos 10 ms de CPU do plano gratuito. O toast avisa quando veio só parte ("parcial") ou nada ("ausente", D1 fora).
+
+A cópia **completa e fiel** do banco, de qualquer tamanho e com o esquema, é o export do D1:
+
+```bash
+npx wrangler d1 export fotos-consent --remote --output=fotos-consent-AAAA-MM-DD.sql
+```
+
+(`fotos-consent` é o `database_name` do binding `CONSENT_DB` no `wrangler.toml`; a prévia usa `fotos-consent-previa`, que não precisa de cópia.) Use:
+
+- antes de uma migração D1 nova, de um deploy que mexa no registro ou de apagar/recriar o banco;
+- quando o toast do backup disser "parcial" — o registro passou de 1500 aceites;
+- de tempos em tempos, junto com o backup JSON, como cópia de segurança do registro.
+
+Para devolver um export a um banco vazio: `npx wrangler d1 execute fotos-consent --remote --file=fotos-consent-AAAA-MM-DD.sql`. Num banco que já tem linhas, prefira restaurar o backup JSON pelo painel: ele só acrescenta o que falta (`INSERT OR IGNORE` por `id`), e o `.sql` do export recria a tabela.
+
+**O arquivo tem IP, User-Agent e nome de terceiros**, como o backup JSON v3: guarde só no seu computador, num disco ou arquivo criptografado, e apague as cópias antigas no prazo do registro (1825 dias; `docs/legal/politica-de-retencao.md`).
 
 ## Cron
 

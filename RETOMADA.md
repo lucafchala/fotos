@@ -627,6 +627,27 @@ verdade contra uma API falsa e confere que os segredos e os bindings da prévia
 vão na publicação. Foi assim, em 12/10/2026, que "o script não funciona" virou
 "o build não rodou o script".
 
+### 5.17-b. Backup: o JSON do painel tem teto; o registro inteiro sai pelo `wrangler d1 export`
+
+Desde o backup v3, *Ajustes → Baixar backup JSON* leva também o registro de
+consentimento do D1 (`consent`: colunas uma vez, cada aceite uma lista) — e
+com ele **IP, aparelho e nome de terceiros**: o arquivo fica só no seu
+computador, protegido, e é apagado no prazo do registro. Três coisas que
+mordem:
+
+- **Teto de 1500 aceites** (`CONSENT_BACKUP_MAX_LINHAS`). O plano gratuito dá
+  10 ms de CPU, e o custo é JSON (~5 ms por 1000 linhas). Estourar não corta o
+  arquivo, derruba o download. Acima do teto o toast diz "parcial", e o
+  completo é o export:
+  `npx wrangler d1 export fotos-consent --remote --output=fotos-consent-AAAA-MM-DD.sql`
+  (quando e como restaurar: `docs/RELEASE.md`). Faça um antes de qualquer
+  migração D1.
+- **D1 fora não derruba o backup**: sai com `consent.ausente` e o motivo, o
+  toast avisa, o healthz registra. Nunca confie num backup sem olhar o toast.
+- **O restore só acrescenta** (`INSERT OR IGNORE` por id, em lotes de
+  `batch()`), recusa linha ruim uma a uma e aceite vencido, e **não roda na
+  prévia**. Backups v1/v2 restauram como sempre (`tests/fixtures/`).
+
 ### 5.18. Álbum de família ou privado: consentimento, não sigilo (#146)
 
 A caixa de declaração **não é barreira de acesso**: registra o uso que a
@@ -798,6 +819,7 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | Registro de consentimento (D1) | 1825 dias (~5 anos), poda às 03:00 UTC | `CONSENT_RETENTION_DAYS` |
 | Aviso de "novas fotos" | 24 h por padrão | `photosAlert.expiresAfterHours` (`src/config.js`) |
 | Lembrete de backup | `backup:ultimo` no KV | painel, Ajustes |
+| Cópias de backup com o registro de consentimento (JSON v3 e `wrangler d1 export`) | 1825 dias por aceite, **apagadas à mão** | `docs/legal/politica-de-retencao.md` |
 | Revisão anual dos documentos legais | 12 meses | `docs/legal/README.md` |
 
 ## 9. Documentos, e para que serve cada um

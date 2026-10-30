@@ -10,7 +10,8 @@ obrigatória (art. 15), salvo hipótese do art. 16 — e cada exceção invocada
 está nomeada.
 
 Prazo que depende de alguém lembrar de apagar **não é política, é intenção**.
-Todos os prazos abaixo são executados por código, sem intervenção humana.
+Os prazos abaixo são executados por código, sem intervenção humana — salvo as
+exceções nomeadas na própria tabela (cópias de backup, prévia, fotografias).
 
 ---
 
@@ -19,6 +20,7 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | Categoria | Prazo | Contado a partir de | Mecanismo | Fundamento |
 | --- | --- | --- | --- | --- |
 | **Log de consentimento** (D1) | **1825 dias (~5 anos)** | `created_at` | `pruneOldConsent()`, cron diário 03:00 UTC | Art. 16, I — exercício regular de direito. Prazo alinhado à prescrição da reparação civil (CC art. 206, §3º, V) |
+| **Arquivo de backup do painel** (`fotos-backup-*.json`, v3) e **export do D1** (`wrangler d1 export`) — contêm o log de consentimento com IP, o resto da linha de cada aceite e os pedidos de remoção | **O mesmo do registro: 1825 dias** para cada aceite dentro dele | `created_at` do aceite mais antigo da cópia | **Manual** (exceção abaixo): o controlador guarda as cópias só no próprio computador, protegidas (disco ou arquivo criptografado), e apaga a que tiver aceite vencido — na prática, guardar só as mais recentes. O restore recusa aceites vencidos, então uma cópia velha não ressuscita o que a poda apagou | Os mesmos do log de consentimento e dos pedidos de remoção |
 | **Pedidos de remoção resolvidos** (KV, um registro por pedido) | **180 dias** | `resolvedAt` | `pruneResolvedRemovalRequests()` → `podaResolvidos()` (`src/pedidos.js`), cron diário; parada do cron é acusada pelo `/api/healthz` em até 26 h | Art. 16, I — comprovar o atendimento ao direito exercido |
 | **Pedidos de remoção não resolvidos** | Indefinido | — | Nenhum. **Nunca apagados automaticamente** | A finalidade não terminou: o pedido está pendente |
 | **Mensagens de suporte** | **Não armazenadas** | — | Nunca gravadas em KV nem D1 | Minimização (art. 6º, III) |
@@ -34,6 +36,26 @@ Todos os prazos abaixo são executados por código, sem intervenção humana.
 | **Cookie de contagem de visualização** (`fv_*`) | 1 hora | Visita | `Max-Age` no browser | Não identifica |
 | **Telemetria de desempenho** | Retenção do Cloudflare Logs | Envio | Fora do nosso controle | Não é dado pessoal |
 | **Fotografias dos eventos** (Drive) | **Sem prazo automático** | — | Remoção manual, a pedido ou por decisão do controlador | Ver observação abaixo |
+
+---
+
+## As cópias de backup — a outra exceção
+
+Desde o backup v3, o arquivo baixado no painel traz o log de consentimento com
+o IP de cada aceite. Ele sai do alcance do cron: fica no computador do
+controlador, e só ele pode apagar. Por isso a regra é escrita aqui, e não só
+no código:
+
+- **Onde:** só no computador do controlador (e num disco de cópia dele), nunca
+  em e-mail, chat ou pasta compartilhada. Arquivo ou disco **criptografado**.
+- **Quanto tempo:** cada aceite dentro da cópia vence no mesmo dia em que
+  venceria no D1 (1825 dias). Guardar só as cópias recentes resolve: uma cópia
+  nova substitui a velha, e a velha é apagada.
+- **Restaurar não desfaz a poda:** o restore recusa aceite mais velho que o
+  prazo (`consentExpired` na resposta) e nunca altera um aceite que já existe.
+- **Eliminação a pedido** de um aceite (tabela abaixo) vale também para as
+  cópias: apagar a linha no D1 e não restaurar cópias antigas que a contenham
+  — ou apagá-las.
 
 ---
 
@@ -96,7 +118,7 @@ Independe dos prazos acima. Procedimento em
 | Pedido | O que é apagado |
 | --- | --- |
 | Remoção de foto | O arquivo sai da pasta do Drive. O pedido em si é mantido 180 dias após a resolução, como prova do atendimento (art. 16, I) |
-| Eliminação do registro de consentimento | ⚠️ Avaliar caso a caso: é a prova de que a autorização foi dada. Art. 16, I permite a guarda. Se a foto for removida, o registro perde a utilidade e pode ser apagado |
+| Eliminação do registro de consentimento | ⚠️ Avaliar caso a caso: é a prova de que a autorização foi dada. Art. 16, I permite a guarda. Se a foto for removida, o registro perde a utilidade e pode ser apagado — no D1 **e nas cópias de backup** (seção acima) |
 | Eliminação de dados de contato | Apagados do pedido de remoção após a resolução, no prazo normal |
 
 ---

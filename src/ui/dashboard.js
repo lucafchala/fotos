@@ -965,7 +965,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       <div class="grade-blocos">
         <div class="bloco">
           <h3>Backup dos dados</h3>
-          <p class="bloco-desc">Uma cópia completa: eventos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
+          <p class="bloco-desc">Uma cópia completa: eventos, categorias, pedidos de remoção (com e-mail e telefone de quem pediu) e o registro de consentimento (com o IP e o aparelho de cada aceite). É dado pessoal de terceiros: guarde o arquivo protegido, de preferência criptografado, e apague as cópias antigas no mesmo prazo do registro. Não há backup automático: baixe depois de mudanças importantes.</p>
           <p class="backup-ultimo" id="backup-ultimo"></p>
           <button class="btn-sm" style="margin-top:1rem" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
         </div>
@@ -982,7 +982,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         <div class="bloco sensivel">
           <span class="sensivel-aviso">Pede confirmação digitada</span>
           <h3>Restaurar backup</h3>
-          <p class="bloco-desc">Nenhum dado atual é apagado: os eventos do arquivo são mesclados com os que já existem (o mais recente vence).</p>
+          <p class="bloco-desc">Nenhum dado atual é apagado: os eventos do arquivo são mesclados com os que já existem (o mais recente vence). Pedidos de remoção e aceites do registro de consentimento só entram se ainda não existirem — um aceite já gravado nunca é alterado.</p>
           <div class="field" style="margin-top:1rem">
             <label for="restore-file">Arquivo de backup (.json)</label>
             <input type="file" id="restore-file" accept=".json" class="arquivo">
@@ -3100,6 +3100,32 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       el.textContent = r.texto;
       el.classList.toggle('aviso', r.velho);
     }
+    // O cabeçalho X-Backup-Consentimento diz se o registro de consentimento
+    // veio inteiro: sem o D1 o arquivo sai sem ele, e acima do teto só com os
+    // aceites mais recentes (docs/RELEASE.md, "Backup do registro de
+    // consentimento"). Os dois casos avisam em vermelho: o dono não pode
+    // guardar o arquivo achando que a prova de aceite está dentro.
+    function avisoDoBackup(consentimento) {
+      if (consentimento === 'ausente') return { texto: 'Backup baixado, mas SEM o registro de consentimento (o banco não respondeu). Tente de novo mais tarde.', tipo: 'err' };
+      if (consentimento === 'parcial') return { texto: 'Backup baixado com só os aceites mais recentes. O registro inteiro sai pelo wrangler d1 export.', tipo: 'err' };
+      return { texto: 'Backup baixado.', tipo: 'ok' };
+    }
+    // O que o restore fez com o registro de consentimento (backup v3) — o que
+    // entrou e o que não entrou, dito. Backup v1/v2 não traz a seção: vazio.
+    function textoConsentRestaurado(res) {
+      let t = '';
+      if (res.consentSkipped) t = ' O registro de consentimento não entra na prévia (dados pessoais).';
+      else if (typeof res.consentAdded === 'number') {
+        const s = n => (n !== 1 ? 's' : '');
+        t = ' Consentimento: ' + res.consentAdded + ' aceite' + s(res.consentAdded) + ' novo' + s(res.consentAdded)
+          + (res.consentDuplicates ? ', ' + res.consentDuplicates + ' já existia' + (res.consentDuplicates !== 1 ? 'm' : '') : '')
+          + (res.consentRejected ? ', ' + res.consentRejected + ' recusado' + s(res.consentRejected) + ' (inválido' + s(res.consentRejected) + ')' : '')
+          + (res.consentExpired ? ', ' + res.consentExpired + ' vencido' + s(res.consentExpired) + ' (fora da retenção)' : '')
+          + '.';
+      } else if (res.consentMissingInBackup) t = ' Este arquivo saiu sem o registro de consentimento.';
+      if (res.consentError) t += ' ' + res.consentError;
+      return t;
+    }
     // Um fetch, e não um link: com a sessão expirada, o navegador mostrava o JSON
     // do erro. O 401 vai ao login, como no api().
     async function downloadBackup() {
@@ -3114,7 +3140,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const a = document.createElement('a');
       a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(u), 1000);
-      toast('Backup baixado.', 'ok');
+      const aviso = avisoDoBackup(res.headers.get('X-Backup-Consentimento'));
+      toast(aviso.texto, aviso.tipo);
       // O servidor já marcou a entrega; aqui a linha de Ajustes muda no lugar,
       // sem recarregar a página.
       backupUltimo = new Date().toISOString();
@@ -3129,9 +3156,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
       const n = backup.events.length;
       const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
+      // Backup v3 traz o registro de consentimento; v1 e v2, não.
+      const aceites = backup.consent && Array.isArray(backup.consent.linhas) ? backup.consent.linhas.length : 0;
+      const comAceites = aceites ? ' e ' + aceites + ' aceite' + (aceites !== 1 ? 's' : '') + ' do registro de consentimento' : '';
       const ok = await confirmDialog({
         title: 'Restaurar backup',
-        message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
+        message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + comAceites + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
         confirmLabel: 'Restaurar',
         danger: true,
         typeToConfirm: 'RESTAURAR',
@@ -3145,7 +3175,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // Na prévia de PR os pedidos de remoção do backup ficam de fora (dados
         // pessoais de terceiros) — e o aviso diz isso, em vez de sumirem calados.
         const semPedidos = res.removalRequestsSkipped ? ' Pedidos de remoção não entram na prévia (dados pessoais).' : '';
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos, 'ok');
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos + textoConsentRestaurado(res), res.consentError ? 'err' : 'ok');
         // Arquivo já usado sai do campo: com ele escolhido, o recarregamento abaixo
         // perguntaria "Sair do site?" (ajustesSujos()).
         fileInput.value = '';

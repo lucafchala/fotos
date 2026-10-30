@@ -3703,20 +3703,241 @@ function erroDownload(request, mensagem, status) {
 }
 
 // ---------------------------------------------------------------------------
-// Backup — full site state (v2), with v1-compatible restore
+// Backup — full site state (v3), with v1/v2-compatible restore
 // ---------------------------------------------------------------------------
+// v3 acrescenta `consent`: o registro de consentimento do D1, numa forma
+// compacta (os nomes das colunas uma vez, cada aceite uma lista de valores) —
+// em objetos, os 24 nomes repetidos a cada linha quase dobravam o arquivo.
 /**
- * @param {{ events: Evento[], categories: string[], removalRequests: Record<string, any>[] }} data
+ * @param {{ events: Evento[], categories: string[], removalRequests: Record<string, any>[], consent?: Record<string, any> }} data
  */
-export function buildBackup({ events, categories, removalRequests }) {
+export function buildBackup({ events, categories, removalRequests, consent }) {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
     categories,
     removalRequests,
+    consent: consent || consentAusente('seção não gerada'),
   });
+}
+
+// O registro de consentimento no backup (v3). `id` vem primeiro: é por ele que
+// o restore deduplica (INSERT OR IGNORE).
+const CONSENT_BACKUP_COLS = ['id', ...CONSENT_COLS];
+
+// Teto de linhas do backup pelo painel. O plano gratuito dá 10 ms de CPU por
+// requisição, e o custo aqui é JSON: o runtime lê o resultado do D1 e o
+// arquivo inteiro é serializado de novo. Medido em node (out/2026), com linhas
+// do tamanho das de produção (~740 bytes): 1000 linhas ≈ 5 ms, 2000 ≈ 8,5 ms,
+// 5000 ≈ 22 ms — só o JSON, sem os eventos. Estourar o orçamento não "corta" o
+// arquivo, derruba o download inteiro; por isso o teto, com folga. Acima
+// dele o backup leva as linhas MAIS RECENTES e diz, na seção, que está
+// incompleto: o caminho completo é `wrangler d1 export` (docs/RELEASE.md).
+// O restore usa o mesmo teto, pelo mesmo orçamento.
+const CONSENT_BACKUP_MAX_LINHAS = 1500;
+// Linhas por chamada de `batch()` no restore. Um batch conta como UMA consulta
+// no limite por invocação (50 no gratuito) e roda numa transação: se falhar,
+// perde-se só o lote, e restaurar o mesmo arquivo de novo continua dali
+// (INSERT OR IGNORE). 1500 linhas = 15 lotes.
+const CONSENT_RESTORE_LOTE = 100;
+
+/**
+ * @param {string} motivo
+ */
+function consentAusente(motivo) {
+  return { tabela: 'image_use_consent', ausente: true, motivo };
+}
+
+// A seção `consent` do backup. Nunca lança: sem D1, ou com ele fora, o backup
+// sai mesmo assim (eventos, categorias, pedidos) e a seção DIZ que faltou —
+// e o healthz também. Sumir calada faria o dono guardar um arquivo achando
+// que tem a prova de aceite dentro.
+/**
+ * @param {Env} env
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function consentParaBackup(env) {
+  if (!env.CONSENT_DB) return consentAusente('Banco do registro de consentimento (D1) não configurado neste ambiente.');
+  try {
+    const db = env.CONSENT_DB;
+    const [contagem, linhas] = await Promise.all([
+      db.prepare('SELECT COUNT(*) AS n FROM image_use_consent').first(),
+      db.prepare(`SELECT ${CONSENT_BACKUP_COLS.join(', ')} FROM image_use_consent ORDER BY created_at DESC LIMIT ?`)
+        .bind(CONSENT_BACKUP_MAX_LINHAS).raw(),
+    ]);
+    // Um aceite gravado entre as duas consultas não pode fazer o total ficar
+    // menor que o que veio.
+    const total = Math.max(Number(contagem && contagem.n) || 0, linhas.length);
+    const completo = linhas.length >= total;
+    return {
+      tabela: 'image_use_consent',
+      colunas: CONSENT_BACKUP_COLS,
+      linhas,
+      total,
+      completo,
+      ...(completo ? {} : {
+        motivo: `Só os ${linhas.length} aceites mais recentes de ${total}: acima de ${CONSENT_BACKUP_MAX_LINHAS} o backup do painel não cabe no limite de CPU. O registro inteiro sai por "wrangler d1 export" (docs/RELEASE.md).`,
+      }),
+    };
+  } catch (e) {
+    noteDegraded('backup sem o registro de consentimento', 'D1 não respondeu à leitura do backup; o arquivo saiu sem a seção consent', e);
+    return consentAusente(`O banco do registro de consentimento (D1) não respondeu: ${errMessage(e).slice(0, 200)}`);
+  }
+}
+
+// Como cada coluna do registro volta de um backup. O restore grava direto no
+// D1, sem passar por handleDriveLink, então tudo o que lá é garantido pelo
+// servidor (tamanhos, tipos, enum) é conferido aqui. Uma linha fora disto é
+// RECUSADA, não aparada: num registro de prova, um valor alterado é pior que
+// um valor ausente. Os tetos são os do INSERT (os `.slice()` dele).
+// `obrigatoria` = NOT NULL na tabela, ou o que o restore precisa (id).
+/** @typedef {{ tipo: 'texto', max: number, re?: RegExp, obrigatoria?: boolean } | { tipo: 'inteiro', min: number, max: number, obrigatoria?: boolean } | { tipo: 'data', obrigatoria: true } | { tipo: 'enum', valores: string[] }} ColunaConsent */
+/** @type {Record<string, ColunaConsent>} */
+const CONSENT_RESTORE_COLS = {
+  id: { tipo: 'texto', max: 64, re: /^[a-f0-9]{1,64}$/, obrigatoria: true },
+  created_at: { tipo: 'data', obrigatoria: true },
+  event_slug: { tipo: 'texto', max: 60, re: /^[a-z0-9-]{1,60}$/, obrigatoria: true },
+  event_title: { tipo: 'texto', max: 200 },
+  drive_target: { tipo: 'texto', max: 32, re: /^[a-z+]*$/ },
+  access_type: { tipo: 'enum', valores: ACCESS_TYPES },
+  terms_version: { tipo: 'texto', max: 40, obrigatoria: true },
+  terms_hash: { tipo: 'texto', max: 64, re: /^(?:[a-f0-9]{64})?$/ },
+  consent_text: { tipo: 'texto', max: 2000 },
+  declaration_text: { tipo: 'texto', max: 2000 },
+  consenter_name: { tipo: 'texto', max: 120 },
+  turnstile_ok: { tipo: 'inteiro', min: 0, max: 2, obrigatoria: true },
+  ip: { tipo: 'texto', max: 64 },
+  country: { tipo: 'texto', max: 8 },
+  region: { tipo: 'texto', max: 80 },
+  city: { tipo: 'texto', max: 120 },
+  timezone: { tipo: 'texto', max: 64 },
+  asn: { tipo: 'inteiro', min: 0, max: 4294967295 },
+  as_org: { tipo: 'texto', max: 160 },
+  colo: { tipo: 'texto', max: 16 },
+  user_agent: { tipo: 'texto', max: 400 },
+  accept_language: { tipo: 'texto', max: 120 },
+  referrer: { tipo: 'texto', max: 400 },
+  page_url: { tipo: 'texto', max: 400 },
+};
+const DATA_ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
+/**
+ * Um valor de uma coluna do registro, conferido. `undefined` = recusado.
+ * @param {ColunaConsent} spec
+ * @param {unknown} v
+ * @returns {string|number|null|undefined}
+ */
+function valorDeConsentimento(spec, v) {
+  if (v === null) return spec.tipo !== 'data' && !('obrigatoria' in spec && spec.obrigatoria) ? null : undefined;
+  if (spec.tipo === 'inteiro') {
+    return typeof v === 'number' && Number.isInteger(v) && v >= spec.min && v <= spec.max ? v : undefined;
+  }
+  if (typeof v !== 'string') return undefined;
+  if (spec.tipo === 'enum') return spec.valores.includes(v) ? v : undefined;
+  if (spec.tipo === 'data') return DATA_ISO_UTC.test(v) && Number.isFinite(Date.parse(v)) ? v : undefined;
+  if (v.length > spec.max) return undefined;
+  if (spec.re && !spec.re.test(v)) return undefined;
+  return v;
+}
+
+/**
+ * Uma linha do backup → os valores na ordem de CONSENT_BACKUP_COLS, ou o
+ * motivo de não entrar.
+ * @param {string[]} colunas os nomes da seção, já conferidos
+ * @param {unknown} linha
+ * @param {{ corteMs: number, agoraMs: number }} prazo
+ * @returns {{ valores: (string|number|null)[] } | { recusa: 'invalida'|'vencida' }}
+ */
+export function linhaDeConsentimentoRestaurada(colunas, linha, { corteMs, agoraMs }) {
+  if (!Array.isArray(linha) || linha.length !== colunas.length) return { recusa: 'invalida' };
+  /** @type {Record<string, unknown>} */
+  const porNome = {};
+  colunas.forEach((c, i) => { porNome[c] = linha[i]; });
+  /** @type {(string|number|null)[]} */
+  const valores = [];
+  for (const nome of CONSENT_BACKUP_COLS) {
+    const v = valorDeConsentimento(CONSENT_RESTORE_COLS[nome], nome in porNome ? porNome[nome] : null);
+    if (v === undefined) return { recusa: 'invalida' };
+    valores.push(v);
+  }
+  const quando = Date.parse(String(valores[1]));
+  // Um aceite "do futuro" escaparia da poda por anos; um mais velho que a
+  // retenção já devia ter sido apagado — restaurá-lo desfaria a poda
+  // (docs/legal/politica-de-retencao.md).
+  if (quando > agoraMs + 3600_000) return { recusa: 'invalida' };
+  if (quando < corteMs) return { recusa: 'vencida' };
+  return { valores };
+}
+
+// Restore da seção `consent` (v3). Decisão: SIM, reinsere — o registro é a
+// prova de aceite (LGPD), e um backup que não o devolve não salva nada no dia
+// em que o D1 se perder. Mas só ACRESCENTA: INSERT OR IGNORE por `id`, então
+// uma linha que já existe nunca é alterada (o registro é só de inclusão), e
+// restaurar o mesmo arquivo duas vezes não duplica nada. Na prévia de PR não
+// entra (IP, aparelho e nome de terceiros — como os pedidos de remoção).
+/**
+ * @param {Env} env
+ * @param {unknown} consent
+ * @returns {Promise<Record<string, any>>}
+ */
+async function restauraConsentimento(env, consent) {
+  if (!consent || typeof consent !== 'object' || Array.isArray(consent)) return { consentError: 'Seção "consent" inválida.' };
+  const c = /** @type {Record<string, any>} */ (consent);
+  if (c.ausente === true) return { consentMissingInBackup: true };
+  if (!Array.isArray(c.colunas) || !Array.isArray(c.linhas)) return { consentError: 'Seção "consent" sem colunas ou linhas.' };
+  if (ehPrevia(env)) return { consentSkipped: c.linhas.length };
+  if (!env.CONSENT_DB) return { consentError: 'Registro de consentimentos não configurado.', consentAdded: 0 };
+
+  // Colunas: só nomes conhecidos, sem repetição, e as obrigatórias presentes.
+  // Uma lista que não se lê torna TODAS as linhas ilegíveis — aí sim a seção
+  // inteira fica de fora, dizendo por quê.
+  const colunas = c.colunas;
+  const conhecidas = colunas.every(/** @param {unknown} n */ n => typeof n === 'string' && Object.hasOwn(CONSENT_RESTORE_COLS, n));
+  const obrigatorias = Object.entries(CONSENT_RESTORE_COLS).filter(([, s]) => 'obrigatoria' in s && s.obrigatoria).map(([n]) => n);
+  if (!conhecidas || new Set(colunas).size !== colunas.length || !obrigatorias.every(n => colunas.includes(n))) {
+    return { consentError: 'Colunas do registro de consentimento desconhecidas, repetidas ou faltando.', consentAdded: 0 };
+  }
+
+  const agoraMs = Date.now();
+  const prazo = { corteMs: agoraMs - CONSENT_RETENTION_DAYS * 86400_000, agoraMs };
+  let rejeitadas = 0, vencidas = 0;
+  /** @type {(string|number|null)[][]} */
+  const validas = [];
+  const linhas = c.linhas.slice(0, CONSENT_BACKUP_MAX_LINHAS);
+  for (const linha of linhas) {
+    const r = linhaDeConsentimentoRestaurada(colunas, linha, prazo);
+    if ('recusa' in r) { if (r.recusa === 'vencida') vencidas++; else rejeitadas++; continue; }
+    validas.push(r.valores);
+  }
+
+  const db = env.CONSENT_DB;
+  const sql = `INSERT OR IGNORE INTO image_use_consent (${CONSENT_BACKUP_COLS.join(', ')}) VALUES (${CONSENT_BACKUP_COLS.map(() => '?').join(',')})`;
+  let gravadas = 0, processadas = 0;
+  /** @type {Record<string, any>} */
+  const out = {};
+  try {
+    for (let i = 0; i < validas.length; i += CONSENT_RESTORE_LOTE) {
+      const lote = validas.slice(i, i + CONSENT_RESTORE_LOTE);
+      const res = await db.batch(lote.map(v => db.prepare(sql).bind(...v)));
+      for (const r of res) gravadas += Number(r && r.meta && r.meta.changes) || 0;
+      processadas += lote.length;
+    }
+  } catch (e) {
+    noteDegraded('restore do registro de consentimento parou', 'D1 recusou um lote do restore; restaurar o mesmo arquivo de novo continua de onde parou', e);
+    out.consentError = `O banco do registro de consentimento recusou a gravação: ${errMessage(e).slice(0, 200)}`;
+    out.consentNotWritten = validas.length - processadas;
+  }
+  out.consentAdded = gravadas;
+  // Já existiam no D1 (ou vieram repetidas no próprio arquivo — a segunda
+  // cópia esbarra na primeira): o OR IGNORE as deixou como estavam.
+  out.consentDuplicates = processadas - gravadas;
+  if (rejeitadas) out.consentRejected = rejeitadas;
+  if (vencidas) out.consentExpired = vencidas;
+  if (c.linhas.length > linhas.length) out.consentOverLimit = c.linhas.length - linhas.length;
+  if (c.completo === false) out.consentIncompleteBackup = true;
+  return out;
 }
 
 // Restore is the one path that writes events without going through
@@ -3891,11 +4112,11 @@ export function mergeRestore(current, backupEvents) {
 export async function handleGetBackup(request, env, ctx, headOnly = false) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const [events, categories, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), listaPedidos(env),
+  const [events, categories, removalRequests, consent] = await Promise.all([
+    getEvents(env, true), getCategories(env), listaPedidos(env), consentParaBackup(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  const arquivo = buildBackup({ events, categories, removalRequests });
+  const arquivo = buildBackup({ events, categories, removalRequests, consent });
   if (!headOnly) {
     const marcado = registraUltimoBackup(env);
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(marcado);
@@ -3904,9 +4125,13 @@ export async function handleGetBackup(request, env, ctx, headOnly = false) {
   return new Response(arquivo, {
     headers: {
       // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
-      // remoção, com e-mail e telefone de cada titular.
+      // remoção, com e-mail e telefone de cada titular, e o registro de
+      // consentimento, com o IP e o aparelho de cada aceite.
       ...dataSecurityHeaders('application/json; charset=utf-8'),
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
+      // O painel lê isto para avisar, no toast, um backup sem o registro (D1
+      // fora) ou só com parte dele (acima do teto) — sem abrir o arquivo.
+      'X-Backup-Consentimento': consent.ausente ? 'ausente' : consent.completo ? 'completo' : 'parcial',
     },
   });
 }
@@ -3980,6 +4205,9 @@ async function handleRestoreBackup(request, env) {
       result.removalRequestsAdded = gravados;
     }
   }
+
+  // v3: o registro de consentimento (D1). Backup v1/v2 não tem a seção.
+  if (body.consent !== undefined) Object.assign(result, await restauraConsentimento(env, body.consent));
 
   return jsonOk(result);
 }
