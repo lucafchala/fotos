@@ -77,13 +77,13 @@ export function termsHTML() {
     <h1>Termos de Uso</h1>
     <p class="updated">Atualizados em ${formatDatePT(TERMS_VERSION)}</p>
 
-    <p class="intro">Estes Termos regem o uso do site <strong>fotos.lucafchala.com</strong> e o acesso às fotos dos eventos. Ao acessar as fotos de um projeto, você declara que leu, entendeu e concorda com estes Termos.</p>
+    <p class="intro">Estes Termos regem o uso do site <strong>fotos.lucafchala.com</strong> e o uso das fotos dos eventos. Nos projetos públicos, a galeria do site abre para qualquer pessoa, sem aceite prévio dos Termos: ao usar o site e as fotos de um projeto, você concorda em segui-los. O aceite expresso dos Termos é pedido no acesso ao Google Drive e nas galerias de projetos familiares e privados.</p>
 
     <h2>1. Quem é o responsável</h2>
     <p>O site é operado por <strong>Luca Ferriani Chala</strong>, responsável pela fotografia e pela disponibilização das imagens. Contato: <a href="mailto:suporte@lucafchala.com">suporte@lucafchala.com</a> · questões de dados: <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
 
     <h2>2. O serviço</h2>
-    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e um link para a pasta no <strong>Google Drive</strong> onde as fotos podem ser visualizadas e baixadas pelas pessoas que participaram do evento. As fotos exibidas na própria página são apenas uma prévia; o material completo fica no Drive.</p>
+    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e uma galeria própria do site, onde as fotos podem ser visualizadas e baixadas sem sair daqui, em duas versões: <strong>“para redes sociais”</strong> (leve) e <strong>“tamanho máximo”</strong> (o arquivo original). Além da galeria, cada projeto também oferece um link para a pasta no <strong>Google Drive</strong>, onde o material completo fica disponível para visualização e download pelas pessoas que participaram do evento.</p>
 
     <h2>3. Uso das imagens e Categorias de Acesso</h2>
     <div class="key">
@@ -91,8 +91,9 @@ export function termsHTML() {
       <ul>
         <li><strong>Projetos Familiares:</strong> Álbuns feitos para a família, para uso doméstico. O acesso se apoia no seu consentimento, não em senha: o link da pasta é de quem o recebe, e peço que ele fique dentro do círculo a que se destina.</li>
         <li><strong>Projetos Privados:</strong> Álbuns feitos para quem participou do evento. Também aqui o acesso se apoia no seu consentimento, não em senha, e o link é para quem esteve lá. A entrega ocorre sob a base do legítimo interesse.</li>
-        <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita.</li>
+        <li><strong>Projetos Públicos:</strong> Trabalhos autorais ou registros sem expectativa de privacidade restrita. A galeria do site abre para qualquer pessoa, sem aceite prévio dos Termos e sem registro de aceite; o link do Google Drive, mesmo nesses projetos, continua passando pelo aceite registrado.</li>
       </ul>
+      <p>Nos projetos públicos, as páginas e as fotos das galerias podem aparecer em buscadores (como o Google), inclusive na busca de imagens. As galerias de projetos familiares e privados ficam fora da indexação, e os downloads não são indexados em nenhum caso. O site pede aos buscadores que não usem o conteúdo para treinar inteligência artificial, mas não controla o que esses serviços fazem. Nos projetos familiares e privados, a galeria e o link do Drive continuam exigindo o aceite dos Termos e a declaração da categoria, com registro do aceite.</p>
       <p>Como parte da dinâmica do trabalho, eu realizo curadoria de imagens (exceto nas familiares) para meu portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
       <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. A exclusão é imediata, gratuita e garantida.</p>
     </div>
@@ -116,6 +117,7 @@ export function termsHTML() {
 
     <h2>7. Remoção de fotos</h2>
     <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias</strong>.</p>
+    <p>Quando o pedido é atendido (ou quando o responsável decide tirar a foto), ela sai da galeria e do mapa do site na hora, e o download dela deixa de funcionar. O resultado no buscador, porém, pode levar um tempo para atualizar; quando for urgente, eu solicito a remoção diretamente ao buscador, pela ferramenta de remoção do Google Search Console. A foto original pode continuar no Drive até ser apagada lá.</p>
 
     <h2>8. Serviços de terceiros</h2>
     <p>O site usa <strong>Google Drive</strong> (hospedagem e download das fotos), <strong>Cloudflare</strong> (hospedagem, medição anônima e proteção contra robôs via <strong>Turnstile em modo invisível</strong> — uma verificação automática do navegador, sem desafio visível; consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile</a>) e <strong>Resend</strong> (envio de e-mails). O acesso ao Drive também se sujeita aos termos do Google.</p>

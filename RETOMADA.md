@@ -763,9 +763,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   reavaliar), #134 (destino do beacon de desempenho) e #119 (autorização de
   menores).
 - **Termos e o modelo do #146**: reescritos na v2.0 (`TERMS_VERSION`
-  2026-10-18) — Familiares e Privados falam em consentimento, não senha. Falta
-  só a revisão jurídica (ECA Digital, LBI) e a declaração de acessibilidade
-  (`docs/ACESSIBILIDADE-RASCUNHO.md`, não publicar antes dela).
+  2026-10-18) — Familiares e Privados falam em consentimento, não senha — e na
+  versão 2026-10-29, SEM revisão jurídica por decisão do dono (29/10/2026): a
+  galeria dos projetos públicos abre sem aceite e as galerias públicas podem
+  aparecer em buscadores. A declaração de acessibilidade está publicada em
+  `/legal/declaracao-de-acessibilidade` (`docs/legal/declaracao-de-acessibilidade.md`).
 
 ---
 
@@ -799,7 +801,7 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
 | [docs/PAINEL.md](./docs/PAINEL.md) | O painel por dentro: seções, blocos, ações, endpoints, como verificar |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
-| [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
+| [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes, declaração de acessibilidade… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |
 
 Os documentos legais também são páginas do site, em `/legal`.

@@ -601,7 +601,7 @@ fotos/
 ├── docs/
 │   ├── PAINEL.md           ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, o card de evento, o formulário, como verificar
 │   └── legal/              ← pacote de conformidade LGPD (fonte da verdade dos textos)
-│       ├── README.md       ← índice + aviso "não é parecer jurídico" + porte do agente
+│       ├── README.md       ← índice + nota "Redigido com auxílio de IA, sem revisão jurídica" + porte do agente
 │       ├── ROPA.md         ← registro das operações (art. 37)
 │       ├── RIPD.md         ← relatório de impacto / DPIA (art. 38)
 │       ├── LIA.md          ← teste de legítimo interesse (art. 10)
@@ -611,6 +611,7 @@ fotos/
 │       ├── plano-resposta-incidentes.md
 │       ├── politica-seguranca-informacao.md
 │       ├── termo-autorizacao-uso-imagem.md
+│       ├── declaracao-de-acessibilidade.md
 │       └── checklist-conformidade.md
 ├── scripts/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
@@ -1229,7 +1230,7 @@ A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície
 - **Registro do aceite** (`POST /api/drive-link` → D1, no mesmo request que libera o link): o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. Non-blocking (`ctx.waitUntil`); sem D1 provisionado, é no-op (o gate continua funcionando normalmente).
 - **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
-> Os textos legais (escopo da autorização, retenção) são um rascunho razoável — recomenda-se revisão jurídica antes de produção.
+> Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável (29/10/2026).
 
 ---
 
@@ -1358,9 +1359,7 @@ contrato com a escola. Os modelos prontos estão em
 [`termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
 o caminho de menor atrito é o Modelo 3, anexado ao contrato com a instituição.
 
-> Todos esses documentos foram redigidos com auxílio de IA e **não constituem
-> parecer jurídico**. Os pontos marcados ⚖️ dependem de revisão de advogado(a)
-> com prática em LGPD e direito de imagem.
+> Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável (29/10/2026).
 
 ---
 
@@ -1425,6 +1424,7 @@ documento novo.
 | `/legal/resposta-a-incidentes` | `docs/legal/plano-resposta-incidentes.md` |
 | `/legal/seguranca-da-informacao` | `docs/legal/politica-seguranca-informacao.md` |
 | `/legal/autorizacao-de-imagem` | `docs/legal/termo-autorizacao-uso-imagem.md` |
+| `/legal/declaracao-de-acessibilidade` | `docs/legal/declaracao-de-acessibilidade.md` |
 | `/legal/checklist` | `docs/legal/checklist-conformidade.md` |
 | `/legal/sobre-esta-documentacao` | `docs/legal/README.md` |
 
