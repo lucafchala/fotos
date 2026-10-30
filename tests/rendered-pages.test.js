@@ -909,7 +909,7 @@ describe('página de projeto: fotos do tamanho da tela', () => {
   it('o carrossel tira o srcset antes de trocar a foto — senão o browser ignora o src novo', () => {
     const i = html.indexOf("img.removeAttribute('srcset');");
     expect(i).toBeGreaterThan(-1);
-    expect(html.indexOf('img.src = PHOTOS[cur];', i)).toBeGreaterThan(i);
+    expect(html.indexOf('img.src = fotoUrl(cur);', i)).toBeGreaterThan(i);
   });
 });
 

@@ -431,6 +431,19 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
+Duas coisas da página de projeto que falham em silêncio (#141, out/2026):
+
+- **O Turnstile carrega sob demanda** (`comTurnstile()` em `src/ui/event.js`):
+  primeiro toque, tecla ou rolagem, ou abrir o portão/remoção. Quem precisa do
+  `turnstile` passa por `comTurnstile()`; testar `typeof turnstile` direto, com
+  o script ainda chegando, cai no caminho `noscript` sem bloqueador nenhum. O
+  endereço do script fica por extenso em `TS_SRC`: a prévia ("sem script") o
+  troca por texto.
+- **A caixa da capa é 3:2 fixa** (`.hero-foto`, `.carousel`), com a foto em
+  `object-fit: contain`. Sem ela a página nasce com o hero de altura 0 e desce
+  quando a foto chega (CLS 0,334). Capa retrato aparece inteira, menor, com
+  faixa escura dos lados; o site não guarda a proporção de cada capa.
+
 ### 5.13. Galeria própria: quem vê é decidido por UMA função
 
 Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do

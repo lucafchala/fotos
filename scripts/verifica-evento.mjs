@@ -24,7 +24,7 @@
 // os celulares baixavam 3 fotos de 1600 px só para abrir a página.
 
 // As funções passadas a addInitScript/evaluate rodam DENTRO do Chromium.
-/* global navigator, MouseEvent, document, window, localStorage */
+/* global navigator, MouseEvent, document, window, localStorage, PerformanceObserver */
 import { existsSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { eventHTML } from '../src/ui/event.js';
@@ -113,7 +113,7 @@ async function abre(o = {}) {
   }
   const estado = {
     fotos: /** @type {string[]} */ ([]), driveLink: 0, driveCode: 0, erros: /** @type {string[]} */ ([]), corpos: /** @type {any[]} */ ([]),
-    csp: /** @type {string[]} */ ([]), beacon: { script: 0, envio: 0 },
+    csp: /** @type {string[]} */ ([]), beacon: { script: 0, envio: 0 }, turnstile: 0,
   };
   abertas.push({
     nome: `${o.html === HTML_FAMILIA ? 'família' : o.html === HTML_COM_BEACON ? 'beacon' : o.html === HTML_GALERIA ? 'galeria' : 'público'} ${(o.viewport || { width: 390 }).width}@${o.dpr || 3}`
@@ -126,6 +126,7 @@ async function abre(o = {}) {
     const r = route.request();
     const u = new URL(r.url());
     if (u.host === 'challenges.cloudflare.com') {
+      estado.turnstile++;
       if (o.turnstile === 'bloqueado') return route.abort();
       return route.fulfill({ contentType: 'text/javascript', body: turnstileFalso(o.turnstile || 'ok') });
     }
@@ -202,6 +203,112 @@ try {
     await page.waitForTimeout(300);
     registra(estado.fotos.some(f => f === 'FOTO1=w2400-rw'), `${nome}: ampliar pede w2400`, estado.fotos.slice(-2));
     registra(estado.erros.length === 0, `${nome}: sem erro de JS`, estado.erros);
+    await ctx.close();
+  }
+
+  // ---- 1a. Caixa da capa reservada antes de a foto chegar (CLS, #141) -------
+  // A foto do lh3 segura 2 s: a caixa do carrossel (e a da foto única) tem de
+  // nascer com o tamanho final — 3:2 da largura, no máximo 72% da altura — e o
+  // conteúdo abaixo não pode se mexer quando a foto chega. Nenhum layout shift
+  // registrado pelo PerformanceObserver, do começo ao fim.
+  for (const [nome, html, sel] of /** @type {const} */ ([
+    ['carrossel', HTML, '#carousel'],
+    ['foto única', eventHTML(/** @type {any} */ ({ ...EVENTO, photos: [FOTOS[0]], thumbnailUrl: FOTOS[0] }), 2026, '', NONCE, 'drive-nonce', ''), '.hero'],
+  ])) {
+    for (const [aparelho, viewport, dpr] of /** @type {const} */ ([
+      ['iPhone 390@3', { width: 390, height: 844 }, 3], ['Desktop 1440@1', { width: 1440, height: 900 }, 1],
+    ])) {
+      const ctx = await browser.newContext({ viewport, deviceScaleFactor: dpr });
+      const page = await ctx.newPage();
+      await page.addInitScript(() => {
+        /** @type {any} */ (window).__cls = 0;
+        new PerformanceObserver(l => { for (const e of /** @type {any[]} */ (l.getEntries())) /** @type {any} */ (window).__cls += e.value; })
+          .observe({ type: 'layout-shift', buffered: true });
+      });
+      const csp = /** @type {string[]} */ ([]);
+      abertas.push({ nome: `capa lenta ${nome} ${aparelho}`, csp });
+      vigiaCsp(page, csp);
+      const erros = /** @type {string[]} */ ([]);
+      page.on('pageerror', e => erros.push(String(e)));
+      let liberaFoto = () => {};
+      const fotoPresa = new Promise(ok => { liberaFoto = () => ok(undefined); });
+      await page.route('**/*', async route => {
+        const u = new URL(route.request().url());
+        if (u.host === 'lh3.googleusercontent.com') { await fotoPresa; return route.fulfill({ contentType: 'image/png', body: PNG }); }
+        if (u.host === 'fotos.test' && u.pathname === '/evento') return route.fulfill({ status: 200, headers: htmlSecurityHeaders(NONCE), body: html });
+        return route.fulfill({ status: 204, body: '' });
+      });
+      await page.goto('https://fotos.test/evento', { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(300);
+      const medir = () => page.evaluate(s => {
+        const c = /** @type {HTMLElement} */ (document.querySelector(s)).getBoundingClientRect();
+        return { w: Math.round(c.width), h: Math.round(c.height), main: Math.round(/** @type {HTMLElement} */ (document.querySelector('main')).getBoundingClientRect().top) };
+      }, sel);
+      const antes = await medir();
+      const esperado = Math.round(Math.min(viewport.width * 2 / 3, viewport.height * 0.72));
+      registra(Math.abs(antes.h - esperado) <= 1 && antes.w === viewport.width,
+        `capa lenta, ${nome} ${aparelho}: a caixa já tem ${viewport.width}×${esperado} antes de a foto chegar`, antes);
+      liberaFoto();
+      await page.waitForTimeout(800);
+      const depois = await medir();
+      const cls = await page.evaluate(() => /** @type {any} */ (window).__cls);
+      registra(depois.h === antes.h && depois.main === antes.main && cls < 0.01,
+        `capa lenta, ${nome} ${aparelho}: a foto chega e nada abaixo se mexe (CLS ${cls.toFixed(3)})`, { antes, depois, cls });
+      if (nome === 'carrossel') {
+        // Trocar de foto também não mexe na altura (a caixa é fixa).
+        await page.locator('.c-next').click();
+        await page.waitForTimeout(300);
+        const outra = await medir();
+        registra(outra.h === antes.h && outra.main === antes.main, `capa lenta, carrossel ${aparelho}: ›› não muda a altura da caixa`, outra);
+      }
+      registra(erros.length === 0, `capa lenta, ${nome} ${aparelho}: sem erro de JS`, erros);
+      await ctx.close();
+    }
+  }
+
+  // ---- 1c. Largura por pixels físicos da janela de AGORA ----------------------
+  // A escolha é refeita a cada troca: o celular deitado com o lightbox aberto
+  // pede a largura da janela deitada, não a da carga (390@3 → 1200; 844@3 →
+  // 1600). O lightbox abre na mesma largura do carrossel (caixa de 100vw).
+  {
+    const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3 });
+    await page.locator('#c-img').dispatchEvent('click');
+    await page.waitForTimeout(300);
+    const lb0 = await page.locator('#lb-img').evaluate(i => /** @type {HTMLImageElement} */ (i).currentSrc.split('/d/')[1]);
+    registra(lb0 === 'FOTO0=w1200-rw', 'lightbox 390@3: abre na largura da tela em pixels físicos (w1200 WebP)', lb0);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(200);
+    await page.locator('.lb-next').dispatchEvent('click');
+    await page.waitForTimeout(300);
+    const lb1 = await page.locator('#lb-img').evaluate(i => /** @type {HTMLImageElement} */ (i).currentSrc.split('/d/')[1]);
+    registra(lb1 === 'FOTO1=w1600-rw', 'lightbox deitado 844@3: a próxima foto vem na largura da janela de agora (w1600)', lb1);
+    // Clique na faixa escura fora da foto fecha, como no fundo do lightbox.
+    await page.mouse.click(5, 195);
+    await page.waitForTimeout(200);
+    registra(!(await page.locator('#lightbox').evaluate(l => l.classList.contains('open'))), 'lightbox: clique fora da foto (na faixa) fecha');
+    registra(estado.erros.length === 0, 'largura da janela de agora: sem erro de JS', estado.erros);
+    await ctx.close();
+  }
+
+  // ---- 1d. Turnstile só com intenção ------------------------------------------
+  // O script do Turnstile não carrega na abertura (era o grosso do TBT no
+  // celular): só no primeiro toque/tecla/rolagem, ou ao abrir o portão. Depois
+  // de abrir o portão, a ficha chega e o link libera como antes.
+  {
+    const { ctx, page, estado } = await abre({});
+    await page.waitForTimeout(1500);
+    registra(estado.turnstile === 0, 'Turnstile: nenhum pedido ao challenges.cloudflare.com antes de a pessoa interagir', { pedidos: estado.turnstile });
+    await aceita(page);
+    await page.waitForTimeout(1200);
+    registra(estado.turnstile === 1 && await pronto(page) && estado.driveLink === 1,
+      'Turnstile: abrir o portão carrega o script uma vez, a ficha chega e o link libera', { turnstile: estado.turnstile, pedidos: estado.driveLink });
+    await ctx.close();
+  }
+  {
+    const { ctx, page, estado } = await abre({});
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(800);
+    registra(estado.turnstile === 1, 'Turnstile: a primeira rolagem já pré-aquece o desafio', { pedidos: estado.turnstile });
     await ctx.close();
   }
 

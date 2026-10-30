@@ -193,6 +193,16 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
   Galaxy 384@3,75) e desktop: a largura é a menor da escada 800/1200/1600 que
   cobre a tela em pixels físicos, WebP, a 1ª foto baixada uma vez só, ›› troca
   a foto, zoom pede `w2400`; economia de dados não pré-carrega vizinhas;
+- **capa lenta (CLS, #141)** — o `lh3` segura a foto: a caixa do carrossel e a
+  da foto única já nascem com o tamanho final (3:2 da largura, teto de 72vh),
+  no iPhone e no desktop, e quando a foto chega nada abaixo se mexe (CLS do
+  `PerformanceObserver` ≈ 0); trocar de foto não muda a altura;
+- **largura da janela de AGORA** — o lightbox abre na largura da tela em pixels
+  físicos e, com o celular deitado, a próxima foto vem na largura da janela
+  deitada; clique na faixa escura fora da foto fecha o lightbox;
+- **Turnstile só com intenção** — nenhum pedido ao `challenges.cloudflare.com`
+  antes de a pessoa interagir; abrir o portão carrega o script uma vez e libera
+  o link; a primeira rolagem já pré-aquece o desafio;
 - **429** — mostra a contagem, espera o `retryAfter` e libera sozinho; num 429
   sem fim, 1 + 5 esperas e para (sem martelar);
 - **erro comum** — uma tentativa automática e para; num 404 a caixa de erro
@@ -221,7 +231,7 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
 
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 62 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade).
+falhas já registradas. 93 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade).
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
