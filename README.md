@@ -620,7 +620,7 @@ fotos/
 │   ├── build-icons.mjs      ← rasteriza src/content/icon-svg.js em PNG (src/content/icons.js, npm run build:icons)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail, álbum restrito sem Turnstile) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
-│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
+│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads exatos, "Salvar no Fotos" no iPhone (npm run verifica:galeria)
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
 │   ├── vigia-csp.mjs        ← o vigia de CSP dos cinco roteiros: qualquer mensagem de CSP no console reprova, e uma página-canário prova que o vigia enxerga e a política bloqueia (#126)
@@ -903,7 +903,7 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo. **Indexada no Google** só a de álbum público e listado, vista por visitante, fora da prévia e com fotos (`galeriaIndexavel()`; ver [No Google](#no-google)); o resto leva `noindex` |
-| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto, **sem alterar o arquivo** (nome e bytes exatos): `max` = o original da pasta do projeto, pela Drive API (chave só no servidor); `redes` = o arquivo de mesmo nome da pasta do Instagram do projeto (`driveUrlInstagram`), também pela Drive API. `<id>` é sempre o da foto na galeria; o do arquivo do Instagram sai da listagem do servidor, nunca do pedido. Foto fora da pasta do projeto, sem par no Instagram ou sem pasta do Instagram: 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
@@ -1864,12 +1864,21 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
   camada de cima (a folha de download, depois a foto) em vez de sair da
   galeria — como num app.
-- **Downloads em duas variantes**: *para redes* — JPEG com 2048 px no lado maior
-  (`GALERIA_LADO_REDES`), redimensionado pelo `lh3` — e *tamanho máximo* — o
-  arquivo original, pela Drive API. No celular, a foto é preparada e o toque em
-  **"Salvar na galeria"** abre a folha de compartilhamento já com o arquivo (no
-  iPhone, *Salvar imagem* põe direto no Fotos — o Drive exige três passos); no
-  computador, download direto.
+- **Downloads em duas versões, sem alterar o arquivo** (nome e bytes exatos
+  do Drive; o site não redimensiona, não renomeia, não recodifica): *tamanho
+  máximo* — o original da pasta do projeto — e *para redes* — o arquivo **da
+  pasta do Instagram** (`driveUrlInstagram`) que casa com a foto. A opção
+  "para redes" só aparece nas fotos que têm esse par (a folha, o "Baixar tudo" e
+  a seleção dizem quantas das fotos escolhidas têm). Android e computador:
+  download comum de arquivo, em fila (uma foto a cada 0,7 s), sem folha de
+  compartilhamento. **iPhone e iPad** (todo navegador do iOS é WebKit): o
+  download comum cai no app Arquivos, longe do Fotos; por isso o botão
+  principal é **"Salvar no Fotos"** (Web Share com o *arquivo* exato: a folha
+  do iOS oferece *Salvar imagem*, que põe direto no Fotos, ou
+  *Salvar N imagens*) e **"Baixar arquivo"** fica ao lado. Em lotes de até 20
+  fotos / 80 MB (a folha do iOS segura tudo na memória da aba); se o sistema
+  recusar os arquivos (`canShare`), cai sozinho no "Baixar arquivo". Ser iOS é a
+  única checagem de plataforma da página (RETOMADA §5.13).
 - **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
   baixadas uma a uma — nada de zip, que no celular não abre na galeria.
 
@@ -1951,9 +1960,19 @@ Search Console → **Remoções** → *Nova solicitação* com a URL da imagem
 ### Por que o download passa pelo Worker
 
 `/galeria/<slug>/baixar/<id>?v=redes|max`: o original só sai com a chave, que
-nunca vai ao navegador; e o nome do arquivo (`<slug>-<nome>[-redes].<ext>`, via
-`Content-Disposition`) só o servidor controla. O proxy **não é aberto**: o id
-tem de estar na listagem da pasta daquele projeto, senão 404 sem buscar nada.
+nunca vai ao navegador; e o nome do arquivo (**exatamente** o do Drive, sem
+prefixo, via `Content-Disposition` e `X-Nome-Arquivo`) só o servidor controla. O
+proxy **não é aberto**: o id tem de estar na listagem da pasta daquele projeto
+(e, em `redes`, o arquivo servido sai da listagem da pasta do Instagram *desse*
+projeto, nunca do pedido), senão 404 sem buscar nada. Os bytes passam sem
+conversão (`Cache-Control: private, no-transform`).
+
+**Como a foto casa com o arquivo do Instagram.** Pelo nome sem extensão,
+ignorando maiúscula/minúscula e a normalização Unicode (`001.HEIC` casa com
+`001.jpg`). Se não há nome igual, vale o do Instagram sem um sufixo trivial
+(`-insta`, `_ig`, ` instagram`, `-redes`): `b.jpg` casa com `b-insta.jpg`. Nome
+igual sempre ganha de sufixo; com nomes repetidos em subpastas, vale o da mesma
+subpasta e, na falta, o primeiro em ordem natural. Sem par: sem "para redes".
 
 ### Custo
 
@@ -1962,6 +1981,16 @@ API do data center — **nenhuma escrita em KV**. Uma pasta enorme sai parcial,
 com aviso na página, em vez de estourar o teto de 50 subrequests do plano
 gratuito (`GALERIA_MAX_FOTOS`, `GALERIA_MAX_PASTAS`, `GALERIA_MAX_CHAMADAS`).
 *Atualizar lista* relê na hora.
+
+**Duas listagens frias na mesma requisição.** A página (e o download "para
+redes") lê a pasta do projeto *e* a do Instagram. Pior caso de subrequests:
+30 (`GALERIA_MAX_CHAMADAS`) + 8 (`GALERIA_MAX_CHAMADAS_IG`, a pasta do Instagram
+tem só um arquivo por foto, mas com teto próprio) + ~4 de Cache API + ~4 de KV,
+sessão e contador ≈ 46, abaixo das 50 do plano gratuito (o teto do Instagram foi
+a parte que encolheu). Pasta do Instagram grande demais para o teto: as fotos
+além dele ficam sem "para redes", nunca com a versão errada. Se a pasta do
+Instagram não puder ser lida, a página abre normalmente, sem "para redes", e só
+o dono vê o motivo. Com as duas em cache, nada disso chama o Drive.
 
 **Downloads contados.** Cada download da galeria feito por visitante (não pelo
 dono) soma em `baixar_redes:<slug>` e `baixar_max:<slug>` no Durable Object,
@@ -1983,7 +2012,7 @@ ver `docs/VERIFICACAO.md`).
 
 ## Limitações conhecidas
 
-- **Galeria própria depende do Google em dois pontos**: miniaturas e a variante *para redes* vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); o *tamanho máximo* vem da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive).
+- **Galeria própria depende do Google em dois pontos**: as miniaturas e o visualizador vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); os dois downloads (*tamanho máximo* e *para redes*) vêm da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive).
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
 - **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
 - **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.

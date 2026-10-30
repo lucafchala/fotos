@@ -137,10 +137,14 @@ export const GALERIA_MAX_PASTAS = 25;
 // "Dia 1 / Manhã"; mais fundo que isso é arquivo de trabalho, não galeria.
 export const GALERIA_MAX_PROFUNDIDADE = 2;
 export const GALERIA_MAX_CHAMADAS = 30;
-// Download "para redes": lado MAIOR em pixels. Instagram publica até 1080 de
-// largura (1440 de altura no 4:5) e o WhatsApp recomprime; 2048 dá folga para
-// recorte sem virar arquivo pesado (~0,5–1 MB em JPEG).
-export const GALERIA_LADO_REDES = 2048;
+// Pasta do Instagram (campo `driveUrlInstagram` do projeto): o download "para
+// redes" entrega, byte a byte, o arquivo de lá — nada é redimensionado pelo
+// site. Ela é listada junto com a pasta da galeria na MESMA invocação (página e
+// download), então o teto próprio entra na conta das 50 subrequisições do plano
+// gratuito: 30 (galeria) + 8 (esta) + ~4 do cache (match/put de cada lista
+// fria) + ~4 do resto (KV do projeto, sessão, contador, o arquivo) = 46 < 50.
+// Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
+export const GALERIA_MAX_CHAMADAS_IG = 8;
 // Teto de fotos ocultas por projeto (o dono esconde uma foto da galeria pelo
 // visualizador, #235). A lista mora no próprio evento, no KV `events`, que
 // toda página lê: 500 IDs são ~20 KB a mais, longe do 1 MB por chave.

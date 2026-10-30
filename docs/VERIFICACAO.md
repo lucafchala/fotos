@@ -334,12 +334,22 @@ Cobre:
   em pixels físicos; o zoom sobe a resolução por degraus até o original
   (desktop: roda; iPhone: duplo toque); setas, Esc, link direto `#foto=`;
   o **voltar** fecha a camada de cima (folha, depois foto) e fica na galeria;
-- **downloads** — a folha oferece "para redes" e "tamanho máximo" (com
-  dimensões e peso); no computador, um download por variante pelo proxy; no
-  celular (iPhone e Android pelo mesmo caminho), a foto é preparada e
-  "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
-- **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
-  de tela ouve "selecionada";
+- **downloads** (arquivo exato, sem alteração) — a folha oferece "para redes"
+  só nas fotos que têm arquivo na pasta do Instagram (a sem par oferece só
+  "tamanho máximo") e mostra o **nome e o peso do arquivo** que sairá; no
+  computador e no Android, `<a download>` pela rota (URL de foto e versão
+  conferidas; o nome vem do servidor, e nenhum Web Share é chamado). No
+  **iPhone** (UA de iPhone) e no **iPad** (plataforma Mac com toque): "Salvar
+  no Fotos" entrega ao `navigator.share` o `File` com o nome e os **bytes
+  exatos** (256 valores, comparados em base64), "Baixar arquivo" é download
+  comum, botões com 44 px ou mais; sem `canShare` de arquivos, só "Baixar
+  arquivo". O nome exato no cabeçalho e a passagem dos bytes pelo servidor
+  estão em `tests/galeria.test.js`;
+- **seleção** — marca, sobrevive a recarregar, e com uma foto sem versão do
+  Instagram a folha diz "2 de 3 fotos têm esta versão" e baixa só essas em
+  "para redes" (as três em "tamanho máximo"); no iPhone, "Salvar 2 fotos no
+  Fotos" entrega os dois arquivos exatos numa só folha do sistema; o leitor de
+  tela ouve "selecionada";
 - **cabeçalho e favoritas** — chips por seção (com contagem, a atual marcada,
   tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
   aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,

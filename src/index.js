@@ -14,7 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, casaRedes, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -46,7 +46,7 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES, GALERIA_MAX_OCULTAS,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   METRICAS_DIAS_MAX, GATE_METODOS,
 } from './config.js';
 
@@ -3586,8 +3586,29 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
       erro = { codigo: e.codigo, mensagem: e.message };
     }
   }
-  // Depois de reler, volta para o endereço limpo: recarregar a página não
-  // pode virar uma nova leitura forçada a cada F5.
+  // Pasta do Instagram: quais fotos têm versão "para redes". Falha dela NUNCA
+  // derruba a galeria — só tira a opção (o dono vê o motivo na faixa).
+  /** @type {Map<string, import('./drive.js').FotoDrive>} */
+  let redes = new Map();
+  /** @type {{ mensagem: string, parcial: boolean } | null} */
+  let avisoRedes = null;
+  const pastaIg = pastaDoDrive(event.driveUrlInstagram);
+  if (listagem && event.driveUrlInstagram && !pastaIg) {
+    avisoRedes = { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
+  } else if (listagem && pastaIg) {
+    try {
+      const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+      // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
+      // 10 min em 10 min, e o casamento fica guardado nela.
+      redes = casaRedes(listagem, ig);
+      if (ig.truncada) avisoRedes = { mensagem: 'A pasta do Instagram é grande demais para ser lida inteira: as últimas fotos podem ficar sem "para redes".', parcial: true };
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      avisoRedes = { mensagem: `Não foi possível ler a pasta do Instagram (${e.message}) — "para redes" fica desligado.`, parcial: false };
+    }
+  }
+  // Depois de reler (as duas pastas), volta para o endereço limpo: recarregar
+  // a página não pode virar uma nova leitura forçada a cada F5.
   if (atualizar && listagem) return redirect(`/galeria/${slug}`);
   const ocultas = normalizaOcultas(event.fotosOcultas);
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
@@ -3598,7 +3619,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   // com fotos (página de erro ou pasta vazia não vai para o Google).
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && !!listagem && listagem.total > 0;
   const pagina = galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, indexavel, ...(dono ? { ocultas } : {}),
+    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, ...(dono ? { ocultas } : {}),
   });
   /** @type {Response} */
   let res;
@@ -3642,12 +3663,21 @@ function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
 
 /**
  * Download de uma foto da galeria. Proxy de propósito, e não link direto:
- * (1) o original sai pela Drive API, que leva a chave — ela não pode ir para a
- * página; (2) o nome do arquivo e o `Content-Disposition` são nossos; (3) sendo
- * da mesma origem, o celular consegue montar o arquivo e oferecer "Salvar na
- * galeria" (Web Share). Só entrega arquivo que ESTÁ na pasta do projeto —
- * sem essa checagem, o Worker viraria um proxy aberto para qualquer arquivo
- * público do Drive.
+ * (1) o arquivo sai pela Drive API, que leva a chave — ela não pode ir para a
+ * página; (2) o `Content-Disposition` é nosso e leva o nome EXATO do arquivo
+ * no Drive; (3) sendo da mesma origem, o iPhone consegue montar o arquivo e
+ * oferecer "Salvar no Fotos" (Web Share) sem trocar o nome nem os bytes.
+ *
+ * O site NÃO altera o arquivo, nunca: os bytes passam como vieram.
+ *  - `v=max`: o original da pasta do projeto.
+ *  - `v=redes`: o arquivo de mesmo nome (sem extensão) da pasta do Instagram
+ *    do projeto (`driveUrlInstagram`), já pronto — sem versão, é 404.
+ *
+ * Só entrega arquivo que ESTÁ na pasta do projeto (`max`) ou na pasta do
+ * Instagram DO MESMO projeto (`redes`) — sem essa checagem, o Worker viraria um
+ * proxy aberto para qualquer arquivo público do Drive. O `<id>` da rota é
+ * sempre o da foto da galeria; o id do arquivo do Instagram vem da listagem,
+ * nunca do pedido.
  * @param {Request} request
  * @param {Env} env
  * @param {string} slug
@@ -3678,6 +3708,11 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   const event = (await getEvents(env)).find(e => e.slug === slug);
   const pasta = event ? pastaDoDrive(event.driveUrl) : null;
   if (!event || !pasta) return notFound();
+  const variante = url.searchParams.get('v') === 'redes' ? 'redes' : 'max';
+  // "Para redes" sem pasta do Instagram no projeto: não existe. Antes de
+  // qualquer chamada ao Google.
+  const pastaIg = variante === 'redes' ? pastaDoDrive(event.driveUrlInstagram) : null;
+  if (variante === 'redes' && !pastaIg) return notFound();
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
@@ -3693,19 +3728,28 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   const dono = await verifySession(env, request);
   if (!dono && normalizaOcultas(event.fotosOcultas).includes(fileId)) return notFound();
 
-  const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
+  // O arquivo a servir: o próprio (max) ou o par da pasta do Instagram (redes).
+  let alvoFoto = foto;
+  let origem = listagem;
+  if (pastaIg) {
+    try {
+      origem = await listaPasta(env, pastaIg, { maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      return erroDownload(request, e.message, 502);
+    }
+    const par = casaRedes(listagem, origem).get(fileId);
+    // Sem par, ou (defesa em profundidade) par que não está na listagem da
+    // pasta do Instagram: 404, sem buscar nada.
+    if (!par || !achaFoto(origem, par[0])) return notFound();
+    alvoFoto = par;
+  }
+
   /** @type {Record<string, string>} */
   const headers = {};
-  let alvo;
-  if (variante === 'max') {
-    alvo = urlOriginal(fileId, (env.GOOGLE_DRIVE_API_KEY || '').trim());
-    const rk = listagem.rk && listagem.rk[fileId];
-    if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${rk}`;
-  } else {
-    alvo = urlLh3(fileId, larguraRedes(foto[1], foto[2]));
-    // JPEG explícito: é o formato que toda rede aceita sem reconverter.
-    headers.Accept = 'image/jpeg,image/*;q=0.8';
-  }
+  const alvo = urlOriginal(alvoFoto[0], (env.GOOGLE_DRIVE_API_KEY || '').trim());
+  const rk = origem.rk && origem.rk[alvoFoto[0]];
+  if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${alvoFoto[0]}/${rk}`;
 
   // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
   // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
@@ -3721,23 +3765,24 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
     clearTimeout(timer);
   }
   if (!up.ok) {
-    if (variante === 'max') {
-      const e = await erroDaApi(up);
-      // O caso mais provável num pico: a cota de download do arquivo (#233).
-      const msg = e.codigo === 'limite'
-        ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
-        : e.message;
-      return erroDownload(request, msg, up.status === 404 ? 404 : 502);
-    }
-    return erroDownload(request, `O Google recusou a foto (${up.status}).`, 502);
+    const e = await erroDaApi(up);
+    // O caso mais provável num pico: a cota de download do arquivo (#233).
+    const msg = e.codigo === 'limite'
+      ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
+      : e.message;
+    return erroDownload(request, msg, up.status === 404 ? 404 : 502);
   }
 
   const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
-  const nome = nomeDownload(slug, foto[3], variante, tipo);
+  // O nome EXATO que o arquivo tem no Drive — sem prefixo, sem troca de
+  // extensão, sem limpeza. O `Content-Disposition` o leva em UTF-8 (filename*)
+  // e o navegador tira sozinho o que o sistema de arquivos não aceita.
+  const nome = alvoFoto[3];
   const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
-  h.set('Cache-Control', 'private, max-age=3600');
+  // `no-transform`: nenhum intermediário (CDN, operadora) pode recomprimir a foto.
+  h.set('Cache-Control', 'private, no-transform, max-age=3600');
   h.set('Content-Disposition', contentDisposition(nome));
-  // Lido pelo script da página para nomear o arquivo do "Salvar na galeria".
+  // Lido pelo script da página para nomear o arquivo do "Salvar no Fotos".
   h.set('X-Nome-Arquivo', encodeURIComponent(nome));
   const tamanho = up.headers.get('Content-Length');
   if (tamanho) h.set('Content-Length', tamanho);
@@ -3780,48 +3825,10 @@ async function handleOcultarFoto(request, env) {
 }
 
 /**
- * Largura a pedir ao lh3 para a versão "para redes": o LADO MAIOR fica em
- * GALERIA_LADO_REDES (o lh3 só aceita largura; numa foto em pé, a largura sai
- * proporcional). Nunca acima do original.
- * @param {number} w
- * @param {number} h
- */
-export function larguraRedes(w, h) {
-  if (!(w > 0 && h > 0)) return GALERIA_LADO_REDES;
-  if (w >= h) return Math.min(w, GALERIA_LADO_REDES);
-  return Math.min(w, Math.round(GALERIA_LADO_REDES * w / h));
-}
-
-/**
- * Nome do arquivo baixado: <slug>-<nome original>[-redes].<ext>. O slug na
- * frente evita que "001.jpg" de dois projetos se sobrescrevam na pasta de
- * downloads.
- * @param {string} slug
- * @param {string} original
- * @param {'redes'|'max'} variante
- * @param {string} tipo
- */
-export function nomeDownload(slug, original, variante, tipo) {
-  const ponto = original.lastIndexOf('.');
-  const extOriginal = ponto > 0 ? original.slice(ponto + 1).toLowerCase() : '';
-  const base = (ponto > 0 ? original.slice(0, ponto) : original)
-    .normalize('NFC')
-    .replace(/[\p{Cc}"\\/:*?<>|]+/gu, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120) || 'foto';
-  /** @type {Record<string, string>} */
-  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif', 'image/tiff': 'tif' };
-  const ext = variante === 'redes'
-    ? (EXT[tipo] || 'jpg')
-    : (/^[a-z0-9]{1,5}$/.test(extOriginal) ? extOriginal : (EXT[tipo] || 'jpg'));
-  const prefixo = base.toLowerCase().startsWith(slug) ? '' : `${slug}-`;
-  return `${prefixo}${base}${variante === 'redes' ? '-redes' : ''}.${ext}`;
-}
-
-/**
  * `attachment` com o nome em UTF-8 (RFC 6266/5987) e um ASCII de reserva para
- * quem não lê o `filename*`. O nome já chega sem aspas, barras nem controle.
+ * quem não lê o `filename*`. O nome é o do Drive, SEM limpeza: o `filename*`
+ * o leva inteiro (aspas, barras e controles viram %XX, então nada fecha o
+ * cabeçalho nem injeta outro), e só o ASCII de reserva perde aspas e acentos.
  * @param {string} nome
  */
 export function contentDisposition(nome) {
@@ -3832,7 +3839,7 @@ export function contentDisposition(nome) {
 
 /**
  * Erro de download: página para quem abriu o link (navegação), JSON para o
- * script que montava o "Salvar na galeria".
+ * script que montava o "Salvar no Fotos" (iPhone).
  * @param {Request} request
  * @param {string} mensagem
  * @param {number} status

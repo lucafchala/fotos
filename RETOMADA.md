@@ -452,7 +452,7 @@ Duas coisas da página de projeto que falham em silêncio (#141, out/2026):
 
 Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
 Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
-"tamanho máximo". Desde 29/10/2026 (v2.1.0) **não é mais prévia só do dono**.
+"tamanho máximo" (os dois **sem alterar o arquivo**, ver abaixo). Desde 29/10/2026 (v2.1.0) **não é mais prévia só do dono**.
 Quem vê é decidido por `podeVerGaleria()`, UMA função em `src/index.js` — nada
 de espalhar `if` de acesso pelas rotas: álbum **público** abre para qualquer
 visitante, sem login e sem o portão do Drive; **família e privado** só com o
@@ -481,9 +481,37 @@ O que já mordeu, ou morderia:
 - **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
   subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
   (30) e a página avisa que a lista é parcial.
-- **"Salvar na galeria" no iPhone precisa de DOIS toques.** O
-  `navigator.share()` exige um toque recente, e baixar 20 MB demora mais que
-  isso: o primeiro toque prepara o arquivo, o segundo compartilha.
+- **O arquivo baixado é SEMPRE o do Drive, com o nome do Drive (v3.0).** O
+  site não redimensiona (nada de `lh3` em download; `GALERIA_LADO_REDES` e
+  `larguraRedes` não existem mais), não renomeia (sem prefixo de slug nem
+  `-redes`) e não recodifica. `max` = o original da pasta do projeto; `redes` =
+  o arquivo da pasta do Instagram (`driveUrlInstagram`) que casa com a foto
+  (`casaRedes` em `src/drive.js`: nome sem extensão, sem maiúscula/Unicode;
+  senão o do Instagram sem sufixo `-insta`/`_ig`/` instagram`/`-redes`; mesma
+  subpasta primeiro). Sem par, sem pasta ou pasta ilegível: sem "para redes" na
+  UI e 404 em `v=redes`. O id da rota é SEMPRE o da foto da galeria; o id do
+  arquivo do Instagram vem da listagem do servidor (nunca do pedido, nem vai à
+  página): por isso o proxy não é aberto. `Cache-Control: private,
+  no-transform` impede que um intermediário converta a imagem.
+- **Orçamento de subrequests com duas pastas.** A página e `v=redes` listam a
+  pasta do projeto (até `GALERIA_MAX_CHAMADAS` = 30) e a do Instagram (até
+  `GALERIA_MAX_CHAMADAS_IG` = 8): 38 + ~4 Cache API + ~4 KV/sessão/contador ≈
+  46 < 50. Subir um dos dois exige refazer essa conta (o teste "orçamento do
+  plano gratuito" a prende). O sitemap de imagens não lê a pasta do Instagram.
+- **A ÚNICA checagem de plataforma da galeria é "é iOS?"** (`ehIOS()` no
+  script de `src/ui/galeria.js`: UA `iPhone|iPad|iPod` ou `MacIntel` com
+  `maxTouchPoints > 1` — o iPadOS finge ser Mac). É exceção deliberada à
+  regra "nunca decidir por modelo de aparelho/UA", que vale para a RESOLUÇÃO
+  das imagens (essa segue por pixels físicos): `canShare({ files })` existe
+  também no Android e no desktop, e só o iOS tem o "Salvar imagem" que põe a
+  foto no Fotos (o download comum cai no app Arquivos). No iOS (Safari e
+  Chrome, ambos WebKit) a folha tem **"Salvar no Fotos"** (Web Share com
+  `File` exato; lotes de 20 fotos / 80 MB) e **"Baixar arquivo"**. Android e
+  desktop: download comum, sem Web Share. Se `canShare` recusar, o iOS cai
+  para o download comum. O `navigator.share()` do iOS exige toque recente:
+  tenta na hora, e se vier `NotAllowedError` pede UM toque no botão (o arquivo
+  já está pronto). Compartilhar a foto (botão Compartilhar do visualizador) é
+  outra coisa: abre o menu de compartilhar de propósito.
 - **O zoom só sobe a resolução porque o `srcset` vai até o original.** O
   PhotoSwipe nunca baixa o `sizes` de um slide (guarda o maior já usado); se a
   escada parar antes do original, o zoom estica pixel.
@@ -763,7 +791,7 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | `healthz` → "status de e-mail do pedido de remoção não gravado" | O pedido está salvo; o carimbo dos e-mails não. Se for frequente, alguém regravou a mesma chave sem esperar a janela de 1 s do KV (§5.15) |
 | O array `removal_requests` ainda no KV dias depois do deploy da v2.0 (o painel lê os dois juntos, então nada some — mas a migração parou) | O cron não está migrando: `healthz` → `cron:last` (§5.15) |
 | Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
-| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
+| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, o botão "Abrir no Drive" da folha continua funcionando. Desde a v3.0 **os dois downloads** (original e Instagram) usam a Drive API e a mesma cota |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =

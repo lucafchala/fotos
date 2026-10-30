@@ -877,7 +877,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       </div>
       <div class="legenda" id="baixadas-legenda"></div>
       <div class="grafico" id="grafico-baixadas" role="img" aria-label="Fotos baixadas por dia"></div>
-      <p class="metrics-nota">Conta cada foto baixada por visitante na galeria do site: "para redes" (leve, 2048 px) ou "tamanho máximo" (o original). Os downloads do Drive o Google não conta para o site.</p>
+      <p class="metrics-nota">Conta cada foto baixada por visitante na galeria do site: "para redes" (o arquivo da pasta do Instagram) ou "tamanho máximo" (o original). Os downloads do Drive o Google não conta para o site.</p>
     </div>
 
     <div class="grade-blocos">

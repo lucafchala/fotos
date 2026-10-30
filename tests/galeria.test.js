@@ -5,20 +5,21 @@
 //     o mesmo 404 de uma rota inexistente. Foto oculta pelo dono não chega ao
 //     visitante, e o download dela é 404.
 //  2. A chave da Drive API nunca sai do servidor.
-//  3. O proxy de download só entrega arquivo que está NA PASTA do projeto —
-//     sem isso, o Worker viraria um proxy aberto para qualquer arquivo
-//     público do Drive.
+//  3. O proxy de download só entrega arquivo que está NA PASTA do projeto (ou
+//     na pasta do Instagram DELE) — sem isso, o Worker viraria um proxy aberto
+//     para qualquer arquivo público do Drive. E entrega o arquivo como está:
+//     bytes e nome exatos do Drive, nada redimensionado nem renomeado.
 //  4. A listagem: link da pasta, subpastas como seções, paginação, rotação,
 //     ordem natural, cache, limites do plano gratuito e o conserto certo
 //     para cada erro do Google.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import worker, { larguraRedes, nomeDownload, contentDisposition } from '../src/index.js';
-import { pastaDoDrive, listaPasta, limpaCacheDrive, DriveError, achaFoto } from '../src/drive.js';
+import worker, { contentDisposition } from '../src/index.js';
+import { pastaDoDrive, listaPasta, limpaCacheDrive, DriveError, achaFoto, casaRedes, chaveDeNome } from '../src/drive.js';
 import { saveEvents, validateSlug } from '../src/utils.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { dashboardHTML } from '../src/ui/dashboard.js';
-import { GALERIA_MAX_PASTAS, GALERIA_LADO_REDES } from '../src/config.js';
+import { GALERIA_MAX_PASTAS, GALERIA_MAX_CHAMADAS, GALERIA_MAX_CHAMADAS_IG } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
 import { contaScriptTags, foraDosScripts } from './helpers/paginas.js';
@@ -29,6 +30,7 @@ const TOKEN = 'e'.repeat(64);
 const CHAVE = 'AIzaChaveDeTesteQueNaoPodeVazar123';
 const RAIZ = 'RAIZ_PASTA_0001';
 const SUB = 'SUB_PASTA_00001';
+const IGPASTA = 'IG_PASTA_000001';
 
 function fakeKV(inicial = {}) {
   const store = new Map(Object.entries(inicial));
@@ -44,7 +46,7 @@ function fakeKV(inicial = {}) {
 }
 
 const EVENTOS = [
-  { id: '1', slug: 'formatura', title: 'Formatura 2026', accessType: 'public', driveUrl: `https://drive.google.com/drive/folders/${RAIZ}?usp=sharing` },
+  { id: '1', slug: 'formatura', title: 'Formatura 2026', accessType: 'public', driveUrl: `https://drive.google.com/drive/folders/${RAIZ}?usp=sharing`, driveUrlInstagram: `https://drive.google.com/drive/folders/${IGPASTA}?usp=sharing` },
   { id: '2', slug: 'so-arquivo', title: 'Só arquivo', accessType: 'public', driveUrl: 'https://drive.google.com/file/d/ARQUIVO_SOLTO_1/view' },
 ];
 
@@ -63,6 +65,15 @@ const ARVORE = {
     [{ id: 'FOTO_BE_00000B', name: 'b.jpg', mimeType: 'image/jpeg', size: '1000', imageMediaMetadata: { width: 3000, height: 2000 } }],
     [{ id: 'FOTO_A_00000A', name: 'a.jpg', mimeType: 'image/jpeg', size: '1000', imageMediaMetadata: { width: 3000, height: 2000 } }],
   ],
+  // A pasta do Instagram: "010.JPG" casa com "010.jpg" (maiúscula não conta),
+  // "1.jpg" com "1.HEIC" (extensão não conta), "b-insta.jpg" com "b.jpg" (sufixo);
+  // "002" e "a" ficam sem versão; "extra.jpg" não está na galeria.
+  [IGPASTA]: [[
+    { id: 'IG_DEZ_0000010', name: '010.JPG', mimeType: 'image/jpeg', size: '700000' },
+    { id: 'IG_UM_00000001', name: '1.jpg', mimeType: 'image/jpeg', size: '250000', resourceKey: 'rkIg' },
+    { id: 'IG_BE_00000001', name: 'b-insta.jpg', mimeType: 'image/jpeg', size: '90000' },
+    { id: 'IG_EXTRA_00001', name: 'extra.jpg', mimeType: 'image/jpeg', size: '5000' },
+  ]],
 };
 
 /** @type {{ url: string, headers: Record<string, string> }[]} */
@@ -90,6 +101,8 @@ function stubFetch() {
       return new Response('JPEGBYTES', { headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '9' } });
     }
     if (url.host === 'www.googleapis.com' && url.pathname.startsWith('/drive/v3/files/')) {
+      // Arquivos da pasta do Instagram têm bytes próprios, para o teste saber de onde saiu.
+      if (url.pathname.startsWith('/drive/v3/files/IG_')) return new Response('INSTAGRAM', { headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '9' } });
       return new Response('ORIGINAL', { headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '8' } });
     }
     return new Response('nao esperado', { status: 599 });
@@ -331,23 +344,6 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     expect(chamadas.some(c => c.url.includes('ARQUIVO_DE_OUTRA_PESSOA'))).toBe(false);
   });
 
-  it('"para redes": lh3 com o lado maior em GALERIA_LADO_REDES, nome com o slug e -redes', async () => {
-    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes');
-    expect(res.status).toBe(200);
-    const up = chamadas.find(c => c.url.startsWith('https://lh3.googleusercontent.com/'));
-    expect(up.url).toBe(`https://lh3.googleusercontent.com/d/FOTO_DEZ_00010=w${GALERIA_LADO_REDES}`);
-    expect(res.headers.get('Content-Disposition')).toContain('filename="formatura-010-redes.jpg"');
-    expect(decodeURIComponent(res.headers.get('X-Nome-Arquivo'))).toBe('formatura-010-redes.jpg');
-    expect(res.headers.get('Content-Type')).toBe('image/jpeg');
-    expect(await res.text()).toBe('JPEGBYTES');
-  });
-
-  it('"para redes" de foto em pé: a largura sai proporcional (o lado maior é a altura)', async () => {
-    await get('/galeria/formatura/baixar/FOTO_DOIS_0002?v=redes');
-    const up = chamadas.find(c => c.url.startsWith('https://lh3.googleusercontent.com/'));
-    expect(up.url).toMatch(new RegExp(`=w${Math.round(GALERIA_LADO_REDES * 4000 / 6000)}$`));
-  });
-
   it('"tamanho máximo": o original pela Drive API, com a chave SÓ na chamada do servidor', async () => {
     const res = await get('/galeria/formatura/baixar/FOTO_UM_000001?v=max');
     expect(res.status).toBe(200);
@@ -356,7 +352,6 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     expect(u.searchParams.get('alt')).toBe('media');
     expect(u.searchParams.get('key')).toBe(CHAVE);
     expect(up.headers['X-Goog-Drive-Resource-Keys']).toBe('FOTO_UM_000001/rkFoto');
-    expect(res.headers.get('Content-Disposition')).toContain('filename="formatura-1.heic"');
     for (const [, v] of res.headers) expect(v).not.toContain(CHAVE);
     expect(await res.text()).toBe('ORIGINAL');
   });
@@ -371,6 +366,250 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     const pag = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max', { accept: 'text/html' });
     expect(pag.headers.get('Content-Type')).toMatch(/text\/html/);
     expect(await pag.text()).toMatch(/limitou downloads desta foto/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('download exato — o site não altera o arquivo', () => {
+  it('"tamanho máximo": o nome EXATO do Drive, sem prefixo de slug, sem trocar maiúscula nem extensão', async () => {
+    const heic = await get('/galeria/formatura/baixar/FOTO_UM_000001?v=max');
+    expect(heic.headers.get('Content-Disposition')).toContain('filename="1.HEIC"');
+    expect(heic.headers.get('Content-Disposition')).toContain("filename*=UTF-8''1.HEIC");
+    expect(decodeURIComponent(heic.headers.get('X-Nome-Arquivo'))).toBe('1.HEIC');
+    const dez = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(dez.headers.get('Content-Disposition')).toContain('filename="010.jpg"');
+    expect(decodeURIComponent(dez.headers.get('X-Nome-Arquivo'))).toBe('010.jpg');
+  });
+
+  it('o nome com acento e espaço sai inteiro no filename* (UTF-8), e o original sem extensão fica sem extensão', async () => {
+    rotaExtra = url => {
+      const q = url.searchParams.get('q') || '';
+      if (url.pathname === '/drive/v3/files' && q.includes(`'${RAIZ}'`)) {
+        return Response.json({ files: [
+          { id: 'FOTO_ACENTO_001', name: 'Cerimônia 12 (final).JPG', mimeType: 'image/jpeg' },
+          { id: 'FOTO_SEMEXT_001', name: 'sem-extensao', mimeType: 'image/png' },
+        ] });
+      }
+      return null;
+    };
+    const a = await get('/galeria/formatura/baixar/FOTO_ACENTO_001?v=max');
+    expect(a.headers.get('Content-Disposition')).toContain("filename*=UTF-8''Cerim%C3%B4nia%2012%20%28final%29.JPG");
+    expect(decodeURIComponent(a.headers.get('X-Nome-Arquivo'))).toBe('Cerimônia 12 (final).JPG');
+    const b = await get('/galeria/formatura/baixar/FOTO_SEMEXT_001?v=max');
+    expect(decodeURIComponent(b.headers.get('X-Nome-Arquivo'))).toBe('sem-extensao');
+  });
+
+  it('os bytes passam como vieram (todos os 256 valores), com o mesmo Content-Type e Content-Length, e sem lh3', async () => {
+    const bytes = Uint8Array.from({ length: 256 }, (_, i) => i);
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')
+      ? new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '256' } })
+      : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.headers.get('Content-Length')).toBe('256');
+    expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+    expect(res.headers.get('Cache-Control')).toContain('no-transform');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+    expect(chamadas.some(c => c.url.startsWith('https://lh3.googleusercontent.com/'))).toBe(false);
+  });
+
+  it('sem "?v", vale o original (nunca uma versão alterada)', async () => {
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010');
+    expect(await res.text()).toBe('ORIGINAL');
+  });
+
+  it('"para redes": o arquivo da pasta do Instagram, byte a byte, com o nome EXATO de lá — nada pelo lh3', async () => {
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('INSTAGRAM');
+    const up = chamadas.find(c => c.url.includes('/drive/v3/files/IG_DEZ_0000010'));
+    expect(up).toBeTruthy();
+    expect(new URL(up.url).searchParams.get('alt')).toBe('media');
+    expect(chamadas.some(c => c.url.startsWith('https://lh3.googleusercontent.com/'))).toBe(false);
+    // O original da galeria NÃO é baixado: o que sai é o arquivo do Instagram.
+    expect(chamadas.some(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'))).toBe(false);
+    // "010.JPG" (como está no Drive do Instagram), e não "010.jpg" da galeria.
+    expect(res.headers.get('Content-Disposition')).toContain('filename="010.JPG"');
+    expect(decodeURIComponent(res.headers.get('X-Nome-Arquivo'))).toBe('010.JPG');
+    expect(res.headers.get('Content-Length')).toBe('9');
+    for (const [, v] of res.headers) expect(v).not.toContain(CHAVE);
+  });
+
+  it('"para redes" com outra extensão e resource key: casa "1.HEIC" com "1.jpg" e leva a chave do arquivo do Instagram', async () => {
+    const res = await get('/galeria/formatura/baixar/FOTO_UM_000001?v=redes');
+    expect(res.status).toBe(200);
+    expect(decodeURIComponent(res.headers.get('X-Nome-Arquivo'))).toBe('1.jpg');
+    const up = chamadas.find(c => c.url.includes('/drive/v3/files/IG_UM_00000001'));
+    expect(up.headers['X-Goog-Drive-Resource-Keys']).toBe('IG_UM_00000001/rkIg');
+  });
+
+  it('"para redes" com sufixo -insta no arquivo do Instagram: "b.jpg" casa com "b-insta.jpg"', async () => {
+    const res = await get('/galeria/formatura/baixar/FOTO_BE_00000B?v=redes');
+    expect(res.status).toBe(200);
+    expect(decodeURIComponent(res.headers.get('X-Nome-Arquivo'))).toBe('b-insta.jpg');
+  });
+
+  it('foto sem par na pasta do Instagram: "para redes" é 404 e nenhum arquivo é buscado; o original segue', async () => {
+    const res = await get('/galeria/formatura/baixar/FOTO_DOIS_0002?v=redes');
+    expect(res.status).toBe(404);
+    expect(chamadas.some(c => c.url.includes('/drive/v3/files/'))).toBe(false);
+    expect((await get('/galeria/formatura/baixar/FOTO_DOIS_0002?v=max')).status).toBe(200);
+  });
+
+  it('projeto sem pasta do Instagram: "para redes" é 404 antes de qualquer chamada ao Google', async () => {
+    const eventos = structuredClone(EVENTOS);
+    delete eventos[0].driveUrlInstagram;
+    await saveEvents(env, eventos);
+    chamadas.length = 0;
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes');
+    expect(res.status).toBe(404);
+    expect(chamadas).toHaveLength(0);
+  });
+
+  it('arquivo da pasta do Instagram mas FORA da galeria, ou de outro lugar do Drive: 404 nos dois sentidos, nada buscado (não é proxy aberto)', async () => {
+    for (const v of ['redes', 'max']) {
+      for (const id of ['IG_EXTRA_00001', 'IG_DEZ_0000010', 'ARQUIVO_DE_OUTRA_PESSOA']) {
+        chamadas.length = 0;
+        const res = await get(`/galeria/formatura/baixar/${id}?v=${v}`);
+        expect(res.status, `${id} ${v}`).toBe(404);
+        expect(chamadas.some(c => c.url.includes(`/drive/v3/files/${id}`)), `${id} ${v}`).toBe(false);
+      }
+    }
+  });
+
+  it('foto oculta: 404 para o visitante também em "para redes", sem ler a pasta do Instagram nem buscar arquivo', async () => {
+    const eventos = structuredClone(EVENTOS);
+    eventos[0].fotosOcultas = ['FOTO_DEZ_00010'];
+    await saveEvents(env, eventos);
+    chamadas.length = 0;
+    const res = await worker.fetch(new Request(`${SITE}/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes`), env, ctx);
+    expect(res.status).toBe(404);
+    expect(chamadas.some(c => c.url.includes(IGPASTA) || c.url.includes('IG_DEZ_0000010'))).toBe(false);
+    // O dono ainda baixa.
+    expect((await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(200);
+  });
+
+  it('pasta do Instagram ilegível: "para redes" dá erro claro (502), o original e a página seguem', async () => {
+    rotaExtra = url => ((url.searchParams.get('q') || '').includes(`'${IGPASTA}'`)
+      ? Response.json({ error: { code: 404, errors: [{ reason: 'notFound' }] } }, { status: 404 })
+      : null);
+    expect((await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(502);
+    expect((await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).status).toBe(200);
+    const pag = await get('/galeria/formatura', { accept: 'text/html' });
+    expect(pag.status).toBe(200);
+    expect(await pag.text()).toContain('Não foi possível ler a pasta do Instagram');
+  });
+
+  it('orçamento do plano gratuito: duas pastas frias e enormes na MESMA requisição ficam abaixo das 50 subrequisições', async () => {
+    // Cada pasta devolve sempre mais uma página: só os tetos seguram.
+    rotaExtra = url => {
+      if (url.pathname !== '/drive/v3/files') return null;
+      const q = url.searchParams.get('q') || '';
+      const n = Number(url.searchParams.get('pageToken') || 0);
+      const pasta = q.includes(`'${IGPASTA}'`) ? 'IG' : 'GA';
+      return Response.json({ files: [{ id: `${pasta}_PAGINA_${String(n).padStart(5, '0')}`, name: `${n}.jpg`, mimeType: 'image/jpeg' }], nextPageToken: String(n + 1) });
+    };
+    const res = await get('/galeria/formatura', { accept: 'text/html' });
+    expect(res.status).toBe(200);
+    const doIg = chamadasDrive().filter(c => c.url.includes(IGPASTA)).length;
+    const daGaleria = chamadasDrive().length - doIg;
+    expect(daGaleria).toBeLessThanOrEqual(GALERIA_MAX_CHAMADAS);
+    expect(doIg).toBeLessThanOrEqual(GALERIA_MAX_CHAMADAS_IG);
+    // Sobra para o KV do projeto, a sessão, o contador e (no download) o arquivo.
+    expect(GALERIA_MAX_CHAMADAS + GALERIA_MAX_CHAMADAS_IG).toBeLessThanOrEqual(38);
+  });
+});
+
+describe('casaRedes — a regra de casamento com a pasta do Instagram', () => {
+  const lista = (secoes) => ({ v: 1, pasta: 'x', em: '', truncada: false, videos: 0, outros: 0, rk: {}, total: 0, secoes: secoes.map(([caminho, nomes]) => ({ nome: caminho, caminho, fotos: nomes.map((n, i) => [`${caminho || 'RAIZ'}_${n}_${i}`.padEnd(12, 'x').slice(0, 40), 1, 1, n, 100]) })) });
+  const par = (g, ig, nome) => {
+    const m = casaRedes(g, ig);
+    const f = g.secoes.flatMap(s => s.fotos).find(x => x[3] === nome);
+    const r = m.get(f[0]);
+    return r ? r[3] : null;
+  };
+
+  it('chaveDeNome: sem extensão, minúscula, Unicode normalizado; ponto no começo não é extensão', () => {
+    expect(chaveDeNome('010.JPG')).toBe('010');
+    expect(chaveDeNome('Cerimo\u0302nia 1.heic')).toBe('cerim\u00f4nia 1');
+    expect(chaveDeNome('.oculto')).toBe('.oculto');
+    expect(chaveDeNome('sem-ext')).toBe('sem-ext');
+  });
+
+  it('extensão e maiúscula não contam; sufixo -insta/_ig/-instagram/-redes só vale na falta de nome igual', () => {
+    const g = lista([['', ['001.heic', '002.PNG', '003.jpg', '004.jpg', '005.jpg', '006.jpg']]]);
+    const ig = lista([['', ['001.JPG', '002.jpg', '003-insta.jpg', '004_ig.jpg', '005 instagram.jpg', '006-redes.jpg', '006.jpg', '007.jpg']]]);
+    expect(par(g, ig, '001.heic')).toBe('001.JPG');
+    expect(par(g, ig, '002.PNG')).toBe('002.jpg');
+    expect(par(g, ig, '003.jpg')).toBe('003-insta.jpg');
+    expect(par(g, ig, '004.jpg')).toBe('004_ig.jpg');
+    expect(par(g, ig, '005.jpg')).toBe('005 instagram.jpg');
+    // 006 tem nome igual E sufixo: o nome igual ganha.
+    expect(par(g, ig, '006.jpg')).toBe('006.jpg');
+  });
+
+  it('nomes repetidos em subpastas: vale a da MESMA subpasta; sem ela, a primeira', () => {
+    const g = lista([['Festa', ['001.jpg']], ['Cerimônia', ['001.jpg']], ['Outra', ['001.jpg']]]);
+    const ig = lista([['Cerimônia', ['001.jpg']], ['Festa', ['001.JPG']]]);
+    const m = casaRedes(g, ig);
+    const porSecao = Object.fromEntries(g.secoes.map(s => [s.caminho, m.get(s.fotos[0][0])]));
+    expect(porSecao['Festa'][3]).toBe('001.JPG');
+    expect(porSecao['Cerimônia'][3]).toBe('001.jpg');
+    expect(porSecao['Outra']).toBeTruthy(); // sem subpasta igual: o primeiro candidato
+  });
+
+  it('foto sem par fica fora; o resultado é guardado por listagem (a conta não se repete a cada visita)', () => {
+    const g = lista([['', ['001.jpg', '002.jpg']]]);
+    const ig = lista([['', ['001.jpg']]]);
+    const m = casaRedes(g, ig);
+    expect(m.size).toBe(1);
+    expect(casaRedes(g, ig)).toBe(m);
+    expect(casaRedes(g, lista([['', ['002.jpg']]]))).not.toBe(m);
+  });
+});
+
+describe('a página diz a cada foto se há "para redes", com nome e peso do arquivo do Instagram', () => {
+  const dadosDa = async (opts) => {
+    const html = await (await get('/galeria/formatura', { accept: 'text/html', ...opts })).text();
+    return { html, dados: JSON.parse(html.match(/<script type="application\/json" id="g-dados"[^>]*>([\s\S]*?)<\/script>/)[1]) };
+  };
+
+  it('[bytes] quando o nome é igual; [bytes, nome] quando difere; nada nas fotos sem par; nunca o id do arquivo do Instagram', async () => {
+    const { html, dados } = await dadosDa();
+    const fotos = Object.fromEntries(dados.secoes.flatMap(s => s.fotos).map(f => [f[0], f]));
+    expect(fotos.FOTO_DEZ_00010.slice(5)).toEqual([700000, '010.JPG']);
+    expect(fotos.FOTO_UM_000001.slice(5)).toEqual([250000, '1.jpg']);
+    expect(fotos.FOTO_BE_00000B.slice(5)).toEqual([90000, 'b-insta.jpg']);
+    expect(fotos.FOTO_DOIS_0002).toHaveLength(5);
+    expect(fotos.FOTO_A_00000A).toHaveLength(5);
+    expect(html).not.toContain('IG_DEZ_0000010');
+    expect(html).not.toContain('IG_EXTRA_00001');
+    expect(html).not.toContain(CHAVE);
+  });
+
+  it('o nome igual não se repete (a página não incha com 6000 nomes em dobro)', async () => {
+    rotaExtra = url => ((url.searchParams.get('q') || '').includes(`'${IGPASTA}'`)
+      ? Response.json({ files: [{ id: 'IG_DEZ_0000010', name: '010.jpg', mimeType: 'image/jpeg', size: '123' }] })
+      : null);
+    const { dados } = await dadosDa();
+    const dez = dados.secoes.flatMap(s => s.fotos).find(f => f[0] === 'FOTO_DEZ_00010');
+    expect(dez.slice(5)).toEqual([123]);
+  });
+
+  it('projeto sem pasta do Instagram: nenhuma foto leva "para redes", e a página não lê pasta nenhuma além da galeria', async () => {
+    const eventos = structuredClone(EVENTOS);
+    delete eventos[0].driveUrlInstagram;
+    await saveEvents(env, eventos);
+    chamadas.length = 0;
+    const { dados } = await dadosDa();
+    expect(dados.secoes.flatMap(s => s.fotos).every(f => f.length === 5)).toBe(true);
+    expect(chamadasDrive().some(c => c.url.includes(IGPASTA))).toBe(false);
+  });
+
+  it('visitante: sem avisos do dono; o dono vê quantas fotos têm "para redes"', async () => {
+    const dono = await dadosDa();
+    expect(dono.html).toContain('3 de 5 com "para redes" (pasta do Instagram)');
+    const visita = await (await worker.fetch(new Request(`${SITE}/galeria/formatura`, { headers: { Accept: 'text/html' } }), env, ctx)).text();
+    expect(visita).not.toContain('g-n-redes');
   });
 });
 
@@ -487,31 +726,23 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
   });
 });
 
-describe('nomes e tamanhos do download', () => {
-  it('larguraRedes: lado maior no teto, nunca acima do original', () => {
-    expect(larguraRedes(6000, 4000)).toBe(GALERIA_LADO_REDES);
-    expect(larguraRedes(4000, 6000)).toBe(Math.round(GALERIA_LADO_REDES * 4000 / 6000));
-    expect(larguraRedes(1200, 800)).toBe(1200);
-    expect(larguraRedes(0, 0)).toBe(GALERIA_LADO_REDES);
-  });
-
-  it('nomeDownload: slug na frente (sem repetir), caracteres de sistema de arquivo fora, acento mantido', () => {
-    expect(nomeDownload('formatura', '010.jpg', 'max', 'image/jpeg')).toBe('formatura-010.jpg');
-    expect(nomeDownload('formatura', 'Formatura-001.JPG', 'max', 'image/jpeg')).toBe('Formatura-001.jpg');
-    expect(nomeDownload('formatura', 'a/b:c*"d".jpg', 'redes', 'image/jpeg')).toBe('formatura-a-b-c-d--redes.jpg');
-    expect(nomeDownload('festa', 'Cerimônia 12.png', 'redes', 'image/jpeg')).toBe('festa-Cerimônia 12-redes.jpg');
-    expect(nomeDownload('festa', 'sem-extensao', 'max', 'image/png')).toBe('festa-sem-extensao.png');
-  });
-
-  it('contentDisposition: UTF-8 no filename* e um ASCII de reserva sem aspas', () => {
-    const cd = contentDisposition('festa-Cerimônia 12-redes.jpg');
-    expect(cd).toContain(`filename*=UTF-8''festa-Cerim%C3%B4nia%2012-redes.jpg`);
-    expect(cd).toMatch(/filename="festa-Cerimonia 12-redes\.jpg"/);
+describe('contentDisposition — o nome do Drive, sem limpeza', () => {
+  it('UTF-8 no filename* e um ASCII de reserva sem aspas', () => {
+    const cd = contentDisposition('Cerimônia 12.JPG');
+    expect(cd).toContain("filename*=UTF-8''Cerim%C3%B4nia%2012.JPG");
+    expect(cd).toMatch(/filename="Cerimonia 12\.JPG"/);
     expect(cd).not.toMatch(/[\r\n]/);
+  });
+
+  it('aspas, barras, ponto e vírgula e quebra de linha no nome não fecham nem injetam cabeçalho', () => {
+    const cd = contentDisposition('a"b\\c/d;e\r\nX-Evil: 1.jpg');
+    expect(cd).not.toMatch(/[\r\n]/);
+    // O filename* leva o nome inteiro, codificado; o ASCII só perde o que quebraria a aspa.
+    expect(decodeURIComponent(cd.match(/filename\*=UTF-8''(.+)$/)[1])).toBe('a"b\\c/d;e\r\nX-Evil: 1.jpg');
+    expect(cd.match(/filename="([^"]*)"/)[1]).not.toMatch(/["\\]/);
   });
 });
 
-// ---------------------------------------------------------------------------
 describe('bibliotecas vendorizadas', () => {
   it.each(VENDOR.map(v => [v.path, v]))('%s sai com o tipo certo e cache imutável', async (_p, v) => {
     const res = await get(v.path, { logado: false });
@@ -691,7 +922,7 @@ describe('downloads contados por versão', () => {
 
   it('cada download do visitante soma na versão certa; o do dono não conta; o painel recebe os dois', async () => {
     expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(200);
-    expect((await visitante('/galeria/formatura/baixar/FOTO_DOIS_0002?v=redes')).status).toBe(200);
+    expect((await visitante('/galeria/formatura/baixar/FOTO_UM_000001?v=redes')).status).toBe(200);
     expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).status).toBe(200);
     expect((await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).status).toBe(200);
     const m = await metricas();
@@ -888,9 +1119,13 @@ describe('galeria pública no Google', () => {
     expect(xml.match(/<image:image>/g)).toHaveLength(1000);
     const frias = chamadasDrive().length;
     expect(frias).toBeLessThanOrEqual(30); // GALERIA_MAX_CHAMADAS: dentro das 50 subrequisições do plano gratuito
+    // A página reaproveita a listagem da galeria e só soma a da pasta do
+    // Instagram (que o sitemap não lê); o sitemap, depois, não chama o Drive.
     await visitante('/galeria/formatura');
+    const comIg = chamadasDrive().length;
+    expect(comIg - frias).toBeLessThanOrEqual(GALERIA_MAX_CHAMADAS_IG);
     await visitante('/sitemap-galeria-formatura.xml');
-    expect(chamadasDrive().length).toBe(frias);
+    expect(chamadasDrive().length).toBe(comIg);
   });
 
   it('Drive fora: o sitemap de imagens responde 503 com Retry-After (o Google guarda a versão anterior)', async () => {

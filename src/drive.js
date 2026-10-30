@@ -7,8 +7,9 @@
 // de consentimento, sem token de atualização para guardar, sem depender de a
 // conta ser Workspace ou pessoal (#124). A chave fica em
 // `GOOGLE_DRIVE_API_KEY` (wrangler secret) e nunca sai do Worker: as fotos
-// chegam ao navegador pelo lh3 (sem chave) e os originais passam pelo proxy de
-// download, que confere se o arquivo pertence à pasta do projeto.
+// chegam ao navegador pelo lh3 (sem chave) e os arquivos baixados (o original e
+// o da pasta do Instagram) passam pelo proxy de download, que confere se o
+// arquivo pertence à pasta do projeto.
 //
 // A lista é lida sob demanda e guardada por GALERIA_LISTA_TTL_S na memória do
 // isolate e na Cache API (grátis, sem cota de escrita — o mesmo padrão da cópia
@@ -29,6 +30,9 @@ const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMedia
 // apóstrofo fecharia a string da query.
 const ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 const TIMEOUT_MS = 8000;
+// Nome de arquivo guardado por inteiro até aqui: o download devolve o nome
+// EXATO do Drive, e 255 é o teto de nome nos sistemas de arquivo comuns.
+const NOME_MAX = 255;
 
 /**
  * Uma foto da listagem, em forma compacta (vai para o cache e para a página):
@@ -111,10 +115,12 @@ export function limpaCacheDrive() { memoria.clear(); }
  * seção), com limites que mantêm uma requisição dentro do plano gratuito.
  * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean }} [opts]
+ * @param {{ atualizar?: boolean, maxChamadas?: number }} [opts] `maxChamadas`:
+ *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
+ *   duas listas frias caberem nas 50 subrequisições da invocação)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
@@ -139,7 +145,7 @@ export async function listaPasta(env, pasta, { atualizar = false } = {}) {
     }
   }
 
-  const dados = await percorre(chave, pasta);
+  const dados = await percorre(chave, pasta, maxChamadas);
   memoria.set(pasta.id, { em: Date.now(), dados });
   const store = cacheStore();
   if (store) {
@@ -156,14 +162,16 @@ export async function listaPasta(env, pasta, { atualizar = false } = {}) {
 
 /**
  * Busca em largura, pasta a pasta. Cada página da API é uma subrequisição
- * (50 por invocação no plano gratuito), por isso o teto GALERIA_MAX_CHAMADAS
- * e a marca `truncada` em vez de falhar: lista parcial é melhor que nenhuma, e
- * a página avisa.
+ * (50 por invocação no plano gratuito), por isso o teto `maxChamadas`
+ * (GALERIA_MAX_CHAMADAS na galeria, GALERIA_MAX_CHAMADAS_IG na pasta do
+ * Instagram) e a marca `truncada` em vez de falhar: lista parcial é melhor que
+ * nenhuma, e a página avisa.
  * @param {string} chave
  * @param {{ id: string, resourceKey: string }} raiz
+ * @param {number} maxChamadas
  * @returns {Promise<ListagemDrive>}
  */
-async function percorre(chave, raiz) {
+async function percorre(chave, raiz, maxChamadas) {
   /** @type {{ id: string, rk: string, caminho: string[] }[]} */
   const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [] }];
   /** @type {Map<string, SecaoDrive>} */
@@ -183,7 +191,7 @@ async function percorre(chave, raiz) {
     }
     let pageToken = '';
     do {
-      if (chamadas >= GALERIA_MAX_CHAMADAS) { truncada = true; break percurso; }
+      if (chamadas >= maxChamadas) { truncada = true; break percurso; }
       chamadas++;
       const pagina = await chamaDrive(chave, atual, pageToken);
       for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
@@ -236,7 +244,7 @@ function fotoCompacta(f) {
   // isto a grade reservaria uma caixa deitada para uma foto em pé.
   if (meta.rotation === 1 || meta.rotation === 3) [w, h] = [h, w];
   const bytes = Number.parseInt(String(f.size || '0'), 10);
-  return [f.id, w, h, String(f.name || '').slice(0, 200), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
+  return [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
 }
 
 /**
@@ -373,4 +381,83 @@ export function urlLh3(id, largura) {
 export function urlOriginal(id, chave) {
   const p = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true', key: chave });
   return `${DRIVE_FILES}/${id}?${p}`;
+}
+
+/**
+ * Chave de comparação do nome de uma foto: sem a extensão (a pasta do
+ * Instagram costuma ser .jpg e o original .heic/.png/.JPG), sem diferenciar
+ * maiúscula e com a forma Unicode normalizada (o Drive devolve "Cerimônia"
+ * composto ou decomposto, conforme quem enviou).
+ * @param {string} nome
+ */
+export function chaveDeNome(nome) {
+  const ponto = nome.lastIndexOf('.');
+  return (ponto > 0 ? nome.slice(0, ponto) : nome).normalize('NFC').toLowerCase().trim();
+}
+
+// Sufixo que o fotógrafo costuma pôr no arquivo exportado para o Instagram
+// ("001-insta.jpg", "001_ig.jpg", "001 instagram.jpg", "001-redes.jpg"). Só vale
+// quando NÃO há arquivo de nome igual ao da galeria.
+const SUFIXO_IG = /[\s._-]+(?:insta|instagram|ig|redes)$/;
+
+/** @type {WeakMap<ListagemDrive, { ig: ListagemDrive, mapa: Map<string, FotoDrive> }>} */
+const casamentos = new WeakMap();
+
+/**
+ * Quais fotos da galeria têm versão na pasta do Instagram.
+ *
+ * Regra (documentada em RETOMADA §5.13 e no README): o arquivo do Instagram
+ * casa com o da galeria pelo NOME SEM EXTENSÃO, sem diferenciar maiúscula
+ * ("010.JPG" casa com "010.jpg" e com "010.heic"); na falta de um nome igual,
+ * vale o nome do Instagram com um sufixo "-insta", "_ig", "-instagram" ou
+ * "-redes" a mais. Com nomes repetidos em subpastas diferentes, vale o da
+ * MESMA subpasta; sobrando mais de um, o primeiro em ordem natural. Foto sem
+ * par fica fora do mapa — a página não oferece "para redes" para ela e o
+ * download responde 404.
+ *
+ * Só olha o que a listagem já trouxe (nenhuma chamada ao Drive) e guarda o
+ * resultado por listagem: a lista vive 10 min em memória, então os pedidos
+ * seguintes não refazem a conta (o plano gratuito dá 10 ms de CPU).
+ * @param {ListagemDrive} galeria
+ * @param {ListagemDrive} ig
+ * @returns {Map<string, FotoDrive>} id da foto da galeria → arquivo da pasta do Instagram
+ */
+export function casaRedes(galeria, ig) {
+  const guardado = casamentos.get(galeria);
+  if (guardado && guardado.ig === ig) return guardado.mapa;
+
+  /** @type {Map<string, { caminho: string, foto: FotoDrive }[]>} */
+  const exato = new Map();
+  /** @type {Map<string, { caminho: string, foto: FotoDrive }[]>} */
+  const semSufixo = new Map();
+  /** @param {Map<string, { caminho: string, foto: FotoDrive }[]>} m @param {string} k @param {{ caminho: string, foto: FotoDrive }} v */
+  const poe = (m, k, v) => { const l = m.get(k); if (l) l.push(v); else m.set(k, [v]); };
+  for (const s of ig.secoes) {
+    const caminho = s.caminho.normalize('NFC').toLowerCase();
+    for (const foto of s.fotos) {
+      const k = chaveDeNome(foto[3]);
+      poe(exato, k, { caminho, foto });
+      const sem = k.replace(SUFIXO_IG, '');
+      if (sem !== k && sem) poe(semSufixo, sem, { caminho, foto });
+    }
+  }
+  /** @param {{ caminho: string, foto: FotoDrive }[] | undefined} cands @param {string} caminho */
+  const escolhe = (cands, caminho) => {
+    if (!cands) return null;
+    // A lista de cada seção já está em ordem natural: o primeiro é o primeiro.
+    return (cands.find(c => c.caminho === caminho) || cands[0]).foto;
+  };
+
+  /** @type {Map<string, FotoDrive>} */
+  const mapa = new Map();
+  for (const s of galeria.secoes) {
+    const caminho = s.caminho.normalize('NFC').toLowerCase();
+    for (const f of s.fotos) {
+      const k = chaveDeNome(f[3]);
+      const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho);
+      if (par) mapa.set(f[0], par);
+    }
+  }
+  casamentos.set(galeria, { ig, mapa });
+  return mapa;
 }

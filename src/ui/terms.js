@@ -83,7 +83,7 @@ export function termsHTML() {
     <p>O site é operado por <strong>Luca Ferriani Chala</strong>, responsável pela fotografia e pela disponibilização das imagens. Contato: <a href="mailto:suporte@lucafchala.com">suporte@lucafchala.com</a> · questões de dados: <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
 
     <h2>2. O serviço</h2>
-    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e uma galeria própria do site, onde as fotos podem ser visualizadas e baixadas sem sair daqui, em duas versões: <strong>“para redes sociais”</strong> (leve) e <strong>“tamanho máximo”</strong> (o arquivo original). Além da galeria, cada projeto também oferece um link para a pasta no <strong>Google Drive</strong>, onde o material completo fica disponível para visualização e download pelas pessoas que participaram do evento.</p>
+    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e uma galeria própria do site, onde as fotos podem ser visualizadas e baixadas sem sair daqui, em duas versões: <strong>“para redes sociais”</strong> (a versão preparada para as redes, quando existe para a foto) e <strong>“tamanho máximo”</strong> (o arquivo original). Os arquivos são entregues exatamente como estão no Google Drive, sem alteração de nome nem de conteúdo. Além da galeria, cada projeto também oferece um link para a pasta no <strong>Google Drive</strong>, onde o material completo fica disponível para visualização e download pelas pessoas que participaram do evento.</p>
 
     <h2>3. Uso das imagens e Categorias de Acesso</h2>
     <div class="key">
