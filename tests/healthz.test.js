@@ -244,11 +244,20 @@ describe('handleLogin', () => {
   });
 
   it('blocks further attempts once the per-IP login rate limit is spent', async () => {
+    // O limite é uma janela FIXA de 600 s alinhada ao relógio (Date.now()). Dez
+    // PBKDF2 em sequência levam segundos (dezenas, com a máquina carregada); se
+    // a janela virasse no meio, a contagem zerava e a 11ª tentativa passava.
+    // Relógio congelado = tudo cai na mesma janela.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-15T15:00:00Z'));
     const stored = await hashPassword('correct-horse');
     const env = withDurableObjects({ FOTOS: fakeKV({ admin_password: stored }) });
-    for (let i = 0; i < 10; i++) {
-      await handleLogin(loginReq('wrong-guess', '5.5.5.5'), env);
-    }
+    // Gasta as 10 passagens direto no RateLimiter de verdade (mesma chave e
+    // mesmo `check` que handleLogin usa), em vez de 10 hashes PBKDF2 pelo
+    // handler: o que o teste prova é a 11ª tentativa, e esta é rápida e não
+    // depende de a máquina estar folgada.
+    const janela = env.RATELIMIT.get(env.RATELIMIT.idFromName('login:5.5.5.5'));
+    for (let i = 0; i < 10; i++) expect(await janela.check(10, 600)).toBe(true);
     // The 11th attempt is refused by the rate limiter before the password is even checked.
     const res = await handleLogin(loginReq('correct-horse', '5.5.5.5'), env);
     expect(res.status).toBe(302);

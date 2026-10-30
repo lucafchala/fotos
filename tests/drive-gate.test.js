@@ -72,7 +72,18 @@ beforeEach(async () => {
   await saveEvents(env, structuredClone(EVENTS));
 });
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+// Os limites de taxa leem Date.now(): o balde devolve fichas com o tempo
+// (DRIVE_GATE_BUCKET = 1 ficha a cada 2,4 s). Um teste que esvazia o balde com
+// centenas de requisições leva segundos com a máquina carregada, e nesse tempo
+// o balde ENCHE de novo — a última requisição voltava 200 em vez de 429, só na
+// suíte inteira. Congelar só o Date (os timers reais seguem) torna o teste
+// independente de quanto a máquina demora.
+function congelaRelogio() {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-15T15:00:00Z'));
+}
 
 describe('handleDriveLink — refusals', () => {
   it('rejects a malformed body before touching anything else', async () => {
@@ -143,10 +154,21 @@ describe('handleDriveLink — refusals', () => {
   });
 
   it('429s once the per-IP bucket is empty — and says how long to wait', async () => {
+    congelaRelogio();
     stubTurnstile(true);
     const body = { slug: 'casamento-ana', turnstileToken: 't', consent: true };
-    let last;
-    for (let i = 0; i < DRIVE_GATE_BUCKET.capacity + 2; i++) last = await handleDriveLink(req(body), env, fakeCtx());
+    // Esvazia o balde até restar UMA ficha, direto no RateLimiter de verdade
+    // (a mesma chave e o mesmo `take` que o portão usa): mil e quinhentas
+    // passadas pelo handler eram o que deixava este teste lento. O que o teste
+    // afirma continua passando pelo handler: a última ficha dá 200, a seguinte
+    // dá 429 com Retry-After.
+    const balde = env.RATELIMIT.get(env.RATELIMIT.idFromName('drive-gate:1.2.3.4'));
+    for (let i = 0; i < DRIVE_GATE_BUCKET.capacity - 1; i++) {
+      expect((await balde.take(DRIVE_GATE_BUCKET.capacity, DRIVE_GATE_BUCKET.perHour)).ok).toBe(true);
+    }
+    const ultima = await handleDriveLink(req(body), env, fakeCtx());
+    expect(ultima.status).toBe(200);
+    const last = await handleDriveLink(req(body), env, fakeCtx());
     expect(last.status).toBe(429);
     // Espera em SEGUNDOS, não "até a hora cheia": é o que o balde muda.
     const espera = Number(last.headers.get('Retry-After'));
@@ -156,6 +178,7 @@ describe('handleDriveLink — refusals', () => {
   });
 
   it('rate-limits the noscript path far tighter than the verified one', async () => {
+    congelaRelogio();
     const body = { slug: 'casamento-ana', turnstileToken: 'noscript', consent: true };
     const codes = [];
     for (let i = 0; i < DRIVE_GATE_NOSCRIPT_BUCKET.capacity + 2; i++) codes.push((await handleDriveLink(req(body), env, fakeCtx())).status);
