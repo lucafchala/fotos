@@ -160,6 +160,16 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     })),
   } : null;
 
+  // Pré-carga da miniatura do LCP no celular (até 430 px): lá a primeira foto,
+  // se for deitada, ocupa a linha inteira — largura conhecida antes do script
+  // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
+  // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
+  // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
+  const lcp = todasFotos[0];
+  const preloadLcp = lcp && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    : '';
+
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
@@ -179,6 +189,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     dono: !!dono,
     ocultas: dono ? ocultas : [],
     lightbox: vendorPath('vendor/photoswipe/photoswipe-lightbox.esm.min.js'),
+    // O CSS do visualizador entra junto com ele (preparaLightbox), não no
+    // <head>: lá ele bloqueava a primeira pintura da grade.
+    css: vendorPath('vendor/photoswipe/photoswipe.css'),
     core: vendorPath('vendor/photoswipe/photoswipe.esm.min.js'),
   } : null;
 
@@ -206,7 +219,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
-  <link rel="stylesheet" href="${vendorPath('vendor/photoswipe/photoswipe.css')}">
+  ${preloadLcp}
   <style>
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -278,13 +291,18 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
     .g-t img.ok{opacity:1}
+    /* A primeira linha (a do LCP) aparece sem esperar o fade do "load": com
+       opacidade 0 o navegador nem conta a foto como pintada. */
+    .g-t img[fetchpriority="high"]{opacity:1;transition:none}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
     .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
     .g-modo-sel .g-t .g-ck{display:block}
     .g-fav{position:absolute;left:0;bottom:0;width:44px;height:44px;display:grid;place-items:center;color:#fff;opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .12s cubic-bezier(.23,1,.32,1)}
-    .g-fav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
+    /* O coração é um fundo em CSS, não um <svg> por miniatura: com centenas de
+       fotos, eram dois elementos e um innerHTML a mais por foto na carga. */
+    .g-fav::before{content:"";width:22px;height:22px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/contain no-repeat;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
     .g-t.fav .g-fav{opacity:1}
-    .g-t.fav .g-fav svg{fill:#ff6b86;stroke:#ff6b86}
+    .g-t.fav .g-fav::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='%23ff6b86' stroke='%23ff6b86' stroke-width='2'/%3E%3C/svg%3E")}
     .g-modo-sel .g-fav{display:none}
     @media (hover:hover){
       .g-t:hover .g-fav,.g-t:focus-visible .g-fav{opacity:1;pointer-events:auto}
@@ -424,7 +442,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -444,7 +462,6 @@ const SCRIPT = `
   const reduz = function () {
     try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
   };
-  const ICONE_CORACAO = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20.5 10.9 19.5C6.2 15.3 3.5 12.800 3.500 9.700 3.500 7.300 5.400 5.500 7.700 5.500c1.600 0 3.200.8 4.300 2.100 1.100-1.300 2.700-2.100 4.300-2.100 2.300 0 4.200 1.800 4.200 4.200 0 3.100-2.700 5.600-7.400 9.800z"/></svg>';
 
   // Unidades decimais (1 MB = 1.000.000 bytes): é o que o iPhone, o Mac e o
   // Android mostram para o arquivo baixado — o número aqui tem de bater com o
@@ -456,8 +473,21 @@ const SCRIPT = `
     return mb.toLocaleString('pt-BR', { maximumFractionDigits: mb < 10 ? 1 : 0 }) + ' MB';
   }
 
-  // ---- WebP: decide por decodificação de verdade, não por user-agent ----
+  // ---- WebP: decide pelo que o navegador faz, não por user-agent ----
+  // Primeiro o caminho síncrono: quem CODIFICA WebP num canvas também o
+  // decodifica, e a grade sai no mesmo passo do script (a miniatura do LCP é
+  // pedida antes). Quem não codifica (Safari antigo) cai na decodificação de
+  // verdade, assíncrona, como antes.
+  function webpPorCanvas() {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      return c.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+    } catch (e) { return false; }
+  }
   function detectaWebp(pronto) {
+    if (webpPorCanvas()) { rw = '-rw'; pronto(); return; }
     const t = new Image();
     let feito = false;
     const fim = function (ok) { if (feito) return; feito = true; rw = ok ? '-rw' : ''; pronto(); };
@@ -506,8 +536,9 @@ const SCRIPT = `
         const img = document.createElement('img');
         img.alt = altDe(i);
         img.decoding = 'async';
-        img.loading = i < 16 ? 'eager' : 'lazy';
-        if (i < 4) img.setAttribute('fetchpriority', 'high');
+        // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
+        // cai na primeira tela (ver dimensiona).
+        img.loading = 'lazy';
         const ck = document.createElement('span');
         ck.className = 'g-ck';
         ck.setAttribute('aria-hidden', 'true');
@@ -515,7 +546,6 @@ const SCRIPT = `
         fv.className = 'g-fav';
         fv.setAttribute('aria-hidden', 'true');
         fv.title = 'Favoritar (tecla F)';
-        fv.innerHTML = ICONE_CORACAO;
         a.appendChild(img);
         a.appendChild(ck);
         a.appendChild(fv);
@@ -549,10 +579,14 @@ const SCRIPT = `
     larguraDiagramada = main.clientWidth;
     const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 300 : W < 900 ? 260 : 240;
     const gap = W < 520 ? 3 : 5;
-    grades.forEach(function (g) { diagrama(g, W, alvo, gap); });
+    // Onde cada linha cai na página, aproximado (o título da seção conta como
+    // 48 px): decide o que é "primeira tela" na primeira diagramação.
+    const pos = { y: main.getBoundingClientRect().top + window.scrollY, primeira: true };
+    grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
-  function diagrama(g, W, alvo, gap) {
+  function diagrama(g, W, alvo, gap, pos) {
+    if (pos && D.secoes.length > 1) pos.y += 48;
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
@@ -570,16 +604,19 @@ const SCRIPT = `
       row.className = 'g-linha';
       row.style.height = h + 'px';
       let usado = 0;
+      const topo = pos ? pos.y : Infinity;
+      const primeira = !!pos && pos.primeira;
       linha.forEach(function (f, k) {
         let w = Math.floor(proporcao(f) * h);
         if (k === linha.length - 1 && !naoEstica) w = Math.max(20, livre - usado);
         usado += w;
         f.el.style.width = w + 'px';
-        dimensiona(f, w);
+        dimensiona(f, w, topo, primeira);
         row.appendChild(f.el);
       });
       frag.appendChild(row);
       altura += h + gap;
+      if (pos) { pos.y += h + gap; pos.primeira = false; }
       linha = [];
       soma = 0;
     };
@@ -595,8 +632,14 @@ const SCRIPT = `
 
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
-  function dimensiona(f, w) {
+  function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
+      // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
+      // e a primeira linha — onde está a maior foto da tela, o LCP — vai na
+      // frente das outras. O resto espera chegar perto (loading=lazy), sem
+      // disputar a banda com o que se vê.
+      if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
+      if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
       f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
       f.img.src = lh3(f.id, 400);
     }
@@ -882,12 +925,25 @@ const SCRIPT = `
     return !!(history.state && history.state.g === marca);
   }
 
+  // O CSS do visualizador, antes do <style> da página: a mesma ordem de
+  // cascata de quando ele vinha no <head> (as regras .pswp da página vencem).
+  function carregaCssLb() {
+    return new Promise(function (pronto) {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = D.css;
+      l.addEventListener('load', function () { pronto(true); });
+      l.addEventListener('error', function () { pronto(false); });
+      document.head.insertBefore(l, document.head.querySelector('style'));
+    });
+  }
+
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
     const urlCore = D.core;
-    carregandoLb = import(urlLb).then(function (mod) {
-      const PhotoSwipeLightbox = mod.default;
+    carregandoLb = Promise.all([import(urlLb), carregaCssLb()]).then(function (r) {
+      const PhotoSwipeLightbox = r[0].default;
       lightbox = new PhotoSwipeLightbox({
         dataSource: [],
         pswpModule: function () { return import(urlCore); },

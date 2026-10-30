@@ -1847,6 +1847,18 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
 - **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
   baixadas uma a uma — nada de zip, que no celular não abre na galeria.
 
+### Carga no celular
+
+O que pesa na abertura e o que foi feito (30/10/2026), medido com o Lighthouse
+mobile numa cópia local com a listagem da ecp125 (231 fotos): só a primeira
+linha da grade tem `fetchpriority=high` e só a primeira tela é `eager`; a escada
+das miniaturas ganhou degraus de 100 px até 800 (no celular, `w800` virava
+`w700`); o WebP é decidido na hora por canvas (a decodificação assíncrona fica
+só para quem não codifica WebP), então a grade sai no mesmo passo do script; o
+CSS do visualizador entra com ele; o coração da miniatura é CSS; e no celular a
+primeira foto é pré-carregada no `<head>` com o mesmo `srcset`. Antes/depois
+(3 rodadas cada): desempenho 72–80 → 84–90, LCP 4,5–4,6 s → 3,1–3,7 s.
+
 ### Ocultar uma foto
 
 Desde a v2.2.0, o dono, logado, abre a foto no visualizador da galeria e toca no

@@ -893,3 +893,18 @@ describe('galeria pública no Google', () => {
     expect(html).not.toMatch(/a\.rel = 'noopener';/);
   });
 });
+
+describe('desempenho da carga da galeria', () => {
+  it('escada das miniaturas em degraus de 100 px até 800 (no celular, um degrau largo baixava até 30% a mais)', async () => {
+    const { GALERIA_LARGURAS_GRADE: escada } = await import('../src/config.js');
+    for (let w = 200; w <= 800; w += 100) expect(escada).toContain(w);
+    expect([...escada].sort((a, b) => a - b)).toEqual(escada);
+  });
+
+  it('o CSS do visualizador não vai no <head> (bloquearia a pintura): vai nos dados, para entrar com ele', () => {
+    const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
+    const css = VENDOR.find(v => v.source.endsWith('photoswipe.css')).path;
+    expect(html).not.toMatch(/<link rel="stylesheet"/);
+    expect(html).toContain(`"css":"${css}"`);
+  });
+});
