@@ -513,7 +513,7 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 - **Turnstile de teste.** As chaves de teste da Cloudflare, e o servidor verifica com o segredo de teste correspondente; o comportamento (passa, pede a caixa, bloqueia…) se escolhe no menu **Testes** da faixa — ver [abaixo](#o-menu-testes-da-faixa).
 - **Menu "Testes" na faixa:** simulações (e-mail, portão lotado, banco fora, Drive, rede lenta) e ações (métricas de exemplo, zerar limites) para testar cada salvaguarda sem esperar ela acontecer — ver [O menu "Testes" da faixa](#o-menu-testes-da-faixa).
 - **E-mail sai de verdade, com "[PRÉVIA]" no assunto** — dá para testar os fluxos inteiros. Heartbeat do Kuma e Web Analytics ficam **desligados** na prévia mesmo que esses segredos sejam copiados (uma prévia batendo o monitor manteria verde um site de produção caído).
-- **Restaurar backup na prévia não traz os pedidos de remoção** (dados pessoais de terceiros — e resolver um ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
+- **Restaurar backup na prévia não traz os pedidos de remoção nem o registro de consentimento** (dados pessoais de terceiros — e resolver um pedido ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
 - **Cron não roda** em prévia (é regra da plataforma).
 
 ### Ligar (uma vez, no painel da Cloudflare)
@@ -543,7 +543,7 @@ O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 
 
    O mínimo para testar tudo é `PREVIA_RESEND_API_KEY`, `PREVIA_ADMIN_EMAIL` e `PREVIA_GOOGLE_DRIVE_API_KEY`: o `SIGNING_SECRET` o build gera, e o `ADMIN_PASSWORD` pode vir da configuração base (ele só precisa existir quando a prévia nasce). Só esses cinco sobem; outro `PREVIA_*` é ignorado com aviso no log. O script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma prévia que já o recebeu — para isso, `npx wrangler preview secret delete <NOME> --name <prévia>`.
 
-3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
+3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção e o registro de consentimento, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
 
 ### O menu "Testes" da faixa
 
@@ -904,8 +904,8 @@ compatibilidade sem comprar segurança.
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
-| GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
-| POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
+| GET | `/api/backup` | Download JSON **v3** (eventos + categorias + solicitações + registro de consentimento) |
+| POST | `/api/backup/restore` | Merge de backup (v1, v2 ou v3) com o KV atual (por id, mais recente vence); aceites do registro só entram se faltarem |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |
 | PUT | `/api/removal-requests/<id>/resolve` | Marca resolvida e envia e-mail "Solicitação atendida" ao requerente |
 
@@ -1175,7 +1175,7 @@ Três grupos de blocos:
 | --- | --- | --- |
 | **Site** | Selo de agenda | `PUT /api/settings/agenda` (`{texto}`) — frase curta, até 80 caracteres, no topo da galeria e da /sobre; vazio, o selo some |
 | | Categorias | `POST /api/categories` (`{name}`) e `POST /api/categories/delete` (`{name}`; pede digitar o nome da categoria, que é removida de todos os eventos que a usavam). Alimentam os filtros da galeria e do painel e o select do formulário; guardadas na chave KV `categories` — até a primeira alteração valem Formatura / Casamento / Ensaio / Evento / Outro |
-| **Dados** | Backup dos dados | `GET /api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações). Não-destrutivo |
+| **Dados** | Backup dos dados | `GET /api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v3: eventos + categorias + solicitações + registro de consentimento, com IP). Não-destrutivo |
 | | Exportar planilhas | CSV de consentimentos (do D1, via `/api/consent/export`), de pedidos de remoção e de métricas |
 | | **Restaurar backup** *(sensível)* | `POST /api/backup/restore` — pede digitar `RESTAURAR`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado |
 | **Conta** | **Trocar a senha do painel** *(sensível)* | `PUT /api/settings/password` — campos "Nova senha" + "Confirmar senha"; pede digitar `TROCAR`; as outras sessões são revogadas |
@@ -1564,24 +1564,41 @@ Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYT
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "backupAt": "ISO date",
   "eventCount": N,
   "events": [ ... ],
   "categories": [ ... ],
-  "removalRequests": [ ... ]
+  "removalRequests": [ ... ],
+  "consent": {
+    "tabela": "image_use_consent",
+    "colunas": ["id", "created_at", "event_slug", "...", "ip", "...", "page_url"],
+    "linhas": [["a1b2…", "2026-10-12T21:33:12.123Z", "formatura", "...", "203.0.113.7", "..."]],
+    "total": 1014,
+    "completo": true
+  }
 }
 ```
+
+`consent` (v3) é a tabela `image_use_consent` do D1 na forma compacta: os nomes das colunas uma vez (`id` + `CONSENT_COLS`) e cada aceite como uma lista na mesma ordem, mais recente primeiro. **O arquivo passa a ter IP, User-Agent e nome de terceiros**: guarde-o protegido e apague as cópias no prazo do registro (`docs/legal/politica-de-retencao.md`).
+
+- **Teto de 1500 linhas** (`CONSENT_BACKUP_MAX_LINHAS`): o JSON custa CPU, e o plano gratuito dá 10 ms por requisição (~5 ms para 1000 linhas, medido). Acima do teto vão os 1500 aceites mais recentes, com `completo: false` e um `motivo`. O caminho completo, de qualquer tamanho, é o `wrangler d1 export` (`docs/RELEASE.md`).
+- **Sem D1, ou com ele fora**, o backup sai assim mesmo, com `consent: { "ausente": true, "motivo": "…" }` — nunca 500, nunca seção sumida calada — e o `/api/healthz` registra a falha.
+- São duas consultas ao D1 (`COUNT` e o `SELECT … LIMIT` com `raw()`), em paralelo com as leituras do KV.
 
 Headers:
 ```
 Content-Type: application/json
 Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
+Cache-Control: no-store, …
+X-Backup-Consentimento: completo | parcial | ausente
 ```
+
+O painel lê `X-Backup-Consentimento` e avisa no toast quando o registro veio sem nada ou só em parte.
 
 ### Restore
 
-`POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos e **v2** completo). Eventos via `mergeRestore`:
+`POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos, **v2** e **v3**; arquivos reais de v1 e v2 ficam em `tests/fixtures/` e restauram com a mesma resposta de antes). Eventos via `mergeRestore`:
 
 - Para cada evento do backup:
   - Sem `id` utilizável (`[\w-]{1,64}`) ou sem `slug` válido (formato de `validateSlug`, fora dos slugs reservados pelas rotas fixas) → **ignorado** (`skipped++`). Nem entra como novo, nem substitui um existente de mesmo id — um evento sem id não pode ser editado nem apagado pelo painel, e um slug como `/evil.example` viraria `href="//evil.example"` no card da galeria.
@@ -1592,9 +1609,18 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 
 Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?, removalRequestsSkipped?}`. O painel diz quantos foram ignorados na confirmação.
+Seção v3 `consent` (registro de consentimento): **reinserida, só acrescentando**. É a prova de aceite (LGPD), e um backup que não a devolve não salva nada no dia em que o D1 se perder. Regras (`restauraConsentimento`, `src/index.js`):
 
-Numa [prévia de PR](#prévia-de-pr-testar-antes-do-merge), os **pedidos de remoção do backup ficam de fora** (`removalRequestsSkipped`): são dados pessoais de terceiros, e a prévia manda e-mail de verdade — resolver um pedido lá escreveria para uma pessoa real sobre um teste.
+- `INSERT OR IGNORE` por `id`: aceite que já existe **nunca é alterado** (o registro é só de inclusão), e restaurar o mesmo arquivo duas vezes não duplica nada.
+- `colunas` só com nomes conhecidos, sem repetição e com as obrigatórias (`id`, `created_at`, `event_slug`, `terms_version`, `turnstile_ok`); senão a seção inteira fica de fora, com `consentError`. Coluna opcional ausente entra como `NULL`.
+- Cada linha é conferida coluna a coluna (tipo, tamanho, enum, formato do `id`, data ISO UTC) e **recusada sozinha** se algo não bate (`consentRejected`) — nunca aparada: num registro de prova, valor alterado é pior que ausente. Aceite "do futuro" também é recusado; mais velho que a retenção (1825 dias) não volta (`consentExpired`), senão o restore desfaria a poda.
+- Gravação em lotes de 100 por `db.batch()` (um batch conta como uma consulta no limite de 50 por invocação); o mesmo teto de 1500 linhas (`consentOverLimit` para o excedente). Um lote recusado para o restore do registro com `consentError` e `consentNotWritten` — os eventos já entraram, e restaurar de novo continua dali.
+
+Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?, removalRequestsSkipped?, consentAdded?, consentDuplicates?, consentRejected?, consentExpired?, consentSkipped?, consentOverLimit?, consentNotWritten?, consentMissingInBackup?, consentIncompleteBackup?, consentError?}`. O painel diz quantos foram ignorados na confirmação, e o que entrou ou não do registro.
+
+Numa [prévia de PR](#prévia-de-pr-testar-antes-do-merge), os **pedidos de remoção e o registro de consentimento do backup ficam de fora** (`removalRequestsSkipped`, `consentSkipped`): são dados pessoais de terceiros (e-mail, telefone, IP, aparelho), e a prévia manda e-mail de verdade — resolver um pedido lá escreveria para uma pessoa real sobre um teste.
+
+O backup completo do D1, sem teto e com o esquema, é o `npx wrangler d1 export fotos-consent --remote --output=…` (`docs/RELEASE.md`, "Backup do registro de consentimento").
 
 ---
 
