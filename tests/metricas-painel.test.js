@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 const fonte = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
 
 const NOMES = [
-  'escalaMetricas', 'recorteMetricas', 'variacao', 'indicePico', 'mediaPorSemana',
+  'escalaMetricas', 'recorteMetricas', 'taxaAbertura', 'pctTaxa', 'variacao', 'indicePico', 'mediaPorSemana',
   'diaCurto', 'diaLongo', 'marcasX', 'geoX', 'geoY', 'svgLinhas', 'svgColunas', 'sparkline',
 ];
 
@@ -275,5 +275,44 @@ describe('svgColunas e sparkline', () => {
     expect(zero).toContain('M1 18L36 18L71 18');
     expect(G.sparkline([], 72, 20, '#000')).not.toContain('<path');
     for (const s of [quebrada, zero, G.sparkline([5], 72, 20, '#000')]) expect(s).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('taxa de abertura — nunca passa de 100%', () => {
+  it('taxaAbertura: de 0 a 1; mais aberturas que visitas vira 1; sem visita ou sem abertura vira 0', () => {
+    expect(G.taxaAbertura(1, 4)).toBe(0.25);
+    expect(G.taxaAbertura(4, 4)).toBe(1);
+    expect(G.taxaAbertura(30, 4)).toBe(1);
+    expect(G.taxaAbertura(5, 0)).toBe(0);
+    expect(G.taxaAbertura(0, 10)).toBe(0);
+    expect(G.taxaAbertura(undefined, 10)).toBe(0);
+    expect(G.taxaAbertura(3, NaN)).toBe(0);
+  });
+
+  it('pctTaxa: % inteiro limitado a 100; null sem visita (a tela mostra "—")', () => {
+    expect(G.pctTaxa(1, 3)).toBe(33);
+    expect(G.pctTaxa(500, 7)).toBe(100);
+    expect(G.pctTaxa(7, 7)).toBe(100);
+    expect(G.pctTaxa(0, 7)).toBe(0);
+    expect(G.pctTaxa(5, 0)).toBeNull();
+  });
+
+  it('os quatro lugares da tela (cards, variação, ranking e tabela) usam a taxa limitada, nunca a razão crua', () => {
+    // A razão crua era (abertas / visitas) dentro de cada um; agora só as duas funções dividem.
+    expect(fonte).not.toMatch(/\(totD \+ totG\) \/ totV/);
+    expect(fonte).not.toMatch(/\(r\.totD \+ r\.totG\) \/ r\.totV/);
+    expect(fonte).not.toMatch(/\(tc \+ tg\) \/ tv/);
+    expect(fonte).not.toMatch(/\/ \(m\.views \|\| 1\)/);
+    expect(fonte).toMatch(/pctTaxa\(totD \+ totG, totV\)/);
+    expect(fonte).toMatch(/pctTaxa\(r\.totD \+ r\.totG, r\.totV\)/);
+    expect(fonte).toMatch(/taxa: taxaAbertura\(tc \+ tg, tv\)/);
+    expect(fonte).toMatch(/Math\.round\(taxa\(m\) \* 100\)/);
+  });
+
+  it('a dica da taxa diz o que ela é: aberturas (Drive ou galeria) ÷ visitas, limitado a 100%', () => {
+    expect(fonte).toMatch(/Aberturas \(Drive ou galeria\) ÷ visitas, limitado a 100%/);
+    expect(fonte).toMatch(/title="' \+ DICA_TAXA \+ '"/);
+    expect(fonte).toMatch(/robôs desconhecidos/);
   });
 });

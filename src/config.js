@@ -59,6 +59,46 @@ export const DRIVE_GATE_NOSCRIPT_BUCKET = { capacity: 300, perHour: 300 };
 // gastar a franquia de escrita do Durable Object (100 mil linhas/dia).
 export const DRIVE_CLICK_BUCKET = { capacity: 1000, perHour: 200 };
 
+// Download da galeria (/galeria/<slug>/baixar/<id>): por IP, balde de fichas
+// (RateLimiter.take), SEM portão — a galeria dos álbuns públicos é aberta, e
+// cada download gasta uma passada pelo Worker, 1–2 listas do Drive (quando
+// frias) e a cota de download do arquivo no Google. Sem limite, um único
+// cliente esvaziava a cota do Drive de todo mundo.
+//
+// Dimensionado, de novo, para o caso real de pico (um Wi-Fi de local = UM IPv4
+// público): ~750 pessoas, cada uma baixando ~20 fotos ao longo de uma hora =
+// ~15 mil downloads/h pelo mesmo IP, ou 4 por segundo, constantes. `perHour`
+// 20 mil (5,6/s) cobre isso com folga de um terço. `capacity` 6 mil é a
+// rajada: quando o link sai no grupo, metade do público baixa nos primeiros
+// 10 minutos (7,5 mil downloads) — 6 mil de balde + as ~3,3 mil que voltam
+// nesses 10 min cobrem — e cabem vários "baixar tudo" ao mesmo tempo (uma
+// pessoa baixando um álbum de 244 fotos usa 244). Esvaziou, a espera é de
+// segundos (o 429 diz quantos). O dono, logado, não passa por aqui.
+//
+// É a SEGUNDA camada, como no portão: o que segura o abuso de verdade é a cota
+// de download do Google por arquivo e o teto de CPU do plano; este número só
+// precisa ficar acima do maior público que divide um IP e abaixo do que um
+// robô de um IP só consegue arrancar por hora. Custo de cota: 1 linha escrita
+// de Durable Object por download (a ficha), somada às 2 da contagem de
+// baixadas — o dia de um evento de 750 pessoas fica em ~45 mil das 100 mil
+// linhas/dia do plano gratuito (TODO.md).
+export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
+
+// Robôs conhecidos, fora da contagem de visitas e de aberturas da galeria
+// (o Google rastreia a galeria desde a v3: sem este filtro, cada rastreio
+// virava "uma pessoa abriu"). Lista curta e CONSERVADORA, sobre o User-Agent:
+// só nomes que o robô se dá de propósito — nada de "bot" genérico, que
+// engoliria visitante de verdade. Além dela, o próprio Cloudflare marca os
+// robôs verificados (`request.cf.botManagement.verifiedBot`, quando o plano
+// o inclui). O que não está aqui nem é verificado ainda entra na contagem:
+// os números do painel PODEM incluir robôs desconhecidos.
+export const ROBO_UA_RE = new RegExp('\\b(?:' + [
+  'Googlebot', 'Google-InspectionTool', 'GoogleOther', 'Storebot-Google', 'AdsBot-Google', 'APIs-Google',
+  'bingbot', 'BingPreview', 'DuckDuckBot', 'YandexBot', 'Baiduspider', 'Applebot', 'Slurp',
+  'AhrefsBot', 'SemrushBot', 'MJ12bot', 'PetalBot', 'Bytespider', 'GPTBot', 'ClaudeBot', 'CCBot',
+  'facebookexternalhit', 'Twitterbot', 'LinkedInBot', 'Slackbot', 'UptimeRobot',
+].join('|') + ')\\b', 'i');
+
 // Código por e-mail — o último recurso do portão do Drive, para quem não passa
 // pelo Turnstile (VPN, bloqueador que quebra o desafio sem bloquear o script)
 // ou ficou sem fichas. O código não é guardado em lugar nenhum: o servidor
@@ -141,10 +181,28 @@ export const GALERIA_MAX_CHAMADAS = 30;
 // redes" entrega, byte a byte, o arquivo de lá — nada é redimensionado pelo
 // site. Ela é listada junto com a pasta da galeria na MESMA invocação (página e
 // download), então o teto próprio entra na conta das 50 subrequisições do plano
-// gratuito: 30 (galeria) + 8 (esta) + ~4 do cache (match/put de cada lista
-// fria) + ~4 do resto (KV do projeto, sessão, contador, o arquivo) = 46 < 50.
+// gratuito, no PIOR caso (download "para redes", as duas listas frias e
+// enormes, visitante sem sessão): 30 (galeria) + 8 (esta) + 6 do cache (match e
+// put de cada lista, mais o do casamento "para redes") + 5 do resto (KV do
+// projeto, ficha do limite por IP, contador, o arquivo) = 49 < 50. Está
+// medido em tests/galeria.test.js ("orçamento"): subir qualquer teto aqui, ou
+// gastar uma subrequisição a mais nesse caminho, reprova o teste.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
 export const GALERIA_MAX_CHAMADAS_IG = 8;
+// Casamento "para redes" (casaRedes, drive.js) — o que custa de CPU. O plano
+// gratuito dá 10 ms por invocação, e a conta de nomes de 6000 fotos contra
+// 6000 do Instagram (normalizar, minusculizar, tirar o sufixo, procurar) custa,
+// medido no node (CPU, 6000 × 6000, lista nova a cada rodada): antes ~7 ms no
+// melhor caso e 15–37 ms na mediana; agora ~6,5 ms (mediana ~7 ms) calculando,
+// e ~1,5 ms remontando do cache — e várias vezes isso num isolate frio (JIT
+// frio), o suficiente para estourar. Por isso: (1) o índice de nomes do
+// Instagram é montado UMA vez por listagem dele; (2) nome ASCII não passa por
+// `normalize()`; (3) o RESULTADO (uma posição por foto, ~7 bytes cada) é
+// guardado ao lado das listagens, na memória e na Cache API, com o mesmo
+// prazo (GALERIA_LISTA_TTL_S) — um isolate novo só remonta o mapa, sem
+// comparar nome. A conta de nomes acontece uma vez por listagem (10 min), não
+// por visita. Custo em subrequisições: +1 match e, só quando calcula, +1 put.
+
 // Teto de fotos ocultas por projeto (o dono esconde uma foto da galeria pelo
 // visualizador, #235). A lista mora no próprio evento, no KV `events`, que
 // toda página lê: 500 IDs são ~20 KB a mais, longe do 1 MB por chave.

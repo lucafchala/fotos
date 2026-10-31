@@ -207,7 +207,7 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     const caches = fakeCaches();
     vi.stubGlobal('caches', caches);
     const primeira = await listaPasta(env, { id: RAIZ, resourceKey: '' });
-    expect([...caches._store.keys()]).toEqual([`https://fotos.invalid/__galeria/${RAIZ}`]);
+    expect([...caches._store.keys()]).toEqual([`https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`]);
     limpaCacheDrive(); // isolate novo: a memória some, a Cache API do data center fica
     const n = chamadas.length;
     const segunda = await listaPasta(env, { id: RAIZ, resourceKey: '' });
@@ -1168,5 +1168,338 @@ describe('desempenho da carga da galeria', () => {
     const css = VENDOR.find(v => v.source.endsWith('photoswipe.css')).path;
     expect(html).not.toMatch(/<link rel="stylesheet"/);
     expect(html).toContain(`"css":"${css}"`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Revisão da v3.0.0: limite por IP no download, cache por teto, "?c=0", robôs,
+// pasta do Instagram igual à da galeria e o custo de CPU do casamento.
+import { GALERIA_BAIXAR_BUCKET, GALERIA_LISTA_TTL_S } from '../src/config.js';
+import { casaRedesCacheado, pastaInstagram } from '../src/drive.js';
+import { ehRobo } from '../src/index.js';
+
+describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
+  const IP = '203.0.113.7';
+  const URL_DL = '/galeria/formatura/baixar/FOTO_DEZ_00010?v=max';
+  const visitante = (path, { ip = IP, headers = {} } = {}) => worker.fetch(new Request(SITE + path, {
+    headers: { Accept: '*/*', 'CF-Connecting-IP': ip, ...headers },
+  }), env, ctx);
+  /** Esvazia o balde do IP até restar `restam` fichas (no RateLimiter de verdade, mesma chave do handler). */
+  async function esvazia(ip, restam) {
+    const balde = env.RATELIMIT.get(env.RATELIMIT.idFromName(`galeria-baixar:${ip}`));
+    for (let i = 0; i < GALERIA_BAIXAR_BUCKET.capacity - restam; i++) await balde.take(GALERIA_BAIXAR_BUCKET.capacity, GALERIA_BAIXAR_BUCKET.perHour);
+  }
+
+  it('esvaziado o balde: 429 com Retry-After, noindex e NENHUMA chamada ao Google; a última ficha ainda baixa', async () => {
+    await esvazia(IP, 1);
+    expect((await visitante(URL_DL)).status).toBe(200);
+    limpaCacheDrive();
+    chamadas.length = 0;
+    const res = await visitante(URL_DL);
+    expect(res.status).toBe(429);
+    const espera = Number(res.headers.get('Retry-After'));
+    expect(espera).toBeGreaterThanOrEqual(1);
+    expect(espera).toBeLessThanOrEqual(Math.ceil(3600 / GALERIA_BAIXAR_BUCKET.perHour) + 1);
+    expect((await res.json()).retryAfter).toBe(espera);
+    expect(res.headers.get('X-Robots-Tag')).toMatch(/noindex/);
+    expect(chamadas).toHaveLength(0);
+  });
+
+  it('o balde é por IP: outro IP baixa normalmente; o dono (logado) nunca passa pelo balde', async () => {
+    await esvazia(IP, 0);
+    expect((await visitante(URL_DL)).status).toBe(429);
+    expect((await visitante(URL_DL, { ip: '203.0.113.8' })).status).toBe(200);
+    env.RATELIMIT._resetCalls();
+    expect((await get(URL_DL.replace('formatura/baixar', 'formatura/baixar'))).status).toBe(200);
+    expect(env.RATELIMIT._calls()).toEqual([]);
+  });
+
+  it('o visitante gasta UMA chamada ao RateLimiter por download; pedido inválido (404) não gasta ficha', async () => {
+    env.RATELIMIT._resetCalls();
+    expect((await visitante('/galeria/formatura/baixar/FORA_DA_PASTA_1?v=max')).status).toBe(404);
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes', { ip: IP })).status).toBe(200);
+    const fichas = env.RATELIMIT._calls().filter(c => c === 'take');
+    // O 404 da foto fora da pasta já gastou a ficha (a pasta só é lida depois dela): no máximo 1 por pedido.
+    expect(fichas.length).toBeLessThanOrEqual(2);
+    env.RATELIMIT._resetCalls();
+    expect((await visitante('/galeria/formatura/baixar/id-invalido!?v=max')).status).toBe(404);
+    expect((await visitante('/galeria/nao-existe/baixar/FOTO_DEZ_00010?v=max')).status).toBe(404);
+    expect(env.RATELIMIT._calls()).toEqual([]);
+  });
+
+  it('RateLimiter fora do ar: falha ABERTO (a foto chega)', async () => {
+    env.RATELIMIT = { idFromName: n => n, get: () => ({ take: async () => { throw new Error('DO fora'); } }) };
+    expect((await visitante(URL_DL)).status).toBe(200);
+  });
+
+  it('dimensionamento: cabe 750 pessoas no mesmo Wi-Fi baixando ~20 fotos por hora, com rajada', () => {
+    expect(GALERIA_BAIXAR_BUCKET.perHour).toBeGreaterThanOrEqual(750 * 20);
+    expect(GALERIA_BAIXAR_BUCKET.capacity).toBeGreaterThanOrEqual(750 * 8);
+  });
+
+  it('orçamento do plano gratuito: download "para redes" de visitante, com as duas pastas frias e enormes, usa no máximo 49 subrequisições de qualquer tipo', async () => {
+    // Conta tudo que o runtime conta: fetch, KV (get/put/delete), Durable Object e Cache API.
+    let kv = 0;
+    for (const m of ['get', 'put', 'delete', 'list']) {
+      const orig = env.FOTOS[m].bind(env.FOTOS);
+      env.FOTOS[m] = (...a) => { kv++; return orig(...a); };
+    }
+    let cache = 0;
+    const fake = fakeCaches();
+    for (const m of ['match', 'put']) {
+      const orig = fake.default[m].bind(fake.default);
+      fake.default[m] = (...a) => { cache++; return orig(...a); };
+    }
+    vi.stubGlobal('caches', fake);
+    rotaExtra = url => {
+      if (url.pathname !== '/drive/v3/files') return null;
+      const q = url.searchParams.get('q') || '';
+      const n = Number(url.searchParams.get('pageToken') || 0);
+      const pasta = q.includes(`'${IGPASTA}'`) ? 'IG' : 'GA';
+      return Response.json({ files: [{ id: `${pasta}_PAGINA_${String(n).padStart(5, '0')}`, name: `${n}.jpg`, mimeType: 'image/jpeg' }], nextPageToken: String(n + 1) });
+    };
+    env.RATELIMIT._resetCalls();
+    env.COUNTER._resetCalls();
+    const res = await visitante('/galeria/formatura/baixar/GA_PAGINA_00000?v=redes');
+    await new Promise(r => setTimeout(r, 0));
+    expect(res.status).toBe(200);
+    const total = chamadas.length + kv + cache + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    expect(chamadasDrive().length).toBeGreaterThan(GALERIA_MAX_CHAMADAS_IG); // as duas pastas foram lidas até o teto
+    expect(total).toBeLessThanOrEqual(49);
+  });
+});
+
+describe('download: "?c=0" lê o arquivo sem somar nas baixadas', () => {
+  const visitante = path => worker.fetch(new Request(SITE + path, { headers: { Accept: '*/*' } }), env, ctx);
+  async function baixadas() {
+    const m = (await (await get('/api/metrics')).json()).find(x => x.slug === 'formatura');
+    return [m.baixarRedes, m.baixarMax];
+  }
+
+  it('com c=0 serve o MESMO arquivo e não conta; sem c, ou com qualquer outro valor, conta', async () => {
+    const base = '/galeria/formatura/baixar/FOTO_DEZ_00010';
+    const normal = await visitante(`${base}?v=redes`);
+    const semConta = await visitante(`${base}?v=redes&c=0`);
+    expect(semConta.status).toBe(200);
+    expect(await semConta.text()).toBe(await normal.text());
+    expect(semConta.headers.get('Content-Disposition')).toBe(normal.headers.get('Content-Disposition'));
+    expect(await baixadas()).toEqual([1, 0]);
+    for (const c of ['1', '', '00', '0 ', 'true', '0&c=1']) {
+      await visitante(`${base}?v=max&c=${encodeURIComponent(c)}`);
+    }
+    expect(await baixadas()).toEqual([1, 6]);
+    await visitante(`${base}?c=0&v=max`);
+    expect(await baixadas()).toEqual([1, 6]);
+  });
+
+  it('c=0 não muda o que é servido: foto fora da pasta continua 404, oculta continua 404', async () => {
+    expect((await visitante('/galeria/formatura/baixar/FORA_DA_PASTA_1?v=redes&c=0')).status).toBe(404);
+    const eventos = structuredClone(EVENTOS);
+    eventos[0].fotosOcultas = ['FOTO_DEZ_00010'];
+    await saveEvents(env, eventos);
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&c=0')).status).toBe(404);
+  });
+});
+
+describe('listaPasta: o teto de páginas faz parte da chave do cache', () => {
+  beforeEach(() => {
+    rotaExtra = url => {
+      if (url.pathname !== '/drive/v3/files') return null;
+      const n = Number(url.searchParams.get('pageToken') || 0);
+      return Response.json({ files: [{ id: `PAGINA_${String(n).padStart(5, '0')}`, name: `${n}.jpg`, mimeType: 'image/jpeg' }], nextPageToken: String(n + 1) });
+    };
+  });
+
+  it('memória: lista lida com teto 8 não serve a quem pede 30 (e a de 30 não vira a de 8)', async () => {
+    const pequena = await listaPasta(env, { id: RAIZ, resourceKey: '' }, { maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+    expect(chamadas).toHaveLength(GALERIA_MAX_CHAMADAS_IG);
+    const grande = await listaPasta(env, { id: RAIZ, resourceKey: '' });
+    expect(chamadas).toHaveLength(GALERIA_MAX_CHAMADAS_IG + GALERIA_MAX_CHAMADAS);
+    expect(grande.total).toBeGreaterThan(pequena.total);
+    const n = chamadas.length;
+    expect((await listaPasta(env, { id: RAIZ, resourceKey: '' }, { maxChamadas: GALERIA_MAX_CHAMADAS_IG })).total).toBe(pequena.total);
+    expect((await listaPasta(env, { id: RAIZ, resourceKey: '' })).total).toBe(grande.total);
+    expect(chamadas).toHaveLength(n);
+  });
+
+  it('Cache API: uma chave por teto; isolate novo recebe a lista do teto certo', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    const pequena = await listaPasta(env, { id: RAIZ, resourceKey: '' }, { maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+    limpaCacheDrive();
+    const grande = await listaPasta(env, { id: RAIZ, resourceKey: '' });
+    expect(grande.total).toBeGreaterThan(pequena.total);
+    expect([...caches._store.keys()].sort()).toEqual([
+      `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`,
+      `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS_IG}`,
+    ].sort());
+    limpaCacheDrive();
+    const n = chamadas.length;
+    expect((await listaPasta(env, { id: RAIZ, resourceKey: '' }, { maxChamadas: GALERIA_MAX_CHAMADAS_IG })).total).toBe(pequena.total);
+    expect((await listaPasta(env, { id: RAIZ, resourceKey: '' })).total).toBe(grande.total);
+    expect(chamadas).toHaveLength(n);
+  });
+});
+
+describe('pasta do Instagram igual à da galeria = sem pasta do Instagram', () => {
+  const igualNaGaleria = async () => {
+    const eventos = structuredClone(EVENTOS);
+    eventos[0].driveUrlInstagram = `https://drive.google.com/drive/folders/${RAIZ}?usp=sharing`;
+    await saveEvents(env, eventos);
+    chamadas.length = 0;
+  };
+
+  it('pastaInstagram: null para link ausente, que não é de pasta, ou igual ao da galeria; objeto quando é outra pasta', () => {
+    expect(pastaInstagram(EVENTOS[0])?.id).toBe(IGPASTA);
+    expect(pastaInstagram({ driveUrl: EVENTOS[0].driveUrl, driveUrlInstagram: EVENTOS[0].driveUrl })).toBeNull();
+    expect(pastaInstagram({ driveUrl: EVENTOS[0].driveUrl })).toBeNull();
+    expect(pastaInstagram({ driveUrl: EVENTOS[0].driveUrl, driveUrlInstagram: 'https://drive.google.com/file/d/ARQUIVO_SOLTO_1/view' })).toBeNull();
+  });
+
+  it('download "para redes" é 404 sem chamar o Google; "tamanho máximo" segue', async () => {
+    await igualNaGaleria();
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes');
+    expect(res.status).toBe(404);
+    expect(chamadas).toHaveLength(0);
+    expect(await (await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).text()).toBe('ORIGINAL');
+  });
+
+  it('a página não oferece "para redes", lê só uma pasta e o dono vê o motivo', async () => {
+    await igualNaGaleria();
+    const html = await (await get('/galeria/formatura', { accept: 'text/html' })).text();
+    // A raiz é lida UMA vez (a pasta do Instagram, que seria a mesma, não é lida de novo).
+    expect(chamadasDrive().filter(c => new URL(c.url).searchParams.get('q').startsWith(`'${RAIZ}' in parents`))).toHaveLength(1);
+    expect(html).toContain('A pasta do Instagram é a mesma da galeria');
+    expect(html).not.toMatch(/"redes":\{/);
+    const visitante = await (await worker.fetch(new Request(SITE + '/galeria/formatura', { headers: { Accept: 'text/html' } }), env, ctx)).text();
+    expect(visitante).not.toContain('A pasta do Instagram é a mesma da galeria');
+  });
+});
+
+describe('robôs não contam como visita nem como abertura da galeria', () => {
+  const UA_GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+  const UA_NAVEGADOR = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1';
+  const pedido = (path, ua, cf) => {
+    const req = new Request(SITE + path, { headers: { Accept: 'text/html', 'User-Agent': ua } });
+    if (cf) Object.defineProperty(req, 'cf', { value: cf });
+    return req;
+  };
+  async function contagens() {
+    const m = (await (await get('/api/metrics')).json()).find(x => x.slug === 'formatura');
+    return { galeria: m.galeriaViews, projeto: m.views };
+  }
+
+  it('ehRobo: UA conhecido, verifiedBot do Cloudflare; navegador comum e UA vazio não', () => {
+    expect(ehRobo(pedido('/', UA_GOOGLEBOT))).toBe(true);
+    expect(ehRobo(pedido('/', 'Mozilla/5.0 (compatible; bingbot/2.0)'))).toBe(true);
+    expect(ehRobo(pedido('/', 'facebookexternalhit/1.1'))).toBe(true);
+    expect(ehRobo(pedido('/', UA_NAVEGADOR, { botManagement: { verifiedBot: true } }))).toBe(true);
+    expect(ehRobo(pedido('/', UA_NAVEGADOR, { botManagement: { verifiedBot: false } }))).toBe(false);
+    expect(ehRobo(pedido('/', UA_NAVEGADOR))).toBe(false);
+    expect(ehRobo(new Request(SITE + '/'))).toBe(false);
+    // Palavra inteira: "Robotics" ou "ig" em outra palavra não é robô.
+    expect(ehRobo(pedido('/', 'Mozilla/5.0 Googlebotanica'))).toBe(false);
+  });
+
+  it('galeria: robô (por UA ou por verifiedBot) não conta nem recebe o cookie; o navegador conta', async () => {
+    for (const req of [pedido('/galeria/formatura', UA_GOOGLEBOT), pedido('/galeria/formatura', UA_NAVEGADOR, { botManagement: { verifiedBot: true } })]) {
+      const r = await worker.fetch(req, env, ctx);
+      expect(r.status).toBe(200);
+      expect(r.headers.get('Set-Cookie') || '').not.toMatch(/gv_/);
+    }
+    expect((await contagens()).galeria).toBe(0);
+    const humano = await worker.fetch(pedido('/galeria/formatura', UA_NAVEGADOR), env, ctx);
+    expect(humano.headers.get('Set-Cookie') || '').toMatch(/gv_formatura=1/);
+    expect((await contagens()).galeria).toBe(1);
+  });
+
+  it('página do projeto: robô não soma em "visitas"; o navegador soma', async () => {
+    await worker.fetch(pedido('/formatura', UA_GOOGLEBOT), env, ctx);
+    await worker.fetch(pedido('/formatura', UA_NAVEGADOR, { botManagement: { verifiedBot: true } }), env, ctx);
+    expect((await contagens()).projeto).toBe(0);
+    await worker.fetch(pedido('/formatura', UA_NAVEGADOR), env, ctx);
+    expect((await contagens()).projeto).toBe(1);
+  });
+});
+
+describe('casaRedes: custo de CPU com 6000 fotos de cada lado', () => {
+  const N = 6000;
+  const monta = (pasta, nome) => ({
+    v: 1, pasta, em: '2026-10-10T00:00:00Z', truncada: false, videos: 0, outros: 0, rk: {}, total: N,
+    secoes: [{ nome: '', caminho: '', fotos: Array.from({ length: N }, (_, i) => [`${pasta}_${String(i).padStart(7, '0')}`, 6000, 4000, nome(i), 1000]) }],
+  });
+  const galeria = () => monta('GAL', i => `IMG_${String(i).padStart(5, '0')}.JPG`);
+  const instagram = () => monta('INS', i => `img_${String(i).padStart(5, '0')}-insta.jpg`);
+
+  it('nomes ASCII não passam por normalize(); o resultado é completo', () => {
+    const normaliza = vi.spyOn(String.prototype, 'normalize');
+    const mapa = casaRedes(galeria(), instagram());
+    const chamadasNormalize = normaliza.mock.calls.length;
+    normaliza.mockRestore();
+    expect(mapa.size).toBe(N);
+    expect(chamadasNormalize).toBe(0);
+  });
+
+  it('nome com acento ainda é normalizado (Unicode composto e decomposto casam)', () => {
+    const g = monta('GAL', i => (i === 0 ? 'Cerimônia.jpg' : `a${i}.jpg`));
+    const ig = monta('INS', i => (i === 0 ? 'Cerimônia.JPG' : `b${i}.jpg`));
+    expect(casaRedes(g, ig).get(g.secoes[0].fotos[0][0])?.[3]).toBe('Cerimônia.JPG');
+  });
+
+  it('morno (índice do Instagram já montado, galeria nova): 6000 fotos em tempo curto e limitado', () => {
+    const ig = instagram();
+    casaRedes(galeria(), ig); // monta o índice do Instagram
+    const g = galeria();
+    const t0 = Date.now();
+    const mapa = casaRedes(g, ig);
+    const ms = Date.now() - t0;
+    expect(mapa.size).toBe(N);
+    // O alvo no Workers é bem menor que os 10 ms do plano; o teto aqui é folgado para não ser instável em CI.
+    expect(ms).toBeLessThan(150);
+  });
+
+  it('com a Cache API, um isolate novo remonta o casamento SEM comparar nomes (nenhum toLowerCase por foto)', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    const g1 = galeria();
+    const ig1 = instagram();
+    const lower = vi.spyOn(String.prototype, 'toLowerCase');
+    const primeiro = await casaRedesCacheado(g1, ig1);
+    const nCalculo = lower.mock.calls.length;
+    expect(primeiro.size).toBe(N);
+    expect(nCalculo).toBeGreaterThanOrEqual(N);
+    expect([...caches._store.keys()].filter(k => k.includes('/__galeria/redes/'))).toHaveLength(1);
+    // Cada chave guardada é pequena: só posições (alguns KB), nunca nomes.
+    const guardado = [...caches._store.entries()].find(([k]) => k.includes('/__galeria/redes/'))[1];
+    expect(guardado.length).toBeLessThan(N * 8);
+    expect(guardado).not.toContain('IMG_');
+    // Isolate novo: listas novas (objetos diferentes), mesmo conteúdo e mesmo instante.
+    lower.mockClear();
+    const g2 = galeria();
+    const ig2 = instagram();
+    const segundo = await casaRedesCacheado(g2, ig2);
+    const nRemonta = lower.mock.calls.length;
+    lower.mockRestore();
+    expect(segundo.size).toBe(N);
+    for (const f of [g2.secoes[0].fotos[0], g2.secoes[0].fotos[N - 1]]) expect(segundo.get(f[0])).toBe(ig2.secoes[0].fotos[g2.secoes[0].fotos.indexOf(f)]);
+    expect(nRemonta).toBeLessThan(N / 10);
+    expect(nRemonta).toBeLessThan(nCalculo / 10);
+  });
+
+  it('casamento guardado que não confere com as listas é descartado e recalculado; lista nova = chave nova', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    const g = monta('GAL', i => `f${i}.jpg`);
+    const ig = monta('INS', i => `f${i}.jpg`);
+    await casaRedesCacheado(g, ig);
+    const chave = [...caches._store.keys()].find(k => k.includes('/__galeria/redes/'));
+    caches._store.set(chave, JSON.stringify([0, 1, 999999]));
+    const g2 = monta('GAL', i => `f${i}.jpg`);
+    const ig2 = monta('INS', i => `f${i}.jpg`);
+    expect((await casaRedesCacheado(g2, ig2)).size).toBe(N);
+    const g3 = { ...monta('GAL', i => `f${i}.jpg`), em: '2026-10-10T00:10:00Z' };
+    await casaRedesCacheado(g3, monta('INS', i => `f${i}.jpg`));
+    expect([...caches._store.keys()].filter(k => k.includes('/__galeria/redes/'))).toHaveLength(2);
+    expect(GALERIA_LISTA_TTL_S).toBeGreaterThan(0);
   });
 });

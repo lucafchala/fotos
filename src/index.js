@@ -14,7 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, casaRedes, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, casaRedesCacheado, pastaInstagram, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -47,7 +47,7 @@ import {
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
-  METRICAS_DIAS_MAX, GATE_METODOS,
+  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, ROBO_UA_RE,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -757,7 +757,9 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // Set-Cookie abaixo ainda marcaria "já contado", fazendo a visita de verdade
   // — a que veio depois do clique — não contar. Mesmo motivo do headOnly acima.
   const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
-  const counts = !alreadyCounted && !headOnly && !prefetch;
+  // Robô conhecido (Googlebot, verificado pelo Cloudflare...) não é visita.
+  // Lista conservadora: números do painel PODEM incluir robôs desconhecidos.
+  const counts = !alreadyCounted && !headOnly && !prefetch && !ehRobo(request);
   if (counts) {
     // Uma chamada ao Durable Object `Counter` por visita contada, fora do
     // caminho da resposta (waitUntil). Ver bumpCounter() em utils.js.
@@ -3592,15 +3594,20 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   let redes = new Map();
   /** @type {{ mensagem: string, parcial: boolean } | null} */
   let avisoRedes = null;
-  const pastaIg = pastaDoDrive(event.driveUrlInstagram);
+  const pastaIg = pastaInstagram(event);
   if (listagem && event.driveUrlInstagram && !pastaIg) {
-    avisoRedes = { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
+    // Duas causas, uma mensagem para cada: o link não é de pasta, ou é a MESMA
+    // pasta da galeria (colar o link errado) — "para redes" entregaria o próprio
+    // original como se fosse a versão preparada.
+    avisoRedes = pastaDoDrive(event.driveUrlInstagram)
+      ? { mensagem: 'A pasta do Instagram é a mesma da galeria: "para redes" fica desligado. Cadastre a pasta com as versões para as redes.', parcial: false }
+      : { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
   } else if (listagem && pastaIg) {
     try {
       const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG });
       // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
       // 10 min em 10 min, e o casamento fica guardado nela.
-      redes = casaRedes(listagem, ig);
+      redes = await casaRedesCacheado(listagem, ig);
       if (ig.truncada) avisoRedes = { mensagem: 'A pasta do Instagram é grande demais para ser lida inteira: as últimas fotos podem ficar sem "para redes".', parcial: true };
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
@@ -3630,8 +3637,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   } else {
     // Visitante de álbum público: o perfil de página pública. `private`: a
     // página leva o nonce da CSP, e um cache compartilhado o repetiria para
-    // todos; `no-cache`: cada visita revalida, então foto oculta some na hora
-    // (a economia de cota é a listagem de 10 min do listaPasta, não este
+    // todos; `no-cache`: cada visita revalida, então foto oculta some em até 2 min
+    // (o prazo da propagação do painel, não "na hora"; a economia de cota é a listagem de 10 min do listaPasta, não este
     // HTML). Sem `no-store`, o voltar/avançar do navegador funciona (bfcache).
     res = html(pagina, 200, nonce);
     res.headers.set('Cache-Control', 'private, no-cache');
@@ -3642,10 +3649,25 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
 }
 
 /**
+ * Robô conhecido? Duas fontes: o Cloudflare (`request.cf.botManagement
+ * .verifiedBot`, só existe em planos com Bot Management — ausente, vale o
+ * User-Agent) e uma lista curta e conservadora de nomes de robô no
+ * User-Agent (ROBO_UA_RE em config.js). Serve só à CONTAGEM de visitas e
+ * aberturas: não bloqueia nada, e um robô desconhecido ainda conta.
+ * @param {Request} request
+ */
+export function ehRobo(request) {
+  const cf = /** @type {any} */ (request).cf;
+  if (cf && cf.botManagement && cf.botManagement.verifiedBot === true) return true;
+  return ROBO_UA_RE.test(request.headers.get('User-Agent') || '');
+}
+
+/**
  * Conta uma abertura da galeria (`galeria_views:<slug>`), com a mesma noção
  * de "visita" da página do projeto: um navegador por hora, por projeto
  * (cookie `gv_<slug>`, preso ao caminho da galeria). O dono, o HEAD e o
- * prefetch não contam. Devolve o Set-Cookie a pôr na resposta, ou ''.
+ * prefetch não contam, nem robôs conhecidos (`ehRobo`). Devolve o Set-Cookie a
+ * pôr na resposta, ou ''.
  * @param {Request} request
  * @param {Env} env
  * @param {ExecutionContext | undefined} ctx
@@ -3654,6 +3676,9 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
  */
 function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
   if (!pode || request.method !== 'GET') return '';
+  // Robô conhecido não abre galeria: o Google rastreia `/galeria/<slug>` desde a
+  // v3 e cada rastreio virava uma "abertura" (e a taxa passava de 100%).
+  if (ehRobo(request)) return '';
   const nome = `gv_${slug}`;
   if ((request.headers.get('Cookie') || '').includes(`${nome}=1`)) return '';
   if ((request.headers.get('Sec-Purpose') || '').includes('prefetch')) return '';
@@ -3687,7 +3712,7 @@ function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
  */
 export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) {
   const res = await baixaDaGaleria(request, env, slug, fileId, url, ctx);
-  // Toda resposta do proxy, 200 ou erro: nada daqui vai para o índice (nem
+  // Toda resposta do proxy, 200, erro ou 429: nada daqui vai para o índice (nem
   // para o Google Imagens). O Disallow do robots.txt evita o pedido; isto
   // cobre quem chega por link de fora sem ter lido o robots.txt.
   res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
@@ -3709,10 +3734,21 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   const pasta = event ? pastaDoDrive(event.driveUrl) : null;
   if (!event || !pasta) return notFound();
   const variante = url.searchParams.get('v') === 'redes' ? 'redes' : 'max';
-  // "Para redes" sem pasta do Instagram no projeto: não existe. Antes de
-  // qualquer chamada ao Google.
-  const pastaIg = variante === 'redes' ? pastaDoDrive(event.driveUrlInstagram) : null;
+  // "Para redes" sem pasta do Instagram no projeto (ou com a MESMA pasta da
+  // galeria): não existe. Antes de qualquer chamada ao Google.
+  const pastaIg = variante === 'redes' ? pastaInstagram(event) : null;
   if (variante === 'redes' && !pastaIg) return notFound();
+
+  // Limite por IP, ANTES de qualquer leitura do Drive: é a cota do Google e os
+  // 10 ms de CPU que ele protege. O dono (logado) não passa por aqui. Custa uma
+  // subrequisição (a ficha). Se o Durable Object estiver fora, takeToken falha
+  // ABERTO, como no portão: uma pane nossa não pode tirar a foto de quem a quer.
+  const dono = await verifySession(env, request);
+  if (!dono) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const limite = await takeToken(env, ip, 'galeria-baixar', GALERIA_BAIXAR_BUCKET);
+    if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  }
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
@@ -3725,7 +3761,6 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   const foto = achaFoto(listagem, fileId);
   if (!foto) return notFound();
   // Foto oculta é, para o público, foto que não existe. O dono ainda baixa.
-  const dono = await verifySession(env, request);
   if (!dono && normalizaOcultas(event.fotosOcultas).includes(fileId)) return notFound();
 
   // O arquivo a servir: o próprio (max) ou o par da pasta do Instagram (redes).
@@ -3738,7 +3773,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
       if (!(e instanceof DriveError)) throw e;
       return erroDownload(request, e.message, 502);
     }
-    const par = casaRedes(listagem, origem).get(fileId);
+    const par = (await casaRedesCacheado(listagem, origem)).get(fileId);
     // Sem par, ou (defesa em profundidade) par que não está na listagem da
     // pasta do Instagram: 404, sem buscar nada.
     if (!par || !achaFoto(origem, par[0])) return notFound();
@@ -3787,8 +3822,12 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   const tamanho = up.headers.get('Content-Length');
   if (tamanho) h.set('Content-Length', tamanho);
   // Quantas baixadas de cada versão por projeto (#235), no Durable Object —
-  // nunca KV por visitante. O dono testando não conta.
-  if (!dono) bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
+  // nunca KV por visitante. O dono testando não conta, nem o pedido que não é
+  // download (`c=0`: o botão Compartilhar do visualizador e a nova busca do
+  // mesmo arquivo depois que o iPhone recusou "Salvar no Fotos" — a primeira
+  // já contou). A marca só desliga a contagem: o arquivo servido, o limite por
+  // IP e todas as checagens são os mesmos. Só o valor exato "0" vale.
+  if (!dono && url.searchParams.get('c') !== '0') bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
   return new Response(up.body, { status: 200, headers: h });
 }
 
@@ -4311,19 +4350,43 @@ async function handleRestoreBackup(request, env) {
   /** @type {Record<string, any>} */
   const result = { ok: true, added, updated, skipped, total: merged.length };
 
+  // As seções abaixo são independentes: uma que falha NUNCA impede as outras de
+  // rodar nem de aparecer na resposta (`<seção>Error`). E a ordem importa para
+  // o plano gratuito (50 subrequisições por invocação): o registro de
+  // consentimento é poucas chamadas ao D1 (um lote por 100 aceites) e é a PROVA
+  // de aceite — vem ANTES do laço dos pedidos de remoção, que grava uma chave de
+  // KV por pedido (até 500) e é quem estoura o teto. Se o teto chegar, são os
+  // pedidos que ficam para uma segunda restauração do mesmo arquivo (id que já
+  // existe é pulado), não os aceites.
+
+  // v3: o registro de consentimento (D1). Backup v1/v2 não tem a seção.
+  if (body.consent !== undefined) {
+    try {
+      Object.assign(result, await restauraConsentimento(env, body.consent));
+    } catch (e) {
+      noteDegraded('restore do registro de consentimento falhou', errMessage(e).slice(0, 120), e);
+      result.consentError = `Não foi possível restaurar o registro de consentimento: ${errMessage(e).slice(0, 200)}`;
+    }
+  }
+
   // v2 sections — optional and backward-compatible (v1 backups simply omit them).
   if (Array.isArray(body.categories)) {
-    const union = [...await getCategories(env)];
-    for (const c of body.categories) {
-      if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+    try {
+      const union = [...await getCategories(env)];
+      for (const c of body.categories) {
+        if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+      }
+      // Relatar o que foi GRAVADO, não o que foi juntado: com o backup trazendo
+      // mais que MAX_CATEGORIES, o painel confirmava um número que o KV não tinha
+      // — e o dono só descobriria a diferença ao procurar uma categoria sumida.
+      const saved = union.slice(0, MAX_CATEGORIES);
+      await saveCategories(env, saved);
+      result.categories = saved.length;
+      if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
+    } catch (e) {
+      noteDegraded('restore das categorias falhou', errMessage(e).slice(0, 120), e);
+      result.categoriesError = `Não foi possível restaurar as categorias: ${errMessage(e).slice(0, 200)}`;
     }
-    // Relatar o que foi GRAVADO, não o que foi juntado: com o backup trazendo
-    // mais que MAX_CATEGORIES, o painel confirmava um número que o KV não tinha
-    // — e o dono só descobriria a diferença ao procurar uma categoria sumida.
-    const saved = union.slice(0, MAX_CATEGORIES);
-    await saveCategories(env, saved);
-    result.categories = saved.length;
-    if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
   // Na PRÉVIA de PR, os pedidos de remoção do backup ficam de fora: são dados
@@ -4333,30 +4396,29 @@ async function handleRestoreBackup(request, env) {
   if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
     result.removalRequestsSkipped = body.removalRequests.length;
   } else if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
-    /** @type {Record<string, any>[]} */
-    const novos = [];
-    for (const r of body.removalRequests) {
-      const clean = sanitizeRestoredRequest(r);
-      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
-    }
-    // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
-    // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
-    // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
-    // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
-    // restaurar o mesmo arquivo de novo continua de onde parou (id que já
-    // existe é pulado).
-    trimRequests(novos, 500);
     let gravados = 0;
     try {
+      const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
+      /** @type {Record<string, any>[]} */
+      const novos = [];
+      for (const r of body.removalRequests) {
+        const clean = sanitizeRestoredRequest(r);
+        if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
+      }
+      // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
+      // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
+      // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
+      // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
+      // restaurar o mesmo arquivo de novo continua de onde parou (id que já
+      // existe é pulado).
+      trimRequests(novos, 500);
       for (const r of novos) { await gravaPedido(env, r); gravados++; }
-    } finally {
-      result.removalRequestsAdded = gravados;
+    } catch (e) {
+      noteDegraded('restore dos pedidos de remoção parou', `${gravados} gravados; restaurar o mesmo arquivo de novo continua de onde parou`, e);
+      result.removalRequestsError = `A gravação dos pedidos de remoção parou depois de ${gravados}: ${errMessage(e).slice(0, 200)}. Restaure o mesmo arquivo de novo para continuar.`;
     }
+    result.removalRequestsAdded = gravados;
   }
-
-  // v3: o registro de consentimento (D1). Backup v1/v2 não tem a seção.
-  if (body.consent !== undefined) Object.assign(result, await restauraConsentimento(env, body.consent));
 
   return jsonOk(result);
 }

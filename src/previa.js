@@ -172,7 +172,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 // diferentes).
 export const LIMITES_DO_APARELHO = /** @type {const} */ ([
   'login', 'login-day', 'login-fail', 'support', 'removal',
-  'drive-click', 'drive-gate', 'drive-gate-noscript', 'drive-gate-email', 'drive-code',
+  'drive-click', 'drive-gate', 'drive-gate-noscript', 'drive-gate-email', 'drive-code', 'galeria-baixar',
 ]);
 // O "lotado" vale para o portão pelo Turnstile e pelo caminho sem JavaScript —
 // não para o código por e-mail, que tem balde próprio (`drive-gate-email`) e é

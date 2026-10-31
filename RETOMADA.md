@@ -475,9 +475,14 @@ O que já mordeu, ou morderia:
   pertencimento (`achaFoto`), ele seria um proxy aberto para qualquer arquivo
   público do Drive com a nossa cota. Há teste que falha se ela sumir.
 - **A lista não grava em KV.** Fica na memória do isolate e na Cache API
-  (chave `https://fotos.invalid/__galeria/<id>`, o mesmo truque da cópia de
+  (chave `https://fotos.invalid/__galeria/<id>/m<teto de páginas>` — o teto faz parte da chave: galeria 30, Instagram 8 — o mesmo truque da cópia de
   sobrevivência da lista de eventos), 10 min. A cota de 1000 escritas/dia (§5.3)
-  não é tocada.
+  não é tocada. O casamento "para redes" (`casaRedesCacheado`) também fica na
+  Cache API (`__galeria/redes/…`, só posições), chaveado pelo instante das duas
+  listas, para um isolate novo não refazer a comparação de 6 mil nomes (10 ms de CPU).
+- **Download da galeria tem limite por IP** (`GALERIA_BAIXAR_BUCKET`, ficha no
+  `RateLimiter`, dono isento, falha aberta); `?c=0` lê sem contar (nunca muda o
+  arquivo servido); robôs conhecidos (`ehRobo`) não contam visita nem abertura.
 - **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
   subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
   (30) e a página avisa que a lista é parcial.
@@ -531,7 +536,7 @@ O que já mordeu, ou morderia:
   listagens frias no mesmo pedido estourariam as 50 subrequests). Downloads:
   `Disallow` no `robots.txt`, `X-Robots-Tag: noindex` e `rel="nofollow"`. A
   página do visitante é `private, no-cache` (leva o nonce da CSP; nunca
-  `public`). Foto oculta sai do HTML e do sitemap no próximo pedido; **para
+  `public`). Foto oculta sai do HTML e do sitemap em até 2 min (a propagação do painel: cache do isolate 30 s + `cacheTtl` do KV 30 s + propagação do KV), não "na hora"; **para
   tirar do Google com urgência: Search Console → Remoções** (`docs/RELEASE.md`).
 - **Carga da galeria no celular (30/10/2026).** O CSS do PhotoSwipe não vai no
   `<head>` (bloqueava a pintura): `preparaLightbox()` o insere ANTES do

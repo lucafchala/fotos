@@ -2008,7 +2008,24 @@ mais o balde do dia (nunca KV por visitante), e aparece na coluna
 `baixarMax`). São ~2 linhas escritas por foto baixada (total + dia): 750 pessoas
 × 20 downloads ≈ 30 mil linhas, dentro das 100 mil/dia do plano gratuito, mas é
 o número a olhar num evento grande. Cada download continua sendo 1 requisição
-de Worker + 1 subrequest.
+de Worker + 1 subrequest. Leituras que não são download (compartilhar, a
+segunda leitura do "Salvar no Fotos" no iPhone) pedem o mesmo arquivo com
+`&c=0` e não contam.
+
+**Limite por IP no download.** O visitante gasta uma ficha de um balde por IP
+(`GALERIA_BAIXAR_BUCKET`: 6 mil de rajada, 20 mil por hora — um Wi-Fi de evento
+com 750 pessoas e ~20 fotos por hora cabe), no mesmo `RateLimiter` do portão:
++1 chamada ao Durable Object (≈ 3 linhas escritas por download com a contagem)
+e, esgotado, 429 com `Retry-After` antes de qualquer leitura do Drive. O dono
+(logado) é isento. A galeria, nas leituras que ela mesma faz (compartilhar,
+"Salvar no Fotos"), mostra a espera e não repete sozinha; um link `<a download>`
+não consegue ler o 429 (o navegador mostra o erro dele).
+
+**Visitas e aberturas ignoram robôs conhecidos** (`verifiedBot` do Cloudflare e
+`ROBO_UA_RE` em `src/config.js`: Googlebot, Bingbot, prévias de link...). A
+lista é conservadora de propósito: os números do painel podem incluir robôs
+desconhecidos. A taxa de abertura é "aberturas (Drive ou galeria) ÷ visitas,
+limitado a 100%".
 
 ### Verificação
 

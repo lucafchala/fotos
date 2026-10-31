@@ -99,8 +99,15 @@ export const ordemNatural = (a, b) => COLLATOR.compare(a, b);
 
 /** @type {Map<string, { em: number, dados: ListagemDrive }>} */
 const memoria = new Map();
-/** @param {string} id */
-const chaveCache = id => `https://fotos.invalid/__galeria/${id}`;
+// A chave leva o TETO de páginas: a galeria (GALERIA_MAX_CHAMADAS) e a pasta do
+// Instagram (GALERIA_MAX_CHAMADAS_IG) leem com tetos diferentes, e uma lista
+// feita com o teto de 8 páginas, guardada só pelo id da pasta, serviria de
+// "completa" a quem pediu 30 (e a de 30 vazaria para quem pediu 8, estourando
+// a conta das 50 subrequisições se virasse a base de uma releitura).
+/** @param {string} id @param {number} maxChamadas */
+const chaveMemoria = (id, maxChamadas) => `${id}#${maxChamadas}`;
+/** @param {string} id @param {number} maxChamadas */
+const chaveCache = (id, maxChamadas) => `https://fotos.invalid/__galeria/${id}/m${maxChamadas}`;
 
 function cacheStore() {
   // Ausente no vitest e fora do runtime Workers — o cache é best-effort.
@@ -127,16 +134,18 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
   }
   if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
 
+  const kMem = chaveMemoria(pasta.id, maxChamadas);
+  const kCache = chaveCache(pasta.id, maxChamadas);
   if (!atualizar) {
-    const mem = memoria.get(pasta.id);
+    const mem = memoria.get(kMem);
     if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
     const store = cacheStore();
     if (store) {
       try {
-        const hit = await store.match(chaveCache(pasta.id));
+        const hit = await store.match(kCache);
         if (hit) {
           const dados = /** @type {ListagemDrive} */ (await hit.json());
-          memoria.set(pasta.id, { em: Date.now(), dados });
+          memoria.set(kMem, { em: Date.now(), dados });
           return dados;
         }
       } catch (e) {
@@ -146,11 +155,11 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
   }
 
   const dados = await percorre(chave, pasta, maxChamadas);
-  memoria.set(pasta.id, { em: Date.now(), dados });
+  memoria.set(kMem, { em: Date.now(), dados });
   const store = cacheStore();
   if (store) {
     try {
-      await store.put(chaveCache(pasta.id), new Response(JSON.stringify(dados), {
+      await store.put(kCache, new Response(JSON.stringify(dados), {
         headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
       }));
     } catch (e) {
@@ -383,22 +392,99 @@ export function urlOriginal(id, chave) {
   return `${DRIVE_FILES}/${id}?${p}`;
 }
 
+const ASCII_RE = /^[\p{ASCII}]*$/u;
+
 /**
  * Chave de comparação do nome de uma foto: sem a extensão (a pasta do
  * Instagram costuma ser .jpg e o original .heic/.png/.JPG), sem diferenciar
  * maiúscula e com a forma Unicode normalizada (o Drive devolve "Cerimônia"
  * composto ou decomposto, conforme quem enviou).
+ *
+ * `normalize()` é a parte cara (passa pelo ICU) e só muda o resultado quando
+ * há caractere fora do ASCII — "IMG_0001.jpg" não tem o que normalizar. Nome
+ * 100% ASCII pula a chamada; sobra uma `toLowerCase()` só, na ordem que
+ * importa para o Unicode (normaliza e depois minuscula).
  * @param {string} nome
  */
 export function chaveDeNome(nome) {
   const ponto = nome.lastIndexOf('.');
-  return (ponto > 0 ? nome.slice(0, ponto) : nome).normalize('NFC').toLowerCase().trim();
+  const base = ponto > 0 ? nome.slice(0, ponto) : nome;
+  return (ASCII_RE.test(base) ? base : base.normalize('NFC')).toLowerCase().trim();
 }
 
 // Sufixo que o fotógrafo costuma pôr no arquivo exportado para o Instagram
 // ("001-insta.jpg", "001_ig.jpg", "001 instagram.jpg", "001-redes.jpg"). Só vale
 // quando NÃO há arquivo de nome igual ao da galeria.
 const SUFIXO_IG = /[\s._-]+(?:insta|instagram|ig|redes)$/;
+/** @param {string} k */
+const terminaComSufixo = k => k.endsWith('insta') || k.endsWith('instagram') || k.endsWith('ig') || k.endsWith('redes');
+
+/**
+ * Candidato da pasta do Instagram, em lista encadeada (na ordem da listagem):
+ * um objeto por foto, sem o array por nome que a versão anterior alocava.
+ * @typedef {{ caminho: string, foto: FotoDrive, prox: Cand | null }} Cand
+ */
+/**
+ * O índice de nomes de UMA listagem do Instagram, montado uma vez por listagem
+ * (não por galeria nem por visita): chave do nome → candidatos.
+ * @typedef {{ exato: Map<string, Cand>, semSufixo: Map<string, Cand> }} IndiceIg
+ */
+/** @type {WeakMap<ListagemDrive, IndiceIg>} */
+const indices = new WeakMap();
+
+/** Minúscula e NFC uma vez só por seção (o caminho é comparado por fotos). */
+/** @param {string} caminho */
+const caminhoChave = caminho => (ASCII_RE.test(caminho) ? caminho : caminho.normalize('NFC')).toLowerCase();
+
+/**
+ * @param {Map<string, Cand>} m
+ * @param {string} k
+ * @param {Cand} v
+ */
+function poe(m, k, v) {
+  const c = m.get(k);
+  if (!c) { m.set(k, v); return; }
+  let ult = c;
+  while (ult.prox) ult = ult.prox;
+  ult.prox = v;
+}
+
+/** @param {ListagemDrive} ig @returns {IndiceIg} */
+function indiceDoIg(ig) {
+  const guardado = indices.get(ig);
+  if (guardado) return guardado;
+  /** @type {IndiceIg} */
+  const indice = { exato: new Map(), semSufixo: new Map() };
+  for (const s of ig.secoes) {
+    const caminho = caminhoChave(s.caminho);
+    for (const foto of s.fotos) {
+      const k = chaveDeNome(foto[3]);
+      poe(indice.exato, k, { caminho, foto, prox: null });
+      if (terminaComSufixo(k)) {
+        const sem = k.replace(SUFIXO_IG, '');
+        if (sem !== k && sem) poe(indice.semSufixo, sem, { caminho, foto, prox: null });
+      }
+    }
+  }
+  indices.set(ig, indice);
+  return indice;
+}
+
+/** @type {WeakMap<ListagemDrive, FotoDrive[]>} */
+const planos = new WeakMap();
+
+/**
+ * Os arquivos da pasta do Instagram numa lista só, na ordem da listagem — a
+ * posição de cada um é o que o casamento guardado grava no lugar do id. Não
+ * passa pelo índice de nomes: remontar um casamento guardado não pode pagar a
+ * normalização dos nomes que o guardado existe para evitar.
+ * @param {ListagemDrive} ig
+ */
+function planoDoIg(ig) {
+  let plano = planos.get(ig);
+  if (!plano) { plano = ig.secoes.flatMap(s => s.fotos); planos.set(ig, plano); }
+  return plano;
+}
 
 /** @type {WeakMap<ListagemDrive, { ig: ListagemDrive, mapa: Map<string, FotoDrive> }>} */
 const casamentos = new WeakMap();
@@ -415,9 +501,13 @@ const casamentos = new WeakMap();
  * par fica fora do mapa — a página não oferece "para redes" para ela e o
  * download responde 404.
  *
- * Só olha o que a listagem já trouxe (nenhuma chamada ao Drive) e guarda o
- * resultado por listagem: a lista vive 10 min em memória, então os pedidos
- * seguintes não refazem a conta (o plano gratuito dá 10 ms de CPU).
+ * Custo (o plano gratuito dá 10 ms de CPU por invocação): só olha o que a
+ * listagem já trouxe (nenhuma chamada ao Drive); o índice de nomes do
+ * Instagram é montado UMA vez por listagem dele; nome ASCII não passa por
+ * `normalize()`. Medido com 6000 fotos de cada lado (config.js): ~6,5 ms de CPU
+ * no node, contra 7 ms (melhor caso) e 15–37 ms (mediana) antes. Mesmo assim,
+ * `casaRedesCacheado` guarda o RESULTADO (alguns KB) ao lado da listagem, e
+ * um isolate novo remonta o mapa por id, sem refazer a comparação de nomes.
  * @param {ListagemDrive} galeria
  * @param {ListagemDrive} ig
  * @returns {Map<string, FotoDrive>} id da foto da galeria → arquivo da pasta do Instagram
@@ -426,32 +516,19 @@ export function casaRedes(galeria, ig) {
   const guardado = casamentos.get(galeria);
   if (guardado && guardado.ig === ig) return guardado.mapa;
 
-  /** @type {Map<string, { caminho: string, foto: FotoDrive }[]>} */
-  const exato = new Map();
-  /** @type {Map<string, { caminho: string, foto: FotoDrive }[]>} */
-  const semSufixo = new Map();
-  /** @param {Map<string, { caminho: string, foto: FotoDrive }[]>} m @param {string} k @param {{ caminho: string, foto: FotoDrive }} v */
-  const poe = (m, k, v) => { const l = m.get(k); if (l) l.push(v); else m.set(k, [v]); };
-  for (const s of ig.secoes) {
-    const caminho = s.caminho.normalize('NFC').toLowerCase();
-    for (const foto of s.fotos) {
-      const k = chaveDeNome(foto[3]);
-      poe(exato, k, { caminho, foto });
-      const sem = k.replace(SUFIXO_IG, '');
-      if (sem !== k && sem) poe(semSufixo, sem, { caminho, foto });
-    }
-  }
-  /** @param {{ caminho: string, foto: FotoDrive }[] | undefined} cands @param {string} caminho */
+  const { exato, semSufixo } = indiceDoIg(ig);
+  /** @param {Cand | undefined} cands @param {string} caminho */
   const escolhe = (cands, caminho) => {
     if (!cands) return null;
     // A lista de cada seção já está em ordem natural: o primeiro é o primeiro.
-    return (cands.find(c => c.caminho === caminho) || cands[0]).foto;
+    for (let c = cands; c; c = /** @type {Cand} */ (c.prox)) if (c.caminho === caminho) return c.foto;
+    return cands.foto;
   };
 
   /** @type {Map<string, FotoDrive>} */
   const mapa = new Map();
   for (const s of galeria.secoes) {
-    const caminho = s.caminho.normalize('NFC').toLowerCase();
+    const caminho = caminhoChave(s.caminho);
     for (const f of s.fotos) {
       const k = chaveDeNome(f[3]);
       const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho);
@@ -460,4 +537,104 @@ export function casaRedes(galeria, ig) {
   }
   casamentos.set(galeria, { ig, mapa });
   return mapa;
+}
+
+/** @param {ListagemDrive} galeria @param {ListagemDrive} ig */
+const chaveCasamento = (galeria, ig) =>
+  `https://fotos.invalid/__galeria/redes/${galeria.pasta}/${ig.pasta}/${Date.parse(galeria.em) || 0}/${Date.parse(ig.em) || 0}`;
+
+/**
+ * `casaRedes` com o resultado guardado na Cache API, ao lado das listagens e
+ * com o mesmo prazo (GALERIA_LISTA_TTL_S). A chave leva o instante de cada
+ * listagem (`em`): releitura forçada ou lista nova = chave nova, então o
+ * casamento nunca é de uma lista que já não é a que está na mão. Guarda só
+ * posições (para cada foto da galeria, na ordem da listagem, a posição do
+ * arquivo do Instagram ou -1: ~7 bytes por foto); no isolate novo, o mapa é
+ * remontado por posição, sem normalizar nem comparar nome nenhum.
+ *
+ * Custo de subrequisição: +1 `match` (e +1 `put` quando precisa calcular).
+ * Está na conta da config (GALERIA_MAX_CHAMADAS_IG).
+ * @param {ListagemDrive} galeria
+ * @param {ListagemDrive} ig
+ * @returns {Promise<Map<string, FotoDrive>>}
+ */
+export async function casaRedesCacheado(galeria, ig) {
+  const memoria = casamentos.get(galeria);
+  if (memoria && memoria.ig === ig) return memoria.mapa;
+
+  const store = cacheStore();
+  const chave = chaveCasamento(galeria, ig);
+  if (store) {
+    try {
+      const hit = await store.match(chave);
+      if (hit) {
+        const mapa = remontaCasamento(galeria, ig, /** @type {unknown} */ (await hit.json()));
+        if (mapa) { casamentos.set(galeria, { ig, mapa }); return mapa; }
+      }
+    } catch (e) {
+      console.error('galeria: leitura do casamento "para redes" falhou', e);
+    }
+  }
+
+  const mapa = casaRedes(galeria, ig);
+  if (store) {
+    try {
+      const posicao = new Map(planoDoIg(ig).map((f, i) => [f, i]));
+      /** @type {number[]} */
+      const posicoes = [];
+      for (const s of galeria.secoes) for (const f of s.fotos) {
+        const par = mapa.get(f[0]);
+        posicoes.push(par ? /** @type {number} */ (posicao.get(par)) : -1);
+      }
+      await store.put(chave, new Response(JSON.stringify(posicoes), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
+      }));
+    } catch (e) {
+      console.error('galeria: escrita do casamento "para redes" falhou', e);
+    }
+  }
+  return mapa;
+}
+
+/**
+ * Remonta o mapa a partir das posições guardadas. Qualquer coisa fora do
+ * formato (tamanho diferente da galeria, posição fora da lista do Instagram)
+ * descarta o guardado (null): o chamador recalcula, nunca serve um casamento
+ * que não confere com as listas.
+ * @param {ListagemDrive} galeria
+ * @param {ListagemDrive} ig
+ * @param {unknown} posicoes
+ * @returns {Map<string, FotoDrive> | null}
+ */
+function remontaCasamento(galeria, ig, posicoes) {
+  if (!Array.isArray(posicoes)) return null;
+  const alvos = planoDoIg(ig);
+  let i = 0;
+  /** @type {Map<string, FotoDrive>} */
+  const mapa = new Map();
+  for (const s of galeria.secoes) {
+    for (const f of s.fotos) {
+      const j = posicoes[i++];
+      if (j === -1) continue;
+      if (!Number.isInteger(j) || j < 0 || j >= alvos.length) return null;
+      mapa.set(f[0], alvos[j]);
+    }
+  }
+  return i === posicoes.length ? mapa : null;
+}
+
+/**
+ * A pasta do Instagram de um projeto, ou null quando não há uma de verdade:
+ * sem link, link que não é de pasta, ou — o caso fácil de errar ao colar —
+ * a MESMA pasta da galeria. Nesse último, "para redes" entregaria o próprio
+ * original como se fosse a versão preparada (e leria a pasta duas vezes), então
+ * é tratado como se não houvesse pasta do Instagram.
+ * @param {{ driveUrl?: unknown, driveUrlInstagram?: unknown }} event
+ * @returns {{ id: string, resourceKey: string } | null}
+ */
+export function pastaInstagram(event) {
+  const ig = pastaDoDrive(event.driveUrlInstagram);
+  if (!ig) return null;
+  const galeria = pastaDoDrive(event.driveUrl);
+  return galeria && galeria.id === ig.id ? null : ig;
 }

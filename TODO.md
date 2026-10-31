@@ -114,9 +114,10 @@ não cresce com o tamanho do arquivo). Um "baixar 30 para redes" são 30 requisi
 downloads = 15 mil, que cabe nas 100 mil/dia mas deixa de ser irrelevante —
 a distribuição já abriu (29/10/2026), e este é o número a olhar no dia. E
 cada download feito por visitante (não pelo dono) soma agora no Durable
-Object ~2 linhas escritas por foto (total + dia; 750 pessoas × 20 downloads
-≈ 30 mil linhas, dentro das 100 mil/dia — o outro número a olhar num evento
-grande). A página custa 1 requisição + até 30
+Object ~3 linhas escritas por foto (a ficha do limite por IP, `GALERIA_BAIXAR_BUCKET`,
+mais o total e o dia da contagem; 750 pessoas × 20 downloads ≈ 45 mil linhas,
+dentro das 100 mil/dia — o outro número a olhar num evento grande; o dono
+não gasta nenhuma). A página custa 1 requisição + até 30
 subrequests à Drive API a cada 10 min por pasta e data center (Cache API; até
 30 da pasta do projeto + 8 da do Instagram na mesma visita, ≈ 46 com o resto,
 abaixo das 50), e

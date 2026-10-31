@@ -1312,8 +1312,27 @@ const SCRIPT = `
   let focoAntes = null;
   let geracao = 0;
 
-  function urlBaixar(f, v) {
-    return '/galeria/' + encodeURIComponent(D.slug) + '/baixar/' + f.id + '?v=' + v;
+  // semConta (c=0): o pedido NÃO é um download para a contagem de baixadas —
+  // o botão Compartilhar do visualizador, e a nova busca de um arquivo que o
+  // iPhone recusou salvar no Fotos (a primeira busca dele já contou). O
+  // servidor serve o mesmo arquivo; só não soma em "Fotos baixadas".
+  function urlBaixar(f, v, semConta) {
+    return '/galeria/' + encodeURIComponent(D.slug) + '/baixar/' + f.id + '?v=' + v + (semConta ? '&c=0' : '');
+  }
+  // 429 do limite por IP (Wi-Fi de evento = um IP só). O servidor diz quantos
+  // segundos esperar (Retry-After); até lá NENHUM pedido de download sai —
+  // nem repetição automática, nem toque em outro botão: quem toca de novo vê o
+  // tempo que falta, sem martelar o servidor.
+  let esperaAte = 0;
+  function msgEspera() {
+    const s = Math.max(1, Math.ceil((esperaAte - Date.now()) / 1000));
+    return 'Muita gente baixando agora. Tente de novo em ' + (s >= 90 ? Math.ceil(s / 60) + ' minutos' : s + ' s') + '.';
+  }
+  function emEspera() { return Date.now() < esperaAte; }
+  function anotaEspera(r) {
+    let s = Number.parseInt(r.headers.get('Retry-After') || '', 10);
+    if (!(s > 0)) s = 60;
+    esperaAte = Date.now() + Math.min(s, 3600) * 1000;
   }
   // O que a versão entrega para a foto: nome e peso do arquivo (ou null).
   function arquivoDe(f, v) {
@@ -1339,8 +1358,13 @@ const SCRIPT = `
   // Os bytes vêm como o servidor mandou; o nome é o do Drive (X-Nome-Arquivo).
   // O tipo só diz à folha do sistema que é imagem (se o Drive mandou
   // octet-stream, vale a extensão) — não toca em byte nenhum.
-  async function buscaArquivo(f, v) {
-    const r = await fetch(urlBaixar(f, v), { credentials: 'same-origin' });
+  async function buscaArquivo(f, v, semConta) {
+    if (emEspera()) throw new Error(msgEspera());
+    const r = await fetch(urlBaixar(f, v, semConta), { credentials: 'same-origin' });
+    if (r.status === 429) {
+      anotaEspera(r);
+      throw new Error(msgEspera());
+    }
     if (!r.ok) {
       let msg = '';
       try { msg = (await r.json()).error || ''; } catch (e) { msg = ''; }
@@ -1531,7 +1555,7 @@ const SCRIPT = `
         let arq = arquivosProntos.get(f.id);
         if (!arq) {
           avisa('Preparando a foto…');
-          arq = await buscaArquivo(f, 'redes');
+          arq = await buscaArquivo(f, 'redes', true);
           arquivosProntos.set(f.id, arq);
         }
         try {
@@ -1569,15 +1593,24 @@ const SCRIPT = `
   // permissão uma vez para vários). O nome vem do Content-Disposition do
   // servidor: o do Drive, exato. No iPhone é o "Baixar arquivo" (vai para o
   // app Arquivos).
-  function baixaComum(lista, v) {
+  //
+  // jaContadas: ids que já foram buscados (e contados) por buscaArquivo —
+  // o iPhone recusou salvar no Fotos e o mesmo arquivo vem de novo como
+  // download; esses saem com c=0 para a contagem não dobrar. manterAberta:
+  // não fecha a folha sozinha (o texto que o chamador pôs nela precisa ser
+  // lido — fechar em 900 ms o escondia).
+  function baixaComum(lista, v, jaContadas, manterAberta) {
     if (!folhaMsg || !lista.length) return;
+    // Em espera por um 429: nada sai (um <a download> não deixa ver a resposta,
+    // então a única proteção contra martelar é não pedir enquanto se espera).
+    if (emEspera()) { folhaMsg.textContent = msgEspera(); avisa('Muita gente baixando agora'); return; }
     const minha = geracao;
-    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v)); }, k * 700); });
+    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id))); }, k * 700); });
     folhaMsg.textContent = lista.length > 1
       ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
       : 'Download iniciado.';
     avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
-    setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
+    if (!manterAberta) setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
   }
 
   // Lotes para a folha do iOS: ela segura os arquivos todos na memória da aba
@@ -1662,8 +1695,11 @@ const SCRIPT = `
       if (r !== 'ok') {
         volta();
         const restantes = lotes.slice(i).reduce(function (t, l) { return t.concat(l); }, []);
-        baixaComum(restantes, v);
-        folhaMsg.textContent = 'O iPhone não aceitou salvar direto no Fotos. Baixando como arquivo (app Arquivos).';
+        // O lote atual já foi buscado (e contado) acima: só ele sai com c=0.
+        const jaContadas = new Set(lote.map(function (f) { return f.id; }));
+        // A folha fica aberta: a explicação abaixo é o que a pessoa precisa ler.
+        baixaComum(restantes, v, jaContadas, true);
+        if (!emEspera()) folhaMsg.textContent = 'O iPhone não aceitou salvar direto no Fotos. Baixando como arquivo (app Arquivos).';
         return;
       }
       if (i + 1 < lotes.length) botao.textContent = 'Preparando a parte ' + (i + 2) + '…';

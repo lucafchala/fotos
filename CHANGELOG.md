@@ -34,7 +34,8 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   `og:image` da capa e alt "<evento> — foto i de n". Downloads fora dos
   buscadores (`Disallow` no `robots.txt`, `X-Robots-Tag: noindex`,
   `rel="nofollow"`); `ai-train=no` mantido. Foto oculta sai do HTML e do
-  sitemap na hora; para tirar do Google com urgência, Search Console →
+  sitemap em até 2 minutos (o prazo de qualquer mudança do painel); para
+  tirar do Google com urgência, Search Console →
   Remoções (docs/RELEASE.md).
 - **Download do arquivo exato.** "Tamanho máximo" entrega o original do
   Drive, byte a byte, com o nome exato (sem o prefixo do projeto). "Para
@@ -85,6 +86,18 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 - **`scripts/smoke.sh`** reprova HSTS abaixo de 1 ano (a borda da Cloudflare
   respondia 180 dias no domínio próprio — #257).
 
+- **Limite por IP no download da galeria.** Cada IP tem um balde de fichas
+  (6 mil de rajada, 20 mil por hora: um Wi-Fi de evento com 750 pessoas e
+  ~20 fotos cada cabe com folga); esgotado, responde 429 com `Retry-After` e
+  a galeria mostra a espera em vez de repetir. O dono não passa pelo balde.
+- **Robôs conhecidos fora da contagem.** Visitas do projeto e aberturas da
+  galeria ignoram o que o Cloudflare marca como robô verificado e uma lista
+  curta de User-Agents (Googlebot, Bingbot, prévias de link...). Os números
+  do painel ainda podem incluir robôs desconhecidos.
+- **Taxa de abertura limitada a 100%**, em cartões, ranking e tabela:
+  "aberturas (Drive ou galeria) ÷ visitas, limitado a 100%" (quem chega à
+  galeria pelo Google não passa pela página do projeto).
+
 ### Corrigido
 
 - **CLS da página do projeto** (0,334 no PageSpeed): a capa e o carrossel
@@ -93,6 +106,14 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   caía no caminho sem JavaScript.
 - **Testes instáveis** do portão do Drive e do login, que dependiam do
   relógio real sob carga.
+- **Compartilhar e a segunda leitura do iPhone não contam como download**
+  (`?c=0`, só leitura; o arquivo servido é o mesmo). "Salvar no Fotos"
+  recusado pelo sistema mantém a folha aberta com a mensagem.
+- **Lista "para redes" não confunde tetos**: o cache da listagem leva o teto
+  de páginas na chave; pasta do Instagram igual à da galeria vale como "sem
+  pasta do Instagram". O casamento de nomes (6 mil fotos) fica em cache.
+- **Restaurar backup**: o consentimento é restaurado antes dos pedidos de
+  remoção, e uma seção que falha não esconde as outras.
 
 ## [2.2.1] — ainda não publicada
 

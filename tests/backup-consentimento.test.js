@@ -427,3 +427,92 @@ describe('painel: o que o dono lê sobre o registro de consentimento', () => {
       .toBe(' Consentimento: 0 aceites novos. Registro de consentimentos não configurado.');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ordem e independência das seções do restore: o consentimento (a PROVA de
+// aceite) vem antes do laço dos pedidos de remoção — que grava uma chave de KV
+// por pedido (até 500) e é quem estoura as 50 subrequisições do plano gratuito
+// — e uma seção que falha nunca esconde as outras.
+describe('restore: seções independentes, consentimento antes dos pedidos de remoção', () => {
+  const pedido = n => ({
+    id: hex(n).slice(-16), name: `Titular ${n}`, email: `t${n}@exemplo.com`, resolved: false,
+    createdAt: new Date(Date.UTC(2026, 9, 1, 12, 0, n % 60)).toISOString(),
+  });
+  const backup = (nPedidos, nAceites) => ({
+    ...v3(Array.from({ length: nAceites }, (_, i) => linhaDe(aceite(i + 1)))),
+    categories: ['Casamentos'],
+    removalRequests: Array.from({ length: nPedidos }, (_, i) => pedido(i + 1)),
+  });
+  /** KV que passa a recusar a escrita de pedidos depois de `ate` gravados. */
+  function recusaPedidosDepois(env, ate) {
+    const real = env.FOTOS.put.bind(env.FOTOS);
+    let n = 0;
+    env.FOTOS.put = async (k, ...r) => {
+      if (k.startsWith('removal_request:') && ++n > ate) throw new Error('KV put: limite de subrequisições');
+      return real(k, ...r);
+    };
+  }
+
+  it('muitos pedidos + aceites, KV parando no meio: TODOS os aceites entram e a resposta diz até onde os pedidos foram', async () => {
+    const env = montaEnv();
+    recusaPedidosDepois(env, 40);
+    const res = await restaura(env, backup(300, 250));
+    expect(res.status).toBe(200);
+    const corpo = await res.json();
+    expect(corpo).toMatchObject({ ok: true, consentAdded: 250, removalRequestsAdded: 40 });
+    expect(corpo.removalRequestsError).toMatch(/parou depois de 40/);
+    expect(corpo.consentError).toBeUndefined();
+    expect(contaNoD1(env.CONSENT_DB)).toBe(250);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(40);
+    expect(corpo.categories).toBeGreaterThan(0);
+  });
+
+  it('o consentimento é gravado ANTES do primeiro pedido de remoção', async () => {
+    const env = montaEnv();
+    const ordem = [];
+    const batch = env.CONSENT_DB.batch.bind(env.CONSENT_DB);
+    env.CONSENT_DB.batch = async c => { ordem.push('consent'); return batch(c); };
+    const put = env.FOTOS.put.bind(env.FOTOS);
+    env.FOTOS.put = async (k, ...r) => { if (k.startsWith('removal_request:')) ordem.push('pedido'); return put(k, ...r); };
+    await restaura(env, backup(3, 3));
+    expect(ordem.indexOf('consent')).toBeGreaterThanOrEqual(0);
+    expect(ordem.indexOf('consent')).toBeLessThan(ordem.indexOf('pedido'));
+  });
+
+  it('o D1 recusando tudo não impede as categorias nem os pedidos, e o erro aparece na resposta', async () => {
+    const env = montaEnv();
+    env.CONSENT_DB.batch = async () => { throw new Error('D1_ERROR: fora'); };
+    const corpo = await (await restaura(env, backup(5, 120))).json();
+    expect(corpo.consentError || corpo.consentNotWritten).toBeTruthy();
+    expect(corpo).toMatchObject({ ok: true, removalRequestsAdded: 5 });
+    expect(corpo.categories).toBeGreaterThan(0);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(5);
+  });
+
+  it('categorias falhando não impedem consentimento nem pedidos: a resposta traz categoriesError', async () => {
+    const env = montaEnv();
+    const put = env.FOTOS.put.bind(env.FOTOS);
+    env.FOTOS.put = async (k, ...r) => { if (k.includes('categor')) throw new Error('KV put: categorias'); return put(k, ...r); };
+    const corpo = await (await restaura(env, backup(4, 10))).json();
+    expect(corpo.categoriesError).toMatch(/categorias/);
+    expect(corpo).toMatchObject({ ok: true, consentAdded: 10, removalRequestsAdded: 4 });
+  });
+
+  it('restaurar o mesmo arquivo de novo continua de onde parou, sem duplicar aceites nem pedidos', async () => {
+    const env = montaEnv();
+    const arq = backup(30, 20);
+    // Leitura em lote do KV (get com lista de chaves), que o fakeKV deste arquivo não tem.
+    const get = env.FOTOS.get.bind(env.FOTOS);
+    env.FOTOS.get = async k => (Array.isArray(k) ? new Map(await Promise.all(k.map(async n => [n, await get(n)]))) : get(k));
+    const put = env.FOTOS.put.bind(env.FOTOS);
+    recusaPedidosDepois(env, 10);
+    const primeiro = await (await restaura(env, arq)).json();
+    expect(primeiro).toMatchObject({ consentAdded: 20, removalRequestsAdded: 10 });
+    env.FOTOS.put = put;
+    const segundo = await (await restaura(env, arq)).json();
+    expect(segundo).toMatchObject({ consentAdded: 0, consentDuplicates: 20, removalRequestsAdded: 20 });
+    expect(segundo.removalRequestsError).toBeUndefined();
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(30);
+    expect(contaNoD1(env.CONSENT_DB)).toBe(20);
+  });
+});

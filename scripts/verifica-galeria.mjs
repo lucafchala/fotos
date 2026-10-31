@@ -136,7 +136,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[] }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -160,11 +160,14 @@ async function abre(o = {}) {
     // Web Share de arquivos de mentira: guarda nome, tipo, tamanho e os bytes
     // (em base64) do que a página entrega ao sistema. Com `semCanShare`, o
     // aparelho recusa arquivos (canShare falso).
-    await page.addInitScript((recusa) => {
+    await page.addInitScript(([recusa, recusaShare]) => {
       /** @type {any} */ (window).__compartilhados = [];
       Object.defineProperty(navigator, 'canShare', { value: (/** @type {any} */ d) => !recusa && !!(d && d.files && d.files.length) });
       Object.defineProperty(navigator, 'share', {
         value: async (/** @type {any} */ d) => {
+          // `recusaShare`: o sistema recusa entregar os arquivos (erro que não é
+          // cancelamento nem falta de toque) — o caso do fallback para "Arquivos".
+          if (recusaShare) { const e = new Error('recusou'); e.name = 'DataError'; throw e; }
           for (const f of (d.files || [])) {
             const b = new Uint8Array(await f.arrayBuffer());
             let bin = '';
@@ -173,11 +176,13 @@ async function abre(o = {}) {
           }
         },
       });
-    }, !!o.semCanShare);
+    }, [!!o.semCanShare, !!o.recusaShare]);
   }
   const estado = {
     lh3: /** @type {{ id: string, w: number, webp: boolean }[]} */ ([]),
     downloads: /** @type {string[]} */ ([]),
+    // Todo pedido a /baixar/ (caminho + query), inclusive os recusados com 429.
+    pedidos: /** @type {string[]} */ ([]),
     erros: /** @type {string[]} */ ([]),
     csp: /** @type {string[]} */ ([]),
     ocultar: /** @type {{ foto: string, oculta: boolean }[]} */ ([]),
@@ -211,6 +216,15 @@ async function abre(o = {}) {
     const b = u.pathname.match(/^\/galeria\/formatura\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
+      estado.pedidos.push(u.pathname.split('/').pop() + u.search);
+      // Limite por IP esgotado (Wi-Fi de evento): o servidor manda esperar.
+      if (o.limite429) {
+        return route.fulfill({
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': String(o.limite429) },
+          body: JSON.stringify({ error: 'Muita gente acessando agora. Tentando de novo em instantes.', retryAfter: o.limite429 }),
+        });
+      }
       const nome = nomeBaixado(b[1], variante);
       // Como o servidor: só devolve o que existe (foto sem par no Instagram: 404).
       if (!nome) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"x"}' });
@@ -622,6 +636,73 @@ await cenario('iPhone sem compartilhar arquivos', async () => {
   const [d] = await Promise.all([page.waitForEvent('download'), page.locator('.g-ver-a .g-btn').first().tap()]);
   registra(urlDe(d) === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes', 'iPhone sem Web Share: o download comum funciona', d.url());
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone sem Web Share: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Compartilhar uma foto, no iPhone: o arquivo é buscado só para ler (c=0), sem
+// somar em "Fotos baixadas".
+await cenario('Compartilhar não conta como download', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
+  registra(estado.pedidos.join(',') === 'RAIZFOTO_000000?v=redes&c=0', 'Compartilhar: lê o arquivo do Instagram com c=0 (o servidor não conta como download)', estado.pedidos);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Compartilhar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// iPhone recusa "Salvar no Fotos": cai no download comum, sem contar de novo, e
+// a mensagem fica na folha (antes ela fechava sozinha em ~900 ms).
+await cenario('iPhone recusa o Salvar no Fotos', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, recusaShare: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await page.waitForFunction(() => /O iPhone n.o aceitou/.test(document.getElementById('g-folha-msg')?.textContent || ''), null, { timeout: 8000 });
+  await espera(page, 2200);
+  registra(await page.locator('#g-folha').isVisible(), 'Fallback do iPhone: a folha continua aberta depois de 2 s (não fecha sozinha)', '');
+  registra(/O iPhone não aceitou salvar direto no Fotos/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Fallback do iPhone: a mensagem explicando o download como arquivo continua visível', await page.locator('#g-folha-msg').textContent());
+  // A busca do "Salvar no Fotos" é um fetch (conta, 1 vez); o mesmo arquivo
+  // baixado de novo é um download do navegador, que sai com c=0.
+  registra(estado.pedidos[0] === 'RAIZFOTO_000000?v=redes' && baixados.join(',') === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes&c=0',
+    'Fallback do iPhone: a busca do Fotos conta uma vez; o mesmo arquivo baixado de novo sai com c=0', { pedidos: estado.pedidos, baixados });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fallback do iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// 429 do limite por IP: a página mostra a espera e NÃO repete sozinha nem a cada toque.
+await cenario('Limite por IP no download (429)', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE, limite429: 30 });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /Muita gente baixando/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 8000 });
+  const aviso = (await page.locator('#g-aviso-flut').textContent()) || '';
+  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(aviso), 'Limite: o Compartilhar mostra a espera que o servidor mandou', aviso);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await espera(page, 800);
+  const msg = (await page.locator('#g-folha-msg').textContent()) || '';
+  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(msg), 'Limite: "Salvar no Fotos" mostra a mesma espera na folha', msg);
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
+  await espera(page, 2500);
+  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: depois do 429 nenhum outro pedido sai durante a espera (nem laço, nem toque, nem "Baixar arquivo")', { pedidos: estado.pedidos, baixados });
+  registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
