@@ -422,7 +422,11 @@ Gmail contam como um endereço só (`emailCanonico()`). Duas armadilhas dele:
 o **teto do dia** (`EMAIL_CODE_DAILY_CAP`) existe porque a franquia do Resend é
 a MESMA do suporte e da remoção — subir o teto pode calar os outros e-mails; e
 sem `SIGNING_SECRET` ou `RESEND_API_KEY` o caminho responde 503 (indisponível,
-nunca aberto).
+nunca aberto). **Números conferidos pelo dono (29/10/2026, #231):** o Resend
+está no plano grátis — 100 e-mails/dia e 3.000/mês para a conta inteira; o
+pico medido foi de 36 e-mails em 12/10/2026 (dia de evento), com o teto de 40
+códigos/dia. O teto fica em 40: cabe no dia com folga para suporte, remoção e
+alertas. Subir só junto de um plano maior do Resend.
 
 Mesma família no servidor: a trava do alerta de erro por e-mail era só no
 KV, e a leitura que deu `null` fica em cache no colo — numa onda de 500 cada
@@ -431,11 +435,24 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
+Duas coisas da página de projeto que falham em silêncio (#141, out/2026):
+
+- **O Turnstile carrega sob demanda** (`comTurnstile()` em `src/ui/event.js`):
+  primeiro toque, tecla ou rolagem, ou abrir o portão/remoção. Quem precisa do
+  `turnstile` passa por `comTurnstile()`; testar `typeof turnstile` direto, com
+  o script ainda chegando, cai no caminho `noscript` sem bloqueador nenhum. O
+  endereço do script fica por extenso em `TS_SRC`: a prévia ("sem script") o
+  troca por texto.
+- **A caixa da capa é 3:2 fixa** (`.hero-foto`, `.carousel`), com a foto em
+  `object-fit: contain`. Sem ela a página nasce com o hero de altura 0 e desce
+  quando a foto chega (CLS 0,334). Capa retrato aparece inteira, menor, com
+  faixa escura dos lados; o site não guarda a proporção de cada capa.
+
 ### 5.13. Galeria própria: quem vê é decidido por UMA função
 
 Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
 Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
-"tamanho máximo". Desde 29/10/2026 (v2.1.0) **não é mais prévia só do dono**.
+"tamanho máximo" (os dois **sem alterar o arquivo**, ver abaixo). Desde 29/10/2026 (v2.1.0) **não é mais prévia só do dono**.
 Quem vê é decidido por `podeVerGaleria()`, UMA função em `src/index.js` — nada
 de espalhar `if` de acesso pelas rotas: álbum **público** abre para qualquer
 visitante, sem login e sem o portão do Drive; **família e privado** só com o
@@ -458,15 +475,48 @@ O que já mordeu, ou morderia:
   pertencimento (`achaFoto`), ele seria um proxy aberto para qualquer arquivo
   público do Drive com a nossa cota. Há teste que falha se ela sumir.
 - **A lista não grava em KV.** Fica na memória do isolate e na Cache API
-  (chave `https://fotos.invalid/__galeria/<id>`, o mesmo truque da cópia de
+  (chave `https://fotos.invalid/__galeria/<id>/m<teto de páginas>` — o teto faz parte da chave: galeria 30, Instagram 8 — o mesmo truque da cópia de
   sobrevivência da lista de eventos), 10 min. A cota de 1000 escritas/dia (§5.3)
-  não é tocada.
+  não é tocada. O casamento "para redes" (`casaRedesCacheado`) também fica na
+  Cache API (`__galeria/redes/…`, só posições), chaveado pelo instante das duas
+  listas, para um isolate novo não refazer a comparação de 6 mil nomes (10 ms de CPU).
+- **Download da galeria tem limite por IP** (`GALERIA_BAIXAR_BUCKET`, ficha no
+  `RateLimiter`, dono isento, falha aberta); `?c=0` lê sem contar (nunca muda o
+  arquivo servido); robôs conhecidos (`ehRobo`) não contam visita nem abertura.
 - **Plano gratuito = 50 subrequests por invocação.** Uma pasta com muitas
   subpastas e páginas estouraria; a varredura para em `GALERIA_MAX_CHAMADAS`
   (30) e a página avisa que a lista é parcial.
-- **"Salvar na galeria" no iPhone precisa de DOIS toques.** O
-  `navigator.share()` exige um toque recente, e baixar 20 MB demora mais que
-  isso: o primeiro toque prepara o arquivo, o segundo compartilha.
+- **O arquivo baixado é SEMPRE o do Drive, com o nome do Drive (v3.0).** O
+  site não redimensiona (nada de `lh3` em download; `GALERIA_LADO_REDES` e
+  `larguraRedes` não existem mais), não renomeia (sem prefixo de slug nem
+  `-redes`) e não recodifica. `max` = o original da pasta do projeto; `redes` =
+  o arquivo da pasta do Instagram (`driveUrlInstagram`) que casa com a foto
+  (`casaRedes` em `src/drive.js`: nome sem extensão, sem maiúscula/Unicode;
+  senão o do Instagram sem sufixo `-insta`/`_ig`/` instagram`/`-redes`; mesma
+  subpasta primeiro). Sem par, sem pasta ou pasta ilegível: sem "para redes" na
+  UI e 404 em `v=redes`. O id da rota é SEMPRE o da foto da galeria; o id do
+  arquivo do Instagram vem da listagem do servidor (nunca do pedido, nem vai à
+  página): por isso o proxy não é aberto. `Cache-Control: private,
+  no-transform` impede que um intermediário converta a imagem.
+- **Orçamento de subrequests com duas pastas.** A página e `v=redes` listam a
+  pasta do projeto (até `GALERIA_MAX_CHAMADAS` = 30) e a do Instagram (até
+  `GALERIA_MAX_CHAMADAS_IG` = 8): 38 + ~4 Cache API + ~4 KV/sessão/contador ≈
+  46 < 50. Subir um dos dois exige refazer essa conta (o teste "orçamento do
+  plano gratuito" a prende). O sitemap de imagens não lê a pasta do Instagram.
+- **A ÚNICA checagem de plataforma da galeria é "é iOS?"** (`ehIOS()` no
+  script de `src/ui/galeria.js`: UA `iPhone|iPad|iPod` ou `MacIntel` com
+  `maxTouchPoints > 1` — o iPadOS finge ser Mac). É exceção deliberada à
+  regra "nunca decidir por modelo de aparelho/UA", que vale para a RESOLUÇÃO
+  das imagens (essa segue por pixels físicos): `canShare({ files })` existe
+  também no Android e no desktop, e só o iOS tem o "Salvar imagem" que põe a
+  foto no Fotos (o download comum cai no app Arquivos). No iOS (Safari e
+  Chrome, ambos WebKit) a folha tem **"Salvar no Fotos"** (Web Share com
+  `File` exato; lotes de 20 fotos / 80 MB) e **"Baixar arquivo"**. Android e
+  desktop: download comum, sem Web Share. Se `canShare` recusar, o iOS cai
+  para o download comum. O `navigator.share()` do iOS exige toque recente:
+  tenta na hora, e se vier `NotAllowedError` pede UM toque no botão (o arquivo
+  já está pronto). Compartilhar a foto (botão Compartilhar do visualizador) é
+  outra coisa: abre o menu de compartilhar de propósito.
 - **O zoom só sobe a resolução porque o `srcset` vai até o original.** O
   PhotoSwipe nunca baixa o `sizes` de um slide (guarda o maior já usado); se a
   escada parar antes do original, o zoom estica pixel.
@@ -478,6 +528,24 @@ O que já mordeu, ou morderia:
 - **O script da página mora numa template string** (`SCRIPT` em
   `src/ui/galeria.js`): crase num comentário dele fecha a string e derruba o
   módulo inteiro na importação.
+- **Galeria pública no Google (29/10/2026).** Só a de álbum público e
+  listado, vista por visitante, fora da prévia e com fotos, sai sem `noindex`
+  — a regra é `galeriaIndexavel()` (sitemap e página usam a mesma); família e
+  privado seguem com o perfil do painel (`no-store`, `noindex`). As fotos vão
+  para o Google por `/sitemap-galeria-<slug>.xml` (um por galeria: duas
+  listagens frias no mesmo pedido estourariam as 50 subrequests). Downloads:
+  `Disallow` no `robots.txt`, `X-Robots-Tag: noindex` e `rel="nofollow"`. A
+  página do visitante é `private, no-cache` (leva o nonce da CSP; nunca
+  `public`). Foto oculta sai do HTML e do sitemap em até 2 min (a propagação do painel: cache do isolate 30 s + `cacheTtl` do KV 30 s + propagação do KV), não "na hora"; **para
+  tirar do Google com urgência: Search Console → Remoções** (`docs/RELEASE.md`).
+- **Carga da galeria no celular (30/10/2026).** O CSS do PhotoSwipe não vai no
+  `<head>` (bloqueava a pintura): `preparaLightbox()` o insere ANTES do
+  `<style>` da página — depois dele, as regras `.pswp` da página perderiam a
+  cascata. A pré-carga da primeira foto (celular até 430 px, foto deitada)
+  repete a escada `GALERIA_LARGURAS_GRADE` e o `-rw` do WebP: se a `<img>`
+  mudar de URL ou de `sizes`, a dica baixa um arquivo a mais (o
+  `verifica:galeria` conta os pedidos da primeira foto). `eager` só na
+  primeira tela e `fetchpriority=high` só na primeira linha.
 - **No Playwright, `page.route` não intercepta o `<a download>`** — a
   navegação vira download antes da rota. O `verifica:galeria` confere a URL do
   download; o nome do arquivo (o `Content-Disposition`) está na suíte.
@@ -610,6 +678,27 @@ verdade contra uma API falsa e confere que os segredos e os bindings da prévia
 vão na publicação. Foi assim, em 12/10/2026, que "o script não funciona" virou
 "o build não rodou o script".
 
+### 5.17-b. Backup: o JSON do painel tem teto; o registro inteiro sai pelo `wrangler d1 export`
+
+Desde o backup v3, *Ajustes → Baixar backup JSON* leva também o registro de
+consentimento do D1 (`consent`: colunas uma vez, cada aceite uma lista) — e
+com ele **IP, aparelho e nome de terceiros**: o arquivo fica só no seu
+computador, protegido, e é apagado no prazo do registro. Três coisas que
+mordem:
+
+- **Teto de 1500 aceites** (`CONSENT_BACKUP_MAX_LINHAS`). O plano gratuito dá
+  10 ms de CPU, e o custo é JSON (~5 ms por 1000 linhas). Estourar não corta o
+  arquivo, derruba o download. Acima do teto o toast diz "parcial", e o
+  completo é o export:
+  `npx wrangler d1 export fotos-consent --remote --output=fotos-consent-AAAA-MM-DD.sql`
+  (quando e como restaurar: `docs/RELEASE.md`). Faça um antes de qualquer
+  migração D1.
+- **D1 fora não derruba o backup**: sai com `consent.ausente` e o motivo, o
+  toast avisa, o healthz registra. Nunca confie num backup sem olhar o toast.
+- **O restore só acrescenta** (`INSERT OR IGNORE` por id, em lotes de
+  `batch()`), recusa linha ruim uma a uma e aceite vencido, e **não roda na
+  prévia**. Backups v1/v2 restauram como sempre (`tests/fixtures/`).
+
 ### 5.18. Álbum de família ou privado: consentimento, não sigilo (#146)
 
 A caixa de declaração **não é barreira de acesso**: registra o uso que a
@@ -707,7 +796,7 @@ celular. Serve para rotação de secret, rollback e reverificação.
 | `healthz` → "status de e-mail do pedido de remoção não gravado" | O pedido está salvo; o carimbo dos e-mails não. Se for frequente, alguém regravou a mesma chave sem esperar a janela de 1 s do KV (§5.15) |
 | O array `removal_requests` ainda no KV dias depois do deploy da v2.0 (o painel lê os dois juntos, então nada some — mas a migração parou) | O cron não está migrando: `healthz` → `cron:last` (§5.15) |
 | Galeria própria: "pasta inacessível" ou lista vazia | A pasta do projeto não está como "Qualquer pessoa com o link", ou o link cadastrado não é de pasta. A chave de API só enxerga o que é público por link |
-| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, *para redes* (lh3) e o Drive continuam funcionando |
+| Galeria própria: "O Google limitou downloads desta foto" | Cota de download do Drive para aquele arquivo (`downloadQuotaExceeded`). Passa sozinha em horas; até lá, o botão "Abrir no Drive" da folha continua funcionando. Desde a v3.0 **os dois downloads** (original e Instagram) usam a Drive API e a mesma cota |
 | Deploy passou mas não apareceu Release na aba **Releases** | Resumo do job (Actions → Deploy → run) → linha "Release". Falha não afeta o deploy — é `::warning::` no log do passo "Criar GitHub Release"; a tag `deploy-…` já existe de qualquer forma |
 
 **Rollback:** o rápido é **Actions → Deploy → Run workflow** com `version_id` =
@@ -720,6 +809,20 @@ revertido.
 ---
 
 ## 8. O que fica pendente
+
+**Depois da v3.0.0 (30/10/2026)** — cada item é uma issue:
+- uso: ZIP no computador (#248), faixa de fotos na página do projeto (#249),
+  selo de fotos novas (#250), QR code no painel (#251), duplicar evento
+  (#140), painel no celular (#220);
+- desempenho: script da galeria como arquivo com cache (#252), primeira
+  fileira no servidor (#253), proporção real das capas (#254), medição de
+  desempenho com p75 no painel (#134, trabalho começado no branch local
+  `v3-beacon`);
+- código e testes: dividir o `src/index.js` (#255), testes pesados sob carga
+  (#256), `@cloudflare/vitest-plugin` (#180), teste visual (#135);
+- fora do código: HSTS da borda e "JavaScript detections" na Cloudflare
+  (#257), WAF (#132), vigia do Homelab e as checagens novas da v3 no status
+  (status.lucafchala.com #64 e #63), autorização de menores (#119).
 
 Lista completa nas [Issues do GitHub](https://github.com/lucafchala/fotos/issues)
 — desde 2026-09, item de ação vive lá, não em `TODO.md` (que guarda só
@@ -735,12 +838,13 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   mais relevante em aberto.
 - **Depois da rodada de 23–24/09/2026** (14 PRs, #161–#176), três coisas só o
   dono pode fazer: importar a proteção da `main` e apagar os 72 branches
-  entregues (#177); conferir em produção o que a sessão não alcançava — login
+  entregues (#177, fechada em 29/10/2026: ruleset `main-protegida` ativa,
+  "apagar branch no merge" ligado e faxina feita); conferir em produção o que a sessão não alcançava — login
   com Turnstile num navegador de verdade, Worker `fotos-preview` no painel,
   rollback manual (#178). O portão de preview (#179) saiu do `deploy.yml` no PR #236 (a URL nunca chegava).
 - **Depois do evento de out/2026** (PR #229 — balde de fichas, código por
   e-mail, fotos por aparelho): medir o pico e calibrar os baldes (#230),
-  confirmar o plano do Resend e testar o código com e-mail de verdade (#231)
+  o plano do Resend já foi conferido (#231, ver o código por e-mail acima),
   e a cota de download do Drive num pico (#233). O `verifica:evento` na CI
   (#232) entrou no PR #236, junto com os outros roteiros de navegador.
 - **Versão 2.0** (PR #236 — métricas com gráfico, prévia de PR, painel em
@@ -758,9 +862,11 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
   reavaliar), #134 (destino do beacon de desempenho) e #119 (autorização de
   menores).
 - **Termos e o modelo do #146**: reescritos na v2.0 (`TERMS_VERSION`
-  2026-10-18) — Familiares e Privados falam em consentimento, não senha. Falta
-  só a revisão jurídica (ECA Digital, LBI) e a declaração de acessibilidade
-  (`docs/ACESSIBILIDADE-RASCUNHO.md`, não publicar antes dela).
+  2026-10-18) — Familiares e Privados falam em consentimento, não senha — e na
+  versão 2026-10-29, SEM revisão jurídica por decisão do dono (29/10/2026): a
+  galeria dos projetos públicos abre sem aceite e as galerias públicas podem
+  aparecer em buscadores. A declaração de acessibilidade está publicada em
+  `/legal/declaracao-de-acessibilidade` (`docs/legal/declaracao-de-acessibilidade.md`).
 
 ---
 
@@ -778,6 +884,7 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | Registro de consentimento (D1) | 1825 dias (~5 anos), poda às 03:00 UTC | `CONSENT_RETENTION_DAYS` |
 | Aviso de "novas fotos" | 24 h por padrão | `photosAlert.expiresAfterHours` (`src/config.js`) |
 | Lembrete de backup | `backup:ultimo` no KV | painel, Ajustes |
+| Cópias de backup com o registro de consentimento (JSON v3 e `wrangler d1 export`) | 1825 dias por aceite, **apagadas à mão** | `docs/legal/politica-de-retencao.md` |
 | Revisão anual dos documentos legais | 12 meses | `docs/legal/README.md` |
 
 ## 9. Documentos, e para que serve cada um
@@ -794,7 +901,7 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | [docs/VERIFICACAO.md](./docs/VERIFICACAO.md) | Como rodar e dirigir o site de verdade |
 | [docs/PAINEL.md](./docs/PAINEL.md) | O painel por dentro: seções, blocos, ações, endpoints, como verificar |
 | [docs/PLANO-PAGO.md](./docs/PLANO-PAGO.md) | Como assinar o Workers Paid e o que mexer (e não mexer) depois |
-| [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes… |
+| [docs/legal/](./docs/legal/) | ROPA, RIPD, LIA, retenção, incidentes, declaração de acessibilidade… |
 | [LEGAL.md](./LEGAL.md) | Índice da conformidade |
 
 Os documentos legais também são páginas do site, em `/legal`.

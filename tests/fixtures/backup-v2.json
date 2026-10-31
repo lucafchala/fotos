@@ -1,0 +1,69 @@
+{
+  "version": 2,
+  "backupAt": "2026-09-30T21:47:03.118Z",
+  "eventCount": 2,
+  "events": [
+    {
+      "id": "mf1x8c2d",
+      "slug": "formatura-direito-2026",
+      "title": "Formatura Direito 2026",
+      "longDescription": "",
+      "driveUrl": "https://drive.google.com/drive/folders/1FoRmAtUrAdIrEiTo2026abcdefghijk",
+      "driveUrlInstagram": "https://drive.google.com/drive/folders/1InStAgRaMdIrEiTo2026abcdefghijk",
+      "driveUrlVideos": "",
+      "youtubeId": "",
+      "date": "2026-09-12",
+      "eventCredits": "",
+      "projectUrl": "",
+      "promisedDate": "",
+      "visible": true,
+      "comingSoon": false,
+      "status": "entregue",
+      "accessType": "public",
+      "category": "Formatura",
+      "internalNotes": "",
+      "pinned": true,
+      "photos": [],
+      "photosAlert": { "active": false, "addedAt": null, "expiresAfterHours": 24, "kind": "fotos" },
+      "createdAt": "2026-09-13T08:00:00.000Z",
+      "updatedAt": "2026-09-20T19:40:00.000Z"
+    },
+    {
+      "id": "mf2y9d3e",
+      "slug": "aniversario-familia",
+      "title": "Aniversário (família)",
+      "driveUrl": "https://drive.google.com/drive/folders/1FaMiLiAaNiVeRsArIo0abcdefghijkl",
+      "date": "2026-08-30",
+      "visible": true,
+      "comingSoon": false,
+      "status": "entregue",
+      "accessType": "family",
+      "category": "Família",
+      "photos": [],
+      "createdAt": "2026-08-31T12:00:00.000Z",
+      "updatedAt": "2026-08-31T12:00:00.000Z"
+    }
+  ],
+  "categories": ["Formatura", "Família", "Ensaio"],
+  "reviews": [
+    { "slug": "formatura-direito-2026", "rating": 5, "text": "Seção do recurso removido: o restore a ignora." }
+  ],
+  "removalRequests": [
+    {
+      "id": "0f3c2b1a0f3c2b1a0f3c2b1a0f3c2b1a",
+      "eventSlug": "formatura-direito-2026",
+      "eventTitle": "Formatura Direito 2026",
+      "method": "number",
+      "value": "Foto 128",
+      "email": "titular@exemplo.com",
+      "phone": "11900000000",
+      "message": "Por favor, remover.",
+      "fileName": null,
+      "fileBase64": null,
+      "createdAt": "2026-09-21T10:00:00.000Z",
+      "resolved": false,
+      "emailStatus": "sent",
+      "confirmEmailStatus": "sent"
+    }
+  ]
+}

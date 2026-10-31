@@ -35,13 +35,16 @@ describe('mergeRestore', () => {
 });
 
 describe('buildBackup', () => {
-  it('produces a v2 envelope with counts and all sections', () => {
+  it('produces a v3 envelope with counts and all sections', () => {
     const out = JSON.parse(buildBackup({
       events: [{ id: 'a' }, { id: 'b' }],
       categories: ['Casamento'],
       removalRequests: [{ id: 'q1' }],
     }));
-    expect(out.version).toBe(2);
+    expect(out.version).toBe(3);
+    // Sem a seção pronta, o arquivo diz que ela faltou — nunca a omite calado
+    // (o registro de consentimento: tests/backup-consentimento.test.js).
+    expect(out.consent).toMatchObject({ tabela: 'image_use_consent', ausente: true });
     expect(out.eventCount).toBe(2);
     expect(out.categories).toEqual(['Casamento']);
     expect(out.removalRequests).toHaveLength(1);

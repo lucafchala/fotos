@@ -55,7 +55,7 @@ URL de produção: <https://fotos.lucafchala.com>
 
 O site tem três audiências:
 
-1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal com o gate de acesso: verificação Turnstile (pré-carregada assim que a página abre) + aceite dos Termos. Só depois de passar por esse gate — validado no servidor, não no cliente — o link real do Drive é liberado (`POST /api/drive-link`). Se o gate travar de verdade (VPN ou bloqueador quebrando a verificação, ou recusa depois das tentativas automáticas), a modal oferece **um código por e-mail** como último recurso (`POST /api/drive-code`); o botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
+1. **Visitante público** — abre `/` para ver a galeria de projetos, clica num card para abrir a página do projeto (`/<slug>`), vê descrição, fotos de capa em carrossel e um botão "Acessar fotos" que abre uma modal com o gate de acesso: verificação Turnstile (o script carrega no primeiro toque, tecla ou rolagem — ou ao abrir o portão —, não na abertura da página: era o grosso do TBT no celular) + aceite dos Termos. Só depois de passar por esse gate — validado no servidor, não no cliente — o link real do Drive é liberado (`POST /api/drive-link`). Se o gate travar de verdade (VPN ou bloqueador quebrando a verificação, ou recusa depois das tentativas automáticas), a modal oferece **um código por e-mail** como último recurso (`POST /api/drive-code`); o botão registra um clique (métrica) e abre o Drive em nova aba. Se a foto pertence a alguém que prefere remover, há um formulário de solicitação de remoção no rodapé.
 2. **Cliente / contato** — abre `/suporte` para entrar em contato por WhatsApp, e-mail direto ou formulário (que envia e-mail via Resend para o admin).
 3. **Admin (Luca)** — entra em `/dashboard`, autentica com senha (PBKDF2, sessão de 24h em cookie HTTP-only), gerencia eventos (CRUD), ordena, destaca um como featured, marca como "em breve", oculta da galeria, define status de produção, vê métricas de views e cliques no Drive, baixa/restaura backup JSON, troca senha e responde solicitações de remoção (cada "resolver" dispara um e-mail de confirmação ao solicitante).
 
@@ -513,7 +513,7 @@ Desde a v2.0, **cada PR ganha um site de prévia**: o mesmo código, a mesma con
 - **Turnstile de teste.** As chaves de teste da Cloudflare, e o servidor verifica com o segredo de teste correspondente; o comportamento (passa, pede a caixa, bloqueia…) se escolhe no menu **Testes** da faixa — ver [abaixo](#o-menu-testes-da-faixa).
 - **Menu "Testes" na faixa:** simulações (e-mail, portão lotado, banco fora, Drive, rede lenta) e ações (métricas de exemplo, zerar limites) para testar cada salvaguarda sem esperar ela acontecer — ver [O menu "Testes" da faixa](#o-menu-testes-da-faixa).
 - **E-mail sai de verdade, com "[PRÉVIA]" no assunto** — dá para testar os fluxos inteiros. Heartbeat do Kuma e Web Analytics ficam **desligados** na prévia mesmo que esses segredos sejam copiados (uma prévia batendo o monitor manteria verde um site de produção caído).
-- **Restaurar backup na prévia não traz os pedidos de remoção** (dados pessoais de terceiros — e resolver um ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
+- **Restaurar backup na prévia não traz os pedidos de remoção nem o registro de consentimento** (dados pessoais de terceiros — e resolver um pedido ali mandaria e-mail para uma pessoa real). Para testar pedidos, faça um pela própria prévia.
 - **Cron não roda** em prévia (é regra da plataforma).
 
 ### Ligar (uma vez, no painel da Cloudflare)
@@ -543,7 +543,7 @@ O KV e o D1 da prévia já existem (criados junto com a v2.0, e o esquema do D1 
 
    O mínimo para testar tudo é `PREVIA_RESEND_API_KEY`, `PREVIA_ADMIN_EMAIL` e `PREVIA_GOOGLE_DRIVE_API_KEY`: o `SIGNING_SECRET` o build gera, e o `ADMIN_PASSWORD` pode vir da configuração base (ele só precisa existir quando a prévia nasce). Só esses cinco sobem; outro `PREVIA_*` é ignorado com aviso no log. O script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma prévia que já o recebeu — para isso, `npx wrangler preview secret delete <NOME> --name <prévia>`.
 
-3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
+3. **Encher a prévia com os seus projetos.** No painel de **produção**, *Ajustes → Baixar backup JSON*. Na prévia, entre em `/dashboard` com o `ADMIN_PASSWORD` da prévia e use *Ajustes → Restaurar backup* com esse arquivo. Os projetos e as categorias entram; os pedidos de remoção e o registro de consentimento, não (ver acima). O KV de prévia é um só para todas as prévias: basta fazer isto uma vez.
 
 ### O menu "Testes" da faixa
 
@@ -601,7 +601,7 @@ fotos/
 ├── docs/
 │   ├── PAINEL.md           ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, o card de evento, o formulário, como verificar
 │   └── legal/              ← pacote de conformidade LGPD (fonte da verdade dos textos)
-│       ├── README.md       ← índice + aviso "não é parecer jurídico" + porte do agente
+│       ├── README.md       ← índice + nota "Redigido com auxílio de IA, sem revisão jurídica" + porte do agente
 │       ├── ROPA.md         ← registro das operações (art. 37)
 │       ├── RIPD.md         ← relatório de impacto / DPIA (art. 38)
 │       ├── LIA.md          ← teste de legítimo interesse (art. 10)
@@ -611,6 +611,7 @@ fotos/
 │       ├── plano-resposta-incidentes.md
 │       ├── politica-seguranca-informacao.md
 │       ├── termo-autorizacao-uso-imagem.md
+│       ├── declaracao-de-acessibilidade.md
 │       └── checklist-conformidade.md
 ├── scripts/
 │   ├── build-legal-docs.mjs ← empacota os .md em src/content/legal-docs.js (npm run build:legal)
@@ -619,7 +620,7 @@ fotos/
 │   ├── build-icons.mjs      ← rasteriza src/content/icon-svg.js em PNG (src/content/icons.js, npm run build:icons)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail, álbum restrito sem Turnstile) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
-│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads, "Salvar na galeria" (npm run verifica:galeria)
+│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads exatos, "Salvar no Fotos" no iPhone (npm run verifica:galeria)
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
 │   ├── vigia-csp.mjs        ← o vigia de CSP dos cinco roteiros: qualquer mensagem de CSP no console reprova, e uma página-canário prova que o vigia enxerga e a política bloqueia (#126)
@@ -874,6 +875,8 @@ compatibilidade sem comprar segurança.
 | GET | `/vendor/<nome>.<hash>.(js\|css)` | `handleVendor` | Bibliotecas vendorizadas (hoje, o PhotoSwipe da galeria própria). Busca **exata** no mapa de `src/content/vendor.js`; cache `immutable` de um ano, seguro porque o nome leva o hash do conteúdo |
 | GET | `/icon.svg` | `handleIcon` | Ícone SVG inline (rect 256x256 com "f." centralizado) |
 | GET | `/api/recentes` | `handleRecentes` | As 5 galerias mais recentes em JSON (`{galerias:[{slug, titulo, data, url, destaque, emBreve}]}`), na ordem da galeria (fixados primeiro) e com o filtro do sitemap (sem ocultos nem `private`/`family`). **Único endpoint com CORS aberto** (`Access-Control-Allow-Origin: *`, CORP `cross-origin`, `max-age=300`): quem lê é o widget "Galerias recentes" da home lucafchala.com, que assim mostra projeto novo sem ninguém editar o HTML de lá. Só leitura, nenhum campo além do que o widget desenha (nada de Drive, capa ou tipo de acesso) — mudar o formato quebra a home, então mude os dois juntos |
+| GET | `/sitemap-galerias.xml` | `handleSitemapGalerias` | Índice (sitemapindex) dos sitemaps de imagens, um por galeria indexável. Só lê a lista de eventos |
+| GET | `/sitemap-galeria-<slug>.xml` | `handleSitemapGaleria` | A URL da galeria com até 1000 `<image:image>` (lh3, sem as ocultas) e o `lastmod` do evento. Custa o mesmo que uma visita à galeria (a listagem de 10 min); Drive fora → 503 com `Retry-After`; galeria não indexável → 404 |
 | POST | `/api/removal-request` | `handleRemovalRequest` | Recebe solicitação de remoção (rate-limit: 20/h por IP — `FORM_LIMIT_PER_HOUR`), envia e-mails, persiste |
 | POST | `/api/track-drive` | `handleTrackDrive` | Incrementa `drive_clicks:<slug>` (balde por IP: 1000 de rajada, 200/h — ver "Rate limiting") |
 | POST | `/api/drive-link` | `handleDriveLink` | **O único lugar que devolve o link real do Drive.** Valida o Turnstile no servidor (fail-closed, 403 se falhar), o slug, o aceite dos Termos (+ declaração quando exigida), balde de fichas por IP (429 com `Retry-After` em segundos — dimensionado para o público de um evento atrás do mesmo Wi-Fi/NAT, ver "Rate limiting") — e grava o aceite em D1 (best-effort, no-op sem D1), com `turnstile_ok` = 1 (Turnstile), 0 (`noscript`) ou 2 (código por e-mail). Três caminhos: token do Turnstile, `noscript` (Turnstile bloqueado) e `email` (+ `emailToken`/`emailCode` de `/api/drive-code`). No caminho `noscript`, depois da gravação, conta os projetos distintos do IP em 24 h e alerta o dono a partir de 5 (#147). Em álbum `family`/`private`, só nesse caminho (#146): exige `name` (400 com `campo: "nome"`) e para no 3º álbum restrito distinto do IP em 24 h (403 com `usarEmail: true` — a página abre o código por e-mail) |
@@ -899,13 +902,13 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
-| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo |
-| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público |
+| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo. **Indexada no Google** só a de álbum público e listado, vista por visitante, fora da prévia e com fotos (`galeriaIndexavel()`; ver [No Google](#no-google)); o resto leva `noindex` |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto, **sem alterar o arquivo** (nome e bytes exatos): `max` = o original da pasta do projeto, pela Drive API (chave só no servidor); `redes` = o arquivo de mesmo nome da pasta do Instagram do projeto (`driveUrlInstagram`), também pela Drive API. `<id>` é sempre o da foto na galeria; o do arquivo do Instagram sai da listagem do servidor, nunca do pedido. Foto fora da pasta do projeto, sem par no Instagram ou sem pasta do Instagram: 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
-| GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
-| POST | `/api/backup/restore` | Merge de backup (v1 ou v2) com o KV atual (por id, mais recente vence) |
+| GET | `/api/backup` | Download JSON **v3** (eventos + categorias + solicitações + registro de consentimento) |
+| POST | `/api/backup/restore` | Merge de backup (v1, v2 ou v3) com o KV atual (por id, mais recente vence); aceites do registro só entram se faltarem |
 | GET | `/api/removal-requests` | Lista solicitações ordenadas por data desc |
 | PUT | `/api/removal-requests/<id>/resolve` | Marca resolvida e envia e-mail "Solicitação atendida" ao requerente |
 
@@ -1020,8 +1023,8 @@ Todas as páginas públicas respeitam **`prefers-color-scheme`** automaticamente
 Arquivo grande (~40 KB) porque inclui HTML + CSS + JS inline. Componentes:
 
 - **Banner de novas fotos** (se `photosAlert.active` e dentro da janela de expiração): "Novas fotos adicionadas — há X minutos/horas/dias", atualizado em JS a cada 60s.
-- **Fotos de capa por aparelho**: a 1ª foto vem num `<picture>` com `srcset` 800/1200/1600 (`sizes="100vw"`) em WebP e JPEG; o navegador escolhe a menor largura que cobre a tela em **pixels físicos** antes de qualquer JS rodar. O carrossel usa a mesma escada para as seguintes (`PHOTO_W`), WebP decidido por decodificação de verdade (não por user-agent — Android e iPhone pelo mesmo critério). Duplo toque no lightbox pede `=w2400` para todos. Com economia de dados (`navigator.connection.saveData`) ou 2G, as vizinhas não são pré-carregadas — a foto da vez continua na mesma qualidade. Medido em out/2026: celular baixava 3 × `=w1600` (~756 KiB cada) só para abrir a página. `npm run verifica:evento` confere tudo isso por aparelho.
-- **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/` (carregando o filtro da galeria de onde veio, se aplicável — ver seção da galeria), legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px). Tocar/clicar em qualquer foto de preview abre um **lightbox** em tela cheia (setas/swipe para navegar, double-tap ou duplo clique para zoom 2.2×, Escape/fundo/botão fecha) — é só visualização das fotos de prévia já embutidas na página, não tem download nem substitui o fluxo do Drive.
+- **Fotos de capa por aparelho**: a 1ª foto vem num `<picture>` com `srcset` 800/1200/1600 (`sizes="100vw"`) em WebP e JPEG; o navegador escolhe a menor largura que cobre a tela em **pixels físicos** antes de qualquer JS rodar. O carrossel e o lightbox usam a mesma escada para cada foto (`fotoUrl()`, refeita a cada troca com a janela de agora — celular deitado pede mais), WebP decidido por decodificação de verdade (não por user-agent — Android e iPhone pelo mesmo critério). Duplo toque no lightbox pede `=w2400` para todos. Com economia de dados (`navigator.connection.saveData`) ou 2G, as vizinhas não são pré-carregadas — a foto da vez continua na mesma qualidade. Medido em out/2026: celular baixava 3 × `=w1600` (~756 KiB cada) só para abrir a página. `npm run verifica:evento` confere tudo isso por aparelho.
+- **Hero**: sem mais a barra "todos os projetos" acima da foto (antigo `<header>` removido) — um pill semitransparente com blur (`.back-pill`), sobreposto no canto superior esquerdo do hero, leva de volta para `/` (carregando o filtro da galeria de onde veio, se aplicável — ver seção da galeria), legível sobre qualquer foto. Se `comingSoon`, mostra placeholder com ícone de relógio + "Em breve". Se 0 fotos, ícone de câmera. Se 1 foto, hero único. Foto única e carrossel ficam numa **caixa 3:2 (teto de 72vh) reservada antes de a foto chegar**, com a foto inteira dentro (`object-fit: contain`, nunca cortada) — sem ela a página descia quando a capa carregava (CLS 0,334 no PageSpeed, #141); o site não guarda a proporção de cada capa, e 3:2 é a da maioria. Se ≥ 2, **carrossel** com botões anterior/próxima, dots, contador (1/N), e swipe touch (`touchstart`/`touchend` com threshold 40px). Tocar/clicar em qualquer foto de preview abre um **lightbox** em tela cheia (setas/swipe para navegar, double-tap ou duplo clique para zoom 2.2×, Escape/fundo/botão fecha) — é só visualização das fotos de prévia já embutidas na página, não tem download nem substitui o fluxo do Drive.
 - **Conteúdo**: data, título grande, descrição longa opcional (`white-space: pre-wrap`, sem espaço morto quando ausente), botão "Acessar fotos" (pulso sutil de atenção se ficar ~11s sem clique).
 - **Modal "Acessar fotos"** (gate real, verificado no servidor): termos + botão de acesso aparecem **juntos e imediatamente** ao abrir — o Turnstile já foi pré-carregado de forma invisível assim que a página abriu (`execution:'execute'`), então normalmente já está pronto; não há mais uma tela de "Carregando…" escondendo os termos. O botão fica visível mas com cor "desabilitada" até o link real chegar; o ícone vira um spinner assim que os termos/declaração são aceitos — não só durante a requisição, mas também no intervalo em que só falta o Turnstile liberar um token (`maybeFetchDriveLink()` acende o spinner nos dois casos). O botão continua clicável nesse intervalo (não trava por CSS); clicar antes de aceitar os termos faz a caixa de aceite piscar e mostra "você precisa aceitar os termos e declarações primeiro" por ~3,5s, e clicar depois de aceitar mas antes do link estar pronto mostra "só um instante, o acesso ainda está carregando" pelo mesmo período (mensagens só aparecem reagindo ao clique, nunca ficam fixas). Assim que Turnstile + Termos estão OK, o link real é buscado automaticamente em `POST /api/drive-link` (sem esperar clique extra); uma vez pronto, um pulso sutil chama atenção se ficar alguns segundos sem clique. Erro de verificação mostra mensagem compacta com opção de tentar de novo **ou receber um código por e-mail** (último recurso, `/api/drive-code`) — a página repete sozinha **uma** vez num erro comum e nunca num 429; no 429 (público inteiro no mesmo Wi-Fi), mostra "Muita gente acessando agora — liberando em N s" e tenta de novo no tempo que o servidor mandou (`Retry-After`), no máximo 5 vezes. Se o Turnstile já falhou antes de o modal abrir (VPN), o modal abre com a opção do código à vista — a linha de contato de emergência ("fale comigo" / "me chame no WhatsApp") usa o mesmo tom vermelho-erro (`.dv-contact` casa com `.dv-msg`), em vez de destoar com uma cor separada. Se um bloqueador de anúncios impede o carregamento do Turnstile, exibe um aviso pedindo para desativá-lo / ativar o JavaScript — o acesso ainda é possível por um caminho mais fraco (sem captcha, rate-limit próprio mais restritivo, auditado como não-verificado), decisão consciente para não travar a entrega a esse público (ver seção LGPD e `SECURITY.md`). A caixa "Antes de acessar" mostra a dica de não tirar print, um aviso permanente para **não compartilhar o link do Drive diretamente** (usar o botão Compartilhar do rodapé, que manda a página do projeto com o mesmo controle de acesso), o botão de crédito do Instagram e (se definido) `eventCredits`; depois do botão, uma dica explica como baixar tudo de uma vez no Drive (selecionar tudo + "Fazer download"). O clique final chama `trackDrive()` antes de abrir o Drive em nova aba.
 - **Créditos**: link com a logo real do Instagram levando para @lucafchala ("Marque-me"), (opcional) `eventCredits` como "Em colaboração com: <valor>" — cobre instituição, fotógrafo colaborador ou projeto parceiro, não só outro fotógrafo — e link extra do projeto. Nesta seção o Instagram entra como mais uma linha da lista de créditos (mesmo alinhamento/espaçamento, sem o cartão/pill isolado); no modal de acesso ("Antes de acessar") ele continua com o visual de botão de destaque, contexto onde faz sentido chamar mais atenção.
@@ -1165,7 +1168,7 @@ Pedidos de remoção (LGPD) **agrupados por evento**: cada grupo é um bloco, co
 
 #### Seção Métricas
 
-Métricas v2 (#215), de cima para baixo: o **filtro** numa linha só (7, 30 ou 90 dias; um projeto ou todos — o período escolhido volta ao recarregar); os **números do período** (Visitas, Abriram o Drive, Taxa de abertura, Hoje), cada um comparado ao período anterior de mesmo tamanho — só quando aquele período inteiro já tinha contagem por dia; o **gráfico de acessos por dia** (Visitas × Abriram o Drive, uma escala só, o pico rotulado, legenda com os totais) com a cruz que mostra o dia no mouse, no toque e no teclado (setas, Home, End, Esc — e cada passo anunciado ao leitor de tela), **"Ver como tabela"** e o CSV da série; a **média por dia da semana**; os **modos do portão** (verificação automática, código por e-mail, sem JavaScript) em barras com %; e a **lista de projetos do período**, com a curva das visitas de cada um, que foca os gráficos no projeto ao toque. No fim, o **Total desde o início** (a tabela de antes, ordenável, com o histórico inteiro e o CSV dos totais). Dia de antes do começo da contagem por dia aparece em branco, não como zero. Tudo vem de duas leituras feitas ao abrir a seção (ou em "Atualizar"): `GET /api/metrics` e `GET /api/metrics/diario?dias=180` — trocar o filtro não pede nada ao servidor. Detalhes e decisões em [`docs/PAINEL.md`](./docs/PAINEL.md) §8.
+Métricas v2 (#215), de cima para baixo: o **filtro** numa linha só (7, 30 ou 90 dias; um projeto ou todos — o período escolhido volta ao recarregar); os **números do período** (Visitas, Abriram o Drive, Abriram a galeria, Fotos baixadas, Taxa de abertura — Drive ou galeria ÷ visitas —, Hoje), cada um comparado ao período anterior de mesmo tamanho — só quando aquele período inteiro já tinha contagem por dia; o **gráfico de acessos por dia** (Visitas, Abriram o Drive e Abriram a galeria, uma escala só, o pico rotulado, legenda com os totais) com a cruz que mostra o dia no mouse, no toque e no teclado (setas, Home, End, Esc — e cada passo anunciado ao leitor de tela), **"Ver como tabela"** e o CSV da série; o bloco **Fotos baixadas na galeria** (para redes × tamanho máximo, por dia); a **média por dia da semana**; os **modos do portão** (verificação automática, código por e-mail, sem JavaScript) em barras com %; e a **lista de projetos do período**, com a curva das visitas de cada um, que foca os gráficos no projeto ao toque. No fim, o **Total desde o início** (a tabela de antes, ordenável, com o histórico inteiro e o CSV dos totais). Dia de antes do começo da contagem por dia aparece em branco, não como zero. Tudo vem de duas leituras feitas ao abrir a seção (ou em "Atualizar"): `GET /api/metrics` e `GET /api/metrics/diario?dias=180` — trocar o filtro não pede nada ao servidor. Detalhes e decisões em [`docs/PAINEL.md`](./docs/PAINEL.md) §8.
 
 #### Seção Ajustes
 
@@ -1175,7 +1178,7 @@ Três grupos de blocos:
 | --- | --- | --- |
 | **Site** | Selo de agenda | `PUT /api/settings/agenda` (`{texto}`) — frase curta, até 80 caracteres, no topo da galeria e da /sobre; vazio, o selo some |
 | | Categorias | `POST /api/categories` (`{name}`) e `POST /api/categories/delete` (`{name}`; pede digitar o nome da categoria, que é removida de todos os eventos que a usavam). Alimentam os filtros da galeria e do painel e o select do formulário; guardadas na chave KV `categories` — até a primeira alteração valem Formatura / Casamento / Ensaio / Evento / Outro |
-| **Dados** | Backup dos dados | `GET /api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v2: eventos + categorias + solicitações). Não-destrutivo |
+| **Dados** | Backup dos dados | `GET /api/backup` retorna `fotos-backup-YYYY-MM-DD.json` (v3: eventos + categorias + solicitações + registro de consentimento, com IP). Não-destrutivo |
 | | Exportar planilhas | CSV de consentimentos (do D1, via `/api/consent/export`), de pedidos de remoção e de métricas |
 | | **Restaurar backup** *(sensível)* | `POST /api/backup/restore` — pede digitar `RESTAURAR`. Merge inteligente: mesmo `id` é atualizado só se o `updatedAt`/`createdAt` do backup for mais recente. Nada é deletado |
 | **Conta** | **Trocar a senha do painel** *(sensível)* | `PUT /api/settings/password` — campos "Nova senha" + "Confirmar senha"; pede digitar `TROCAR`; as outras sessões são revogadas |
@@ -1229,7 +1232,7 @@ A página de projeto é, ao mesmo tempo, a **entrega** das fotos e a superfície
 - **Registro do aceite** (`POST /api/drive-link` → D1, no mesmo request que libera o link): o Worker grava uma linha em `image_use_consent` com data/hora, evento, versão dos Termos + **hash SHA-256 do texto exato**, resultado do Turnstile e contexto técnico (IP, geo/ISP via `request.cf`, navegador, idioma, referrer) — comprovação para eventual disputa. Non-blocking (`ctx.waitUntil`); sem D1 provisionado, é no-op (o gate continua funcionando normalmente).
 - **Transparência e retenção**: a Política de Privacidade (`/privacidade`) lista os campos registrados; o cron diário apaga registros com mais de **5 anos**. O admin exporta tudo em CSV pela aba Config.
 
-> Os textos legais (escopo da autorização, retenção) são um rascunho razoável — recomenda-se revisão jurídica antes de produção.
+> Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável (29/10/2026).
 
 ---
 
@@ -1358,9 +1361,7 @@ contrato com a escola. Os modelos prontos estão em
 [`termo-autorizacao-uso-imagem.md`](./docs/legal/termo-autorizacao-uso-imagem.md);
 o caminho de menor atrito é o Modelo 3, anexado ao contrato com a instituição.
 
-> Todos esses documentos foram redigidos com auxílio de IA e **não constituem
-> parecer jurídico**. Os pontos marcados ⚖️ dependem de revisão de advogado(a)
-> com prática em LGPD e direito de imagem.
+> Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável (29/10/2026).
 
 ---
 
@@ -1425,6 +1426,7 @@ documento novo.
 | `/legal/resposta-a-incidentes` | `docs/legal/plano-resposta-incidentes.md` |
 | `/legal/seguranca-da-informacao` | `docs/legal/politica-seguranca-informacao.md` |
 | `/legal/autorizacao-de-imagem` | `docs/legal/termo-autorizacao-uso-imagem.md` |
+| `/legal/declaracao-de-acessibilidade` | `docs/legal/declaracao-de-acessibilidade.md` |
 | `/legal/checklist` | `docs/legal/checklist-conformidade.md` |
 | `/legal/sobre-esta-documentacao` | `docs/legal/README.md` |
 
@@ -1564,24 +1566,41 @@ Em paralelo, **Cloudflare Web Analytics** é opcional (controlado por `CF_ANALYT
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "backupAt": "ISO date",
   "eventCount": N,
   "events": [ ... ],
   "categories": [ ... ],
-  "removalRequests": [ ... ]
+  "removalRequests": [ ... ],
+  "consent": {
+    "tabela": "image_use_consent",
+    "colunas": ["id", "created_at", "event_slug", "...", "ip", "...", "page_url"],
+    "linhas": [["a1b2…", "2026-10-12T21:33:12.123Z", "formatura", "...", "203.0.113.7", "..."]],
+    "total": 1014,
+    "completo": true
+  }
 }
 ```
+
+`consent` (v3) é a tabela `image_use_consent` do D1 na forma compacta: os nomes das colunas uma vez (`id` + `CONSENT_COLS`) e cada aceite como uma lista na mesma ordem, mais recente primeiro. **O arquivo passa a ter IP, User-Agent e nome de terceiros**: guarde-o protegido e apague as cópias no prazo do registro (`docs/legal/politica-de-retencao.md`).
+
+- **Teto de 1500 linhas** (`CONSENT_BACKUP_MAX_LINHAS`): o JSON custa CPU, e o plano gratuito dá 10 ms por requisição (~5 ms para 1000 linhas, medido). Acima do teto vão os 1500 aceites mais recentes, com `completo: false` e um `motivo`. O caminho completo, de qualquer tamanho, é o `wrangler d1 export` (`docs/RELEASE.md`).
+- **Sem D1, ou com ele fora**, o backup sai assim mesmo, com `consent: { "ausente": true, "motivo": "…" }` — nunca 500, nunca seção sumida calada — e o `/api/healthz` registra a falha.
+- São duas consultas ao D1 (`COUNT` e o `SELECT … LIMIT` com `raw()`), em paralelo com as leituras do KV.
 
 Headers:
 ```
 Content-Type: application/json
 Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
+Cache-Control: no-store, …
+X-Backup-Consentimento: completo | parcial | ausente
 ```
+
+O painel lê `X-Backup-Consentimento` e avisa no toast quando o registro veio sem nada ou só em parte.
 
 ### Restore
 
-`POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos e **v2** completo). Eventos via `mergeRestore`:
+`POST /api/backup/restore` (auth) com o JSON do backup no body (aceita **v1** só-eventos, **v2** e **v3**; arquivos reais de v1 e v2 ficam em `tests/fixtures/` e restauram com a mesma resposta de antes). Eventos via `mergeRestore`:
 
 - Para cada evento do backup:
   - Sem `id` utilizável (`[\w-]{1,64}`) ou sem `slug` válido (formato de `validateSlug`, fora dos slugs reservados pelas rotas fixas) → **ignorado** (`skipped++`). Nem entra como novo, nem substitui um existente de mesmo id — um evento sem id não pode ser editado nem apagado pelo painel, e um slug como `/evil.example` viraria `href="//evil.example"` no card da galeria.
@@ -1592,9 +1611,18 @@ Content-Disposition: attachment; filename="fotos-backup-YYYY-MM-DD.json"
 
 Seções v2 (opcionais, mescladas sem apagar nada): `categories` (união) e `removalRequests` (por id). Backups v2 antigos podem conter uma seção `reviews` — ela é ignorada (o recurso de avaliações foi removido).
 
-Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?, removalRequestsSkipped?}`. O painel diz quantos foram ignorados na confirmação.
+Seção v3 `consent` (registro de consentimento): **reinserida, só acrescentando**. É a prova de aceite (LGPD), e um backup que não a devolve não salva nada no dia em que o D1 se perder. Regras (`restauraConsentimento`, `src/index.js`):
 
-Numa [prévia de PR](#prévia-de-pr-testar-antes-do-merge), os **pedidos de remoção do backup ficam de fora** (`removalRequestsSkipped`): são dados pessoais de terceiros, e a prévia manda e-mail de verdade — resolver um pedido lá escreveria para uma pessoa real sobre um teste.
+- `INSERT OR IGNORE` por `id`: aceite que já existe **nunca é alterado** (o registro é só de inclusão), e restaurar o mesmo arquivo duas vezes não duplica nada.
+- `colunas` só com nomes conhecidos, sem repetição e com as obrigatórias (`id`, `created_at`, `event_slug`, `terms_version`, `turnstile_ok`); senão a seção inteira fica de fora, com `consentError`. Coluna opcional ausente entra como `NULL`.
+- Cada linha é conferida coluna a coluna (tipo, tamanho, enum, formato do `id`, data ISO UTC) e **recusada sozinha** se algo não bate (`consentRejected`) — nunca aparada: num registro de prova, valor alterado é pior que ausente. Aceite "do futuro" também é recusado; mais velho que a retenção (1825 dias) não volta (`consentExpired`), senão o restore desfaria a poda.
+- Gravação em lotes de 100 por `db.batch()` (um batch conta como uma consulta no limite de 50 por invocação); o mesmo teto de 1500 linhas (`consentOverLimit` para o excedente). Um lote recusado para o restore do registro com `consentError` e `consentNotWritten` — os eventos já entraram, e restaurar de novo continua dali.
+
+Resposta: `{ok:true, added, updated, skipped, total, categories?, removalRequestsAdded?, removalRequestsSkipped?, consentAdded?, consentDuplicates?, consentRejected?, consentExpired?, consentSkipped?, consentOverLimit?, consentNotWritten?, consentMissingInBackup?, consentIncompleteBackup?, consentError?}`. O painel diz quantos foram ignorados na confirmação, e o que entrou ou não do registro.
+
+Numa [prévia de PR](#prévia-de-pr-testar-antes-do-merge), os **pedidos de remoção e o registro de consentimento do backup ficam de fora** (`removalRequestsSkipped`, `consentSkipped`): são dados pessoais de terceiros (e-mail, telefone, IP, aparelho), e a prévia manda e-mail de verdade — resolver um pedido lá escreveria para uma pessoa real sobre um teste.
+
+O backup completo do D1, sem teto e com o esquema, é o `npx wrangler d1 export fotos-consent --remote --output=…` (`docs/RELEASE.md`, "Backup do registro de consentimento").
 
 ---
 
@@ -1836,14 +1864,35 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
   camada de cima (a folha de download, depois a foto) em vez de sair da
   galeria — como num app.
-- **Downloads em duas variantes**: *para redes* — JPEG com 2048 px no lado maior
-  (`GALERIA_LADO_REDES`), redimensionado pelo `lh3` — e *tamanho máximo* — o
-  arquivo original, pela Drive API. No celular, a foto é preparada e o toque em
-  **"Salvar na galeria"** abre a folha de compartilhamento já com o arquivo (no
-  iPhone, *Salvar imagem* põe direto no Fotos — o Drive exige três passos); no
-  computador, download direto.
+- **Downloads em duas versões, sem alterar o arquivo** (nome e bytes exatos
+  do Drive; o site não redimensiona, não renomeia, não recodifica): *tamanho
+  máximo* — o original da pasta do projeto — e *para redes* — o arquivo **da
+  pasta do Instagram** (`driveUrlInstagram`) que casa com a foto. A opção
+  "para redes" só aparece nas fotos que têm esse par (a folha, o "Baixar tudo" e
+  a seleção dizem quantas das fotos escolhidas têm). Android e computador:
+  download comum de arquivo, em fila (uma foto a cada 0,7 s), sem folha de
+  compartilhamento. **iPhone e iPad** (todo navegador do iOS é WebKit): o
+  download comum cai no app Arquivos, longe do Fotos; por isso o botão
+  principal é **"Salvar no Fotos"** (Web Share com o *arquivo* exato: a folha
+  do iOS oferece *Salvar imagem*, que põe direto no Fotos, ou
+  *Salvar N imagens*) e **"Baixar arquivo"** fica ao lado. Em lotes de até 20
+  fotos / 80 MB (a folha do iOS segura tudo na memória da aba); se o sistema
+  recusar os arquivos (`canShare`), cai sozinho no "Baixar arquivo". Ser iOS é a
+  única checagem de plataforma da página (RETOMADA §5.13).
 - **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
   baixadas uma a uma — nada de zip, que no celular não abre na galeria.
+
+### Carga no celular
+
+O que pesa na abertura e o que foi feito (30/10/2026), medido com o Lighthouse
+mobile numa cópia local com a listagem da ecp125 (231 fotos): só a primeira
+linha da grade tem `fetchpriority=high` e só a primeira tela é `eager`; a escada
+das miniaturas ganhou degraus de 100 px até 800 (no celular, `w800` virava
+`w700`); o WebP é decidido na hora por canvas (a decodificação assíncrona fica
+só para quem não codifica WebP), então a grade sai no mesmo passo do script; o
+CSS do visualizador entra com ele; o coração da miniatura é CSS; e no celular a
+primeira foto é pré-carregada no `<head>` com o mesmo `srcset`. Antes/depois
+(3 rodadas cada): desempenho 72–80 → 84–90, LCP 4,5–4,6 s → 3,1–3,7 s.
 
 ### Ocultar uma foto
 
@@ -1867,12 +1916,72 @@ no Drive. É o caminho de um pedido de remoção (LGPD) — o texto do painel na
 seção de pedidos agora diz para ocultar na galeria e depois remover no Drive. O
 backup/restauração e o formulário do painel só gravam IDs válidos.
 
+### No Google
+
+Desde 29/10/2026 (decisão do dono), a galeria de álbum **público e listado**
+é indexável: sem `noindex` (meta `index,follow,max-image-preview:large`, sem
+`X-Robots-Tag`), título "Fotos de <evento> — <data>", descrição própria,
+`canonical`, cartão de link com a capa (lh3, não passa pelo Worker) e JSON-LD
+`ImageGallery` com o `author` no mesmo `Person` (`@id`) do resto do site. O
+alt de cada foto é "<evento> — foto i de n". **Continuam com `noindex`:**
+família, privado (com o perfil do painel: `no-store`), não listado
+(`visible: false`), a prévia de PR, a visão do dono e a página de erro/pasta
+vazia; "Em breve" é 404. A regra é `galeriaIndexavel()` em `src/index.js`
+(sitemap e página usam a mesma).
+
+**Cache.** Visitante de álbum público recebe `Cache-Control: private,
+no-cache`: `private` porque a página leva o nonce da CSP (um cache
+compartilhado o repetiria); `no-cache` para foto oculta sair na próxima
+visita; sem `no-store`, o voltar do navegador usa o bfcache. A economia de cota
+é a listagem de 10 min, não o HTML. Família/privado e dono seguem `no-store`.
+
+**Sitemaps.** O `/sitemap.xml` lista a URL de cada galeria indexável com
+`lastmod`, sem chamar o Drive. As fotos (`image:image`, até 1000 por URL) ficam
+num sitemap por galeria, `/sitemap-galeria-<slug>.xml`, anunciado pelo índice
+`/sitemap-galerias.xml` (linha `Sitemap:` no `robots.txt`). Um por galeria por
+causa do plano gratuito: uma listagem fria custa até 30 subrequests
+(`GALERIA_MAX_CHAMADAS`) e o teto é 50 — duas no mesmo pedido estourariam.
+Ficam na raiz porque um sitemap só vale para URLs do próprio diretório para
+baixo.
+
+**Downloads fora.** `Disallow: /galeria/*/baixar/` nos grupos `*` e de busca do
+`robots.txt`, `X-Robots-Tag: noindex` em toda resposta do proxy e
+`rel="nofollow"` nos links de download e do Drive: robô baixando original
+gastaria a cota do Drive e do Worker. O `Content-Signal` (`ai-train=no`) fica
+em todos os grupos — o Lighthouse o acusa como diretiva desconhecida (é a
+única falha do SEO, 92), e o Google ignora a linha.
+
+**Foto oculta ou pedido de remoção:** sai do HTML e do sitemap de imagens no
+próximo pedido (o mesmo prazo de qualquer mudança do painel, até ~2 min), e o
+`lastmod` muda, para o Google reler. Para tirar **do Google** com urgência:
+Search Console → **Remoções** → *Nova solicitação* com a URL da imagem
+(`https://lh3.googleusercontent.com/d/<id>…`) ou da galeria.
+
+### Compartilhar as favoritas
+
+Com o filtro **Favoritas** ligado, o botão **"Compartilhar as favoritas"**
+gera `/galeria/<slug>#sel=<id>.<id>…` (até 300 fotos; no celular, pela folha
+do sistema; no computador, copia o link). Quem abre vê só essas fotos, com o
+chip **"Seleção recebida"** (toque para ver todas) e **"Guardar nas minhas
+favoritas"**. O fragmento não vai ao servidor: nada é gravado nem contado. Em
+álbum de família ou privado o link continua pedindo o passe do portão (#213).
+
 ### Por que o download passa pelo Worker
 
 `/galeria/<slug>/baixar/<id>?v=redes|max`: o original só sai com a chave, que
-nunca vai ao navegador; e o nome do arquivo (`<slug>-<nome>[-redes].<ext>`, via
-`Content-Disposition`) só o servidor controla. O proxy **não é aberto**: o id
-tem de estar na listagem da pasta daquele projeto, senão 404 sem buscar nada.
+nunca vai ao navegador; e o nome do arquivo (**exatamente** o do Drive, sem
+prefixo, via `Content-Disposition` e `X-Nome-Arquivo`) só o servidor controla. O
+proxy **não é aberto**: o id tem de estar na listagem da pasta daquele projeto
+(e, em `redes`, o arquivo servido sai da listagem da pasta do Instagram *desse*
+projeto, nunca do pedido), senão 404 sem buscar nada. Os bytes passam sem
+conversão (`Cache-Control: private, no-transform`).
+
+**Como a foto casa com o arquivo do Instagram.** Pelo nome sem extensão,
+ignorando maiúscula/minúscula e a normalização Unicode (`001.HEIC` casa com
+`001.jpg`). Se não há nome igual, vale o do Instagram sem um sufixo trivial
+(`-insta`, `_ig`, ` instagram`, `-redes`): `b.jpg` casa com `b-insta.jpg`. Nome
+igual sempre ganha de sufixo; com nomes repetidos em subpastas, vale o da mesma
+subpasta e, na falta, o primeiro em ordem natural. Sem par: sem "para redes".
 
 ### Custo
 
@@ -1882,6 +1991,16 @@ com aviso na página, em vez de estourar o teto de 50 subrequests do plano
 gratuito (`GALERIA_MAX_FOTOS`, `GALERIA_MAX_PASTAS`, `GALERIA_MAX_CHAMADAS`).
 *Atualizar lista* relê na hora.
 
+**Duas listagens frias na mesma requisição.** A página (e o download "para
+redes") lê a pasta do projeto *e* a do Instagram. Pior caso de subrequests:
+30 (`GALERIA_MAX_CHAMADAS`) + 8 (`GALERIA_MAX_CHAMADAS_IG`, a pasta do Instagram
+tem só um arquivo por foto, mas com teto próprio) + ~4 de Cache API + ~4 de KV,
+sessão e contador ≈ 46, abaixo das 50 do plano gratuito (o teto do Instagram foi
+a parte que encolheu). Pasta do Instagram grande demais para o teto: as fotos
+além dele ficam sem "para redes", nunca com a versão errada. Se a pasta do
+Instagram não puder ser lida, a página abre normalmente, sem "para redes", e só
+o dono vê o motivo. Com as duas em cache, nada disso chama o Drive.
+
 **Downloads contados.** Cada download da galeria feito por visitante (não pelo
 dono) soma em `baixar_redes:<slug>` e `baixar_max:<slug>` no Durable Object,
 mais o balde do dia (nunca KV por visitante), e aparece na coluna
@@ -1889,11 +2008,29 @@ mais o balde do dia (nunca KV por visitante), e aparece na coluna
 `baixarMax`). São ~2 linhas escritas por foto baixada (total + dia): 750 pessoas
 × 20 downloads ≈ 30 mil linhas, dentro das 100 mil/dia do plano gratuito, mas é
 o número a olhar num evento grande. Cada download continua sendo 1 requisição
-de Worker + 1 subrequest.
+de Worker + 1 subrequest. Leituras que não são download (compartilhar, a
+segunda leitura do "Salvar no Fotos" no iPhone) pedem o mesmo arquivo com
+`&c=0` e não contam.
+
+**Limite por IP no download.** O visitante gasta uma ficha de um balde por IP
+(`GALERIA_BAIXAR_BUCKET`: 6 mil de rajada, 20 mil por hora — um Wi-Fi de evento
+com 750 pessoas e ~20 fotos por hora cabe), no mesmo `RateLimiter` do portão:
++1 chamada ao Durable Object (≈ 3 linhas escritas por download com a contagem)
+e, esgotado, 429 com `Retry-After` antes de qualquer leitura do Drive. O dono
+(logado) é isento. A galeria, nas leituras que ela mesma faz (compartilhar,
+"Salvar no Fotos"), mostra a espera e não repete sozinha; um link `<a download>`
+não consegue ler o 429 (o navegador mostra o erro dele).
+
+**Visitas e aberturas ignoram robôs conhecidos** (`verifiedBot` do Cloudflare e
+`ROBO_UA_RE` em `src/config.js`: Googlebot, Bingbot, prévias de link...). A
+lista é conservadora de propósito: os números do painel podem incluir robôs
+desconhecidos. A taxa de abertura é "aberturas (Drive ou galeria) ÷ visitas,
+limitado a 100%".
 
 ### Verificação
 
-`tests/galeria.test.js` (servidor: quem vê, ocultar, Drive API, cache, proxy) e
+`tests/galeria.test.js` (servidor: quem vê, ocultar, Drive API, cache, proxy,
+indexação, sitemaps, downloads fora do robô) e
 `npm run verifica:galeria` (a página num Chromium de verdade, por aparelho —
 ver `docs/VERIFICACAO.md`).
 
@@ -1901,7 +2038,7 @@ ver `docs/VERIFICACAO.md`).
 
 ## Limitações conhecidas
 
-- **Galeria própria depende do Google em dois pontos**: miniaturas e a variante *para redes* vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); o *tamanho máximo* vem da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive).
+- **Galeria própria depende do Google em dois pontos**: as miniaturas e o visualizador vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); os dois downloads (*tamanho máximo* e *para redes*) vêm da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive).
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
 - **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
 - **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.

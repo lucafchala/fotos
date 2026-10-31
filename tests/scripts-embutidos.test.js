@@ -32,7 +32,7 @@ const GLOBAIS_DO_BROWSER = [
   'addEventListener', 'innerWidth', 'innerHeight', 'scrollY', 'scrollTo',
   // Galeria própria (#235): diagramação (getComputedStyle, ResizeObserver), a
   // seção ativa na faixa de chips (IntersectionObserver),
-  // detecção de toque (matchMedia) e o arquivo do "Salvar na galeria" (File).
+  // detecção de toque (matchMedia) e o arquivo do "Salvar no Fotos" (File).
   'getComputedStyle', 'ResizeObserver', 'IntersectionObserver', 'matchMedia', 'File',
   // Beacon de performance: INP e CLS vêm de PerformanceObserver.
   'PerformanceObserver',

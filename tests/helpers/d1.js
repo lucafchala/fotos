@@ -5,7 +5,8 @@
 // `COUNT(DISTINCT …)` e a janela por `created_at` do nosso jeito, e testaria o
 // dublê. Aqui as migrações REAIS de `migrations/` criam o esquema e o SQL que
 // roda é o do código. A superfície imitada é só a que o `src/` usa:
-// `prepare().bind().run()/first()/all()`.
+// `prepare().bind().run()/first()/all()/raw()` e `batch()` (numa transação,
+// como o de verdade: um comando que falha desfaz o lote inteiro).
 
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -26,11 +27,29 @@ export function d1Sqlite() {
       const stmt = {
         /** @param {...any} v */
         bind(...v) { valores = v; return stmt; },
-        async run() { db.prepare(sql).run(...valores); return { success: true }; },
+        async run() { return stmt._run(); },
+        _run() {
+          const r = db.prepare(sql).run(...valores);
+          return { success: true, results: [], meta: { changes: Number(r.changes) } };
+        },
         async first() { return db.prepare(sql).get(...valores) ?? null; },
         async all() { return { results: db.prepare(sql).all(...valores) }; },
+        // Como o D1: uma lista por linha, na ordem das colunas do SELECT.
+        async raw() { return db.prepare(sql).all(...valores).map(l => Object.values(l)); },
       };
       return stmt;
+    },
+    /** @param {any[]} comandos */
+    async batch(comandos) {
+      db.exec('BEGIN');
+      try {
+        const out = comandos.map(c => c._run());
+        db.exec('COMMIT');
+        return out;
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
     },
   };
 }

@@ -172,7 +172,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 // diferentes).
 export const LIMITES_DO_APARELHO = /** @type {const} */ ([
   'login', 'login-day', 'login-fail', 'support', 'removal',
-  'drive-click', 'drive-gate', 'drive-gate-noscript', 'drive-gate-email', 'drive-code',
+  'drive-click', 'drive-gate', 'drive-gate-noscript', 'drive-gate-email', 'drive-code', 'galeria-baixar',
 ]);
 // O "lotado" vale para o portão pelo Turnstile e pelo caminho sem JavaScript —
 // não para o código por e-mail, que tem balde próprio (`drive-gate-email`) e é
@@ -491,7 +491,7 @@ async function acao(request, url, env, autenticado) {
  */
 function chavesDeMetricas(eventos) {
   const chaves = ['gate:turnstile', 'gate:email', 'gate:noscript'];
-  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`);
+  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`, `galeria_views:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`);
   return chaves;
 }
 
@@ -557,6 +557,13 @@ export function metricasDeExemplo(eventos, hoje, dias) {
       const c = Math.round(v * (0.2 + sorteio() * 0.25));
       soma(`d:${dia}:views:${p.slug}`, v); soma(`views:${p.slug}`, v);
       soma(`d:${dia}:drive_clicks:${p.slug}`, c); soma(`drive_clicks:${p.slug}`, c);
+      // A galeria do site, derivada da visita (sem sorteio a mais: a sequência
+      // dos números de cima não muda): metade abre a galeria, cada uma baixa
+      // algumas fotos, quase todas "para redes".
+      const g = Math.round(v * 0.55), br = g * 4, bm = Math.round(g * 0.6);
+      soma(`d:${dia}:galeria_views:${p.slug}`, g); soma(`galeria_views:${p.slug}`, g);
+      soma(`d:${dia}:baixar_redes:${p.slug}`, br); soma(`baixar_redes:${p.slug}`, br);
+      soma(`d:${dia}:baixar_max:${p.slug}`, bm); soma(`baixar_max:${p.slug}`, bm);
     }
     for (const [modo, f] of /** @type {const} */ ([['turnstile', 1.2], ['email', 0.18], ['noscript', 0.07]])) {
       const g = Math.round((2 + sorteio() * 6) * f * ritmo);

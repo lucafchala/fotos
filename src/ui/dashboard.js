@@ -501,6 +501,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     #tab-metrics .bloco-cabeca > div:first-child{flex:1 1 240px;min-width:0}
     @media(max-width:599px){
       .rank-item{grid-template-columns:minmax(0,1fr)}
+      .rank-num{white-space:normal}
       .metrics-table .slug-mini{display:none}
       #metrics-body .metrics-table td,#metrics-body .metrics-table th{padding-left:.5rem;padding-right:.5rem}
       #metrics-body .views-bar{left:.5rem}
@@ -811,7 +812,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     <div class="secao-cabeca">
       <div>
         <h1 id="h-pedidos">Pedidos de remoção</h1>
-        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Para tirar da galeria do site na hora, abra a foto na galeria do projeto e toque no olho (“Ocultar dos visitantes”); depois remova a foto no Drive e marque como resolvido — a pessoa recebe um e-mail.</p>
+        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Para tirar da galeria do site (em até 2 minutos), abra a foto na galeria do projeto e toque no olho (“Ocultar dos visitantes”); depois remova a foto no Drive e marque como resolvido — a pessoa recebe um e-mail.</p>
       </div>
     </div>
     <div id="requests-body"><p class="empty">Carregando…</p></div>
@@ -828,7 +829,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     <div class="secao-cabeca">
       <div>
         <h1 id="h-metricas">Métricas</h1>
-        <p class="secao-sub">Visitas e aberturas do Drive por dia, por projeto, e como as pessoas passaram pelo portão.</p>
+        <p class="secao-sub">Visitas, aberturas do Drive e da galeria, e fotos baixadas por dia, por projeto, e como as pessoas passaram pelo portão.</p>
       </div>
       <div class="secao-acoes">
         <span class="metrics-atualizado" id="metrics-atualizado"></span>
@@ -867,6 +868,18 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       <p class="metrics-nota" id="acessos-nota"></p>
     </div>
 
+    <div class="bloco" id="bloco-baixadas">
+      <div class="bloco-cabeca">
+        <div>
+          <h2>Fotos baixadas na galeria</h2>
+          <p class="bloco-desc" id="baixadas-desc">Carregando…</p>
+        </div>
+      </div>
+      <div class="legenda" id="baixadas-legenda"></div>
+      <div class="grafico" id="grafico-baixadas" role="img" aria-label="Fotos baixadas por dia"></div>
+      <p class="metrics-nota">Conta cada foto baixada por visitante na galeria do site: "para redes" (o arquivo da pasta do Instagram) ou "tamanho máximo" (o original). Os downloads do Drive o Google não conta para o site.</p>
+    </div>
+
     <div class="grade-blocos">
       <div class="bloco">
         <h2>Dia da semana</h2>
@@ -891,7 +904,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       <div class="chips" id="metrics-ordem" role="group" aria-label="Ordenar projetos por">
         <button type="button" class="chip" aria-pressed="true" data-onclick="ordenaRanking" data-ordem="views">Visitas</button>
         <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="driveClicks">Abriram o Drive</button>
-        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="taxa">Taxa</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="galeria">Abriram a galeria</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="baixadas">Fotos baixadas</button>
+        <button type="button" class="chip" aria-pressed="false" data-onclick="ordenaRanking" data-ordem="taxa" title="Aberturas (Drive ou galeria) ÷ visitas, limitado a 100%">Taxa</button>
       </div>
       <div id="metrics-ranking" class="ranking"><p class="empty">Carregando…</p></div>
     </div>
@@ -950,7 +965,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       <div class="grade-blocos">
         <div class="bloco">
           <h3>Backup dos dados</h3>
-          <p class="bloco-desc">Uma cópia completa: eventos, categorias e pedidos de remoção — estes com e-mail e telefone de quem pediu, então guarde o arquivo com cuidado. Não há backup automático: baixe depois de mudanças importantes.</p>
+          <p class="bloco-desc">Uma cópia completa: eventos, categorias, pedidos de remoção (com e-mail e telefone de quem pediu) e o registro de consentimento (com o IP e o aparelho de cada aceite). É dado pessoal de terceiros: guarde o arquivo protegido, de preferência criptografado, e apague as cópias antigas no mesmo prazo do registro. Não há backup automático: baixe depois de mudanças importantes.</p>
           <p class="backup-ultimo" id="backup-ultimo"></p>
           <button class="btn-sm" style="margin-top:1rem" data-onclick="downloadBackup">⬇ Baixar backup JSON</button>
         </div>
@@ -967,7 +982,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         <div class="bloco sensivel">
           <span class="sensivel-aviso">Pede confirmação digitada</span>
           <h3>Restaurar backup</h3>
-          <p class="bloco-desc">Nenhum dado atual é apagado: os eventos do arquivo são mesclados com os que já existem (o mais recente vence).</p>
+          <p class="bloco-desc">Nenhum dado atual é apagado: os eventos do arquivo são mesclados com os que já existem (o mais recente vence). Pedidos de remoção e aceites do registro de consentimento só entram se ainda não existirem — um aceite já gravado nunca é alterado.</p>
           <div class="field" style="margin-top:1rem">
             <label for="restore-file">Arquivo de backup (.json)</label>
             <input type="file" id="restore-file" accept=".json" class="arquivo">
@@ -1271,7 +1286,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     // comentário "Métricas v2" no CSS. Uma cor por COISA, sempre a mesma.
     const COR_VISITAS = '#3987e5';
     const COR_DRIVE = '#d95926';
+    const COR_GALERIA = '#2fa36b';
+    const COR_REDES = '#b98be0';
+    const COR_MAX = '#e0b341';
     const COR_PORTAO = '#199e70';
+    // O que a taxa quer dizer, para a dica (title) de cada lugar onde ela aparece.
+    const DICA_TAXA = 'Aberturas (Drive ou galeria) ÷ visitas, limitado a 100%. Quem chega à galeria pelo Google não passa pela página do projeto, e robôs desconhecidos podem entrar na conta.';
     let photoList = [];
     // Declared here (not down by stashDraft()) because restoreDraft() runs
     // during init, before that point — a const isn't hoisted like a function,
@@ -2373,6 +2393,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       recorteAtual = serieDiaria ? recorteMetricas(serieDiaria, metricsPeriodo, metricsProjeto) : null;
       renderResumoMetricas();
       renderGraficoAcessos();
+      renderBaixadas();
       renderSemana();
       renderPortao();
       renderRanking();
@@ -2401,7 +2422,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (bloco && metricsProjeto) bloco.scrollIntoView({ behavior: calmo ? 'auto' : 'smooth', block: 'start' });
     }
     function ordenaRanking(el) {
-      if (!['views', 'driveClicks', 'taxa'].includes(el.dataset.ordem)) return;
+      if (!['views', 'driveClicks', 'galeria', 'baixadas', 'taxa'].includes(el.dataset.ordem)) return;
       metricsOrdem = el.dataset.ordem;
       renderMetricas();
     }
@@ -2416,30 +2437,42 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     function renderResumoMetricas() {
       const el = document.getElementById('metrics-resumo');
       if (!el) return;
-      const card = (num, lab, det) => '<div class="resumo-card"><div class="resumo-num">' + num + '</div><div class="resumo-lab">' + lab + '</div>' + (det ? '<div class="resumo-delta">' + det + '</div>' : '') + '</div>';
+      const card = (num, lab, det, dica) => '<div class="resumo-card"' + (dica ? ' title="' + dica + '"' : '') + '><div class="resumo-num">' + num + '</div><div class="resumo-lab">' + lab + '</div>' + (det ? '<div class="resumo-delta">' + det + '</div>' : '') + '</div>';
       const r = recorteAtual;
       if (!r || !serieDiaria.primeiroDia) {
         if (!metricsData.length) { el.hidden = true; return; }
         const totV = metricsData.reduce((t, m) => t + (m.views || 0), 0);
         const totD = metricsData.reduce((t, m) => t + (m.driveClicks || 0), 0);
+        const totG = metricsData.reduce((t, m) => t + (m.galeriaViews || 0), 0);
+        const totB = metricsData.reduce((t, m) => t + (m.baixarRedes || 0) + (m.baixarMax || 0), 0);
         el.innerHTML = card(fmtN(totV), 'Visitas', 'desde o início')
           + card(fmtN(totD), 'Abriram o Drive', 'desde o início')
-          + card(totV ? Math.round(totD / totV * 100) + '%' : '—', 'Taxa de abertura', 'desde o início');
+          + card(fmtN(totG), 'Abriram a galeria', 'desde o início')
+          + card(fmtN(totB), 'Fotos baixadas', 'na galeria, desde o início')
+          + card(totV ? pctTaxa(totD + totG, totV) + '%' : '—', 'Taxa de abertura', 'desde o início', DICA_TAXA);
         el.hidden = false;
         return;
       }
       const periodo = 'nos últimos ' + metricsPeriodo + ' dias';
-      const taxa = r.totV ? Math.round(r.totD / r.totV * 100) : null;
-      const taxaAnt = r.antV ? Math.round(r.antD / r.antV * 100) : null;
+      // Taxa = quem abriu as fotos (Drive OU galeria) ÷ visitas. Desde a
+      // galeria (v2.1) ela é o caminho principal: contar só o Drive faria
+      // parecer que o interesse caiu.
+      const taxa = pctTaxa(r.totD + r.totG, r.totV);
+      const taxaAnt = pctTaxa(r.antD + r.antG, r.antV);
       const dV = r.temAnterior ? htmlVariacao(variacao(r.totV, r.antV), '%') : '';
       const dD = r.temAnterior ? htmlVariacao(variacao(r.totD, r.antD), '%') : '';
+      const dG = r.temAnterior ? htmlVariacao(variacao(r.totG, r.antG), '%') : '';
+      const dB = r.temAnterior ? htmlVariacao(variacao(r.totR + r.totM, r.antB), '%') : '';
       const dT = r.temAnterior && taxa !== null && taxaAnt !== null ? htmlVariacao({ dir: Math.sign(taxa - taxaAnt), valor: Math.abs(taxa - taxaAnt) }, ' p.p.') : '';
       const hojeV = r.views[r.views.length - 1] || 0;
       const hojeD = r.drive[r.drive.length - 1] || 0;
+      const hojeG = r.galeria[r.galeria.length - 1] || 0;
       el.innerHTML = card(fmtN(r.totV), 'Visitas', dV || periodo)
         + card(fmtN(r.totD), 'Abriram o Drive', dD || periodo)
-        + card(taxa === null ? '—' : taxa + '%', 'Taxa de abertura', dT || 'abriram o Drive ÷ visitas')
-        + card(fmtN(hojeV), 'Hoje', fmtN(hojeD) + ' abriram o Drive');
+        + card(fmtN(r.totG), 'Abriram a galeria', dG || periodo)
+        + card(fmtN(r.totR + r.totM), 'Fotos baixadas', dB || (fmtN(r.totR) + ' para redes · ' + fmtN(r.totM) + ' no máximo'))
+        + card(taxa === null ? '—' : taxa + '%', 'Taxa de abertura', dT || 'Drive ou galeria ÷ visitas, até 100%', DICA_TAXA)
+        + card(fmtN(hojeV), 'Hoje', fmtN(hojeD) + ' Drive · ' + fmtN(hojeG) + ' galeria');
       el.hidden = false;
     }
 
@@ -2467,7 +2500,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         desc.textContent = 'Não deu para carregar a contagem por dia.';
         vazio('Não deu para carregar a contagem por dia. Toque em “Atualizar” para tentar de novo.');
       } else if (!serieDiaria.primeiroDia) {
-        desc.textContent = 'Visitas e aberturas do Drive por dia — ' + quem + '.';
+        desc.textContent = 'Visitas e aberturas do Drive e da galeria por dia — ' + quem + '.';
         vazio('A contagem por dia começa com a versão 2.0 e ainda não há nenhum dia contado. A próxima visita já aparece aqui; os totais desde o início estão no fim da página.');
       } else {
         const largura = Math.max(240, Math.round(box.clientWidth || 0));
@@ -2479,12 +2512,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           series: [
             { nome: 'Visitas', curto: 'Visitas', cor: COR_VISITAS, valores: r.views },
             { nome: 'Abriram o Drive', curto: 'Drive', cor: COR_DRIVE, valores: r.drive },
+            { nome: 'Abriram a galeria', curto: 'Galeria', cor: COR_GALERIA, valores: r.galeria },
           ],
         });
         box.insertAdjacentHTML('afterbegin', res.svg);
         geoAcessos = res.geo;
         const item = (cor, nome, total) => '<span><i style="background:' + cor + '"></i>' + nome + ' <b>' + fmtN(total) + '</b></span>';
-        leg.innerHTML = item(COR_VISITAS, 'Visitas', r.totV) + item(COR_DRIVE, 'Abriram o Drive', r.totD);
+        leg.innerHTML = item(COR_VISITAS, 'Visitas', r.totV) + item(COR_DRIVE, 'Abriram o Drive', r.totD) + item(COR_GALERIA, 'Abriram a galeria', r.totG);
         const pico = indicePico(r.views);
         desc.textContent = 'Últimos ' + metricsPeriodo + ' dias, ' + quem + '.'
           + (pico >= 0 ? ' Pico: ' + fmtN(r.views[pico]) + ' visitas em ' + diaLongo(r.dias[pico]) + '.' : '');
@@ -2494,6 +2528,46 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       }
       box.setAttribute('aria-label', 'Gráfico de linhas. ' + desc.textContent + (geoAcessos ? ' Use as setas para percorrer os dias, ou abra a tabela.' : ''));
       renderTabelaAcessos();
+    }
+
+    // Downloads da galeria por dia, nas duas versões. O mesmo desenho de
+    // linhas do gráfico de acessos, sem a cruz (o número de cada dia está na
+    // tabela de acessos).
+    function renderBaixadas() {
+      const box = document.getElementById('grafico-baixadas');
+      const desc = document.getElementById('baixadas-desc');
+      const leg = document.getElementById('baixadas-legenda');
+      if (!box || !desc || !leg) return;
+      box.innerHTML = '';
+      const r = recorteAtual;
+      const quem = metricsProjeto ? tituloDoProjeto(metricsProjeto) : 'todos os projetos';
+      if (!serieDiaria || !serieDiaria.primeiroDia || !r) {
+        desc.textContent = 'Ainda não há contagem por dia.';
+        leg.innerHTML = '';
+        return;
+      }
+      if (!r.totR && !r.totM) {
+        desc.textContent = 'Nenhuma foto baixada na galeria nos últimos ' + metricsPeriodo + ' dias — ' + quem + '.';
+        leg.innerHTML = '';
+        box.innerHTML = '<div class="grafico-vazio">Quando alguém baixar uma foto pela galeria do site, ela aparece aqui.</div>';
+        return;
+      }
+      const largura = Math.max(240, Math.round(box.clientWidth || 0));
+      const res = svgLinhas({
+        largura: largura,
+        altura: largura < 560 ? 180 : 210,
+        dias: r.dias,
+        rotulosFim: largura >= 560,
+        series: [
+          { nome: 'Para redes', curto: 'Redes', cor: COR_REDES, valores: r.redes },
+          { nome: 'Tamanho máximo', curto: 'Máximo', cor: COR_MAX, valores: r.max },
+        ],
+      });
+      box.innerHTML = res.svg;
+      const item = (cor, nome, total) => '<span><i style="background:' + cor + '"></i>' + nome + ' <b>' + fmtN(total) + '</b></span>';
+      leg.innerHTML = item(COR_REDES, 'Para redes', r.totR) + item(COR_MAX, 'Tamanho máximo', r.totM);
+      desc.textContent = 'Últimos ' + metricsPeriodo + ' dias, ' + quem + ': ' + fmtN(r.totR + r.totM) + ' fotos baixadas.';
+      box.setAttribute('aria-label', 'Gráfico de linhas. ' + desc.textContent + ' ' + fmtN(r.totR) + ' para redes e ' + fmtN(r.totM) + ' no tamanho máximo.');
     }
 
     function renderTabelaAcessos() {
@@ -2511,10 +2585,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       let linhas = '';
       for (let i = r.dias.length - 1; i >= 0; i--) {
         const sem = r.views[i] === null;
-        linhas += '<tr><td>' + diaLongo(r.dias[i]) + '</td><td>' + (sem ? '—' : fmtN(r.views[i])) + '</td><td>' + (sem ? '—' : fmtN(r.drive[i])) + '</td></tr>';
+        const n = v => sem ? '—' : fmtN(v);
+        linhas += '<tr><td>' + diaLongo(r.dias[i]) + '</td><td>' + n(r.views[i]) + '</td><td>' + n(r.drive[i]) + '</td><td>' + n(r.galeria[i]) + '</td><td>' + n(r.redes[i]) + '</td><td>' + n(r.max[i]) + '</td></tr>';
       }
       t.innerHTML = '<table class="metrics-table"><caption class="sr-only">Acessos por dia, do mais recente ao mais antigo</caption>'
-        + '<thead><tr><th scope="col">Dia</th><th scope="col">Visitas</th><th scope="col">Abriram o Drive</th></tr></thead><tbody>' + linhas + '</tbody></table>';
+        + '<thead><tr><th scope="col">Dia</th><th scope="col">Visitas</th><th scope="col">Abriram o Drive</th><th scope="col">Abriram a galeria</th><th scope="col">Baixadas para redes</th><th scope="col">Baixadas no máximo</th></tr></thead><tbody>' + linhas + '</tbody></table>';
     }
 
     // ---- A cruz do gráfico: ponteiro, toque e teclado ----
@@ -2541,7 +2616,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       linha.setAttribute('x1', String(x));
       linha.setAttribute('x2', String(x));
       const pontos = cruz.querySelectorAll('circle');
-      [r.views, r.drive].forEach((vals, k) => {
+      [r.views, r.drive, r.galeria].forEach((vals, k) => {
         const v = vals[i];
         pontos[k].setAttribute('cx', String(x));
         pontos[k].setAttribute('cy', String(geoY(g, v || 0)));
@@ -2550,7 +2625,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const linhaDica = (cor, nome, v) => '<div class="dica-linha"><i style="background:' + cor + '"></i>' + nome + '<b>' + (v === null ? '—' : fmtN(v)) + '</b></div>';
       const dica = document.getElementById('dica-acessos');
       dica.innerHTML = '<div class="dica-dia">' + diaLongo(r.dias[i]) + (i === g.n - 1 ? ' (hoje)' : '') + '</div>'
-        + linhaDica(COR_VISITAS, 'Visitas', r.views[i]) + linhaDica(COR_DRIVE, 'Abriram o Drive', r.drive[i]);
+        + linhaDica(COR_VISITAS, 'Visitas', r.views[i]) + linhaDica(COR_DRIVE, 'Abriram o Drive', r.drive[i]) + linhaDica(COR_GALERIA, 'Abriram a galeria', r.galeria[i]);
       dica.hidden = false;
       // Onde a dica fica: nunca em cima do ponto que ela descreve. Primeiro
       // tenta o alto, AO LADO da cruz (do lado com mais espaço). No celular a
@@ -2640,10 +2715,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const linhas = [];
       for (const slug of Object.keys(d.projetos)) {
         const p = d.projetos[slug];
-        const v = p.views.slice(ini), c = p.driveClicks.slice(ini);
-        const tv = v.reduce((a, b) => a + b, 0), tc = c.reduce((a, b) => a + b, 0);
-        if (!tv && !tc) continue;
-        linhas.push({ slug: slug, titulo: tituloDoProjeto(slug), views: tv, driveClicks: tc, taxa: tv ? tc / tv : 0,
+        const somaDe = arr => (arr || []).slice(ini).reduce((a, b) => a + b, 0);
+        const v = p.views.slice(ini);
+        const tv = somaDe(p.views), tc = somaDe(p.driveClicks), tg = somaDe(p.galeria);
+        const tb = somaDe(p.baixarRedes) + somaDe(p.baixarMax);
+        if (!tv && !tc && !tg && !tb) continue;
+        linhas.push({ slug: slug, titulo: tituloDoProjeto(slug), views: tv, driveClicks: tc, galeria: tg, baixadas: tb, taxa: taxaAbertura(tc + tg, tv),
           serie: v.map((x, i) => d.dias[ini + i] < d.primeiroDia ? null : x) });
       }
       if (!linhas.length) { el.innerHTML = '<p class="empty">Nenhuma visita nos últimos ' + metricsPeriodo + ' dias.</p>'; return; }
@@ -2651,14 +2728,19 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       linhas.sort((a, b) => (b[k] - a[k]) || (b.views - a.views) || a.titulo.localeCompare(b.titulo, 'pt-BR'));
       const maxV = Math.max(1, ...linhas.map(l => l.views));
       const maxD = Math.max(1, ...linhas.map(l => l.driveClicks));
+      const maxG = Math.max(1, ...linhas.map(l => l.galeria));
+      const maxB = Math.max(1, ...linhas.map(l => l.baixadas));
       const barra = l => k === 'views' ? { pct: l.views / maxV * 100, cor: COR_VISITAS }
-        : k === 'driveClicks' ? { pct: l.driveClicks / maxD * 100, cor: COR_DRIVE } : { pct: Math.min(100, l.taxa * 100), cor: COR_DRIVE };
+        : k === 'driveClicks' ? { pct: l.driveClicks / maxD * 100, cor: COR_DRIVE }
+        : k === 'galeria' ? { pct: l.galeria / maxG * 100, cor: COR_GALERIA }
+        : k === 'baixadas' ? { pct: l.baixadas / maxB * 100, cor: COR_REDES }
+        : { pct: l.taxa * 100, cor: COR_GALERIA };
       const semVisita = Math.max(0, events.length - linhas.length);
       el.innerHTML = linhas.map(l => {
         const b = barra(l);
         return '<button type="button" class="rank-item" data-action="focaProjeto" data-slug="' + esc(l.slug) + '" aria-pressed="' + (l.slug === metricsProjeto) + '">'
           + '<span class="rank-nome">' + esc(l.titulo) + '</span>'
-          + '<span class="rank-num">' + fmtN(l.views) + ' visitas · ' + fmtN(l.driveClicks) + ' Drive · ' + (l.views ? Math.round(l.taxa * 100) + '%' : '—') + '</span>'
+          + '<span class="rank-num">' + fmtN(l.views) + ' visitas · ' + fmtN(l.driveClicks) + ' Drive · ' + fmtN(l.galeria) + ' galeria · ' + fmtN(l.baixadas) + ' baixadas · ' + (l.views ? Math.round(l.taxa * 100) + '%' : '—') + '</span>'
           + '<span class="rank-barra"><span class="barra-trilho"><i style="width:' + Math.max(1, b.pct).toFixed(1) + '%;background:' + b.cor + '"></i></span>'
           + sparkline(l.serie, 72, 20, COR_VISITAS) + '</span></button>';
       }).join('') + (semVisita ? '<p class="rank-resto">' + semVisita + (semVisita === 1 ? ' projeto sem visita' : ' projetos sem visita') + ' no período.</p>' : '');
@@ -2695,19 +2777,49 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const total = d.dias.length;
       const ini = Math.max(0, total - n);
       const projs = slug ? (d.projetos[slug] ? [d.projetos[slug]] : []) : Object.values(d.projetos);
-      const soma = (campo, i) => projs.reduce((t, p) => t + (p[campo][i] || 0), 0);
-      const views = [], drive = [];
+      // Campo ausente vale zero: a série de antes da galeria (v2.2) só tinha
+      // visitas e Drive.
+      const soma = (campo, i) => projs.reduce((t, p) => t + ((p[campo] && p[campo][i]) || 0), 0);
+      const views = [], drive = [], galeria = [], redes = [], max = [];
       for (let i = ini; i < total; i++) {
         const semDado = !d.primeiroDia || d.dias[i] < d.primeiroDia;
         views.push(semDado ? null : soma('views', i));
         drive.push(semDado ? null : soma('driveClicks', i));
+        galeria.push(semDado ? null : soma('galeria', i));
+        redes.push(semDado ? null : soma('baixarRedes', i));
+        max.push(semDado ? null : soma('baixarMax', i));
       }
       const antIni = ini - n;
       const temAnterior = antIni >= 0 && !!d.primeiroDia && d.dias[antIni] >= d.primeiroDia;
-      let antV = 0, antD = 0;
-      if (temAnterior) for (let i = antIni; i < ini; i++) { antV += soma('views', i); antD += soma('driveClicks', i); }
+      let antV = 0, antD = 0, antG = 0, antB = 0;
+      if (temAnterior) {
+        for (let i = antIni; i < ini; i++) {
+          antV += soma('views', i); antD += soma('driveClicks', i); antG += soma('galeria', i);
+          antB += soma('baixarRedes', i) + soma('baixarMax', i);
+        }
+      }
       const tot = arr => arr.reduce((t, v) => t + (v || 0), 0);
-      return { dias: d.dias.slice(ini), views: views, drive: drive, totV: tot(views), totD: tot(drive), antV: antV, antD: antD, temAnterior: temAnterior };
+      return {
+        dias: d.dias.slice(ini), views: views, drive: drive, galeria: galeria, redes: redes, max: max,
+        totV: tot(views), totD: tot(drive), totG: tot(galeria), totR: tot(redes), totM: tot(max),
+        antV: antV, antD: antD, antG: antG, antB: antB, temAnterior: temAnterior,
+      };
+    }
+
+    // Taxa de abertura = (abriram o Drive + abriram a galeria) ÷ visitas, de 0 a 1
+    // e LIMITADA a 100%. Passava de 100%: quem chega à galeria pelo Google abre
+    // a URL da galeria direto, sem passar pela página do projeto (que é onde
+    // a visita é contada), então as aberturas podem superar as visitas. Mais
+    // de 100% não é "mais de todos": é abertura sem visita, e o número honesto
+    // para exibir é "100%". Sem visita, 0 (quem exibe mostra "—").
+    function taxaAbertura(abertas, visitas) {
+      if (!(visitas > 0) || !(abertas > 0)) return 0;
+      return Math.min(1, abertas / visitas);
+    }
+
+    // O mesmo número em % inteiro para a tela, ou null sem visita.
+    function pctTaxa(abertas, visitas) {
+      return visitas > 0 ? Math.round(taxaAbertura(abertas, visitas) * 100) : null;
     }
 
     // Variação de um período para o outro, em % inteiro. null quando não há
@@ -2801,10 +2913,16 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       });
       // Ponta de cada linha: um ponto com anel da cor do fundo (separa as
       // duas quando se encostam) e, com espaço, o nome — afastados se colidem.
-      if (o.rotulosFim && pontas.length === 2 && Math.abs(pontas[0].y - pontas[1].y) < 13) {
-        const meio = (pontas[0].y + pontas[1].y) / 2, cima0 = pontas[0].y <= pontas[1].y;
-        pontas[0].ty = meio + (cima0 ? -6.5 : 6.5);
-        pontas[1].ty = meio + (cima0 ? 6.5 : -6.5);
+      // Com três linhas (visitas, Drive, galeria) os nomes podem se encostar:
+      // de cima para baixo, cada um fica pelo menos 13 px abaixo do anterior,
+      // e o grupo é recentrado na altura média dos pontos.
+      if (o.rotulosFim && pontas.length > 1) {
+        const ordem = pontas.slice().sort((a, b) => a.y - b.y);
+        let ty = [];
+        ordem.forEach((p, k) => { ty.push(k ? Math.max(p.y, ty[k - 1] + 13) : p.y); });
+        const desvio = ordem.reduce((t, p, k) => t + (ty[k] - p.y), 0) / ordem.length;
+        ty = ty.map(v => v - desvio);
+        ordem.forEach((p, k) => { if (Math.abs(ty[k] - p.y) > 0.01) p.ty = ty[k]; });
       }
       pontas.forEach(p => {
         s += '<circle cx="' + p.x + '" cy="' + p.y + '" r="3" fill="' + p.cor + '" stroke="#141414" stroke-width="2"/>';
@@ -2884,9 +3002,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const body = document.getElementById('metrics-body');
       const key = metricsSort.key;
       const dir = metricsSort.dir === 'asc' ? 1 : -1;
-      const taxa = m => (m.driveClicks || 0) / (m.views || 1);
+      const taxa = m => taxaAbertura((m.driveClicks || 0) + (m.galeriaViews || 0), m.views || 0);
       const baixou = m => (m.baixarRedes || 0) + (m.baixarMax || 0);
-      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : k === 'baixar' ? baixou(m) : (m.views || 0);
+      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : k === 'baixar' ? baixou(m) : k === 'galeria' ? (m.galeriaViews || 0) : (m.views || 0);
       const rowsData = [...metricsData].sort((a, b) => (num(a, key) - num(b, key)) * dir);
       const maxViews = metricsData.reduce((mx, m) => Math.max(mx, m.views || 0), 0) || 1;
       const ind = k => k === metricsSort.key ? '<span class="sort-ind">' + (metricsSort.dir === 'asc' ? '▲' : '▼') + '</span>' : '';
@@ -2898,6 +3016,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           + '<td class="views-cell"><span class="views-bar" style="width:' + pct + '%"></span><span class="views-badge">' + fmtN(m.views) + '</span></td>'
           + '<td><span class="views-badge">' + fmtN(m.driveClicks) + '</span></td>'
           + '<td><span class="views-badge">' + ((m.views || 0) ? Math.round(taxa(m) * 100) + '%' : '—') + '</span></td>'
+          + '<td><span class="views-badge">' + fmtN(m.galeriaViews || 0) + '</span></td>'
           + '<td><span class="views-badge" title="Para redes / tamanho máximo">' + (baixou(m) ? fmtN(m.baixarRedes || 0) + ' / ' + fmtN(m.baixarMax || 0) : '—') + '</span></td>'
           + '</tr>';
       }).join('');
@@ -2905,7 +3024,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         + '<th scope="col">Projeto</th>'
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="views" title="Visitantes únicos por hora"' + sortAttr('views') + '>Visitas' + ind('views') + '</th>'
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="driveClicks" title="Quantos abriram o link do Drive"' + sortAttr('driveClicks') + '>Drive' + ind('driveClicks') + '</th>'
-        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="taxa" title="Abriram o Drive ÷ visitas"' + sortAttr('taxa') + '>Taxa' + ind('taxa') + '</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="taxa" title="' + DICA_TAXA + '"' + sortAttr('taxa') + '>Taxa' + ind('taxa') + '</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="galeria" title="Quantos abriram a galeria do site"' + sortAttr('galeria') + '>Galeria' + ind('galeria') + '</th>'
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="baixar" title="Fotos baixadas na galeria do site: para redes / tamanho máximo"' + sortAttr('baixar') + '>Galeria ↓' + ind('baixar') + '</th>'
         + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }
@@ -2998,6 +3118,32 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       el.textContent = r.texto;
       el.classList.toggle('aviso', r.velho);
     }
+    // O cabeçalho X-Backup-Consentimento diz se o registro de consentimento
+    // veio inteiro: sem o D1 o arquivo sai sem ele, e acima do teto só com os
+    // aceites mais recentes (docs/RELEASE.md, "Backup do registro de
+    // consentimento"). Os dois casos avisam em vermelho: o dono não pode
+    // guardar o arquivo achando que a prova de aceite está dentro.
+    function avisoDoBackup(consentimento) {
+      if (consentimento === 'ausente') return { texto: 'Backup baixado, mas SEM o registro de consentimento (o banco não respondeu). Tente de novo mais tarde.', tipo: 'err' };
+      if (consentimento === 'parcial') return { texto: 'Backup baixado com só os aceites mais recentes. O registro inteiro sai pelo wrangler d1 export.', tipo: 'err' };
+      return { texto: 'Backup baixado.', tipo: 'ok' };
+    }
+    // O que o restore fez com o registro de consentimento (backup v3) — o que
+    // entrou e o que não entrou, dito. Backup v1/v2 não traz a seção: vazio.
+    function textoConsentRestaurado(res) {
+      let t = '';
+      if (res.consentSkipped) t = ' O registro de consentimento não entra na prévia (dados pessoais).';
+      else if (typeof res.consentAdded === 'number') {
+        const s = n => (n !== 1 ? 's' : '');
+        t = ' Consentimento: ' + res.consentAdded + ' aceite' + s(res.consentAdded) + ' novo' + s(res.consentAdded)
+          + (res.consentDuplicates ? ', ' + res.consentDuplicates + ' já existia' + (res.consentDuplicates !== 1 ? 'm' : '') : '')
+          + (res.consentRejected ? ', ' + res.consentRejected + ' recusado' + s(res.consentRejected) + ' (inválido' + s(res.consentRejected) + ')' : '')
+          + (res.consentExpired ? ', ' + res.consentExpired + ' vencido' + s(res.consentExpired) + ' (fora da retenção)' : '')
+          + '.';
+      } else if (res.consentMissingInBackup) t = ' Este arquivo saiu sem o registro de consentimento.';
+      if (res.consentError) t += ' ' + res.consentError;
+      return t;
+    }
     // Um fetch, e não um link: com a sessão expirada, o navegador mostrava o JSON
     // do erro. O 401 vai ao login, como no api().
     async function downloadBackup() {
@@ -3012,7 +3158,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const a = document.createElement('a');
       a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(u), 1000);
-      toast('Backup baixado.', 'ok');
+      const aviso = avisoDoBackup(res.headers.get('X-Backup-Consentimento'));
+      toast(aviso.texto, aviso.tipo);
       // O servidor já marcou a entrega; aqui a linha de Ajustes muda no lugar,
       // sem recarregar a página.
       backupUltimo = new Date().toISOString();
@@ -3027,9 +3174,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (!Array.isArray(backup.events)) { toast('Backup inválido: sem campo "events".', 'err'); return; }
       const n = backup.events.length;
       const date = backup.backupAt ? new Date(backup.backupAt).toLocaleDateString('pt-BR') : 'data desconhecida';
+      // Backup v3 traz o registro de consentimento; v1 e v2, não.
+      const aceites = backup.consent && Array.isArray(backup.consent.linhas) ? backup.consent.linhas.length : 0;
+      const comAceites = aceites ? ' e ' + aceites + ' aceite' + (aceites !== 1 ? 's' : '') + ' do registro de consentimento' : '';
       const ok = await confirmDialog({
         title: 'Restaurar backup',
-        message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
+        message: 'Restaurar backup de ' + date + ' com ' + n + ' evento' + (n !== 1 ? 's' : '') + comAceites + '? Eventos novos serão adicionados sem excluir nenhum dado atual.',
         confirmLabel: 'Restaurar',
         danger: true,
         typeToConfirm: 'RESTAURAR',
@@ -3043,7 +3193,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // Na prévia de PR os pedidos de remoção do backup ficam de fora (dados
         // pessoais de terceiros) — e o aviso diz isso, em vez de sumirem calados.
         const semPedidos = res.removalRequestsSkipped ? ' Pedidos de remoção não entram na prévia (dados pessoais).' : '';
-        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos, 'ok');
+        // Uma seção que falhou não esconde as outras: cada erro vem na frase.
+        const falhas = (res.categoriesError ? ' ' + res.categoriesError : '') + (res.removalRequestsError ? ' ' + res.removalRequestsError : '');
+        toast('Restaurado: ' + res.added + ' adicionados, ' + res.updated + ' atualizados' + ignorados + '.' + semPedidos + textoConsentRestaurado(res) + falhas, res.consentError || falhas ? 'err' : 'ok');
         // Arquivo já usado sai do campo: com ele escolhido, o recarregamento abaixo
         // perguntaria "Sair do site?" (ajustesSujos()).
         fileInput.value = '';
@@ -3087,8 +3239,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         let data = metricsData;
         if (!metricsLoaded) { data = await api('GET', '/api/metrics'); }
         if (!data || !data.length) return toast('Nenhuma métrica para exportar.', 'err');
-        const rows = data.map(m => ({ title: m.title, slug: m.slug, views: m.views || 0, driveClicks: m.driveClicks || 0, baixarRedes: m.baixarRedes || 0, baixarMax: m.baixarMax || 0 }));
-        downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks', 'baixarRedes', 'baixarMax'], rows);
+        const rows = data.map(m => ({ title: m.title, slug: m.slug, views: m.views || 0, driveClicks: m.driveClicks || 0, galeriaViews: m.galeriaViews || 0, baixarRedes: m.baixarRedes || 0, baixarMax: m.baixarMax || 0 }));
+        downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks', 'galeriaViews', 'baixarRedes', 'baixarMax'], rows);
       } catch(err) {
         toast(err.message || 'Erro ao exportar métricas.', 'err');
       }
@@ -3106,11 +3258,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         for (const slug of Object.keys(d.projetos).sort()) {
           const p = d.projetos[slug];
           for (let i = ini; i < d.dias.length; i++) {
-            rows.push({ dia: d.dias[i], slug: slug, titulo: tituloDoProjeto(slug), visitas: p.views[i] || 0, abriram_drive: p.driveClicks[i] || 0 });
+            const de = arr => (arr && arr[i]) || 0;
+            rows.push({ dia: d.dias[i], slug: slug, titulo: tituloDoProjeto(slug), visitas: de(p.views), abriram_drive: de(p.driveClicks),
+              abriram_galeria: de(p.galeria), baixadas_redes: de(p.baixarRedes), baixadas_max: de(p.baixarMax) });
           }
         }
         if (!rows.length) return toast('Nenhuma visita contada por dia ainda.', 'err');
-        downloadCSV('metricas-por-dia-' + csvDate() + '.csv', ['dia', 'slug', 'titulo', 'visitas', 'abriram_drive'], rows);
+        downloadCSV('metricas-por-dia-' + csvDate() + '.csv', ['dia', 'slug', 'titulo', 'visitas', 'abriram_drive', 'abriram_galeria', 'baixadas_redes', 'baixadas_max'], rows);
       } catch(err) {
         toast(err.message || 'Erro ao exportar métricas por dia.', 'err');
       }

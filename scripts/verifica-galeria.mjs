@@ -11,8 +11,8 @@
 // download devolve um arquivo com os cabeçalhos que o servidor manda.
 //
 // O que ele prova é o comportamento da PÁGINA: grade, resolução por aparelho,
-// zoom que sobe a resolução, downloads, "Salvar na galeria", seleção, link
-// direto e teclado. O do servidor (portão, proxy, Drive API) está em
+// zoom que sobe a resolução, downloads (arquivo exato; no iPhone, "Salvar no
+// Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
 /* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event */
@@ -70,15 +70,40 @@ const LARGURA_REAL = (/** @type {string} */ id) => {
   return f[1] || 6000;
 };
 
-const EVENTO = { slug: 'formatura', title: 'Formatura 2026', driveUrl: 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001' };
+const EVENTO = { slug: 'formatura', title: 'Formatura 2026', driveUrl: 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001', driveUrlInstagram: 'https://drive.google.com/drive/folders/IG_PASTA_000001' };
 const LISTAGEM = {
   v: /** @type {1} */ (1), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
   total: TODAS.length, videos: 2, outros: 0, rk: {},
   secoes: [{ nome: '', caminho: '', fotos: raiz }, { nome: 'Festa', caminho: 'Festa', fotos: festa }],
 };
+// A pasta do Instagram de mentira: as fotos da raiz de índice 2, 5, 8, ... NÃO
+// têm par lá (nem a subpasta Festa inteira). Nas de índice par o arquivo tem
+// outro nome (001.JPG, em maiúscula), para provar que o nome baixado é o do
+// arquivo da pasta do Instagram e não o da galeria.
+/** @type {Map<string, [string, number, number, string, number]>} */
+const REDES = new Map();
+raiz.forEach((f, i) => {
+  if (i % 3 === 2) return;
+  const base = f[3].replace(/\.[^.]+$/, '');
+  REDES.set(f[0], [`IG${f[0]}`, 1080, 1350, i % 2 === 0 ? `${base}.JPG` : f[3], 6_000_000 + i * 100]);
+});
 const NONCE = 'nonceDeTeste123';
-const PAGINA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE });
+const PAGINA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, redes: REDES });
 const PAGINA_ERRO = galeriaHTML({ event: EVENTO, listagem: null, erro: { codigo: 'chave-ausente', mensagem: 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).' }, nonce: NONCE });
+
+// ---- Arquivos de download --------------------------------------------------
+// Bytes de teste com os 256 valores possíveis + a identificação do arquivo:
+// qualquer conversão, reencode ou truncamento no caminho muda o resultado.
+/** @param {string} id @param {'max' | 'redes'} variante */
+const conteudo = (id, variante) => Buffer.concat([Buffer.from(Array.from({ length: 256 }, (_, i) => i)), Buffer.from(`${variante}:${id}`)]);
+/** O nome que o servidor manda: o do arquivo na pasta de onde ele vem. */
+const nomeBaixado = (/** @type {string} */ id, /** @type {'max' | 'redes'} */ variante) => {
+  if (variante === 'redes') { const r = REDES.get(id); return r ? r[3] : null; }
+  const f = POR_ID.get(id);
+  return f ? f[3] : null;
+};
+const UA_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+const UA_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
 
 // ---- Imagens geradas na largura pedida -------------------------------------
 /** @type {any} */
@@ -111,7 +136,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, escuro?: boolean, ocultas?: string[] }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -121,22 +146,43 @@ async function abre(o = {}) {
     hasTouch: !!o.toque,
     isMobile: !!o.toque,
     acceptDownloads: true,
+    ...(o.ua ? { userAgent: o.ua } : {}),
   });
   const page = await ctx.newPage();
-  if (o.compartilhar) {
+  if (o.ipad) {
+    // O iPadOS se apresenta como um Mac (plataforma MacIntel), mas tem toque.
     await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
+    });
+  }
+  if (o.compartilhar) {
+    // Web Share de arquivos de mentira: guarda nome, tipo, tamanho e os bytes
+    // (em base64) do que a página entrega ao sistema. Com `semCanShare`, o
+    // aparelho recusa arquivos (canShare falso).
+    await page.addInitScript(([recusa, recusaShare]) => {
       /** @type {any} */ (window).__compartilhados = [];
-      Object.defineProperty(navigator, 'canShare', { value: (/** @type {any} */ d) => !!(d && d.files && d.files.length) });
+      Object.defineProperty(navigator, 'canShare', { value: (/** @type {any} */ d) => !recusa && !!(d && d.files && d.files.length) });
       Object.defineProperty(navigator, 'share', {
         value: async (/** @type {any} */ d) => {
-          /** @type {any} */ (window).__compartilhados.push(...d.files.map((/** @type {File} */ f) => ({ nome: f.name, tipo: f.type, bytes: f.size })));
+          // `recusaShare`: o sistema recusa entregar os arquivos (erro que não é
+          // cancelamento nem falta de toque) — o caso do fallback para "Arquivos".
+          if (recusaShare) { const e = new Error('recusou'); e.name = 'DataError'; throw e; }
+          for (const f of (d.files || [])) {
+            const b = new Uint8Array(await f.arrayBuffer());
+            let bin = '';
+            for (const x of b) bin += String.fromCharCode(x);
+            /** @type {any} */ (window).__compartilhados.push({ nome: f.name, tipo: f.type, bytes: f.size, b64: globalThis.btoa(bin) });
+          }
         },
       });
-    });
+    }, [!!o.semCanShare, !!o.recusaShare]);
   }
   const estado = {
     lh3: /** @type {{ id: string, w: number, webp: boolean }[]} */ ([]),
     downloads: /** @type {string[]} */ ([]),
+    // Todo pedido a /baixar/ (caminho + query), inclusive os recusados com 429.
+    pedidos: /** @type {string[]} */ ([]),
     erros: /** @type {string[]} */ ([]),
     csp: /** @type {string[]} */ ([]),
     ocultar: /** @type {{ foto: string, oculta: boolean }[]} */ ([]),
@@ -169,20 +215,28 @@ async function abre(o = {}) {
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
     const b = u.pathname.match(/^\/galeria\/formatura\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
-      const f = POR_ID.get(b[1]);
-      if (!f) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"x"}' });
-      const variante = u.searchParams.get('v') === 'max' ? 'max' : 'redes';
+      const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
+      estado.pedidos.push(u.pathname.split('/').pop() + u.search);
+      // Limite por IP esgotado (Wi-Fi de evento): o servidor manda esperar.
+      if (o.limite429) {
+        return route.fulfill({
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': String(o.limite429) },
+          body: JSON.stringify({ error: 'Muita gente acessando agora. Tentando de novo em instantes.', retryAfter: o.limite429 }),
+        });
+      }
+      const nome = nomeBaixado(b[1], variante);
+      // Como o servidor: só devolve o que existe (foto sem par no Instagram: 404).
+      if (!nome) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"x"}' });
       estado.downloads.push(`${b[1]}:${variante}`);
-      const nome = `formatura-${f[3].replace(/\.[^.]+$/, '')}${variante === 'redes' ? '-redes' : ''}.jpg`;
-      const img = await imagem(b[1], variante === 'redes' ? 2048 : LARGURA_REAL(b[1]), false);
       return route.fulfill({
         status: 200,
         headers: {
           'Content-Type': 'image/jpeg',
-          'Content-Disposition': `attachment; filename="${nome}"`,
+          'Content-Disposition': `attachment; filename="${nome}"; filename*=UTF-8''${encodeURIComponent(nome)}`,
           'X-Nome-Arquivo': encodeURIComponent(nome),
         },
-        body: img.corpo,
+        body: conteudo(b[1], variante),
       });
     }
     return route.fulfill({ status: 204, body: '' });
@@ -266,8 +320,41 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));
-      return { util, desvio, tiles, nan, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
+      const alts = [...document.querySelectorAll('.g-t img')].map(im => /** @type {HTMLImageElement} */ (im).alt);
+      // Desempenho da carga: o que é "eager"/prioritário e onde está.
+      const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-t img')]);
+      const topoDe = (/** @type {HTMLElement} */ el) => el.getBoundingClientRect().top + window.scrollY;
+      const primeiraLinha = /** @type {HTMLElement} */ (document.querySelector('.g-linha'));
+      const altas = imgs.filter(im => im.getAttribute('fetchpriority') === 'high');
+      const carga = {
+        altasNaPrimeiraLinha: altas.length > 0 && altas.every(im => im.closest('.g-linha') === primeiraLinha) && altas.length === primeiraLinha.querySelectorAll('img').length,
+        eagerLonge: imgs.filter(im => im.loading === 'eager' && topoDe(im) > window.innerHeight * 1.5).length,
+        lazyNaTela: imgs.filter(im => im.loading !== 'eager' && topoDe(im) < window.innerHeight * 0.9).length,
+        coracaoCss: getComputedStyle(/** @type {Element} */ (document.querySelector('.g-fav')), '::before').backgroundImage.includes('svg'),
+        svgPorFoto: document.querySelectorAll('.g-t svg').length,
+      };
+      return { util, desvio, tiles, nan, alts, carga, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
   });
+  // SEO e leitor de tela: o alt diz o evento e a posição, não o nome do arquivo.
+  const altEsperado = (/** @type {number} */ i) => `Formatura 2026 — foto ${i + 1} de ${TODAS.length}`;
+  // Carga: só a primeira linha (a do LCP) é prioritária, só a primeira tela é
+  // "eager", o CSS do visualizador não bloqueia a pintura e o coração não é um
+  // <svg> por miniatura.
+  registra(g.carga.altasNaPrimeiraLinha, `${nome}: fetchpriority=high só na primeira linha (a do LCP)`, g.carga);
+  registra(g.carga.eagerLonge === 0 && g.carga.lazyNaTela === 0, `${nome}: "eager" só na primeira tela; o resto preguiçoso`, g.carga);
+  // No HTML servido, nada de <link rel=stylesheet> do PhotoSwipe (bloquearia a
+  // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
+  registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
+  registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
+  const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dpr));
+  registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais)`, g.tiles.slice(0, 4));
+  // A pré-carga do LCP (celular até 430 px) pede o MESMO arquivo que a <img>:
+  // uma requisição só da primeira foto, sem desperdício.
+  if (viewport.width <= 430) {
+    const daPrimeira = estado.lh3.filter(x => x.id === TODAS[0][0]);
+    registra(daPrimeira.length === 1, `${nome}: pré-carga da primeira foto = a miniatura que a página usa (1 pedido só)`, daPrimeira);
+  }
+  registra(g.alts.length === TODAS.length && g.alts.every((a, i) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
   registra(g.total === TODAS.length, `${nome}: todas as ${TODAS.length} fotos na grade`, g.total);
   registra(g.desvio >= 0 && g.desvio <= 2, `${nome}: linhas justificadas (cada linha fecha na largura, ±2 px)`, { desvio: g.desvio });
   registra(!g.nan && !g.rolagemLateral, `${nome}: nenhuma largura inválida, sem rolagem lateral`, { nan: g.nan, lateral: g.rolagemLateral });
@@ -322,6 +409,12 @@ await cenario('Visualizador no desktop', async () => {
   const ini = await larguraAtualDoVisualizador(page);
   const esperado = degrau([...GALERIA_LARGURAS.filter(x => x < 6000), 6000], ini.exibida * 1);
   registra(ini.w === esperado, 'Desktop: abre na resolução da tela (menor degrau que cobre a foto exibida)', { pedida: ini.w, exibida: Math.round(ini.exibida), esperado });
+  const cssLb = await page.evaluate(() => {
+    const l = document.querySelector('link[rel="stylesheet"][href*="photoswipe"]');
+    const pswp = document.querySelector('.pswp');
+    return { link: !!l, antesDoStyle: !!l && !!l.nextElementSibling && l.nextElementSibling.tagName === 'STYLE', fixo: !!pswp && getComputedStyle(pswp).position === 'fixed' };
+  });
+  registra(cssLb.link && cssLb.antesDoStyle && cssLb.fixo, 'Desktop: o CSS do visualizador entra ao abrir, antes do <style> da página (mesma cascata)', cssLb);
   registra(/[#]foto=RAIZFOTO_000000$/.test(page.url()), 'Desktop: o endereço ganha o link direto da foto', page.url());
   // Zoom máximo com a roda: tem de chegar ao original.
   await page.mouse.move(720, 450);
@@ -336,6 +429,8 @@ await cenario('Visualizador no desktop', async () => {
   registra(/[#]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
   const legenda = await page.locator('.pswp__g-legenda').textContent();
   registra(legenda === '002', 'Desktop: legenda mostra o número da foto', legenda);
+  const altAberta = await page.evaluate(() => [...document.querySelectorAll('.pswp__item[aria-hidden="false"] img')].map(im => /** @type {HTMLImageElement} */ (im).alt).find(Boolean) || '');
+  registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && !page.url().includes('#foto='), 'Desktop: Esc fecha e limpa o link', page.url());
@@ -392,94 +487,249 @@ await cenario('Link direto', async () => {
   await ctx.close();
 });
 
-// ---- 4. Downloads no computador -------------------------------------------
-await cenario('Downloads no computador', async () => {
-  const { ctx, page, estado } = await abre({});
-  await page.locator('.g-t').nth(2).click();
-  await page.waitForSelector('.pswp--open');
-  await espera(page, 800);
-  await page.locator('.pswp__button--g-baixar').click();
-  await page.waitForSelector('#g-folha:not([hidden])');
-  await verificaAxe(page, registra, 'Computador: folha de download aberta sobre o visualizador');
-  const ops = await page.locator('.g-op strong').allTextContents();
-  const detalhe = await page.locator('.g-op span').nth(1).textContent();
-  registra(ops.join('|') === 'Para redes sociais|Tamanho máximo', 'Computador: a folha oferece "para redes" e "tamanho máximo"', ops);
-  // 15.002.000 bytes = "15 MB", em unidades decimais como o celular mostra.
-  registra(/4000 × 4000 px · 15 MB$/.test(detalhe || ''), 'Computador: "tamanho máximo" mostra dimensões e peso do original', detalhe);
-  // No computador o download é um <a download> para o proxy. O Playwright não
-  // intercepta essa navegação (ela vira download antes da rota), então aqui se
-  // confere a URL pedida — foto e variante —, e o nome do arquivo, que é o
-  // Content-Disposition do servidor, está em tests/galeria.test.js.
-  const urlDe = (/** @type {import('playwright-core').Download} */ d) => { const u = new URL(d.url()); return u.pathname + u.search; };
-  const [d1] = await Promise.all([page.waitForEvent('download'), page.locator('.g-op').first().click()]);
-  registra(urlDe(d1) === '/galeria/formatura/baixar/RAIZFOTO_000002?v=redes', 'Computador: "para redes" baixa a foto aberta, pelo proxy', d1.url());
-  await espera(page, 1200);
-  await page.locator('.pswp__button--g-baixar').click();
-  await page.waitForSelector('#g-folha:not([hidden])');
-  const [d2] = await Promise.all([page.waitForEvent('download'), page.locator('.g-op').nth(1).click()]);
-  registra(urlDe(d2) === '/galeria/formatura/baixar/RAIZFOTO_000002?v=max', 'Computador: "tamanho máximo" baixa o original, pelo proxy', d2.url());
-  // Esc com a folha aberta fecha SÓ a folha.
-  await espera(page, 1200);
-  await page.locator('.pswp__button--g-baixar').click();
-  await page.waitForSelector('#g-folha:not([hidden])');
-  await page.keyboard.press('Escape');
-  await espera(page, 400);
-  registra(await page.locator('#g-folha').isHidden() && (await page.locator('.pswp--open').count()) === 1, 'Computador: Esc fecha a folha e mantém o visualizador', '');
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Computador: downloads sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
-  await ctx.close();
-});
-
-// ---- 5. "Salvar na galeria" no celular (iPhone e Android pelo mesmo caminho) --
-for (const [nome, viewport, dpr] of /** @type {const} */ ([
-  ['iPhone 390@3', { width: 390, height: 844 }, 3],
-  ['Android 360@2', { width: 360, height: 780 }, 2],
+// ---- 4. Downloads no computador e no Android --------------------------------
+// Download comum: um <a download> para o servidor, sem Web Share, sem folha do
+// sistema. O Playwright não intercepta essa navegação (ela vira download antes
+// da rota), então aqui se confere a URL pedida — foto e versão — e que a página
+// NÃO deu nome ao arquivo nem chamou o compartilhamento; o nome e os bytes
+// (Content-Disposition e passagem direta do Drive) estão em tests/galeria.test.js.
+const urlDe = (/** @type {import('playwright-core').Download} */ d) => { const u = new URL(d.url()); return u.pathname + u.search; };
+for (const [nome, opcoes] of /** @type {const} */ ([
+  ['Computador', {}],
+  ['Android', { viewport: { width: 360, height: 780 }, dpr: 2, toque: true, compartilhar: true, ua: UA_ANDROID }],
 ])) {
-  await cenario(nome, async () => {
-    const { ctx, page, estado } = await abre({ viewport, dpr, toque: true, compartilhar: true });
-    await page.locator('.g-t').first().tap();
+  await cenario(`Downloads: ${nome}`, async () => {
+    const { ctx, page, estado } = await abre(opcoes);
+    const clica = (/** @type {import('playwright-core').Locator} */ l) => (opcoes.toque ? l.tap() : l.click());
+    // Foto 3 (índice 2): sem par na pasta do Instagram.
+    await clica(page.locator('.g-t').nth(2));
     await page.waitForSelector('.pswp--open');
-    await espera(page, 900);
-    await page.locator('.pswp__button--g-baixar').tap();
+    await espera(page, 800);
+    await clica(page.locator('.pswp__button--g-baixar'));
     await page.waitForSelector('#g-folha:not([hidden])');
-    await page.locator('.g-op').first().tap();
-    await page.waitForSelector('.g-op.g-pronto', { timeout: 8000 });
-    const rotulo = await page.locator('.g-op.g-pronto strong').textContent();
-    registra(rotulo === 'Salvar na galeria', `${nome}: prepara a foto e oferece "Salvar na galeria"`, rotulo);
-    await page.locator('.g-op.g-pronto').tap();
-    await espera(page, 500);
-    const comp = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
-    registra(comp.length === 1 && comp[0].nome === 'formatura-001-redes.jpg' && comp[0].tipo === 'image/jpeg' && comp[0].bytes > 0,
-      `${nome}: o compartilhamento recebe o ARQUIVO (nome, tipo, bytes)`, comp);
-    registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes', `${nome}: um único pedido ao proxy, da variante certa`, estado.downloads);
-    // O botão voltar do sistema: com a folha aberta sobre a foto, o primeiro
-    // voltar fecha só a folha; o segundo, a foto; e a pessoa continua na galeria.
-    await page.locator('.pswp__button--g-baixar').tap();
-    await page.waitForSelector('#g-folha:not([hidden])');
-    if (PRINTS && nome.startsWith('iPhone')) {
-      await espera(page, 400);
-      await page.screenshot({ path: join(PRINTS, 'folha-iphone.png') });
-    }
-    await page.evaluate(() => history.back());
-    await espera(page, 600);
-    const depois1 = { folha: await page.locator('#g-folha').isHidden(), foto: (await page.locator('.pswp--open').count()) === 1 };
+    await verificaAxe(page, registra, `${nome}: folha de download aberta sobre o visualizador`);
+    const opsSem = await page.locator('.g-op strong').allTextContents();
+    registra(opsSem.join('|') === 'Tamanho máximo', `${nome}: foto SEM versão do Instagram não oferece "para redes"`, opsSem);
+    const detalheMax = await page.locator('.g-op span').first().textContent();
+    // 15.002.000 bytes = "15 MB", em unidades decimais como o celular mostra.
+    registra(/^O arquivo original · 003\.jpg · 4000 × 4000 px · 15 MB$/.test(detalheMax || ''), `${nome}: "tamanho máximo" mostra o nome exato, as dimensões e o peso do original`, detalheMax);
+    registra((await page.locator('.g-btn').filter({ hasText: /Salvar/ }).count()) === 0, `${nome}: sem botão "Salvar no Fotos" (isso é só do iPhone)`, '');
+    await page.keyboard.press('Escape');
+    await espera(page, 400);
+    registra(await page.locator('#g-folha').isHidden() && (await page.locator('.pswp--open').count()) === 1, `${nome}: Esc fecha a folha e mantém o visualizador`, '');
+
+    // Foto 2 (índice 1): tem as duas versões, com o mesmo nome nas duas.
     await page.evaluate(() => history.back());
     await espera(page, 700);
-    const depois2 = { foto: (await page.locator('.pswp--open').count()) === 1, url: page.url() };
-    registra(depois1.folha && depois1.foto && !depois2.foto && depois2.url === 'https://fotos.test/galeria/formatura',
-      `${nome}: voltar fecha a folha, depois a foto, e fica na galeria`, { depois1, depois2 });
-    registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    await clica(page.locator('.g-t').nth(1));
+    await page.waitForSelector('.pswp--open');
+    await espera(page, 800);
+    await clica(page.locator('.pswp__button--g-baixar'));
+    await page.waitForSelector('#g-folha:not([hidden])');
+    const ops = await page.locator('.g-op strong').allTextContents();
+    registra(ops.join('|') === 'Para redes sociais|Tamanho máximo', `${nome}: a folha oferece "para redes" e "tamanho máximo"`, ops);
+    const detalheRedes = await page.locator('.g-op span').first().textContent();
+    registra(/^Da pasta do Instagram, sem alteração · 002\.jpg · 6 MB$/.test(detalheRedes || ''), `${nome}: "para redes" mostra o nome e o peso do arquivo da pasta do Instagram`, detalheRedes);
+    const [d1] = await Promise.all([page.waitForEvent('download'), clica(page.locator('.g-op').first())]);
+    registra(urlDe(d1) === '/galeria/formatura/baixar/RAIZFOTO_000001?v=redes', `${nome}: "para redes" baixa o arquivo do Instagram da foto aberta, pelo servidor`, d1.url());
+    await espera(page, 1200);
+    await clica(page.locator('.pswp__button--g-baixar'));
+    await page.waitForSelector('#g-folha:not([hidden])');
+    const [d2] = await Promise.all([page.waitForEvent('download'), clica(page.locator('.g-op').nth(1))]);
+    registra(urlDe(d2) === '/galeria/formatura/baixar/RAIZFOTO_000001?v=max', `${nome}: "tamanho máximo" baixa o original, pelo servidor`, d2.url());
+    // O <a> usa download="" (o nome vem do servidor): a página nunca renomeia.
+    registra(await page.evaluate(() => document.querySelectorAll('a[download]:not([download=""])').length) === 0, `${nome}: a página não dá nome ao arquivo (o nome é o do servidor)`, '');
+    const comp = await page.evaluate(() => /** @type {any} */ (window).__compartilhados || []);
+    registra(comp.length === 0, `${nome}: nenhum Web Share — o arquivo baixa como arquivo`, comp);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: downloads sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
     await ctx.close();
   });
 }
 
+// ---- 5. iPhone e iPad: "Salvar no Fotos" com o ARQUIVO ----------------------
+// Safari e Chrome do iOS são WebKit: a página detecta o iOS (única checagem de
+// plataforma) e oferece "Salvar no Fotos" (Web Share com File(s) exatos) e
+// "Baixar arquivo". O share é falso: guarda o que recebeu.
+const b64 = (/** @type {Buffer} */ b) => b.toString('base64');
+await cenario('iPhone', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  await verificaAxe(page, registra, 'iPhone: folha de download aberta sobre o visualizador');
+  const blocos = await page.locator('.g-ver-t strong').allTextContents();
+  registra(blocos.join('|') === 'Para redes sociais|Tamanho máximo', 'iPhone: a folha tem um bloco para "para redes" e outro para "tamanho máximo"', blocos);
+  const botoes = await page.locator('.g-ver-a').first().locator('.g-btn').allTextContents();
+  registra(botoes.join('|') === 'Salvar no Fotos|Baixar arquivo', 'iPhone: em cada versão, "Salvar no Fotos" (principal) e "Baixar arquivo"', botoes);
+  registra(/Salvar imagem/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'iPhone: a folha explica o "Salvar imagem" da janela do sistema', await page.locator('#g-folha-msg').textContent());
+  const alturas = await page.locator('.g-ver-a .g-btn').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+  registra(alturas.length === 4 && alturas.every(h => h >= 44), 'iPhone: os botões da folha têm pelo menos 44 px de altura (alvo de toque)', alturas);
+  if (PRINTS) { await espera(page, 400); await page.screenshot({ path: join(PRINTS, 'folha-iphone.png') }); }
+
+  // "Salvar no Fotos" (para redes): o File tem o nome e os bytes do arquivo do Instagram.
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
+  const c1 = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
+  const esperado = conteudo('RAIZFOTO_000000', 'redes');
+  registra(c1.length === 1 && c1[0].nome === '001.JPG' && c1[0].tipo === 'image/jpeg' && c1[0].bytes === esperado.length && c1[0].b64 === b64(esperado),
+    'iPhone: "Salvar no Fotos" entrega ao sistema o File com o nome EXATO e os bytes EXATOS do arquivo do Instagram', { nome: c1[0] && c1[0].nome, bytes: c1[0] && c1[0].bytes });
+  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes', 'iPhone: um único pedido ao servidor, da versão certa', estado.downloads);
+  await espera(page, 600);
+  registra(await page.locator('#g-folha').isHidden(), 'iPhone: a folha fecha depois de enviar ao sistema', '');
+
+  // "Salvar no Fotos" (tamanho máximo): o original, nome exato da galeria.
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  await page.locator('.g-ver-a').nth(1).locator('.g-btn').first().tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 2, null, { timeout: 8000 });
+  const c2 = (await page.evaluate(() => /** @type {any} */ (window).__compartilhados))[1];
+  const orig = conteudo('RAIZFOTO_000000', 'max');
+  registra(c2.nome === '001.jpg' && c2.bytes === orig.length && c2.b64 === b64(orig), 'iPhone: "Salvar no Fotos" no tamanho máximo entrega o original, nome e bytes exatos', { nome: c2.nome, bytes: c2.bytes });
+
+  // "Baixar arquivo": download comum (app Arquivos), sem share.
+  await espera(page, 600);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const [d] = await Promise.all([page.waitForEvent('download'), page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap()]);
+  registra(urlDe(d) === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes', 'iPhone: "Baixar arquivo" é um download comum do mesmo arquivo', d.url());
+  registra((await page.evaluate(() => /** @type {any} */ (window).__compartilhados)).length === 2, 'iPhone: "Baixar arquivo" não chama o compartilhamento', '');
+
+  // Foto sem par no Instagram: só "tamanho máximo".
+  await espera(page, 1200);
+  await page.evaluate(() => history.back());
+  await espera(page, 600);
+  if ((await page.locator('.pswp--open').count()) === 1) { await page.evaluate(() => history.back()); await espera(page, 600); }
+  await page.locator('.g-t').nth(2).tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 800);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const semIg = await page.locator('.g-ver-t strong').allTextContents();
+  registra(semIg.join('|') === 'Tamanho máximo', 'iPhone: foto sem versão do Instagram não oferece "para redes"', semIg);
+
+  // O botão voltar do sistema: com a folha aberta sobre a foto, o primeiro
+  // voltar fecha só a folha; o segundo, a foto; e a pessoa continua na galeria.
+  await page.evaluate(() => history.back());
+  await espera(page, 600);
+  const depois1 = { folha: await page.locator('#g-folha').isHidden(), foto: (await page.locator('.pswp--open').count()) === 1 };
+  await page.evaluate(() => history.back());
+  await espera(page, 700);
+  const depois2 = { foto: (await page.locator('.pswp--open').count()) === 1, url: page.url() };
+  registra(depois1.folha && depois1.foto && !depois2.foto && depois2.url === 'https://fotos.test/galeria/formatura',
+    'iPhone: voltar fecha a folha, depois a foto, e fica na galeria', { depois1, depois2 });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// iPhone sem Web Share de arquivos (iOS antigo ou recusa do sistema): só "Baixar arquivo".
+await cenario('iPhone sem compartilhar arquivos', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, semCanShare: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const botoes = await page.locator('.g-ver-a .g-btn').allTextContents();
+  registra(botoes.join('|') === 'Baixar arquivo|Baixar arquivo', 'iPhone sem Web Share de arquivo: só "Baixar arquivo", sem "Salvar no Fotos"', botoes);
+  const [d] = await Promise.all([page.waitForEvent('download'), page.locator('.g-ver-a .g-btn').first().tap()]);
+  registra(urlDe(d) === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes', 'iPhone sem Web Share: o download comum funciona', d.url());
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone sem Web Share: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Compartilhar uma foto, no iPhone: o arquivo é buscado só para ler (c=0), sem
+// somar em "Fotos baixadas".
+await cenario('Compartilhar não conta como download', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
+  registra(estado.pedidos.join(',') === 'RAIZFOTO_000000?v=redes&c=0', 'Compartilhar: lê o arquivo do Instagram com c=0 (o servidor não conta como download)', estado.pedidos);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Compartilhar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// iPhone recusa "Salvar no Fotos": cai no download comum, sem contar de novo, e
+// a mensagem fica na folha (antes ela fechava sozinha em ~900 ms).
+await cenario('iPhone recusa o Salvar no Fotos', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, recusaShare: true, ua: UA_IPHONE });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await page.waitForFunction(() => /O iPhone n.o aceitou/.test(document.getElementById('g-folha-msg')?.textContent || ''), null, { timeout: 8000 });
+  await espera(page, 2200);
+  registra(await page.locator('#g-folha').isVisible(), 'Fallback do iPhone: a folha continua aberta depois de 2 s (não fecha sozinha)', '');
+  registra(/O iPhone não aceitou salvar direto no Fotos/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Fallback do iPhone: a mensagem explicando o download como arquivo continua visível', await page.locator('#g-folha-msg').textContent());
+  // A busca do "Salvar no Fotos" é um fetch (conta, 1 vez); o mesmo arquivo
+  // baixado de novo é um download do navegador, que sai com c=0.
+  registra(estado.pedidos[0] === 'RAIZFOTO_000000?v=redes' && baixados.join(',') === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes&c=0',
+    'Fallback do iPhone: a busca do Fotos conta uma vez; o mesmo arquivo baixado de novo sai com c=0', { pedidos: estado.pedidos, baixados });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fallback do iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// 429 do limite por IP: a página mostra a espera e NÃO repete sozinha nem a cada toque.
+await cenario('Limite por IP no download (429)', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE, limite429: 30 });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /Muita gente baixando/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 8000 });
+  const aviso = (await page.locator('#g-aviso-flut').textContent()) || '';
+  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(aviso), 'Limite: o Compartilhar mostra a espera que o servidor mandou', aviso);
+  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await espera(page, 800);
+  const msg = (await page.locator('#g-folha-msg').textContent()) || '';
+  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(msg), 'Limite: "Salvar no Fotos" mostra a mesma espera na folha', msg);
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
+  await espera(page, 2500);
+  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: depois do 429 nenhum outro pedido sai durante a espera (nem laço, nem toque, nem "Baixar arquivo")', { pedidos: estado.pedidos, baixados });
+  registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// iPad: finge ser um Mac (UA e plataforma), mas tem toque — também é iOS.
+await cenario('iPad', async () => {
+  const UA_IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+  const { ctx, page, estado } = await abre({ viewport: { width: 820, height: 1180 }, dpr: 2, toque: true, compartilhar: true, ua: UA_IPAD, ipad: true });
+  await page.locator('.g-t').first().tap();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const botoes = await page.locator('.g-ver-a').first().locator('.g-btn').allTextContents();
+  registra(botoes.join('|') === 'Salvar no Fotos|Baixar arquivo', 'iPad (plataforma Mac com toque): também oferece "Salvar no Fotos"', botoes);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPad: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
 // ---- 6. Seleção ------------------------------------------------------------
+// Três fotos marcadas, UMA sem versão do Instagram (a 6ª, índice 5).
 await cenario('Seleção', async () => {
   const { ctx, page, estado } = await abre({});
   await page.locator('#g-sel').click();
-  for (const i of [0, 3, 7]) await page.locator('.g-t').nth(i).click();
+  for (const i of [0, 3, 5]) await page.locator('.g-t').nth(i).click();
   registra((await page.locator('#g-barra-n').textContent()) === '3 selecionadas', 'Seleção: marca três fotos', await page.locator('#g-barra-n').textContent());
   const nomes = await page.locator('.g-t.sel').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
-  registra(nomes.join('|') === 'Foto 001, selecionada|Foto 004, selecionada|Foto 008, selecionada', 'Seleção: o leitor de tela ouve "selecionada" no nome da foto', nomes);
+  registra(nomes.join('|') === 'Foto 001, selecionada|Foto 004, selecionada|Foto 006, selecionada', 'Seleção: o leitor de tela ouve "selecionada" no nome da foto', nomes);
   registra((await page.locator('.pswp--open').count()) === 0, 'Seleção: no modo seleção, tocar marca em vez de abrir', '');
   await page.reload();
   await espera(page, 900);
@@ -487,15 +737,45 @@ await cenario('Seleção', async () => {
   await page.locator('[data-acao="baixar-sel"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
   registra((await page.locator('#g-folha-t').textContent()) === 'Baixar 3 fotos', 'Seleção: a folha baixa as três', await page.locator('#g-folha-t').textContent());
+  const detalhes = await page.locator('.g-op span').allTextContents();
+  registra(/^2 de 3 fotos têm esta versão \(as outras ficam de fora\)/.test(detalhes[0] || ''), 'Seleção: "para redes" diz quantas das fotos têm a versão', detalhes[0]);
+  registra(/^Os arquivos originais, sem alteração/.test(detalhes[1] || ''), 'Seleção: "tamanho máximo" cobre as três', detalhes[1]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'selecao-desktop.png') });
   /** @type {string[]} */
   const pedidos = [];
   page.on('download', d => { const u = new URL(d.url()); pedidos.push(u.pathname.split('/').pop() + u.search); });
   await page.locator('.g-op').first().click();
   await espera(page, 3200);
-  registra(pedidos.join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes,RAIZFOTO_000007?v=redes',
-    'Seleção: três downloads "para redes" no computador, um por foto marcada', pedidos);
+  registra(pedidos.join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes',
+    'Seleção: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
+  await page.locator('[data-acao="baixar-sel"]').click();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  pedidos.length = 0;
+  await page.locator('.g-op').nth(1).click();
+  await espera(page, 3200);
+  registra(pedidos.join(',') === 'RAIZFOTO_000000?v=max,RAIZFOTO_000003?v=max,RAIZFOTO_000005?v=max',
+    'Seleção: "tamanho máximo" baixa as três, um download por foto', pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Seleção no iPhone: "Salvar N fotos no Fotos" com os arquivos exatos de cada uma.
+await cenario('Seleção no iPhone', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
+  await page.locator('#g-sel').tap();
+  for (const i of [0, 1, 5]) await page.locator('.g-t').nth(i).tap();
+  await page.locator('[data-acao="baixar-sel"]').tap();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const rotulos = await page.locator('.g-ver-a').first().locator('.g-btn').allTextContents();
+  registra(rotulos.join('|') === 'Salvar 2 fotos no Fotos|Baixar arquivo', 'Seleção no iPhone: o botão diz quantas fotos vão para o Fotos (as que têm a versão)', rotulos);
+  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 2, null, { timeout: 8000 });
+  const comp = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
+  registra(comp.length === 2 && comp[0].nome === '001.JPG' && comp[1].nome === '002.jpg'
+    && comp[0].b64 === b64(conteudo('RAIZFOTO_000000', 'redes')) && comp[1].b64 === b64(conteudo('RAIZFOTO_000001', 'redes')),
+  'Seleção no iPhone: uma só folha do sistema, com os arquivos exatos (nome e bytes) das duas fotos', comp.map(( /** @type {any} */ c) => c.nome));
+  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes,RAIZFOTO_000001:redes', 'Seleção no iPhone: só as fotos com a versão são pedidas', estado.downloads);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção no iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -601,7 +881,7 @@ await cenario('Centenas de fotos', async () => {
 await cenario('Ocultar', async () => {
   const JA = pid('RAIZFOTO', 1);
   const ALVO = pid('RAIZFOTO', 0);
-  const pagina = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA] });
+  const pagina = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA], redes: REDES });
   const { ctx, page, estado } = await abre({ pagina, ocultas: [JA] });
   const marcada = await page.evaluate(id => {
     const a = document.querySelector('.g-t[href="#foto=' + id + '"]');
@@ -644,7 +924,7 @@ await cenario('Ocultar', async () => {
   if (PRINTS) await cel.page.screenshot({ path: join(PRINTS, 'galeria-ocultar-celular.png') });
   await cel.ctx.close();
 
-  const visit = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false }) });
+  const visit = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES }) });
   await visit.page.locator('.g-t').first().click();
   await visit.page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(visit.page, 400);

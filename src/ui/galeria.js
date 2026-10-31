@@ -11,20 +11,30 @@
 //  - visualizador em tela cheia (PhotoSwipe, vendorizado em vendor/) que pede
 //    ao Google a largura exata da tela em pixels FÍSICOS e, a cada zoom, a
 //    próxima — até o original (srcset + o `sizes` que o PhotoSwipe atualiza);
-//  - dois downloads por foto: "para redes" (lado maior GALERIA_LADO_REDES, leve)
-//    e "tamanho máximo" (o arquivo original, byte a byte); no celular, o
-//    "Salvar" vai direto para a galeria do aparelho (Web Share com arquivo) —
-//    igual no iPhone e no Android;
+//  - dois downloads por foto, os DOIS byte a byte e com o nome exato do Drive
+//    (o site não altera arquivo): "tamanho máximo" (o original) e "para redes"
+//    (o arquivo de mesmo nome da pasta do Instagram do projeto, já pronto —
+//    só aparece nas fotos que têm par lá). Android e computador: download
+//    comum. iPhone/iPad: "Salvar no Fotos" (a folha do sistema com o arquivo,
+//    um toque até o app Fotos) e "Baixar arquivo" (vai para o app Arquivos);
 //  - seleção de várias fotos, lembrada no aparelho, e link direto para cada
 //    foto (#foto=ID).
 //
 // As fotos vêm do lh3 do Google (sem chave). Os downloads passam pelo proxy
 // /galeria/<slug>/baixar/<id>, que só entrega arquivo que está na pasta do
-// projeto. A chave da Drive API nunca chega a esta página.
+// projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
+// página.
 
-import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML } from '../utils.js';
+import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_LADO_REDES } from '../config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../config.js';
+import { urlLh3 } from '../drive.js';
+
+const SITE_URL = 'https://fotos.lucafchala.com';
+// Quantas fotos o JSON-LD descreve como ImageObject. Poucas: o sitemap de
+// imagens (/sitemap-galeria-<slug>.xml) é quem lista todas; aqui é só o
+// bastante para o buscador ligar fotos, galeria e autor sem inchar o HTML.
+const LD_FOTOS = 12;
 
 /** @param {string} source */
 const vendorPath = source => {
@@ -97,9 +107,18 @@ const CONSERTOS = {
  *   nonce: string,
  *   dono?: boolean,
  *   ocultas?: string[],
+ *   indexavel?: boolean,
+ *   redes?: Map<string, import('../drive.js').FotoDrive>,
+ *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
  * }} p
  */
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [] }) {
+// `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
+// quem decide é handleGaleriaPagina (álbum público e listado, visitante, fora
+// da prévia, com fotos). Com false, sai o noindex de antes.
+// `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
+// em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
+// página — o id do arquivo do Instagram nunca sai do servidor.
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], indexavel = false, redes = new Map(), avisoRedes = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -112,24 +131,86 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const contagem = total === 1 ? '1 foto' : `${total} fotos`;
   const meta = listagem && total ? [dataEvento, contagem].filter(Boolean).join(' · ') : dataEvento;
 
+  // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
+  // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
+  // Person (@id) do resto do site.
+  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const urlPagina = `${SITE_URL}/galeria/${slug}`;
+  const descricao = previewDescription(
+    [dataEvento, listagem && total ? contagem : ''],
+    `Galeria de fotos de ${titulo}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
+  );
+  const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
+  // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
+  const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
+  // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
+  // pelo Worker — o robô do cartão não gasta cota nossa.
+  const ogImage = ogImageFor(event.thumbnailUrl || (todasFotos[0] ? urlLh3(todasFotos[0][0], 1600) : ''));
+  const jsonLd = todasFotos.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'ImageGallery',
+    '@id': `${urlPagina}#galeria`,
+    name: tituloPagina,
+    url: urlPagina,
+    inLanguage: 'pt-BR',
+    description: descricao,
+    author: PERSON_LD,
+    isPartOf: { '@type': 'PhotoGallery', name: titulo, url: `${SITE_URL}/${slug}` },
+    ...(ogImage.url ? { image: ogImage.url } : {}),
+    ...(event.date ? { datePublished: event.date } : {}),
+    numberOfItems: total,
+    associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => ({
+      '@type': 'ImageObject',
+      contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
+      name: altFoto(i),
+      creator: PERSON_LD,
+      creditText: 'Luca F. Chala',
+    })),
+  } : null;
+
+  // Pré-carga da miniatura do LCP no celular (até 430 px): lá a primeira foto,
+  // se for deitada, ocupa a linha inteira — largura conhecida antes do script
+  // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
+  // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
+  // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
+  const lcp = todasFotos[0];
+  const preloadLcp = lcp && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    : '';
+
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
     avisos.push('Lista parcial: pastas muito grandes ou subpastas além de dois níveis ficam de fora — o Drive continua com tudo.');
   }
 
+  // Só o dono vê o motivo de "para redes" estar desligado ou parcial.
+  if (dono && avisoRedes) avisos.push(avisoRedes.mensagem);
+  // Cada foto: [id, largura, altura, nome, bytes] e, se tem versão na pasta do
+  // Instagram, mais [bytes] ou [bytes, nome] (o nome só quando difere do original).
+  let comRedes = 0;
+  const fotoDaPagina = (/** @type {import('../drive.js').FotoDrive} */ f) => {
+    const r = redes.get(f[0]);
+    if (!r) return f;
+    comRedes++;
+    return r[3] === f[3] ? [...f, r[4]] : [...f, r[4], r[3]];
+  };
+
   const dados = listagem ? {
     slug,
-    secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos })),
+    titulo,
+    secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
-    ladoRedes: GALERIA_LADO_REDES,
     drive: drive || '',
     // Só o dono recebe a lista do que está oculto (o visitante já recebe a
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
     dono: !!dono,
     ocultas: dono ? ocultas : [],
     lightbox: vendorPath('vendor/photoswipe/photoswipe-lightbox.esm.min.js'),
+    // O CSS do visualizador entra junto com ele (preparaLightbox), não no
+    // <head>: lá ele bloqueava a primeira pintura da grade.
+    css: vendorPath('vendor/photoswipe/photoswipe.css'),
     core: vendorPath('vendor/photoswipe/photoswipe.esm.min.js'),
   } : null;
 
@@ -138,15 +219,26 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="robots" content="noindex,nofollow">
+  <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
-  <title>Galeria · ${escape(titulo)}</title>
+  <title>${escape(tituloPagina)}</title>
+  <link rel="canonical" href="${escape(urlPagina)}">
+  ${socialMetaHTML({
+    title: tituloPagina,
+    description: descricao,
+    url: urlPagina,
+    image: ogImage.url,
+    imageAlt: `Fotos de ${titulo}`,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
+  })}
+  ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
-  <link rel="stylesheet" href="${vendorPath('vendor/photoswipe/photoswipe.css')}">
+  ${preloadLcp}
   <style>
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -218,13 +310,18 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
     .g-t img.ok{opacity:1}
+    /* A primeira linha (a do LCP) aparece sem esperar o fade do "load": com
+       opacidade 0 o navegador nem conta a foto como pintada. */
+    .g-t img[fetchpriority="high"]{opacity:1;transition:none}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
     .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
     .g-modo-sel .g-t .g-ck{display:block}
     .g-fav{position:absolute;left:0;bottom:0;width:44px;height:44px;display:grid;place-items:center;color:#fff;opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .12s cubic-bezier(.23,1,.32,1)}
-    .g-fav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
+    /* O coração é um fundo em CSS, não um <svg> por miniatura: com centenas de
+       fotos, eram dois elementos e um innerHTML a mais por foto na carga. */
+    .g-fav::before{content:"";width:22px;height:22px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/contain no-repeat;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
     .g-t.fav .g-fav{opacity:1}
-    .g-t.fav .g-fav svg{fill:#ff6b86;stroke:#ff6b86}
+    .g-t.fav .g-fav::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='%23ff6b86' stroke='%23ff6b86' stroke-width='2'/%3E%3C/svg%3E")}
     .g-modo-sel .g-fav{display:none}
     @media (hover:hover){
       .g-t:hover .g-fav,.g-t:focus-visible .g-fav{opacity:1;pointer-events:auto}
@@ -273,6 +370,15 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-op.g-pronto{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     .g-op.g-pronto span{color:var(--accent-text);opacity:.8}
     .g-op[disabled]{opacity:.6;cursor:progress}
+    /* iPhone/iPad: cada versão tem dois botões (Salvar no Fotos / Baixar arquivo). */
+    .g-ver{margin-bottom:.6rem;padding:.8rem .9rem;border-radius:10px;border:1px solid var(--border);background:var(--bg-page)}
+    .g-ver-t{display:flex;flex-direction:column;gap:.15rem;margin-bottom:.65rem}
+    .g-ver-t strong{font-size:.9rem;font-weight:600}
+    .g-ver-t span{font-size:.76rem;color:var(--text-muted);overflow-wrap:anywhere}
+    .g-ver-a{display:flex;flex-wrap:wrap;gap:.5rem}
+    .g-ver-a .g-btn{flex:1 1 9rem}
+    .g-ver-a .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+    .g-ver-a .g-btn[disabled]{opacity:.6;cursor:progress}
     .g-folha-msg{font-size:.8rem;color:var(--text-muted);min-height:1.2em;margin:.2rem 0 .6rem}
     .g-folha-rod{display:flex;justify-content:space-between;align-items:center;gap:.5rem}
     .g-folha-rod a{font-size:.78rem;color:var(--text-muted)}
@@ -303,9 +409,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     <span>Só você (logado) vê esta faixa.</span>
     <a href="/dashboard">← Painel</a>
     <a href="/${escape(slug)}">Página do projeto</a>
-    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="noopener">Abrir no Drive</a>` : ''}
+    ${drive ? `<a href="${escape(drive)}" target="_blank" rel="nofollow noopener">Abrir no Drive</a>` : ''}
     ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
     ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
+    ${listagem && event.driveUrlInstagram ? `<span id="g-n-redes">${comRedes} de ${total} com "para redes" (pasta do Instagram)</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
   </div>` : ''}
   <header class="g-top" id="g-topo-cab">
@@ -332,7 +439,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
+  <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
     <span id="g-barra-n" aria-live="polite">0 selecionadas</span>
@@ -345,7 +452,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
       <div id="g-folha-ops"></div>
       <p class="g-folha-msg" id="g-folha-msg" aria-live="polite"></p>
-      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
+      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="nofollow noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
     </div>
   </div>
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
@@ -364,13 +471,17 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, secoes: { nome: string, fotos: [string, number, number, string, number][] }[], larguras: number[], grade: number[], ladoRedes: number, drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: ([string, number, number, string, number] | [string, number, number, string, number, number] | [string, number, number, string, number, number, string])[] }[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
+  // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
+  // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
+  const TOTAL = D.secoes.reduce(function (n, s) { return n + s.fotos.length; }, 0);
+  const altDe = function (i) { return (D.titulo ? D.titulo + ' — ' : '') + 'foto ' + (i + 1) + ' de ' + TOTAL; };
   // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
   const ocultas = new Set(D.ocultas || []);
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -380,7 +491,6 @@ const SCRIPT = `
   const reduz = function () {
     try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
   };
-  const ICONE_CORACAO = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20.5 10.9 19.5C6.2 15.3 3.5 12.800 3.500 9.700 3.500 7.300 5.400 5.500 7.700 5.500c1.600 0 3.200.8 4.300 2.100 1.100-1.300 2.700-2.100 4.300-2.100 2.300 0 4.200 1.800 4.200 4.200 0 3.100-2.700 5.600-7.400 9.800z"/></svg>';
 
   // Unidades decimais (1 MB = 1.000.000 bytes): é o que o iPhone, o Mac e o
   // Android mostram para o arquivo baixado — o número aqui tem de bater com o
@@ -392,8 +502,21 @@ const SCRIPT = `
     return mb.toLocaleString('pt-BR', { maximumFractionDigits: mb < 10 ? 1 : 0 }) + ' MB';
   }
 
-  // ---- WebP: decide por decodificação de verdade, não por user-agent ----
+  // ---- WebP: decide pelo que o navegador faz, não por user-agent ----
+  // Primeiro o caminho síncrono: quem CODIFICA WebP num canvas também o
+  // decodifica, e a grade sai no mesmo passo do script (a miniatura do LCP é
+  // pedida antes). Quem não codifica (Safari antigo) cai na decodificação de
+  // verdade, assíncrona, como antes.
+  function webpPorCanvas() {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      return c.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+    } catch (e) { return false; }
+  }
   function detectaWebp(pronto) {
+    if (webpPorCanvas()) { rw = '-rw'; pronto(); return; }
     const t = new Image();
     let feito = false;
     const fim = function (ok) { if (feito) return; feito = true; rw = ok ? '-rw' : ''; pronto(); };
@@ -440,10 +563,11 @@ const SCRIPT = `
         a.dataset.i = String(i);
         a.setAttribute('aria-label', 'Foto ' + semExt(f[3]));
         const img = document.createElement('img');
-        img.alt = '';
+        img.alt = altDe(i);
         img.decoding = 'async';
-        img.loading = i < 16 ? 'eager' : 'lazy';
-        if (i < 4) img.setAttribute('fetchpriority', 'high');
+        // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
+        // cai na primeira tela (ver dimensiona).
+        img.loading = 'lazy';
         const ck = document.createElement('span');
         ck.className = 'g-ck';
         ck.setAttribute('aria-hidden', 'true');
@@ -451,7 +575,6 @@ const SCRIPT = `
         fv.className = 'g-fav';
         fv.setAttribute('aria-hidden', 'true');
         fv.title = 'Favoritar (tecla F)';
-        fv.innerHTML = ICONE_CORACAO;
         a.appendChild(img);
         a.appendChild(ck);
         a.appendChild(fv);
@@ -463,7 +586,7 @@ const SCRIPT = `
           if (ocultas.has(f[0])) a.classList.add('oculta');
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0) };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f.length > 5 ? { bytes: f[5], nome: f[6] || f[3] } : null, s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
         fotos.push(foto);
@@ -485,10 +608,14 @@ const SCRIPT = `
     larguraDiagramada = main.clientWidth;
     const alvo = window.innerWidth >= 1200 ? 280 : W < 520 ? 300 : W < 900 ? 260 : 240;
     const gap = W < 520 ? 3 : 5;
-    grades.forEach(function (g) { diagrama(g, W, alvo, gap); });
+    // Onde cada linha cai na página, aproximado (o título da seção conta como
+    // 48 px): decide o que é "primeira tela" na primeira diagramação.
+    const pos = { y: main.getBoundingClientRect().top + window.scrollY, primeira: true };
+    grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
-  function diagrama(g, W, alvo, gap) {
+  function diagrama(g, W, alvo, gap, pos) {
+    if (pos && D.secoes.length > 1) pos.y += 48;
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
@@ -506,16 +633,19 @@ const SCRIPT = `
       row.className = 'g-linha';
       row.style.height = h + 'px';
       let usado = 0;
+      const topo = pos ? pos.y : Infinity;
+      const primeira = !!pos && pos.primeira;
       linha.forEach(function (f, k) {
         let w = Math.floor(proporcao(f) * h);
         if (k === linha.length - 1 && !naoEstica) w = Math.max(20, livre - usado);
         usado += w;
         f.el.style.width = w + 'px';
-        dimensiona(f, w);
+        dimensiona(f, w, topo, primeira);
         row.appendChild(f.el);
       });
       frag.appendChild(row);
       altura += h + gap;
+      if (pos) { pos.y += h + gap; pos.primeira = false; }
       linha = [];
       soma = 0;
     };
@@ -531,8 +661,14 @@ const SCRIPT = `
 
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
-  function dimensiona(f, w) {
+  function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
+      // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
+      // e a primeira linha — onde está a maior foto da tela, o LCP — vai na
+      // frente das outras. O resto espera chegar perto (loading=lazy), sem
+      // disputar a banda com o que se vê.
+      if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
+      if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
       f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
       f.img.src = lh3(f.id, 400);
     }
@@ -578,6 +714,11 @@ const SCRIPT = `
   const fav = leLista(CHAVE_FAV);
   let modoSel = false;
   let filtroFav = false;
+  // Seleção que chegou por link (#sel=id.id.id, #213): a galeria abre só com
+  // essas fotos. Vive no fragmento — não vai ao servidor nem é gravada.
+  /** @type {Set<string> | null} */
+  let filtroLink = null;
+  const MAX_LINK = 300;
   let vendo = false;
   const chips = document.getElementById('g-chips');
   const cab = document.getElementById('g-topo-cab');
@@ -594,11 +735,18 @@ const SCRIPT = `
   const barraN = document.getElementById('g-barra-n');
   const botaoSel = document.getElementById('g-sel');
 
+  function filtroAtivo() {
+    if (filtroLink) { const l = filtroLink; return function (f) { return l.has(f.id); }; }
+    if (filtroFav) return function (f) { return fav.has(f.id); };
+    return null;
+  }
   function visiveisDe(g) {
-    return filtroFav ? g.lista.filter(function (f) { return fav.has(f.id); }) : g.lista;
+    const fn = filtroAtivo();
+    return fn ? g.lista.filter(fn) : g.lista;
   }
   function recalculaVistas() {
-    vistas = filtroFav ? fotos.filter(function (f) { return fav.has(f.id); }) : fotos;
+    const fn = filtroAtivo();
+    vistas = fn ? fotos.filter(fn) : fotos;
   }
   function salvaSel() { gravaLista(CHAVE_SEL, sel); }
   function salvaFav() { gravaLista(CHAVE_FAV, fav); }
@@ -680,6 +828,63 @@ const SCRIPT = `
     }
     return !era;
   }
+  // ---- Seleção por link (#213) ----
+  // As favoritas viram um link com os ids no fragmento: quem abre vê só elas.
+  // Num álbum de família ou privado o link não fura nada — o servidor segue
+  // pedindo o passe do portão para abrir a galeria.
+  function linkDasFavoritas() {
+    const ids = fotos.filter(function (f) { return fav.has(f.id); }).map(function (f) { return f.id; });
+    return { url: location.origin + location.pathname + '#sel=' + ids.slice(0, MAX_LINK).join('.'), n: Math.min(ids.length, MAX_LINK), cortou: ids.length > MAX_LINK };
+  }
+  function compartilhaFavoritas() {
+    const l = linkDasFavoritas();
+    if (!l.n) { avisa('Marque fotos com o coração primeiro'); return; }
+    const aviso = l.cortou ? 'Link com as primeiras ' + MAX_LINK + ' favoritas copiado' : 'Link com ' + l.n + (l.n === 1 ? ' foto copiado' : ' fotos copiado');
+    const h1 = document.getElementById('g-h1');
+    const titulo = (h1 ? (h1.textContent || '') : document.title) + ' — minha seleção';
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      navigator.share({ title: titulo, url: l.url }).catch(function () {});
+      return;
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(l.url).then(function () { avisa(aviso); }, function () { avisa(l.url); });
+    } else {
+      avisa(l.url);
+    }
+  }
+  /** Lê #sel= do endereço. Devolve quantas fotos do link existem aqui. */
+  function leSelecaoDoLink() {
+    const m = location.hash.match(/^#sel=([A-Za-z0-9_.-]+)$/);
+    if (!m) return -1;
+    const pedidas = m[1].split('.').filter(function (id) { return /^[A-Za-z0-9_-]{10,200}$/.test(id); }).slice(0, MAX_LINK);
+    const aqui = new Set(pedidas.filter(function (id) { return fotos.some(function (f) { return f.id === id; }); }));
+    if (!aqui.size) return 0;
+    filtroLink = aqui;
+    document.body.classList.add('g-so-link');
+    recalculaVistas();
+    return aqui.size;
+  }
+  function saiDoLink() {
+    filtroLink = null;
+    document.body.classList.remove('g-so-link');
+    history.replaceState(history.state, '', location.pathname + location.search);
+    recalculaVistas();
+    montaChips();
+    diagramaTudo();
+    atualizaBarra();
+    window.scrollTo(0, 0);
+  }
+  /** Guarda as fotos do link nas favoritas deste aparelho. */
+  function guardaDoLink() {
+    if (!filtroLink) return;
+    let novas = 0;
+    filtroLink.forEach(function (id) { if (!fav.has(id)) { fav.add(id); novas++; } });
+    salvaFav();
+    fotos.forEach(pintaSel);
+    montaChips();
+    avisa(novas ? novas + (novas === 1 ? ' foto guardada nas favoritas' : ' fotos guardadas nas favoritas') : 'Já estavam nas suas favoritas');
+  }
+
   function ligaFiltroFav(liga) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-fav';
     filtroFav = liga;
@@ -710,6 +915,23 @@ const SCRIPT = `
     if (!chips) return;
     chips.replaceChildren();
     chipsSec = [];
+    if (filtroLink) {
+      const b = botaoChip('Seleção recebida', filtroLink.size);
+      b.dataset.acao = 'sai-link';
+      b.setAttribute('aria-pressed', 'true');
+      b.title = 'Toque para ver todas as fotos';
+      chips.appendChild(b);
+      const g = document.createElement('button');
+      g.type = 'button';
+      g.className = 'g-chip';
+      g.dataset.acao = 'guarda-link';
+      g.textContent = 'Guardar nas minhas favoritas';
+      chips.appendChild(g);
+      chipFav = null;
+      chips.hidden = false;
+      medeTopo();
+      return;
+    }
     if (D.secoes.length > 1 && !filtroFav) {
       D.secoes.forEach(function (sec, k) {
         const b = botaoChip(sec.nome || 'Fotos', sec.fotos.length);
@@ -728,6 +950,15 @@ const SCRIPT = `
       b.title = 'Fica só neste aparelho';
       chips.appendChild(b);
       chipFav = b;
+      if (filtroFav && fav.size) {
+        const c = document.createElement('button');
+        c.type = 'button';
+        c.className = 'g-chip';
+        c.dataset.acao = 'compartilhar-fav';
+        c.title = 'Um link que abre a galeria só com estas fotos';
+        c.textContent = 'Compartilhar as favoritas';
+        chips.appendChild(c);
+      }
     }
     chips.hidden = !chips.childElementCount;
     medeTopo();
@@ -735,6 +966,7 @@ const SCRIPT = `
   }
   function atualizaChips() {
     if (!chips) return;
+    if (filtroLink) return;
     if (!!chipFav !== !!(fav.size || filtroFav)) { montaChips(); return; }
     const n = chipFav ? chipFav.querySelector('small') : null;
     if (n) n.textContent = String(fav.size);
@@ -797,7 +1029,7 @@ const SCRIPT = `
       width: f.w || LONGO_ESTIMADO,
       height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
       msrc: f.img.currentSrc || undefined,
-      alt: 'Foto ' + semExt(f.nome),
+      alt: f.alt,
       element: f.el,
     };
   }
@@ -818,12 +1050,25 @@ const SCRIPT = `
     return !!(history.state && history.state.g === marca);
   }
 
+  // O CSS do visualizador, antes do <style> da página: a mesma ordem de
+  // cascata de quando ele vinha no <head> (as regras .pswp da página vencem).
+  function carregaCssLb() {
+    return new Promise(function (pronto) {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = D.css;
+      l.addEventListener('load', function () { pronto(true); });
+      l.addEventListener('error', function () { pronto(false); });
+      document.head.insertBefore(l, document.head.querySelector('style'));
+    });
+  }
+
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
     const urlCore = D.core;
-    carregandoLb = import(urlLb).then(function (mod) {
-      const PhotoSwipeLightbox = mod.default;
+    carregandoLb = Promise.all([import(urlLb), carregaCssLb()]).then(function (r) {
+      const PhotoSwipeLightbox = r[0].default;
       lightbox = new PhotoSwipeLightbox({
         dataSource: [],
         pswpModule: function () { return import(urlCore); },
@@ -1020,14 +1265,43 @@ const SCRIPT = `
   }
 
   // ---- Downloads ----
-  // Celular com Web Share de arquivo: "Salvar" leva a foto para a galeria do
-  // aparelho (iPhone e Android pelo mesmo caminho). Computador: download
-  // direto, com o nome que o servidor dá.
-  let compartilha = false;
-  try {
-    compartilha = matchMedia('(pointer: coarse)').matches && typeof navigator.canShare === 'function'
-      && navigator.canShare({ files: [new File(['x'], 'x.jpg', { type: 'image/jpeg' })] });
-  } catch (e) { compartilha = false; }
+  // O arquivo baixado é SEMPRE o do Drive: os mesmos bytes e o mesmo nome. O
+  // site não redimensiona, não renomeia, não recodifica. "Tamanho máximo" é o
+  // original da pasta do projeto; "para redes" é o arquivo de mesmo nome da
+  // pasta do Instagram (f.redes), só nas fotos que têm par lá.
+  //
+  // Como o arquivo chega ao aparelho:
+  //  - Android e computador: download comum (<a download>) — o navegador salva
+  //    o arquivo e pronto. Nada de folha de compartilhamento.
+  //  - iPhone e iPad: o download comum cai no app Arquivos, longe do Fotos. O
+  //    melhor caminho do iOS é a folha do sistema com o ARQUIVO ("Salvar
+  //    imagem" põe direto no Fotos, "Salvar N imagens" idem): botão "Salvar no
+  //    Fotos". "Baixar arquivo" segue disponível (Arquivos).
+  const LOTE_MAX_FOTOS = 20;
+  const LOTE_MAX_BYTES = 80e6;
+
+  // A ÚNICA checagem de plataforma da página (de resto vale detectar recurso,
+  // nunca modelo de aparelho). Aqui não dá: canShare({ files }) existe no
+  // Android, no iOS e no desktop, e só o iOS tem o "Salvar imagem" que põe a
+  // foto no Fotos. Safari e Chrome do iOS são ambos WebKit, e o iPadOS finge
+  // ser um Mac (plataforma MacIntel) mas é o único "Mac" com tela de toque. O
+  // userAgentData não ajuda: o WebKit não o tem. A regra de "não decidir por
+  // aparelho" vale para a RESOLUÇÃO das imagens, que segue por pixels físicos.
+  function ehIOS() {
+    try {
+      if (/iP(hone|ad|od)/.test(navigator.userAgent || '')) return true;
+      return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    } catch (e) { return false; }
+  }
+  const IOS = ehIOS();
+  function podeCompartilharArquivos(arquivos) {
+    try { return typeof navigator.canShare === 'function' && navigator.canShare({ files: arquivos }); } catch (e) { return false; }
+  }
+  function aceitaArquivoDeTeste() {
+    try { return podeCompartilharArquivos([new File(['x'], 'x.jpg', { type: 'image/jpeg' })]); } catch (e) { return false; }
+  }
+  // iOS 15+ com Web Share de arquivo: sem isso, só "Baixar arquivo".
+  const salvaNoFotos = IOS && aceitaArquivoDeTeste();
 
   const folha = document.getElementById('g-folha');
   const folhaT = document.getElementById('g-folha-t');
@@ -1038,19 +1312,59 @@ const SCRIPT = `
   let focoAntes = null;
   let geracao = 0;
 
-  function urlBaixar(f, v) {
-    return '/galeria/' + encodeURIComponent(D.slug) + '/baixar/' + f.id + '?v=' + v;
+  // semConta (c=0): o pedido NÃO é um download para a contagem de baixadas —
+  // o botão Compartilhar do visualizador, e a nova busca de um arquivo que o
+  // iPhone recusou salvar no Fotos (a primeira busca dele já contou). O
+  // servidor serve o mesmo arquivo; só não soma em "Fotos baixadas".
+  function urlBaixar(f, v, semConta) {
+    return '/galeria/' + encodeURIComponent(D.slug) + '/baixar/' + f.id + '?v=' + v + (semConta ? '&c=0' : '');
+  }
+  // 429 do limite por IP (Wi-Fi de evento = um IP só). O servidor diz quantos
+  // segundos esperar (Retry-After); até lá NENHUM pedido de download sai —
+  // nem repetição automática, nem toque em outro botão: quem toca de novo vê o
+  // tempo que falta, sem martelar o servidor.
+  let esperaAte = 0;
+  function msgEspera() {
+    const s = Math.max(1, Math.ceil((esperaAte - Date.now()) / 1000));
+    return 'Muita gente baixando agora. Tente de novo em ' + (s >= 90 ? Math.ceil(s / 60) + ' minutos' : s + ' s') + '.';
+  }
+  function emEspera() { return Date.now() < esperaAte; }
+  function anotaEspera(r) {
+    let s = Number.parseInt(r.headers.get('Retry-After') || '', 10);
+    if (!(s > 0)) s = 60;
+    esperaAte = Date.now() + Math.min(s, 3600) * 1000;
+  }
+  // O que a versão entrega para a foto: nome e peso do arquivo (ou null).
+  function arquivoDe(f, v) {
+    return v === 'redes' ? f.redes : { nome: f.nome, bytes: f.bytes };
+  }
+  function daVersao(lista, v) {
+    return v === 'redes' ? lista.filter(function (f) { return !!f.redes; }) : lista;
+  }
+  function somaBytes(lista, v) {
+    return lista.reduce(function (t, f) { const a = arquivoDe(f, v); return t + (a && a.bytes ? a.bytes : 0); }, 0);
   }
   function linkDireto(url) {
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
+    // Download passa pelo Worker (cota do Drive): nada de robô seguindo.
+    a.rel = 'nofollow';
     document.body.appendChild(a);
     a.click();
     a.remove();
   }
-  async function buscaArquivo(f, v) {
-    const r = await fetch(urlBaixar(f, v), { credentials: 'same-origin' });
+  const TIPOS = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', tif: 'image/tiff', tiff: 'image/tiff' };
+  // Os bytes vêm como o servidor mandou; o nome é o do Drive (X-Nome-Arquivo).
+  // O tipo só diz à folha do sistema que é imagem (se o Drive mandou
+  // octet-stream, vale a extensão) — não toca em byte nenhum.
+  async function buscaArquivo(f, v, semConta) {
+    if (emEspera()) throw new Error(msgEspera());
+    const r = await fetch(urlBaixar(f, v, semConta), { credentials: 'same-origin' });
+    if (r.status === 429) {
+      anotaEspera(r);
+      throw new Error(msgEspera());
+    }
     if (!r.ok) {
       let msg = '';
       try { msg = (await r.json()).error || ''; } catch (e) { msg = ''; }
@@ -1059,7 +1373,13 @@ const SCRIPT = `
     const blob = await r.blob();
     let nome = '';
     try { nome = decodeURIComponent(r.headers.get('X-Nome-Arquivo') || ''); } catch (e) { nome = ''; }
-    return new File([blob], nome || (semExt(f.nome) + '.jpg'), { type: blob.type || 'image/jpeg' });
+    nome = nome || arquivoDe(f, v).nome;
+    let tipo = blob.type;
+    if (!tipo || tipo.indexOf('image/') !== 0) {
+      const ext = (nome.match(/[.]([A-Za-z0-9]+)$/) || [])[1];
+      tipo = (ext && TIPOS[ext.toLowerCase()]) || 'image/jpeg';
+    }
+    return new File([blob], nome, { type: tipo });
   }
 
   function opcao(titulo, detalhe) {
@@ -1074,32 +1394,104 @@ const SCRIPT = `
     b.appendChild(d);
     return b;
   }
+  function botaoAcao(texto, primario) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'g-btn' + (primario ? ' g-prim' : '');
+    b.textContent = texto;
+    return b;
+  }
+
+  // Texto de cada versão na folha. Nome e peso são os do arquivo que SERÁ
+  // baixado; com várias fotos, "para redes" diz quantas têm a versão.
+  function detalheDaVersao(lista, v) {
+    const com = daVersao(lista, v);
+    const total = somaBytes(com, v);
+    if (lista.length === 1) {
+      const f = lista[0];
+      const a = arquivoDe(f, v);
+      const dim = v === 'max' && f.w && !f.estimada ? ' · ' + f.w + ' × ' + f.h + ' px' : '';
+      return (v === 'redes' ? 'Da pasta do Instagram, sem alteração · ' : 'O arquivo original · ') + a.nome + dim + (a.bytes ? ' · ' + fmtBytes(a.bytes) : '');
+    }
+    if (v === 'redes') {
+      const so = com.length === lista.length ? 'As ' + lista.length + ' fotos' : com.length + ' de ' + lista.length + ' fotos têm esta versão (as outras ficam de fora)';
+      return so + ' · arquivos da pasta do Instagram, sem alteração' + (total ? ' · ' + fmtBytes(total) + ' no total' : '');
+    }
+    return 'Os arquivos originais, sem alteração' + (total ? ' · ' + fmtBytes(total) + ' no total' : '');
+  }
 
   function abreFolha(lista) {
     if (!folha || !folhaT || !folhaOps || !folhaMsg || !lista.length) return;
     geracao++;
     if (folha.hidden) focoAntes = document.activeElement;
     folhaT.textContent = lista.length === 1 ? 'Baixar ' + semExt(lista[0].nome) : 'Baixar ' + lista.length + ' fotos';
-    folhaMsg.textContent = '';
+    folhaMsg.textContent = IOS && salvaNoFotos ? 'No iPhone: toque em Salvar no Fotos e, na janela que abrir, em Salvar imagem.' : '';
     folhaOps.replaceChildren();
     const um = lista.length === 1 ? lista[0] : null;
-    const bytesMax = lista.reduce(function (t, f) { return t + (f.bytes || 0); }, 0);
-    const redes = opcao('Para redes sociais', 'Leve: ' + D.ladoRedes + ' px no lado maior, JPEG — pronto para Instagram e WhatsApp');
-    const max = opcao('Tamanho máximo', um
-      ? 'O arquivo original' + (um.w && !um.estimada ? ' · ' + um.w + ' × ' + um.h + ' px' : '') + (um.bytes ? ' · ' + fmtBytes(um.bytes) : '')
-      : 'Os arquivos originais' + (bytesMax ? ' · ' + fmtBytes(bytesMax) + ' no total' : ''));
-    redes.addEventListener('click', function () { executa(lista, 'redes', redes); });
-    max.addEventListener('click', function () { executa(lista, 'max', max); });
-    folhaOps.appendChild(redes);
-    folhaOps.appendChild(max);
+    // "Para redes" só entra se ao menos uma foto da lista tem a versão.
+    const versoes = daVersao(lista, 'redes').length ? [['redes', 'Para redes sociais'], ['max', 'Tamanho máximo']] : [['max', 'Tamanho máximo']];
+    /** @type {HTMLElement | null} */
+    let primeiro = null;
+    versoes.forEach(function (par) {
+      const v = par[0];
+      const el = IOS ? blocoIOS(lista, v, par[1]) : blocoComum(lista, v, par[1]);
+      folhaOps.appendChild(el.raiz);
+      if (!primeiro) primeiro = el.foco;
+    });
     if (folhaDrive) {
       folhaDrive.hidden = !um;
       if (um) folhaDrive.href = 'https://drive.google.com/file/d/' + um.id + '/view';
     }
-    mostraFolha(redes);
+    mostraFolha(/** @type {HTMLElement} */ (primeiro));
   }
 
-  // Reaberta por cima de si mesma (o lote seguinte do "Salvar"), não empilha.
+  // Android e computador: um botão por versão, o toque baixa.
+  function blocoComum(lista, v, titulo) {
+    const b = opcao(titulo, detalheDaVersao(lista, v));
+    b.addEventListener('click', function () { baixaComum(daVersao(lista, v), v); });
+    return { raiz: b, foco: b };
+  }
+
+  // iPhone e iPad: a versão com "Salvar no Fotos" (principal) e "Baixar
+  // arquivo" (Arquivos).
+  function blocoIOS(lista, v, titulo) {
+    const raiz = document.createElement('div');
+    raiz.className = 'g-ver';
+    const t = document.createElement('div');
+    t.className = 'g-ver-t';
+    const st = document.createElement('strong');
+    st.textContent = titulo;
+    const sd = document.createElement('span');
+    sd.textContent = detalheDaVersao(lista, v);
+    t.appendChild(st);
+    t.appendChild(sd);
+    raiz.appendChild(t);
+    const acoes = document.createElement('div');
+    acoes.className = 'g-ver-a';
+    const alvo = daVersao(lista, v);
+    const baixar = botaoAcao('Baixar arquivo', !salvaNoFotos);
+    baixar.addEventListener('click', function () { baixaComum(alvo, v); });
+    let foco = baixar;
+    if (salvaNoFotos) {
+      const rotulo = alvo.length > 1 ? 'Salvar ' + alvo.length + ' fotos no Fotos' : 'Salvar no Fotos';
+      const salvar = botaoAcao(rotulo, true);
+      // Quando o arquivo está pronto, o próximo toque é de quem o espera (o
+      // iOS só abre a folha dentro de um toque).
+      /** @type {(() => void) | null} */
+      let aoToque = null;
+      salvar.addEventListener('click', function () {
+        if (aoToque) { const f = aoToque; aoToque = null; f(); return; }
+        salvarNoFotos(alvo, v, salvar, rotulo, function (f) { aoToque = f; });
+      });
+      acoes.appendChild(salvar);
+      foco = salvar;
+    }
+    acoes.appendChild(baixar);
+    raiz.appendChild(acoes);
+    return { raiz: raiz, foco: foco };
+  }
+
+  // Reaberta por cima de si mesma, não empilha.
   function mostraFolha(primeiro) {
     if (!folha) return;
     if (folha.hidden) history.pushState({ g: 'folha' }, '', location.href);
@@ -1127,7 +1519,7 @@ const SCRIPT = `
       a.className = 'g-op';
       a.href = D.drive;
       a.target = '_blank';
-      a.rel = 'noopener';
+      a.rel = 'nofollow noopener';
       const t = document.createElement('strong');
       t.textContent = 'Pelo Google Drive';
       const d = document.createElement('span');
@@ -1149,23 +1541,21 @@ const SCRIPT = `
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
-  // Compartilhar a foto aberta: o arquivo (tamanho "para redes") quando o
-  // aparelho aceita, senão o link direto, senão copia o link.
+  // Compartilhar a foto aberta (botão Compartilhar do visualizador): o arquivo
+  // da pasta do Instagram, quando a foto tem e o aparelho aceita; senão o link
+  // direto; senão copia o link. Não é download — é o menu de compartilhar, que
+  // quem toca em "Compartilhar" pediu.
   /** @type {Map<string, File>} */
   const arquivosProntos = new Map();
-  let podeArquivo = false;
-  try {
-    podeArquivo = typeof navigator.canShare === 'function'
-      && navigator.canShare({ files: [new File(['x'], 'x.jpg', { type: 'image/jpeg' })] });
-  } catch (e) { podeArquivo = false; }
+  const podeArquivo = aceitaArquivoDeTeste();
   async function compartilhaFoto(f) {
     const link = location.origin + location.pathname + '#foto=' + f.id;
     try {
-      if (podeArquivo) {
+      if (podeArquivo && f.redes) {
         let arq = arquivosProntos.get(f.id);
         if (!arq) {
           avisa('Preparando a foto…');
-          arq = await buscaArquivo(f, 'redes');
+          arq = await buscaArquivo(f, 'redes', true);
           arquivosProntos.set(f.id, arq);
         }
         try {
@@ -1199,64 +1589,126 @@ const SCRIPT = `
     if (focoAntes && typeof (/** @type {HTMLElement} */ (focoAntes)).focus === 'function') (/** @type {HTMLElement} */ (focoAntes)).focus();
   }
 
-  async function executa(lista, v, botao) {
+  // Download comum, um <a download> por arquivo, em fila (o navegador pede
+  // permissão uma vez para vários). O nome vem do Content-Disposition do
+  // servidor: o do Drive, exato. No iPhone é o "Baixar arquivo" (vai para o
+  // app Arquivos).
+  //
+  // jaContadas: ids que já foram buscados (e contados) por buscaArquivo —
+  // o iPhone recusou salvar no Fotos e o mesmo arquivo vem de novo como
+  // download; esses saem com c=0 para a contagem não dobrar. manterAberta:
+  // não fecha a folha sozinha (o texto que o chamador pôs nela precisa ser
+  // lido — fechar em 900 ms o escondia).
+  function baixaComum(lista, v, jaContadas, manterAberta) {
+    if (!folhaMsg || !lista.length) return;
+    // Em espera por um 429: nada sai (um <a download> não deixa ver a resposta,
+    // então a única proteção contra martelar é não pedir enquanto se espera).
+    if (emEspera()) { folhaMsg.textContent = msgEspera(); avisa('Muita gente baixando agora'); return; }
+    const minha = geracao;
+    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id))); }, k * 700); });
+    folhaMsg.textContent = lista.length > 1
+      ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
+      : 'Download iniciado.';
+    avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
+    if (!manterAberta) setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
+  }
+
+  // Lotes para a folha do iOS: ela segura os arquivos todos na memória da aba
+  // do Safari, que é pequena. Até LOTE_MAX_FOTOS fotos e LOTE_MAX_BYTES por vez
+  // (sempre ao menos uma); o resto vem no lote seguinte, sem pedir nada à mão.
+  function emLotes(lista, v) {
+    const lotes = [];
+    let atual = [];
+    let soma = 0;
+    lista.forEach(function (f) {
+      const a = arquivoDe(f, v);
+      const b = a && a.bytes ? a.bytes : 0;
+      if (atual.length && (atual.length >= LOTE_MAX_FOTOS || soma + b > LOTE_MAX_BYTES)) {
+        lotes.push(atual);
+        atual = [];
+        soma = 0;
+      }
+      atual.push(f);
+      soma += b;
+    });
+    if (atual.length) lotes.push(atual);
+    return lotes;
+  }
+
+  // Abre a folha do sistema com os arquivos. Logo depois de preparar, o toque
+  // original já pode ter vencido (baixar 20 MB demora): tenta na hora e, se o
+  // iOS recusar por falta de toque (NotAllowedError), pede UM toque no botão.
+  // Devolve 'ok', 'recusou' (cai no download comum). Fechar a folha do sistema
+  // sem escolher (AbortError) deixa o botão pronto para abrir de novo.
+  function compartilhaLote(arquivos, pedeToque) {
+    return new Promise(function (resolve) {
+      const tenta = function (comToque) {
+        let p;
+        try { p = navigator.share({ files: arquivos }); } catch (e) { resolve('recusou'); return; }
+        p.then(function () { resolve('ok'); }, function (e) {
+          if (e && e.name === 'AbortError') { pedeToque(function () { tenta(true); }, 'Cancelado. Toque para abrir a janela de novo.'); return; }
+          if (e && e.name === 'NotAllowedError' && !comToque) { pedeToque(function () { tenta(true); }, ''); return; }
+          resolve('recusou');
+        });
+      };
+      tenta(false);
+    });
+  }
+
+  async function salvarNoFotos(lista, v, botao, rotulo, defineAoToque) {
     if (!folhaMsg) return;
     const minha = geracao;
-    if (!compartilha) {
-      lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v)); }, k * 700); });
-      folhaMsg.textContent = lista.length > 1
-        ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
-        : 'Download iniciado.';
-      avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
-      setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
-      return;
-    }
-    // Celular: prepara os arquivos e só então pede o toque em "Salvar" — o
-    // iPhone exige que o compartilhamento saia de um toque recente, e baixar
-    // 20 MB leva mais que isso.
-    const limite = v === 'max' ? 10 : 30;
-    const lote = lista.slice(0, limite);
-    const resto = lista.slice(limite);
+    const lotes = emLotes(lista, v);
     botao.disabled = true;
-    /** @type {File[]} */
-    const arquivos = [];
-    try {
-      for (let k = 0; k < lote.length; k++) {
-        if (minha !== geracao) return;
-        folhaMsg.textContent = 'Preparando ' + (k + 1) + ' de ' + lote.length + '…';
-        arquivos.push(await buscaArquivo(lote[k], v));
+    const volta = function () { botao.disabled = false; botao.textContent = rotulo; };
+    for (let i = 0; i < lotes.length; i++) {
+      const lote = lotes[i];
+      const parte = lotes.length > 1 ? ' (parte ' + (i + 1) + ' de ' + lotes.length + ')' : '';
+      /** @type {File[]} */
+      const arquivos = [];
+      try {
+        for (let k = 0; k < lote.length; k++) {
+          if (minha !== geracao) return;
+          folhaMsg.textContent = 'Preparando ' + (k + 1) + ' de ' + lote.length + parte + '…';
+          arquivos.push(await buscaArquivo(lote[k], v));
+        }
+      } catch (e) {
+        volta();
+        folhaMsg.textContent = (e && e.message) || 'Não foi possível preparar a foto.';
+        return;
       }
-    } catch (e) {
-      botao.disabled = false;
-      folhaMsg.textContent = (e && e.message) || 'Não foi possível preparar a foto.';
-      return;
+      if (minha !== geracao) return;
+      // O iOS conhece os tipos que aceita: se recusar estes arquivos, o
+      // download comum (Arquivos) é o caminho que sobra.
+      let r = 'recusou';
+      if (podeCompartilharArquivos(arquivos)) {
+        r = await compartilhaLote(arquivos, function (acao, msg) {
+          if (minha !== geracao) return;
+          botao.disabled = false;
+          botao.textContent = arquivos.length > 1 ? 'Salvar ' + arquivos.length + ' fotos' + parte : 'Salvar no Fotos';
+          folhaMsg.textContent = msg || 'Pronto. Toque em Salvar no Fotos e, na janela do iPhone, em Salvar imagem.';
+          defineAoToque(function () { botao.disabled = true; acao(); });
+          botao.focus();
+        });
+      }
+      if (minha !== geracao) return;
+      if (r !== 'ok') {
+        volta();
+        const restantes = lotes.slice(i).reduce(function (t, l) { return t.concat(l); }, []);
+        // O lote atual já foi buscado (e contado) acima: só ele sai com c=0.
+        const jaContadas = new Set(lote.map(function (f) { return f.id; }));
+        // A folha fica aberta: a explicação abaixo é o que a pessoa precisa ler.
+        baixaComum(restantes, v, jaContadas, true);
+        if (!emEspera()) folhaMsg.textContent = 'O iPhone não aceitou salvar direto no Fotos. Baixando como arquivo (app Arquivos).';
+        return;
+      }
+      if (i + 1 < lotes.length) botao.textContent = 'Preparando a parte ' + (i + 2) + '…';
     }
-    if (minha !== geracao) return;
-    botao.disabled = false;
-    botao.classList.add('g-pronto');
-    const tit = botao.querySelector('strong');
-    const det = botao.querySelector('span');
-    if (tit) tit.textContent = arquivos.length > 1 ? 'Salvar ' + arquivos.length + ' fotos' : 'Salvar na galeria';
-    if (det) det.textContent = 'Toque para escolher "Salvar imagem"' + (resto.length ? ' — depois vêm as outras ' + resto.length : '');
-    folhaMsg.textContent = 'Pronto.';
-    const novo = botao.cloneNode(true);
-    botao.replaceWith(novo);
-    novo.addEventListener('click', function () {
-      navigator.share({ files: arquivos }).then(function () {
-        if (resto.length) { abreFolha(resto); return; }
-        fechaFolha();
-        // Não diz "salva": a pessoa pode ter escolhido WhatsApp ou AirDrop em
-        // vez de "Salvar imagem", e a página não fica sabendo.
-        avisa(arquivos.length > 1 ? arquivos.length + ' fotos enviadas pelo menu do celular' : 'Foto enviada pelo menu do celular');
-      }).catch(function (e) {
-        if (e && e.name === 'AbortError') return;
-        // Compartilhamento recusado: cai no download comum.
-        lote.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v)); }, k * 700); });
-        if (folhaMsg) folhaMsg.textContent = 'Baixando pelo navegador.';
-        avisa(lote.length > 1 ? lote.length + ' fotos baixando' : 'Download começou');
-      });
-    });
-    novo.focus();
+    volta();
+    fechaFolha();
+    // Não diz "salvou": a pessoa pode ter escolhido WhatsApp ou AirDrop em vez
+    // de "Salvar imagem", e a página não fica sabendo.
+    avisa(lista.length > 1 ? lista.length + ' fotos enviadas pelo menu do iPhone' : 'Foto enviada pelo menu do iPhone');
   }
 
   // ---- Aviso flutuante ----
@@ -1326,6 +1778,9 @@ const SCRIPT = `
     else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
+    else if (acao === 'compartilhar-fav') compartilhaFavoritas();
+    else if (acao === 'sai-link') saiDoLink();
+    else if (acao === 'guarda-link') guardaDoLink();
     else if (acao === 'topo') {
       window.scrollTo({ top: 0, behavior: reduz() ? 'auto' : 'smooth' });
       const h1 = document.getElementById('g-h1');
@@ -1358,10 +1813,17 @@ const SCRIPT = `
     fotos.forEach(pintaSel);
     sel.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) sel.delete(id); });
     fav.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) fav.delete(id); });
+    const doLink = leSelecaoDoLink();
     atualizaBarra();
     montaChips();
     diagramaTudo();
     observaSecoes();
+    if (doLink === 0) {
+      avisa('As fotos deste link não estão mais nesta galeria');
+      history.replaceState(null, '', location.pathname + location.search);
+    } else if (doLink > 0) {
+      avisa(doLink === 1 ? '1 foto escolhida por quem mandou o link' : doLink + ' fotos escolhidas por quem mandou o link');
+    }
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(function () { if (main.clientWidth !== larguraDiagramada) agendaDiagrama(); }).observe(main);
       if (cab) new ResizeObserver(medeTopo).observe(cab);

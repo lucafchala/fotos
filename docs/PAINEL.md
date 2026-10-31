@@ -101,7 +101,8 @@ Métricas
   Dia da semana .... média de visitas por dia da semana
   Portão ........... Como passaram pelo portão (Verificação automática · Código por e-mail · Sem JavaScript)
   Projetos ......... Projetos no período (ordem: Visitas · Abriram o Drive · Taxa)
-  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa · Galeria ↓
+  Baixadas ......... Fotos baixadas na galeria: para redes × tamanho máximo, por dia
+  Total ............ Total desde o início: nota ("visitante único por hora") · tabela Projeto · Visitas · Drive · Taxa · Galeria · Galeria ↓
 Ajustes
   Site ............. Selo de agenda · Categorias
   Dados ............ Backup dos dados · Exportar planilhas · Restaurar backup (sensível)
@@ -727,13 +728,18 @@ De cima para baixo, na ordem em que se lê:
    tocar de novo volta a todos. No fim, quantos projetos não tiveram visita.
 7. **Total desde o início** (`#metrics-body`): a tabela de antes da v2.0 —
    Projeto (título e `/slug`), Visitas (com uma barra proporcional atrás do
-   número), Drive, Taxa e Galeria ↓ (downloads da galeria feitos por
+   número), Drive, Taxa (Drive ou galeria ÷ visitas), Galeria (aberturas,
+   uma por hora por navegador) e Galeria ↓ (downloads da galeria feitos por
    visitante — "para redes" e "tamanho máximo"); clicar no cabeçalho ordena (a primeira vez,
    decrescente; a segunda inverte; ▲/▼ e `aria-sort` dizem o sentido). Inclui o
    que o KV contava antes do Durable Object, por isso é maior que a soma dos
    dias. **⬇ CSV** (`#metrics-export`, escondido sem dados):
    `metricas-AAAA-MM-DD.csv`, colunas `title`, `slug`, `views`, `driveClicks`,
-   `baixarRedes`, `baixarMax`.
+   `galeriaViews`, `baixarRedes`, `baixarMax`. Os cartões do topo, o gráfico
+   de acessos (com a linha da galeria), o bloco "Fotos baixadas na galeria",
+   os chips do ranking ("Abriram a galeria", "Fotos baixadas") e o CSV por
+   dia (`abriram_galeria`, `baixadas_redes`, `baixadas_max`) seguem a mesma
+   contagem (v3.0).
    A nota lembra: conta **visitante único por hora, não recarregamento** (cookie
    `fv_<slug>` de 1 h; HEAD e prefetch também não contam) — recarregar para
    testar não mexe no número, de propósito.
@@ -798,9 +804,13 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   formulário. Até a primeira alteração valem Formatura, Casamento, Ensaio, Evento
   e Outro; o máximo é 30, de até 40 caracteres, sem repetir (maiúsculas não
   contam). Excluir uma categoria a tira de todos os eventos que a usavam.
-- **Backup.** `fotos-backup-AAAA-MM-DD.json`, versão 2: eventos, categorias e
-  pedidos de remoção — estes com e-mail e telefone de quem pediu, então o arquivo
-  pede cuidado. Não há backup automático. O download é um `fetch`
+- **Backup.** `fotos-backup-AAAA-MM-DD.json`, versão 3: eventos, categorias,
+  pedidos de remoção (com e-mail e telefone de quem pediu) e o registro de
+  consentimento (com IP e aparelho de cada aceite; até 1500, os mais recentes —
+  o completo é o `wrangler d1 export`, `docs/RELEASE.md`), então o arquivo pede
+  cuidado: guardar protegido e apagar no prazo do registro. O toast lê o
+  cabeçalho `X-Backup-Consentimento` (`avisoDoBackup()`) e avisa em vermelho
+  quando o registro veio só em parte ou não veio (D1 fora). Não há backup automático. O download é um `fetch`
   (`downloadBackup()`) e depois um `<a download>` com o blob, como o CSV. Com a
   sessão expirada, o 401 leva ao login pelo mesmo `vaiParaOLogin()` do `api()`:
   antes, o navegador mostrava o JSON do erro.
@@ -817,8 +827,11 @@ perigo", agora no lugar de cada ação em vez de num cartão à parte.
   do navegador é justamente o que carrega texto cru digitado por visitante.
 - **Restaurar.** *Merge*, nada é apagado: eventos com o mesmo `id` são
   atualizados só se o do backup for mais recente; categorias são unidas; pedidos
-  entram por `id`. O toast conta o que entrou ("Restaurado: N adicionados, M
-  atualizados, K ignorados (sem id ou URL válida)") e a página recarrega em 1,8 s
+  entram por `id`; aceites do registro de consentimento só entram se faltarem
+  (nunca alteram um existente; não entram na prévia). A confirmação diz quantos
+  aceites o arquivo traz, e o toast conta o que entrou ("Restaurado: N
+  adicionados, M atualizados, K ignorados (sem id ou URL válida)", mais
+  `textoConsentRestaurado()` para o registro) e a página recarrega em 1,8 s
   — voltando para Ajustes (§3).
 - **Trocar a senha.** O mínimo é 12 caracteres (a política completa está em
   `validatePassword`, `src/security.js`): três tipos de caractere, ou uma frase

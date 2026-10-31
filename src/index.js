@@ -14,7 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, casaRedesCacheado, pastaInstagram, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -46,8 +46,8 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_LADO_REDES, GALERIA_MAX_OCULTAS,
-  METRICAS_DIAS_MAX, GATE_METODOS,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
+  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, ROBO_UA_RE,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -198,6 +198,10 @@ const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
+// Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
+// sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
+// "Sitemap file location"), e a página da galeria fica fora de /galeria/<slug>/.
+const SITEMAP_GALERIA_RE = /^\/sitemap-galeria-([a-z0-9][a-z0-9-]*)\.xml$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -264,6 +268,9 @@ const worker = {
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
+      if (path === '/sitemap-galerias.xml' && method === 'GET') return await handleSitemapGalerias(env);
+      const sitemapGaleriaMatch = path.match(SITEMAP_GALERIA_RE);
+      if (sitemapGaleriaMatch && method === 'GET') return await handleSitemapGaleria(env, sitemapGaleriaMatch[1]);
       if (path === '/robots.txt' && method === 'GET') return await handleRobots();
       if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
@@ -361,7 +368,7 @@ const worker = {
       // Galeria própria (#235). Quem vê decide podeVerGaleria(); para quem não
       // pode, o mesmo 404 de uma rota que não existe.
       const galeriaMatch = path.match(GALERIA_PATH_RE);
-      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce);
+      if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce, ctx);
       const baixarMatch = path.match(GALERIA_BAIXAR_RE);
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
 
@@ -481,8 +488,6 @@ async function handleSitemap(env) {
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
   const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
-  /** @param {Evento} e */
-  const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
@@ -502,9 +507,86 @@ async function handleSitemap(env) {
       `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`
     );
   }
+  // A galeria própria de cada álbum público (decisão do dono, 29/10/2026): só a
+  // URL e o lastmod — as fotos (image:image) ficam no sitemap de cada galeria
+  // (handleSitemapGaleria), para este aqui nunca chamar o Drive.
+  for (const e of events.filter(galeriaIndexavel)) {
+    const lastmod = lastmodOf(e);
+    urls.push(`  <url><loc>${SITE_URL}/galeria/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`);
+  }
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   return new Response(xml, {
     headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
+  });
+}
+
+/** @param {Evento} e */
+const lastmodOf = e => String(e.updatedAt || e.date || e.createdAt || '').slice(0, 10);
+
+// Google: até 1000 <image:image> por <url>. A galeria pode ter até
+// GALERIA_MAX_FOTOS; o resto o Google acha pela própria página.
+const SITEMAP_IMAGENS_POR_URL = 1000;
+
+/**
+ * Índice dos sitemaps de imagens das galerias: um por galeria indexável. Só
+ * lê a lista de eventos (KV com cache) — nenhuma chamada ao Drive.
+ * @param {Env} env
+ */
+async function handleSitemapGalerias(env) {
+  const events = (await getEvents(env)).filter(galeriaIndexavel);
+  const itens = events.map(e => {
+    const lastmod = lastmodOf(e);
+    return `  <sitemap><loc>${SITE_URL}/sitemap-galeria-${escape(e.slug)}.xml</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</sitemap>`;
+  });
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${itens.join('\n')}${itens.length ? '\n' : ''}</sitemapindex>\n`;
+  return new Response(xml, {
+    headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
+  });
+}
+
+/**
+ * Sitemap de imagens de UMA galeria pública: a URL da galeria com as fotos
+ * (até 1000) em <image:image>. Um por galeria, e não todas no /sitemap.xml, por
+ * causa do plano gratuito: cada listagem fria da pasta custa até
+ * GALERIA_MAX_CHAMADAS (30) subrequisições, e o teto é 50 por invocação — dois
+ * álbuns frios no mesmo pedido já estourariam. Assim cada pedido custa o mesmo
+ * que UMA visita à galeria (a listagem de 10 min do listaPasta, compartilhada
+ * com a página). Foto oculta nunca entra (semOcultas), e o lastmod é o do
+ * evento — ocultar uma foto o atualiza, então o Google relê.
+ * @param {Env} env
+ * @param {string} slug
+ */
+async function handleSitemapGaleria(env, slug) {
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  const pasta = event && galeriaIndexavel(event) ? pastaDoDrive(event.driveUrl) : null;
+  if (!event || !pasta) return notFound();
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  try {
+    listagem = await listaPasta(env, pasta);
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
+    // vez de entender que as fotos sumiram.
+    return new Response('Drive indisponível.', {
+      status: 503,
+      headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), 'Retry-After': '3600' },
+    });
+  }
+  const fotos = semOcultas(listagem, normalizaOcultas(event.fotosOcultas)).secoes
+    .flatMap(s => s.fotos)
+    .slice(0, SITEMAP_IMAGENS_POR_URL);
+  if (!fotos.length) return notFound();
+  const lastmod = lastmodOf(event);
+  // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
+  const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+    + `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}\n    ${imagens.join('\n    ')}\n  </url>\n`
+    + '</urlset>\n';
+  return new Response(xml, {
+    // no-cache: foto oculta sai do sitemap no próximo pedido, não daqui a 1 h.
+    headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
   });
 }
 
@@ -514,17 +596,28 @@ function handleRobots() {
   // que existem só para treinar levam Disallow. /dashboard e /api/ não são
   // protegidos por aqui (robots.txt é aviso, não controle de acesso): têm login
   // e limite de taxa.
+  //
+  // O download da galeria (/galeria/<slug>/baixar/<id>) leva Disallow nos dois
+  // grupos que podem rastrear: cada pedido dele é um original pela Drive API ou
+  // uma cópia pelo lh3 passando PELO Worker — cota do Drive e do plano
+  // gratuito gastas por robô. As fotos que o Google indexa são as do lh3
+  // (sitemap de imagens e a própria página), que não passam pelo Worker.
+  // O Content-Signal faz o Lighthouse acusar "Unknown directive" (robots-txt);
+  // fica assim de propósito — o Google ignora a linha, e o ai-train=no é
+  // decisão do dono.
   const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
+  const fechado = 'Disallow: /galeria/*/baixar/\n';
   const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
   const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
     '# robots.txt — fotos.lucafchala.com\n' +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
     '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
-    'User-agent: *\n' + sinal + 'Allow: /\n\n' +
-    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n\n' +
+    'User-agent: *\n' + sinal + 'Allow: /\n' + fechado + '\n' +
+    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
-    `Sitemap: ${SITE_URL}/sitemap.xml\n`;
+    `Sitemap: ${SITE_URL}/sitemap.xml\n` +
+    `Sitemap: ${SITE_URL}/sitemap-galerias.xml\n`;
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
@@ -664,7 +757,9 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // Set-Cookie abaixo ainda marcaria "já contado", fazendo a visita de verdade
   // — a que veio depois do clique — não contar. Mesmo motivo do headOnly acima.
   const prefetch = (request.headers.get('Sec-Purpose') || '').includes('prefetch');
-  const counts = !alreadyCounted && !headOnly && !prefetch;
+  // Robô conhecido (Googlebot, verificado pelo Cloudflare...) não é visita.
+  // Lista conservadora: números do painel PODEM incluir robôs desconhecidos.
+  const counts = !alreadyCounted && !headOnly && !prefetch && !ehRobo(request);
   if (counts) {
     // Uma chamada ao Durable Object `Counter` por visita contada, fora do
     // caminho da resposta (waitUntil). Ver bumpCounter() em utils.js.
@@ -1212,7 +1307,7 @@ async function handleDeleteEvent(request, env, path) {
   // Todos os contadores do projeto, não só o de visitas: `drive_clicks:<slug>`
   // ficava para trás na versão em KV e ressurgia somado se um projeto novo
   // reaproveitasse o slug. Os downloads da galeria, pelo mesmo motivo.
-  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
+  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
   return jsonOk({ deleted: true });
 }
 
@@ -1389,7 +1484,7 @@ async function handleMetrics(request, env) {
   // Os downloads da galeria nasceram no Durable Object (nunca estiveram no
   // KV): sem assentamento, chave ausente é zero — e nenhuma leitura de KV a
   // mais por projeto.
-  const chavesBaixar = events.flatMap(e => [`baixar_redes:${e.slug}`, `baixar_max:${e.slug}`]);
+  const chavesBaixar = events.flatMap(e => [`galeria_views:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`]);
   const [contagens, baixados] = await Promise.all([
     readCounters(env, chaves),
     readCounters(env, chavesBaixar, { legado: false }),
@@ -1400,6 +1495,7 @@ async function handleMetrics(request, env) {
     title: e.title,
     views: contagens[`views:${e.slug}`] || 0,
     driveClicks: contagens[`drive_clicks:${e.slug}`] || 0,
+    galeriaViews: baixados[`galeria_views:${e.slug}`] || 0,
     baixarRedes: baixados[`baixar_redes:${e.slug}`] || 0,
     baixarMax: baixados[`baixar_max:${e.slug}`] || 0,
   }));
@@ -1441,8 +1537,12 @@ export async function handleMetricsDiario(request, env, url) {
   const conhecidos = new Set(events.map(e => e.slug));
 
   const zeros = () => new Array(n).fill(0);
-  /** @type {Record<string, { views: number[], driveClicks: number[] }>} */
+  /** @type {Record<string, { views: number[], driveClicks: number[], galeria: number[], baixarRedes: number[], baixarMax: number[] }>} */
   const projetos = {};
+  // Tipo do contador → campo do projeto na resposta. A galeria (aberturas e
+  // downloads) entra ao lado das visitas e do Drive.
+  /** @type {Record<string, 'views'|'driveClicks'|'galeria'|'baixarRedes'|'baixarMax'>} */
+  const CAMPO = { views: 'views', drive_clicks: 'driveClicks', galeria_views: 'galeria', baixar_redes: 'baixarRedes', baixar_max: 'baixarMax' };
   /** @type {Record<string, number[]>} */
   const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
   for (const [k, v] of Object.entries(serie)) {
@@ -1453,10 +1553,10 @@ export async function handleMetricsDiario(request, env, url) {
     const sep = chave.indexOf(':');
     const tipo = chave.slice(0, sep);
     const resto = chave.slice(sep + 1);
-    if (tipo === 'views' || tipo === 'drive_clicks') {
+    if (CAMPO[tipo]) {
       if (!conhecidos.has(resto)) continue;
-      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros() });
-      (tipo === 'views' ? p.views : p.driveClicks)[i] += v;
+      const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros(), galeria: zeros(), baixarRedes: zeros(), baixarMax: zeros() });
+      p[CAMPO[tipo]][i] += v;
     } else if (tipo === 'gate' && gate[resto]) {
       gate[resto][i] += v;
     }
@@ -3432,6 +3532,19 @@ async function podeVerGaleria(request, env, slug) {
 }
 
 /**
+ * A galeria deste projeto pode entrar no Google (decisão do dono, 29/10/2026)?
+ * Só a de álbum PÚBLICO, listado (visible !== false — "não listado" segue fora
+ * de busca, como a página do projeto) e publicado (não "Em breve"), com uma
+ * pasta do Drive de verdade. UMA regra para o sitemap, o índice de sitemaps
+ * de imagens e o noindex da página — família e privado nunca. A página ainda
+ * soma o que só ela sabe (dono logado, prévia de PR, pasta lida com fotos).
+ * @param {Evento} event
+ */
+export function galeriaIndexavel(event) {
+  return event.visible !== false && !event.comingSoon && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
+}
+
+/**
  * Passe da galeria própria, emitido pelo portão do Drive depois do aceite.
  * Cookie preso ao caminho do álbum: não vale para outro slug.
  * @param {Env} env
@@ -3450,8 +3563,9 @@ async function cookieGaleria(env, slug) {
  * @param {string} slug
  * @param {URL} url
  * @param {string} nonce
+ * @param {ExecutionContext} [ctx]
  */
-export async function handleGaleriaPagina(request, env, slug, url, nonce) {
+export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return notFound();
@@ -3474,26 +3588,121 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
       erro = { codigo: e.codigo, mensagem: e.message };
     }
   }
-  // Depois de reler, volta para o endereço limpo: recarregar a página não
-  // pode virar uma nova leitura forçada a cada F5.
+  // Pasta do Instagram: quais fotos têm versão "para redes". Falha dela NUNCA
+  // derruba a galeria — só tira a opção (o dono vê o motivo na faixa).
+  /** @type {Map<string, import('./drive.js').FotoDrive>} */
+  let redes = new Map();
+  /** @type {{ mensagem: string, parcial: boolean } | null} */
+  let avisoRedes = null;
+  const pastaIg = pastaInstagram(event);
+  if (listagem && event.driveUrlInstagram && !pastaIg) {
+    // Duas causas, uma mensagem para cada: o link não é de pasta, ou é a MESMA
+    // pasta da galeria (colar o link errado) — "para redes" entregaria o próprio
+    // original como se fosse a versão preparada.
+    avisoRedes = pastaDoDrive(event.driveUrlInstagram)
+      ? { mensagem: 'A pasta do Instagram é a mesma da galeria: "para redes" fica desligado. Cadastre a pasta com as versões para as redes.', parcial: false }
+      : { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
+  } else if (listagem && pastaIg) {
+    try {
+      const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+      // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
+      // 10 min em 10 min, e o casamento fica guardado nela.
+      redes = await casaRedesCacheado(listagem, ig);
+      if (ig.truncada) avisoRedes = { mensagem: 'A pasta do Instagram é grande demais para ser lida inteira: as últimas fotos podem ficar sem "para redes".', parcial: true };
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      avisoRedes = { mensagem: `Não foi possível ler a pasta do Instagram (${e.message}) — "para redes" fica desligado.`, parcial: false };
+    }
+  }
+  // Depois de reler (as duas pastas), volta para o endereço limpo: recarregar
+  // a página não pode virar uma nova leitura forçada a cada F5.
   if (atualizar && listagem) return redirect(`/galeria/${slug}`);
   const ocultas = normalizaOcultas(event.fotosOcultas);
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
   // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
   if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
-  return adminHtml(galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, ...(dono ? { ocultas } : {}),
-  }), 200, nonce);
+  const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && !!listagem);
+  // Indexável: álbum público listado, visto por visitante, fora da prévia, e
+  // com fotos (página de erro ou pasta vazia não vai para o Google).
+  const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && !!listagem && listagem.total > 0;
+  const pagina = galeriaHTML({
+    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, ...(dono ? { ocultas } : {}),
+  });
+  /** @type {Response} */
+  let res;
+  if (dono || isRestrictedAccess(event)) {
+    // Dono e família/privado: o perfil do painel (no-store, noindex) — o que
+    // é de passe nunca fica em cache nem vai para busca.
+    res = adminHtml(pagina, 200, nonce);
+  } else {
+    // Visitante de álbum público: o perfil de página pública. `private`: a
+    // página leva o nonce da CSP, e um cache compartilhado o repetiria para
+    // todos; `no-cache`: cada visita revalida, então foto oculta some em até 2 min
+    // (o prazo da propagação do painel, não "na hora"; a economia de cota é a listagem de 10 min do listaPasta, não este
+    // HTML). Sem `no-store`, o voltar/avançar do navegador funciona (bfcache).
+    res = html(pagina, 200, nonce);
+    res.headers.set('Cache-Control', 'private, no-cache');
+    if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  }
+  if (contaGaleria) res.headers.append('Set-Cookie', contaGaleria);
+  return res;
+}
+
+/**
+ * Robô conhecido? Duas fontes: o Cloudflare (`request.cf.botManagement
+ * .verifiedBot`, só existe em planos com Bot Management — ausente, vale o
+ * User-Agent) e uma lista curta e conservadora de nomes de robô no
+ * User-Agent (ROBO_UA_RE em config.js). Serve só à CONTAGEM de visitas e
+ * aberturas: não bloqueia nada, e um robô desconhecido ainda conta.
+ * @param {Request} request
+ */
+export function ehRobo(request) {
+  const cf = /** @type {any} */ (request).cf;
+  if (cf && cf.botManagement && cf.botManagement.verifiedBot === true) return true;
+  return ROBO_UA_RE.test(request.headers.get('User-Agent') || '');
+}
+
+/**
+ * Conta uma abertura da galeria (`galeria_views:<slug>`), com a mesma noção
+ * de "visita" da página do projeto: um navegador por hora, por projeto
+ * (cookie `gv_<slug>`, preso ao caminho da galeria). O dono, o HEAD e o
+ * prefetch não contam, nem robôs conhecidos (`ehRobo`). Devolve o Set-Cookie a
+ * pôr na resposta, ou ''.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext | undefined} ctx
+ * @param {string} slug
+ * @param {boolean} pode visitante com a lista carregada
+ */
+function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
+  if (!pode || request.method !== 'GET') return '';
+  // Robô conhecido não abre galeria: o Google rastreia `/galeria/<slug>` desde a
+  // v3 e cada rastreio virava uma "abertura" (e a taxa passava de 100%).
+  if (ehRobo(request)) return '';
+  const nome = `gv_${slug}`;
+  if ((request.headers.get('Cookie') || '').includes(`${nome}=1`)) return '';
+  if ((request.headers.get('Sec-Purpose') || '').includes('prefetch')) return '';
+  bumpCounter(env, ctx || null, `galeria_views:${slug}`);
+  return `${nome}=1; Max-Age=3600; Path=/galeria/${slug}; SameSite=Lax; Secure`;
 }
 
 /**
  * Download de uma foto da galeria. Proxy de propósito, e não link direto:
- * (1) o original sai pela Drive API, que leva a chave — ela não pode ir para a
- * página; (2) o nome do arquivo e o `Content-Disposition` são nossos; (3) sendo
- * da mesma origem, o celular consegue montar o arquivo e oferecer "Salvar na
- * galeria" (Web Share). Só entrega arquivo que ESTÁ na pasta do projeto —
- * sem essa checagem, o Worker viraria um proxy aberto para qualquer arquivo
- * público do Drive.
+ * (1) o arquivo sai pela Drive API, que leva a chave — ela não pode ir para a
+ * página; (2) o `Content-Disposition` é nosso e leva o nome EXATO do arquivo
+ * no Drive; (3) sendo da mesma origem, o iPhone consegue montar o arquivo e
+ * oferecer "Salvar no Fotos" (Web Share) sem trocar o nome nem os bytes.
+ *
+ * O site NÃO altera o arquivo, nunca: os bytes passam como vieram.
+ *  - `v=max`: o original da pasta do projeto.
+ *  - `v=redes`: o arquivo de mesmo nome (sem extensão) da pasta do Instagram
+ *    do projeto (`driveUrlInstagram`), já pronto — sem versão, é 404.
+ *
+ * Só entrega arquivo que ESTÁ na pasta do projeto (`max`) ou na pasta do
+ * Instagram DO MESMO projeto (`redes`) — sem essa checagem, o Worker viraria um
+ * proxy aberto para qualquer arquivo público do Drive. O `<id>` da rota é
+ * sempre o da foto da galeria; o id do arquivo do Instagram vem da listagem,
+ * nunca do pedido.
  * @param {Request} request
  * @param {Env} env
  * @param {string} slug
@@ -3502,11 +3711,44 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce) {
  * @param {ExecutionContext} [ctx]
  */
 export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) {
+  const res = await baixaDaGaleria(request, env, slug, fileId, url, ctx);
+  // Toda resposta do proxy, 200, erro ou 429: nada daqui vai para o índice (nem
+  // para o Google Imagens). O Disallow do robots.txt evita o pedido; isto
+  // cobre quem chega por link de fora sem ter lido o robots.txt.
+  res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return res;
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {URL} url
+ * @param {ExecutionContext} [ctx]
+ */
+async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   if (!idDriveValido(fileId)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   const pasta = event ? pastaDoDrive(event.driveUrl) : null;
   if (!event || !pasta) return notFound();
+  const variante = url.searchParams.get('v') === 'redes' ? 'redes' : 'max';
+  // "Para redes" sem pasta do Instagram no projeto (ou com a MESMA pasta da
+  // galeria): não existe. Antes de qualquer chamada ao Google.
+  const pastaIg = variante === 'redes' ? pastaInstagram(event) : null;
+  if (variante === 'redes' && !pastaIg) return notFound();
+
+  // Limite por IP, ANTES de qualquer leitura do Drive: é a cota do Google e os
+  // 10 ms de CPU que ele protege. O dono (logado) não passa por aqui. Custa uma
+  // subrequisição (a ficha). Se o Durable Object estiver fora, takeToken falha
+  // ABERTO, como no portão: uma pane nossa não pode tirar a foto de quem a quer.
+  const dono = await verifySession(env, request);
+  if (!dono) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const limite = await takeToken(env, ip, 'galeria-baixar', GALERIA_BAIXAR_BUCKET);
+    if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  }
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
@@ -3519,22 +3761,30 @@ export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) 
   const foto = achaFoto(listagem, fileId);
   if (!foto) return notFound();
   // Foto oculta é, para o público, foto que não existe. O dono ainda baixa.
-  const dono = await verifySession(env, request);
   if (!dono && normalizaOcultas(event.fotosOcultas).includes(fileId)) return notFound();
 
-  const variante = url.searchParams.get('v') === 'max' ? 'max' : 'redes';
+  // O arquivo a servir: o próprio (max) ou o par da pasta do Instagram (redes).
+  let alvoFoto = foto;
+  let origem = listagem;
+  if (pastaIg) {
+    try {
+      origem = await listaPasta(env, pastaIg, { maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+    } catch (e) {
+      if (!(e instanceof DriveError)) throw e;
+      return erroDownload(request, e.message, 502);
+    }
+    const par = (await casaRedesCacheado(listagem, origem)).get(fileId);
+    // Sem par, ou (defesa em profundidade) par que não está na listagem da
+    // pasta do Instagram: 404, sem buscar nada.
+    if (!par || !achaFoto(origem, par[0])) return notFound();
+    alvoFoto = par;
+  }
+
   /** @type {Record<string, string>} */
   const headers = {};
-  let alvo;
-  if (variante === 'max') {
-    alvo = urlOriginal(fileId, (env.GOOGLE_DRIVE_API_KEY || '').trim());
-    const rk = listagem.rk && listagem.rk[fileId];
-    if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${rk}`;
-  } else {
-    alvo = urlLh3(fileId, larguraRedes(foto[1], foto[2]));
-    // JPEG explícito: é o formato que toda rede aceita sem reconverter.
-    headers.Accept = 'image/jpeg,image/*;q=0.8';
-  }
+  const alvo = urlOriginal(alvoFoto[0], (env.GOOGLE_DRIVE_API_KEY || '').trim());
+  const rk = origem.rk && origem.rk[alvoFoto[0]];
+  if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${alvoFoto[0]}/${rk}`;
 
   // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
   // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
@@ -3550,29 +3800,34 @@ export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) 
     clearTimeout(timer);
   }
   if (!up.ok) {
-    if (variante === 'max') {
-      const e = await erroDaApi(up);
-      // O caso mais provável num pico: a cota de download do arquivo (#233).
-      const msg = e.codigo === 'limite'
-        ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
-        : e.message;
-      return erroDownload(request, msg, up.status === 404 ? 404 : 502);
-    }
-    return erroDownload(request, `O Google recusou a foto (${up.status}).`, 502);
+    const e = await erroDaApi(up);
+    // O caso mais provável num pico: a cota de download do arquivo (#233).
+    const msg = e.codigo === 'limite'
+      ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
+      : e.message;
+    return erroDownload(request, msg, up.status === 404 ? 404 : 502);
   }
 
   const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
-  const nome = nomeDownload(slug, foto[3], variante, tipo);
+  // O nome EXATO que o arquivo tem no Drive — sem prefixo, sem troca de
+  // extensão, sem limpeza. O `Content-Disposition` o leva em UTF-8 (filename*)
+  // e o navegador tira sozinho o que o sistema de arquivos não aceita.
+  const nome = alvoFoto[3];
   const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
-  h.set('Cache-Control', 'private, max-age=3600');
+  // `no-transform`: nenhum intermediário (CDN, operadora) pode recomprimir a foto.
+  h.set('Cache-Control', 'private, no-transform, max-age=3600');
   h.set('Content-Disposition', contentDisposition(nome));
-  // Lido pelo script da página para nomear o arquivo do "Salvar na galeria".
+  // Lido pelo script da página para nomear o arquivo do "Salvar no Fotos".
   h.set('X-Nome-Arquivo', encodeURIComponent(nome));
   const tamanho = up.headers.get('Content-Length');
   if (tamanho) h.set('Content-Length', tamanho);
   // Quantas baixadas de cada versão por projeto (#235), no Durable Object —
-  // nunca KV por visitante. O dono testando não conta.
-  if (!dono) bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
+  // nunca KV por visitante. O dono testando não conta, nem o pedido que não é
+  // download (`c=0`: o botão Compartilhar do visualizador e a nova busca do
+  // mesmo arquivo depois que o iPhone recusou "Salvar no Fotos" — a primeira
+  // já contou). A marca só desliga a contagem: o arquivo servido, o limite por
+  // IP e todas as checagens são os mesmos. Só o valor exato "0" vale.
+  if (!dono && url.searchParams.get('c') !== '0') bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
   return new Response(up.body, { status: 200, headers: h });
 }
 
@@ -3609,48 +3864,10 @@ async function handleOcultarFoto(request, env) {
 }
 
 /**
- * Largura a pedir ao lh3 para a versão "para redes": o LADO MAIOR fica em
- * GALERIA_LADO_REDES (o lh3 só aceita largura; numa foto em pé, a largura sai
- * proporcional). Nunca acima do original.
- * @param {number} w
- * @param {number} h
- */
-export function larguraRedes(w, h) {
-  if (!(w > 0 && h > 0)) return GALERIA_LADO_REDES;
-  if (w >= h) return Math.min(w, GALERIA_LADO_REDES);
-  return Math.min(w, Math.round(GALERIA_LADO_REDES * w / h));
-}
-
-/**
- * Nome do arquivo baixado: <slug>-<nome original>[-redes].<ext>. O slug na
- * frente evita que "001.jpg" de dois projetos se sobrescrevam na pasta de
- * downloads.
- * @param {string} slug
- * @param {string} original
- * @param {'redes'|'max'} variante
- * @param {string} tipo
- */
-export function nomeDownload(slug, original, variante, tipo) {
-  const ponto = original.lastIndexOf('.');
-  const extOriginal = ponto > 0 ? original.slice(ponto + 1).toLowerCase() : '';
-  const base = (ponto > 0 ? original.slice(0, ponto) : original)
-    .normalize('NFC')
-    .replace(/[\p{Cc}"\\/:*?<>|]+/gu, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120) || 'foto';
-  /** @type {Record<string, string>} */
-  const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif', 'image/tiff': 'tif' };
-  const ext = variante === 'redes'
-    ? (EXT[tipo] || 'jpg')
-    : (/^[a-z0-9]{1,5}$/.test(extOriginal) ? extOriginal : (EXT[tipo] || 'jpg'));
-  const prefixo = base.toLowerCase().startsWith(slug) ? '' : `${slug}-`;
-  return `${prefixo}${base}${variante === 'redes' ? '-redes' : ''}.${ext}`;
-}
-
-/**
  * `attachment` com o nome em UTF-8 (RFC 6266/5987) e um ASCII de reserva para
- * quem não lê o `filename*`. O nome já chega sem aspas, barras nem controle.
+ * quem não lê o `filename*`. O nome é o do Drive, SEM limpeza: o `filename*`
+ * o leva inteiro (aspas, barras e controles viram %XX, então nada fecha o
+ * cabeçalho nem injeta outro), e só o ASCII de reserva perde aspas e acentos.
  * @param {string} nome
  */
 export function contentDisposition(nome) {
@@ -3661,7 +3878,7 @@ export function contentDisposition(nome) {
 
 /**
  * Erro de download: página para quem abriu o link (navegação), JSON para o
- * script que montava o "Salvar na galeria".
+ * script que montava o "Salvar no Fotos" (iPhone).
  * @param {Request} request
  * @param {string} mensagem
  * @param {number} status
@@ -3674,20 +3891,241 @@ function erroDownload(request, mensagem, status) {
 }
 
 // ---------------------------------------------------------------------------
-// Backup — full site state (v2), with v1-compatible restore
+// Backup — full site state (v3), with v1/v2-compatible restore
 // ---------------------------------------------------------------------------
+// v3 acrescenta `consent`: o registro de consentimento do D1, numa forma
+// compacta (os nomes das colunas uma vez, cada aceite uma lista de valores) —
+// em objetos, os 24 nomes repetidos a cada linha quase dobravam o arquivo.
 /**
- * @param {{ events: Evento[], categories: string[], removalRequests: Record<string, any>[] }} data
+ * @param {{ events: Evento[], categories: string[], removalRequests: Record<string, any>[], consent?: Record<string, any> }} data
  */
-export function buildBackup({ events, categories, removalRequests }) {
+export function buildBackup({ events, categories, removalRequests, consent }) {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     backupAt: new Date().toISOString(),
     eventCount: events.length,
     events,
     categories,
     removalRequests,
+    consent: consent || consentAusente('seção não gerada'),
   });
+}
+
+// O registro de consentimento no backup (v3). `id` vem primeiro: é por ele que
+// o restore deduplica (INSERT OR IGNORE).
+const CONSENT_BACKUP_COLS = ['id', ...CONSENT_COLS];
+
+// Teto de linhas do backup pelo painel. O plano gratuito dá 10 ms de CPU por
+// requisição, e o custo aqui é JSON: o runtime lê o resultado do D1 e o
+// arquivo inteiro é serializado de novo. Medido em node (out/2026), com linhas
+// do tamanho das de produção (~740 bytes): 1000 linhas ≈ 5 ms, 2000 ≈ 8,5 ms,
+// 5000 ≈ 22 ms — só o JSON, sem os eventos. Estourar o orçamento não "corta" o
+// arquivo, derruba o download inteiro; por isso o teto, com folga. Acima
+// dele o backup leva as linhas MAIS RECENTES e diz, na seção, que está
+// incompleto: o caminho completo é `wrangler d1 export` (docs/RELEASE.md).
+// O restore usa o mesmo teto, pelo mesmo orçamento.
+const CONSENT_BACKUP_MAX_LINHAS = 1500;
+// Linhas por chamada de `batch()` no restore. Um batch conta como UMA consulta
+// no limite por invocação (50 no gratuito) e roda numa transação: se falhar,
+// perde-se só o lote, e restaurar o mesmo arquivo de novo continua dali
+// (INSERT OR IGNORE). 1500 linhas = 15 lotes.
+const CONSENT_RESTORE_LOTE = 100;
+
+/**
+ * @param {string} motivo
+ */
+function consentAusente(motivo) {
+  return { tabela: 'image_use_consent', ausente: true, motivo };
+}
+
+// A seção `consent` do backup. Nunca lança: sem D1, ou com ele fora, o backup
+// sai mesmo assim (eventos, categorias, pedidos) e a seção DIZ que faltou —
+// e o healthz também. Sumir calada faria o dono guardar um arquivo achando
+// que tem a prova de aceite dentro.
+/**
+ * @param {Env} env
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function consentParaBackup(env) {
+  if (!env.CONSENT_DB) return consentAusente('Banco do registro de consentimento (D1) não configurado neste ambiente.');
+  try {
+    const db = env.CONSENT_DB;
+    const [contagem, linhas] = await Promise.all([
+      db.prepare('SELECT COUNT(*) AS n FROM image_use_consent').first(),
+      db.prepare(`SELECT ${CONSENT_BACKUP_COLS.join(', ')} FROM image_use_consent ORDER BY created_at DESC LIMIT ?`)
+        .bind(CONSENT_BACKUP_MAX_LINHAS).raw(),
+    ]);
+    // Um aceite gravado entre as duas consultas não pode fazer o total ficar
+    // menor que o que veio.
+    const total = Math.max(Number(contagem && contagem.n) || 0, linhas.length);
+    const completo = linhas.length >= total;
+    return {
+      tabela: 'image_use_consent',
+      colunas: CONSENT_BACKUP_COLS,
+      linhas,
+      total,
+      completo,
+      ...(completo ? {} : {
+        motivo: `Só os ${linhas.length} aceites mais recentes de ${total}: acima de ${CONSENT_BACKUP_MAX_LINHAS} o backup do painel não cabe no limite de CPU. O registro inteiro sai por "wrangler d1 export" (docs/RELEASE.md).`,
+      }),
+    };
+  } catch (e) {
+    noteDegraded('backup sem o registro de consentimento', 'D1 não respondeu à leitura do backup; o arquivo saiu sem a seção consent', e);
+    return consentAusente(`O banco do registro de consentimento (D1) não respondeu: ${errMessage(e).slice(0, 200)}`);
+  }
+}
+
+// Como cada coluna do registro volta de um backup. O restore grava direto no
+// D1, sem passar por handleDriveLink, então tudo o que lá é garantido pelo
+// servidor (tamanhos, tipos, enum) é conferido aqui. Uma linha fora disto é
+// RECUSADA, não aparada: num registro de prova, um valor alterado é pior que
+// um valor ausente. Os tetos são os do INSERT (os `.slice()` dele).
+// `obrigatoria` = NOT NULL na tabela, ou o que o restore precisa (id).
+/** @typedef {{ tipo: 'texto', max: number, re?: RegExp, obrigatoria?: boolean } | { tipo: 'inteiro', min: number, max: number, obrigatoria?: boolean } | { tipo: 'data', obrigatoria: true } | { tipo: 'enum', valores: string[] }} ColunaConsent */
+/** @type {Record<string, ColunaConsent>} */
+const CONSENT_RESTORE_COLS = {
+  id: { tipo: 'texto', max: 64, re: /^[a-f0-9]{1,64}$/, obrigatoria: true },
+  created_at: { tipo: 'data', obrigatoria: true },
+  event_slug: { tipo: 'texto', max: 60, re: /^[a-z0-9-]{1,60}$/, obrigatoria: true },
+  event_title: { tipo: 'texto', max: 200 },
+  drive_target: { tipo: 'texto', max: 32, re: /^[a-z+]*$/ },
+  access_type: { tipo: 'enum', valores: ACCESS_TYPES },
+  terms_version: { tipo: 'texto', max: 40, obrigatoria: true },
+  terms_hash: { tipo: 'texto', max: 64, re: /^(?:[a-f0-9]{64})?$/ },
+  consent_text: { tipo: 'texto', max: 2000 },
+  declaration_text: { tipo: 'texto', max: 2000 },
+  consenter_name: { tipo: 'texto', max: 120 },
+  turnstile_ok: { tipo: 'inteiro', min: 0, max: 2, obrigatoria: true },
+  ip: { tipo: 'texto', max: 64 },
+  country: { tipo: 'texto', max: 8 },
+  region: { tipo: 'texto', max: 80 },
+  city: { tipo: 'texto', max: 120 },
+  timezone: { tipo: 'texto', max: 64 },
+  asn: { tipo: 'inteiro', min: 0, max: 4294967295 },
+  as_org: { tipo: 'texto', max: 160 },
+  colo: { tipo: 'texto', max: 16 },
+  user_agent: { tipo: 'texto', max: 400 },
+  accept_language: { tipo: 'texto', max: 120 },
+  referrer: { tipo: 'texto', max: 400 },
+  page_url: { tipo: 'texto', max: 400 },
+};
+const DATA_ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
+/**
+ * Um valor de uma coluna do registro, conferido. `undefined` = recusado.
+ * @param {ColunaConsent} spec
+ * @param {unknown} v
+ * @returns {string|number|null|undefined}
+ */
+function valorDeConsentimento(spec, v) {
+  if (v === null) return spec.tipo !== 'data' && !('obrigatoria' in spec && spec.obrigatoria) ? null : undefined;
+  if (spec.tipo === 'inteiro') {
+    return typeof v === 'number' && Number.isInteger(v) && v >= spec.min && v <= spec.max ? v : undefined;
+  }
+  if (typeof v !== 'string') return undefined;
+  if (spec.tipo === 'enum') return spec.valores.includes(v) ? v : undefined;
+  if (spec.tipo === 'data') return DATA_ISO_UTC.test(v) && Number.isFinite(Date.parse(v)) ? v : undefined;
+  if (v.length > spec.max) return undefined;
+  if (spec.re && !spec.re.test(v)) return undefined;
+  return v;
+}
+
+/**
+ * Uma linha do backup → os valores na ordem de CONSENT_BACKUP_COLS, ou o
+ * motivo de não entrar.
+ * @param {string[]} colunas os nomes da seção, já conferidos
+ * @param {unknown} linha
+ * @param {{ corteMs: number, agoraMs: number }} prazo
+ * @returns {{ valores: (string|number|null)[] } | { recusa: 'invalida'|'vencida' }}
+ */
+export function linhaDeConsentimentoRestaurada(colunas, linha, { corteMs, agoraMs }) {
+  if (!Array.isArray(linha) || linha.length !== colunas.length) return { recusa: 'invalida' };
+  /** @type {Record<string, unknown>} */
+  const porNome = {};
+  colunas.forEach((c, i) => { porNome[c] = linha[i]; });
+  /** @type {(string|number|null)[]} */
+  const valores = [];
+  for (const nome of CONSENT_BACKUP_COLS) {
+    const v = valorDeConsentimento(CONSENT_RESTORE_COLS[nome], nome in porNome ? porNome[nome] : null);
+    if (v === undefined) return { recusa: 'invalida' };
+    valores.push(v);
+  }
+  const quando = Date.parse(String(valores[1]));
+  // Um aceite "do futuro" escaparia da poda por anos; um mais velho que a
+  // retenção já devia ter sido apagado — restaurá-lo desfaria a poda
+  // (docs/legal/politica-de-retencao.md).
+  if (quando > agoraMs + 3600_000) return { recusa: 'invalida' };
+  if (quando < corteMs) return { recusa: 'vencida' };
+  return { valores };
+}
+
+// Restore da seção `consent` (v3). Decisão: SIM, reinsere — o registro é a
+// prova de aceite (LGPD), e um backup que não o devolve não salva nada no dia
+// em que o D1 se perder. Mas só ACRESCENTA: INSERT OR IGNORE por `id`, então
+// uma linha que já existe nunca é alterada (o registro é só de inclusão), e
+// restaurar o mesmo arquivo duas vezes não duplica nada. Na prévia de PR não
+// entra (IP, aparelho e nome de terceiros — como os pedidos de remoção).
+/**
+ * @param {Env} env
+ * @param {unknown} consent
+ * @returns {Promise<Record<string, any>>}
+ */
+async function restauraConsentimento(env, consent) {
+  if (!consent || typeof consent !== 'object' || Array.isArray(consent)) return { consentError: 'Seção "consent" inválida.' };
+  const c = /** @type {Record<string, any>} */ (consent);
+  if (c.ausente === true) return { consentMissingInBackup: true };
+  if (!Array.isArray(c.colunas) || !Array.isArray(c.linhas)) return { consentError: 'Seção "consent" sem colunas ou linhas.' };
+  if (ehPrevia(env)) return { consentSkipped: c.linhas.length };
+  if (!env.CONSENT_DB) return { consentError: 'Registro de consentimentos não configurado.', consentAdded: 0 };
+
+  // Colunas: só nomes conhecidos, sem repetição, e as obrigatórias presentes.
+  // Uma lista que não se lê torna TODAS as linhas ilegíveis — aí sim a seção
+  // inteira fica de fora, dizendo por quê.
+  const colunas = c.colunas;
+  const conhecidas = colunas.every(/** @param {unknown} n */ n => typeof n === 'string' && Object.hasOwn(CONSENT_RESTORE_COLS, n));
+  const obrigatorias = Object.entries(CONSENT_RESTORE_COLS).filter(([, s]) => 'obrigatoria' in s && s.obrigatoria).map(([n]) => n);
+  if (!conhecidas || new Set(colunas).size !== colunas.length || !obrigatorias.every(n => colunas.includes(n))) {
+    return { consentError: 'Colunas do registro de consentimento desconhecidas, repetidas ou faltando.', consentAdded: 0 };
+  }
+
+  const agoraMs = Date.now();
+  const prazo = { corteMs: agoraMs - CONSENT_RETENTION_DAYS * 86400_000, agoraMs };
+  let rejeitadas = 0, vencidas = 0;
+  /** @type {(string|number|null)[][]} */
+  const validas = [];
+  const linhas = c.linhas.slice(0, CONSENT_BACKUP_MAX_LINHAS);
+  for (const linha of linhas) {
+    const r = linhaDeConsentimentoRestaurada(colunas, linha, prazo);
+    if ('recusa' in r) { if (r.recusa === 'vencida') vencidas++; else rejeitadas++; continue; }
+    validas.push(r.valores);
+  }
+
+  const db = env.CONSENT_DB;
+  const sql = `INSERT OR IGNORE INTO image_use_consent (${CONSENT_BACKUP_COLS.join(', ')}) VALUES (${CONSENT_BACKUP_COLS.map(() => '?').join(',')})`;
+  let gravadas = 0, processadas = 0;
+  /** @type {Record<string, any>} */
+  const out = {};
+  try {
+    for (let i = 0; i < validas.length; i += CONSENT_RESTORE_LOTE) {
+      const lote = validas.slice(i, i + CONSENT_RESTORE_LOTE);
+      const res = await db.batch(lote.map(v => db.prepare(sql).bind(...v)));
+      for (const r of res) gravadas += Number(r && r.meta && r.meta.changes) || 0;
+      processadas += lote.length;
+    }
+  } catch (e) {
+    noteDegraded('restore do registro de consentimento parou', 'D1 recusou um lote do restore; restaurar o mesmo arquivo de novo continua de onde parou', e);
+    out.consentError = `O banco do registro de consentimento recusou a gravação: ${errMessage(e).slice(0, 200)}`;
+    out.consentNotWritten = validas.length - processadas;
+  }
+  out.consentAdded = gravadas;
+  // Já existiam no D1 (ou vieram repetidas no próprio arquivo — a segunda
+  // cópia esbarra na primeira): o OR IGNORE as deixou como estavam.
+  out.consentDuplicates = processadas - gravadas;
+  if (rejeitadas) out.consentRejected = rejeitadas;
+  if (vencidas) out.consentExpired = vencidas;
+  if (c.linhas.length > linhas.length) out.consentOverLimit = c.linhas.length - linhas.length;
+  if (c.completo === false) out.consentIncompleteBackup = true;
+  return out;
 }
 
 // Restore is the one path that writes events without going through
@@ -3862,11 +4300,11 @@ export function mergeRestore(current, backupEvents) {
 export async function handleGetBackup(request, env, ctx, headOnly = false) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
-  const [events, categories, removalRequests] = await Promise.all([
-    getEvents(env, true), getCategories(env), listaPedidos(env),
+  const [events, categories, removalRequests, consent] = await Promise.all([
+    getEvents(env, true), getCategories(env), listaPedidos(env), consentParaBackup(env),
   ]);
   const date = new Date().toISOString().split('T')[0];
-  const arquivo = buildBackup({ events, categories, removalRequests });
+  const arquivo = buildBackup({ events, categories, removalRequests, consent });
   if (!headOnly) {
     const marcado = registraUltimoBackup(env);
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(marcado);
@@ -3875,9 +4313,13 @@ export async function handleGetBackup(request, env, ctx, headOnly = false) {
   return new Response(arquivo, {
     headers: {
       // no-store importa especialmente aqui: o backup traz TODOS os pedidos de
-      // remoção, com e-mail e telefone de cada titular.
+      // remoção, com e-mail e telefone de cada titular, e o registro de
+      // consentimento, com o IP e o aparelho de cada aceite.
       ...dataSecurityHeaders('application/json; charset=utf-8'),
       'Content-Disposition': `attachment; filename="fotos-backup-${date}.json"`,
+      // O painel lê isto para avisar, no toast, um backup sem o registro (D1
+      // fora) ou só com parte dele (acima do teto) — sem abrir o arquivo.
+      'X-Backup-Consentimento': consent.ausente ? 'ausente' : consent.completo ? 'completo' : 'parcial',
     },
   });
 }
@@ -3908,19 +4350,43 @@ async function handleRestoreBackup(request, env) {
   /** @type {Record<string, any>} */
   const result = { ok: true, added, updated, skipped, total: merged.length };
 
+  // As seções abaixo são independentes: uma que falha NUNCA impede as outras de
+  // rodar nem de aparecer na resposta (`<seção>Error`). E a ordem importa para
+  // o plano gratuito (50 subrequisições por invocação): o registro de
+  // consentimento é poucas chamadas ao D1 (um lote por 100 aceites) e é a PROVA
+  // de aceite — vem ANTES do laço dos pedidos de remoção, que grava uma chave de
+  // KV por pedido (até 500) e é quem estoura o teto. Se o teto chegar, são os
+  // pedidos que ficam para uma segunda restauração do mesmo arquivo (id que já
+  // existe é pulado), não os aceites.
+
+  // v3: o registro de consentimento (D1). Backup v1/v2 não tem a seção.
+  if (body.consent !== undefined) {
+    try {
+      Object.assign(result, await restauraConsentimento(env, body.consent));
+    } catch (e) {
+      noteDegraded('restore do registro de consentimento falhou', errMessage(e).slice(0, 120), e);
+      result.consentError = `Não foi possível restaurar o registro de consentimento: ${errMessage(e).slice(0, 200)}`;
+    }
+  }
+
   // v2 sections — optional and backward-compatible (v1 backups simply omit them).
   if (Array.isArray(body.categories)) {
-    const union = [...await getCategories(env)];
-    for (const c of body.categories) {
-      if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+    try {
+      const union = [...await getCategories(env)];
+      for (const c of body.categories) {
+        if (typeof c === 'string' && c && !union.includes(c)) union.push(c);
+      }
+      // Relatar o que foi GRAVADO, não o que foi juntado: com o backup trazendo
+      // mais que MAX_CATEGORIES, o painel confirmava um número que o KV não tinha
+      // — e o dono só descobriria a diferença ao procurar uma categoria sumida.
+      const saved = union.slice(0, MAX_CATEGORIES);
+      await saveCategories(env, saved);
+      result.categories = saved.length;
+      if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
+    } catch (e) {
+      noteDegraded('restore das categorias falhou', errMessage(e).slice(0, 120), e);
+      result.categoriesError = `Não foi possível restaurar as categorias: ${errMessage(e).slice(0, 200)}`;
     }
-    // Relatar o que foi GRAVADO, não o que foi juntado: com o backup trazendo
-    // mais que MAX_CATEGORIES, o painel confirmava um número que o KV não tinha
-    // — e o dono só descobriria a diferença ao procurar uma categoria sumida.
-    const saved = union.slice(0, MAX_CATEGORIES);
-    await saveCategories(env, saved);
-    result.categories = saved.length;
-    if (saved.length < union.length) result.categoriesDropped = union.length - saved.length;
   }
 
   // Na PRÉVIA de PR, os pedidos de remoção do backup ficam de fora: são dados
@@ -3930,26 +4396,28 @@ async function handleRestoreBackup(request, env) {
   if (Array.isArray(body.removalRequests) && ehPrevia(env)) {
     result.removalRequestsSkipped = body.removalRequests.length;
   } else if (Array.isArray(body.removalRequests)) {
-    const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
-    /** @type {Record<string, any>[]} */
-    const novos = [];
-    for (const r of body.removalRequests) {
-      const clean = sanitizeRestoredRequest(r);
-      if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
-    }
-    // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
-    // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
-    // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
-    // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
-    // restaurar o mesmo arquivo de novo continua de onde parou (id que já
-    // existe é pulado).
-    trimRequests(novos, 500);
     let gravados = 0;
     try {
+      const byId = new Map((await listaPedidos(env)).map(/** @param {Record<string, any>} r */ r => [r.id, r]));
+      /** @type {Record<string, any>[]} */
+      const novos = [];
+      for (const r of body.removalRequests) {
+        const clean = sanitizeRestoredRequest(r);
+        if (clean && !byId.has(clean.id)) { byId.set(clean.id, clean); novos.push(clean); }
+      }
+      // Uma escrita por pedido novo (#198: cada um na sua chave), e a cota é de
+      // 1000 escritas/dia na conta inteira — um backup grande não pode gastar o
+      // dia de uma vez. Teto de 500, com os pendentes primeiro (trimRequests).
+      // Gravados um a um: se o KV recusar no meio, os que já foram ficam, e
+      // restaurar o mesmo arquivo de novo continua de onde parou (id que já
+      // existe é pulado).
+      trimRequests(novos, 500);
       for (const r of novos) { await gravaPedido(env, r); gravados++; }
-    } finally {
-      result.removalRequestsAdded = gravados;
+    } catch (e) {
+      noteDegraded('restore dos pedidos de remoção parou', `${gravados} gravados; restaurar o mesmo arquivo de novo continua de onde parou`, e);
+      result.removalRequestsError = `A gravação dos pedidos de remoção parou depois de ${gravados}: ${errMessage(e).slice(0, 200)}. Restaure o mesmo arquivo de novo para continuar.`;
     }
+    result.removalRequestsAdded = gravados;
   }
 
   return jsonOk(result);
