@@ -1179,6 +1179,11 @@ import { casaRedesCacheado, pastaInstagram } from '../src/drive.js';
 import { ehRobo } from '../src/index.js';
 
 describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
+  // Relógio parado (só o Date): com 20 mil fichas por hora o balde devolve
+  // uma ficha a cada ~0,18 s, e esvaziá-lo com 6000 chamadas leva segundos —
+  // com a máquina carregada ele se reabastecia no meio do teste.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); });
+  afterEach(() => { vi.useRealTimers(); });
   const IP = '203.0.113.7';
   const URL_DL = '/galeria/formatura/baixar/FOTO_DEZ_00010?v=max';
   const visitante = (path, { ip = IP, headers = {} } = {}) => worker.fetch(new Request(SITE + path, {
