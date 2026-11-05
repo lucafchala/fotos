@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY } from '../config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3 } from '../drive.js';
 
@@ -149,6 +149,13 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     `Galeria de fotos de ${titulo}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
   );
   const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
+  // Autores da listagem (índice 0 = padrão) e os que de fato têm foto na
+  // página (sem as ocultas, para o visitante): só com mais de um aparece a
+  // linha "Fotos: A, B e C" e o filtro por fotógrafo.
+  const autores = listagem && Array.isArray(listagem.aut) && listagem.aut.length ? listagem.aut : [AUTOR_PADRAO];
+  const autoresUsados = [...new Set(todasFotos.map(f => f[5] || 0))].sort((a, b) => a - b);
+  const variosAutores = autoresUsados.length > 1;
+  const linhaAutores = variosAutores ? `Fotos: ${listaComE(autoresUsados.map(i => autores[i] || AUTOR_PADRAO))}` : '';
   // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
   const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
   // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
@@ -167,13 +174,18 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ...(ogImage.url ? { image: ogImage.url } : {}),
     ...(event.date ? { datePublished: event.date } : {}),
     numberOfItems: total,
-    associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => ({
-      '@type': 'ImageObject',
-      contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
-      name: altFoto(i),
-      creator: PERSON_LD,
-      creditText: 'Luca F. Chala',
-    })),
+    associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => {
+      const nomeAutor = autores[f[5] || 0] || AUTOR_PADRAO;
+      return {
+        '@type': 'ImageObject',
+        contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
+        name: altFoto(i),
+        // O Luca segue ligado ao Person (@id) do resto do site; os demais
+        // autores são uma Person só com o nome (não há página deles aqui).
+        creator: nomeAutor === AUTOR_PADRAO ? PERSON_LD : { '@type': 'Person', name: nomeAutor },
+        creditText: nomeAutor,
+      };
+    }),
   } : null;
 
   // Pré-carga da miniatura do LCP no celular (até 430 px): lá a primeira foto,
@@ -197,17 +209,27 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // Cada foto: [id, largura, altura, nome, bytes] e, se tem versão na pasta do
   // Instagram, mais [bytes] ou [bytes, nome] (o nome só quando difere do original).
   let comRedes = 0;
+  // Forma na página: [id, l, a, nome, bytes, redes, nomeRedes, autor] —
+  // `redes` = bytes da versão "para redes" ou -1 quando não há; `nomeRedes` só
+  // quando difere do original; `autor` = índice em `autores`. Os finais
+  // padrão (nome igual, autor 0) não vão: a lista de 6000 fotos continua curta.
   const fotoDaPagina = (/** @type {import('../drive.js').FotoDrive} */ f) => {
     const r = redes.get(f[0]);
-    if (!r) return f;
-    comRedes++;
-    return r[3] === f[3] ? [...f, r[4]] : [...f, r[4], r[3]];
+    const autor = f[5] || 0;
+    if (r) comRedes++;
+    if (!r && !autor) return f.slice(0, 5);
+    const nomeRedes = r && r[3] !== f[3] ? r[3] : '';
+    const out = [...f.slice(0, 5), r ? r[4] : -1];
+    if (nomeRedes || autor) out.push(nomeRedes);
+    if (autor) out.push(autor);
+    return out;
   };
 
   const dados = listagem ? {
     slug,
     titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
+    autores,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
     drive: drive || '',
@@ -291,6 +313,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     .g-chips{display:flex;gap:.5rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:0 var(--pad) .7rem}
     .g-chips::-webkit-scrollbar{display:none}
+    .g-chips-grupo{flex:none;display:inline-flex;gap:.5rem;padding-left:.5rem;border-left:1px solid var(--border)}
     .g-chips[hidden]{display:none}
     .g-chip{flex:none;display:inline-flex;align-items:center;gap:.45rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.4rem .95rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text-2);cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),background-color .15s,color .15s}
     .g-chip:active{transform:scale(.97)}
@@ -412,6 +435,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
        caso (foto branca) o fundo vira #474747 e #c8c3bd tem ~5,3:1 (AA pede 4,5). A
        área de toque tem 44 px de altura pelo min-height, com o texto de 12 px. */
     .pswp__g-legenda .g-leg-t{display:block}
+    .pswp__g-legenda .g-leg-a{display:block;margin-top:.15rem;font-size:12px;color:#c9c3bb}
     .g-rem-link{pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;margin-top:.15rem;padding:0 .9rem;border:0;border-radius:999px;background:rgba(0,0,0,.72);color:#c8c3bd;font:500 12px/1 'Inter',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
     .g-rem-link:hover{color:#fff}
     .g-rem-link:focus-visible{outline:2px solid #c0a060;outline-offset:2px;color:#fff}
@@ -469,6 +493,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         <a class="g-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span> Página do projeto</a>
         <h1 id="g-h1" tabindex="-1">${escape(titulo)}</h1>
         ${meta ? `<p class="g-meta">${escape(meta)}</p>` : ''}
+        ${linhaAutores ? `<p class="g-meta g-autores">${escape(linhaAutores)}</p>` : ''}
       </div>
       <div class="g-acoes">
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
@@ -477,7 +502,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         <a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>
       </div>
     </div>
-    ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções e favoritas" hidden></nav>' : ''}
+    ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
   </header>
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
   ${conserto && erro ? `<section class="g-erro" role="alert">
@@ -544,6 +569,12 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 </html>`;
 }
 
+/** "A", "A e B", "A, B e C". @param {string[]} nomes */
+function listaComE(nomes) {
+  if (nomes.length < 2) return nomes.join('');
+  return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
 // O script da página. Sem template literal dentro (o arquivo inteiro já é um),
 // sem barra invertida (seria dobrada pelo template) e sem innerHTML com dado do
 // Drive: nome de arquivo entra por textContent.
@@ -553,7 +584,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: ([string, number, number, string, number] | [string, number, number, string, number, number] | [string, number, number, string, number, number, string])[] }[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -577,7 +608,7 @@ const SCRIPT = `
   }
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -681,7 +712,7 @@ const SCRIPT = `
           a.appendChild(oc);
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f.length > 5 ? { bytes: f[5], nome: f[6] || f[3] } : null, s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
         if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
@@ -831,10 +862,14 @@ const SCRIPT = `
   const barraN = document.getElementById('g-barra-n');
   const botaoSel = document.getElementById('g-sel');
 
+  // Filtro por fotógrafo (-1 = todos): combina com as favoritas e com o link.
+  let filtroAutor = -1;
   function filtroAtivo() {
-    if (filtroLink) { const l = filtroLink; return function (f) { return l.has(f.id); }; }
-    if (filtroFav) return function (f) { return fav.has(f.id); };
-    return null;
+    const a = filtroAutor;
+    const l = filtroLink;
+    const base = l ? function (f) { return l.has(f.id); } : filtroFav ? function (f) { return fav.has(f.id); } : null;
+    if (a < 0) return base;
+    return function (f) { return f.autor === a && (!base || base(f)); };
   }
   function visiveisDe(g) {
     const fn = filtroAtivo();
@@ -981,6 +1016,20 @@ const SCRIPT = `
     avisa(novas ? novas + (novas === 1 ? ' foto guardada nas favoritas' : ' fotos guardadas nas favoritas') : 'Já estavam nas suas favoritas');
   }
 
+  function ligaFiltroAutor(k) {
+    const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-autor';
+    filtroAutor = k === filtroAutor ? -1 : k;
+    recalculaVistas();
+    montaChips();
+    diagramaTudo();
+    atualizaBarra();
+    window.scrollTo(0, 0);
+    if (tinhaFoco) {
+      const alvo = chips ? chips.querySelector('[data-acao="filtro-autor"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-autor"]') : null;
+      if (alvo) alvo.focus({ preventScroll: true });
+    }
+  }
+
   function ligaFiltroFav(liga) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-fav';
     filtroFav = liga;
@@ -1007,6 +1056,33 @@ const SCRIPT = `
     b.appendChild(c);
     return b;
   }
+  /** Os fotógrafos com foto na página — só aparecem quando há mais de um. */
+  function autoresDaPagina() {
+    const n = {};
+    fotos.forEach(function (f) { n[f.autor] = (n[f.autor] || 0) + 1; });
+    return Object.keys(n).map(Number).sort(function (a, b) { return a - b; }).map(function (k) { return { k: k, n: n[k] }; });
+  }
+  function chipsAutores() {
+    const l = autoresDaPagina();
+    if (l.length < 2 || !chips) return;
+    const grupo = document.createElement('span');
+    grupo.className = 'g-chips-grupo';
+    grupo.setAttribute('role', 'group');
+    grupo.setAttribute('aria-label', 'Fotógrafo');
+    const todos = botaoChip('Todos', fotos.length);
+    todos.dataset.acao = 'filtro-autor';
+    todos.dataset.aut = '-1';
+    todos.setAttribute('aria-pressed', String(filtroAutor < 0));
+    grupo.appendChild(todos);
+    l.forEach(function (a) {
+      const b = botaoChip(D.autores[a.k] || 'Fotos', a.n);
+      b.dataset.acao = 'filtro-autor';
+      b.dataset.aut = String(a.k);
+      b.setAttribute('aria-pressed', String(filtroAutor === a.k));
+      grupo.appendChild(b);
+    });
+    chips.appendChild(grupo);
+  }
   function montaChips() {
     if (!chips) return;
     chips.replaceChildren();
@@ -1023,6 +1099,7 @@ const SCRIPT = `
       g.dataset.acao = 'guarda-link';
       g.textContent = 'Guardar nas minhas favoritas';
       chips.appendChild(g);
+      chipsAutores();
       chipFav = null;
       chips.hidden = false;
       medeTopo();
@@ -1038,6 +1115,7 @@ const SCRIPT = `
       });
       chipsSec[0].setAttribute('aria-current', 'true');
     }
+    chipsAutores();
     chipFav = null;
     if (fav.size || filtroFav) {
       const b = botaoChip('Favoritas', fav.size);
@@ -1360,6 +1438,13 @@ const SCRIPT = `
           if (!f) return;
           const secao = D.secoes.length > 1 ? D.secoes[f.s].nome : '';
           txt.textContent = semExt(f.nome) + (secao ? ' · ' + secao : '');
+          const quem = D.autores && D.autores[f.autor];
+          if (quem) {
+            const l = document.createElement('span');
+            l.className = 'g-leg-a';
+            l.textContent = 'Foto: ' + quem;
+            txt.appendChild(l);
+          }
         };
         p.on('change', sync);
         sync();
@@ -2104,6 +2189,7 @@ const SCRIPT = `
     else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
+    else if (acao === 'filtro-autor') ligaFiltroAutor(Number(b.dataset.aut));
     else if (acao === 'compartilhar-fav') compartilhaFavoritas();
     else if (acao === 'sai-link') saiDoLink();
     else if (acao === 'guarda-link') guardaDoLink();

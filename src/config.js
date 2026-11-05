@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaCapitulos: false, nomesAmigaveis: false, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -207,6 +207,16 @@ export const GALERIA_MAX_CHAMADAS_IG = 8;
 // visualizador, #235). A lista mora no próprio evento, no KV `events`, que
 // toda página lê: 500 IDs são ~20 KB a mais, longe do 1 MB por chave.
 export const GALERIA_MAX_OCULTAS = 500;
+
+// Créditos por pasta de autor (v3.1): campo do projeto `galeriaCreditos`, uma
+// linha `pasta = Nome` por autor. Vazio = só o autor padrão. Teto de linhas e
+// de tamanho do nome: o campo mora no evento (KV) e o nome vai para a página,
+// para o JSON-LD e para o nome do arquivo baixado.
+export const AUTOR_PADRAO = 'Luca F. Chala';
+export const CREDITOS_PADRAO = 'chala = Luca F. Chala';
+export const GALERIA_CREDITOS_MAX_LINHAS = 20;
+export const GALERIA_CREDITOS_NOME_MAX = 80;
+export const GALERIA_CREDITOS_EMAIL_MAX = 120;
 
 // "Pedir remoção desta foto" na galeria (v3.0): o visitante pede, a foto sai
 // da galeria NA HORA e fica oculta até o dono decidir (painel → Pedidos). Como

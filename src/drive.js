@@ -18,13 +18,15 @@
 import {
   GALERIA_LISTA_TTL_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS,
+  AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
+  GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation))';
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time))';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
@@ -36,14 +38,18 @@ const NOME_MAX = 255;
 
 /**
  * Uma foto da listagem, em forma compacta (vai para o cache e para a página):
- * [id, largura, altura, nome, bytes]. Largura/altura já com a rotação EXIF
- * aplicada (o lh3 entrega a foto girada); 0 quando o Drive não informou.
- * @typedef {[string, number, number, string, number]} FotoDrive
+ * [id, largura, altura, nome, bytes, autor, hora]. Largura/altura já com a
+ * rotação EXIF aplicada (o lh3 entrega a foto girada); 0 quando o Drive não
+ * informou. `autor` é o índice em `ListagemDrive.aut` (0 = autor padrão) e
+ * `hora` a data de captura como número AAAAMMDDHHMMSS (0 = sem data); os dois
+ * últimos SÓ existem na tupla quando diferem de 0 (JSON compacto: nenhuma foto
+ * de álbum comum paga bytes a mais).
+ * @typedef {[string, number, number, string, number, number?, number?]} FotoDrive
  */
 /**
  * @typedef {{ nome: string, caminho: string, fotos: FotoDrive[] }} SecaoDrive
  * @typedef {{
- *   v: 1,
+ *   v: 2,
  *   pasta: string,
  *   em: string,
  *   truncada: boolean,
@@ -52,6 +58,7 @@ const NOME_MAX = 255;
  *   videos: number,
  *   outros: number,
  *   rk: Record<string, string>,
+ *   aut: string[],
  * }} ListagemDrive
  */
 
@@ -97,6 +104,131 @@ const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base'
 /** @param {string} a @param {string} b */
 export const ordemNatural = (a, b) => COLLATOR.compare(a, b);
 
+// ---------------------------------------------------------------------------
+// Créditos por pasta de autor (v3.1)
+// ---------------------------------------------------------------------------
+// O campo do projeto "Créditos por pasta" tem uma linha por autor,
+// `pasta = Nome`. Uma pasta do Drive cujo nome (aparado, minúsculo, sem acento)
+// bate com uma chave NÃO é uma seção: as fotos dela entram na seção da pasta de
+// cima, marcadas com o autor, e ela não conta para o limite de profundidade.
+// Foto fora de pasta de autor é do autor padrão (AUTOR_PADRAO).
+
+// eslint-disable-next-line no-control-regex
+const CONTROLE_RE = /[\u0000-\u001f\u007f]/g;
+
+/**
+ * Chave de comparação do nome de uma pasta: sem acento, minúscula, espaços
+ * simples e aparados. "  Mag " e "MAG" são a mesma pasta.
+ * @param {unknown} nome
+ */
+export function chavePasta(nome) {
+  return String(nome == null ? '' : nome)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Uma linha do campo: `pasta = Nome` ou `pasta = Nome <email@exemplo.com>`.
+ * O e-mail (opcional) é de uso interno — avisar a autora de ocorrências com as
+ * fotos dela (v3.1) — e NUNCA sai do servidor para a página pública: não entra
+ * na listagem, no HTML, no JSON-LD nem no sitemap. E-mail que não passa na
+ * validação é descartado (o nome fica).
+ * @param {string} resto o que vem depois do "="
+ * @returns {{ nome: string, email: string }}
+ */
+function nomeEEmail(resto) {
+  const limpa = (/** @type {string} */ t) => t.replace(CONTROLE_RE, ' ').replace(/\s+/g, ' ').trim();
+  const m = resto.match(/^([^<]*)<([^<>]*)>\s*$/);
+  const nome = limpa(m ? m[1] : resto).replace(/[<>]/g, '').trim().slice(0, GALERIA_CREDITOS_NOME_MAX);
+  const email = m ? limpa(m[2]).toLowerCase() : '';
+  return { nome, email: email && email.length <= GALERIA_CREDITOS_EMAIL_MAX && EMAIL_RE.test(email) ? email : '' };
+}
+
+/**
+ * Os créditos como o projeto grava: só linhas `pasta = Nome[ <e-mail>]` válidas
+ * (chave e nome não vazios, nome até GALERIA_CREDITOS_NOME_MAX, sem caractere
+ * de controle), sem chave repetida (vale a primeira), no máximo
+ * GALERIA_CREDITOS_MAX_LINHAS. Vazio = "use o padrão" (CREDITOS_PADRAO).
+ * @param {unknown} v
+ * @returns {string}
+ */
+export function normalizaCreditos(v) {
+  if (typeof v !== 'string') return '';
+  /** @type {Map<string, string>} */
+  const vistos = new Map();
+  for (const linha of v.split(/\r?\n/)) {
+    const i = linha.indexOf('=');
+    if (i < 1) continue;
+    const pasta = linha.slice(0, i).replace(CONTROLE_RE, ' ').replace(/\s+/g, ' ').trim().slice(0, GALERIA_CREDITOS_NOME_MAX);
+    const { nome, email } = nomeEEmail(linha.slice(i + 1));
+    const k = chavePasta(pasta);
+    if (!k || !nome || vistos.has(k)) continue;
+    vistos.set(k, `${pasta} = ${nome}${email ? ` <${email}>` : ''}`);
+    if (vistos.size >= GALERIA_CREDITOS_MAX_LINHAS) break;
+  }
+  return [...vistos.values()].join('\n');
+}
+
+/**
+ * chave da pasta → autor, já com o padrão quando o campo está vazio. Só o
+ * NOME (o e-mail fica fora: ver `emailDoAutor`).
+ * @param {unknown} v
+ * @returns {Map<string, string>}
+ */
+export function parseCreditos(v) {
+  const texto = normalizaCreditos(v) || CREDITOS_PADRAO;
+  /** @type {Map<string, string>} */
+  const mapa = new Map();
+  for (const linha of texto.split('\n')) {
+    const i = linha.indexOf(' = ');
+    mapa.set(chavePasta(linha.slice(0, i)), nomeEEmail(linha.slice(i + 3)).nome);
+  }
+  return mapa;
+}
+
+/**
+ * O e-mail cadastrado para um autor (o primeiro, se o mesmo nome aparece em
+ * mais de uma pasta), ou '' — só para o servidor avisar a autora; nunca vai
+ * para a página.
+ * @param {unknown} creditos o campo do projeto
+ * @param {string} autor nome do autor, como na listagem
+ * @returns {string}
+ */
+export function emailDoAutor(creditos, autor) {
+  const texto = normalizaCreditos(creditos);
+  for (const linha of texto.split('\n')) {
+    const i = linha.indexOf(' = ');
+    if (i < 0) continue;
+    const { nome, email } = nomeEEmail(linha.slice(i + 3));
+    if (email && nome === autor) return email;
+  }
+  return '';
+}
+
+/** Hash curto (FNV-1a, base 36) dos créditos efetivos — entra na chave do cache. @param {string} t */
+function hashCreditos(t) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+
+/** @param {unknown} v */
+const creditosEfetivos = v => normalizaCreditos(v) || CREDITOS_PADRAO;
+
+/**
+ * "AAAA:MM:DD HH:MM:SS" (EXIF) → AAAAMMDDHHMMSS como número; 0 se não houver
+ * data legível. O Drive não informa fuso: é a hora de parede da câmera.
+ * @param {unknown} t
+ */
+function horaDaFoto(t) {
+  if (typeof t !== 'string') return 0;
+  const m = t.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return 0;
+  const [ano, mes, dia, h, mi, se] = m.slice(1).map(Number);
+  if (ano < 1900 || mes < 1 || mes > 12 || dia < 1 || dia > 31 || h > 23 || mi > 59 || se > 60) return 0;
+  return Number(m.slice(1).join(''));
+}
+
 /** @type {Map<string, { em: number, dados: ListagemDrive }>} */
 const memoria = new Map();
 // A chave leva o TETO de páginas: a galeria (GALERIA_MAX_CHAMADAS) e a pasta do
@@ -104,10 +236,13 @@ const memoria = new Map();
 // feita com o teto de 8 páginas, guardada só pelo id da pasta, serviria de
 // "completa" a quem pediu 30 (e a de 30 vazaria para quem pediu 8, estourando
 // a conta das 50 subrequisições se virasse a base de uma releitura).
-/** @param {string} id @param {number} maxChamadas */
-const chaveMemoria = (id, maxChamadas) => `${id}#${maxChamadas}`;
-/** @param {string} id @param {number} maxChamadas */
-const chaveCache = (id, maxChamadas) => `https://fotos.invalid/__galeria/${id}/m${maxChamadas}`;
+// Os créditos também entram na chave: mudar "pasta = Nome" no painel muda o
+// que a listagem É (quais pastas viram seção, quem assina cada foto), então a
+// lista feita com os créditos antigos não pode servir.
+/** @param {string} id @param {number} maxChamadas @param {string} h */
+const chaveMemoria = (id, maxChamadas, h) => `${id}#${maxChamadas}#${h}`;
+/** @param {string} id @param {number} maxChamadas @param {string} h */
+const chaveCache = (id, maxChamadas, h) => `https://fotos.invalid/__galeria/${id}/m${maxChamadas}/c${h}`;
 
 function cacheStore() {
   // Ausente no vitest e fora do runtime Workers — o cache é best-effort.
@@ -122,20 +257,23 @@ export function limpaCacheDrive() { memoria.clear(); }
  * seção), com limites que mantêm uma requisição dentro do plano gratuito.
  * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, maxChamadas?: number }} [opts] `maxChamadas`:
+ * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string }} [opts] `maxChamadas`:
  *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
- *   duas listas frias caberem nas 50 subrequisições da invocação)
+ *   duas listas frias caberem nas 50 subrequisições da invocação); `creditos`:
+ *   o campo "Créditos por pasta" do projeto (vazio = padrão)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '' } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
   }
   if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
 
-  const kMem = chaveMemoria(pasta.id, maxChamadas);
-  const kCache = chaveCache(pasta.id, maxChamadas);
+  const efetivos = creditosEfetivos(creditos);
+  const h = hashCreditos(efetivos);
+  const kMem = chaveMemoria(pasta.id, maxChamadas, h);
+  const kCache = chaveCache(pasta.id, maxChamadas, h);
   if (!atualizar) {
     const mem = memoria.get(kMem);
     if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
@@ -145,8 +283,10 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
         const hit = await store.match(kCache);
         if (hit) {
           const dados = /** @type {ListagemDrive} */ (await hit.json());
-          memoria.set(kMem, { em: Date.now(), dados });
-          return dados;
+          if (dados && dados.v === 2) {
+            memoria.set(kMem, { em: Date.now(), dados });
+            return dados;
+          }
         }
       } catch (e) {
         console.error('galeria: leitura do cache falhou', e);
@@ -154,7 +294,7 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
     }
   }
 
-  const dados = await percorre(chave, pasta, maxChamadas);
+  const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
   memoria.set(kMem, { em: Date.now(), dados });
   const store = cacheStore();
   if (store) {
@@ -178,11 +318,21 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
  * @param {string} chave
  * @param {{ id: string, resourceKey: string }} raiz
  * @param {number} maxChamadas
+ * @param {Map<string, string>} creditos chave de pasta → autor (parseCreditos)
  * @returns {Promise<ListagemDrive>}
  */
-async function percorre(chave, raiz, maxChamadas) {
-  /** @type {{ id: string, rk: string, caminho: string[] }[]} */
-  const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [] }];
+async function percorre(chave, raiz, maxChamadas, creditos) {
+  /** @type {string[]} */
+  const aut = [AUTOR_PADRAO];
+  /** @param {string} nome */
+  const indiceAutor = nome => {
+    const i = aut.indexOf(nome);
+    if (i >= 0) return i;
+    aut.push(nome);
+    return aut.length - 1;
+  };
+  /** @type {{ id: string, rk: string, caminho: string[], autor: number }[]} */
+  const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
   /** @type {Map<string, SecaoDrive>} */
   const secoes = new Map();
   /** @type {Record<string, string>} */
@@ -191,7 +341,7 @@ async function percorre(chave, raiz, maxChamadas) {
 
   percurso:
   while (fila.length) {
-    const atual = /** @type {{ id: string, rk: string, caminho: string[] }} */ (fila.shift());
+    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number }} */ (fila.shift());
     const caminho = atual.caminho.join(' / ');
     let secao = secoes.get(caminho);
     if (!secao) {
@@ -207,9 +357,20 @@ async function percorre(chave, raiz, maxChamadas) {
         if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
         const mime = typeof f.mimeType === 'string' ? f.mimeType : '';
         if (mime === FOLDER_MIME) {
-          if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < GALERIA_MAX_PASTAS) {
+          const rkPasta = typeof f.resourceKey === 'string' ? f.resourceKey : '';
+          const autorDaPasta = creditos.get(chavePasta(f.name));
+          if (autorDaPasta !== undefined) {
+            // Pasta de autor: não é seção. Mesmo caminho do pai (não aumenta a
+            // profundidade); as fotos dela levam o autor.
+            if (pastas < GALERIA_MAX_PASTAS) {
+              pastas++;
+              fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: indiceAutor(autorDaPasta) });
+            } else {
+              truncada = true;
+            }
+          } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < GALERIA_MAX_PASTAS) {
             pastas++;
-            fila.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)] });
+            fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
           } else {
             truncada = true;
           }
@@ -218,7 +379,7 @@ async function percorre(chave, raiz, maxChamadas) {
         if (mime.startsWith('image/')) {
           if (total >= GALERIA_MAX_FOTOS) { truncada = true; continue; }
           total++;
-          secao.fotos.push(fotoCompacta(f));
+          secao.fotos.push(fotoCompacta(f, atual.autor));
           if (typeof f.resourceKey === 'string' && f.resourceKey) rk[f.id] = f.resourceKey;
         } else if (mime.startsWith('video/')) {
           videos++;
@@ -230,21 +391,41 @@ async function percorre(chave, raiz, maxChamadas) {
     } while (pageToken);
   }
 
-  for (const s of secoes.values()) s.fotos.sort((a, b) => ordemNatural(a[3], b[3]));
+  for (const s of secoes.values()) s.fotos.sort(ordemDaSecao(s.fotos));
   // Raiz primeiro, depois as subpastas em ordem natural; seção vazia some (uma
   // pasta só de subpastas não deixa um título solto sem foto embaixo).
   const lista = [...secoes.values()]
     .filter(s => s.fotos.length > 0)
     .sort((a, b) => (a.caminho === '' ? -1 : b.caminho === '' ? 1 : ordemNatural(a.caminho, b.caminho)));
 
-  return { v: 1, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk };
+  return { v: 2, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut };
+}
+
+/**
+ * A ordem de uma seção: a de hoje (nome, natural) quando todas as fotos são do
+ * mesmo autor; com autores misturados, pela hora da captura — é o que faz as
+ * fotos de câmeras diferentes se intercalarem na ordem em que aconteceram — e
+ * as sem hora por último, em ordem natural de nome.
+ * @param {FotoDrive[]} fotos
+ * @returns {(a: FotoDrive, b: FotoDrive) => number}
+ */
+function ordemDaSecao(fotos) {
+  const misturada = fotos.some(f => (f[5] || 0) !== (fotos[0][5] || 0));
+  if (!misturada) return (a, b) => ordemNatural(a[3], b[3]);
+  return (a, b) => {
+    const ha = a[6] || 0, hb = b[6] || 0;
+    if (ha && hb && ha !== hb) return ha - hb;
+    if (!ha !== !hb) return ha ? -1 : 1;
+    return ordemNatural(a[3], b[3]);
+  };
 }
 
 /**
  * @param {any} f arquivo como a API devolve
+ * @param {number} autor índice do autor em `aut`
  * @returns {FotoDrive}
  */
-function fotoCompacta(f) {
+function fotoCompacta(f, autor) {
   const meta = f.imageMediaMetadata && typeof f.imageMediaMetadata === 'object' ? f.imageMediaMetadata : {};
   let w = Number.isInteger(meta.width) && meta.width > 0 ? meta.width : 0;
   let h = Number.isInteger(meta.height) && meta.height > 0 ? meta.height : 0;
@@ -253,7 +434,11 @@ function fotoCompacta(f) {
   // isto a grade reservaria uma caixa deitada para uma foto em pé.
   if (meta.rotation === 1 || meta.rotation === 3) [w, h] = [h, w];
   const bytes = Number.parseInt(String(f.size || '0'), 10);
-  return [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
+  /** @type {FotoDrive} */
+  const foto = [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
+  const hora = horaDaFoto(meta.time);
+  if (autor || hora) { foto[5] = autor; if (hora) foto[6] = hora; }
+  return foto;
 }
 
 /**

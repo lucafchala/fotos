@@ -134,6 +134,8 @@ function get(path, { logado = true, accept = '*/*' } = {}) {
     headers: { Accept: accept, ...(logado ? { Cookie: `__Host-session=${TOKEN}` } : {}) },
   }), env, ctx);
 }
+/** A chave do cache sem o hash dos créditos (/c<hash>) do final. */
+const semHash = k => k.replace(/\/c[0-9a-z]+$/, '');
 const chamadasDrive = () => chamadas.filter(c => c.url.startsWith('https://www.googleapis.com/drive/v3/files?'));
 
 // ---------------------------------------------------------------------------
@@ -207,7 +209,8 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     const caches = fakeCaches();
     vi.stubGlobal('caches', caches);
     const primeira = await listaPasta(env, { id: RAIZ, resourceKey: '' });
-    expect([...caches._store.keys()]).toEqual([`https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`]);
+    // A chave leva o teto e o hash dos créditos (v3.1).
+    expect([...caches._store.keys()].map(semHash)).toEqual([`https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`]);
     limpaCacheDrive(); // isolate novo: a memória some, a Cache API do data center fica
     const n = chamadas.length;
     const segunda = await listaPasta(env, { id: RAIZ, resourceKey: '' });
@@ -1334,7 +1337,7 @@ describe('listaPasta: o teto de páginas faz parte da chave do cache', () => {
     limpaCacheDrive();
     const grande = await listaPasta(env, { id: RAIZ, resourceKey: '' });
     expect(grande.total).toBeGreaterThan(pequena.total);
-    expect([...caches._store.keys()].sort()).toEqual([
+    expect([...caches._store.keys()].map(semHash).sort()).toEqual([
       `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`,
       `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS_IG}`,
     ].sort());

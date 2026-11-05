@@ -14,7 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -565,7 +565,7 @@ async function handleSitemapGaleria(env, slug) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, pasta);
+    listagem = await listaPasta(env, pasta, { creditos: event.galeriaCreditos });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
@@ -1168,10 +1168,18 @@ export function normalizeEventFields(body, base, cats) {
     photoAlts: pick('photoAlts', v => (Array.isArray(v) ? v.slice(0, 6).map(t => String(t ?? '').trim().slice(0, 140)) : [])),
     pinned: pick('pinned', v => v === true),
     photosAlert: body.photosAlert !== undefined ? normalizePhotosAlert(body.photosAlert, b.photosAlert) : b.photosAlert,
+    // Opções da galeria (v3.1): uma página por subpasta de primeiro nível, e o
+    // nome amigável do arquivo baixado. Ambas desligadas por padrão — o álbum
+    // existente continua exatamente como era.
+    galeriaCapitulos: pick('galeriaCapitulos', v => v === true),
+    nomesAmigaveis: pick('nomesAmigaveis', v => v === true),
     // IDs do Drive das fotos que a galeria esconde do público (#235). O
     // visualizador do dono muda um por vez (POST /api/galeria/ocultar); aqui
     // passa quem devolve o evento inteiro (o formulário, o "Ocultar" da lista).
     fotosOcultas,
+    // Créditos por pasta de autor ("pasta = Nome", uma linha por autor). Vazio
+    // = só o autor padrão. Ver normalizaCreditos (drive.js).
+    galeriaCreditos: pick('galeriaCreditos', normalizaCreditos),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
     // se preserva o que já existe, podado pelo subconjunto acima.
@@ -3661,7 +3669,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
     erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
   } else {
     try {
-      listagem = await listaPasta(env, pasta, { atualizar });
+      listagem = await listaPasta(env, pasta, { atualizar, creditos: event.galeriaCreditos });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       erro = { codigo: e.codigo, mensagem: e.message };
@@ -3837,7 +3845,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, pasta);
+    listagem = await listaPasta(env, pasta, { creditos: event.galeriaCreditos });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return erroDownload(request, e.message, 502);
@@ -4029,7 +4037,7 @@ export async function handleGaleriaRemocao(request, env) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, pasta);
+    listagem = await listaPasta(env, pasta, { creditos: evento.galeriaCreditos });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
@@ -4478,6 +4486,11 @@ function sanitizeRestoredEvent(ev) {
   // A pendência só vale sobre uma foto que continua oculta: restaurada junto
   // da lista (ou, sem ela, descartada — nada de ID solto virar "oculta a pedido").
   if (out.ocultasPendentes !== undefined) out.ocultasPendentes = normalizaPendentes(out.ocultasPendentes, out.fotosOcultas ?? []);
+  // Créditos viram nome na página, no JSON-LD e no arquivo baixado; as duas
+  // opções da galeria são booleanas. Nada de tipo inesperado gravado.
+  if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
+  if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
+  if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   return out;
 }
 
