@@ -1133,6 +1133,16 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             <div class="field-hint" id="dica-creditos" style="margin-bottom:.625rem">Para álbum com fotos de mais de uma pessoa: uma linha por autor, <code>pasta = Nome</code>. Uma subpasta com esse nome deixa de ser seção: as fotos dela entram na seção de cima, com o crédito. Para avisar o autor por e-mail dos pedidos de remoção e de ocultar/devolver fotos dele, acrescente o e-mail: <code>mag = Mag &lt;mag@example.com&gt;</code>. O e-mail nunca aparece no site. Até 20 linhas, nome até 80 caracteres. Vazio = <code>chala = Luca F. Chala</code>. A foto fora dessas pastas é do Luca.</div>
             <textarea id="f-creditos" rows="4" maxlength="2400" placeholder="chala = Luca F. Chala&#10;mag = Mag&#10;turma 2026 = Turma 2026" aria-describedby="dica-creditos" style="width:100%"></textarea>
           </div>
+          <div class="field">
+            <div class="toggle-row">
+              <label class="toggle-label" for="f-nomes-amigaveis">Nomes amigáveis nos downloads</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-nomes-amigaveis" aria-describedby="dica-nomes-amigaveis">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-nomes-amigaveis" style="margin-top:.5rem">Desligado, o arquivo baixado mantém o nome exato do Drive. Ligado, só o NOME muda, para dizer de onde a foto vem: <em>Título - Capítulo - Seção - Autor - 2026-03-14 10h22m33.jpg</em> (sem data da câmera, entra o número da foto na seção). Os bytes e os dados da foto não mudam.</div>
+          </div>
         </details>
         <details class="bloco-form" id="bf-video">
           <summary><span class="bf-titulo">Vídeo</span><span class="bf-resumo" data-resumo="bf-video"></span></summary>
@@ -1694,6 +1704,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-creditos').value = e ? (e.galeriaCreditos || '') : '';
+      document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';
       // Vertical volta como link de Shorts: o servidor o reconhece como
@@ -1754,7 +1765,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1809,7 +1820,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2059,6 +2070,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         driveUrl: drive,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         galeriaCreditos: document.getElementById('f-creditos').value,
+        nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
         youtubeId: document.getElementById('f-youtube').value.trim(),
         youtubeMais: document.getElementById('f-youtube-mais').value.split('\\n').map(s => s.trim()).filter(Boolean),

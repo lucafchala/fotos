@@ -464,6 +464,8 @@ para o topo (a folha guardava a rolagem anterior).
 | `f-drive` | `driveUrl` | `https://` (`toHttps`), ≤ 2000; obrigatório na criação |
 | lista de capas | `photos` e `thumbnailUrl` (= a primeira) | até 6, `toHttps` em cada. Na edição a capa segue a lista: esvaziá-la tira a capa; um `PUT` sem `photos` (o "Destacar") não mexe nela |
 | `f-drive-ig` | `driveUrlInstagram` | `toHttps` |
+| `f-creditos` | `galeriaCreditos` | uma linha por autor, `pasta = Nome` (opcional `<email@example.com>` no fim; o e-mail só existe no painel e no backup, nunca na página, no JSON-LD, no sitemap ou nas APIs públicas); até 20 linhas, nome ≤ 80, e-mail ≤ 120 (`normalizaCreditos`). Subpasta de primeiro nível com esse nome vira "Foto: Nome" |
+| `f-nomes-amigaveis` | `nomesAmigaveis` | `=== true` (padrão desligado). Muda **só o nome do arquivo** no download (`Content-Disposition`): `<Título> - <Seção> - <Autor> - <AAAA-MM-DD HHhMMmSS>.<ext>`; sem data de captura, entra o número da foto na seção (3 dígitos); nome repetido ganha `-2`, `-3`. Os bytes e o EXIF são os do Drive; o nome é calculado no servidor (`src/nomes.js`) |
 | `f-youtube` | `youtubeId` | só o ID de 11 caracteres (`youtubeIdFrom`); link que não é do YouTube vira vazio |
 | `f-youtube-mais` | `youtubeMais` | uma linha por vídeo; até 5, sem repetir; `vertical` no fim da linha ou link de Shorts marca vertical (`youtubeMaisFrom`) |
 | `f-drive-videos` | `driveUrlVideos` | `toHttps`; o selo "Vídeos" da galeria aparece com esta pasta ou com `f-youtube` preenchidos, e nunca em projeto "Em breve" |

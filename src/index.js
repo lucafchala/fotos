@@ -14,6 +14,7 @@ import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
+import { nomeAmigavel } from './nomes.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -3707,6 +3708,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   const ocultas = normalizaOcultas(event.fotosOcultas);
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
   // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
+  const listagemBruta = listagem;
   if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && !!listagem);
   // Indexável: álbum público listado, visto por visitante, fora da prévia, e
@@ -3717,7 +3719,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   // 2 h de validade) é assinado a cada abertura, sem gravar nada.
   const formToken = !dono && listagem ? await mintFormToken(env, 'galeria-remocao') : '';
   const pagina = galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken,
+    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
   /** @type {Response} */
@@ -3901,10 +3903,15 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   }
 
   const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
-  // O nome EXATO que o arquivo tem no Drive — sem prefixo, sem troca de
-  // extensão, sem limpeza. O `Content-Disposition` o leva em UTF-8 (filename*)
+  // O nome EXATO que o arquivo tem no Drive (padrão) — sem prefixo, sem troca
+  // de extensão, sem limpeza. O `Content-Disposition` o leva em UTF-8 (filename*)
   // e o navegador tira sozinho o que o sistema de arquivos não aceita.
-  const nome = alvoFoto[3];
+  // Com "Nomes amigáveis nos downloads" ligado no projeto, só o NOME muda
+  // (nomes.js, calculado aqui a partir da listagem, nunca do cliente); os bytes
+  // são os do Drive, sem tocar em nada.
+  const nome = event.nomesAmigaveis
+    ? nomeAmigavel(listagem, { titulo: event.title, capitulo: '' }, fileId, alvoFoto[3]) || alvoFoto[3]
+    : alvoFoto[3];
   const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
   // `no-transform`: nenhum intermediário (CDN, operadora) pode recomprimir a foto.
   h.set('Cache-Control', 'private, no-transform, max-age=3600');

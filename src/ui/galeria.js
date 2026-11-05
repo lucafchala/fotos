@@ -30,6 +30,7 @@ import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3 } from '../drive.js';
+import { nomesDaListagem } from '../nomes.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 // Quantas fotos o JSON-LD descreve como ImageObject. Poucas: o sitemap de
@@ -113,6 +114,8 @@ const CONSERTOS = {
  *   indexavel?: boolean,
  *   redes?: Map<string, import('../drive.js').FotoDrive>,
  *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
+ *   listagemBruta?: import('../drive.js').ListagemDrive | null,
+ *   capituloNome?: string,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -123,10 +126,12 @@ const CONSERTOS = {
 // `formToken` (só o visitante): o token do formulário "Pedir remoção desta
 // foto", assinado por handleGaleriaPagina; vazio quando o site não tem
 // SIGNING_SECRET (o servidor então também não confere).
+// `listagemBruta` + `capituloNome`: só para "nomes amigáveis" (nomes.js) — a
+// listagem COM as ocultas, de onde sai a numeração, e o nome do capítulo.
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -209,19 +214,29 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // Cada foto: [id, largura, altura, nome, bytes] e, se tem versão na pasta do
   // Instagram, mais [bytes] ou [bytes, nome] (o nome só quando difere do original).
   let comRedes = 0;
+  // Nomes amigáveis: calculados na listagem BRUTA (a do servidor, com as
+  // ocultas) — o visitante recebe a lista sem elas, mas a numeração e as
+  // colisões têm de ser as do download. Por isso `listagemBruta`.
+  const nomes = event.nomesAmigaveis && listagem && listagemBruta
+    ? nomesDaListagem(listagemBruta, { titulo, capitulo: capituloNome || '' })
+    : null;
   // Forma na página: [id, l, a, nome, bytes, redes, nomeRedes, autor] —
   // `redes` = bytes da versão "para redes" ou -1 quando não há; `nomeRedes` só
   // quando difere do original; `autor` = índice em `autores`. Os finais
   // padrão (nome igual, autor 0) não vão: a lista de 6000 fotos continua curta.
+  // Com "nomes amigáveis" ligado, mais um: a cauda do nome do arquivo (ver
+  // nomes.js), que a página junta ao prefixo da seção e à extensão.
   const fotoDaPagina = (/** @type {import('../drive.js').FotoDrive} */ f) => {
     const r = redes.get(f[0]);
     const autor = f[5] || 0;
     if (r) comRedes++;
-    if (!r && !autor) return f.slice(0, 5);
+    const cauda = nomes ? nomes.cauda[f[0]] || '' : '';
+    if (!r && !autor && !cauda) return f.slice(0, 5);
     const nomeRedes = r && r[3] !== f[3] ? r[3] : '';
     const out = [...f.slice(0, 5), r ? r[4] : -1];
-    if (nomeRedes || autor) out.push(nomeRedes);
-    if (autor) out.push(autor);
+    if (nomeRedes || autor || cauda) out.push(nomeRedes);
+    if (autor || cauda) out.push(autor);
+    if (cauda) out.push(cauda);
     return out;
   };
 
@@ -230,6 +245,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
     autores,
+    // Prefixo do nome do arquivo de cada seção (na ordem de `secoes`).
+    amigavel: nomes && listagemBruta ? listagem.secoes.map(sec => nomes.pre[listagemBruta.secoes.findIndex(b => b.caminho === sec.caminho)] || '') : null,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
     drive: drive || '',
@@ -584,7 +601,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -608,7 +625,7 @@ const SCRIPT = `
   }
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, cauda: string, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -712,7 +729,7 @@ const SCRIPT = `
           a.appendChild(oc);
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
         if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
@@ -1533,8 +1550,23 @@ const SCRIPT = `
     esperaAte = Date.now() + Math.min(s, 3600) * 1000;
   }
   // O que a versão entrega para a foto: nome e peso do arquivo (ou null).
+  // Com "nomes amigáveis" o nome é o que o servidor vai pôr no
+  // Content-Disposition: prefixo da seção + cauda da foto + extensão do
+  // arquivo entregue (nomes.js; mesmo cálculo, a lista vem pronta do servidor).
+  function extDoNome(n) {
+    const m = String(n || '').match(/[.]([A-Za-z0-9]{1,8})$/);
+    if (!m) return '';
+    const e = m[1].toLowerCase();
+    return e === 'jpeg' ? 'jpg' : e;
+  }
+  function nomeAmigavelDe(f, nome) {
+    if (!D.amigavel || !f.cauda) return nome;
+    const ext = extDoNome(nome);
+    return D.amigavel[f.s] + f.cauda + (ext ? '.' + ext : '');
+  }
   function arquivoDe(f, v) {
-    return v === 'redes' ? f.redes : { nome: f.nome, bytes: f.bytes };
+    const a = v === 'redes' ? f.redes : { nome: f.nome, bytes: f.bytes };
+    return a ? { nome: nomeAmigavelDe(f, a.nome), bytes: a.bytes } : a;
   }
   function daVersao(lista, v) {
     return v === 'redes' ? lista.filter(function (f) { return !!f.redes; }) : lista;
@@ -1542,10 +1574,10 @@ const SCRIPT = `
   function somaBytes(lista, v) {
     return lista.reduce(function (t, f) { const a = arquivoDe(f, v); return t + (a && a.bytes ? a.bytes : 0); }, 0);
   }
-  function linkDireto(url) {
+  function linkDireto(url, nome) {
     const a = document.createElement('a');
     a.href = url;
-    a.download = '';
+    a.download = nome || '';
     // Download passa pelo Worker (cota do Drive): nada de robô seguindo.
     a.rel = 'nofollow';
     document.body.appendChild(a);
@@ -1622,7 +1654,7 @@ const SCRIPT = `
     if (!folha || !folhaT || !folhaOps || !folhaMsg || !lista.length) return;
     geracao++;
     if (folha.hidden) focoAntes = document.activeElement;
-    folhaT.textContent = lista.length === 1 ? 'Baixar ' + semExt(lista[0].nome) : 'Baixar ' + lista.length + ' fotos';
+    folhaT.textContent = lista.length === 1 ? 'Baixar ' + semExt(arquivoDe(lista[0], 'max').nome) : 'Baixar ' + lista.length + ' fotos';
     folhaMsg.textContent = IOS && salvaNoFotos ? 'No iPhone: toque em Salvar no Fotos e, na janela que abrir, em Salvar imagem.' : '';
     folhaOps.replaceChildren();
     const um = lista.length === 1 ? lista[0] : null;
@@ -1803,7 +1835,7 @@ const SCRIPT = `
     // então a única proteção contra martelar é não pedir enquanto se espera).
     if (emEspera()) { folhaMsg.textContent = msgEspera(); avisa('Muita gente baixando agora'); return; }
     const minha = geracao;
-    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id))); }, k * 700); });
+    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id)), D.amigavel ? arquivoDe(f, v).nome : ''); }, k * 700); });
     folhaMsg.textContent = lista.length > 1
       ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
       : 'Download iniciado.';
