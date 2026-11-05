@@ -11,7 +11,8 @@
 // O e-mail do autor não aparece em log: só o nome do projeto e o motivo.
 
 import { AUTOR_AVISO_DIA } from './config.js';
-import { achaFoto, emailDoAutor, listaPasta, alvoDaGaleria, opcoesDaLista } from './drive.js';
+import { achaFoto, emailDoAutor, listaPasta, alvoDaGaleria } from './drive.js';
+import { opcoesDaLista } from './sumiram.js';
 import { checkRateLimit, noteDegraded, errMessage, sendAutorEmail } from './utils.js';
 
 /**
@@ -34,7 +35,7 @@ export async function avisaAutor(env, evento, o) {
       // Só o capítulo da foto (ou a pasta do projeto): nunca um ID vindo de fora.
       const alvo = await alvoDaGaleria(env, evento, o.capitulo || '');
       if (alvo.kind !== 'ok' || !alvo.pasta) return 'sem-autor';
-      listagem = await listaPasta(env, alvo.pasta, opcoesDaLista(evento, alvo.maxChamadas));
+      listagem = await listaPasta(env, alvo.pasta, opcoesDaLista(evento, alvo.maxChamadas, alvo.capitulo));
       nomeCapitulo = alvo.capitulo ? alvo.capitulo.nome : '';
     }
     const f = achaFoto(listagem, o.fotoId);

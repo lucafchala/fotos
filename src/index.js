@@ -17,12 +17,13 @@ import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, opcoesDaLista, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
 import { ehPrevia, fetchDaPrevia } from './previa.js';
 import { apagaSnapshotsDoProjeto } from './snapshot.js';
+import { opcoesDaLista, listaApagadas, apagaApagadasDoProjeto } from './sumiram.js';
 import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
@@ -52,7 +53,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, ROBO_UA_RE,
+  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -309,6 +310,7 @@ const worker = {
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
+      if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
       if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
@@ -638,7 +640,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, alvo.pasta, opcoesDaLista(event, alvo.maxChamadas));
+    listagem = await listaPasta(env, alvo.pasta, opcoesDaLista(event, alvo.maxChamadas, alvo.capitulo));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
@@ -1403,6 +1405,7 @@ async function handleDeleteEvent(request, env, path) {
   await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`, `galeria_views:${removed.slug}:*`]);
   // A foto durável da lista do Drive (nomes de arquivo e autores) vai junto.
   await apagaSnapshotsDoProjeto(env, removed.slug);
+  await apagaApagadasDoProjeto(env, removed.slug);
   return jsonOk({ deleted: true });
 }
 
@@ -1596,6 +1599,22 @@ async function handleMetrics(request, env) {
   }));
   metrics.sort((a, b) => b.views - a.views);
   return jsonOk(metrics);
+}
+
+/**
+ * "Fotos apagadas recentemente" de um projeto (últimos 30 dias; ver
+ * src/sumiram.js e migrations/0004). Só o dono.
+ * @param {Request} request
+ * @param {import('./utils.js').Env} env
+ * @param {URL} url
+ */
+export async function handleGaleriaApagadas(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const slug = String(url.searchParams.get('slug') || '');
+  const events = await getEvents(env, true);
+  if (!events.some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
+  return jsonOk({ slug, retencaoDias: SUMIRAM_RETENCAO_DIAS, fotos: await listaApagadas(env, slug) });
 }
 
 // ---------------------------------------------------------------------------
@@ -3763,7 +3782,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
     erro = { codigo: alvo.codigo, mensagem: alvo.mensagem };
   } else if (pasta) {
     try {
-      listagem = await listaPasta(env, pasta, { atualizar, ...opcoesDaLista(event, alvo.maxChamadas) });
+      listagem = await listaPasta(env, pasta, { atualizar, ...opcoesDaLista(event, alvo.maxChamadas, alvo.capitulo) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       erro = { codigo: e.codigo, mensagem: e.message };
@@ -4013,7 +4032,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   if (!alvoLista.pasta) return notFound();
   const capitulo = alvoLista.capitulo;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(event, alvoLista.maxChamadas));
+    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(event, alvoLista.maxChamadas, alvoLista.capitulo));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return erroDownload(request, e.message, 502);
@@ -4228,7 +4247,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(evento, alvoLista.maxChamadas));
+    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(evento, alvoLista.maxChamadas, alvoLista.capitulo));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);

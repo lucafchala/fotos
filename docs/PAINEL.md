@@ -481,6 +481,8 @@ para o topo (a folha guardava a rolagem anterior).
 | `f-purl` | `projectUrl` | `toHttps`, ≤ 2000 |
 | `f-alert-active`, `f-alert-kind`, `f-alert-expires` | `photosAlert` | `normalizePhotosAlert`: ativo, `addedAt`, horas (0 = não expira; teto de 1 ano) e tipo (`fotos` / `videos`) |
 
+**Fotos apagadas recentemente** (botão no mesmo bloco da galeria, ao editar o evento): a cada releitura da lista, as fotos que estavam na foto durável anterior e sumiram são conferidas no Drive (`files.get`, no máximo 10 por releitura; listagem truncada não conclui nada). Inexistente ou na lixeira = **apagada**; ainda existe em outra pasta = **movida** (só log). Mais de 10 de uma vez: o e-mail traz só a contagem. Cada releitura com apagadas manda **um** e-mail-resumo ao dono (`ADMIN_EMAIL`; teto de 10/dia, depois só o painel e o healthz) e, para cada autor com e-mail nos créditos, uma cópia só com as fotos dele (teto `AUTOR_AVISO_DIA`). A mesma foto não é avisada duas vezes. A lista (tabela `galeria_apagadas`, migração `0004`) guarda id, nome do arquivo, autor, capítulo, seção e data de captura por **30 dias** e depois é apagada; não guarda e-mail, GPS nem dado de visitante. Apagar o projeto apaga as linhas dele. Arquivos apagados vão para a lixeira de quem é dono do arquivo: quem enviou pode reenviar.
+
 O `pinned` **não** está no formulário: é o item "Destacar" do menu.
 
 **Fotos de capa.** Até 6 (`photoList`); a primeira é a "capa da galeria", com

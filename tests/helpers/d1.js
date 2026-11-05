@@ -29,6 +29,8 @@ export function d1Sqlite() {
         bind(...v) { valores = v; return stmt; },
         async run() { return stmt._run(); },
         _run() {
+          // Como o D1: SELECT dentro do batch devolve as linhas.
+          if (/^\s*select/i.test(sql)) return { success: true, results: db.prepare(sql).all(...valores), meta: { changes: 0 } };
           const r = db.prepare(sql).run(...valores);
           return { success: true, results: [], meta: { changes: Number(r.changes) } };
         },

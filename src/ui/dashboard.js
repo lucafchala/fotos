@@ -1160,6 +1160,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
               <option value="86400">A cada 24 horas</option>
             </select>
             <div class="field-hint" style="margin-top:.5rem"><a id="f-galeria-agora" href="#" target="_blank" rel="noopener">Atualizar agora</a> abre a galeria já relendo a pasta (só você, logado, consegue).</div>
+            <div class="field-hint" style="margin-top:.5rem"><button type="button" class="btn-sm" id="f-apagadas-btn" data-onclick="carregaApagadas">Fotos apagadas recentemente</button></div>
+            <div class="field-hint" id="f-apagadas" role="status" aria-live="polite" style="margin-top:.5rem" hidden></div>
           </div>
           <div class="field">
             <div class="toggle-row">
@@ -1527,6 +1529,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         case 'exportMetricsCSV': exportMetricsCSV(); break;
         case 'exportSerieCSV': exportSerieCSV(); break;
         case 'loadMetrics': loadMetrics(el); break;
+        case 'carregaApagadas': carregaApagadas(el); break;
         case 'escolhePeriodo': escolhePeriodo(el); break;
         case 'ordenaRanking': ordenaRanking(el); break;
         case 'alternaTabelaAcessos': alternaTabelaAcessos(); break;
@@ -1715,6 +1718,39 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       list.innerHTML = sorted.map(e => cardProjeto(e, ajudaCard, massMode ? selectedIds.has(e.id) : null)).join('');
     }
 
+    // ---- Fotos apagadas recentemente (galeria; 30 dias, só id/nome/autor/data) ----
+    async function carregaApagadas(btn) {
+      const caixa = document.getElementById('f-apagadas');
+      const ev = events.find(x => x.id === editingId);
+      if (!ev) return;
+      btn.disabled = true;
+      caixa.hidden = false;
+      caixa.textContent = 'Carregando...';
+      try {
+        const r = await api('GET', '/api/galeria/apagadas?slug=' + encodeURIComponent(ev.slug));
+        caixa.textContent = '';
+        if (!r.fotos.length) { caixa.textContent = 'Nenhuma foto apagada nos últimos ' + r.retencaoDias + ' dias.'; return; }
+        const ul = document.createElement('ul');
+        ul.style.cssText = 'padding-left:1.1rem;margin:0';
+        r.fotos.forEach(function(f) {
+          const li = document.createElement('li');
+          li.style.overflowWrap = 'anywhere';
+          const onde = [f.capitulo, f.secao].filter(Boolean).join(' / ');
+          const quando = new Date(f.sumiuEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          li.textContent = f.nome + ' — ' + f.autor + (onde ? ' — ' + onde : '') + (f.captura ? ' — tirada em ' + f.captura : '') + ' — notada em ' + quando;
+          ul.appendChild(li);
+        });
+        const aviso = document.createElement('div');
+        aviso.textContent = 'Guardado por ' + r.retencaoDias + ' dias. Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.';
+        caixa.appendChild(ul);
+        caixa.appendChild(aviso);
+      } catch (err) {
+        caixa.textContent = 'Não foi possível carregar: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     // ---- Form open/close ----
     // prefill (used by duplicateEvent) opens the "new event" form pre-filled
     // from an existing event, but id stays null so submitForm() POSTs a new
@@ -1736,6 +1772,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
       document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
       document.getElementById('f-galeria-periodo').value = String(e && e.galeriaPeriodo || 600);
+      document.getElementById('f-apagadas').hidden = true;
+      document.getElementById('f-apagadas-btn').disabled = !(e && e.slug && id);
       document.getElementById('f-galeria-agora').href = e && e.slug ? '/galeria/' + encodeURIComponent(e.slug) + '?atualizar=1' : '#';
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';

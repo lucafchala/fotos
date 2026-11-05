@@ -64,14 +64,23 @@ const TETO_BYTES = 1_500_000;
  * @param {string} chave
  * @param {string} ctx
  * @param {{ em: string }} dados
- * @param {{ forcar?: boolean, slug?: string }} [opts] `slug`: o projeto dono (apagar o projeto apaga a linha)
+ * @param {{ forcar?: boolean, slug?: string, aoMudar?: (anterior: unknown) => Promise<void> }} [opts] `slug`: o projeto dono
+ *   (apagar o projeto apaga a linha); `aoMudar`: chamado com a listagem ANTERIOR quando o conteúdo mudou e havia uma
+ *   (é daqui que sai a detecção de fotos sumidas). Nunca lança e roda antes da gravação.
  * @returns {Promise<boolean>} true se gravou
  */
-export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, slug = '' } = {}) {
+export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, slug = '', aoMudar } = {}) {
   if (!env.CONSENT_DB) return false;
   try {
     const hash = await hashDaListagem(dados);
-    if (!forcar && (await lerHash(env, chave, ctx)) === hash) return false;
+    const antes = await lerHash(env, chave, ctx);
+    if (antes === hash && !forcar) return false;
+    if (aoMudar && antes !== null && antes !== hash) {
+      const foto = await lerSnapshot(env, chave, ctx);
+      if (foto) {
+        try { await aoMudar(JSON.parse(foto.dados)); } catch (e) { console.error('galeria: comparação com a foto anterior falhou', e); }
+      }
+    }
     const json = JSON.stringify(dados);
     if (json.length > TETO_BYTES) {
       console.error('galeria: lista grande demais para a foto durável', chave, json.length);

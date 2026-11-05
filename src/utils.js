@@ -2426,6 +2426,61 @@ export async function sendAutorEmail(env, d) {
 }
 
 /**
+ * Resumo de fotos que sumiram da pasta do Drive (v3.1), um e-mail por
+ * releitura. Ao dono, traz tudo; a cópia ao autor (`paraAutor`) traz só as
+ * fotos dele, sem a contagem das outras. Os nomes de arquivo vêm do Drive e
+ * entram escapados.
+ * @param {Env} env
+ * @param {{
+ *   to: string, paraAutor?: boolean, projeto: string, capitulo?: string,
+ *   itens: { nome: string, autor: string, secao: string, captura: string }[],
+ *   naoConferidas?: number, de: string, ate: string,
+ * }} d
+ */
+export async function sendSumiramEmail(env, d) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !d.to) return false;
+  const esc = escape;
+  const onde = [d.projeto, d.capitulo].filter(Boolean).map(esc).join(' · ');
+  const n = d.itens.length;
+  const assunto = d.paraAutor
+    ? (n === 1 ? 'Uma foto sua sumiu da pasta do Drive' : `${n} fotos suas sumiram da pasta do Drive`)
+    : (n + (d.naoConferidas || 0) === 1 ? 'Uma foto sumiu da pasta do Drive' : `${n + (d.naoConferidas || 0)} fotos sumiram da pasta do Drive`);
+  const linhas = d.itens.map(i => `<li style="margin:0 0 8px"><strong>${esc(i.nome)}</strong><br><span style="color:#666">${[i.autor && `autor: ${esc(i.autor)}`, i.captura && `captura: ${esc(i.captura)}`, i.secao && `seção: ${esc(i.secao)}`].filter(Boolean).join(' · ')}</span></li>`).join('');
+  const extra = !d.paraAutor && d.naoConferidas
+    ? `<p style="font-size:14px;line-height:1.6;margin:0 0 12px">${d.itens.length ? 'Além dessas, ' : ''}<strong>${d.naoConferidas}</strong> ${d.naoConferidas === 1 ? 'foto também sumiu' : 'fotos também sumiram'}, sem conferência individual (muitas de uma vez, ou o Google não respondeu). Veja a pasta no Drive.</p>`
+    : '';
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">${esc(assunto)}</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Onde: ${onde}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 12px">Sumiu entre ${esc(d.de)} e ${esc(d.ate)} (as duas leituras da pasta).</p>
+  ${linhas ? `<ul style="font-size:14px;line-height:1.5;padding-left:18px;margin:0 0 12px">${linhas}</ul>` : ''}
+  ${extra}
+  <p style="font-size:13px;line-height:1.6;color:#666">Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.</p>
+  ${d.paraAutor ? '<p style="font-size:13px;line-height:1.6;color:#666">Você não precisa fazer nada. Dúvidas: <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a>.</p>' : '<p style="font-size:13px;line-height:1.6;color:#666">A lista fica no painel, em "Fotos apagadas recentemente" (30 dias).</p>'}
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: corpoResend(env, {
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [d.to],
+      subject: `${assunto} — ${d.projeto}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
  * @param {Env} env
  * @param {{ name: string, email: string, message: string }} msg
  */

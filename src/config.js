@@ -119,6 +119,29 @@ export const EMAIL_CODE_DAILY_CAP = 40;
 // remoção e alertas ao dono. O aviso ao autor é sempre o primeiro a ser
 // pulado (fica no log do healthz), e nunca atrapalha a ação principal.
 export const AUTOR_AVISO_DIA = 20;
+// Fotos apagadas da pasta do Drive (v3.1): UM e-mail-resumo ao dono por
+// releitura que perceba sumiços, com teto do dia da conta (10) — somam-se aos
+// 40 de códigos e 20 de avisos a autores: 70 de 100, sobram 30. Estourou, pula
+// o e-mail e registra no healthz; a lista do painel continua completa. As
+// cópias aos autores usam o teto AUTOR_AVISO_DIA (acima).
+//
+// Conta de subrequisições: a detecção roda DENTRO da releitura e só gasta a
+// folga que a listagem deixou do próprio teto (GALERIA_MAX_CHAMADAS menos as
+// páginas usadas, menos 1 de leitura extra da foto durável): 3 ficam
+// reservadas (ficha do teto, envio ao dono, gravação no D1), depois as
+// conferências (no máximo SUMIRAM_CONFERIR_MAX) e, por fim, 2 por cópia a
+// autor. Sem folga, nada é conferido e o healthz registra. Por construção a
+// soma nunca passa do teto da listagem, então a conta de 49/48 acima vale.
+export const SUMIRAM_AVISO_DIA = 10;
+// Quantas fotos sumidas uma releitura confere uma a uma no Drive (`files.get`,
+// uma subrequisição cada). Mais que isso: só a contagem, sem nomes.
+export const SUMIRAM_CONFERIR_MAX = 10;
+// Dias que o painel guarda "Fotos apagadas recentemente" (id, nome, autor,
+// capítulo, seção e data de captura; sem e-mail nem dado de visitante).
+export const SUMIRAM_RETENCAO_DIAS = 30;
+// Cópias a autores por releitura (cada uma é um envio + uma ficha de teto, e
+// as duas contam na conta de 50 subrequisições da invocação).
+export const SUMIRAM_COPIAS_MAX = 3;
 // Tentativas de confirmar o código, por IP. 6 dígitos = 1 milhão de
 // combinações; 120/h por IP leva anos. E o prêmio é o mesmo link que o
 // caminho noscript entrega sem desafio nenhum.

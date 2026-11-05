@@ -61,6 +61,7 @@ const NOME_MAX = 255;
  *   outros: number,
  *   rk: Record<string, string>,
  *   aut: string[],
+ *   ch?: number,
  * }} ListagemDrive
  */
 
@@ -296,7 +297,7 @@ export function descreveRenovacao(event) {
 }
 
 /** @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown, slug?: string, galeriaCreditos?: string }} event @param {number} maxChamadas */
-export function opcoesDaLista(event, maxChamadas) {
+export function opcoesBasicasDaLista(event, maxChamadas) {
   return { creditos: event.galeriaCreditos || '', maxChamadas, snapshot: true, slug: String(event.slug || ''), ...politicaDaGaleria(event) };
 }
 
@@ -314,13 +315,13 @@ export function opcoesDaLista(event, maxChamadas) {
  * grava sempre).
  * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string }} [opts] `maxChamadas`:
+ * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string, aoMudar?: (env: any, anterior: ListagemDrive, nova: ListagemDrive) => Promise<void> }} [opts] `aoMudar`: chamado quando a lista relida difere da foto durável anterior (detecção de fotos sumidas, sumiram.js); `maxChamadas`:
  *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
  *   duas listas frias caberem nas 50 subrequisições da invocação); `creditos`:
  *   o campo "Créditos por pasta" do projeto (vazio = padrão)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '' } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '', aoMudar } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
@@ -374,7 +375,10 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
 
   const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
   memoria.set(kMem, { em: Date.now(), dados });
-  if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, { forcar: atualizar || semFoto, slug });
+  if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, {
+    forcar: atualizar || semFoto, slug,
+    aoMudar: aoMudar ? anterior => aoMudar(env, /** @type {ListagemDrive} */ (anterior), dados) : undefined,
+  });
   const store = congelada ? null : cacheStore();
   if (store) {
     try {
@@ -386,6 +390,37 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
     }
   }
   return dados;
+}
+
+/**
+ * O que aconteceu com um arquivo que sumiu da listagem: `files.get` com
+ * `trashed,parents`. 404 ou na lixeira = "apagada"; existe fora da lixeira =
+ * "movida" (só registra); qualquer outra resposta (limite, 5xx, tempo) =
+ * "indefinida" (não conclui nada). Custa UMA subrequisição.
+ * Atenção: 404 também é o que a API devolve a um arquivo tirado da pasta
+ * compartilhada para um lugar privado — para a galeria, é a mesma coisa:
+ * a foto deixou de existir para o público.
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {string} id
+ * @param {string} [rk] resourceKey do arquivo, se havia
+ * @returns {Promise<'apagada' | 'movida' | 'indefinida'>}
+ */
+export async function consultaArquivo(env, id, rk = '') {
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  if (!chave || !ID_RE.test(id)) return 'indefinida';
+  const params = new URLSearchParams({ fields: 'trashed,parents', supportsAllDrives: 'true', key: chave });
+  /** @type {Record<string, string>} */
+  const headers = { Accept: 'application/json' };
+  if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${id}/${rk}`;
+  try {
+    const res = await fetch(`${DRIVE_FILES}/${encodeURIComponent(id)}?${params}`, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (res.status === 404) return 'apagada';
+    if (!res.ok) return 'indefinida';
+    const corpo = /** @type {any} */ (await res.json());
+    return corpo && corpo.trashed === true ? 'apagada' : 'movida';
+  } catch {
+    return 'indefinida';
+  }
 }
 
 /**
@@ -477,7 +512,7 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     .filter(s => s.fotos.length > 0)
     .sort((a, b) => (a.caminho === '' ? -1 : b.caminho === '' ? 1 : ordemNatural(a.caminho, b.caminho)));
 
-  return { v: 2, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut };
+  return { v: 2, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas };
 }
 
 /**
