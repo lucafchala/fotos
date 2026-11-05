@@ -15,11 +15,13 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event */
+/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event, HTMLAnchorElement */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { galeriaHTML } from '../src/ui/galeria.js';
+import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
+import { nomeAmigavel } from '../src/nomes.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
@@ -230,7 +232,7 @@ async function abre(o = {}) {
       const resp = (o.remocao || (() => ({ status: 200, json: { ok: true, ocultada: true } })))(corpo);
       return route.fulfill({ status: resp.status, contentType: 'application/json', body: JSON.stringify(resp.json) });
     }
-    if (u.pathname === '/galeria/formatura') {
+    if (u.pathname === '/galeria/formatura' || u.pathname === '/galeria/formatura/cerimonia') {
       return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE), body: o.pagina || PAGINA });
     }
     if (u.pathname === '/api/galeria/ocultar' && r.method() === 'POST') {
@@ -241,7 +243,7 @@ async function abre(o = {}) {
     }
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
-    const b = u.pathname.match(/^\/galeria\/formatura\/baixar\/([A-Za-z0-9_-]+)$/);
+    const b = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
       estado.pedidos.push(u.pathname.split('/').pop() + u.search);
@@ -455,8 +457,11 @@ await cenario('Visualizador no desktop', async () => {
   await page.keyboard.press('ArrowRight');
   await espera(page, 600);
   registra(/[#]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
+  // A legenda é o nome da foto e, abaixo, o crédito ("Foto: <autor>"; sem pasta
+  // de autor, o padrão do site) — duas linhas, o nome primeiro.
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  registra(legenda === '002', 'Desktop: legenda mostra o número da foto', legenda);
+  const credito = await page.locator('.pswp__g-legenda .g-leg-a').textContent();
+  registra(legenda === '002Foto: Luca F. Chala' && credito === 'Foto: Luca F. Chala', 'Desktop: legenda mostra o número da foto e o crédito do autor padrão', legenda);
   const altAberta = await page.evaluate(() => [...document.querySelectorAll('.pswp__item[aria-hidden="false"] img')].map(im => /** @type {HTMLImageElement} */ (im).alt).find(Boolean) || '');
   registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
@@ -506,7 +511,7 @@ await cenario('Link direto', async () => {
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(page, 800);
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  registra(legenda === 'festa-5 · Festa', 'Link direto #foto= abre na foto certa, com a seção na legenda', legenda);
+  registra(legenda === 'festa-5 · FestaFoto: Luca F. Chala', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
   await page.evaluate(() => history.back());
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
@@ -1161,6 +1166,146 @@ await cenario('Pedir remoção', async () => {
   registra((await d.page.locator('.g-rem-link').count()) === 0 && (await d.page.locator('#g-rem').count()) === 0, 'Pedir remoção: o dono não vê o link nem o formulário');
   await d.ctx.close();
 });
+
+// ---- 6f. Galeria por capítulos: créditos, nomes amigáveis, navegação -----------
+// A página de UM capítulo (v3.1): vários fotógrafos na mesma pasta (linha
+// "Fotos: A, B e C", filtro por fotógrafo, "Foto: X" na legenda), o nome do
+// arquivo baixado com a data/hora da foto (a página junta o mesmo que o
+// servidor manda no Content-Disposition), e a navegação para o capítulo
+// anterior/seguinte e o índice. Em 390 e em 360 px, sem rolagem lateral.
+const AUTORES_CAP = ['Luca F. Chala', 'Ana Souza', 'Bruno Lima'];
+const NOME_LONGO = 'Festa de gala com um nome bem comprido para testar o corte no celular';
+/** @param {typeof raiz} fotos @param {number} desde */
+const comAutor = (fotos, desde) => fotos.map((f, i) => /** @type {import('../src/drive.js').FotoDrive} */ ([f[0], f[1], f[2], f[3], f[4], (desde + i) % 3, 20261105143000 + (desde + i) * 7]));
+const LISTAGEM_CAP = {
+  v: /** @type {2} */ (2), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  total: 12, videos: 0, outros: 0, rk: {}, aut: AUTORES_CAP,
+  secoes: [{ nome: '', caminho: '', fotos: comAutor(raiz.slice(0, 6), 0) }, { nome: 'Brinde', caminho: 'Brinde', fotos: comAutor(festa.slice(0, 6), 6) }],
+};
+const EVENTO_CAP = { ...EVENTO, nomesAmigaveis: true, galeriaCapitulos: true };
+const CAP_ATUAL = { slug: 'cerimonia', nome: 'Cerimônia', anterior: { slug: 'abertura', nome: 'Abertura' }, proximo: { slug: 'festa-de-gala', nome: NOME_LONGO } };
+const PAGINA_CAP = galeriaHTML({ event: /** @type {any} */ (EVENTO_CAP), listagem: LISTAGEM_CAP, listagemBruta: LISTAGEM_CAP, capituloNome: 'Cerimônia', capitulo: CAP_ATUAL, erro: null, nonce: NONCE, dono: false, formToken: '' });
+for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { width: 390, height: 844 }, 3], ['Android 360', { width: 360, height: 780 }, 2]])) {
+  await cenario(`Capítulo: ${nome}`, async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_CAP, url: 'https://fotos.test/galeria/formatura/cerimonia', viewport, dpr, toque: true });
+    await espera(page, 800);
+    const topo = await page.evaluate(() => {
+      const nav = /** @type {HTMLElement} */ (document.querySelector('.g-cap-topo'));
+      const links = [...document.querySelectorAll('.g-cap-topo .g-cap-a, .g-cap-fim .g-cap-a')].map(a => {
+        const r = a.getBoundingClientRect();
+        return { href: a.getAttribute('href'), alt: Math.round(r.height), dir: Math.round(r.right), esq: Math.round(r.left) };
+      });
+      const chips = /** @type {HTMLElement} */ (document.getElementById('g-chips'));
+      const cr = [...document.querySelectorAll('.g-chip')].map(c => Math.round(c.getBoundingClientRect().height));
+      return {
+        h1: (document.getElementById('g-h1') || {}).textContent,
+        autores: (document.querySelector('.g-autores') || {}).textContent,
+        title: document.title,
+        navOverflow: nav.scrollWidth > nav.clientWidth + 1,
+        links,
+        chipsVisiveis: !chips.hidden,
+        grupo: [...document.querySelectorAll('.g-chips-grupo [data-acao="filtro-autor"]')].map(b => (b.textContent || '').replace(/\s+/g, ' ').trim()),
+        grupoRotulo: (document.querySelector('.g-chips-grupo') || document.body).getAttribute('aria-label'),
+        chipsAlturas: cr,
+        lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+      };
+    });
+    registra(topo.h1 === 'Formatura 2026 · Cerimônia' && /Cerimônia/.test(topo.title), `${nome}: o título diz o evento e o capítulo`, { h1: topo.h1, title: topo.title });
+    registra(topo.autores === 'Fotos: Luca F. Chala, Ana Souza e Bruno Lima', `${nome}: a linha de créditos lista os três fotógrafos`, topo.autores);
+    registra(topo.chipsVisiveis && topo.grupoRotulo === 'Fotógrafo' && topo.grupo.length === 4 && /^Todos/.test(topo.grupo[0]) && topo.grupo.slice(1).every((t, i) => t.startsWith(AUTORES_CAP[i])),
+      `${nome}: filtro por fotógrafo (Todos + um por autor), em grupo rotulado`, topo.grupo);
+    registra(topo.chipsAlturas.length > 0 && topo.chipsAlturas.every(h => h >= 44), `${nome}: todos os chips têm 44 px de alvo`, topo.chipsAlturas);
+    const hrefs = topo.links.map(l => l.href);
+    registra(hrefs.includes('/galeria/formatura/abertura') && hrefs.includes('/galeria/formatura/festa-de-gala') && hrefs.includes('/galeria/formatura'),
+      `${nome}: navegação para o capítulo anterior, o seguinte e o índice`, hrefs);
+    registra(topo.links.every(l => l.alt >= 44 && l.esq >= 0 && l.dir <= viewport.width), `${nome}: os links de capítulo têm 44 px e cabem na largura (nome longo cortado)`, topo.links);
+    registra(!topo.navOverflow && !topo.lateral, `${nome}: a barra de capítulos e a página não rolam para o lado`, { nav: topo.navOverflow, pagina: topo.lateral });
+
+    // Filtrar por Ana: só as fotos dela (índices 1, 4, 7, 10 → 4 fotos).
+    const total = await page.locator('.g-t').count();
+    await page.locator('.g-chips-grupo [data-acao="filtro-autor"]').nth(2).tap();
+    await espera(page, 500);
+    const filtrado = await page.evaluate(() => ({
+      n: document.querySelectorAll('.g-t').length,
+      marcado: [...document.querySelectorAll('.g-chips-grupo [aria-pressed="true"]')].map(b => (b.textContent || '').trim().split(/\s+/).slice(0, 2).join(' ')),
+      lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+    }));
+    registra(total === 12 && filtrado.n === 4 && filtrado.marcado.length === 1 && filtrado.marcado[0].startsWith('Ana') && !filtrado.lateral,
+      `${nome}: filtrar por Ana mostra só as 4 fotos dela, com o chip marcado`, { total, ...filtrado });
+    await page.locator('.g-chips-grupo [data-acao="filtro-autor"]').nth(2).tap();
+    await espera(page, 400);
+    registra(await page.locator('.g-t').count() === 12, `${nome}: tocar de novo no fotógrafo volta a todas as fotos`);
+
+    // Legenda do visualizador com o crédito, e o nome amigável do download.
+    await page.evaluate(() => {
+      /** @type {any} */ (window).__links = [];
+      const orig = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {
+        /** @type {any} */ (window).__links.push({ href: this.getAttribute('href'), download: this.getAttribute('download') });
+        return orig.call(this);
+      };
+    });
+    await page.locator('.g-t').nth(1).tap(); // foto 2: da Ana, na seção da raiz
+    await page.waitForSelector('.pswp--open');
+    await espera(page, 800);
+    const legenda = await page.evaluate(() => ({ txt: (document.querySelector('.g-leg-a') || {}).textContent || '', todo: (document.querySelector('.pswp__custom-caption, .g-legenda') || document.body).textContent || '' }));
+    registra(legenda.txt === 'Foto: Ana Souza', `${nome}: a legenda do visualizador credita a fotógrafa da foto`, legenda.txt);
+    await page.locator('.pswp__button--g-baixar').tap();
+    await page.waitForSelector('#g-folha:not([hidden])');
+    await page.locator('.g-op').last().tap();
+    await espera(page, 600);
+    const links = await page.evaluate(() => /** @type {any} */ (window).__links);
+    const idAna = LISTAGEM_CAP.secoes[0].fotos[1][0];
+    const esperado = nomeAmigavel(/** @type {any} */ (LISTAGEM_CAP), { titulo: 'Formatura 2026', capitulo: 'Cerimônia' }, idAna, 'x.jpg');
+    const baixou = links.find((/** @type {any} */ l) => /\/baixar\//.test(l.href || ''));
+    registra(!!baixou && baixou.href === `/galeria/formatura/cerimonia/baixar/${idAna}?v=max` && baixou.download === esperado && /Ana Souza/.test(esperado || '') && /Cerim/.test(esperado || '') && esperado !== LISTAGEM_CAP.secoes[0].fotos[1][3],
+      `${nome}: o download leva o nome amigável (evento, capítulo, fotógrafa, data/hora) — o mesmo cálculo do servidor`, { baixou, esperado });
+    if (nome === 'iPhone 390') await verificaAxe(page, registra, `${nome}: capítulo com vários fotógrafos (tema claro)`);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: capítulo sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
+
+// ---- 6g. Índice de capítulos ----------------------------------------------------
+// Um cartão por subpasta, com a capa e a contagem do resumo; capítulo vazio só
+// para o dono; nome comprido quebra sem estourar a tela (360 px).
+const CAPS_IDX = {
+  v: /** @type {1} */ (1), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  caps: [
+    { id: 'CAPABERTURA0001', rk: '', bruto: 'Abertura', nome: 'Abertura', slug: 'abertura' },
+    { id: 'CAPCERIMONIA001', rk: '', bruto: 'Cerimônia', nome: 'Cerimônia', slug: 'cerimonia' },
+    { id: 'CAPGALA00000001', rk: '', bruto: NOME_LONGO, nome: NOME_LONGO, slug: 'festa-de-gala' },
+    { id: 'CAPVAZIO0000001', rk: '', bruto: 'Ainda sem fotos', nome: 'Ainda sem fotos', slug: 'ainda-sem-fotos' },
+  ],
+};
+const RESUMO_IDX = { CAPABERTURA0001: { n: 1, capas: [raiz[0][0]] }, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]] }, CAPGALA00000001: { n: 120, capas: [raiz[2][0]] }, CAPVAZIO0000001: { n: 0, capas: [] } };
+for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360', { width: 360, height: 780 }, 2, false], ['visitante 390', { width: 390, height: 844 }, 3, false], ['dono 360', { width: 360, height: 780 }, 2, true]])) {
+  await cenario(`Índice: ${nome}`, async () => {
+    const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo: RESUMO_IDX, ocultas: [], dono, indexavel: true });
+    const { ctx, page, estado } = await abre({ pagina, viewport, dpr, toque: true });
+    await espera(page, 500);
+    const m = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.ix-card')].map(c => {
+        const r = c.getBoundingClientRect();
+        return { nome: (c.querySelector('.ix-nome') || {}).textContent, sub: (c.querySelector('.ix-sub') || {}).textContent, href: c.getAttribute('href'), alt: Math.round(r.height), esq: Math.round(r.left), dir: Math.round(r.right) };
+      });
+      return { cards, lateral: document.scrollingElement.scrollWidth > window.innerWidth, h1: (document.querySelector('h1') || {}).textContent, meta: (document.querySelector('.ix-meta') || {}).textContent };
+    });
+    const nomes = m.cards.map(c => c.nome);
+    registra(m.h1 === 'Formatura 2026', `Índice ${nome}: o título é o do evento`, m.h1);
+    if (dono) {
+      registra(m.cards.length === 4 && m.cards[3].sub === 'vazio', `Índice ${nome}: o dono vê o capítulo vazio, marcado "vazio"`, m.cards.map(c => c.sub));
+    } else {
+      registra(m.cards.length === 3 && !nomes.includes('Ainda sem fotos'), `Índice ${nome}: o visitante não vê o capítulo vazio`, nomes);
+      registra(m.cards[0].sub === '1 foto' && m.cards[1].sub === '12 fotos', `Índice ${nome}: a contagem do cartão (singular e plural)`, m.cards.map(c => c.sub));
+    }
+    registra(m.cards.every(c => c.href && c.href.startsWith('/galeria/formatura/') && c.alt >= 44 && c.esq >= 0 && c.dir <= viewport.width), `Índice ${nome}: cada cartão leva ao capítulo, cabe na tela e tem alvo de toque`, m.cards);
+    registra(!m.lateral, `Índice ${nome}: sem rolagem lateral (nome comprido incluso)`);
+    if (nome === 'visitante 390') await verificaAxe(page, registra, `Índice ${nome}: capítulos (tema claro)`);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `Índice ${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {
