@@ -1101,6 +1101,36 @@ export async function takeToken(env, ip, key, bucket) {
   }
 }
 
+// Lease de releitura (item 1g, ver GALERIA_LEASE_S em config.js): true = este
+// chamador pode fazer o trabalho caro. Falha ABERTO (Durable Object fora ->
+// lê, como antes do lease; o single-flight do isolate ainda segura o bando).
+/**
+ * @param {Env} env
+ * @param {string} chave
+ * @param {number} ms
+ * @returns {Promise<boolean>}
+ */
+export async function tomaLease(env, chave, ms) {
+  if (!env || !env.RATELIMIT) return true;
+  try {
+    const id = env.RATELIMIT.idFromName(`lease:${chave}`);
+    return await env.RATELIMIT.get(id).lease(ms);
+  } catch (e) {
+    noteDegraded('lease indisponível', `${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return true;
+  }
+}
+
+/** Encurta o lease depois de uma leitura que deu certo (ver RateLimiter.solta). Nunca lança. @param {Env} env @param {string} chave @param {number} ms */
+export async function soltaLease(env, chave, ms) {
+  if (!env || !env.RATELIMIT) return;
+  try {
+    await env.RATELIMIT.get(env.RATELIMIT.idFromName(`lease:${chave}`)).solta(ms);
+  } catch (e) {
+    noteDegraded('lease indisponível', `${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+  }
+}
+
 /**
  * A chave de limite por IP. Um cliente IPv6 recebe um /64 inteiro do
  * provedor, então contar por endereço completo dava a qualquer um 2^64

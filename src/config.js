@@ -83,6 +83,15 @@ export const DRIVE_CLICK_BUCKET = { capacity: 1000, perHour: 200 };
 // baixadas — o dia de um evento de 750 pessoas fica em ~45 mil das 100 mil
 // linhas/dia do plano gratuito (TODO.md).
 export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
+// Download sob carga (item 1g): o Google pode recusar o arquivo (403
+// downloadQuotaExceeded/rateLimitExceeded ou 429) quando ele é muito baixado.
+// O proxy tenta UMA vez mais, depois de DOWNLOAD_RETENTATIVA_MS a 2x isso
+// (jitter), e então responde "ocupado": 503 com Retry-After sugerido entre
+// MIN e MAX segundos, também com jitter. O script da página faz a fila
+// automática em cima disso (src/ui/galeria.js).
+export const DOWNLOAD_RETENTATIVA_MS = 500;
+export const DOWNLOAD_OCUPADO_MIN_S = 20;
+export const DOWNLOAD_OCUPADO_MAX_S = 60;
 
 // Robôs conhecidos, fora da contagem de visitas e de aberturas da galeria
 // (o Google rastreia a galeria desde a v3: sem este filtro, cada rastreio
@@ -204,6 +213,40 @@ export const GALERIA_PERIODOS_S = [600, 3600, 21600, 86400];
 // D1 a cada foto da grade — e para o "Atualizar agora" aparecer logo nos
 // outros isolates.
 export const GALERIA_SNAPSHOT_MEM_S = 60;
+// Pico de acessos (v3.1, item 1g): centenas de pessoas abrindo a galeria ao
+// mesmo tempo, muitas atrás do MESMO IP. Quando a lista vence, NINGUÉM espera
+// a releitura e NINGUÉM a dispara em bando: serve-se sempre a última lista
+// (memória do isolate -> Cache API -> foto durável do D1), mesmo vencida
+// (stale-while-revalidate), e só quem ganha um LEASE no mundo inteiro relê,
+// em segundo plano (ctx.waitUntil). O lease é um Durable Object atômico
+// (RateLimiter.lease): 1 chamada para quem pergunta, 1 escrita só para quem
+// ganha. Sem nenhuma lista guardada (a primeiríssima abertura), só o ganhador
+// lista; os outros esperam um pouco e relêem, ou mostram "Carregando as
+// fotos…" com refresh automático — nunca N listagens.
+//  - GALERIA_LEASE_S: quanto dura o direito de reler. Cobre a leitura mais
+//    longa (até ~15 s com 28 páginas) com folga e, se o ganhador morrer, o
+//    próximo tenta depois deste prazo. Uma releitura que FALHA não devolve o
+//    lease: é um freio, o Drive com problema não leva 200 tentativas.
+//  - GALERIA_REVERIFICA_S: o isolate que serviu lista vencida só pergunta de
+//    novo (cache/lease) depois deste intervalo — não a cada visita.
+//  - GALERIA_VELHO_MAX_S: a lista vencida só é servida até aqui (6 h); mais
+//    velha que isso conta como "sem lista" (um colo quase parado não mostra
+//    foto apagada de ontem).
+//  - GALERIA_ESPERA_MS x GALERIA_ESPERAS: quanto quem perdeu o lease sem
+//    lista nenhuma espera (3 x 1,5 s) antes de mostrar "Carregando…". Espera
+//    não gasta CPU, só relógio.
+export const GALERIA_LEASE_S = 45;
+//  - GALERIA_LEASE_POS_S: depois de uma leitura que terminou (bem ou mal) o
+//    lease encolhe para esta folga. 0 = solta na hora: segurar 45 s depois de
+//    pronto mandaria "Carregando…" a quem chega num colo sem cache, e o erro
+//    real (chave inválida, pasta privada) ficaria escondido. Não abre
+//    duplicidade: a lista nova já está na Cache API quando o lease solta, e
+//    quem pergunta de novo olha o cache ANTES do lease.
+export const GALERIA_LEASE_POS_S = 0;
+export const GALERIA_REVERIFICA_S = 20;
+export const GALERIA_VELHO_MAX_S = 6 * 3600;
+export const GALERIA_ESPERA_MS = 1500;
+export const GALERIA_ESPERAS = 3;
 // Tetos que mantêm UMA requisição dentro do plano gratuito: cada página da
 // Drive API (até 1000 arquivos) é uma subrequisição, e o plano gratuito dá 50
 // por invocação. Passou de algum teto, a lista sai PARCIAL e a página avisa —
@@ -213,7 +256,7 @@ export const GALERIA_MAX_PASTAS = 25;
 // Raiz = 0. Duas camadas de subpasta cobrem "Cerimônia / Festa" e
 // "Dia 1 / Manhã"; mais fundo que isso é arquivo de trabalho, não galeria.
 export const GALERIA_MAX_PROFUNDIDADE = 2;
-export const GALERIA_MAX_CHAMADAS = 28;
+export const GALERIA_MAX_CHAMADAS = 26;
 // Pasta do Instagram (campo `driveUrlInstagram` do projeto): o download "para
 // redes" entrega, byte a byte, o arquivo de lá — nada é redimensionado pelo
 // site. Ela é listada junto com a pasta da galeria na MESMA invocação (página e
@@ -227,7 +270,7 @@ export const GALERIA_MAX_CHAMADAS = 28;
 // medido em tests/galeria.test.js ("orçamento"): subir qualquer teto aqui, ou
 // gastar uma subrequisição a mais nesse caminho, reprova o teste.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
-export const GALERIA_MAX_CHAMADAS_IG = 8;
+export const GALERIA_MAX_CHAMADAS_IG = 6;
 // Galeria por capítulos (v3.1): cada subpasta de primeiro nível da pasta do
 // projeto é uma página. O ÍNDICE custa uma página da API (só as subpastas) e
 // um match do cache; o capítulo é lido como se fosse a raiz, com teto menor
@@ -236,7 +279,7 @@ export const GALERIA_MAX_CHAMADAS_IG = 8;
 // lista de capítulos) + 6 (cache das listas e do casamento) + 2 (D1 da lista do
 // capítulo) + 5 (KV, ficha do IP, contador, arquivo) = 48 < 50.
 // O teste "orçamento" de tests/galeria-capitulos.test.js mede isso.
-export const GALERIA_MAX_CHAMADAS_CAP = 22;
+export const GALERIA_MAX_CHAMADAS_CAP = 18;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
 export const GALERIA_MAX_CAPITULOS = 100;

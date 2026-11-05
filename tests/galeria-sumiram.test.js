@@ -16,6 +16,7 @@ import worker from '../src/index.js';
 import { limpaCacheDrive } from '../src/drive.js';
 import { saveEvents, degradedHealth, resetDegraded } from '../src/utils.js';
 import { SUMIRAM_AVISO_DIA, SUMIRAM_CONFERIR_MAX, SUMIRAM_RETENCAO_DIAS } from '../src/config.js';
+import { ctxColetor } from './helpers/ctx.js';
 import { withDurableObjects } from './helpers/do.js';
 import { d1Sqlite, d1Contado } from './helpers/d1.js';
 import { GALERIA_MAX_CHAMADAS } from '../src/config.js';
@@ -104,8 +105,10 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(
 const avanca = ms => vi.setSystemTime(new Date(Date.now() + ms));
 const MIN = 60_000;
 const abre = async () => {
-  const r = await worker.fetch(new Request(SITE + '/galeria/festa', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), env, { waitUntil() {} });
+  const ctx = ctxColetor();
+  const r = await worker.fetch(new Request(SITE + '/galeria/festa', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), env, ctx);
   await r.text();
+  await ctx.drena(); // a releitura da lista vencida roda em segundo plano (item 1g)
   return r;
 };
 // Uma releitura: passa o período (10 min) e abre a galeria.
@@ -406,7 +409,7 @@ describe('capítulo', () => {
     await saveEvents(env, [{ ...EVENTO, galeriaCapitulos: true, driveUrl: `https://drive.google.com/drive/folders/${RAIZ}` }]);
     arvore[RAIZ] = [pasta(CAP, 'Cerimonia')];
     arvore[CAP] = [arq(idFoto(1), 'um.jpg'), arq(idFoto(2), 'dois.jpg')];
-    const abreCap = async () => { limpaCacheDrive(); const r = await worker.fetch(new Request(SITE + '/galeria/festa/cerimonia', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), env, { waitUntil() {} }); await r.text(); return r; };
+    const abreCap = async () => { limpaCacheDrive(); const ctx = ctxColetor(); const r = await worker.fetch(new Request(SITE + '/galeria/festa/cerimonia', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), env, ctx); await r.text(); await ctx.drena(); return r; };
     await abreCap();
     arvore[CAP] = arvore[CAP].filter(f => f.id !== idFoto(1));
     avanca(11 * MIN);

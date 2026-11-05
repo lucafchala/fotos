@@ -14,6 +14,7 @@ import worker, { normalizeEventFields } from '../src/index.js';
 import { limpaCacheDrive, periodoValido, politicaDaGaleria, descreveRenovacao } from '../src/drive.js';
 import { hashDaListagem } from '../src/snapshot.js';
 import { saveEvents } from '../src/utils.js';
+import { ctxColetor } from './helpers/ctx.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
 import { d1Sqlite } from './helpers/d1.js';
@@ -86,13 +87,18 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(
 
 const avanca = ms => vi.setSystemTime(new Date(Date.now() + ms));
 const MIN = 60_000;
+// A lista vencida é servida na hora e relida em segundo plano (item 1g): o
+// contexto guarda o waitUntil e `nFotos` espera por ele DEPOIS de ler a resposta.
+let ctxAtual;
 const get = async (path, { dono = false } = {}) => {
   const headers = { 'CF-Connecting-IP': '203.0.113.9' };
   if (dono) headers.Cookie = `__Host-session=${TOKEN}`;
-  return worker.fetch(new Request(SITE + path, { headers }), env, { waitUntil() {} });
+  ctxAtual = ctxColetor();
+  return worker.fetch(new Request(SITE + path, { headers }), env, ctxAtual);
 };
 const nFotos = async (path, o) => {
   const h = await (await get(path, o)).text();
+  await ctxAtual.drena();
   return [...h.matchAll(/FOTO_[A-Z0-9]_\d+/g)].map(m => m[0]).filter((v, i, a) => a.indexOf(v) === i).length;
 };
 const linhas = () => d1.sqlite.prepare('SELECT chave, slug, ctx, hash, em FROM galeria_snapshot').all();
@@ -135,6 +141,10 @@ describe('atualização automática', () => {
     expect(await nFotos('/galeria/festa')).toBe(2);
     expect(chamadas.length).toBe(1);
     avanca(2 * MIN);
+    // Vencida: esta visita ainda vê a lista velha e dispara a releitura em
+    // segundo plano; a SEGUINTE já vê a nova.
+    expect(await nFotos('/galeria/festa')).toBe(2);
+    expect(chamadas.length).toBe(2);
     expect(await nFotos('/galeria/festa')).toBe(3);
     expect(chamadas.length).toBe(2);
   });
@@ -146,6 +156,8 @@ describe('atualização automática', () => {
     avanca(30 * MIN);
     expect(await nFotos('/galeria/festa')).toBe(2);
     avanca(31 * MIN);
+    // Vencida: a visita que percebe serve a velha e relê em segundo plano.
+    expect(await nFotos('/galeria/festa')).toBe(2);
     expect(await nFotos('/galeria/festa')).toBe(3);
   });
 
@@ -238,6 +250,9 @@ describe('atualização automática desligada', () => {
     arvore[RAIZ].push(arq('FOTO_3_0000001', 'tres.jpg'));
     await saveEvents(env, [{ ...EVENTO, galeriaAtualizacaoAuto: true }]);
     limpaCacheDrive();
+    // A lista guardada com a automática desligada já não vale: serve-se a
+    // velha uma vez e a releitura em segundo plano traz a nova.
+    await nFotos('/galeria/festa');
     expect(await nFotos('/galeria/festa')).toBe(3);
   });
 

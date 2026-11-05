@@ -360,16 +360,78 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     expect(await res.text()).toBe('ORIGINAL');
   });
 
-  it('cota de download do Google estourada: erro claro para o script (JSON) e para quem abriu o link (página)', async () => {
+  it('cota de download do Google estourada: "ocupado" amigável com Retry-After de 20 a 60 s, JSON e página (item 1g)', async () => {
     rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/')
-      ? Response.json({ error: { code: 403, errors: [{ reason: 'downloadQuotaExceeded' }] } }, { status: 403 })
+      ? Response.json({ error: { code: 403, message: 'SEGREDO-DO-GOOGLE', errors: [{ reason: 'downloadQuotaExceeded' }] } }, { status: 403 })
       : null);
     const json = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
-    expect(json.status).toBe(502);
-    expect((await json.json()).error).toMatch(/limitou downloads desta foto/);
+    expect(json.status).toBe(503);
+    const espera = Number(json.headers.get('Retry-After'));
+    expect(espera).toBeGreaterThanOrEqual(20);
+    expect(espera).toBeLessThanOrEqual(60);
+    const corpo = await json.json();
+    expect(corpo).toMatchObject({ ocupado: true, retryAfter: espera });
+    expect(corpo.error).toMatch(/Muita gente baixando esta foto agora/);
+    expect(JSON.stringify(corpo)).not.toContain('SEGREDO-DO-GOOGLE'); // erro cru do Google nunca vaza
     const pag = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max', { accept: 'text/html' });
+    expect(pag.status).toBe(503);
     expect(pag.headers.get('Content-Type')).toMatch(/text\/html/);
-    expect(await pag.text()).toMatch(/limitou downloads desta foto/);
+    const html = await pag.text();
+    expect(html).toMatch(/Muita gente baixando esta foto agora/);
+    expect(html).not.toContain('SEGREDO-DO-GOOGLE');
+  });
+
+  it('429 do Google: tenta UMA vez mais e, se passar, entrega o arquivo normalmente (item 1g)', async () => {
+    let n = 0;
+    rotaExtra = url => {
+      if (!url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')) return null;
+      n++;
+      return n === 1 ? new Response('{}', { status: 429 }) : new Response('ORIGINAL', { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    };
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ORIGINAL');
+    expect(n).toBe(2);
+  });
+
+  it('429 persistente: só UMA retentativa (2 pedidos ao Google) e depois "ocupado"', async () => {
+    let n = 0;
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? (n++, new Response('{}', { status: 429 })) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(503);
+    expect(n).toBe(2);
+    expect((await res.json()).ocupado).toBe(true);
+  });
+
+  it('erro que NÃO é de limite não é retentado nem vira "ocupado"', async () => {
+    let n = 0;
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? (n++, new Response('{}', { status: 500 })) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(502);
+    expect(n).toBe(1);
+    expect((await res.json()).ocupado).toBeUndefined();
+  });
+
+  it('"pronto?" (p=1): pede só o primeiro byte, responde 204 e não conta como baixada', async () => {
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')
+      ? new Response('O', { status: 206, headers: { 'Content-Type': 'image/jpeg', 'Content-Range': 'bytes 0-0/8' } })
+      : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Content-Disposition')).toBeNull();
+    const up = chamadas.find(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'));
+    expect(up.headers.Range).toBe('bytes=0-0');
+  });
+
+  it('"pronto?" com o Google ocupado: 503 + Retry-After, para a fila do navegador', async () => {
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? new Response('{}', { status: 429 }) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(503);
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThanOrEqual(20);
+  });
+
+  it('"pronto?" de foto que não existe ou está oculta: 404, como o download', async () => {
+    expect((await get('/galeria/formatura/baixar/FORA_DA_PASTA_1?v=max&p=1')).status).toBe(404);
   });
 });
 

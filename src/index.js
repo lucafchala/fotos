@@ -53,7 +53,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -3781,7 +3781,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const atualizar = !!dono && url.searchParams.has('atualizar');
   // Onde ler: a pasta do projeto ou a subpasta do capítulo — decidido AQUI, no
   // servidor; capítulo que não existe é o 404 da galeria.
-  const alvo = await alvoDaGaleria(env, event, capSlug, atualizar);
+  const alvo = await alvoDaGaleria(env, event, capSlug, atualizar, ctx);
   if (alvo.kind === 'nao') return notFound();
   const volta = `/galeria/${slug}${capSlug ? `/${capSlug}` : ''}`;
   if (alvo.kind === 'ok' && !alvo.pasta) {
@@ -3792,7 +3792,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
     erro = { codigo: alvo.codigo, mensagem: alvo.mensagem };
   } else if (pasta) {
     try {
-      listagem = await listaPasta(env, pasta, { atualizar, ...opcoesDaLista(event, alvo.maxChamadas, alvo.capitulo) });
+      listagem = await listaPasta(env, pasta, { atualizar, ctx, ...opcoesDaLista(event, alvo.maxChamadas, alvo.capitulo) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       erro = { codigo: e.codigo, mensagem: e.message };
@@ -3820,7 +3820,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
       : { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
   } else if (listagem && pastaIg) {
     try {
-      const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
+      const ig = await listaPasta(env, pastaIg, { atualizar, ctx, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
       // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
       // 10 min em 10 min, e o casamento fica guardado nela.
       redes = await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, ig);
@@ -4036,16 +4036,16 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
-  const alvoLista = await alvoDaGaleria(env, event, capSlug);
+  const alvoLista = await alvoDaGaleria(env, event, capSlug, false, ctx);
   if (alvoLista.kind === 'nao') return notFound();
-  if (alvoLista.kind === 'erro') return erroDownload(request, alvoLista.mensagem, 502);
+  if (alvoLista.kind === 'erro') return alvoLista.codigo === 'limite' || alvoLista.codigo === 'carregando' ? erroDriveNoDownload(request, new DriveError(alvoLista.codigo, alvoLista.mensagem)) : erroDownload(request, alvoLista.mensagem, 502);
   if (!alvoLista.pasta) return notFound();
   const capitulo = alvoLista.capitulo;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(event, alvoLista.maxChamadas, alvoLista.capitulo));
+    listagem = await listaPasta(env, alvoLista.pasta, { ctx, ...opcoesDaLista(event, alvoLista.maxChamadas, alvoLista.capitulo) });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
-    return erroDownload(request, e.message, 502);
+    return erroDriveNoDownload(request, e);
   }
   const foto = achaFoto(listagem, fileId);
   if (!foto) return notFound();
@@ -4057,10 +4057,10 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   let origem = listagem;
   if (pastaIg) {
     try {
-      origem = await listaPasta(env, pastaIg, { maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
+      origem = await listaPasta(env, pastaIg, { ctx, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
-      return erroDownload(request, e.message, 502);
+      return erroDriveNoDownload(request, e);
     }
     const par = (await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, origem)).get(fileId);
     // Sem par, ou (defesa em profundidade) par que não está na listagem da
@@ -4078,23 +4078,49 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // O prazo vale só até chegarem os cabeçalhos: um original de 40 MB num
   // celular lento leva mais que isso para ATRAVESSAR, e cortar no meio
   // entregaria arquivo truncado.
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
+  // `p=1` ("pronto?", item 1g): o script da página pergunta antes de baixar,
+  // para a fila automática não puxar o arquivo duas vezes. Pede só o primeiro
+  // byte (Range) e responde 204; as checagens e o limite por IP são os mesmos.
+  const sonda = url.searchParams.get('p') === '1';
+  const buscaArquivo = async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      return await fetch(alvo, { headers: sonda ? { ...headers, Range: 'bytes=0-0' } : headers, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   let up;
   try {
-    up = await fetch(alvo, { headers, signal: ctrl.signal });
+    up = await buscaArquivo();
   } catch {
     return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
-  } finally {
-    clearTimeout(timer);
   }
+  // Sob pico o Google responde 403 `downloadQuotaExceeded`/`rateLimitExceeded`
+  // ou 429 (arquivo muito baixado). UMA nova tentativa curta, com jitter; se
+  // ainda recusar, a resposta é "ocupado" — nunca o erro cru do Google.
+  /** @type {import('./drive.js').DriveError | null} */
+  let falha = null;
   if (!up.ok) {
-    const e = await erroDaApi(up);
-    // O caso mais provável num pico: a cota de download do arquivo (#233).
-    const msg = e.codigo === 'limite'
-      ? 'O Google limitou downloads desta foto por um tempo. Tente mais tarde ou baixe pelo Drive.'
-      : e.message;
-    return erroDownload(request, msg, up.status === 404 ? 404 : 502);
+    falha = await erroDaApi(up);
+    if (falha.codigo === 'limite') {
+      await new Promise(r => setTimeout(r, DOWNLOAD_RETENTATIVA_MS + Math.floor(Math.random() * DOWNLOAD_RETENTATIVA_MS)));
+      try {
+        up = await buscaArquivo();
+        falha = up.ok ? null : await erroDaApi(up);
+      } catch {
+        return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
+      }
+    }
+  }
+  if (falha) {
+    if (falha.codigo === 'limite') return downloadOcupado(request);
+    return erroDownload(request, falha.message, up.status === 404 ? 404 : 502);
+  }
+  if (sonda) {
+    try { await up.body?.cancel(); } catch { /* o corpo de 1 byte não importa */ }
+    return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   }
 
   const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
@@ -4247,7 +4273,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   const capSlug = typeof body.cap === 'string' ? body.cap : '';
   if (capSlug && !CAP_SLUG_RE.test(capSlug)) return jsonErr('Capítulo inválido.', 400);
   if (!!evento.galeriaCapitulos !== !!capSlug) return notFound();
-  const alvoLista = await alvoDaGaleria(env, evento, capSlug);
+  const alvoLista = await alvoDaGaleria(env, evento, capSlug, false, ctx);
   if (alvoLista.kind === 'nao') return notFound();
   if (alvoLista.kind === 'erro' || !alvoLista.pasta) {
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
@@ -4257,7 +4283,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(evento, alvoLista.maxChamadas, alvoLista.capitulo));
+    listagem = await listaPasta(env, alvoLista.pasta, { ctx, ...opcoesDaLista(evento, alvoLista.maxChamadas, alvoLista.capitulo) });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
@@ -4354,6 +4380,37 @@ export function contentDisposition(nome) {
   const ascii = nome.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '') || 'foto.jpg';
   const utf8 = encodeURIComponent(nome).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+}
+
+/**
+ * "Muita gente baixando esta foto agora" (item 1g): 503 com `Retry-After`
+ * sugerido entre DOWNLOAD_OCUPADO_MIN_S e DOWNLOAD_OCUPADO_MAX_S, com jitter
+ * (200 pessoas na fila não voltam no mesmo segundo). O corpo JSON leva o mesmo
+ * número em `retryAfter` e a marca `ocupado`, que o script da página usa para
+ * montar a fila; quem navegou até aqui vê uma página comum.
+ * @param {Request} request
+ * @param {string} [mensagem]
+ * @param {number} [retryAfter]
+ */
+function downloadOcupado(request, mensagem = 'Muita gente baixando esta foto agora. Tente de novo em alguns minutos.', retryAfter = 0) {
+  const espera = retryAfter || DOWNLOAD_OCUPADO_MIN_S + Math.floor(Math.random() * (DOWNLOAD_OCUPADO_MAX_S - DOWNLOAD_OCUPADO_MIN_S + 1));
+  const res = (request.headers.get('Accept') || '').includes('text/html')
+    ? errorPage('Ops', escape(mensagem), 503)
+    : jsonOk({ error: mensagem, ocupado: true, retryAfter: espera }, 503);
+  res.headers.set('Retry-After', String(espera));
+  return res;
+}
+
+/**
+ * Falha de DriveError ao preparar um download: "ocupado" para limite do Google
+ * e para a lista ainda carregando pela primeira vez; 502 para o resto.
+ * @param {Request} request
+ * @param {import('./drive.js').DriveError} e
+ */
+function erroDriveNoDownload(request, e) {
+  if (e.codigo === 'limite') return downloadOcupado(request);
+  if (e.codigo === 'carregando') return downloadOcupado(request, 'As fotos estão sendo carregadas. Tente de novo em instantes.', 5);
+  return erroDownload(request, e.message, 502);
 }
 
 /**

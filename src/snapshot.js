@@ -64,16 +64,16 @@ const TETO_BYTES = 1_500_000;
  * @param {string} chave
  * @param {string} ctx
  * @param {{ em: string }} dados
- * @param {{ forcar?: boolean, slug?: string, aoMudar?: (anterior: unknown) => Promise<void> }} [opts] `slug`: o projeto dono
+ * @param {{ forcar?: boolean, slug?: string, antes?: string | null, aoMudar?: (anterior: unknown) => Promise<void> }} [opts] `antes`: o hash que o chamador JÁ leu do D1 (null = não havia linha; ausente = ler aqui) — poupa uma subrequisição; `slug`: o projeto dono
  *   (apagar o projeto apaga a linha); `aoMudar`: chamado com a listagem ANTERIOR quando o conteúdo mudou e havia uma
  *   (é daqui que sai a detecção de fotos sumidas). Nunca lança e roda antes da gravação.
  * @returns {Promise<boolean>} true se gravou
  */
-export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, slug = '', aoMudar } = {}) {
+export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, slug = '', antes: antesLido, aoMudar } = {}) {
   if (!env.CONSENT_DB) return false;
   try {
     const hash = await hashDaListagem(dados);
-    const antes = await lerHash(env, chave, ctx);
+    const antes = antesLido !== undefined ? antesLido : await lerHash(env, chave, ctx);
     if (antes === hash && !forcar) return false;
     if (aoMudar && antes !== null && antes !== hash) {
       const foto = await lerSnapshot(env, chave, ctx);

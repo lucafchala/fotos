@@ -16,11 +16,13 @@
 // da lista de eventos em utils.js). Nenhuma escrita de KV.
 
 import { lerSnapshot, gravaSnapshot } from './snapshot.js';
+import { tomaLease, soltaLease } from './utils.js';
 import {
   GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
+  GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -69,7 +71,7 @@ const NOME_MAX = 255;
 // em vez de "deu erro". A mensagem é para pessoa, não para log.
 export class DriveError extends Error {
   /**
-   * @param {'chave-ausente'|'chave-invalida'|'chave-restrita'|'api-desligada'|'pasta-inacessivel'|'limite'|'falha'} codigo
+   * @param {'chave-ausente'|'chave-invalida'|'chave-restrita'|'api-desligada'|'pasta-inacessivel'|'limite'|'falha'|'carregando'} codigo
    * @param {string} mensagem
    */
   constructor(codigo, mensagem) {
@@ -252,8 +254,118 @@ function cacheStore() {
   return (typeof caches !== 'undefined' && caches && caches.default) || null;
 }
 
+
+// ---------------------------------------------------------------------------
+// Leitura resiliente a pico (item 1g)
+// ---------------------------------------------------------------------------
+// Uma função para as duas leituras (fotos de uma pasta e lista de capítulos):
+//  1. memória do isolate fresca -> devolve (0 chamadas);
+//  2. `fonte(temVelho)`: Cache API e, sem nada, a foto durável (D1) — pode
+//     devolver lista VENCIDA (`fresco: false`), que ainda é servida;
+//  3. lista vencida (até GALERIA_VELHO_MAX_S): serve JÁ e, em segundo plano,
+//     só quem ganhar o lease relê. O isolate re-pergunta só a cada
+//     GALERIA_REVERIFICA_S;
+//  4. nenhuma lista: só quem ganha o lease lista (e responde); quem perde
+//     espera um pouco pela lista do outro e, se ela não vier, `carregando`;
+//  5. `atualizar` (dono, "Atualizar agora"): relê direto, sem lease.
+// DENTRO do isolate, a releitura (`voos`) e a decisão de reler (`decisoes`)
+// são únicas por chave: 200 requisições no mesmo isolate compartilham uma
+// promessa, e só a primeira gasta cache, lease ou Drive.
+/** @type {Map<string, Promise<any>>} */
+const voos = new Map();
+/** @type {Map<string, Promise<any>>} */
+const decisoes = new Map();
+/** @param {number} ms */
+const dorme = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * @template {{ em: string }} T
+ * @param {any} env
+ * @param {{ waitUntil?: (p: Promise<any>) => void } | null | undefined} ctx
+ * @param {{
+ *   kMem: string,
+ *   leaseChave: string,
+ *   memo: Map<string, { em: number, dados: T }>,
+ *   ttlMs: number,
+ *   atualizar: boolean,
+ *   fonte: (temVelho: boolean) => Promise<{ dados: T, fresco: boolean } | null>,
+ *   refaz: (forcar: boolean) => Promise<T>,
+ * }} o
+ * @returns {Promise<T>}
+ */
+async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz }) {
+  /** @param {boolean} forcar @returns {Promise<T>} */
+  const voo = forcar => {
+    const em = voos.get(kMem);
+    if (em) return em;
+    const p = refaz(forcar).finally(() => { if (voos.get(kMem) === p) voos.delete(kMem); });
+    voos.set(kMem, p);
+    return p;
+  };
+  if (atualizar) return voo(true);
+
+  const mem = memo.get(kMem);
+  if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
+  const velhoMem = mem ? mem.dados : null;
+  const emCurso = decisoes.get(kMem);
+  if (emCurso) return velhoMem || emCurso;
+
+  /** @returns {Promise<T>} */
+  const decide = async () => {
+    let velho = velhoMem;
+    const achada = await fonte(!!velho);
+    if (achada) {
+      if (achada.fresco) {
+        memo.set(kMem, { em: Date.now(), dados: achada.dados });
+        return achada.dados;
+      }
+      if (!velho || Date.parse(achada.dados.em) > Date.parse(velho.em)) velho = achada.dados;
+    }
+    if (velho && Date.now() - Date.parse(velho.em) <= GALERIA_VELHO_MAX_S * 1000) {
+      // Serve a velha e deixa a memória "quase vencida": o isolate pergunta de
+      // novo em GALERIA_REVERIFICA_S, não a cada visita.
+      memo.set(kMem, { em: Date.now() - ttlMs + GALERIA_REVERIFICA_S * 1000, dados: velho });
+      const tarefa = (async () => {
+        if (!await tomaLease(env, leaseChave, GALERIA_LEASE_S * 1000)) return;
+        try {
+          await voo(false);
+          await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        } catch (e) { console.error('galeria: releitura em segundo plano falhou', e); }
+      })();
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(tarefa); else await tarefa;
+      return velho;
+    }
+    // Nenhuma lista guardada: só o ganhador do lease lista.
+    if (await tomaLease(env, leaseChave, GALERIA_LEASE_S * 1000)) {
+      try {
+        const dados = await voo(false);
+        await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        return dados;
+      } catch (e) {
+        // Sem lista nenhuma, o erro (chave inválida, pasta privada…) é o que a
+        // página precisa mostrar: a folga curta deixa o próximo ver o mesmo
+        // erro em segundos, sem 200 tentativas seguidas.
+        await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        throw e;
+      }
+    }
+    for (let i = 0; i < GALERIA_ESPERAS; i++) {
+      await dorme(GALERIA_ESPERA_MS);
+      const outra = await fonte(false);
+      if (outra) {
+        memo.set(kMem, { em: Date.now(), dados: outra.dados });
+        return outra.dados;
+      }
+    }
+    throw new DriveError('carregando', 'As fotos estão sendo carregadas pela primeira vez. A página tenta de novo sozinha.');
+  };
+  const p = decide().finally(() => { if (decisoes.get(kMem) === p) decisoes.delete(kMem); });
+  decisoes.set(kMem, p);
+  return p;
+}
+
 /** Só para testes: o cache de módulo vazaria entre casos. */
-export function limpaCacheDrive() { memoria.clear(); memoriaCaps.clear(); memoriaResumo.clear(); }
+export function limpaCacheDrive() { memoria.clear(); memoriaCaps.clear(); memoriaResumo.clear(); voos.clear(); decisoes.clear(); }
 
 /**
  * Período da atualização automática, em segundos: um dos GALERIA_PERIODOS_S;
@@ -315,13 +427,13 @@ export function opcoesBasicasDaLista(event, maxChamadas) {
  * grava sempre).
  * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string, aoMudar?: (env: any, anterior: ListagemDrive, nova: ListagemDrive) => Promise<void> }} [opts] `aoMudar`: chamado quando a lista relida difere da foto durável anterior (detecção de fotos sumidas, sumiram.js); `maxChamadas`:
+ * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string, ctx?: { waitUntil?: (p: Promise<any>) => void }, aoMudar?: (env: any, anterior: ListagemDrive, nova: ListagemDrive) => Promise<void> }} [opts] `aoMudar`: chamado quando a lista relida difere da foto durável anterior (detecção de fotos sumidas, sumiram.js); `maxChamadas`:
  *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
  *   duas listas frias caberem nas 50 subrequisições da invocação); `creditos`:
  *   o campo "Créditos por pasta" do projeto (vazio = padrão)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '', aoMudar } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '', aoMudar, ctx } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
@@ -335,25 +447,14 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
   const congelada = snapshot && !auto;
   const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
   const ctxSnap = `m${maxChamadas}#${h}`;
-  let semFoto = false;
-  if (!atualizar) {
-    const mem = memoria.get(kMem);
-    if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
-    if (congelada) {
-      const foto = await lerSnapshot(env, pasta.id, ctxSnap);
-      if (foto) {
-        try {
-          const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
-          if (dados && dados.v === 2) {
-            memoria.set(kMem, { em: Date.now(), dados });
-            return dados;
-          }
-        } catch (e) {
-          console.error('galeria: foto da lista ilegível', e);
-        }
-      }
-      semFoto = true;
-    } else {
+
+  // O que a última leitura da foto durável viu: o hash (ou null = sem linha),
+  // para a gravação não ler de novo. undefined = não leu.
+  /** @type {string | null | undefined} */
+  let hashLido;
+  /** @param {boolean} temVelho @returns {Promise<{ dados: ListagemDrive, fresco: boolean } | null>} */
+  const fonte = async temVelho => {
+    if (!congelada) {
       const store = cacheStore();
       if (store) {
         try {
@@ -361,35 +462,53 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
           if (hit) {
             const dados = /** @type {ListagemDrive} */ (await hit.json());
             // A idade é a da própria lista: mudar o período no painel vale na hora.
-            if (dados && dados.v === 2 && Date.now() - Date.parse(dados.em) < ttlMs) {
-              memoria.set(kMem, { em: Date.now(), dados });
-              return dados;
-            }
+            if (dados && dados.v === 2) return { dados, fresco: Date.now() - Date.parse(dados.em) < ttlMs };
           }
         } catch (e) {
           console.error('galeria: leitura do cache falhou', e);
         }
       }
     }
-  }
-
-  const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
-  memoria.set(kMem, { em: Date.now(), dados });
-  if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, {
-    forcar: atualizar || semFoto, slug,
-    aoMudar: aoMudar ? anterior => aoMudar(env, /** @type {ListagemDrive} */ (anterior), dados) : undefined,
-  });
-  const store = congelada ? null : cacheStore();
-  if (store) {
-    try {
-      await store.put(kCache, new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
-      }));
-    } catch (e) {
-      console.error('galeria: escrita do cache falhou', e);
+    // A foto durável: com a atualização automática DESLIGADA é a fonte (vale
+    // sempre); ligada, é a última lista conhecida, servida vencida enquanto
+    // alguém relê. Quem já tem lista na memória não vai ao D1.
+    if (snapshot && !temVelho) {
+      const foto = await lerSnapshot(env, pasta.id, ctxSnap);
+      hashLido = foto ? foto.hash : null;
+      if (foto) {
+        try {
+          const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
+          if (dados && dados.v === 2) return { dados, fresco: congelada };
+        } catch (e) {
+          console.error('galeria: foto da lista ilegível', e);
+        }
+      }
     }
-  }
-  return dados;
+    return null;
+  };
+
+  /** @param {boolean} forcar */
+  const refaz = async forcar => {
+    const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
+    memoria.set(kMem, { em: Date.now(), dados });
+    if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, {
+      forcar: forcar || congelada, slug, antes: hashLido,
+      aoMudar: aoMudar ? anterior => aoMudar(env, /** @type {ListagemDrive} */ (anterior), dados) : undefined,
+    });
+    const store = congelada ? null : cacheStore();
+    if (store) {
+      try {
+        await store.put(kCache, new Response(JSON.stringify(dados), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
+        }));
+      } catch (e) {
+        console.error('galeria: escrita do cache falhou', e);
+      }
+    }
+    return dados;
+  };
+
+  return leComRenovacao(env, ctx, { kMem, leaseChave: `l:${kMem}`, memo: memoria, ttlMs, atualizar, fonte, refaz });
 }
 
 /**
@@ -1059,75 +1178,78 @@ const chaveCaps = id => `https://fotos.invalid/__galeria/capitulos/${id}/v1`;
  * nível), guardada pelo mesmo prazo das listagens (memória + Cache API).
  * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, auto?: boolean, periodo?: number, slug?: string }} [opts] política de renovação (ver listaPasta)
+ * @param {{ atualizar?: boolean, auto?: boolean, periodo?: number, slug?: string, ctx?: { waitUntil?: (p: Promise<any>) => void } }} [opts] política de renovação (ver listaPasta)
  * @returns {Promise<CapitulosDrive>}
  */
-export async function listaCapitulos(env, pasta, { atualizar = false, auto = true, periodo = GALERIA_LISTA_TTL_S, slug = '' } = {}) {
+export async function listaCapitulos(env, pasta, { atualizar = false, auto = true, periodo = GALERIA_LISTA_TTL_S, slug = '', ctx } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
   if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
   const congelada = !auto;
   const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
   const chaveSnap = `c:${pasta.id}`;
-  let semFoto = false;
-  if (!atualizar) {
-    const mem = memoriaCaps.get(pasta.id);
-    if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
-    if (congelada) {
-      const foto = await lerSnapshot(env, chaveSnap, 'v1');
-      if (foto) {
-        try {
-          const dados = /** @type {CapitulosDrive} */ (JSON.parse(foto.dados));
-          if (dados && dados.v === 1 && Array.isArray(dados.caps)) {
-            memoriaCaps.set(pasta.id, { em: Date.now(), dados });
-            return dados;
-          }
-        } catch (e) {
-          console.error('galeria: foto dos capítulos ilegível', e);
-        }
-      }
-      semFoto = true;
-    } else {
+
+  /** @type {string | null | undefined} */
+  let hashLido;
+  /** @param {boolean} temVelho @returns {Promise<{ dados: CapitulosDrive, fresco: boolean } | null>} */
+  const fonte = async temVelho => {
+    if (!congelada) {
       const store = cacheStore();
       if (store) {
         try {
           const hit = await store.match(chaveCaps(pasta.id));
           if (hit) {
             const dados = /** @type {CapitulosDrive} */ (await hit.json());
-            if (dados && dados.v === 1 && Array.isArray(dados.caps) && Date.now() - Date.parse(dados.em) < ttlMs) {
-              memoriaCaps.set(pasta.id, { em: Date.now(), dados });
-              return dados;
-            }
+            if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados, fresco: Date.now() - Date.parse(dados.em) < ttlMs };
           }
         } catch (e) {
           console.error('galeria: leitura do cache dos capítulos falhou', e);
         }
       }
     }
-  }
-  const pagina = await chamaDrive(chave, { id: pasta.id, rk: pasta.resourceKey }, '', true);
-  /** @type {{ id: string, rk: string, bruto: string }[]} */
-  const pastas = [];
-  for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
-    if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
-    pastas.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', bruto: String(f.name || 'Sem nome').slice(0, 120) });
-  }
-  const truncada = !!pagina.nextPageToken || pastas.length > GALERIA_MAX_CAPITULOS;
-  /** @type {CapitulosDrive} */
-  const dados = { v: 1, pasta: pasta.id, em: new Date().toISOString(), truncada, caps: montaCapitulos(pastas.slice(0, GALERIA_MAX_CAPITULOS)) };
-  memoriaCaps.set(pasta.id, { em: Date.now(), dados });
-  await gravaSnapshot(env, chaveSnap, 'v1', dados, { forcar: atualizar || semFoto, slug });
-  const store = congelada ? null : cacheStore();
-  if (store) {
-    try {
-      await store.put(chaveCaps(pasta.id), new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
-      }));
-    } catch (e) {
-      console.error('galeria: escrita do cache dos capítulos falhou', e);
+    if (!temVelho) {
+      const foto = await lerSnapshot(env, chaveSnap, 'v1');
+      hashLido = foto ? foto.hash : null;
+      if (foto) {
+        try {
+          const dados = /** @type {CapitulosDrive} */ (JSON.parse(foto.dados));
+          if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados, fresco: congelada };
+        } catch (e) {
+          console.error('galeria: foto dos capítulos ilegível', e);
+        }
+      }
     }
-  }
-  return dados;
+    return null;
+  };
+
+  /** @param {boolean} forcar */
+  const refaz = async forcar => {
+    const pagina = await chamaDrive(chave, { id: pasta.id, rk: pasta.resourceKey }, '', true);
+    /** @type {{ id: string, rk: string, bruto: string }[]} */
+    const pastas = [];
+    for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
+      if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
+      pastas.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', bruto: String(f.name || 'Sem nome').slice(0, 120) });
+    }
+    const truncada = !!pagina.nextPageToken || pastas.length > GALERIA_MAX_CAPITULOS;
+    /** @type {CapitulosDrive} */
+    const dados = { v: 1, pasta: pasta.id, em: new Date().toISOString(), truncada, caps: montaCapitulos(pastas.slice(0, GALERIA_MAX_CAPITULOS)) };
+    memoriaCaps.set(pasta.id, { em: Date.now(), dados });
+    await gravaSnapshot(env, chaveSnap, 'v1', dados, { forcar: forcar || congelada, slug, antes: hashLido });
+    const store = congelada ? null : cacheStore();
+    if (store) {
+      try {
+        await store.put(chaveCaps(pasta.id), new Response(JSON.stringify(dados), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
+        }));
+      } catch (e) {
+        console.error('galeria: escrita do cache dos capítulos falhou', e);
+      }
+    }
+    return dados;
+  };
+
+  return leComRenovacao(env, ctx, { kMem: pasta.id, leaseChave: `c:${pasta.id}`, memo: memoriaCaps, ttlMs, atualizar, fonte, refaz });
 }
 
 /**
@@ -1245,12 +1367,13 @@ export function limpaCacheCapitulos() { memoriaCaps.clear(); memoriaResumo.clear
  * @param {Record<string, any>} event
  * @param {string} [capSlug]
  * @param {boolean} [atualizar]
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx] o contexto da invocação (releitura em segundo plano)
  * @returns {Promise<
  *   { kind: 'ok', raiz: { id: string, resourceKey: string }, pasta: { id: string, resourceKey: string } | null, caps: CapitulosDrive | null, capitulo: Capitulo | null, anterior: Capitulo | null, proximo: Capitulo | null, maxChamadas: number }
  *   | { kind: 'nao' }
  *   | { kind: 'erro', codigo: string, mensagem: string }>}
  */
-export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false) {
+export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false, ctx = undefined) {
   const raiz = pastaDoDrive(event.driveUrl);
   if (!raiz) return { kind: 'erro', codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
   if (!event.galeriaCapitulos) {
@@ -1259,7 +1382,7 @@ export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false)
   }
   let caps;
   try {
-    caps = await listaCapitulos(env, raiz, { atualizar, slug: String(event.slug || ''), ...politicaDaGaleria(event) });
+    caps = await listaCapitulos(env, raiz, { atualizar, ctx, slug: String(event.slug || ''), ...politicaDaGaleria(event) });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return { kind: 'erro', codigo: e.codigo, mensagem: e.message };

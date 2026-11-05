@@ -314,6 +314,42 @@ export class RateLimiter extends DurableObject {
     return { ok: true, retryAfter: 0 };
   }
 
+  /**
+   * Lease (item 1g): direito exclusivo, por `ms`, de fazer um trabalho caro
+   * (reler a lista do Drive). Atômico pelo mesmo motivo de `check()`: leitura
+   * e gravação sem `await` no meio. Quem pergunta e NÃO ganha não grava nada.
+   * Quando o prazo passa, o alarme recolhe o objeto.
+   * @param {number} ms
+   * @returns {Promise<boolean>} true se este chamador ganhou
+   */
+  async lease(ms) {
+    const agora = Date.now();
+    /** @type {number | undefined} */
+    const ate = await this.ctx.storage.get('l');
+    if (typeof ate === 'number' && ate > agora) return false;
+    const novo = agora + Math.max(1000, Math.floor(ms));
+    await this.ctx.storage.put('l', novo);
+    await this.ctx.storage.setAlarm(novo + 1000);
+    return true;
+  }
+
+  /**
+   * Quem ganhou o lease e terminou BEM encurta o que sobrou dele para uma
+   * folga curta (`ms`): a lista nova já está guardada, e um isolate retardatário
+   * não deve reler de novo na hora — mas também não deve esperar 45 s por uma
+   * leitura que já acabou. Falha NÃO chama isto: o lease inteiro é o freio.
+   * @param {number} ms
+   */
+  async solta(ms) {
+    if (ms <= 0) {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+    const novo = Date.now() + Math.floor(ms);
+    await this.ctx.storage.put('l', novo);
+    await this.ctx.storage.setAlarm(novo + 1000);
+  }
+
   // Zera o objeto: janela, balde e alarme. Só a PRÉVIA chama (a ação "Zerar
   // os limites deste aparelho", src/previa.js), e cada prévia tem os Durable
   // Objects dela — em produção nenhuma rota chega aqui. Objeto vazio é
