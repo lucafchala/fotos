@@ -450,6 +450,17 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
        validador da skill de dataviz (docs/PAINEL.md, "Métricas"). Texto NUNCA
        usa a cor da série: números e rótulos ficam na tinta do texto, e a
        marca colorida ao lado é que identifica a série. */
+    /* Abas das métricas (Geral | Galeria): role=tablist, setas/Home/End. */
+    .abas-met{display:flex;gap:.25rem;border-bottom:1px solid var(--border);margin:0 0 1rem;padding:4px 4px 0}
+    .aba-met{flex:0 0 auto;min-height:44px;padding:0 1.1rem;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--text2);font-size:.88rem;font-weight:500}
+    .aba-met:hover{color:var(--text)}
+    .aba-met[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+    .metrics-resumo.galeria-resumo{margin-bottom:1rem}
+    .cap-rank{display:flex;flex-direction:column;gap:.5rem;margin:.75rem 0 0;padding:0;list-style:none}
+    .cap-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.3rem .75rem;align-items:center}
+    .cap-nome{min-width:0;font-size:.86rem;font-weight:600;overflow-wrap:anywhere}
+    .cap-num{font-size:.78rem;color:var(--text2);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .cap-item .barra-trilho{grid-column:1 / -1}
     .filtros-metricas{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.75rem}
     .filtros-metricas .chips{flex:0 1 auto}
     .filtros-metricas select{flex:1 1 200px;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.6rem .8rem;border-radius:9px;font-size:.85rem;outline:none;-webkit-appearance:none}
@@ -853,6 +864,43 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         <option value="">Todos os projetos</option>
       </select>
     </div>
+    <div class="abas-met" role="tablist" aria-label="Tipo de métrica" id="metrics-abas">
+      <button type="button" class="aba-met" role="tab" id="mtab-geral" aria-selected="true" aria-controls="mpanel-geral" tabindex="0" data-onclick="escolheAbaMetricas" data-aba="geral">Geral</button>
+      <button type="button" class="aba-met" role="tab" id="mtab-galeria" aria-selected="false" aria-controls="mpanel-galeria" tabindex="-1" data-onclick="escolheAbaMetricas" data-aba="galeria">Galeria</button>
+    </div>
+
+    <div role="tabpanel" id="mpanel-galeria" aria-labelledby="mtab-galeria" hidden>
+      <div class="bloco-cabeca" style="margin-bottom:.75rem">
+        <div>
+          <h2 style="font-size:1rem">Galeria</h2>
+          <p class="bloco-desc" id="galeria-desc">Carregando…</p>
+        </div>
+        <div class="bloco-acoes">
+          <button class="btn-sm" id="galeria-csv" data-onclick="exportGaleriaCSV">⬇ CSV</button>
+        </div>
+      </div>
+      <div id="galeria-resumo" class="metrics-resumo galeria-resumo" hidden></div>
+      <div class="bloco" id="bloco-galeria-aberturas">
+        <h2>Aberturas da galeria por dia</h2>
+        <p class="bloco-desc" id="galeria-aberturas-desc"></p>
+        <div class="legenda" id="galeria-aberturas-legenda"></div>
+        <div class="grafico" id="grafico-galeria-aberturas" role="img" aria-label="Aberturas da galeria por dia"></div>
+      </div>
+      <div class="bloco" id="bloco-galeria-baixadas">
+        <h2>Fotos baixadas por dia</h2>
+        <p class="bloco-desc" id="galeria-baixadas-desc"></p>
+        <div class="legenda" id="galeria-baixadas-legenda"></div>
+        <div class="grafico" id="grafico-galeria-baixadas" role="img" aria-label="Fotos baixadas por dia"></div>
+        <p class="metrics-nota">"Para redes" é o arquivo da pasta do Instagram; "tamanho máximo" é o original. Uma pessoa pode baixar várias fotos numa abertura, por isso a razão pode passar de 1.</p>
+      </div>
+      <div class="bloco" id="bloco-galeria-capitulos" hidden>
+        <h2>Capítulos mais abertos</h2>
+        <p class="bloco-desc" id="galeria-capitulos-desc"></p>
+        <ol class="cap-rank" id="galeria-capitulos"></ol>
+      </div>
+    </div>
+
+    <div role="tabpanel" id="mpanel-geral" aria-labelledby="mtab-geral">
     <div id="metrics-resumo" class="metrics-resumo" hidden></div>
 
     <div class="bloco" id="bloco-acessos">
@@ -932,6 +980,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         mexe quando você testa recarregando — é assim de propósito.
       </p>
       <div class="bloco-tabela"><div id="metrics-body"><p class="empty">Carregando…</p></div></div>
+    </div>
     </div>
   </section>
 
@@ -1329,6 +1378,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     })();
     let metricsProjeto = '';
     let metricsOrdem = 'views';
+    let metricsAba = 'geral';
     let recorteAtual = null;
     let geoAcessos = null;
     let cruzIdx = -1;
@@ -1530,6 +1580,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         case 'exportSerieCSV': exportSerieCSV(); break;
         case 'loadMetrics': loadMetrics(el); break;
         case 'carregaApagadas': carregaApagadas(el); break;
+        case 'escolheAbaMetricas': escolheAbaMetricas(el.dataset.aba, false); break;
+        case 'exportGaleriaCSV': exportGaleriaCSV(); break;
         case 'escolhePeriodo': escolhePeriodo(el); break;
         case 'ordenaRanking': ordenaRanking(el); break;
         case 'alternaTabelaAcessos': alternaTabelaAcessos(); break;
@@ -2526,6 +2578,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       renderSemana();
       renderPortao();
       renderRanking();
+      renderGaleria();
     }
 
     function escolhePeriodo(el) {
@@ -2875,6 +2928,151 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       }).join('') + (semVisita ? '<p class="rank-resto">' + semVisita + (semVisita === 1 ? ' projeto sem visita' : ' projetos sem visita') + ' no período.</p>' : '');
     }
 
+    // ---- Métricas: aba Galeria ----
+    // Role=tablist com setas, Home e End. Só uma aba na ordem do Tab
+    // (tabindex roving); a outra se alcança pelas setas.
+    function escolheAbaMetricas(aba, foco) {
+      if (aba !== 'geral' && aba !== 'galeria') return;
+      metricsAba = aba;
+      ['geral', 'galeria'].forEach(function (a) {
+        const t = document.getElementById('mtab-' + a);
+        const p = document.getElementById('mpanel-' + a);
+        const ativa = a === aba;
+        if (t) { t.setAttribute('aria-selected', String(ativa)); t.tabIndex = ativa ? 0 : -1; if (ativa && foco) t.focus(); }
+        if (p) p.hidden = !ativa;
+      });
+      if (aba === 'galeria') renderGaleria();
+      else renderMetricas();
+    }
+    document.addEventListener('keydown', function (ev) {
+      const t = ev.target && ev.target.closest ? ev.target.closest('[role="tab"][data-aba]') : null;
+      if (!t) return;
+      const abas = ['geral', 'galeria'];
+      let i = abas.indexOf(t.dataset.aba);
+      if (ev.key === 'ArrowRight') i = (i + 1) % abas.length;
+      else if (ev.key === 'ArrowLeft') i = (i + abas.length - 1) % abas.length;
+      else if (ev.key === 'Home') i = 0;
+      else if (ev.key === 'End') i = abas.length - 1;
+      else return;
+      ev.preventDefault();
+      escolheAbaMetricas(abas[i], true);
+    });
+
+    function nomeDoCapitulo(slug) {
+      const t = String(slug).replace(/-/g, ' ');
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    }
+
+    function fmtRazao(v) { return v === null ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+
+    // Desenha a aba Galeria do projeto escolhido (ou da soma de todos).
+    function renderGaleria() {
+      if (metricsAba !== 'galeria') return;
+      const desc = document.getElementById('galeria-desc');
+      const res = document.getElementById('galeria-resumo');
+      const csv = document.getElementById('galeria-csv');
+      const g = serieDiaria && serieDiaria.primeiroDia ? recorteGaleria(serieDiaria, metricsPeriodo, metricsProjeto) : null;
+      const quem = metricsProjeto ? tituloDoProjeto(metricsProjeto) : 'todos os projetos';
+      const aberturas = document.getElementById('grafico-galeria-aberturas');
+      const baixadas = document.getElementById('grafico-galeria-baixadas');
+      const bloco = document.getElementById('bloco-galeria-capitulos');
+      aberturas.innerHTML = '';
+      baixadas.innerHTML = '';
+      document.getElementById('galeria-aberturas-legenda').innerHTML = '';
+      document.getElementById('galeria-baixadas-legenda').innerHTML = '';
+      document.getElementById('galeria-aberturas-desc').textContent = '';
+      document.getElementById('galeria-baixadas-desc').textContent = '';
+      bloco.hidden = true;
+      if (csv) csv.disabled = !g;
+      if (!g) {
+        desc.textContent = serieDiaria ? 'Ainda não há contagem por dia.' : 'Não deu para carregar a contagem por dia. Toque em Atualizar para tentar de novo.';
+        res.hidden = true;
+        return;
+      }
+      desc.textContent = 'Últimos ' + metricsPeriodo + ' dias, ' + quem + (metricsProjeto ? '' : '. Escolha um projeto no filtro para ver os capítulos') + '.';
+      const card = (num, lab, det, dica) => '<div class="resumo-card"' + (dica ? ' title="' + dica + '"' : '') + '><div class="resumo-num">' + num + '</div><div class="resumo-lab">' + lab + '</div>' + (det ? '<div class="resumo-delta">' + det + '</div>' : '') + '</div>';
+      const baixou = g.totR + g.totM;
+      const dG = g.temAnterior ? htmlVariacao(variacao(g.totG, g.antG), '%') : '';
+      const dB = g.temAnterior ? htmlVariacao(variacao(baixou, g.antB), '%') : '';
+      const dR = g.temAnterior && g.razao !== null && g.razaoAnt !== null
+        ? htmlVariacao({ dir: Math.sign(Math.round((g.razao - g.razaoAnt) * 10)), valor: Math.abs(Math.round((g.razao - g.razaoAnt) * 10) / 10) }, '') : '';
+      res.innerHTML = card(fmtN(g.totG), 'Abriram a galeria', dG || 'nos últimos ' + metricsPeriodo + ' dias')
+        + card(fmtN(baixou), 'Fotos baixadas', dB || (fmtN(g.totR) + ' para redes · ' + fmtN(g.totM) + ' no máximo'))
+        + card(fmtRazao(g.razao), 'Baixadas por abertura', dR || 'fotos baixadas ÷ aberturas', 'Fotos baixadas ÷ aberturas da galeria no período. Pode passar de 1: uma pessoa baixa várias fotos.');
+      res.hidden = false;
+
+      const largura = Math.max(240, Math.round(aberturas.clientWidth || 0));
+      const item = (cor, nome, total) => '<span><i style="background:' + cor + '"></i>' + nome + ' <b>' + fmtN(total) + '</b></span>';
+      if (!g.totG) {
+        aberturas.innerHTML = '<div class="grafico-vazio">Nenhuma abertura da galeria no período.</div>';
+      } else {
+        aberturas.innerHTML = svgLinhas({ largura: largura, altura: largura < 560 ? 180 : 210, dias: g.dias, rotulosFim: largura >= 560,
+          series: [{ nome: 'Abriram a galeria', curto: 'Galeria', cor: COR_GALERIA, valores: g.galeria }] }).svg;
+        document.getElementById('galeria-aberturas-legenda').innerHTML = item(COR_GALERIA, 'Abriram a galeria', g.totG);
+        const pico = indicePico(g.galeria);
+        document.getElementById('galeria-aberturas-desc').textContent = fmtN(g.totG) + ' aberturas.' + (pico >= 0 ? ' Pico: ' + fmtN(g.galeria[pico]) + ' em ' + diaLongo(g.dias[pico]) + '.' : '');
+      }
+      aberturas.setAttribute('aria-label', 'Gráfico de linhas. Aberturas da galeria por dia, ' + quem + ': ' + fmtN(g.totG) + ' no período.');
+      if (!baixou) {
+        baixadas.innerHTML = '<div class="grafico-vazio">Nenhuma foto baixada no período.</div>';
+      } else {
+        baixadas.innerHTML = svgLinhas({ largura: largura, altura: largura < 560 ? 180 : 210, dias: g.dias, rotulosFim: largura >= 560,
+          series: [
+            { nome: 'Para redes', curto: 'Redes', cor: COR_REDES, valores: g.redes },
+            { nome: 'Tamanho máximo', curto: 'Máximo', cor: COR_MAX, valores: g.max },
+          ] }).svg;
+        document.getElementById('galeria-baixadas-legenda').innerHTML = item(COR_REDES, 'Para redes', g.totR) + item(COR_MAX, 'Tamanho máximo', g.totM);
+        document.getElementById('galeria-baixadas-desc').textContent = fmtN(baixou) + ' fotos baixadas.';
+      }
+      baixadas.setAttribute('aria-label', 'Gráfico de linhas. Fotos baixadas por dia, ' + quem + ': ' + fmtN(g.totR) + ' para redes e ' + fmtN(g.totM) + ' no tamanho máximo.');
+
+      // Capítulos: só com um projeto escolhido que tem capítulos ligados.
+      const ev = events.find(function (x) { return x.slug === metricsProjeto; });
+      if (ev && ev.galeriaCapitulos) {
+        bloco.hidden = false;
+        const lista = document.getElementById('galeria-capitulos');
+        const dc = document.getElementById('galeria-capitulos-desc');
+        if (!g.capitulos.length) {
+          dc.textContent = 'Nenhum capítulo foi aberto no período.';
+          lista.innerHTML = '';
+        } else {
+          dc.textContent = 'Aberturas de cada capítulo nos últimos ' + metricsPeriodo + ' dias' + (g.temAnterior ? ', com a variação sobre o período anterior' : '') + '.';
+          const max = Math.max(1, g.capitulos[0].total);
+          lista.innerHTML = g.capitulos.map(function (c) {
+            const v = g.temAnterior ? variacao(c.total, c.ant) : null;
+            const delta = v ? ' · ' + (v.dir > 0 ? 'alta de ' : v.dir < 0 ? 'queda de ' : 'igual ') + (v.dir ? v.valor + '%' : '') : '';
+            return '<li class="cap-item"><span class="cap-nome">' + esc(nomeDoCapitulo(c.slug)) + '</span><span class="cap-num">' + fmtN(c.total) + (c.total === 1 ? ' abertura' : ' aberturas') + delta + '</span>'
+              + '<span class="barra-trilho"><i style="width:' + Math.max(1, c.total / max * 100).toFixed(1) + '%;background:' + COR_GALERIA + '"></i></span></li>';
+          }).join('');
+        }
+      }
+    }
+
+    async function exportGaleriaCSV() {
+      try {
+        const d = serieDiaria || await api('GET', '/api/metrics/diario?dias=180');
+        if (!d || !d.primeiroDia) return toast('Ainda não há contagem por dia para exportar.', 'err');
+        const ini = Math.max(0, d.dias.findIndex(function (x) { return x >= d.primeiroDia; }));
+        const rows = [];
+        for (const slug of Object.keys(d.projetos).sort()) {
+          if (metricsProjeto && slug !== metricsProjeto) continue;
+          const p = d.projetos[slug];
+          const caps = (d.capitulos && d.capitulos[slug]) || {};
+          for (let i = ini; i < d.dias.length; i++) {
+            const de = function (arr) { return (arr && arr[i]) || 0; };
+            rows.push({ dia: d.dias[i], slug: slug, capitulo: '', aberturas: de(p.galeria), baixadas_redes: de(p.baixarRedes), baixadas_max: de(p.baixarMax) });
+            for (const cap of Object.keys(caps).sort()) {
+              rows.push({ dia: d.dias[i], slug: slug, capitulo: cap, aberturas: de(caps[cap]), baixadas_redes: '', baixadas_max: '' });
+            }
+          }
+        }
+        if (!rows.length) return toast('Nenhuma abertura da galeria por dia ainda.', 'err');
+        downloadCSV('galeria-por-dia-' + csvDate() + '.csv', ['dia', 'slug', 'capitulo', 'aberturas', 'baixadas_redes', 'baixadas_max'], rows);
+      } catch(err) {
+        toast(err.message || 'Erro ao exportar a galeria por dia.', 'err');
+      }
+    }
+
     // ---- Métricas: contas puras ----
     // Sem DOM e sem estado de fora: tests/painel.test.js tira cada uma deste
     // arquivo e a executa no node (a mesma técnica dos pares cliente/servidor
@@ -2933,6 +3131,28 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         totV: tot(views), totD: tot(drive), totG: tot(galeria), totR: tot(redes), totM: tot(max),
         antV: antV, antD: antD, antG: antG, antB: antB, temAnterior: temAnterior,
       };
+    }
+
+    // A aba Galeria: o recorte de recorteMetricas mais a razão baixadas ÷
+    // aberturas (null sem abertura) e, com um projeto escolhido, o ranking de
+    // capítulos (aberturas no período e no anterior, do maior para o menor).
+    function recorteGaleria(d, n, slug) {
+      const r = recorteMetricas(d, n, slug);
+      const razao = r.totG > 0 ? (r.totR + r.totM) / r.totG : null;
+      const razaoAnt = r.temAnterior && r.antG > 0 ? r.antB / r.antG : null;
+      const total = d.dias.length;
+      const ini = Math.max(0, total - n);
+      const porCap = slug && d.capitulos && d.capitulos[slug] ? d.capitulos[slug] : {};
+      const capitulos = Object.keys(porCap).map(function (c) {
+        const arr = porCap[c];
+        let t = 0, a = 0;
+        for (let i = ini; i < total; i++) t += arr[i] || 0;
+        if (r.temAnterior) for (let i = ini - n; i < ini; i++) a += arr[i] || 0;
+        return { slug: c, total: t, ant: a };
+      }).filter(function (c) { return c.total > 0; })
+        .sort(function (x, y) { return (y.total - x.total) || x.slug.localeCompare(y.slug, 'pt-BR'); });
+      return { dias: r.dias, galeria: r.galeria, redes: r.redes, max: r.max, totG: r.totG, totR: r.totR, totM: r.totM,
+        antG: r.antG, antB: r.antB, temAnterior: r.temAnterior, razao: razao, razaoAnt: razaoAnt, capitulos: capitulos };
     }
 
     // Taxa de abertura = (abriram o Drive + abriram a galeria) ÷ visitas, de 0 a 1

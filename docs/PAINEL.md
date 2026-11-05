@@ -771,6 +771,33 @@ De cima para baixo, na ordem em que se lê:
    `fv_<slug>` de 1 h; HEAD e prefetch também não contam) — recarregar para
    testar não mexe no número, de propósito.
 
+**Aba "Galeria" (v3.1).** Acima de tudo isto há duas abas (`role="tablist"`,
+`#metrics-abas`): **Geral** (o que está descrito acima) e **Galeria**. Setas
+esquerda/direita, Home e End trocam de aba (tabindex móvel, `aria-selected`,
+`aria-controls`); os filtros de período e de projeto valem para as duas. A aba
+Galeria mostra, para o recorte escolhido:
+
+- três cartões: **Abriram a galeria**, **Fotos baixadas** e **Baixadas por
+  abertura** (fotos baixadas ÷ aberturas; é uma razão e pode passar de 1, pois
+  quem abre baixa várias), cada um comparado com o período anterior de mesmo
+  tamanho;
+- a curva de **aberturas por dia** e a de **fotos baixadas por dia** ("para
+  redes" e "tamanho máximo"), com as mesmas cores da aba Geral e o mesmo
+  "Ver como tabela";
+- o **ranking por capítulo** (`#galeria-capitulos`), só para um projeto com
+  capítulos ligados: aberturas de cada capítulo no período e a diferença para o
+  anterior. O nome vem do slug da pasta (o painel não guarda o nome do
+  capítulo), então "festa-de-formatura" aparece como "Festa de formatura";
+- **⬇ CSV** (`#galeria-csv`): `galeria-por-dia-AAAA-MM-DD.csv`, colunas `dia`,
+  `slug`, `capitulo`, `aberturas`, `baixadas_redes`, `baixadas_max`.
+
+O servidor devolve os capítulos em `capitulos` na resposta de
+`/api/metrics/diario` (`{ <slug>: { <capitulo>: [aberturas por dia] } }`),
+lidos do contador `galeria_views:<slug>:<capitulo>`, que a abertura da página do
+capítulo já soma — nenhuma chamada nova. Não há top de fotos mais baixadas: o
+site não conta por foto (só por capítulo), e começar a contar por foto
+multiplicaria as chaves do contador.
+
 Estados: "Carregando…"; série que não carregou ("Não deu para carregar a
 contagem por dia. Toque em “Atualizar”…", e o resto da seção segue com os
 totais); nenhum dia contado ainda ("A contagem por dia começa com a versão
@@ -1388,6 +1415,7 @@ acrescenta uma — não é contrato):
 | modos do portão com contagem e % | as três `.barra-rot` de `#grafico-portao`, cada uma com um "%" |
 | tocar num projeto foca os gráficos nele; tocar de novo volta a todos | o item do ranking com `aria-pressed="true"`, o `#metrics-projeto` escolhido e o primeiro número do resumo mudando; de novo, o filtro vazio |
 | CSV da série por dia | o download `metricas-por-dia-AAAA-MM-DD.csv`, que começa com `dia,slug,titulo,visitas,abriram_drive` |
+| aba Galeria das métricas (3.1) | `role=tablist` com `aria-selected`/`tabindex`, abas de 44 px no toque, cartões "Abriram a galeria", "Fotos baixadas" e "Baixadas por abertura" com a variação, as duas curvas, o ranking de capítulos ("Abertura", "Cerimonia", "Festa") só no projeto com capítulos, o CSV `galeria-por-dia-AAAA-MM-DD.csv` com `,festa,`, setas/Home/End no teclado e a volta para Geral |
 | as métricas desenhadas não vazam para o lado | a mesma medida do vazamento, com os gráficos desenhados |
 | ajustes em quatro grupos (o último diz a versão) | `.grupo-titulo`: Site, Dados, Conta, Sobre |
 | trocar a senha | a confirmação digitada (`TROCAR`) e o toast |

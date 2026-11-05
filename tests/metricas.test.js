@@ -341,6 +341,28 @@ describe('GET /api/metrics/diario', () => {
     for (const k of ['views', 'driveClicks', 'galeria', 'baixarRedes', 'baixarMax']) expect(f[k]).toHaveLength(7);
   });
 
+  it('capítulos entram à parte (por projeto), sem somar em outro lugar nem vazar projeto desconhecido', async () => {
+    vaiPara(diaMenos(HOJE, 1));
+    await bumpCounter(env, null, 'galeria_views:formatura:festa', 2);
+    vaiPara(HOJE);
+    await bumpCounter(env, null, 'galeria_views:formatura:festa', 3);
+    await bumpCounter(env, null, 'galeria_views:formatura:cerimonia');
+    await bumpCounter(env, null, 'galeria_views:formatura', 5);
+    await bumpCounter(env, null, 'galeria_views:apagado:festa', 9);
+    const d = await (await pede('?dias=7')).json();
+    expect(Object.keys(d.capitulos)).toEqual(['formatura']);
+    expect(d.capitulos.formatura.festa).toEqual([0, 0, 0, 0, 0, 2, 3]);
+    expect(d.capitulos.formatura.cerimonia.at(-1)).toBe(1);
+    // A abertura do projeto continua só dela: a do capítulo não a infla.
+    expect(d.projetos.formatura.galeria.at(-1)).toBe(5);
+    expect(Object.keys(d.projetos)).toEqual(['formatura']);
+  });
+
+  it('sem capítulo nenhum: `capitulos` vem vazio', async () => {
+    const d = await (await pede('?dias=7')).json();
+    expect(d.capitulos).toEqual({});
+  });
+
   it('projeto oculto também aparece — o painel é do dono', async () => {
     await bumpCounter(env, null, 'views:casamento');
     const d = await (await pede('?dias=7')).json();

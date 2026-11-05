@@ -77,12 +77,13 @@ const ev = (i, o) => ({
   id: 'ev' + i, slug: o.slug, title: o.title, status: o.status || 'entregue',
   driveUrl: `https://drive.google.com/drive/folders/PASTA_${String(i).padStart(10, '0')}`,
   driveUrlInstagram: '', projectUrl: '', photos: [lh(`FOTO_${i}_AAAAAAAAAA`)], thumbnailUrl: lh(`FOTO_${i}_AAAAAAAAAA`),
+  galeriaCapitulos: !!o.capitulos,
   visible: o.visible !== false, comingSoon: !!o.comingSoon, pinned: !!o.pinned, accessType: o.access || 'public',
   category: o.cat || 'Formatura', date: o.date || '2026-09-20', promisedDate: o.prazo || '', eventCredits: '',
   longDescription: 'Descrição.', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
 });
 const EVENTOS = [
-  ev(1, { slug: 'formatura-medicina-2026', title: 'Formatura Medicina 2026', pinned: true, date: '2026-10-04' }),
+  ev(1, { slug: 'formatura-medicina-2026', title: 'Formatura Medicina 2026', pinned: true, capitulos: true, date: '2026-10-04' }),
   ev(2, { slug: 'casamento-ana-e-joao', title: 'Casamento Ana & João', cat: 'Casamento', access: 'family', date: '2026-09-27' }),
   ev(3, { slug: 'piauifut-2026', title: 'PiauiFut+ 2026', cat: 'Esporte', status: 'em-edicao', prazo: '2026-01-10', date: '2026-09-14' }),
   ev(4, { slug: 'baile-de-gala', title: 'Baile de Gala 3º Ano', comingSoon: true, status: 'em-revisao', prazo: '2099-11-02', date: '2026-11-02' }),
@@ -727,6 +728,68 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(/^metricas-por-dia-\d{4}-\d{2}-\d{2}\.csv$/.test(baixado.suggestedFilename()) && csv.startsWith('dia,slug,titulo,visitas,abriram_drive'),
         `${rotulo}: CSV da série por dia`, baixado.suggestedFilename());
 
+      // ---- 6b. Aba "Galeria" das métricas (v3.1) -----------------------------
+      // role=tablist com teclado, os números da galeria do projeto, as duas
+      // curvas, o ranking de capítulos (só projeto com capítulos) e o CSV.
+      const abaGeral = page.locator('#mtab-geral');
+      const abaGaleria = page.locator('#mtab-galeria');
+      registra((await page.locator('#metrics-abas[role="tablist"] [role="tab"]').count()) === 2
+        && (await abaGeral.getAttribute('aria-selected')) === 'true' && (await abaGaleria.getAttribute('aria-selected')) === 'false'
+        && (await page.locator('#mpanel-galeria').isHidden()) && (await page.locator('#mpanel-geral').isVisible()),
+        `${rotulo}: métricas têm abas Geral e Galeria (tablist); Geral aberta por padrão`);
+      if (toque) {
+        const alturas = await page.$$eval('#metrics-abas [role="tab"]', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+        registra(alturas.every(h => h >= 44), `${rotulo}: as abas das métricas têm 44 px de alto`, alturas);
+      }
+      await aciona(abaGaleria, toque);
+      await page.waitForSelector('#grafico-galeria-aberturas svg', { timeout: 6000 });
+      registra((await abaGaleria.getAttribute('aria-selected')) === 'true' && (await page.locator('#mpanel-geral').isHidden()) && (await page.locator('#mpanel-galeria').isVisible())
+        && (await abaGaleria.getAttribute('tabindex')) === '0' && (await abaGeral.getAttribute('tabindex')) === '-1',
+        `${rotulo}: tocar em "Galeria" troca o painel e a aba na ordem do Tab`);
+      const rotulosGal = await page.locator('#galeria-resumo .resumo-lab').allTextContents();
+      registra(rotulosGal.join('|') === 'Abriram a galeria|Fotos baixadas|Baixadas por abertura', `${rotulo}: aba Galeria mostra aberturas, baixadas e a razão baixadas por abertura`, rotulosGal);
+      const deltaGal = ((await page.locator('#galeria-resumo .resumo-delta').first().textContent()) || '').trim();
+      registra(/vs\. 7 dias antes|vs\. 30 dias antes/.test(deltaGal), `${rotulo}: o número da galeria vem comparado com o período anterior ("${deltaGal}")`, deltaGal);
+      registra((await page.locator('#grafico-galeria-aberturas svg path[fill="none"]').count()) === 1 && (await page.locator('#grafico-galeria-baixadas svg path[fill="none"]').count()) === 2
+        && (await page.locator('#galeria-baixadas-legenda span').count()) === 2,
+        `${rotulo}: curva de aberturas por dia e duas curvas de baixadas (para redes, máximo)`);
+      registra(await page.locator('#bloco-galeria-capitulos').isHidden(), `${rotulo}: com todos os projetos não há ranking de capítulos`);
+      await page.selectOption('#metrics-projeto', 'casamento-ana-e-joao');
+      await espera(page, 250);
+      registra(await page.locator('#bloco-galeria-capitulos').isHidden(), `${rotulo}: projeto sem capítulos não mostra ranking de capítulos`);
+      await page.selectOption('#metrics-projeto', 'formatura-medicina-2026');
+      await espera(page, 250);
+      const capitulosRank = await page.locator('#galeria-capitulos .cap-nome').allTextContents();
+      registra(await page.locator('#bloco-galeria-capitulos').isVisible() && capitulosRank.join('|') === 'Abertura|Cerimonia|Festa',
+        `${rotulo}: projeto com capítulos lista os capítulos do mais ao menos aberto`, capitulosRank);
+      const medidaGal = await page.evaluate(() => ({ sw: document.scrollingElement ? document.scrollingElement.scrollWidth : 0 }));
+      registra(medidaGal.sw <= viewport.width, `${rotulo}: a aba Galeria não vaza para o lado`, medidaGal);
+      const [baixadoGal] = await Promise.all([
+        page.waitForEvent('download', { timeout: 6000 }),
+        aciona(page.locator('#galeria-csv'), toque),
+      ]);
+      const caminhoGal = await baixadoGal.path();
+      const csvGal = caminhoGal ? readFileSync(caminhoGal, 'utf8').replace(/^\uFEFF/, '') : '';
+      registra(/^galeria-por-dia-\d{4}-\d{2}-\d{2}\.csv$/.test(baixadoGal.suggestedFilename()) && csvGal.startsWith('dia,slug,capitulo,aberturas,baixadas_redes,baixadas_max')
+        && csvGal.includes(',festa,'), `${rotulo}: CSV da galeria por dia (com os capítulos)`, baixadoGal.suggestedFilename());
+      if (PRINTS) await print(page, `${id}-metricas-galeria`);
+      if (!toque) {
+        await abaGaleria.focus();
+        await page.keyboard.press('ArrowLeft');
+        const aposEsq = (await abaGeral.getAttribute('aria-selected')) === 'true' && await abaGeral.evaluate(el => el === document.activeElement);
+        await page.keyboard.press('ArrowRight');
+        const aposDir = (await abaGaleria.getAttribute('aria-selected')) === 'true' && await abaGaleria.evaluate(el => el === document.activeElement);
+        await page.keyboard.press('Home');
+        const aposHome = (await abaGeral.getAttribute('aria-selected')) === 'true';
+        await page.keyboard.press('End');
+        const aposEnd = (await abaGaleria.getAttribute('aria-selected')) === 'true';
+        registra(aposEsq && aposDir && aposHome && aposEnd, `${rotulo}: nas abas, setas, Home e End trocam e levam o foco`, { aposEsq, aposDir, aposHome, aposEnd });
+      }
+      await aciona(abaGeral, toque);
+      await page.selectOption('#metrics-projeto', '');
+      await espera(page, 250);
+      registra((await page.locator('#mpanel-galeria').isHidden()) && (await page.locator('#grafico-acessos svg').count()) === 1, `${rotulo}: voltar à aba Geral redesenha o gráfico de acessos`);
+
       const medida = await page.evaluate(() => ({ sw: document.scrollingElement ? document.scrollingElement.scrollWidth : 0, escala: window.visualViewport ? window.visualViewport.scale : 1 }));
       registra(medida.sw <= viewport.width && medida.escala >= 0.99, `${rotulo}: as métricas desenhadas não vazam para o lado`, medida);
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -1119,6 +1182,10 @@ for (const escuro of [false, true]) {
       await page.evaluate(() => /** @type {HTMLElement} */ (document.querySelector('nav.nav [data-tab="metrics"]')).click());
       await espera(page, 800);
       await verificaAxe(page, registra, `painel: Métricas (${tema})`);
+      await page.evaluate(() => /** @type {HTMLElement} */ (document.getElementById('mtab-galeria')).click());
+      await page.selectOption('#metrics-projeto', 'formatura-medicina-2026');
+      await espera(page, 600);
+      await verificaAxe(page, registra, `painel: Métricas, aba Galeria com capítulos (${tema})`);
       registra(csp.length === 0 && erros.length === 0, `axe (${tema}): sem erro de JS nem mensagem de CSP`, [...erros, ...csp]);
     } finally {
       await ctx.close();

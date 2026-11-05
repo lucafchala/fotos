@@ -491,7 +491,7 @@ async function acao(request, url, env, autenticado) {
  */
 function chavesDeMetricas(eventos) {
   const chaves = ['gate:turnstile', 'gate:email', 'gate:noscript'];
-  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`, `galeria_views:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`);
+  for (const e of eventos) chaves.push(`views:${e.slug}`, `drive_clicks:${e.slug}`, `galeria_views:${e.slug}`, `baixar_redes:${e.slug}`, `baixar_max:${e.slug}`, `galeria_views:${e.slug}:*`);
   return chaves;
 }
 
@@ -544,7 +544,7 @@ export function metricasDeExemplo(eventos, hoje, dias) {
   const soma = (k, v) => { if (v > 0) out[k] = (out[k] || 0) + v; };
   const projetos = eventos
     .filter(e => !e.comingSoon && SLUG.test(String(e.slug || '')))
-    .map(e => ({ slug: e.slug, data: Date.parse(String(e.date || '') + 'T12:00:00Z'), peso: e.visible === false ? 0.15 : 1 }));
+    .map(e => ({ slug: e.slug, data: Date.parse(String(e.date || '') + 'T12:00:00Z'), peso: e.visible === false ? 0.15 : 1, caps: e.galeriaCapitulos === true }));
   for (let i = dias - 1; i >= 0; i--) {
     const dia = diaMenos(hoje, i);
     const t = base - i * 86400000;
@@ -562,6 +562,14 @@ export function metricasDeExemplo(eventos, hoje, dias) {
       // algumas fotos, quase todas "para redes".
       const g = Math.round(v * 0.55), br = g * 4, bm = Math.round(g * 0.6);
       soma(`d:${dia}:galeria_views:${p.slug}`, g); soma(`galeria_views:${p.slug}`, g);
+      // Projeto com capítulos: a abertura se reparte entre três capítulos de
+      // exemplo (50/30/20 %), sem sorteio a mais.
+      if (p.caps) {
+        for (const [cap, parte] of /** @type {const} */ ([['abertura', 0.5], ['cerimonia', 0.3], ['festa', 0.2]])) {
+          const gc = Math.round(g * parte);
+          soma(`d:${dia}:galeria_views:${p.slug}:${cap}`, gc); soma(`galeria_views:${p.slug}:${cap}`, gc);
+        }
+      }
       soma(`d:${dia}:baixar_redes:${p.slug}`, br); soma(`baixar_redes:${p.slug}`, br);
       soma(`d:${dia}:baixar_max:${p.slug}`, bm); soma(`baixar_max:${p.slug}`, bm);
     }

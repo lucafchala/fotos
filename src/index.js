@@ -1657,6 +1657,8 @@ export async function handleMetricsDiario(request, env, url) {
   // downloads) entra ao lado das visitas e do Drive.
   /** @type {Record<string, 'views'|'driveClicks'|'galeria'|'baixarRedes'|'baixarMax'>} */
   const CAMPO = { views: 'views', drive_clicks: 'driveClicks', galeria_views: 'galeria', baixar_redes: 'baixarRedes', baixar_max: 'baixarMax' };
+  /** Aberturas por dia de cada capítulo, por projeto (só existe com capítulos ligados). @type {Record<string, Record<string, number[]>>} */
+  const capitulos = {};
   /** @type {Record<string, number[]>} */
   const gate = Object.fromEntries(GATE_METODOS.map(m => [m, zeros()]));
   for (const [k, v] of Object.entries(serie)) {
@@ -1667,7 +1669,15 @@ export async function handleMetricsDiario(request, env, url) {
     const sep = chave.indexOf(':');
     const tipo = chave.slice(0, sep);
     const resto = chave.slice(sep + 1);
-    if (CAMPO[tipo]) {
+    if (tipo === 'galeria_views' && resto.includes(':')) {
+      // Abertura de um CAPÍTULO (`galeria_views:<projeto>:<capítulo>`): o "_" e
+      // o ":" nunca existem num slug de projeto, então a divisão é sem dúvida.
+      const corte = resto.indexOf(':');
+      const proj = resto.slice(0, corte);
+      if (!conhecidos.has(proj)) continue;
+      const porCap = capitulos[proj] || (capitulos[proj] = {});
+      (porCap[resto.slice(corte + 1)] || (porCap[resto.slice(corte + 1)] = zeros()))[i] += v;
+    } else if (CAMPO[tipo]) {
       if (!conhecidos.has(resto)) continue;
       const p = projetos[resto] || (projetos[resto] = { views: zeros(), driveClicks: zeros(), galeria: zeros(), baixarRedes: zeros(), baixarMax: zeros() });
       p[CAMPO[tipo]][i] += v;
@@ -1676,7 +1686,7 @@ export async function handleMetricsDiario(request, env, url) {
     }
   }
   const gateTotal = Object.fromEntries(GATE_METODOS.map(m => [m, totais[`gate:${m}`] || 0]));
-  return jsonOk({ hoje, dias, primeiroDia, projetos, gate, gateTotal });
+  return jsonOk({ hoje, dias, primeiroDia, projetos, capitulos, gate, gateTotal });
 }
 
 // ---------------------------------------------------------------------------
