@@ -26,12 +26,18 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const base = `/galeria/${slug}`;
   const dataEvento = event.date ? formatDatePT(String(event.date)) : '';
   const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  // Capítulo com resumo guardado dizendo 0 fotos não aparece para o visitante
+  // (a pasta existe, mas ainda não chegou nada); o dono o vê marcado "vazio".
+  // Sem resumo (ninguém abriu ainda) o capítulo aparece normalmente.
+  /** @param {{ id: string }} c */
+  const vazio = c => { const r = resumo[c.id]; return !!r && r.n === 0; };
+  const visiveis = caps.caps.filter(c => dono || !vazio(c));
   const descricao = previewDescription(
-    [dataEvento, `${caps.caps.length} ${caps.caps.length === 1 ? 'evento' : 'eventos'}`],
+    [dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''],
     `Galeria de fotos de ${titulo}, por Luca F. Chala. Escolha o evento para ver as fotos.`,
   );
   const ocultasSet = new Set(ocultas);
-  const cartoes = caps.caps.map(c => {
+  const cartoes = visiveis.map(c => {
     const r = resumo[c.id];
     // A capa é a primeira foto do capítulo que não está oculta.
     const capa = r ? r.capas.find(id => !ocultasSet.has(id)) : '';
@@ -40,8 +46,8 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     const img = capa
       ? `<img src="${escape(urlLh3(capa, 480))}" alt="" width="480" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
       : '<span class="ix-vazio" aria-hidden="true"></span>';
-    const sub = r ? (n === 1 ? '1 foto' : `${n} fotos`) : 'Ver fotos';
-    return `<li><a class="ix-card" href="${escape(href)}">${img}<span class="ix-nome">${escape(c.nome)}</span><span class="ix-sub">${escape(sub)}</span></a></li>`;
+    const sub = r ? (n === 0 ? 'vazio' : n === 1 ? '1 foto' : `${n} fotos`) : 'Ver fotos';
+    return `<li><a class="ix-card${vazio(c) ? ' ix-card-vazio' : ''}" href="${escape(href)}">${img}<span class="ix-nome">${escape(c.nome)}</span><span class="ix-sub">${escape(sub)}</span></a></li>`;
   });
   const og = caps.caps.map(c => resumo[c.id]).find(r => r && r.capas.find(id => !ocultasSet.has(id)));
   const ogCapa = og ? og.capas.find(id => !ocultasSet.has(id)) : '';
@@ -96,6 +102,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     .ix-card img,.ix-vazio{display:block;width:100%;aspect-ratio:3/2;object-fit:cover;background:var(--esqueleto)}
     .ix-nome{padding:.6rem .75rem .1rem;font-size:.92rem;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
     .ix-sub{padding:0 .75rem .75rem;font-size:.78rem;color:var(--text-muted)}
+    .ix-card-vazio{opacity:.65;border-style:dashed}
     .ix-vazio-msg{padding:2rem var(--pad);color:var(--text-muted)}
   </style>
 </head>
@@ -104,11 +111,11 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   <header class="ix-top">
     <a class="ix-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span>&nbsp;Página do projeto</a>
     <h1>${escape(titulo)}</h1>
-    <p class="ix-meta">${escape([dataEvento, `${caps.caps.length} ${caps.caps.length === 1 ? 'evento' : 'eventos'}`].filter(Boolean).join(' · '))}</p>
+    <p class="ix-meta">${escape([dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · '))}</p>
   </header>
   ${avisoTrunc}
   <main id="g-main" aria-label="Eventos">
-    ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : '<p class="ix-vazio-msg">A pasta não tem subpastas: não há eventos para mostrar.</p>'}
+    ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : `<p class="ix-vazio-msg">${dono && !caps.caps.length ? 'A pasta não tem subpastas: não há eventos para mostrar.' : 'As fotos estão chegando. Volte em breve.'}</p>`}
   </main>
 </body>
 </html>`;
