@@ -15,6 +15,7 @@ import { galeriaHTML } from './ui/galeria.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
+import { avisaAutor } from './avisoautor.js';
 import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -297,8 +298,8 @@ const worker = {
       if (path === '/api/events/bulk-category' && method === 'POST') return await handleBulkCategory(request, env);
       if (path === '/api/events/bulk-access' && method === 'POST') return await handleBulkAccessType(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
-      if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env);
-      if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env);
+      if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
+      if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
       if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
@@ -366,7 +367,7 @@ const worker = {
       // Admin API — removal requests
       if (path === '/api/removal-requests' && method === 'GET') return await handleGetRemovalRequests(request, env);
       const resolveMatch = path.match(RESOLVE_REQUEST_PATH_RE);
-      if (resolveMatch && method === 'PUT') return await handleResolveRequest(request, env, resolveMatch[1]);
+      if (resolveMatch && method === 'PUT') return await handleResolveRequest(request, env, resolveMatch[1], ctx);
 
       // Galeria própria (#235). Quem vê decide podeVerGaleria(); para quem não
       // pode, o mesmo 404 de uma rota que não existe.
@@ -2392,8 +2393,9 @@ async function handleGetRemovalRequests(request, env) {
  * @param {Request} request
  * @param {Env} env
  * @param {string} id
+ * @param {ExecutionContext} [ctx]
  */
-async function handleResolveRequest(request, env, id) {
+async function handleResolveRequest(request, env, id, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   // Só o registro deste pedido (#198): resolver não regrava a lista e não
@@ -2420,6 +2422,13 @@ async function handleResolveRequest(request, env, id) {
       noteKvFailure('escrita', e, 'decisão sobre a foto de um pedido da galeria');
       return jsonErr('A foto não foi atualizada: o banco de dados do site não respondeu. O pedido continua aberto — tente de novo em alguns minutos.', 503);
     }
+  }
+
+  // O autor da foto, se tem e-mail nos créditos, sabe o desfecho (depois que
+  // a foto foi de fato atualizada; o envio é de fundo e não pode falhar a ação).
+  if (desfecho && req.fotoId) {
+    const ev = (await getEvents(env)).find(e => e.slug === req.eventSlug);
+    if (ev) ctx?.waitUntil(avisaAutor(env, ev, { fotoId: req.fotoId, tipo: desfecho }));
   }
 
   // Send "resolved" email to requester. "Devolver à galeria" não manda o
@@ -3937,8 +3946,9 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
  * site; para tirar de vez, apaga-se no Drive. Uma escrita de KV por clique.
  * @param {Request} request
  * @param {Env} env
+ * @param {ExecutionContext} [ctx]
  */
-async function handleOcultarFoto(request, env) {
+async function handleOcultarFoto(request, env, ctx) {
   const authErr = await checkAuth(request, env);
   if (authErr) return authErr;
   const body = await readJsonBody(request);
@@ -3962,6 +3972,9 @@ async function handleOcultarFoto(request, env) {
   const pendentes = normalizaPendentes(events[idx].ocultasPendentes, ocultas);
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  // O autor da foto (se tem e-mail nos créditos) é avisado; sem esperar e sem
+  // poder falhar a ação.
+  ctx?.waitUntil(avisaAutor(env, events[idx], { fotoId: foto, tipo: body.oculta ? 'oculta' : 'restaurada' }));
   return jsonOk({ ocultas, pendentes: pendentes.map(p => p.id) });
 }
 
@@ -3991,8 +4004,9 @@ const UM_DIA_MS = 24 * 60 * 60 * 1000;
  * resposta diz que o fotógrafo vai analisar.
  * @param {Request} request
  * @param {Env} env
+ * @param {ExecutionContext} [ctx]
  */
-export async function handleGaleriaRemocao(request, env) {
+export async function handleGaleriaRemocao(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
@@ -4123,6 +4137,9 @@ export async function handleGaleriaRemocao(request, env) {
   const novo = { ...req };
   const resultado = await registraPedidoPublico(env, req, novo);
   if (resultado === 'perdido') return jsonErr(MSG_PEDIDO_NAO_REGISTRADO, 503);
+  // Já temos a listagem: o autor da foto é avisado sem nova ida ao Drive. Nada
+  // do solicitante (e-mail, mensagem) vai junto.
+  ctx?.waitUntil(avisaAutor(env, evento, { fotoId: foto, tipo: 'pedido', motivo, ocultada, listagem }));
   return jsonOk({ ok: true, ocultada, ...(semOcultar ? { motivoNaoOculta: semOcultar } : {}) });
 }
 

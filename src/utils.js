@@ -2349,6 +2349,82 @@ export async function sendResolvedEmail(env, req) {
 }
 
 /**
+ * O texto de cada ocorrência do aviso ao autor (v3.1). Pura, para o teste.
+ * @param {'pedido' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada'} tipo
+ * @param {boolean} ocultada só no 'pedido': a foto já foi escondida na hora?
+ */
+export function textoAvisoAutor(tipo, ocultada) {
+  switch (tipo) {
+    case 'pedido':
+      return {
+        assunto: 'Pedido de remoção de uma foto sua',
+        frase: ocultada
+          ? 'Chegou um pedido de remoção de uma foto sua. Ela foi ocultada da galeria agora e fica assim até o Luca decidir.'
+          : 'Chegou um pedido de remoção de uma foto sua. Ela ainda está na galeria; o Luca vai analisar o pedido.',
+      };
+    case 'mantida':
+      return { assunto: 'Uma foto sua continua oculta', frase: 'O Luca analisou o pedido de remoção: a foto continua oculta da galeria.' };
+    case 'devolvida':
+      return { assunto: 'Uma foto sua voltou à galeria', frase: 'O Luca analisou o pedido de remoção: a foto voltou à galeria.' };
+    case 'oculta':
+      return { assunto: 'Uma foto sua foi ocultada', frase: 'O Luca ocultou uma foto sua da galeria.' };
+    default:
+      return { assunto: 'Uma foto sua voltou à galeria', frase: 'O Luca devolveu uma foto sua à galeria.' };
+  }
+}
+
+/**
+ * Aviso ao autor de uma foto. Conteúdo mínimo: projeto, capítulo e seção,
+ * miniatura e link da foto, categoria do motivo, data e o que aconteceu. NUNCA
+ * o e-mail nem a mensagem de quem pediu a remoção.
+ * @param {Env} env
+ * @param {{ to: string, tipo: 'pedido' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada', projeto: string, capitulo?: string, secao?: string, fotoId: string, motivo?: string, ocultada?: boolean }} d
+ */
+export async function sendAutorEmail(env, d) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !d.to) return false;
+  const esc = escape;
+  const { assunto, frase } = textoAvisoAutor(d.tipo, !!d.ocultada);
+  const motivos = /** @type {Record<string, string>} */ ({
+    eu: 'a pessoa que pediu aparece na foto',
+    menor: 'quem pediu é responsável por um menor que aparece na foto',
+    outro: 'outro motivo',
+  });
+  const onde = [d.projeto, d.capitulo, d.secao].filter(Boolean).map(esc).join(' · ');
+  const thumb = `https://lh3.googleusercontent.com/d/${encodeURIComponent(d.fotoId)}=w320`;
+  const link = `https://drive.google.com/file/d/${encodeURIComponent(d.fotoId)}/view`;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">${esc(assunto)}</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
+  <p style="font-size:14px;line-height:1.6;margin-bottom:12px">${esc(frase)}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Onde: ${onde}</p>
+  ${d.tipo === 'pedido' && d.motivo && motivos[d.motivo] ? `<p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Motivo: ${esc(motivos[d.motivo])}</p>` : ''}
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 12px">Data: ${esc(dataHoraBR())}</p>
+  <p style="margin:0 0 12px"><a href="${link}"><img src="${thumb}" alt="Miniatura da foto" width="160" style="max-width:160px;border-radius:6px"></a></p>
+  <p style="font-size:13px;line-height:1.6;color:#666"><a href="${link}" style="color:#888">Ver a foto</a></p>
+  <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#666">O Luca cuida da resposta a quem pediu; você não precisa fazer nada. Dúvidas: <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a>.</p>
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: corpoResend(env, {
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [d.to],
+      subject: `${assunto} — ${d.projeto}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
  * @param {Env} env
  * @param {{ name: string, email: string, message: string }} msg
  */

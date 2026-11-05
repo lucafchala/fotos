@@ -113,6 +113,12 @@ export const EMAIL_CODE_PER_ADDRESS_PER_HOUR = 3;
 // dividida com suporte, remoção e alertas — este teto é o que garante que um
 // abuso do código por e-mail não cale os outros e-mails do site.
 export const EMAIL_CODE_DAILY_CAP = 40;
+// Avisos por e-mail ao AUTOR de uma foto (créditos com e-mail; v3.1). Teto
+// próprio do dia, abaixo do dos códigos: dos 100 e-mails/dia do plano gratuito
+// do Resend, 40 são de códigos e 20 destes avisos; sobram 40 para suporte,
+// remoção e alertas ao dono. O aviso ao autor é sempre o primeiro a ser
+// pulado (fica no log do healthz), e nunca atrapalha a ação principal.
+export const AUTOR_AVISO_DIA = 20;
 // Tentativas de confirmar o código, por IP. 6 dígitos = 1 milhão de
 // combinações; 120/h por IP leva anos. E o prêmio é o mesmo link que o
 // caminho noscript entrega sem desafio nenhum.
