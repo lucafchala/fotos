@@ -65,8 +65,8 @@ const HTML_FAMILIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'familia',
 // carregar e falar com o cloudflareinsights.com.
 const HTML_COM_BEACON = eventHTML(/** @type {any} */ (EVENTO), 2026, 'tok-de-teste', NONCE, 'drive-nonce', '');
 // Pasta de verdade (id com 10+ caracteres): só assim a página é "galeria
-// pública" e ganha o popup da nova galeria. O EVENTO acima usa 'x' de
-// propósito — o popup cobriria a página nos outros cenários.
+// pública" (botão e atalho fixo para /galeria/<slug>). O EVENTO acima usa 'x'
+// de propósito. O popup da nova galeria saiu na v3.1 (cenário 6b).
 const HTML_GALERIA = eventHTML(/** @type {any} */ ({ ...EVENTO, slug: 'galeria-teste', driveUrl: 'https://drive.google.com/drive/folders/PASTA_TESTE_00001' }), 2026, '', NONCE, 'drive-nonce', '');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
@@ -527,45 +527,33 @@ try {
     await ctx.close();
   }
 
-  // ---- 6b. Popup da nova galeria ------------------------------------------------
-  // Pedido do dono: centralizado, uma vez por visitante, e não fecha nos
-  // primeiros 4 s — nem pelo Esc, nem por clique fora. "Abrir no Drive" é a
-  // exceção: quem prefere o Drive não espera a contagem.
-  {
-    const { ctx, page, estado } = await abre({ html: HTML_GALERIA });
-    await page.waitForTimeout(900);
-    const aberto = () => page.locator('#gal-novo').evaluate(d => /** @type {HTMLDialogElement} */ (d).open);
-    const caixa = await page.locator('#gal-novo').boundingBox();
-    registra(await aberto() && !!caixa && Math.abs(caixa.x + caixa.width / 2 - 195) < 2 && caixa.y >= 0 && caixa.y + caixa.height <= 844,
-      'popup da galeria: abre sozinho, centralizado e inteiro na tela', caixa);
-    registra(await page.locator('#gn-fechar').isDisabled(), 'popup da galeria: "Agora não" começa desabilitado (contagem)');
-    await page.keyboard.press('Escape');
-    await page.mouse.click(5, 5);
-    await page.waitForTimeout(200);
-    registra(await aberto(), 'popup da galeria: Esc e clique fora não fecham durante a contagem');
-    registra(await page.locator('#gal-novo a.gn-ir').getAttribute('href') === '/galeria/galeria-teste', 'popup da galeria: o link leva a /galeria/<slug>');
-    await page.waitForTimeout(4200);
-    const rotulo = ((await page.locator('#gn-fechar').textContent()) || '').trim();
-    registra(await page.locator('#gn-fechar').isEnabled() && rotulo === 'Agora não', 'popup da galeria: depois da contagem, "Agora não" habilita', rotulo);
-    await page.locator('#gn-fechar').click();
-    await page.waitForTimeout(200);
-    const visto = await page.evaluate(() => localStorage.getItem('fotos:gal_novo'));
-    registra(!(await aberto()) && visto === '1', 'popup da galeria: "Agora não" fecha e lembra', { visto });
-    await page.reload();
-    await page.waitForTimeout(1200);
-    registra(!(await aberto()), 'popup da galeria: não volta para quem já viu');
-    registra(estado.erros.length === 0, 'popup da galeria: sem erro de JS', estado.erros);
-    await ctx.close();
-  }
-  {
-    const { ctx, page, estado } = await abre({ html: HTML_GALERIA });
-    await page.waitForTimeout(900);
-    await page.locator('#gal-novo [data-action="galNovoDrive"]').click();
-    await page.waitForTimeout(300);
-    const fechou = !(await page.locator('#gal-novo').evaluate(d => /** @type {HTMLDialogElement} */ (d).open));
-    registra(fechou && await page.locator('#modal').evaluate(m => m.classList.contains('open')),
-      'popup da galeria: "Abrir no Drive" fecha na hora, mesmo na contagem, e abre o portão do Drive');
-    registra(estado.erros.length === 0, 'popup da galeria → Drive: sem erro de JS', estado.erros);
+  // ---- 6b. Sem popup da nova galeria (v3.1) -------------------------------------
+  // O popup "Nova galeria de fotos" saiu: a página do álbum público abre limpa,
+  // sem <dialog> modal, nem passados os 4 s de contagem que ele tinha, nem para
+  // quem nunca viu (storage vazio). O caminho para a galeria é o botão e o
+  // atalho fixo; os dois seguem lá e levam a /galeria/<slug>.
+  for (const [largura, altura, dpr] of /** @type {const} */ ([[390, 844, 3], [360, 780, 2]])) {
+    const { ctx, page, estado } = await abre({ html: HTML_GALERIA, viewport: { width: largura, height: altura }, dpr });
+    await page.waitForTimeout(5200);
+    const modais = await page.evaluate(() => ({
+      dialogos: document.querySelectorAll('dialog').length,
+      abertos: document.querySelectorAll('dialog[open]').length,
+      novo: !!document.getElementById('gal-novo'),
+      marca: localStorage.getItem('fotos:gal_novo'),
+      semRolagem: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    }));
+    registra(modais.dialogos === 0 && modais.abertos === 0 && !modais.novo && modais.marca === null,
+      `sem popup da galeria (${largura} px): nenhum <dialog> na página, aberto ou não, e nada gravado no storage`, modais);
+    const clicavel = await page.evaluate(() => {
+      const el = document.elementFromPoint(window.innerWidth / 2, Math.min(window.innerHeight / 2, 300));
+      return !!el && !el.closest('dialog');
+    });
+    registra(clicavel, `sem popup da galeria (${largura} px): nada cobre o meio da tela`);
+    registra(modais.semRolagem, `sem popup da galeria (${largura} px): sem rolagem lateral`);
+    const hrefs = await page.evaluate(() => Array.from(document.querySelectorAll('a[href^="/galeria/"]')).map(a => a.getAttribute('href')));
+    registra(hrefs.length > 0 && hrefs.every(h => h === '/galeria/galeria-teste'),
+      `sem popup da galeria (${largura} px): os links para a galeria seguem na página e levam a /galeria/<slug>`, hrefs);
+    registra(estado.erros.length === 0, `sem popup da galeria (${largura} px): sem erro de JS`, estado.erros);
     await ctx.close();
   }
 

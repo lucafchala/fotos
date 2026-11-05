@@ -502,23 +502,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .btn-rem-submit:not(:disabled):hover{opacity:.88}
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
-    /* new-interface banner */
-    .gal-novo{position:fixed;inset:0;margin:auto;max-height:calc(100dvh - 32px);overflow:auto;max-width:420px;width:calc(100% - 32px);border:1px solid var(--bg-card-border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.5rem 1.25rem 1.1rem}
-    .gal-novo::backdrop{background:rgba(0,0,0,.6)}
-    .gal-novo h2{font-size:1.2rem;margin:.25rem 0 .4rem}
-    .gn-selo{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cta-text);background:var(--cta-bg);border-radius:99px;padding:.2rem .6rem;margin:0}
-    .gn-sub{font-size:.88rem;color:var(--text-2);margin:0 0 .9rem;line-height:1.5}
-    .gn-lista{list-style:none;padding:0;margin:0 0 1.1rem;display:grid;gap:.55rem;font-size:.86rem;line-height:1.45}
-    .gn-lista li{display:flex;gap:.7rem;align-items:center}
-    .gn-ic{flex-shrink:0;width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:var(--bg-card-2, rgba(127,127,127,.12));color:var(--accent)}
-    .gn-topo{display:flex;align-items:center;gap:.75rem;margin-bottom:.35rem}
-    .gn-hero{width:52px;height:52px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;background:var(--cta-bg);color:var(--cta-text)}
-    .gal-novo[open]{animation:gnEntra .28s cubic-bezier(.23,1,.32,1)}
-    @keyframes gnEntra{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
-    @media (prefers-reduced-motion: reduce){.gal-novo[open]{animation:none}}
-    .gn-ir{display:block;text-align:center;background:var(--cta-bg);color:var(--cta-text);border-radius:9px;padding:.8rem 1rem;font-weight:600;text-decoration:none}
-    .gn-depois{display:block;width:100%;margin-top:.35rem;background:none;border:none;color:var(--text-2);padding:.55rem;font-size:.85rem;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-    .gn-depois:disabled{opacity:.55;cursor:default;text-decoration:none}
     /* cookie notice */
     .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     .cookie-notice.show{display:flex}
@@ -878,22 +861,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
     <button id="cookie-ok" type="button">Entendi</button>
   </div>
-
-  ${galeriaPublica ? `<dialog id="gal-novo" class="gal-novo" aria-labelledby="gal-novo-t">
-    <div class="gn-topo"><span class="gn-hero" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><p class="gn-selo"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg> Novidade</p></div>
-    <h2 id="gal-novo-t">Nova galeria de fotos</h2>
-    <p class="gn-sub">Agora dá para ver e baixar tudo aqui mesmo, sem sair do site.</p>
-    <ul class="gn-lista">
-      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span><strong>Tela cheia</strong> com zoom e deslizar entre as fotos</span></li>
-      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span><span><strong>Selecionar</strong> várias fotos ou <strong>Baixar tudo</strong> de uma vez</span></li>
-      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg></span><span><strong>Para redes sociais</strong>: a versão pronta para Instagram e WhatsApp, nas fotos que têm</span></li>
-      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span><span><strong>Tamanho máximo</strong>: o arquivo original, em alta qualidade</span></li>
-      <li><span class="gn-ic" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></span><span>No iPhone, <strong>Salvar no Fotos</strong>; nos outros aparelhos, o arquivo vai para os downloads</span></li>
-    </ul>
-    <a class="gn-ir" href="/galeria/${escape(event.slug)}">Ver a nova galeria <span aria-hidden="true">→</span></a>
-    <button type="button" class="gn-depois" data-action="galNovoDrive">Prefere o Google Drive? Abrir no Drive</button>
-    <button type="button" class="gn-depois" id="gn-fechar" data-action="fechaGalNovo" disabled>Agora não (<span id="gn-seg">4</span>)</button>
-  </dialog>` : ''}
   <script nonce="${nonce}">
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
@@ -1025,8 +992,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       switch (el.dataset.action) {
         case 'openSoonModal': openSoonModal(); break;
         case 'openModal': openModal(); break;
-        case 'fechaGalNovo': fechaGalNovo(); break;
-        case 'galNovoDrive': galNovoDrive(); break;
         case 'closeModal': closeModal(); break;
         case 'doNativeShare': doNativeShare(); break;
         case 'copyLink': copyLink(); break;
@@ -1136,43 +1101,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       else                el.textContent = \`— há \${days} dia\${days !== 1 ? 's' : ''}\`;
     }
     if (ALERT_ADDED_AT) { updateBanner(); setInterval(updateBanner, 60000); }
-
-    // ---- Popup da nova galeria: uma vez por visitante ----
-    // Fica alguns segundos na tela antes de poder fechar (pedido do dono):
-    // Esc, clique fora e "Agora não" só valem depois da contagem.
-    let galNovoLiberado = false;
-    function galNovoDrive() { galNovoLiberado = true; fechaGalNovo(); openModal(); }
-    function fechaGalNovo() {
-      if (!galNovoLiberado) return;
-      try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {}
-      const d = /** @type {HTMLDialogElement|null} */ (document.getElementById('gal-novo'));
-      if (d && d.open) d.close();
-    }
-    (function(){
-      const d = /** @type {HTMLDialogElement|null} */ (document.getElementById('gal-novo'));
-      if (!d || typeof d.showModal !== 'function') return;
-      let visto = false;
-      try { visto = !!localStorage.getItem('fotos:gal_novo'); } catch(_) {}
-      if (visto) return;
-      d.addEventListener('close', function(){ try { localStorage.setItem('fotos:gal_novo', '1'); } catch(_) {} });
-      d.addEventListener('click', function(e){ if (e.target === d) fechaGalNovo(); });
-      d.addEventListener('cancel', function(e){ if (!galNovoLiberado) e.preventDefault(); });
-      setTimeout(function(){
-        try { d.showModal(); } catch(_) { return; }
-        let seg = 4;
-        const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('gn-fechar'));
-        const cont = document.getElementById('gn-seg');
-        const timer = setInterval(function(){
-          seg--;
-          if (cont) cont.textContent = String(seg);
-          if (seg <= 0) {
-            clearInterval(timer);
-            galNovoLiberado = true;
-            if (btn) { btn.disabled = false; btn.textContent = 'Agora não'; }
-          }
-        }, 1000);
-      }, 600);
-    })();
 
     // ---- Cookie / analytics notice ----
     try {

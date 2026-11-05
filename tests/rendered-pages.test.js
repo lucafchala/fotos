@@ -166,6 +166,23 @@ describe('página de projeto: sem onboarding na frente das fotos', () => {
   });
 });
 
+describe('álbum público: sem o popup "Nova galeria de fotos" (v3.1)', () => {
+  // O popup (modal, 4 s de contagem, uma vez por visitante) saiu. Foi espalhado
+  // em CSS, marcação, ações do clique delegado e um bloco de JS: um pedaço
+  // esquecido deixa CSS morto ou um getElementById que devolve null.
+  const evento = { ...EVENTO, slug: 'album-teste', driveUrl: 'https://drive.google.com/drive/folders/PASTA_TESTE_00001' };
+  const html = () => eventHTML(evento, '2026', null, 'NONCE', 'nonce-drive', 'form-token');
+
+  it('a página é mesmo de galeria pública (o teste não é vazio)', () => {
+    expect(html()).toContain('href="/galeria/album-teste"');
+  });
+
+  it.each(['gal-novo', 'galNovo', 'fechaGalNovo', 'gal_novo', 'gn-fechar', 'gn-seg', 'gn-ir', 'Nova galeria de fotos', '<dialog'])(
+    'não emite nenhum vestígio de %s',
+    termo => { expect(html()).not.toContain(termo); },
+  );
+});
+
 describe('galeria: prioridade e tamanho das capas', () => {
   // O que estes testes travam saiu de um PageSpeed real: LCP de 6,2 s numa
   // página cujo único número ruim era o peso das fotos. A capa em destaque
