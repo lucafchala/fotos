@@ -22,6 +22,7 @@ import { dashboardHTML } from '../src/ui/dashboard.js';
 import { GALERIA_MAX_PASTAS, GALERIA_MAX_CHAMADAS, GALERIA_MAX_CHAMADAS_IG } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
+import { d1Contado } from './helpers/d1.js';
 import { contaScriptTags, foraDosScripts } from './helpers/paginas.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 
@@ -696,9 +697,9 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
     const html = render(fotos37);
     const dono = html.match(/<div class="g-dono">([\s\S]*?)<\/div>\s*<header/);
     expect(dono).not.toBeNull();
-    for (const t of ['← Painel', 'Página do projeto', 'Atualizar lista', 'Lista do Drive de 10/10, 09:00']) expect(dono?.[1]).toContain(t);
+    for (const t of ['← Painel', 'Página do projeto', 'Atualizar agora', 'Atualizada em 10/10, 09:00']) expect(dono?.[1]).toContain(t);
     const cab = html.match(/<header class="g-top"[\s\S]*?<\/header>/);
-    expect(cab?.[0]).not.toContain('Atualizar lista');
+    expect(cab?.[0]).not.toContain('Atualizar agora');
     expect(cab?.[0]).not.toContain('← Painel');
   });
 
@@ -1259,6 +1260,9 @@ describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
       fake.default[m] = (...a) => { cache++; return orig(...a); };
     }
     vi.stubGlobal('caches', fake);
+    // O D1 (foto durável da lista, v3.1) também conta: ler o hash e gravar.
+    const d1c = d1Contado();
+    env.CONSENT_DB = d1c.db;
     rotaExtra = url => {
       if (url.pathname !== '/drive/v3/files') return null;
       const q = url.searchParams.get('q') || '';
@@ -1271,7 +1275,8 @@ describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
     const res = await visitante('/galeria/formatura/baixar/GA_PAGINA_00000?v=redes');
     await new Promise(r => setTimeout(r, 0));
     expect(res.status).toBe(200);
-    const total = chamadas.length + kv + cache + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    const total = chamadas.length + kv + cache + d1c.n() + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    expect(d1c.n()).toBeGreaterThan(0); // o D1 entrou na conta
     expect(chamadasDrive().length).toBeGreaterThan(GALERIA_MAX_CHAMADAS_IG); // as duas pastas foram lidas até o teto
     expect(total).toBeLessThanOrEqual(49);
   });

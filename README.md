@@ -597,7 +597,8 @@ fotos/
 ├── wrangler.toml           ← config do Worker, bindings KV + D1, cron diário
 ├── migrations/
 │   ├── 0001_consent.sql    ← tabela D1 image_use_consent (log de consentimento)
-│   └── 0002_access_type.sql← coluna access_type + declaração por tipo de acesso
+│   ├── 0002_access_type.sql← coluna access_type + declaração por tipo de acesso
+│   └── 0003_galeria_snapshot.sql ← foto durável da lista do Drive (galeria)
 ├── docs/
 │   ├── PAINEL.md           ← o painel por dentro: seções, blocos, cada ação e o endpoint dela, o card de evento, o formulário, como verificar
 │   └── legal/              ← pacote de conformidade LGPD (fonte da verdade dos textos)

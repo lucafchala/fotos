@@ -6,7 +6,7 @@
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
 import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription } from '../utils.js';
-import { urlLh3 } from '../drive.js';
+import { urlLh3, descreveRenovacao } from '../drive.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -48,7 +48,8 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const avisoTrunc = dono && caps.truncada
     ? '<p class="ix-aviso">O Drive tem mais subpastas do que o índice mostra (até 100). As demais ficam de fora; reúna eventos antigos em outra pasta.</p>'
     : '';
-  const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a></div>` : '';
+  const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">

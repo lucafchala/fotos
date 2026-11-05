@@ -18,6 +18,7 @@ import { saveEvents, readCounters, deleteCounters } from '../src/utils.js';
 import { GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_CAP } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
+import { d1Contado } from './helpers/d1.js';
 import { pedidosGravados, relogioAdiantavel } from './helpers/pedidos.js';
 
 const SITE = 'https://fotos.lucafchala.com';
@@ -192,7 +193,7 @@ describe('o índice', () => {
     expect(h).toContain('/d/FOTO_E2_000001=w480');
   });
 
-  it('visitante: sem a faixa do dono; dono vê a faixa e "Atualizar lista" relê e volta ao endereço limpo', async () => {
+  it('visitante: sem a faixa do dono; dono vê a faixa e "Atualizar agora" relê e volta ao endereço limpo', async () => {
     expect(await html('/galeria/formatura')).not.toContain('Só você (logado)');
     expect(await html('/galeria/formatura', { dono: true })).toContain('Só você (logado)');
     const antes = chamadas.length;
@@ -497,6 +498,8 @@ describe('orçamento do plano gratuito', () => {
       fake.default[m] = (...a) => { cache++; return orig(...a); };
     }
     vi.stubGlobal('caches', fake);
+    const d1c = d1Contado();
+    env.CONSENT_DB = d1c.db;
     let drive = 0;
     vi.stubGlobal('fetch', vi.fn(async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
@@ -514,9 +517,10 @@ describe('orçamento do plano gratuito', () => {
     env.COUNTER._resetCalls();
     const res = await get('/galeria/formatura/abertura/baixar/GA_PAGINA_00000?v=redes');
     expect(res.status).toBe(200);
-    const total = drive + 1 /* os bytes */ + kv + cache + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    const total = drive + 1 /* os bytes */ + kv + cache + d1c.n() + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
     expect(drive).toBeGreaterThan(GALERIA_MAX_CHAMADAS_IG); // as duas pastas foram lidas até o teto
     expect(drive).toBeLessThanOrEqual(1 + GALERIA_MAX_CHAMADAS_CAP + GALERIA_MAX_CHAMADAS_IG);
+    expect(d1c.n()).toBeGreaterThan(0); // o D1 entrou na conta
     expect(total).toBeLessThanOrEqual(49);
   });
 
@@ -533,6 +537,8 @@ describe('orçamento do plano gratuito', () => {
       fake.default[m] = (...a) => { cache++; return orig(...a); };
     }
     vi.stubGlobal('caches', fake);
+    const d1c = d1Contado();
+    env.CONSENT_DB = d1c.db;
     let drive = 0;
     vi.stubGlobal('fetch', vi.fn(async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
@@ -547,7 +553,8 @@ describe('orçamento do plano gratuito', () => {
     env.COUNTER._resetCalls();
     const res = await get('/galeria/formatura/abertura');
     expect(res.status).toBe(200);
-    const total = drive + kv + cache + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    const total = drive + kv + cache + d1c.n() + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    expect(d1c.n()).toBeGreaterThan(0); // o D1 entrou na conta
     expect(total).toBeLessThanOrEqual(49);
   });
 });

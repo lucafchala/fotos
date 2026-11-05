@@ -53,3 +53,22 @@ export function d1Sqlite() {
     },
   };
 }
+
+/**
+ * `d1Sqlite()` que conta as operações (cada run/first/all/raw é uma
+ * subrequisição na conta do plano gratuito). Para os testes de "orçamento".
+ */
+export function d1Contado() {
+  const db = d1Sqlite();
+  let n = 0;
+  const prepare = db.prepare.bind(db);
+  db.prepare = sql => {
+    const stmt = prepare(sql);
+    for (const m of ['run', 'first', 'all', 'raw']) {
+      const orig = stmt[m].bind(stmt);
+      stmt[m] = (...a) => { n++; return orig(...a); };
+    }
+    return stmt;
+  };
+  return { db, n: () => n };
+}

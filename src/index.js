@@ -17,11 +17,12 @@ import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, opcoesDaLista, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
 import { ehPrevia, fetchDaPrevia } from './previa.js';
+import { apagaSnapshotsDoProjeto } from './snapshot.js';
 import { listaPedidos, lePedido, gravaPedido, regravaPedido, migraLegado, podaResolvidos } from './pedidos.js';
 import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
@@ -587,7 +588,7 @@ async function capitulosOuNulo(env, e) {
   const pasta = pastaDoDrive(e.driveUrl);
   if (!pasta) return null;
   try {
-    return await listaCapitulos(env, pasta);
+    return await listaCapitulos(env, pasta, { slug: String(e.slug || ''), ...politicaDaGaleria(e) });
   } catch (err) {
     if (!(err instanceof DriveError)) throw err;
     return null;
@@ -598,7 +599,7 @@ async function capitulosOuNulo(env, e) {
  * Sitemap de imagens de UMA galeria pública: a URL da galeria com as fotos
  * (até 1000) em <image:image>. Um por galeria, e não todas no /sitemap.xml, por
  * causa do plano gratuito: cada listagem fria da pasta custa até
- * GALERIA_MAX_CHAMADAS (30) subrequisições, e o teto é 50 por invocação — dois
+ * GALERIA_MAX_CHAMADAS (28) subrequisições, e o teto é 50 por invocação — dois
  * álbuns frios no mesmo pedido já estourariam. Assim cada pedido custa o mesmo
  * que UMA visita à galeria (a listagem de 10 min do listaPasta, compartilhada
  * com a página). Foto oculta nunca entra (semOcultas), e o lastmod é o do
@@ -637,7 +638,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, alvo.pasta, { creditos: event.galeriaCreditos, maxChamadas: alvo.maxChamadas });
+    listagem = await listaPasta(env, alvo.pasta, opcoesDaLista(event, alvo.maxChamadas));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
@@ -1242,6 +1243,11 @@ export function normalizeEventFields(body, base, cats) {
     // existente continua exatamente como era.
     galeriaCapitulos: pick('galeriaCapitulos', v => v === true),
     nomesAmigaveis: pick('nomesAmigaveis', v => v === true),
+    // Atualização da lista do Drive (v3.1): automática (relê quando passa o
+    // período) ou congelada (mostra a última foto durável até o dono tocar em
+    // "Atualizar agora"). Qualquer outro valor cai no padrão.
+    galeriaAtualizacaoAuto: pick('galeriaAtualizacaoAuto', v => v !== false),
+    galeriaPeriodo: pick('galeriaPeriodo', periodoValido),
     // IDs do Drive das fotos que a galeria esconde do público (#235). O
     // visualizador do dono muda um por vez (POST /api/galeria/ocultar); aqui
     // passa quem devolve o evento inteiro (o formulário, o "Ocultar" da lista).
@@ -1395,6 +1401,8 @@ async function handleDeleteEvent(request, env, path) {
   // ficava para trás na versão em KV e ressurgia somado se um projeto novo
   // reaproveitasse o slug. Os downloads da galeria, pelo mesmo motivo.
   await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`, `galeria_views:${removed.slug}:*`]);
+  // A foto durável da lista do Drive (nomes de arquivo e autores) vai junto.
+  await apagaSnapshotsDoProjeto(env, removed.slug);
   return jsonOk({ deleted: true });
 }
 
@@ -3755,7 +3763,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
     erro = { codigo: alvo.codigo, mensagem: alvo.mensagem };
   } else if (pasta) {
     try {
-      listagem = await listaPasta(env, pasta, { atualizar, creditos: event.galeriaCreditos, maxChamadas: alvo.maxChamadas });
+      listagem = await listaPasta(env, pasta, { atualizar, ...opcoesDaLista(event, alvo.maxChamadas) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       erro = { codigo: e.codigo, mensagem: e.message };
@@ -3783,7 +3791,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
       : { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
   } else if (listagem && pastaIg) {
     try {
-      const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+      const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
       // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
       // 10 min em 10 min, e o casamento fica guardado nela.
       redes = await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, ig);
@@ -4005,7 +4013,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   if (!alvoLista.pasta) return notFound();
   const capitulo = alvoLista.capitulo;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, { creditos: event.galeriaCreditos, maxChamadas: alvoLista.maxChamadas });
+    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(event, alvoLista.maxChamadas));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return erroDownload(request, e.message, 502);
@@ -4020,7 +4028,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   let origem = listagem;
   if (pastaIg) {
     try {
-      origem = await listaPasta(env, pastaIg, { maxChamadas: GALERIA_MAX_CHAMADAS_IG });
+      origem = await listaPasta(env, pastaIg, { maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       return erroDownload(request, e.message, 502);
@@ -4220,7 +4228,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, alvoLista.pasta, { creditos: evento.galeriaCreditos, maxChamadas: alvoLista.maxChamadas });
+    listagem = await listaPasta(env, alvoLista.pasta, opcoesDaLista(evento, alvoLista.maxChamadas));
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
@@ -4678,6 +4686,8 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
+  if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;
+  if (out.galeriaPeriodo !== undefined) out.galeriaPeriodo = periodoValido(out.galeriaPeriodo);
   return out;
 }
 

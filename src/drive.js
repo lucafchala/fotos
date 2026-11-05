@@ -15,8 +15,9 @@
 // isolate e na Cache API (grátis, sem cota de escrita — o mesmo padrão da cópia
 // da lista de eventos em utils.js). Nenhuma escrita de KV.
 
+import { lerSnapshot, gravaSnapshot } from './snapshot.js';
 import {
-  GALERIA_LISTA_TTL_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
+  GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
@@ -254,17 +255,72 @@ function cacheStore() {
 export function limpaCacheDrive() { memoria.clear(); memoriaCaps.clear(); memoriaResumo.clear(); }
 
 /**
+ * Período da atualização automática, em segundos: um dos GALERIA_PERIODOS_S;
+ * qualquer outra coisa cai no padrão (10 min).
+ * @param {unknown} v
+ */
+export function periodoValido(v) {
+  const n = Number(v);
+  return GALERIA_PERIODOS_S.includes(n) ? n : GALERIA_LISTA_TTL_S;
+}
+
+/**
+ * Como a lista do Drive deste projeto é renovada (campos do painel
+ * "Atualização automática" e "Período").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ * @returns {{ auto: boolean, periodo: number }}
+ */
+export function politicaDaGaleria(event) {
+  return { auto: event.galeriaAtualizacaoAuto !== false, periodo: periodoValido(event.galeriaPeriodo) };
+}
+
+/**
+ * Política da pasta do Instagram: ela não tem foto durável, então, com a
+ * atualização automática desligada, só é relida a cada 24 h (ou no "Atualizar agora").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ */
+export function politicaDoInstagram(event) {
+  const p = politicaDaGaleria(event);
+  return { auto: true, periodo: p.auto ? p.periodo : GALERIA_PERIODOS_S[GALERIA_PERIODOS_S.length - 1] };
+}
+
+/**
+ * Frase curta da política, para a faixa do dono ("a cada 10 minutos").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ */
+export function descreveRenovacao(event) {
+  const { auto, periodo } = politicaDaGaleria(event);
+  if (!auto) return 'atualização automática desligada: a lista só muda quando você toca em "Atualizar agora"';
+  const rotulo = periodo >= 86400 ? '24 horas' : periodo >= 3600 ? `${periodo / 3600} ${periodo === 3600 ? 'hora' : 'horas'}` : `${periodo / 60} minutos`;
+  return `a lista se renova sozinha a cada ${rotulo}`;
+}
+
+/** @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown, slug?: string, galeriaCreditos?: string }} event @param {number} maxChamadas */
+export function opcoesDaLista(event, maxChamadas) {
+  return { creditos: event.galeriaCreditos || '', maxChamadas, snapshot: true, slug: String(event.slug || ''), ...politicaDaGaleria(event) };
+}
+
+/**
  * Lê a pasta do projeto: fotos da raiz e de subpastas (cada subpasta vira uma
  * seção), com limites que mantêm uma requisição dentro do plano gratuito.
- * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ *
+ * Quando a lista é relida (v3.1):
+ *  - atualização automática LIGADA: passou o `periodo` desde a última leitura
+ *    (memória do isolate, depois Cache API; a idade vem do próprio `em` da
+ *    lista, então mudar o período no painel vale na hora);
+ *  - DESLIGADA: nunca sozinha. A página mostra a foto durável (D1) até o dono
+ *    pedir `atualizar`. Sem foto ainda, lê uma vez e grava.
+ * Com `snapshot`, a lista relida vai para o D1 (só se mudou; o `atualizar`
+ * grava sempre).
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string }} [opts] `maxChamadas`:
+ * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string }} [opts] `maxChamadas`:
  *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
  *   duas listas frias caberem nas 50 subrequisições da invocação); `creditos`:
  *   o campo "Créditos por pasta" do projeto (vazio = padrão)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '' } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '' } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
@@ -275,33 +331,55 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
   const h = hashCreditos(efetivos);
   const kMem = chaveMemoria(pasta.id, maxChamadas, h);
   const kCache = chaveCache(pasta.id, maxChamadas, h);
+  const congelada = snapshot && !auto;
+  const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
+  const ctxSnap = `m${maxChamadas}#${h}`;
+  let semFoto = false;
   if (!atualizar) {
     const mem = memoria.get(kMem);
-    if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
-    const store = cacheStore();
-    if (store) {
-      try {
-        const hit = await store.match(kCache);
-        if (hit) {
-          const dados = /** @type {ListagemDrive} */ (await hit.json());
+    if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
+    if (congelada) {
+      const foto = await lerSnapshot(env, pasta.id, ctxSnap);
+      if (foto) {
+        try {
+          const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
           if (dados && dados.v === 2) {
             memoria.set(kMem, { em: Date.now(), dados });
             return dados;
           }
+        } catch (e) {
+          console.error('galeria: foto da lista ilegível', e);
         }
-      } catch (e) {
-        console.error('galeria: leitura do cache falhou', e);
+      }
+      semFoto = true;
+    } else {
+      const store = cacheStore();
+      if (store) {
+        try {
+          const hit = await store.match(kCache);
+          if (hit) {
+            const dados = /** @type {ListagemDrive} */ (await hit.json());
+            // A idade é a da própria lista: mudar o período no painel vale na hora.
+            if (dados && dados.v === 2 && Date.now() - Date.parse(dados.em) < ttlMs) {
+              memoria.set(kMem, { em: Date.now(), dados });
+              return dados;
+            }
+          }
+        } catch (e) {
+          console.error('galeria: leitura do cache falhou', e);
+        }
       }
     }
   }
 
   const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
   memoria.set(kMem, { em: Date.now(), dados });
-  const store = cacheStore();
+  if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, { forcar: atualizar || semFoto, slug });
+  const store = congelada ? null : cacheStore();
   if (store) {
     try {
       await store.put(kCache, new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
       }));
     } catch (e) {
       console.error('galeria: escrita do cache falhou', e);
@@ -944,31 +1022,51 @@ const chaveCaps = id => `https://fotos.invalid/__galeria/capitulos/${id}/v1`;
 /**
  * Os capítulos de um projeto: UMA chamada à API (só as subpastas de primeiro
  * nível), guardada pelo mesmo prazo das listagens (memória + Cache API).
- * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean }} [opts]
+ * @param {{ atualizar?: boolean, auto?: boolean, periodo?: number, slug?: string }} [opts] política de renovação (ver listaPasta)
  * @returns {Promise<CapitulosDrive>}
  */
-export async function listaCapitulos(env, pasta, { atualizar = false } = {}) {
+export async function listaCapitulos(env, pasta, { atualizar = false, auto = true, periodo = GALERIA_LISTA_TTL_S, slug = '' } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
   if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
+  const congelada = !auto;
+  const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
+  const chaveSnap = `c:${pasta.id}`;
+  let semFoto = false;
   if (!atualizar) {
     const mem = memoriaCaps.get(pasta.id);
-    if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
-    const store = cacheStore();
-    if (store) {
-      try {
-        const hit = await store.match(chaveCaps(pasta.id));
-        if (hit) {
-          const dados = /** @type {CapitulosDrive} */ (await hit.json());
+    if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
+    if (congelada) {
+      const foto = await lerSnapshot(env, chaveSnap, 'v1');
+      if (foto) {
+        try {
+          const dados = /** @type {CapitulosDrive} */ (JSON.parse(foto.dados));
           if (dados && dados.v === 1 && Array.isArray(dados.caps)) {
             memoriaCaps.set(pasta.id, { em: Date.now(), dados });
             return dados;
           }
+        } catch (e) {
+          console.error('galeria: foto dos capítulos ilegível', e);
         }
-      } catch (e) {
-        console.error('galeria: leitura do cache dos capítulos falhou', e);
+      }
+      semFoto = true;
+    } else {
+      const store = cacheStore();
+      if (store) {
+        try {
+          const hit = await store.match(chaveCaps(pasta.id));
+          if (hit) {
+            const dados = /** @type {CapitulosDrive} */ (await hit.json());
+            if (dados && dados.v === 1 && Array.isArray(dados.caps) && Date.now() - Date.parse(dados.em) < ttlMs) {
+              memoriaCaps.set(pasta.id, { em: Date.now(), dados });
+              return dados;
+            }
+          }
+        } catch (e) {
+          console.error('galeria: leitura do cache dos capítulos falhou', e);
+        }
       }
     }
   }
@@ -983,11 +1081,12 @@ export async function listaCapitulos(env, pasta, { atualizar = false } = {}) {
   /** @type {CapitulosDrive} */
   const dados = { v: 1, pasta: pasta.id, em: new Date().toISOString(), truncada, caps: montaCapitulos(pastas.slice(0, GALERIA_MAX_CAPITULOS)) };
   memoriaCaps.set(pasta.id, { em: Date.now(), dados });
-  const store = cacheStore();
+  await gravaSnapshot(env, chaveSnap, 'v1', dados, { forcar: atualizar || semFoto, slug });
+  const store = congelada ? null : cacheStore();
   if (store) {
     try {
       await store.put(chaveCaps(pasta.id), new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
       }));
     } catch (e) {
       console.error('galeria: escrita do cache dos capítulos falhou', e);
@@ -1125,7 +1224,7 @@ export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false)
   }
   let caps;
   try {
-    caps = await listaCapitulos(env, raiz, { atualizar });
+    caps = await listaCapitulos(env, raiz, { atualizar, slug: String(event.slug || ''), ...politicaDaGaleria(event) });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return { kind: 'erro', codigo: e.codigo, mensagem: e.message };

@@ -1145,6 +1145,24 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           </div>
           <div class="field">
             <div class="toggle-row">
+              <label class="toggle-label" for="f-galeria-auto">Atualização automática da lista de fotos</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-galeria-auto" aria-describedby="dica-galeria-auto" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-galeria-auto" style="margin-top:.5rem">Ligada, a galeria relê a pasta do Drive quando passa o <strong>período</strong> abaixo (só quando alguém abre a página). <strong>Desligada, a lista fica congelada</strong>: o que foi enviado ou apagado no Drive só aparece quando você toca em <em>Atualizar agora</em>. Como a pasta do Drive é colaborativa (qualquer pessoa com o link envia e apaga), congelar a lista é uma forma de moderar. A última lista fica guardada no servidor (D1), não some quando o cache expira.</div>
+            <label for="f-galeria-periodo" style="margin-top:.75rem">Período</label>
+            <select id="f-galeria-periodo" aria-describedby="dica-galeria-auto">
+              <option value="600">A cada 10 minutos</option>
+              <option value="3600">A cada 1 hora</option>
+              <option value="21600">A cada 6 horas</option>
+              <option value="86400">A cada 24 horas</option>
+            </select>
+            <div class="field-hint" style="margin-top:.5rem"><a id="f-galeria-agora" href="#" target="_blank" rel="noopener">Atualizar agora</a> abre a galeria já relendo a pasta (só você, logado, consegue).</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
               <label class="toggle-label" for="f-nomes-amigaveis">Nomes amigáveis nos downloads</label>
               <label class="toggle">
                 <input type="checkbox" id="f-nomes-amigaveis" aria-describedby="dica-nomes-amigaveis">
@@ -1716,6 +1734,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-creditos').value = e ? (e.galeriaCreditos || '') : '';
       document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
+      document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
+      document.getElementById('f-galeria-periodo').value = String(e && e.galeriaPeriodo || 600);
+      document.getElementById('f-galeria-agora').href = e && e.slug ? '/galeria/' + encodeURIComponent(e.slug) + '?atualizar=1' : '#';
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';
       // Vertical volta como link de Shorts: o servidor o reconhece como
@@ -1776,7 +1797,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1831,7 +1852,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2083,6 +2104,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         galeriaCreditos: document.getElementById('f-creditos').value,
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
+        galeriaAtualizacaoAuto: document.getElementById('f-galeria-auto').checked,
+        galeriaPeriodo: Number(document.getElementById('f-galeria-periodo').value) || 600,
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
         youtubeId: document.getElementById('f-youtube').value.trim(),
         youtubeMais: document.getElementById('f-youtube-mais').value.split('\\n').map(s => s.trim()).filter(Boolean),

@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaCapitulos: false, nomesAmigaveis: false, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -173,6 +173,14 @@ export const HEALTHZ_CONTRATO = 1;
 // A lista da pasta do Drive fica guardada por 10 min (memória do isolate +
 // Cache API, sem escrita de KV). "Atualizar lista" na página força a releitura.
 export const GALERIA_LISTA_TTL_S = 600;
+// Período da atualização automática (campo "Período" do projeto, em segundos):
+// 10 min, 1 h, 6 h ou 24 h. O padrão é o de sempre (GALERIA_LISTA_TTL_S).
+export const GALERIA_PERIODOS_S = [600, 3600, 21600, 86400];
+// Com a atualização automática DESLIGADA a lista vem da foto durável (D1) e
+// este é só o tempo que o isolate guarda essa foto na memória, para não ir ao
+// D1 a cada foto da grade — e para o "Atualizar agora" aparecer logo nos
+// outros isolates.
+export const GALERIA_SNAPSHOT_MEM_S = 60;
 // Tetos que mantêm UMA requisição dentro do plano gratuito: cada página da
 // Drive API (até 1000 arquivos) é uma subrequisição, e o plano gratuito dá 50
 // por invocação. Passou de algum teto, a lista sai PARCIAL e a página avisa —
@@ -182,15 +190,17 @@ export const GALERIA_MAX_PASTAS = 25;
 // Raiz = 0. Duas camadas de subpasta cobrem "Cerimônia / Festa" e
 // "Dia 1 / Manhã"; mais fundo que isso é arquivo de trabalho, não galeria.
 export const GALERIA_MAX_PROFUNDIDADE = 2;
-export const GALERIA_MAX_CHAMADAS = 30;
+export const GALERIA_MAX_CHAMADAS = 28;
 // Pasta do Instagram (campo `driveUrlInstagram` do projeto): o download "para
 // redes" entrega, byte a byte, o arquivo de lá — nada é redimensionado pelo
 // site. Ela é listada junto com a pasta da galeria na MESMA invocação (página e
 // download), então o teto próprio entra na conta das 50 subrequisições do plano
 // gratuito, no PIOR caso (download "para redes", as duas listas frias e
-// enormes, visitante sem sessão): 30 (galeria) + 8 (esta) + 6 do cache (match e
-// put de cada lista, mais o do casamento "para redes") + 5 do resto (KV do
-// projeto, ficha do limite por IP, contador, o arquivo) = 49 < 50. Está
+// enormes, visitante sem sessão): 28 (galeria) + 8 (esta) + 6 do cache (match e
+// put de cada lista, mais o do casamento "para redes") + 2 do D1 (a foto
+// durável da lista da galeria: ler o hash e gravar; a do Instagram não tem) +
+// 5 do resto (KV do projeto, ficha do limite por IP, contador, o arquivo)
+// = 49 < 50. Está
 // medido em tests/galeria.test.js ("orçamento"): subir qualquer teto aqui, ou
 // gastar uma subrequisição a mais nesse caminho, reprova o teste.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
@@ -199,10 +209,11 @@ export const GALERIA_MAX_CHAMADAS_IG = 8;
 // projeto é uma página. O ÍNDICE custa uma página da API (só as subpastas) e
 // um match do cache; o capítulo é lido como se fosse a raiz, com teto menor
 // para a conta fechar: no pior caso (download "para redes", tudo frio) são
-// 26 (capítulo) + 8 (Instagram) + 3 (índice: API, match e put) + 6 (cache das
-// listas e do casamento) + 5 (KV, ficha do IP, contador, arquivo) = 48 < 50.
+// 22 (capítulo) + 8 (Instagram) + 3 (índice: API, match e put) + 2 (D1 da
+// lista de capítulos) + 6 (cache das listas e do casamento) + 2 (D1 da lista do
+// capítulo) + 5 (KV, ficha do IP, contador, arquivo) = 48 < 50.
 // O teste "orçamento" de tests/galeria-capitulos.test.js mede isso.
-export const GALERIA_MAX_CHAMADAS_CAP = 26;
+export const GALERIA_MAX_CHAMADAS_CAP = 22;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
 export const GALERIA_MAX_CAPITULOS = 100;

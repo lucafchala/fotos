@@ -29,7 +29,7 @@ import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreload
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
-import { urlLh3 } from '../drive.js';
+import { urlLh3, descreveRenovacao } from '../drive.js';
 import { nomesDaListagem } from '../nomes.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -516,8 +516,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     <a href="/dashboard">← Painel</a>
     <a href="/${escape(slug)}">Página do projeto</a>
     ${drive ? `<a href="${escape(drive)}" target="_blank" rel="nofollow noopener">Abrir no Drive</a>` : ''}
-    ${listagem ? '<a href="?atualizar=1" title="Relê a pasta no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a>' : ''}
-    ${listagem ? `<span class="g-lista">Lista do Drive de ${escape(quando)}</span>` : ''}
+    ${listagem ? `<a href="?atualizar=1" title="Relê a pasta no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a>` : ''}
+    ${listagem ? `<span class="g-lista" title="${escape(descreveRenovacao(event))}">Atualizada em ${escape(quando)}</span>` : ''}
     ${listagem && event.driveUrlInstagram ? `<span id="g-n-redes">${comRedes} de ${total} com "para redes" (pasta do Instagram)</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
   </div>` : ''}
