@@ -195,6 +195,17 @@ export const GALERIA_MAX_CHAMADAS = 30;
 // gastar uma subrequisição a mais nesse caminho, reprova o teste.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
 export const GALERIA_MAX_CHAMADAS_IG = 8;
+// Galeria por capítulos (v3.1): cada subpasta de primeiro nível da pasta do
+// projeto é uma página. O ÍNDICE custa uma página da API (só as subpastas) e
+// um match do cache; o capítulo é lido como se fosse a raiz, com teto menor
+// para a conta fechar: no pior caso (download "para redes", tudo frio) são
+// 26 (capítulo) + 8 (Instagram) + 3 (índice: API, match e put) + 6 (cache das
+// listas e do casamento) + 5 (KV, ficha do IP, contador, arquivo) = 48 < 50.
+// O teste "orçamento" de tests/galeria-capitulos.test.js mede isso.
+export const GALERIA_MAX_CHAMADAS_CAP = 26;
+// Quantos capítulos o índice mostra (a primeira página da API traz até 1000
+// pastas; o índice corta aqui e avisa o dono).
+export const GALERIA_MAX_CAPITULOS = 100;
 // Casamento "para redes" (casaRedes, drive.js) — o que custa de CPU. O plano
 // gratuito dá 10 ms por invocação, e a conta de nomes de 6000 fotos contra
 // 6000 do Instagram (normalizar, minusculizar, tirar o sufixo, procurar) custa,

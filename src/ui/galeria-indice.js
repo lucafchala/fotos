@@ -1,0 +1,114 @@
+// Índice da galeria por capítulos (v3.1): um cartão por subpasta de primeiro
+// nível da pasta do projeto. Página só de servidor — sem script, então nada de
+// JS do navegador aqui. O cartão leva a capa e a contagem do RESUMO guardado
+// no cache (drive.js, registraResumo): capítulo que ninguém abriu ainda fica com
+// um espaço reservado e o texto "Ver fotos" (ler a lista de cada capítulo só
+// para desenhar o índice custaria a cota do Google e o teto de subrequisições).
+
+import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription } from '../utils.js';
+import { urlLh3 } from '../drive.js';
+
+const SITE_URL = 'https://fotos.lucafchala.com';
+
+/**
+ * @param {{
+ *   event: import('../utils.js').Evento,
+ *   caps: import('../drive.js').CapitulosDrive,
+ *   resumo: Record<string, import('../drive.js').ResumoCap>,
+ *   ocultas: string[],
+ *   dono: boolean,
+ *   indexavel: boolean,
+ * }} p
+ */
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel }) {
+  const titulo = String(event.title || event.slug || '');
+  const slug = String(event.slug || '');
+  const base = `/galeria/${slug}`;
+  const dataEvento = event.date ? formatDatePT(String(event.date)) : '';
+  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const descricao = previewDescription(
+    [dataEvento, `${caps.caps.length} ${caps.caps.length === 1 ? 'evento' : 'eventos'}`],
+    `Galeria de fotos de ${titulo}, por Luca F. Chala. Escolha o evento para ver as fotos.`,
+  );
+  const ocultasSet = new Set(ocultas);
+  const cartoes = caps.caps.map(c => {
+    const r = resumo[c.id];
+    // A capa é a primeira foto do capítulo que não está oculta.
+    const capa = r ? r.capas.find(id => !ocultasSet.has(id)) : '';
+    const n = r ? r.n : 0;
+    const href = `${base}/${c.slug}`;
+    const img = capa
+      ? `<img src="${escape(urlLh3(capa, 480))}" alt="" width="480" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+      : '<span class="ix-vazio" aria-hidden="true"></span>';
+    const sub = r ? (n === 1 ? '1 foto' : `${n} fotos`) : 'Ver fotos';
+    return `<li><a class="ix-card" href="${escape(href)}">${img}<span class="ix-nome">${escape(c.nome)}</span><span class="ix-sub">${escape(sub)}</span></a></li>`;
+  });
+  const og = caps.caps.map(c => resumo[c.id]).find(r => r && r.capas.find(id => !ocultasSet.has(id)));
+  const ogCapa = og ? og.capas.find(id => !ocultasSet.has(id)) : '';
+  const avisoTrunc = dono && caps.truncada
+    ? '<p class="ix-aviso">O Drive tem mais subpastas do que o índice mostra (até 100). As demais ficam de fora; reúna eventos antigos em outra pasta.</p>'
+    : '';
+  const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (a lista fica guardada por 10 minutos)">Atualizar lista</a></div>` : '';
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <title>${escape(tituloPagina)}</title>
+  <link rel="canonical" href="${escape(SITE_URL + base)}">
+  ${socialMetaHTML({
+    title: tituloPagina,
+    description: descricao,
+    url: SITE_URL + base,
+    image: ogCapa ? urlLh3(ogCapa, 1200) : '',
+    imageAlt: `Fotos de ${titulo}`,
+    imageWidth: 0,
+    imageHeight: 0,
+  })}
+  ${fontPreloadHTML()}
+  ${photoPreconnectHTML()}
+  <style>
+    ${fontFaceCSS()}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg-page:#0a0a0a;--text:#f0ebe5;--text-2:#bbb;--text-muted:#999;--bg-card:#141414;--esqueleto:#1d1d1d;--border:#262626;--accent:#c0a060;--warn-bg:#1d1606;--warn-border:#4a3a12;--warn-text:#d8b25a;--pad:clamp(12px,3vw,32px)}
+    @media (prefers-color-scheme: light){:root{--bg-page:#f0ece8;--text:#1a1715;--text-2:#4a4744;--text-muted:#665f5b;--bg-card:#e5e1db;--esqueleto:#dcd7d0;--border:#ddd9d4;--accent:#7d5a22;--warn-bg:#fdf3dc;--warn-border:#e8d1a0;--warn-text:#7a5a17}}
+    body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
+    :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    a{color:inherit}
+    .ix-dono{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1rem;padding:.5rem var(--pad);font-size:.78rem;color:var(--text-muted);background:var(--bg-card);border-bottom:1px solid var(--border)}
+    .ix-dono a{color:var(--text-2);text-decoration:underline;text-underline-offset:2px;padding:.55rem 0}
+    .ix-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
+    .ix-top{padding:1rem var(--pad) .5rem}
+    .ix-voltar{display:inline-flex;align-items:center;min-height:44px;font-size:.85rem;color:var(--text-2);text-decoration:none}
+    .ix-top h1{font-size:clamp(1.25rem,3.4vw,1.9rem);font-weight:600;letter-spacing:-.01em;overflow-wrap:anywhere}
+    .ix-meta{font-size:.85rem;color:var(--text-muted);margin-top:.25rem}
+    .ix-aviso{margin:.5rem var(--pad);padding:.7rem .9rem;border:1px solid var(--warn-border);background:var(--warn-bg);color:var(--warn-text);border-radius:8px;font-size:.85rem}
+    .ix-grade{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:12px;padding:.75rem var(--pad) 2.5rem}
+    .ix-card{display:flex;flex-direction:column;height:100%;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-card);text-decoration:none}
+    .ix-card:hover{border-color:var(--accent)}
+    .ix-card img,.ix-vazio{display:block;width:100%;aspect-ratio:3/2;object-fit:cover;background:var(--esqueleto)}
+    .ix-nome{padding:.6rem .75rem .1rem;font-size:.92rem;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+    .ix-sub{padding:0 .75rem .75rem;font-size:.78rem;color:var(--text-muted)}
+    .ix-vazio-msg{padding:2rem var(--pad);color:var(--text-muted)}
+  </style>
+</head>
+<body>
+  ${barraDono}
+  <header class="ix-top">
+    <a class="ix-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span>&nbsp;Página do projeto</a>
+    <h1>${escape(titulo)}</h1>
+    <p class="ix-meta">${escape([dataEvento, `${caps.caps.length} ${caps.caps.length === 1 ? 'evento' : 'eventos'}`].filter(Boolean).join(' · '))}</p>
+  </header>
+  ${avisoTrunc}
+  <main id="g-main" aria-label="Eventos">
+    ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : '<p class="ix-vazio-msg">A pasta não tem subpastas: não há eventos para mostrar.</p>'}
+  </main>
+</body>
+</html>`;
+}

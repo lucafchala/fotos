@@ -11,7 +11,7 @@
 // O e-mail do autor não aparece em log: só o nome do projeto e o motivo.
 
 import { AUTOR_AVISO_DIA } from './config.js';
-import { achaFoto, emailDoAutor, listaPasta, pastaDoDrive } from './drive.js';
+import { achaFoto, emailDoAutor, listaPasta, alvoDaGaleria } from './drive.js';
 import { checkRateLimit, noteDegraded, errMessage, sendAutorEmail } from './utils.js';
 
 /**
@@ -22,17 +22,20 @@ import { checkRateLimit, noteDegraded, errMessage, sendAutorEmail } from './util
  * Avisa o autor da foto, se houver e-mail. Nunca lança.
  * @param {import('./utils.js').Env} env
  * @param {Record<string, any>} evento o projeto (traz driveUrl e galeriaCreditos)
- * @param {{ fotoId: string, tipo: TipoAviso, motivo?: string, ocultada?: boolean, capitulo?: string, listagem?: import('./drive.js').ListagemDrive }} o
+ * @param {{ fotoId: string, tipo: TipoAviso, motivo?: string, ocultada?: boolean, capitulo?: string, capituloNome?: string, listagem?: import('./drive.js').ListagemDrive }} o
  * @returns {Promise<'enviado' | 'sem-chave' | 'sem-autor' | 'sem-email' | 'repetido' | 'teto' | 'erro'>}
  */
 export async function avisaAutor(env, evento, o) {
   try {
     if (!env.RESEND_API_KEY) return 'sem-chave';
     let listagem = o.listagem;
+    let nomeCapitulo = o.capituloNome || '';
     if (!listagem) {
-      const pasta = pastaDoDrive(evento.driveUrl);
-      if (!pasta) return 'sem-autor';
-      listagem = await listaPasta(env, pasta, { creditos: evento.galeriaCreditos });
+      // Só o capítulo da foto (ou a pasta do projeto): nunca um ID vindo de fora.
+      const alvo = await alvoDaGaleria(env, evento, o.capitulo || '');
+      if (alvo.kind !== 'ok' || !alvo.pasta) return 'sem-autor';
+      listagem = await listaPasta(env, alvo.pasta, { creditos: evento.galeriaCreditos, maxChamadas: alvo.maxChamadas });
+      nomeCapitulo = alvo.capitulo ? alvo.capitulo.nome : '';
     }
     const f = achaFoto(listagem, o.fotoId);
     if (!f) return 'sem-autor';
@@ -51,7 +54,7 @@ export async function avisaAutor(env, evento, o) {
       to: para,
       tipo: o.tipo,
       projeto: String(evento.title || evento.slug),
-      capitulo: o.capitulo || '',
+      capitulo: nomeCapitulo,
       secao: secao ? String(secao.nome || '') : '',
       fotoId: o.fotoId,
       motivo: o.motivo,

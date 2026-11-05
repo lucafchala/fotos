@@ -2260,6 +2260,7 @@ export async function sendRemovalEmail(env, req) {
   const linhasGaleria = galeria ? `
     ${req.prioridade ? '<tr><td style="padding:8px 0;color:#b00020;font-weight:bold" colspan="2">PRIORIDADE: o pedido é de responsável por um menor de idade</td></tr>' : ''}
     ${motivo ? `<tr><td style="padding:8px 0;color:#666">Motivo</td><td style="padding:8px 0">${esc(motivo)}</td></tr>` : ''}
+    ${req.capitulo ? `<tr><td style="padding:8px 0;color:#666">Capítulo</td><td style="padding:8px 0">${esc(req.capitulo)}</td></tr>` : ''}
     ${req.fotoNome ? `<tr><td style="padding:8px 0;color:#666">Foto</td><td style="padding:8px 0">${esc(req.fotoNome)}</td></tr>` : ''}
     <tr><td style="padding:8px 0;color:#666">Situação</td><td style="padding:8px 0">${req.ocultada ? 'A foto foi <strong>ocultada da galeria</strong> até você decidir (painel → Pedidos)' : '<strong>A foto NÃO foi ocultada</strong> (limite de pedidos atingido). Decida no painel → Pedidos'}</td></tr>` : '';
 

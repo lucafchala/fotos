@@ -12,11 +12,12 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
+import { galeriaIndiceHTML } from './ui/galeria-indice.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -201,10 +202,17 @@ const RESOLVE_REQUEST_PATH_RE = /^\/api\/removal-requests\/([a-f0-9]+)\/resolve$
 const SLUG_PATH_RE = /^\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_PATH_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
+// Galeria por capítulos (v3.1): /galeria/<slug>/<capítulo> e o download dele.
+// "baixar" e "sitemap" são slugs reservados (drive.js os evita nos capítulos).
+const CAP_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
+const GALERIA_CAP_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/;
+const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 // Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
 // sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
 // "Sitemap file location"), e a página da galeria fica fora de /galeria/<slug>/.
-const SITEMAP_GALERIA_RE = /^\/sitemap-galeria-([a-z0-9][a-z0-9-]*)\.xml$/;
+// Com capítulos: /sitemap-galeria-<slug>.<capítulo>.xml (o ponto separa, pois o
+// hífen existe nos dois slugs).
+const SITEMAP_GALERIA_RE = /^\/sitemap-galeria-([a-z0-9][a-z0-9-]*)(?:\.([a-z0-9][a-z0-9-]*))?\.xml$/;
 
 // Tira as barras finais com varredura linear, não com /\/+$/. A regex é
 // quadrática num caminho só de barras (16 mil barras ≈ 110 ms de CPU), e o
@@ -273,7 +281,7 @@ const worker = {
       if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
       if (path === '/sitemap-galerias.xml' && method === 'GET') return await handleSitemapGalerias(env);
       const sitemapGaleriaMatch = path.match(SITEMAP_GALERIA_RE);
-      if (sitemapGaleriaMatch && method === 'GET') return await handleSitemapGaleria(env, sitemapGaleriaMatch[1]);
+      if (sitemapGaleriaMatch && method === 'GET') return await handleSitemapGaleria(env, sitemapGaleriaMatch[1], sitemapGaleriaMatch[2] || '');
       if (path === '/robots.txt' && method === 'GET') return await handleRobots();
       if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
@@ -375,6 +383,10 @@ const worker = {
       if (galeriaMatch && method === 'GET') return await handleGaleriaPagina(request, env, galeriaMatch[1], url, nonce, ctx);
       const baixarMatch = path.match(GALERIA_BAIXAR_RE);
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
+      const capBaixarMatch = path.match(GALERIA_CAP_BAIXAR_RE);
+      if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
+      const capMatch = path.match(GALERIA_CAP_RE);
+      if (capMatch && method === 'GET') return await handleGaleriaPagina(request, env, capMatch[1], url, nonce, ctx, capMatch[2]);
 
       // Event detail pages — must be last
       const slugMatch = path.match(SLUG_PATH_RE);
@@ -538,14 +550,48 @@ const SITEMAP_IMAGENS_POR_URL = 1000;
  */
 async function handleSitemapGalerias(env) {
   const events = (await getEvents(env)).filter(galeriaIndexavel);
-  const itens = events.map(e => {
+  /** @type {string[]} */
+  const itens = [];
+  const entrada = (/** @type {string} */ loc, /** @type {Evento} */ e) => {
     const lastmod = lastmodOf(e);
-    return `  <sitemap><loc>${SITE_URL}/sitemap-galeria-${escape(e.slug)}.xml</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</sitemap>`;
-  });
+    return `  <sitemap><loc>${SITE_URL}/${loc}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</sitemap>`;
+  };
+  // Galeria por capítulos: o sitemap do projeto (índice + capítulos) e um por
+  // capítulo. Ler a lista de capítulos custa 1 chamada ao Drive no frio, então
+  // só os primeiros SITEMAP_PROJETOS_COM_CAPITULOS projetos são abertos por
+  // pedido (a conta do plano gratuito); os demais entram só com o sitemap do
+  // projeto, e o Google chega aos capítulos por ele.
+  let abertos = 0;
+  for (const e of events) {
+    itens.push(entrada(`sitemap-galeria-${escape(e.slug)}.xml`, e));
+    if (!e.galeriaCapitulos || abertos >= SITEMAP_PROJETOS_COM_CAPITULOS) continue;
+    abertos++;
+    const caps = await capitulosOuNulo(env, e);
+    for (const c of caps ? caps.caps : []) itens.push(entrada(`sitemap-galeria-${escape(e.slug)}.${escape(c.slug)}.xml`, e));
+  }
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${itens.join('\n')}${itens.length ? '\n' : ''}</sitemapindex>\n`;
   return new Response(xml, {
     headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
   });
+}
+
+const SITEMAP_PROJETOS_COM_CAPITULOS = 8;
+
+/**
+ * A lista de capítulos de um projeto, ou null se o Drive não respondeu (o
+ * sitemap segue sem eles, em vez de falhar inteiro).
+ * @param {Env} env
+ * @param {Evento} e
+ */
+async function capitulosOuNulo(env, e) {
+  const pasta = pastaDoDrive(e.driveUrl);
+  if (!pasta) return null;
+  try {
+    return await listaCapitulos(env, pasta);
+  } catch (err) {
+    if (!(err instanceof DriveError)) throw err;
+    return null;
+  }
 }
 
 /**
@@ -559,34 +605,55 @@ async function handleSitemapGalerias(env) {
  * evento — ocultar uma foto o atualiza, então o Google relê.
  * @param {Env} env
  * @param {string} slug
+ * @param {string} [capSlug]
  */
-async function handleSitemapGaleria(env, slug) {
+async function handleSitemapGaleria(env, slug, capSlug = '') {
   const event = (await getEvents(env)).find(e => e.slug === slug);
   const pasta = event && galeriaIndexavel(event) ? pastaDoDrive(event.driveUrl) : null;
   if (!event || !pasta) return notFound();
+  if (!event.galeriaCapitulos && capSlug) return notFound();
+  const lastmod = lastmodOf(event);
+  const lm = lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : '';
+  const indisponivel = () => new Response('Drive indisponível.', {
+    status: 503,
+    headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), 'Retry-After': '3600' },
+  });
+
+  // Com capítulos e sem capítulo na rota: as URLs do índice e de cada capítulo
+  // (sem fotos — elas ficam no sitemap de cada capítulo).
+  if (event.galeriaCapitulos && !capSlug) {
+    const caps = await capitulosOuNulo(env, event);
+    if (!caps) return indisponivel();
+    const urls = [`  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
+      ...caps.caps.map(c => `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`, {
+      headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
+    });
+  }
+
+  const alvo = await alvoDaGaleria(env, event, capSlug);
+  if (alvo.kind === 'nao') return notFound();
+  if (alvo.kind === 'erro' || !alvo.pasta) return indisponivel();
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, pasta, { creditos: event.galeriaCreditos });
+    listagem = await listaPasta(env, alvo.pasta, { creditos: event.galeriaCreditos, maxChamadas: alvo.maxChamadas });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     // 503 + Retry-After: o Google mantém a versão anterior e volta depois, em
     // vez de entender que as fotos sumiram.
-    return new Response('Drive indisponível.', {
-      status: 503,
-      headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), 'Retry-After': '3600' },
-    });
+    return indisponivel();
   }
   const fotos = semOcultas(listagem, normalizaOcultas(event.fotosOcultas)).secoes
     .flatMap(s => s.fotos)
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
-  const lastmod = lastmodOf(event);
+  const pagina = `${SITE_URL}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
   // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
   const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
-    + `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}\n    ${imagens.join('\n    ')}\n  </url>\n`
+    + `  <url><loc>${pagina}</loc>${lm}\n    ${imagens.join('\n    ')}\n  </url>\n`
     + '</urlset>\n';
   return new Response(xml, {
     // no-cache: foto oculta sai do sitemap no próximo pedido, não daqui a 1 h.
@@ -610,7 +677,7 @@ function handleRobots() {
   // fica assim de propósito — o Google ignora a linha, e o ai-train=no é
   // decisão do dono.
   const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
-  const fechado = 'Disallow: /galeria/*/baixar/\n';
+  const fechado = 'Disallow: /galeria/*/baixar/\nDisallow: /galeria/*/*/baixar/\n';
   const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
   const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
@@ -1327,7 +1394,7 @@ async function handleDeleteEvent(request, env, path) {
   // Todos os contadores do projeto, não só o de visitas: `drive_clicks:<slug>`
   // ficava para trás na versão em KV e ressurgia somado se um projeto novo
   // reaproveitasse o slug. Os downloads da galeria, pelo mesmo motivo.
-  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`]);
+  await deleteCounters(env, [`views:${removed.slug}`, `drive_clicks:${removed.slug}`, `galeria_views:${removed.slug}`, `baixar_redes:${removed.slug}`, `baixar_max:${removed.slug}`, `galeria_views:${removed.slug}:*`]);
   return jsonOk({ deleted: true });
 }
 
@@ -3661,13 +3728,13 @@ async function cookieGaleria(env, slug) {
  * @param {URL} url
  * @param {string} nonce
  * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug] capítulo (galeria por capítulos); vazio = a galeria do projeto, ou o ÍNDICE nos projetos com capítulos
  */
-export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
+export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, capSlug = '') {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return notFound();
 
-  const pasta = pastaDoDrive(event.driveUrl);
   /** @type {import('./drive.js').ListagemDrive | null} */
   let listagem = null;
   /** @type {{ codigo: string, mensagem: string } | null} */
@@ -3675,15 +3742,30 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   const dono = await verifySession(env, request);
   // Só o dono força a releitura do Drive: visitante não gasta cota do Google.
   const atualizar = !!dono && url.searchParams.has('atualizar');
-  if (!pasta) {
-    erro = { codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
-  } else {
+  // Onde ler: a pasta do projeto ou a subpasta do capítulo — decidido AQUI, no
+  // servidor; capítulo que não existe é o 404 da galeria.
+  const alvo = await alvoDaGaleria(env, event, capSlug, atualizar);
+  if (alvo.kind === 'nao') return notFound();
+  const volta = `/galeria/${slug}${capSlug ? `/${capSlug}` : ''}`;
+  if (alvo.kind === 'ok' && !alvo.pasta) {
+    return await respondeIndiceDaGaleria(request, env, ctx, { event, slug, alvo, dono: !!dono, nonce, atualizar, volta });
+  }
+  const pasta = alvo.kind === 'ok' ? alvo.pasta : null;
+  if (alvo.kind === 'erro') {
+    erro = { codigo: alvo.codigo, mensagem: alvo.mensagem };
+  } else if (pasta) {
     try {
-      listagem = await listaPasta(env, pasta, { atualizar, creditos: event.galeriaCreditos });
+      listagem = await listaPasta(env, pasta, { atualizar, creditos: event.galeriaCreditos, maxChamadas: alvo.maxChamadas });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       erro = { codigo: e.codigo, mensagem: e.message };
     }
+  }
+  const capitulo = alvo.kind === 'ok' ? alvo.capitulo : null;
+  // O resumo do índice (quantas fotos, as capas) acompanha o que a página leu.
+  if (capitulo && listagem && alvo.kind === 'ok') {
+    const tarefa = registraResumo(alvo.raiz.id, capitulo.id, listagem).catch(() => {});
+    if (ctx) ctx.waitUntil(tarefa); else await tarefa;
   }
   // Pasta do Instagram: quais fotos têm versão "para redes". Falha dela NUNCA
   // derruba a galeria — só tira a opção (o dono vê o motivo na faixa).
@@ -3704,7 +3786,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
       const ig = await listaPasta(env, pastaIg, { atualizar, maxChamadas: GALERIA_MAX_CHAMADAS_IG });
       // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
       // 10 min em 10 min, e o casamento fica guardado nela.
-      redes = await casaRedesCacheado(listagem, ig);
+      redes = await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, ig);
       if (ig.truncada) avisoRedes = { mensagem: 'A pasta do Instagram é grande demais para ser lida inteira: as últimas fotos podem ficar sem "para redes".', parcial: true };
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
@@ -3713,13 +3795,13 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   }
   // Depois de reler (as duas pastas), volta para o endereço limpo: recarregar
   // a página não pode virar uma nova leitura forçada a cada F5.
-  if (atualizar && listagem) return redirect(`/galeria/${slug}`);
+  if (atualizar && listagem) return redirect(volta);
   const ocultas = normalizaOcultas(event.fotosOcultas);
   // Visitante recebe a lista JÁ SEM as ocultas (nem o ID chega à página); o
   // dono vê todas, com as ocultas marcadas, para poder trazê-las de volta.
   const listagemBruta = listagem;
   if (listagem && !dono) listagem = semOcultas(listagem, ocultas);
-  const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && !!listagem);
+  const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && !!listagem, capSlug);
   // Indexável: álbum público listado, visto por visitante, fora da prévia, e
   // com fotos (página de erro ou pasta vazia não vai para o Google).
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && !!listagem && listagem.total > 0;
@@ -3729,6 +3811,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
   const formToken = !dono && listagem ? await mintFormToken(env, 'galeria-remocao') : '';
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
+    capituloNome: capitulo ? capitulo.nome : '',
+    ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo) } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
   /** @type {Response} */
@@ -3747,7 +3831,42 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx) {
     res.headers.set('Cache-Control', 'private, no-cache');
     if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   }
-  if (contaGaleria) res.headers.append('Set-Cookie', contaGaleria);
+  for (const c of contaGaleria) res.headers.append('Set-Cookie', c);
+  return res;
+}
+
+/** Nome e slug de um capítulo vizinho, para a navegação. @param {import('./drive.js').Capitulo | null} c */
+function resumoNav(c) {
+  return c ? { slug: c.slug, nome: c.nome } : null;
+}
+
+/**
+ * O ÍNDICE da galeria por capítulos: um cartão por subpasta de primeiro nível.
+ * Uma chamada à API (a lista de capítulos, guardada 10 min) mais o resumo do
+ * cache — nenhuma listagem de fotos.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext | undefined} ctx
+ * @param {{ event: Evento, slug: string, alvo: any, dono: boolean, nonce: string, atualizar: boolean, volta: string }} o
+ */
+async function respondeIndiceDaGaleria(request, env, ctx, o) {
+  const { event, slug, alvo, dono, nonce, atualizar, volta } = o;
+  if (atualizar) return redirect(volta);
+  const ocultas = normalizaOcultas(event.fotosOcultas);
+  const resumo = await lerResumo(alvo.raiz.id);
+  const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
+  const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel });
+  /** @type {Response} */
+  let res;
+  if (dono || isRestrictedAccess(event)) {
+    res = adminHtml(pagina, 200, nonce);
+  } else {
+    res = html(pagina, 200, nonce);
+    res.headers.set('Cache-Control', 'private, no-cache');
+    if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  }
+  for (const c of contaGaleria) res.headers.append('Set-Cookie', c);
   return res;
 }
 
@@ -3769,24 +3888,43 @@ export function ehRobo(request) {
  * Conta uma abertura da galeria (`galeria_views:<slug>`), com a mesma noção
  * de "visita" da página do projeto: um navegador por hora, por projeto
  * (cookie `gv_<slug>`, preso ao caminho da galeria). O dono, o HEAD e o
- * prefetch não contam, nem robôs conhecidos (`ehRobo`). Devolve o Set-Cookie a
- * pôr na resposta, ou ''.
+ * prefetch não contam, nem robôs conhecidos (`ehRobo`). Com capítulos, conta
+ * também `galeria_views:<slug>:<capítulo>`. Devolve os Set-Cookie a pôr na
+ * resposta (lista vazia se nada contou).
  * @param {Request} request
  * @param {Env} env
  * @param {ExecutionContext | undefined} ctx
  * @param {string} slug
  * @param {boolean} pode visitante com a lista carregada
+ * @param {string} [capSlug]
+ * @returns {string[]} os Set-Cookie a pôr na resposta
  */
-function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
-  if (!pode || request.method !== 'GET') return '';
+function contaAberturaDaGaleria(request, env, ctx, slug, pode, capSlug = '') {
+  if (!pode || request.method !== 'GET') return [];
   // Robô conhecido não abre galeria: o Google rastreia `/galeria/<slug>` desde a
   // v3 e cada rastreio virava uma "abertura" (e a taxa passava de 100%).
-  if (ehRobo(request)) return '';
+  if (ehRobo(request)) return [];
+  if ((request.headers.get('Sec-Purpose') || '').includes('prefetch')) return [];
+  const cookies = request.headers.get('Cookie') || '';
+  /** @type {string[]} */
+  const sai = [];
+  // O projeto: uma abertura por navegador por hora, na página inicial ou em
+  // qualquer capítulo.
   const nome = `gv_${slug}`;
-  if ((request.headers.get('Cookie') || '').includes(`${nome}=1`)) return '';
-  if ((request.headers.get('Sec-Purpose') || '').includes('prefetch')) return '';
-  bumpCounter(env, ctx || null, `galeria_views:${slug}`);
-  return `${nome}=1; Max-Age=3600; Path=/galeria/${slug}; SameSite=Lax; Secure`;
+  if (!cookies.includes(`${nome}=1`)) {
+    bumpCounter(env, ctx || null, `galeria_views:${slug}`);
+    sai.push(`${nome}=1; Max-Age=3600; Path=/galeria/${slug}; SameSite=Lax; Secure`);
+  }
+  // O capítulo: a mesma regra, com o cookie preso ao caminho dele. O "_" nunca
+  // existe num slug, então projeto+capítulo não se confundem.
+  if (capSlug) {
+    const nomeCap = `gv_${slug}_${capSlug}`;
+    if (!cookies.includes(`${nomeCap}=1`)) {
+      bumpCounter(env, ctx || null, `galeria_views:${slug}:${capSlug}`);
+      sai.push(`${nomeCap}=1; Max-Age=3600; Path=/galeria/${slug}/${capSlug}; SameSite=Lax; Secure`);
+    }
+  }
+  return sai;
 }
 
 /**
@@ -3812,9 +3950,10 @@ function contaAberturaDaGaleria(request, env, ctx, slug, pode) {
  * @param {string} fileId
  * @param {URL} url
  * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug] capítulo da foto (projeto com capítulos): só a pasta DELE é lida
  */
-export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) {
-  const res = await baixaDaGaleria(request, env, slug, fileId, url, ctx);
+export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx, capSlug = '') {
+  const res = await baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug);
   // Toda resposta do proxy, 200, erro ou 429: nada daqui vai para o índice (nem
   // para o Google Imagens). O Disallow do robots.txt evita o pedido; isto
   // cobre quem chega por link de fora sem ter lido o robots.txt.
@@ -3829,13 +3968,18 @@ export async function handleGaleriaBaixar(request, env, slug, fileId, url, ctx) 
  * @param {string} fileId
  * @param {URL} url
  * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug]
  */
-async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
+async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = '') {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   if (!idDriveValido(fileId)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);
-  const pasta = event ? pastaDoDrive(event.driveUrl) : null;
-  if (!event || !pasta) return notFound();
+  if (!event || !pastaDoDrive(event.driveUrl)) return notFound();
+  // Projeto com capítulos: o download SÓ vale com o capítulo na rota (a foto é
+  // procurada na pasta dele, nunca numa pasta que o navegador mandou). Sem
+  // capítulos, a rota com capítulo não existe. As ocultas/remoção/favoritas
+  // seguem por id de foto no projeto.
+  if (!!event.galeriaCapitulos !== !!capSlug) return notFound();
   const variante = url.searchParams.get('v') === 'redes' ? 'redes' : 'max';
   // "Para redes" sem pasta do Instagram no projeto (ou com a MESMA pasta da
   // galeria): não existe. Antes de qualquer chamada ao Google.
@@ -3855,8 +3999,13 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
+  const alvoLista = await alvoDaGaleria(env, event, capSlug);
+  if (alvoLista.kind === 'nao') return notFound();
+  if (alvoLista.kind === 'erro') return erroDownload(request, alvoLista.mensagem, 502);
+  if (!alvoLista.pasta) return notFound();
+  const capitulo = alvoLista.capitulo;
   try {
-    listagem = await listaPasta(env, pasta, { creditos: event.galeriaCreditos });
+    listagem = await listaPasta(env, alvoLista.pasta, { creditos: event.galeriaCreditos, maxChamadas: alvoLista.maxChamadas });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return erroDownload(request, e.message, 502);
@@ -3876,7 +4025,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
       if (!(e instanceof DriveError)) throw e;
       return erroDownload(request, e.message, 502);
     }
-    const par = (await casaRedesCacheado(listagem, origem)).get(fileId);
+    const par = (await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, origem)).get(fileId);
     // Sem par, ou (defesa em profundidade) par que não está na listagem da
     // pasta do Instagram: 404, sem buscar nada.
     if (!par || !achaFoto(origem, par[0])) return notFound();
@@ -3919,7 +4068,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx) {
   // (nomes.js, calculado aqui a partir da listagem, nunca do cliente); os bytes
   // são os do Drive, sem tocar em nada.
   const nome = event.nomesAmigaveis
-    ? nomeAmigavel(listagem, { titulo: event.title, capitulo: '' }, fileId, alvoFoto[3]) || alvoFoto[3]
+    ? nomeAmigavel(listagem, { titulo: event.title, capitulo: capitulo ? capitulo.nome : '' }, fileId, alvoFoto[3]) || alvoFoto[3]
     : alvoFoto[3];
   const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
   // `no-transform`: nenhum intermediário (CDN, operadora) pode recomprimir a foto.
@@ -3955,6 +4104,9 @@ async function handleOcultarFoto(request, env, ctx) {
   if (!body) return jsonErr('JSON inválido.', 400);
   const { slug, foto } = body;
   if (typeof foto !== 'string' || !idDriveValido(foto)) return jsonErr('Foto inválida.', 400);
+  // Capítulo da foto (só para o aviso ao autor achá-la): o texto vira slug
+  // válido ou é descartado.
+  const capOcultar = typeof body.cap === 'string' && CAP_SLUG_RE.test(body.cap) ? body.cap : '';
   if (typeof body.oculta !== 'boolean') return jsonErr('Diga se a foto fica oculta (true) ou visível (false).', 400);
 
   const events = await getEvents(env, true);
@@ -3974,7 +4126,7 @@ async function handleOcultarFoto(request, env, ctx) {
   await saveEvents(env, events);
   // O autor da foto (se tem e-mail nos créditos) é avisado; sem esperar e sem
   // poder falhar a ação.
-  ctx?.waitUntil(avisaAutor(env, events[idx], { fotoId: foto, tipo: body.oculta ? 'oculta' : 'restaurada' }));
+  ctx?.waitUntil(avisaAutor(env, events[idx], { fotoId: foto, tipo: body.oculta ? 'oculta' : 'restaurada', capitulo: capOcultar }));
   return jsonOk({ ocultas, pendentes: pendentes.map(p => p.id) });
 }
 
@@ -4052,13 +4204,23 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   const evento = (await getEvents(env)).find(e => e.slug === slug);
   if (!evento) return notFound();
-  const pasta = pastaDoDrive(evento.driveUrl);
-  if (!pasta) return notFound();
+  if (!pastaDoDrive(evento.driveUrl)) return notFound();
+  // Projeto com capítulos: o pedido TEM de dizer o capítulo, e a foto é
+  // procurada só na pasta dele (o ID da pasta nunca vem do navegador).
+  const capSlug = typeof body.cap === 'string' ? body.cap : '';
+  if (capSlug && !CAP_SLUG_RE.test(capSlug)) return jsonErr('Capítulo inválido.', 400);
+  if (!!evento.galeriaCapitulos !== !!capSlug) return notFound();
+  const alvoLista = await alvoDaGaleria(env, evento, capSlug);
+  if (alvoLista.kind === 'nao') return notFound();
+  if (alvoLista.kind === 'erro' || !alvoLista.pasta) {
+    return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
+  }
+  const capitulo = alvoLista.capitulo;
 
   /** @type {import('./drive.js').ListagemDrive} */
   let listagem;
   try {
-    listagem = await listaPasta(env, pasta, { creditos: evento.galeriaCreditos });
+    listagem = await listaPasta(env, alvoLista.pasta, { creditos: evento.galeriaCreditos, maxChamadas: alvoLista.maxChamadas });
   } catch (e) {
     if (!(e instanceof DriveError)) throw e;
     return jsonErr('Não consegui conferir a galeria agora. Tente de novo em alguns minutos ou escreva para privacidade@lucafchala.com.', 503);
@@ -4119,9 +4281,10 @@ export async function handleGaleriaRemocao(request, env, ctx) {
     method:     'galeria',
     origem:     'galeria',
     // O link da galeria: o dono, logado, vê a foto marcada "Oculta a pedido".
-    value:      `${new URL(request.url).origin}/galeria/${slug}`,
+    value:      `${new URL(request.url).origin}/galeria/${slug}${capitulo ? `/${capitulo.slug}` : ''}`,
     fotoId:     foto,
     fotoNome:   String(achada[3] || '').slice(0, 200),
+    ...(capitulo ? { capSlug: capitulo.slug, capitulo: capitulo.nome.slice(0, 80) } : {}),
     motivo,
     prioridade: motivo === 'menor',
     ocultada,
@@ -4139,7 +4302,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   if (resultado === 'perdido') return jsonErr(MSG_PEDIDO_NAO_REGISTRADO, 503);
   // Já temos a listagem: o autor da foto é avisado sem nova ida ao Drive. Nada
   // do solicitante (e-mail, mensagem) vai junto.
-  ctx?.waitUntil(avisaAutor(env, evento, { fotoId: foto, tipo: 'pedido', motivo, ocultada, listagem }));
+  ctx?.waitUntil(avisaAutor(env, evento, { fotoId: foto, tipo: 'pedido', motivo, ocultada, listagem, capitulo: capitulo ? capitulo.slug : '', capituloNome: capitulo ? capitulo.nome : '' }));
   return jsonOk({ ok: true, ocultada, ...(semOcultar ? { motivoNaoOculta: semOcultar } : {}) });
 }
 
@@ -4527,7 +4690,7 @@ const RESTORE_REQUEST_STRINGS = {
   createdAt: 40, resolvedAt: 40,
   emailStatus: 220, confirmEmailStatus: 220, resolvedEmailStatus: 220,
   // Pedido feito pela galeria (POST /api/galeria/remocao).
-  fotoId: 80, fotoNome: 200, motivo: 20, origem: 20, desfecho: 20,
+  fotoId: 80, fotoNome: 200, motivo: 20, origem: 20, desfecho: 20, capSlug: 60, capitulo: 80,
 };
 
 /**

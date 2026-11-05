@@ -1135,6 +1135,16 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           </div>
           <div class="field">
             <div class="toggle-row">
+              <label class="toggle-label" for="f-galeria-capitulos">Galeria por capítulos (uma página por evento/subpasta)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-galeria-capitulos" aria-describedby="dica-galeria-capitulos">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-galeria-capitulos" style="margin-top:.5rem">Desligado, a galeria é uma página só, com uma seção por subpasta. Ligado, <code>/galeria/&lt;projeto&gt;</code> vira um índice com um cartão por <strong>subpasta de primeiro nível</strong> (nome sem o número de ordem, anos do mais novo ao mais antigo) e cada uma abre numa página própria. Boa para pasta com muitos eventos, que no modo comum passa do limite e fica com a lista parcial. Os links antigos de download deixam de valer (os da página nova valem).</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
               <label class="toggle-label" for="f-nomes-amigaveis">Nomes amigáveis nos downloads</label>
               <label class="toggle">
                 <input type="checkbox" id="f-nomes-amigaveis" aria-describedby="dica-nomes-amigaveis">
@@ -1705,6 +1715,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-creditos').value = e ? (e.galeriaCreditos || '') : '';
       document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
+      document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';
       document.getElementById('f-youtube').value = e && e.youtubeId ? 'https://youtu.be/' + e.youtubeId : '';
       // Vertical volta como link de Shorts: o servidor o reconhece como
@@ -1765,7 +1776,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1820,7 +1831,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2071,6 +2082,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         galeriaCreditos: document.getElementById('f-creditos').value,
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
+        galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),
         youtubeId: document.getElementById('f-youtube').value.trim(),
         youtubeMais: document.getElementById('f-youtube-mais').value.split('\\n').map(s => s.trim()).filter(Boolean),
@@ -2283,7 +2295,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           <div class="req-foto">
             <img src="https://lh3.googleusercontent.com/d/\${esc(r.fotoId)}=w160" width="80" height="80" alt="Foto do pedido" loading="lazy" referrerpolicy="no-referrer">
             <div>
-              <span><strong>Álbum:</strong> <a href="/galeria/\${esc(r.eventSlug)}" target="_blank" rel="noopener">\${esc(r.eventTitle || r.eventSlug)}</a></span>
+              <span><strong>Álbum:</strong> <a href="/galeria/\${esc(r.eventSlug)}\${r.capSlug ? '/' + esc(r.capSlug) : ''}" target="_blank" rel="noopener">\${esc(r.eventTitle || r.eventSlug)}\${r.capitulo ? ' · ' + esc(r.capitulo) : ''}</a></span>
               \${r.fotoNome ? \`<span><strong>Arquivo:</strong> \${esc(r.fotoNome)}</span>\` : ''}
               <span><strong>Motivo:</strong> \${esc(motivoLabel[r.motivo] || r.motivo || '—')}</span>
             </div>

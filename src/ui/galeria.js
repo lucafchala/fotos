@@ -116,6 +116,7 @@ const CONSERTOS = {
  *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
+ *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -128,10 +129,13 @@ const CONSERTOS = {
 // SIGNING_SECRET (o servidor então também não confere).
 // `listagemBruta` + `capituloNome`: só para "nomes amigáveis" (nomes.js) — a
 // listagem COM as ocultas, de onde sai a numeração, e o nome do capítulo.
+// `capitulo` (galeria por capítulos): a página é a de UM capítulo, com a
+// navegação para o índice e para os vizinhos. Hrefs sempre montados aqui, de
+// slugs que o servidor validou.
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '' }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -147,11 +151,13 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
   // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
   // Person (@id) do resto do site.
-  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
-  const urlPagina = `${SITE_URL}/galeria/${slug}`;
+  const tituloPagina = `Fotos de ${titulo}${capitulo ? ` — ${capitulo.nome}` : ''}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const caminhoBase = `/galeria/${slug}`;
+  const caminhoPagina = capitulo ? `${caminhoBase}/${capitulo.slug}` : caminhoBase;
+  const urlPagina = `${SITE_URL}${caminhoPagina}`;
   const descricao = previewDescription(
     [dataEvento, listagem && total ? contagem : ''],
-    `Galeria de fotos de ${titulo}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
+    `Galeria de fotos de ${titulo}${capitulo ? ` (${capitulo.nome})` : ''}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
   );
   const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
   // Autores da listagem (índice 0 = padrão) e os que de fato têm foto na
@@ -207,6 +213,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const avisos = [];
   if (listagem && listagem.truncada) {
     avisos.push('Lista parcial: pastas muito grandes ou subpastas além de dois níveis ficam de fora — o Drive continua com tudo.');
+    // Só o dono vê a sugestão: pasta com muitos eventos cabe melhor em capítulos.
+    if (dono && !capitulo && !event.galeriaCapitulos) {
+      avisos.push('Dica: ligue "Galeria por capítulos" no projeto (painel → Mais opções). Cada subpasta vira uma página própria e a lista deixa de ser cortada.');
+    }
   }
 
   // Só o dono vê o motivo de "para redes" estar desligado ou parcial.
@@ -242,6 +252,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 
   const dados = listagem ? {
     slug,
+    cap: capitulo ? capitulo.slug : '',
     titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
     autores,
@@ -323,6 +334,12 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-top-l{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.25rem;padding:.8rem var(--pad)}
     .g-tit{flex:1 1 14rem;min-width:0}
     .g-tit h1{font-size:clamp(1.05rem,2.4vw,1.5rem);font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .g-cap-nav{display:flex;flex-wrap:wrap;gap:.1rem .9rem;padding:.3rem var(--pad);font-size:.82rem;border-bottom:1px solid var(--border)}
+    .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
+    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
+    .g-cap-a:hover{color:var(--text);text-decoration:underline}
+    .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
+    .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
@@ -507,8 +524,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
       <div class="g-tit">
-        <a class="g-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span> Página do projeto</a>
-        <h1 id="g-h1" tabindex="-1">${escape(titulo)}</h1>
+        ${capitulo
+    ? `<a class="g-voltar" href="${escape(caminhoBase)}"><span aria-hidden="true">←</span> Todos os eventos</a>`
+    : `<a class="g-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span> Página do projeto</a>`}
+        <h1 id="g-h1" tabindex="-1">${escape(capitulo ? `${titulo} · ${capitulo.nome}` : titulo)}</h1>
         ${meta ? `<p class="g-meta">${escape(meta)}</p>` : ''}
         ${linhaAutores ? `<p class="g-meta g-autores">${escape(linhaAutores)}</p>` : ''}
       </div>
@@ -521,6 +540,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     </div>
     ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
   </header>
+  ${capitulo ? navCapitulos(caminhoBase, capitulo, 'topo') : ''}
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
   ${conserto && erro ? `<section class="g-erro" role="alert">
     <h2>${escape(conserto.titulo)}</h2>
@@ -529,6 +549,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
+  ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', slug) : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
@@ -586,6 +607,23 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 </html>`;
 }
 
+/**
+ * A navegação entre capítulos: voltar ao índice e ir ao anterior/próximo.
+ * `topo` é a faixa sob o cabeçalho; `fim` repete no fim da página, com o link
+ * da página do projeto.
+ * @param {string} base /galeria/<slug>
+ * @param {{ slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null }} c
+ * @param {'topo' | 'fim'} onde
+ * @param {string} [slugProjeto]
+ */
+function navCapitulos(base, c, onde, slugProjeto = '') {
+  const ant = c.anterior ? `<a class="g-cap-a" rel="prev" href="${escape(`${base}/${c.anterior.slug}`)}"><span aria-hidden="true">‹</span> <span class="g-cap-t">${escape(c.anterior.nome)}</span></a>` : '';
+  const prox = c.proximo ? `<a class="g-cap-a g-cap-p" rel="next" href="${escape(`${base}/${c.proximo.slug}`)}"><span class="g-cap-t">${escape(c.proximo.nome)}</span> <span aria-hidden="true">›</span></a>` : '';
+  const indice = `<a class="g-cap-a g-cap-i" href="${escape(base)}">← Todos os eventos</a>`;
+  const projeto = slugProjeto ? `<a class="g-cap-a g-cap-i" href="/${escape(slugProjeto)}">Página do projeto</a>` : '';
+  return `<nav class="g-cap-nav g-cap-${onde}" aria-label="${onde === 'topo' ? 'Capítulos' : 'Mais capítulos'}">${onde === 'topo' ? '' : indice}${ant}${prox}${projeto}</nav>`;
+}
+
 /** "A", "A e B", "A, B e C". @param {string[]} nomes */
 function listaComE(nomes) {
   if (nomes.length < 2) return nomes.join('');
@@ -601,7 +639,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -1334,7 +1372,7 @@ const SCRIPT = `
     fetch('/api/galeria/ocultar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: D.slug, foto: f.id, oculta: querOculta }),
+      body: JSON.stringify({ slug: D.slug, cap: D.cap, foto: f.id, oculta: querOculta }),
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok) throw new Error(j.error || ('Erro ' + r.status));
@@ -1532,7 +1570,7 @@ const SCRIPT = `
   // iPhone recusou salvar no Fotos (a primeira busca dele já contou). O
   // servidor serve o mesmo arquivo; só não soma em "Fotos baixadas".
   function urlBaixar(f, v, semConta) {
-    return '/galeria/' + encodeURIComponent(D.slug) + '/baixar/' + f.id + '?v=' + v + (semConta ? '&c=0' : '');
+    return '/galeria/' + encodeURIComponent(D.slug) + (D.cap ? '/' + encodeURIComponent(D.cap) : '') + '/baixar/' + f.id + '?v=' + v + (semConta ? '&c=0' : '');
   }
   // 429 do limite por IP (Wi-Fi de evento = um IP só). O servidor diz quantos
   // segundos esperar (Retry-After); até lá NENHUM pedido de download sai —
@@ -2131,6 +2169,7 @@ const SCRIPT = `
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         slug: D.slug,
+        cap: D.cap,
         foto: foto.id,
         motivo: motivo,
         email: email,

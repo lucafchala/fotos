@@ -206,12 +206,17 @@ export class Counter extends DurableObject {
 
   // Apaga os totais E a série diária deles: um projeto excluído não pode
   // deixar baldes órfãos ocupando o objeto até a poda (400 dias).
+  // Uma chave terminada em "*" é um PREFIXO: `galeria_views:formatura:*` leva os
+  // contadores de todos os capítulos do projeto (galeria por capítulos, v3.1).
   /** @param {string[]} keys */
   async remove(keys) {
-    const alvo = new Set(keys);
-    const apagar = [...keys];
+    const exatas = new Set(keys.filter(k => !k.endsWith('*')));
+    const prefixos = keys.filter(k => k.endsWith('*')).map(k => k.slice(0, -1));
+    const casa = (/** @type {string} */ base) => exatas.has(base) || prefixos.some(p => base.startsWith(p));
+    const apagar = [...exatas];
     for (const k of this.#counts.keys()) {
-      if (k.startsWith(DIARIO) && alvo.has(k.slice(PREFIXO_DIA))) apagar.push(k);
+      const base = k.startsWith(DIARIO) ? k.slice(PREFIXO_DIA) : k;
+      if (casa(base) && !exatas.has(k)) apagar.push(k);
     }
     for (const k of apagar) this.#counts.delete(k);
     for (let i = 0; i < apagar.length; i += 128) await this.ctx.storage.delete(apagar.slice(i, i + 128));

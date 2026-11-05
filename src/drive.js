@@ -17,9 +17,9 @@
 
 import {
   GALERIA_LISTA_TTL_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
-  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS,
+  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
-  GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE,
+  GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -30,6 +30,7 @@ const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMedia
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
+const CAMPOS_PASTAS = 'nextPageToken,files(id,name,resourceKey)';
 const ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 const TIMEOUT_MS = 8000;
 // Nome de arquivo guardado por inteiro até aqui: o download devolve o nome
@@ -250,7 +251,7 @@ function cacheStore() {
 }
 
 /** Só para testes: o cache de módulo vazaria entre casos. */
-export function limpaCacheDrive() { memoria.clear(); }
+export function limpaCacheDrive() { memoria.clear(); memoriaCaps.clear(); memoriaResumo.clear(); }
 
 /**
  * Lê a pasta do projeto: fotos da raiz e de subpastas (cada subpasta vira uma
@@ -445,11 +446,12 @@ function fotoCompacta(f, autor) {
  * @param {string} chave
  * @param {{ id: string, rk: string }} pasta
  * @param {string} pageToken
+ * @param {boolean} [soPastas] só as subpastas (o índice de capítulos)
  */
-async function chamaDrive(chave, pasta, pageToken) {
+async function chamaDrive(chave, pasta, pageToken, soPastas = false) {
   const params = new URLSearchParams({
-    q: `'${pasta.id}' in parents and trashed = false`,
-    fields: CAMPOS,
+    q: `'${pasta.id}' in parents and trashed = false${soPastas ? ` and mimeType = '${FOLDER_MIME}'` : ''}`,
+    fields: soPastas ? CAMPOS_PASTAS : CAMPOS,
     pageSize: '1000',
     supportsAllDrives: 'true',
     includeItemsFromAllDrives: 'true',
@@ -857,4 +859,282 @@ export function pastaInstagram(event) {
   if (!ig) return null;
   const galeria = pastaDoDrive(event.driveUrl);
   return galeria && galeria.id === ig.id ? null : ig;
+}
+
+// ---------------------------------------------------------------------------
+// Galeria por capítulos (v3.1)
+// ---------------------------------------------------------------------------
+// Com "Galeria por capítulos" ligado no projeto, cada subpasta de PRIMEIRO
+// nível da pasta do projeto é uma página (`/galeria/<slug>/<capitulo>`) e a
+// raiz vira um índice de cartões. O índice custa UMA página da API (só as
+// subpastas); o capítulo é lido com `listaPasta` como se a subpasta fosse a
+// raiz. Fotos soltas na raiz não aparecem neste modo (documentado).
+//
+// Quem aparece nas rotas é o `slug` do capítulo, feito do nome da pasta; o ID
+// da pasta nunca vem do navegador — o servidor o acha aqui, na lista que ele
+// mesmo leu do Drive.
+
+/**
+ * @typedef {{ id: string, rk: string, bruto: string, nome: string, slug: string }} Capitulo
+ * @typedef {{ v: 1, pasta: string, em: string, truncada: boolean, caps: Capitulo[] }} CapitulosDrive
+ */
+
+// Slugs que colidiriam com rotas da própria galeria.
+const SLUGS_RESERVADOS = new Set(['baixar', 'sitemap']);
+const ANO_RE = /^(?:19|20)\d{2}(?!\d)/;
+
+/**
+ * O nome do capítulo como a página o mostra: sem controle, "_" vira espaço,
+ * espaços repetidos somem e o prefixo de ordenação ("01 - ", "2. ") cai — mas
+ * ano ("2026 - Formatura") fica. Nome que ficaria vazio volta como estava.
+ * @param {unknown} bruto
+ */
+export function nomeDeCapitulo(bruto) {
+  const base = String(bruto == null ? '' : bruto).replace(CONTROLE_RE, ' ').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
+  const sem = base.replace(/^\d{1,2}\s*[-.)–]\s+/, '').trim();
+  return (sem || base || 'Sem nome').slice(0, 80);
+}
+
+/** a-z, 0-9 e hífen, sem acento; no máximo 60. @param {string} nome */
+export function slugBaseDeCapitulo(nome) {
+  const s = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/g, '');
+  return s || 'capitulo';
+}
+
+/**
+ * Anos (nome que começa com 19xx/20xx) do mais novo para o mais velho; depois
+ * os demais, em ordem natural. Empate de ano: ordem natural do nome.
+ * @param {{ nome: string }} a
+ * @param {{ nome: string }} b
+ */
+export function ordemDeCapitulos(a, b) {
+  const ya = ANO_RE.exec(a.nome), yb = ANO_RE.exec(b.nome);
+  if (ya && yb) return Number(yb[0]) - Number(ya[0]) || ordemNatural(a.nome, b.nome);
+  if (ya) return -1;
+  if (yb) return 1;
+  return ordemNatural(a.nome, b.nome);
+}
+
+/**
+ * @param {{ id: string, rk: string, bruto: string }[]} pastas
+ * @returns {Capitulo[]}
+ */
+function montaCapitulos(pastas) {
+  const itens = pastas.map(p => ({ ...p, nome: nomeDeCapitulo(p.bruto) })).sort((a, b) => ordemDeCapitulos(a, b) || (a.id < b.id ? -1 : 1));
+  const usados = new Set(SLUGS_RESERVADOS);
+  return itens.map(p => {
+    const base = slugBaseDeCapitulo(p.nome);
+    let slug = base;
+    if (usados.has(slug)) {
+      const curto = p.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4) || 'x';
+      slug = `${base.slice(0, 55)}-${curto}`.replace(/-+/g, '-');
+      for (let i = 2; usados.has(slug); i++) slug = `${base.slice(0, 50)}-${curto}-${i}`;
+    }
+    usados.add(slug);
+    return { id: p.id, rk: p.rk, bruto: p.bruto, nome: p.nome, slug };
+  });
+}
+
+/** @type {Map<string, { em: number, dados: CapitulosDrive }>} */
+const memoriaCaps = new Map();
+/** @param {string} id */
+const chaveCaps = id => `https://fotos.invalid/__galeria/capitulos/${id}/v1`;
+
+/**
+ * Os capítulos de um projeto: UMA chamada à API (só as subpastas de primeiro
+ * nível), guardada pelo mesmo prazo das listagens (memória + Cache API).
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {{ id: string, resourceKey: string }} pasta
+ * @param {{ atualizar?: boolean }} [opts]
+ * @returns {Promise<CapitulosDrive>}
+ */
+export async function listaCapitulos(env, pasta, { atualizar = false } = {}) {
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  if (!chave) throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
+  if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
+  if (!atualizar) {
+    const mem = memoriaCaps.get(pasta.id);
+    if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
+    const store = cacheStore();
+    if (store) {
+      try {
+        const hit = await store.match(chaveCaps(pasta.id));
+        if (hit) {
+          const dados = /** @type {CapitulosDrive} */ (await hit.json());
+          if (dados && dados.v === 1 && Array.isArray(dados.caps)) {
+            memoriaCaps.set(pasta.id, { em: Date.now(), dados });
+            return dados;
+          }
+        }
+      } catch (e) {
+        console.error('galeria: leitura do cache dos capítulos falhou', e);
+      }
+    }
+  }
+  const pagina = await chamaDrive(chave, { id: pasta.id, rk: pasta.resourceKey }, '', true);
+  /** @type {{ id: string, rk: string, bruto: string }[]} */
+  const pastas = [];
+  for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
+    if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
+    pastas.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', bruto: String(f.name || 'Sem nome').slice(0, 120) });
+  }
+  const truncada = !!pagina.nextPageToken || pastas.length > GALERIA_MAX_CAPITULOS;
+  /** @type {CapitulosDrive} */
+  const dados = { v: 1, pasta: pasta.id, em: new Date().toISOString(), truncada, caps: montaCapitulos(pastas.slice(0, GALERIA_MAX_CAPITULOS)) };
+  memoriaCaps.set(pasta.id, { em: Date.now(), dados });
+  const store = cacheStore();
+  if (store) {
+    try {
+      await store.put(chaveCaps(pasta.id), new Response(JSON.stringify(dados), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
+      }));
+    } catch (e) {
+      console.error('galeria: escrita do cache dos capítulos falhou', e);
+    }
+  }
+  return dados;
+}
+
+/**
+ * @param {CapitulosDrive} dados
+ * @param {string} slug
+ * @returns {{ cap: Capitulo, anterior: Capitulo | null, proximo: Capitulo | null } | null}
+ */
+export function achaCapitulo(dados, slug) {
+  const i = dados.caps.findIndex(c => c.slug === slug);
+  if (i < 0) return null;
+  return { cap: dados.caps[i], anterior: dados.caps[i - 1] || null, proximo: dados.caps[i + 1] || null };
+}
+
+// O resumo de cada capítulo (quantas fotos, quais as três primeiras) para os
+// cartões do índice, SEM ler as listas de todos os capítulos: um mapa pequeno,
+// um por projeto, na Cache API (nunca KV). Cada capítulo aberto atualiza o seu
+// pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
+// um espaço reservado.
+/** @typedef {{ n: number, capas: string[] }} ResumoCap */
+const RESUMO_MEM_MS = 6 * 3600 * 1000;
+/** @type {Map<string, { em: number, mapa: Record<string, ResumoCap> }>} */
+const memoriaResumo = new Map();
+/** @param {string} id */
+const chaveResumo = id => `https://fotos.invalid/__galeria/resumo/${id}`;
+
+/**
+ * @param {string} raizId
+ * @returns {Promise<Record<string, ResumoCap>>}
+ */
+export async function lerResumo(raizId) {
+  const mem = memoriaResumo.get(raizId);
+  if (mem && Date.now() - mem.em < RESUMO_MEM_MS) return mem.mapa;
+  const store = cacheStore();
+  if (store) {
+    try {
+      const hit = await store.match(chaveResumo(raizId));
+      if (hit) {
+        const j = /** @type {any} */ (await hit.json());
+        if (j && j.v === 1 && j.mapa && typeof j.mapa === 'object') {
+          memoriaResumo.set(raizId, { em: Date.now(), mapa: j.mapa });
+          return j.mapa;
+        }
+      }
+    } catch (e) {
+      console.error('galeria: leitura do resumo dos capítulos falhou', e);
+    }
+  }
+  return mem ? mem.mapa : {};
+}
+
+/**
+ * Guarda o resumo de UM capítulo, se mudou. No caso comum (nada mudou, isolate
+ * quente) não gasta subrequisição nenhuma.
+ * @param {string} raizId
+ * @param {string} capId
+ * @param {ListagemDrive} listagem a listagem CRUA do capítulo (com as ocultas)
+ */
+export async function registraResumo(raizId, capId, listagem) {
+  const capas = [];
+  for (const sec of listagem.secoes) {
+    for (const f of sec.fotos) { if (capas.length < 3) capas.push(f[0]); }
+    if (capas.length >= 3) break;
+  }
+  /** @type {ResumoCap} */
+  const novo = { n: listagem.total, capas };
+  const mapa = { ...(await lerResumo(raizId)) };
+  const velho = mapa[capId];
+  if (velho && velho.n === novo.n && velho.capas.join() === capas.join()) return;
+  mapa[capId] = novo;
+  memoriaResumo.set(raizId, { em: Date.now(), mapa });
+  const store = cacheStore();
+  if (!store) return;
+  try {
+    await store.put(chaveResumo(raizId), new Response(JSON.stringify({ v: 1, mapa }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' },
+    }));
+  } catch (e) {
+    console.error('galeria: escrita do resumo dos capítulos falhou', e);
+  }
+}
+
+/** @type {WeakMap<ListagemDrive, { nome: string, saida: ListagemDrive }>} */
+const comPrefixo = new WeakMap();
+/**
+ * A listagem de um capítulo com o NOME DA PASTA do capítulo na frente do
+ * caminho de cada seção — só para o casamento "para redes": a pasta do
+ * Instagram é lida inteira (uma vez, compartilhada por todos os capítulos), e
+ * os caminhos dela começam pela pasta do capítulo. Casar pelo mesmo caminho é o
+ * que faz "IMG_0001" de um capítulo não pegar o "IMG_0001" de outro. A mesma
+ * lista de saída por listagem (o casamento guardado depende da identidade).
+ * @param {ListagemDrive} listagem
+ * @param {string} nomeBruto
+ * @returns {ListagemDrive}
+ */
+export function comPrefixoDeCapitulo(listagem, nomeBruto) {
+  const guardado = comPrefixo.get(listagem);
+  if (guardado && guardado.nome === nomeBruto) return guardado.saida;
+  const saida = { ...listagem, secoes: listagem.secoes.map(s => ({ ...s, caminho: s.caminho ? `${nomeBruto} / ${s.caminho}` : nomeBruto })) };
+  comPrefixo.set(listagem, { nome: nomeBruto, saida });
+  return saida;
+}
+
+/** Só para testes. */
+export function limpaCacheCapitulos() { memoriaCaps.clear(); memoriaResumo.clear(); }
+
+/**
+ * Onde ler: a pasta do projeto (galeria comum) ou a subpasta do capítulo. UMA
+ * função para a página, o download, o pedido de remoção, o sitemap e o aviso ao
+ * autor — nenhum deles confia num ID de pasta que veio do navegador.
+ *  - `ok`:   `pasta` é o que listar (null no ÍNDICE do modo capítulos), `caps` a
+ *            lista de capítulos (null no modo comum) e `capitulo` o escolhido;
+ *  - `nao`:  capítulo que não existe (ou `capSlug` num projeto sem capítulos): 404;
+ *  - `erro`: o Drive falhou; `codigo`/`mensagem` como em DriveError.
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {Record<string, any>} event
+ * @param {string} [capSlug]
+ * @param {boolean} [atualizar]
+ * @returns {Promise<
+ *   { kind: 'ok', raiz: { id: string, resourceKey: string }, pasta: { id: string, resourceKey: string } | null, caps: CapitulosDrive | null, capitulo: Capitulo | null, anterior: Capitulo | null, proximo: Capitulo | null, maxChamadas: number }
+ *   | { kind: 'nao' }
+ *   | { kind: 'erro', codigo: string, mensagem: string }>}
+ */
+export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false) {
+  const raiz = pastaDoDrive(event.driveUrl);
+  if (!raiz) return { kind: 'erro', codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
+  if (!event.galeriaCapitulos) {
+    if (capSlug) return { kind: 'nao' };
+    return { kind: 'ok', raiz, pasta: raiz, caps: null, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS };
+  }
+  let caps;
+  try {
+    caps = await listaCapitulos(env, raiz, { atualizar });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return { kind: 'erro', codigo: e.codigo, mensagem: e.message };
+  }
+  if (!capSlug) return { kind: 'ok', raiz, pasta: null, caps, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS_CAP };
+  const ach = achaCapitulo(caps, capSlug);
+  if (!ach) return { kind: 'nao' };
+  return {
+    kind: 'ok', raiz, pasta: { id: ach.cap.id, resourceKey: ach.cap.rk }, caps,
+    capitulo: ach.cap, anterior: ach.anterior, proximo: ach.proximo, maxChamadas: GALERIA_MAX_CHAMADAS_CAP,
+  };
 }
