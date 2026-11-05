@@ -27,7 +27,8 @@
 
 import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY } from '../config.js';
+import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3 } from '../drive.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -107,6 +108,8 @@ const CONSERTOS = {
  *   nonce: string,
  *   dono?: boolean,
  *   ocultas?: string[],
+ *   pendentes?: string[],
+ *   formToken?: string,
  *   indexavel?: boolean,
  *   redes?: Map<string, import('../drive.js').FotoDrive>,
  *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
@@ -115,10 +118,15 @@ const CONSERTOS = {
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
 // quem decide é handleGaleriaPagina (álbum público e listado, visitante, fora
 // da prévia, com fotos). Com false, sai o noindex de antes.
+// `pendentes` (só o dono): as ocultas que foram escondidas A PEDIDO de um
+// visitante e esperam decisão — ganham o selo "Oculta a pedido".
+// `formToken` (só o visitante): o token do formulário "Pedir remoção desta
+// foto", assinado por handleGaleriaPagina; vazio quando o site não tem
+// SIGNING_SECRET (o servidor então também não confere).
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], indexavel = false, redes = new Map(), avisoRedes = null }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -207,6 +215,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
     dono: !!dono,
     ocultas: dono ? ocultas : [],
+    pendentes: dono ? pendentes : [],
+    // "Pedir remoção desta foto": só para o visitante (o dono tem o "Ocultar").
+    // A chave do Turnstile é pública; o script dele só carrega quando o
+    // formulário abre.
+    remocao: dono ? null : { token: formToken, ts: TURNSTILE_SITE_KEY },
     lightbox: vendorPath('vendor/photoswipe/photoswipe-lightbox.esm.min.js'),
     // O CSS do visualizador entra junto com ele (preparaLightbox), não no
     // <head>: lá ele bloqueava a primeira pintura da grade.
@@ -392,6 +405,41 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
     .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
     .pswp__counter{white-space:nowrap}
+    .g-t.pendente .g-oc{background:#92400e}
+    .g-t.pendente img.ok{opacity:.45}
+    /* "Pedir remoção": texto discreto sob a legenda do visualizador, nunca um ícone
+       da barra. O fundo escuro garante o contraste mesmo sobre foto clara: no pior
+       caso (foto branca) o fundo vira #474747 e #c8c3bd tem ~5,3:1 (AA pede 4,5). A
+       área de toque tem 44 px de altura pelo min-height, com o texto de 12 px. */
+    .pswp__g-legenda .g-leg-t{display:block}
+    .g-rem-link{pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;margin-top:.15rem;padding:0 .9rem;border:0;border-radius:999px;background:rgba(0,0,0,.72);color:#c8c3bd;font:500 12px/1 'Inter',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+    .g-rem-link:hover{color:#fff}
+    .g-rem-link:focus-visible{outline:2px solid #c0a060;outline-offset:2px;color:#fff}
+    /* O formulário é um <dialog> modal: vai para a camada de cima do navegador
+       (por cima do visualizador, que usa z-index 100000), deixa o resto da página
+       inerte e prende o foco sozinho. */
+    .g-rem{border:0;padding:0;background:transparent;color:var(--text);width:min(30rem,100%);max-width:100%;max-height:100dvh;margin:auto auto 0}
+    .g-rem::backdrop{background:rgba(0,0,0,.6)}
+    .g-rem-c{background:var(--bg-card-2);border-radius:16px 16px 0 0;padding:1.1rem 1.1rem calc(1.1rem + env(safe-area-inset-bottom));max-height:92dvh;overflow:auto;box-shadow:0 -10px 40px rgba(0,0,0,.4)}
+    @media (min-width:700px){ .g-rem{margin:auto} .g-rem-c{border-radius:16px} }
+    .g-rem-foto{display:flex;align-items:center;gap:.8rem;margin-bottom:.8rem}
+    .g-rem-foto img{width:72px;height:72px;object-fit:cover;border-radius:8px;background:var(--esqueleto);flex:none}
+    .g-rem-foto span{font-size:.82rem;color:var(--text-muted);overflow-wrap:anywhere}
+    .g-rem-aviso{font-size:.84rem;line-height:1.5;color:var(--text-2);margin-bottom:.9rem}
+    .g-rem label{display:block;font-size:.8rem;font-weight:500;color:var(--text-2);margin:.7rem 0 .25rem}
+    .g-rem select,.g-rem input[type=email],.g-rem textarea{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--bg-page);border:1px solid var(--border);border-radius:8px;padding:.6rem .7rem;min-height:44px}
+    .g-rem textarea{min-height:5.5rem;resize:vertical}
+    .g-rem [aria-invalid="true"]{border-color:var(--err-text)}
+    .g-rem-ts{margin-top:.9rem;min-height:65px}
+    .g-rem-erro{font-size:.82rem;color:var(--err-text);min-height:1.2em;margin-top:.6rem}
+    .g-rem-priv{font-size:.74rem;line-height:1.5;color:var(--text-muted);margin-top:.6rem}
+    .g-rem-priv a{color:var(--text-2)}
+    .g-rem-acoes{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.9rem}
+    .g-rem-acoes .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+    .g-rem-acoes .g-btn[disabled]{opacity:.6;cursor:not-allowed}
+    .g-rem-ok p{font-size:.9rem;line-height:1.55;color:var(--text);margin-bottom:.6rem}
+    .g-rem-ok p.sub{font-size:.8rem;color:var(--text-muted)}
+    ${HONEYPOT_CSS}
     @media (prefers-reduced-motion: reduce){
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
       .g-topo,.g-folha-c,.g-aviso-flut{transition:opacity .1s linear;transform:none}
@@ -455,6 +503,40 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="nofollow noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
     </div>
   </div>
+  ${dados && !dono ? `<dialog class="g-rem" id="g-rem" aria-labelledby="g-rem-t">
+    <div class="g-rem-c">
+      <form id="g-rem-f" novalidate>
+        <p class="g-folha-t" id="g-rem-t">Pedir remoção desta foto</p>
+        <div class="g-rem-foto"><img id="g-rem-img" alt="" width="72" height="72"><span id="g-rem-nome"></span></div>
+        <p class="g-rem-aviso">Ao enviar, a foto sai da galeria agora, enquanto o fotógrafo analisa o pedido. Você recebe a resposta por e-mail.</p>
+        <label for="g-rem-motivo">Motivo</label>
+        <select id="g-rem-motivo" required>
+          <option value="" disabled selected>Escolha um motivo</option>
+          <option value="eu">Sou eu na foto</option>
+          <option value="menor">Sou responsável por um menor na foto</option>
+          <option value="outro">Outro motivo</option>
+        </select>
+        <label for="g-rem-email">Seu e-mail</label>
+        <input type="email" id="g-rem-email" autocomplete="email" maxlength="200" required>
+        <label for="g-rem-msg">Mensagem (opcional)</label>
+        <textarea id="g-rem-msg" maxlength="1000"></textarea>
+        ${honeypotFieldHTML()}
+        <div class="g-rem-ts" id="g-rem-ts"></div>
+        <p class="g-rem-erro" id="g-rem-erro" role="alert"></p>
+        <p class="g-rem-priv">Usamos seu e-mail só para responder a este pedido. <a href="/privacidade" target="_blank" rel="noopener">Política de privacidade</a>.</p>
+        <div class="g-rem-acoes">
+          <button type="button" class="g-btn" data-acao="fechar-rem">Cancelar</button>
+          <button type="submit" class="g-btn g-prim" id="g-rem-enviar" disabled>Enviar pedido</button>
+        </div>
+      </form>
+      <div class="g-rem-ok" id="g-rem-ok" hidden>
+        <p class="g-folha-t" id="g-rem-ok-t" tabindex="-1">Pedido enviado</p>
+        <p id="g-rem-ok-txt" role="status"></p>
+        <p class="sub">Se precisar falar com o fotógrafo: privacidade@lucafchala.com.</p>
+        <div class="g-rem-acoes"><button type="button" class="g-btn g-prim" data-acao="fechar-rem">Fechar</button></div>
+      </div>
+    </div>
+  </dialog>` : ''}
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
   ${dados ? `<script type="application/json" id="g-dados" nonce="${nonce}">${jsonParaScript(dados)}</script>
   <script nonce="${nonce}">${SCRIPT}</script>` : ''}
@@ -471,7 +553,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: ([string, number, number, string, number] | [string, number, number, string, number, number] | [string, number, number, string, number, number, string])[] }[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, titulo: string, secoes: { nome: string, fotos: ([string, number, number, string, number] | [string, number, number, string, number, number] | [string, number, number, string, number, number, string])[] }[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -479,6 +561,20 @@ const SCRIPT = `
   const altDe = function (i) { return (D.titulo ? D.titulo + ' — ' : '') + 'foto ' + (i + 1) + ' de ' + TOTAL; };
   // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
   const ocultas = new Set(D.ocultas || []);
+  // Dentre elas, as escondidas A PEDIDO de um visitante e ainda sem decisão.
+  const pendentes = new Set(D.pendentes || []);
+  function pintaOculta(f) {
+    const oc = f.el.classList.toggle('oculta', ocultas.has(f.id));
+    const pend = oc && pendentes.has(f.id);
+    f.el.classList.toggle('pendente', pend);
+    const rotulo = f.el.querySelector('.g-oc');
+    if (rotulo) rotulo.textContent = pend ? 'Oculta a pedido' : 'Oculta';
+  }
+  function textoOcultas() {
+    if (!ocultas.size) return 'Nenhuma foto oculta';
+    return ocultas.size + (ocultas.size === 1 ? ' oculta' : ' ocultas') + ' para os visitantes' +
+      (pendentes.size ? ' (' + pendentes.size + ' a pedido, esperando você decidir em Pedidos)' : '');
+  }
 
   // ---- Dados ----
   /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
@@ -583,10 +679,10 @@ const SCRIPT = `
           oc.className = 'g-oc';
           oc.textContent = 'Oculta';
           a.appendChild(oc);
-          if (ocultas.has(f[0])) a.classList.add('oculta');
         }
         /** @type {Foto} */
         const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f.length > 5 ? { bytes: f[5], nome: f[6] || f[3] } : null, s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
+        if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); });
         fotos.push(foto);
@@ -1152,9 +1248,11 @@ const SCRIPT = `
     }).then(function (j) {
       ocultas.clear();
       (j.ocultas || []).forEach(function (id) { ocultas.add(id); });
-      fotos.forEach(function (x) { x.el.classList.toggle('oculta', ocultas.has(x.id)); });
+      pendentes.clear();
+      (j.pendentes || []).forEach(function (id) { pendentes.add(id); });
+      fotos.forEach(pintaOculta);
       const n = document.getElementById('g-n-ocultas');
-      if (n) n.textContent = ocultas.size ? ocultas.size + (ocultas.size === 1 ? ' oculta' : ' ocultas') + ' para os visitantes' : 'Nenhuma foto oculta';
+      if (n) n.textContent = textoOcultas();
       sincronizaOcultaUi();
       avisa(querOculta ? 'Oculta para os visitantes (some para todos em até 2 min)' : 'Visível de novo para os visitantes');
     }).catch(function (e) {
@@ -1242,11 +1340,26 @@ const SCRIPT = `
     pswp.ui.registerElement({
       name: 'g-legenda', order: 9, isButton: false, appendTo: 'root', html: '',
       onInit: function (el, p) {
+        // A legenda (texto) e, só para o visitante, o link discreto "Pedir
+        // remoção" logo abaixo dela. O contêiner não recebe toque (pointer-events
+        // none: não atrapalha o gesto na foto); só o botão recebe.
+        const txt = document.createElement('span');
+        txt.className = 'g-leg-t';
+        el.appendChild(txt);
+        if (D.remocao) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'g-rem-link';
+          b.dataset.acao = 'pedir-remocao';
+          b.textContent = 'Pedir remoção';
+          b.title = 'Pedir para tirar esta foto da galeria';
+          el.appendChild(b);
+        }
         const sync = function () {
           const f = vistas[p.currIndex];
           if (!f) return;
           const secao = D.secoes.length > 1 ? D.secoes[f.s].nome : '';
-          el.textContent = semExt(f.nome) + (secao ? ' · ' + secao : '');
+          txt.textContent = semExt(f.nome) + (secao ? ' · ' + secao : '');
         };
         p.on('change', sync);
         sync();
@@ -1739,6 +1852,217 @@ const SCRIPT = `
     }
   }
 
+
+  // ---- Pedir remoção desta foto (só o visitante) ----
+  // O link "Pedir remoção" fica sob a legenda do visualizador. O formulário é
+  // um <dialog> modal: o Turnstile só carrega quando ele abre, e o pedido vai
+  // para /api/galeria/remocao. Com sucesso, a foto some da grade e do
+  // visualizador na hora (o servidor já a escondeu; a página dos outros
+  // visitantes acompanha em até 2 min).
+  const R = D.remocao;
+  const rem = /** @type {HTMLDialogElement | null} */ (document.getElementById('g-rem'));
+  const remF = /** @type {HTMLFormElement | null} */ (document.getElementById('g-rem-f'));
+  const remOk = document.getElementById('g-rem-ok');
+  const remErro = document.getElementById('g-rem-erro');
+  const remEnviar = /** @type {HTMLButtonElement | null} */ (document.getElementById('g-rem-enviar'));
+  const remMotivo = /** @type {HTMLSelectElement | null} */ (document.getElementById('g-rem-motivo'));
+  const remEmail = /** @type {HTMLInputElement | null} */ (document.getElementById('g-rem-email'));
+  const remMsg = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('g-rem-msg'));
+  /** @type {Foto | null} */
+  let remFoto = null;
+  /** @type {Element | null} */
+  let remFoco = null;
+  let remToken = '';
+  /** @type {string | null} */
+  let remWidget = null;
+  let remEnviando = false;
+  let galeriaVazia = false;
+
+  // Turnstile sob demanda: o script só entra na página quando o formulário abre.
+  const TS_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+  let tsEstado = 'fora';
+  const tsEspera = [];
+  function tsFim(ok) {
+    if (tsEstado === 'pronto' || tsEstado === 'falhou') return;
+    tsEstado = ok ? 'pronto' : 'falhou';
+    tsEspera.splice(0).forEach(function (fn) { fn(); });
+  }
+  function comTurnstile(fn) {
+    if (tsEstado === 'pronto' || tsEstado === 'falhou') { fn(); return; }
+    tsEspera.push(fn);
+    if (tsEstado !== 'fora') return;
+    tsEstado = 'carregando';
+    const sc = document.createElement('script');
+    sc.src = TS_SRC;
+    sc.async = true;
+    // Carregou mas não definiu o objeto (extensão que troca o script): falhou.
+    sc.onload = function () { tsFim(typeof window.turnstile !== 'undefined'); };
+    sc.onerror = function () { tsFim(false); };
+    document.head.appendChild(sc);
+  }
+
+  function remMostraErro(txt, campo) {
+    if (remErro) remErro.textContent = txt || '';
+    [remMotivo, remEmail].forEach(function (c) { if (c) c.removeAttribute('aria-invalid'); });
+    if (campo) { campo.setAttribute('aria-invalid', 'true'); campo.focus(); }
+  }
+  function remAtualizaBotao() {
+    if (remEnviar) remEnviar.disabled = remEnviando || !remToken;
+  }
+
+  function abreRemocao(f) {
+    if (!R || !rem || !remF || typeof rem.showModal !== 'function' || !f) return;
+    remFoto = f;
+    remFoco = document.activeElement;
+    remToken = '';
+    remEnviando = false;
+    remF.hidden = false;
+    if (remOk) remOk.hidden = true;
+    remF.reset();
+    remMostraErro('');
+    const img = /** @type {HTMLImageElement | null} */ (document.getElementById('g-rem-img'));
+    if (img) img.src = lh3(f.id, 160);
+    const nome = document.getElementById('g-rem-nome');
+    if (nome) nome.textContent = semExt(f.nome);
+    remAtualizaBotao();
+    history.pushState({ g: 'rem' }, '', location.href);
+    rem.showModal();
+    if (remMotivo) remMotivo.focus();
+    comTurnstile(function () {
+      // Bloqueador de anúncios/extensão de privacidade: sem Turnstile o servidor
+      // recusaria o envio, então o aviso vem antes e o botão fica desligado.
+      if (typeof window.turnstile === 'undefined') {
+        remMostraErro('A verificação de segurança não carregou (um bloqueador pode estar impedindo). Desative-o para este site ou escreva para privacidade@lucafchala.com.');
+        return;
+      }
+      if (remWidget !== null) { window.turnstile.reset(remWidget); return; }
+      remWidget = window.turnstile.render('#g-rem-ts', {
+        sitekey: R.ts,
+        callback: function (t) { remToken = t; remAtualizaBotao(); },
+        'error-callback': function () { remToken = ''; remAtualizaBotao(); },
+        'expired-callback': function () { remToken = ''; remAtualizaBotao(); },
+      });
+    });
+  }
+
+  /** @param {boolean} [peloVoltar] a entrada do histórico já saiu */
+  function fechaRemocao(peloVoltar) {
+    if (!rem || !rem.open) return;
+    rem.close();
+    if (!peloVoltar && noTopo('rem')) history.back();
+    const volta = remFoco;
+    remFoco = null;
+    if (!galeriaVazia && volta && typeof (/** @type {HTMLElement} */ (volta)).focus === 'function' && document.contains(volta)) (/** @type {HTMLElement} */ (volta)).focus();
+    // Só fecha o visualizador depois de o histórico assentar (ver o popstate).
+    if (peloVoltar) fimDaRemocao();
+  }
+  function fimDaRemocao() {
+    if (!galeriaVazia) return;
+    galeriaVazia = false;
+    if (lightbox && lightbox.pswp) lightbox.pswp.close();
+  }
+
+  // Tira a foto da página: grade, visualizador, seleção e favoritas. Os índices
+  // data-i são refeitos porque o clique na grade os usa para achar a foto.
+  function removeDaGaleria(f) {
+    const pswp = lightbox && lightbox.pswp ? lightbox.pswp : null;
+    const idx = pswp ? pswp.currIndex : -1;
+    const i = fotos.indexOf(f);
+    if (i < 0) return;
+    fotos.splice(i, 1);
+    grades.forEach(function (g) { const k = g.lista.indexOf(f); if (k >= 0) g.lista.splice(k, 1); });
+    const sf = D.secoes[f.s].fotos;
+    for (let k = 0; k < sf.length; k++) if (sf[k][0] === f.id) { sf.splice(k, 1); break; }
+    fotos.forEach(function (x, k) { x.el.dataset.i = String(k); });
+    sel.delete(f.id);
+    fav.delete(f.id);
+    if (filtroLink) filtroLink.delete(f.id);
+    salvaSel();
+    salvaFav();
+    f.el.remove();
+    recalculaVistas();
+    atualizaBarra();
+    montaChips();
+    agendaDiagrama();
+    if (!pswp) return;
+    if (!vistas.length) { galeriaVazia = true; return; }
+    // O visualizador segue para a foto seguinte (ou a anterior, se era a última).
+    if (idx >= vistas.length) pswp.goTo(vistas.length - 1);
+    for (let k = Math.max(0, idx - 1); k <= idx + 1 && k < vistas.length; k++) pswp.refreshSlideContent(k);
+  }
+
+  function enviaRemocao() {
+    if (!R || !remFoto || remEnviando) return;
+    const motivo = remMotivo ? remMotivo.value : '';
+    const email = remEmail ? remEmail.value.trim() : '';
+    if (!motivo) { remMostraErro('Escolha o motivo do pedido.', remMotivo); return; }
+    // Conferência só de forma; o servidor valida de verdade.
+    const arroba = email.indexOf('@');
+    if (arroba < 1 || email.lastIndexOf('.') < arroba + 2 || email.indexOf(' ') >= 0 || email.length > 200) {
+      remMostraErro('Informe um e-mail válido.', remEmail);
+      return;
+    }
+    if (!remToken) { remMostraErro('Aguarde a verificação de segurança terminar.'); return; }
+    remMostraErro('');
+    remEnviando = true;
+    remAtualizaBotao();
+    if (remEnviar) remEnviar.textContent = 'Enviando…';
+    const hp = /** @type {HTMLInputElement | null} */ (document.getElementById('company_website'));
+    const foto = remFoto;
+    fetch('/api/galeria/remocao', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug: D.slug,
+        foto: foto.id,
+        motivo: motivo,
+        email: email,
+        mensagem: remMsg ? remMsg.value.trim() : '',
+        turnstileToken: remToken,
+        form_token: R.token,
+        company_website: hp ? hp.value : '',
+      }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'Não foi possível enviar. Tente de novo.');
+        return j;
+      });
+    }).then(function (j) {
+      const txt = document.getElementById('g-rem-ok-txt');
+      if (txt) {
+        txt.textContent = j.ocultada
+          ? 'Pronto: a foto saiu da galeria agora. O fotógrafo vai analisar o pedido e você recebe a resposta no e-mail ' + email + '.'
+          : 'Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta no e-mail ' + email + '.';
+      }
+      if (remF) remF.hidden = true;
+      if (remOk) remOk.hidden = false;
+      const t = document.getElementById('g-rem-ok-t');
+      if (t) t.focus();
+      remToken = '';
+      if (j.ocultada) removeDaGaleria(foto);
+    }).catch(function (e) {
+      remMostraErro(e && e.message ? e.message : 'Não foi possível enviar. Tente de novo.');
+      // O token do Turnstile vale uma vez só: pede outro para a próxima tentativa.
+      remToken = '';
+      if (remWidget !== null && window.turnstile) window.turnstile.reset(remWidget);
+    }).then(function () {
+      remEnviando = false;
+      if (remEnviar) remEnviar.textContent = 'Enviar pedido';
+      remAtualizaBotao();
+    });
+  }
+
+  if (R && rem && remF) {
+    remF.addEventListener('submit', function (e) { e.preventDefault(); enviaRemocao(); });
+    // Esc: o <dialog> cancela sozinho; o fechamento passa por aqui para limpar o histórico.
+    rem.addEventListener('cancel', function (e) { e.preventDefault(); fechaRemocao(); });
+    // Com o formulário aberto, nenhuma tecla é do visualizador por baixo (setas
+    // trocariam a foto, Esc o fecharia). O comportamento nativo da tecla segue.
+    window.addEventListener('keydown', function (e) {
+      if (rem.open) e.stopPropagation();
+    }, true);
+  }
+
   // ---- Eventos ----
   main.addEventListener('click', function (e) {
     const alvo = /** @type {Element} */ (e.target);
@@ -1767,6 +2091,8 @@ const SCRIPT = `
     if (!b) return;
     const acao = b.dataset.acao;
     if (acao === 'fechar-folha') fechaFolha();
+    else if (acao === 'fechar-rem') fechaRemocao();
+    else if (acao === 'pedir-remocao') abreRemocao(lightbox && lightbox.pswp ? vistas[lightbox.pswp.currIndex] : null);
     else if (acao === 'limpar-sel') { sel.clear(); ultimoSel = null; fotos.forEach(pintaSel); salvaSel(); atualizaBarra(); }
     else if (acao === 'fim-sel') ligaModoSel(false);
     else if (acao === 'baixar-sel') {
@@ -1804,7 +2130,9 @@ const SCRIPT = `
   // Voltar: fecha a camada de cima (ver noTopo). A folha antes da foto.
   window.addEventListener('popstate', function () {
     if (folha && !folha.hidden && !noTopo('folha')) fechaFolha(true);
-    if (lightbox && lightbox.pswp && !noTopo('foto') && !noTopo('folha')) lightbox.pswp.close();
+    if (rem && rem.open && !noTopo('rem')) fechaRemocao(true);
+    if (lightbox && lightbox.pswp && !noTopo('foto') && !noTopo('folha') && !noTopo('rem')) lightbox.pswp.close();
+    fimDaRemocao();
   });
 
   // ---- Início ----

@@ -65,6 +65,17 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   backup passa a ter IP: ROPA e política de retenção atualizadas.
 - **Declaração de acessibilidade** publicada em
   `/legal/declaracao-de-acessibilidade`.
+- **"Pedir remoção desta foto" na galeria.** Cada foto do visualizador
+  tem, sob a legenda, o link discreto "Pedir remoção" (só para visitantes).
+  Abre um diálogo com a miniatura, e-mail, motivo (sou eu / menor de idade /
+  outro) e mensagem opcional, com Turnstile carregado só nesse momento. O
+  `POST /api/galeria/remocao` registra o pedido no painel (com e-mails, e
+  prioridade para menor) e **oculta a foto na hora** em `fotosOcultas` e em
+  `ocultasPendentes`. Tetos: 5 ocultações por IP/dia e 20 por álbum/dia
+  (acima disso o pedido é registrado e avisado, mas a foto não é ocultada), e
+  10 pedidos por IP/dia. No painel, o pedido mostra a miniatura e o álbum,
+  com "Manter oculta" e "Devolver à galeria"; o dono vê o selo "Oculta a
+  pedido". Custo: 1 escrita de KV no evento mais 2 do pedido.
 
 ### Mudou
 

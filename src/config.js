@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, photoAlts: [], fotosOcultas: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -207,6 +207,34 @@ export const GALERIA_MAX_CHAMADAS_IG = 8;
 // visualizador, #235). A lista mora no próprio evento, no KV `events`, que
 // toda página lê: 500 IDs são ~20 KB a mais, longe do 1 MB por chave.
 export const GALERIA_MAX_OCULTAS = 500;
+
+// "Pedir remoção desta foto" na galeria (v3.0): o visitante pede, a foto sai
+// da galeria NA HORA e fica oculta até o dono decidir (painel → Pedidos). Como
+// qualquer visitante pode pedir, o que esconde de verdade tem teto — passado
+// dele o pedido continua sendo registrado e avisado por e-mail, só a foto NÃO
+// é escondida (o dono revisa e decide). Dimensionado para o uso real: um
+// evento rende de 0 a 3 pedidos legítimos; um Wi-Fi de local é UM IPv4 para
+// ~750 pessoas, então o teto por IP não pode ser 1, mas também não precisa
+// passar de poucos.
+//  - por IP, por dia (RateLimiter, janela fixa de 24 h): 5 fotos escondidas;
+//  - por álbum, por dia: 20 fotos escondidas por visitantes, contadas nas
+//    próprias entradas de `ocultasPendentes` das últimas 24 h (sem
+//    armazenamento extra). O dono decidir um pedido tira a foto dessa lista,
+//    o que reabre a vaga — é de propósito.
+// "Menor de idade" esconde na hora como os demais motivos e CONTA nos mesmos
+// tetos: um motivo escolhido pelo próprio visitante não pode ser a porta dos
+// fundos do limite. Fica só marcado como prioridade (assunto do e-mail e selo
+// no painel); passado o teto, o dono é avisado igual e decide sem demora.
+export const GALERIA_REMOCAO_OCULTA_POR_IP_DIA = 5;
+export const GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA = 20;
+// Pedidos (escondendo ou não) por IP por dia: cada pedido gasta 2 escritas de
+// KV (o registro e o carimbo dos e-mails) e a cota do KV é da conta toda
+// (1000/dia, TODO.md). 10 por IP/dia cobre o Wi-Fi de um evento com folga e
+// impede que um só endereço queime a cota; acima disso a resposta manda
+// escrever para o e-mail de privacidade.
+export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 10;
+// Motivos que o formulário da galeria aceita (valor gravado no pedido).
+export const GALERIA_REMOCAO_MOTIVOS = /** @type {const} */ (['eu', 'menor', 'outro']);
 // Escada de larguras do visualizador, do menor ao maior. O navegador escolhe a
 // menor que cobre a foto NA TELA em pixels físicos (srcset + sizes), e o zoom
 // sobe o `sizes` — então ampliar busca o próximo degrau, até o original.

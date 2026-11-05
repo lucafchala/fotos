@@ -550,6 +550,22 @@ O que já mordeu, ou morderia:
   navegação vira download antes da rota. O `verifica:galeria` confere a URL do
   download; o nome do arquivo (o `Content-Disposition`) está na suíte.
 
+- **Pedir remoção desta foto (novembro/2026, branch `v3-remocao`).** Rota
+  própria `POST /api/galeria/remocao` (o `/api/removal-request` exige telefone
+  e consentimento e não oculta). Ordem: honeypot, token, teto de pedidos por IP,
+  Turnstile, validação, `podeVerGaleria`, foto na listagem, ocultar (um
+  `saveEvents`) e registrar (`registraPedidoPublico`). `ocultasPendentes` é
+  sempre subconjunto de `fotosOcultas` (`normalizaPendentes`). Tetos em
+  `src/config.js` (5 por IP/dia, 20 por álbum/dia, 10 pedidos por IP/dia);
+  menor NÃO fura os tetos. As chaves `galeria-oculta` e `galeria-remocao`
+  precisam estar em `LIMITES_DO_APARELHO` (`src/previa.js`; um teste cobra).
+  O formulário é um `<dialog>` nativo, não parte do PhotoSwipe (o trap de foco
+  dele brigaria com o Turnstile). O script da galeria continua sem crase,
+  `${}` nem barra invertida. Risco conhecido: o `events` é lido-modificado-
+  gravado, então duas ocultações simultâneas podem perder uma (a janela é
+  pequena; o pedido continua registrado e o dono vê o selo). O contador "N
+  fotos" do cabeçalho não atualiza ao vivo.
+
 ### 5.14. Painel: o card de evento vai ao navegador por `toString()` — e o bundle mexe nele
 
 Desde out/2026 o painel é em blocos (#220; tudo em `docs/PAINEL.md`). O card

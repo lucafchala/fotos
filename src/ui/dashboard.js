@@ -626,6 +626,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     .req-date{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
     .req-body{font-size:.8rem;color:var(--text2);line-height:1.55;display:flex;flex-direction:column;gap:.2rem}
     .req-badge{display:inline-block;font-size:.65rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .55rem;border-radius:4px;background:var(--bg3);color:var(--text3);margin-bottom:.4rem}
+    .req-foto{display:flex;gap:.75rem;align-items:flex-start;margin-bottom:.5rem;font-size:.8rem;color:var(--text2);line-height:1.55}
+    .req-foto img{width:80px;height:80px;object-fit:cover;border-radius:6px;background:var(--bg3);flex:none}
+    .req-foto>div{display:flex;flex-direction:column;gap:.2rem;min-width:0;overflow-wrap:anywhere}
+    .req-foto a{color:inherit}
+    .req-prio{font-weight:600;color:var(--red-texto)}
+    .req-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
+    .req-badge.prio{margin-left:.3rem;background:#2a0d0d;color:var(--red-texto);border:1px solid #4a1a1a}
     .req-badge.pending{background:#1a0e00;color:#c8880a;border:1px solid #2e1c00}
     /* Situação dos e-mails de um pedido. A falha era #b04040 em linha (3,2:1)
        — justo a linha que o dono precisa ler. */
@@ -1378,6 +1385,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     document.getElementById('requests-body').addEventListener('click', function(ev) {
       const resolveBtn = ev.target.closest('[data-action="resolveRequest"]');
       if (resolveBtn) { resolveRequest(resolveBtn.dataset.id, resolveBtn); return; }
+      // Pedido feito pela galeria: o botão diz o que fazer com a foto.
+      const fotoBtn = ev.target.closest('[data-action="decidirFoto"]');
+      if (fotoBtn) { resolveRequest(fotoBtn.dataset.id, fotoBtn, fotoBtn.dataset.desfecho); return; }
       const toggleBtn = ev.target.closest('[data-action="toggleResolved"]');
       if (toggleBtn) toggleResolved(parseInt(toggleBtn.dataset.gi, 10));
     });
@@ -2244,7 +2254,29 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         if (badge) { badge.textContent = pending > 0 ? String(pending) : ''; badge.hidden = !(pending > 0); }
         if (!data.length) { container.innerHTML = '<div class="bloco"><p class="empty">Nenhum pedido de remoção ainda.</p></div>'; return; }
 
-        const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' };
+        const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' };
+        const motivoLabel = { eu: 'Sou eu na foto', menor: 'Responsável por um menor na foto', outro: 'Outro motivo' };
+        const desfechoLabel = { mantida: 'foto mantida oculta', devolvida: 'foto devolvida à galeria' };
+        // Miniatura (a mesma do lh3 que a galeria usa) e o link para o álbum.
+        // fotoId só chega aqui com ID de Drive válido (o servidor e o restore
+        // conferem), e vai por esc() do mesmo jeito.
+        const fotoGaleriaHTML = r => !r.fotoId ? '' : \`
+          <div class="req-foto">
+            <img src="https://lh3.googleusercontent.com/d/\${esc(r.fotoId)}=w160" width="80" height="80" alt="Foto do pedido" loading="lazy" referrerpolicy="no-referrer">
+            <div>
+              <span><strong>Álbum:</strong> <a href="/galeria/\${esc(r.eventSlug)}" target="_blank" rel="noopener">\${esc(r.eventTitle || r.eventSlug)}</a></span>
+              \${r.fotoNome ? \`<span><strong>Arquivo:</strong> \${esc(r.fotoNome)}</span>\` : ''}
+              <span><strong>Motivo:</strong> \${esc(motivoLabel[r.motivo] || r.motivo || '—')}</span>
+            </div>
+          </div>\`;
+        const statusGaleriaHTML = r => r.origem !== 'galeria' ? '' : \`
+          \${r.prioridade ? '<span class="req-prio">Prioridade: menor de idade</span>' : ''}
+          <span class="req-mail \${r.ocultada ? 'ok' : 'falhou'}">\${r.desfecho ? esc(desfechoLabel[r.desfecho] || r.desfecho) : r.ocultada ? 'foto oculta da galeria desde o pedido' : 'foto NÃO foi ocultada (limite de pedidos): decida abaixo'}</span>\`;
+        const botoesGaleriaHTML = r => \`
+            <div class="req-acoes">
+              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="mantida" data-id="\${esc(r.id)}">\${r.ocultada ? 'Manter oculta' : 'Ocultar da galeria'}</button>
+              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="devolvida" data-id="\${esc(r.id)}">\${r.ocultada ? 'Devolver à galeria' : 'Manter na galeria'}</button>
+            </div>\`;
 
         // esc() no id como em todo o resto do arquivo. Hoje ele é hexadecimal
         // (generateId, e sanitizeRestoredRequest recusa o que não casar com
@@ -2255,11 +2287,14 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           <div class="req-item \${r.resolved ? 'resolved' : ''}" id="req-\${esc(r.id)}">
             <div class="req-header">
               <span class="req-badge \${r.resolved ? '' : 'pending'}">\${r.resolved ? 'resolvido' : 'pendente'}</span>
+              \${r.origem === 'galeria' && r.prioridade && !r.resolved ? '<span class="req-badge prio">prioridade</span>' : ''}
               <span class="req-date">\${r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '—'}</span>
             </div>
+            \${fotoGaleriaHTML(r)}
             <div class="req-body">
+              \${statusGaleriaHTML(r)}
               <span><strong>Tipo:</strong> \${esc(methodLabel[r.method] || r.method)}</span>
-              \${r.value ? \`<span><strong>Identificação:</strong> \${esc(r.value)}</span>\` : ''}
+              \${r.value && r.origem !== 'galeria' ? \`<span><strong>Identificação:</strong> \${esc(r.value)}</span>\` : ''}
               \${r.method === 'upload' ? \`<span><strong>Arquivo:</strong> \${esc(r.fileName || '—')} (por e-mail)</span>\` : ''}
               \${r.email ? \`<span><strong>E-mail:</strong> \${esc(r.email)}</span>\` : ''}
               \${r.phone ? \`<span><strong>Telefone:</strong> \${esc(r.phone)}</span>\` : ''}
@@ -2269,7 +2304,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
               \${r.confirmEmailStatus === 'sent' ? '<span class="req-mail ok">✉️ confirmação enviada</span>' : r.confirmEmailStatus ? \`<span class="req-mail falhou">✉️ \${esc(r.confirmEmailStatus)}</span>\` : ''}
               \${r.resolvedEmailStatus === 'sent' ? '<span class="req-mail ok">✅ aviso de resolução enviado</span>' : r.resolvedEmailStatus ? \`<span class="req-mail falhou">✅ \${esc(r.resolvedEmailStatus)}</span>\` : ''}
             </div>
-            \${!r.resolved ? \`<button class="btn-resolve" data-action="resolveRequest" data-id="\${esc(r.id)}">✓ Marcar como resolvido</button>\` : ''}
+            \${!r.resolved ? (r.origem === 'galeria' && r.fotoId ? botoesGaleriaHTML(r) : \`<button class="btn-resolve" data-action="resolveRequest" data-id="\${esc(r.id)}">✓ Marcar como resolvido</button>\`) : ''}
           </div>\`;
 
         // Group by project, sorted by most recent first within each group.
@@ -2317,16 +2352,18 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       toggle.textContent = (open ? '▶' : '▼') + ' ' + txt;
     }
 
-    async function resolveRequest(id, btn) {
+    async function resolveRequest(id, btn, desfecho) {
       // Desabilitado enquanto a requisição corre: um duplo clique mandava dois
       // PUT simultâneos, os dois liam o pedido ainda em aberto e a pessoa
       // recebia dois e-mails de "Solicitação atendida". A guarda do servidor
       // pega a repetição em sequência; a simultânea só se evita aqui.
       if (btn) btn.disabled = true;
       try {
-        await api('PUT', '/api/removal-requests/' + id + '/resolve');
+        // Com desfecho (só nos pedidos da galeria), o servidor também decide a
+        // foto: 'mantida' = fica oculta, 'devolvida' = volta para a galeria.
+        await api('PUT', '/api/removal-requests/' + id + '/resolve', desfecho ? { desfecho: desfecho } : undefined);
         await loadRequests();
-        toast('Solicitação marcada como resolvida.', 'ok');
+        toast(desfecho === 'devolvida' ? 'Foto devolvida à galeria e pedido resolvido.' : desfecho === 'mantida' ? 'Foto mantida oculta e pedido resolvido.' : 'Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
         if (btn) btn.disabled = false;
@@ -3275,7 +3312,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         const data = await api('GET', '/api/removal-requests');
         if (!data || !data.length) return toast('Nenhuma solicitação para exportar.', 'err');
         downloadCSV('solicitacoes-remocao-' + csvDate() + '.csv',
-          ['createdAt', 'eventSlug', 'eventTitle', 'method', 'value', 'email', 'phone', 'message', 'resolved', 'resolvedAt'], data);
+          ['createdAt', 'eventSlug', 'eventTitle', 'method', 'value', 'email', 'phone', 'message', 'fotoId', 'motivo', 'prioridade', 'ocultada', 'desfecho', 'resolved', 'resolvedAt'], data);
       } catch(err) {
         toast(err.message || 'Erro ao exportar solicitações.', 'err');
       }

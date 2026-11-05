@@ -58,13 +58,14 @@ Formulário no rodapé de cada evento. Gravado em KV, um registro por pedido
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | E-mail (obrigatório), telefone (obrigatório), identificação da foto (número, URL ou arquivo enviado), mensagem (opcional), evento, data. |
+| **Dados** | E-mail (obrigatório), telefone (obrigatório), identificação da foto (número, URL ou arquivo enviado), mensagem (opcional), evento, data. Pedido feito **pela galeria** (`POST /api/galeria/remocao`, `handleGaleriaRemocao()`): e-mail, motivo (`eu`, `menor` ou `outro`), mensagem (opcional), evento e a **foto aberta** (ID do Drive e nome do arquivo, que não são dado pessoal por si); **sem telefone** e sem aceite marcado (aviso informativo com o link da política). Marcas gravadas no pedido: `prioridade` (motivo `menor`) e `ocultada` (a foto saiu da galeria na hora). |
 | **Titulares** | Pessoas retratadas ou seus responsáveis legais. |
 | **Origem** | Preenchimento direto pelo titular. |
 | **Finalidade** | Localizar a foto, atender ao pedido e comunicar o resultado. E-mail e telefone servem para **confirmar identidade** e responder. |
 | **Base legal** | **Art. 7º, II** (cumprimento de obrigação legal: atender ao direito de eliminação/oposição, art. 18) e **art. 7º, I** (consentimento marcado no formulário). |
 | **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests` → `podaResolvidos`). Desde a v2.0 o cron é o único caminho de poda (a verificação que vinha de carona em cada nova solicitação dependia de regravar a lista inteira, e saiu com ela); se o cron parar, o `/api/healthz` acusa em até 26 h (`cron:last`). Pedidos **não resolvidos nunca são apagados** automaticamente. |
 | **Compartilhamento** | Resend (entrega do e-mail ao controlador e do aviso ao titular). |
+| **Efeito imediato (galeria)** | O pedido pela galeria **esconde a foto na hora** (`fotosOcultas` + `ocultasPendentes` do evento, até o controlador decidir no painel: "Manter oculta" ou "Devolver à galeria"). Tetos de abuso em `src/config.js`: 5 fotos escondidas por IP/dia, 20 por álbum/dia e 10 pedidos por IP/dia; o IP só alimenta o contador de limite (Durable Object, janela de 1 dia), não é gravado no pedido. Passado o teto, o pedido é registrado e avisado, mas a foto não é escondida. |
 | **Nota de minimização** | A foto enviada **não é gravada** no banco — trafega só no e-mail. E os **metadados EXIF são removidos no servidor antes disso** (`stripImageMetadata()`): quem envia uma foto pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi tirada, e não precisamos delas. Ver `politica-seguranca-informacao.md`. |
 
 ---

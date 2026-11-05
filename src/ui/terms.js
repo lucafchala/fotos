@@ -117,6 +117,7 @@ export function termsHTML() {
 
     <h2>7. Remoção de fotos</h2>
     <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias</strong>.</p>
+    <p>Também dá para pedir a remoção <strong>na própria galeria</strong>: com a foto aberta, o link discreto <em>“Pedir remoção”</em> abre um formulário curto (e-mail, motivo e mensagem opcional). Ao enviar, a foto sai da galeria em até 2 minutos, <strong>enquanto eu analiso o pedido</strong>, e você recebe a confirmação por e-mail. Depois eu decido se ela fica fora ou volta à galeria; pedidos envolvendo menores de idade têm prioridade. Para evitar abuso, há um limite de fotos que cada pessoa pode esconder por dia; passado o limite, o pedido continua registrado e analisado do mesmo jeito, só que a foto não sai da galeria até a análise.</p>
     <p>Quando o pedido é atendido (ou quando o responsável decide tirar a foto), ela sai da galeria e do mapa do site em até 2 minutos (o tempo de a alteração chegar a todo o site), e o download dela deixa de funcionar. O resultado no buscador, porém, pode levar um tempo para atualizar; quando for urgente, eu solicito a remoção diretamente ao buscador, pela ferramenta de remoção do Google Search Console. A foto original pode continuar no Drive até ser apagada lá.</p>
 
     <h2>8. Serviços de terceiros</h2>

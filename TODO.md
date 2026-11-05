@@ -79,6 +79,15 @@ abre o Drive fica em ~8 linhas; um evento de 750 pessoas, em ~6 mil. Folga de
 sobra — mas é o número a olhar se um dia a contagem por dia ganhar mais
 dimensões.
 
+**Pedir remoção pela galeria (v3.0)**: cada pedido que **oculta** custa 1
+escrita do evento (`events`) mais 2 do pedido (o registro e o carimbo dos
+e-mails) = 3; um que passou do teto custa 2. Mais 1 a 2 linhas no
+RateLimiter (`galeria-remocao` por IP, `galeria-oculta` só quando oculta de
+fato). "Manter oculta" gasta 2 (evento + pedido), "Devolver à galeria" 2, e
+sem mudar o evento, 1. Com o teto de 10 pedidos por IP/dia e 20 ocultações por
+álbum/dia, o pior dia de um álbum fica em ~60 escritas de KV, contra as
+~1000/dia da conta. Vigiar se a galeria abrir para muito público.
+
 **Pedidos de remoção, um por chave (v2.0, #198)**: as escritas não mudaram (2
 por pedido — o pedido e o carimbo dos e-mails; 1 por "resolver"), e a migração
 do array antigo é uma vez só (≤ 500 escritas, no primeiro cron depois do

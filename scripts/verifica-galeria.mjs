@@ -131,12 +131,25 @@ async function imagem(id, pedida, webp) {
   return { corpo, tipo: webp ? 'image/webp' : 'image/jpeg' };
 }
 
+// O Turnstile de mentira: entrega um token logo depois do render() e outro a
+// cada reset(), como o de verdade (que só vale uma vez). Os testes de servidor
+// provam a verificação; aqui interessa QUANDO o script é pedido e o que a
+// página faz com o token.
+const TURNSTILE_FALSO = `(function(){
+  var n = 0, o = null;
+  function entrega() { setTimeout(function () { if (o) o.callback('tok-' + (++n)); }, 80); }
+  window.turnstile = {
+    render: function (sel, opcoes) { o = opcoes; entrega(); return 'w1'; },
+    reset: function () { entrega(); },
+  };
+})();`;
+
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
 // O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any } }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -186,6 +199,10 @@ async function abre(o = {}) {
     erros: /** @type {string[]} */ ([]),
     csp: /** @type {string[]} */ ([]),
     ocultar: /** @type {{ foto: string, oculta: boolean }[]} */ ([]),
+    // Quantas vezes o script do Turnstile foi pedido, e os corpos enviados a
+    // /api/galeria/remocao ("Pedir remoção").
+    turnstile: 0,
+    remocao: /** @type {any[]} */ ([]),
   };
   /** @type {Set<string>} */
   const ocultasNoServidor = new Set(o.ocultas || []);
@@ -201,7 +218,18 @@ async function abre(o = {}) {
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
+    if (u.host === 'challenges.cloudflare.com') {
+      estado.turnstile++;
+      if (o.turnstile === 'bloqueado') return route.abort();
+      return route.fulfill({ contentType: 'text/javascript', body: TURNSTILE_FALSO });
+    }
     if (u.host !== 'fotos.test') return route.fulfill({ status: 204, body: '' });
+    if (u.pathname === '/api/galeria/remocao' && r.method() === 'POST') {
+      const corpo = JSON.parse(r.postData() || '{}');
+      estado.remocao.push(corpo);
+      const resp = (o.remocao || (() => ({ status: 200, json: { ok: true, ocultada: true } })))(corpo);
+      return route.fulfill({ status: resp.status, contentType: 'application/json', body: JSON.stringify(resp.json) });
+    }
     if (u.pathname === '/galeria/formatura') {
       return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE), body: o.pagina || PAGINA });
     }
@@ -931,6 +959,207 @@ await cenario('Ocultar', async () => {
   registra((await visit.page.locator('.pswp__button--g-ocultar').count()) === 0 && (await visit.page.locator('.g-oc').count()) === 0,
     'Visitante: nem botão de ocultar nem selo "Oculta"');
   await visit.ctx.close();
+});
+
+// ---- 6e. Pedir remoção desta foto (só o visitante) --------------------------
+await cenario('Pedir remoção', async () => {
+  const PAG = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' });
+  const { ctx, page, estado } = await abre({ pagina: PAG });
+  const total0 = await page.locator('.g-t').count();
+  const ALVO = raiz[0][0];
+  const SEGUINTE = raiz[1][0];
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(page, 500);
+
+  // O link: texto discreto sob a legenda, só para o visitante, com alvo de toque de 44 px.
+  const link = page.locator('.g-rem-link');
+  const caixa = await link.boundingBox();
+  const estilo = await link.evaluate(el => { const cs = getComputedStyle(el); return { borda: cs.borderTopWidth, filhos: el.children.length, tamanho: cs.fontSize, cursor: cs.cursor }; });
+  registra((await link.count()) === 1 && (await link.textContent()) === 'Pedir remoção', 'Pedir remoção: o visitante vê o link sob a legenda do visualizador');
+  registra(!!caixa && caixa.height >= 44 && caixa.width >= 44, 'Pedir remoção: o alvo de toque tem pelo menos 44 px', caixa);
+  registra(estilo.borda === '0px' && estilo.filhos === 0 && parseFloat(estilo.tamanho) <= 14, 'Pedir remoção: é texto pequeno, sem borda nem ícone', estilo);
+  registra((await page.locator('.pswp__top-bar .g-rem-link').count()) === 0, 'Pedir remoção: não está na barra de ferramentas');
+  registra(estado.turnstile === 0, 'Pedir remoção: o Turnstile só é pedido quando o formulário abre', estado.turnstile);
+
+  // Teclado: o Tab chega ao link e o Enter abre o formulário, com o foco dentro.
+  let chegou = false;
+  for (let i = 0; i < 14 && !chegou; i++) {
+    await page.keyboard.press('Tab');
+    chegou = await page.evaluate(() => document.activeElement?.classList.contains('g-rem-link') === true);
+  }
+  registra(chegou, 'Pedir remoção: o Tab chega ao link');
+  await page.keyboard.press('Enter');
+  await espera(page, 500);
+  const aberto = await page.evaluate(() => {
+    const d = /** @type {HTMLDialogElement} */ (document.getElementById('g-rem'));
+    const img = /** @type {HTMLImageElement} */ (document.getElementById('g-rem-img'));
+    return { aberto: d.open, foco: document.activeElement?.id || '', miniatura: img.src, honeypot: !!document.getElementById('company_website') };
+  });
+  registra(aberto.aberto && aberto.foco === 'g-rem-motivo', 'Pedir remoção: o formulário abre com o foco no motivo', aberto);
+  registra(aberto.miniatura.includes(ALVO), 'Pedir remoção: mostra a miniatura da foto aberta', aberto.miniatura);
+  registra(estado.turnstile === 1 && aberto.honeypot, 'Pedir remoção: o Turnstile é pedido ao abrir, e há o campo-isca', { turnstile: estado.turnstile });
+  registra((await page.locator('#g-rem-motivo option').allTextContents()).join('|') === 'Escolha um motivo|Sou eu na foto|Sou responsável por um menor na foto|Outro motivo',
+    'Pedir remoção: os três motivos do pedido', await page.locator('#g-rem-motivo option').allTextContents());
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao.png') });
+
+  // Esc fecha só o formulário: o visualizador continua aberto e o foco volta ao link.
+  await page.keyboard.press('Escape');
+  await espera(page, 400);
+  const fechado = await page.evaluate(() => ({ aberto: /** @type {HTMLDialogElement} */ (document.getElementById('g-rem')).open, pswp: !!document.querySelector('.pswp--open'), foco: document.activeElement?.className || '' }));
+  registra(!fechado.aberto && fechado.pswp && fechado.foco.includes('g-rem-link'), 'Pedir remoção: Esc fecha o formulário, mantém o visualizador e devolve o foco ao link', fechado);
+  registra(estado.remocao.length === 0, 'Pedir remoção: fechar sem enviar não manda nada');
+
+  // Validação no navegador antes de enviar: sem motivo, sem e-mail.
+  await link.click();
+  await espera(page, 400);
+  registra(estado.turnstile === 1, 'Pedir remoção: abrir de novo não pede o script outra vez', estado.turnstile);
+  await page.locator('#g-rem-enviar').click();
+  registra((await page.locator('#g-rem-erro').textContent() || '').includes('motivo') && estado.remocao.length === 0, 'Pedir remoção: sem motivo, avisa e não envia');
+  await page.selectOption('#g-rem-motivo', 'menor');
+  await page.locator('#g-rem-enviar').click();
+  registra((await page.locator('#g-rem-erro').textContent() || '').includes('e-mail') && estado.remocao.length === 0, 'Pedir remoção: sem e-mail válido, avisa e não envia');
+
+  // Enviar. O servidor de mentira diz que escondeu a foto.
+  await page.fill('#g-rem-email', 'Ana@Example.com ');
+  await page.fill('#g-rem-msg', 'É a minha filha.');
+  await page.locator('#g-rem-enviar').click();
+  await espera(page, 700);
+  const corpo = estado.remocao[0] || {};
+  registra(estado.remocao.length === 1 && corpo.slug === 'formatura' && corpo.foto === ALVO && corpo.motivo === 'menor' && corpo.email === 'Ana@Example.com'
+    && corpo.mensagem === 'É a minha filha.' && /^tok-/.test(corpo.turnstileToken) && corpo.form_token === 'token-de-teste' && corpo.company_website === '',
+    'Pedir remoção: o corpo leva foto, motivo, e-mail, mensagem, token do Turnstile, token do formulário e a isca vazia', corpo);
+  const ok = await page.evaluate(() => ({
+    visivel: !(/** @type {HTMLElement} */ (document.getElementById('g-rem-ok'))).hidden,
+    texto: document.getElementById('g-rem-ok-txt')?.textContent || '',
+    form: (/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
+  }));
+  registra(ok.visivel && ok.form && ok.texto.includes('saiu da galeria agora') && ok.texto.includes('analisar') && ok.texto.includes('e-mail'),
+    'Pedir remoção: a confirmação diz que a foto saiu agora, que o fotógrafo vai analisar e que a resposta vai por e-mail', ok);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-ok.png') });
+
+  // A foto some da grade e o visualizador segue para a seguinte.
+  const aposEnvio = await page.evaluate(([a, b]) => ({
+    alvoNaGrade: document.querySelectorAll('.g-t[href="#foto=' + a + '"]').length,
+    seguinteNaGrade: document.querySelectorAll('.g-t[href="#foto=' + b + '"]').length,
+    total: document.querySelectorAll('.g-t').length,
+    indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
+  }), [ALVO, SEGUINTE]);
+  registra(aposEnvio.alvoNaGrade === 0 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 - 1 && aposEnvio.indices,
+    'Pedir remoção: depois do envio a foto some da grade e os índices continuam em ordem', aposEnvio);
+  await page.keyboard.press('Escape');
+  await espera(page, 600);
+  const viewer = await page.evaluate(() => ({
+    pswp: !!document.querySelector('.pswp--open'),
+    contador: document.querySelector('.pswp__counter')?.textContent || '',
+    src: /** @type {HTMLImageElement | null} */ (document.querySelector('.pswp__item:not([aria-hidden="true"]) img.pswp__img:not(.pswp__img--placeholder)'))?.currentSrc || '',
+  }));
+  registra(viewer.pswp && viewer.contador === '1 de ' + (total0 - 1) && viewer.src.includes(SEGUINTE),
+    'Pedir remoção: ao fechar a confirmação, o visualizador já está na foto seguinte, com o contador recalculado', viewer);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pedir remoção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+
+  // O servidor recusa (Turnstile, limite…): a mensagem aparece, a foto fica e dá para tentar de novo.
+  const rec = await abre({ pagina: PAG, remocao: () => ({ status: 403, json: { error: 'Verificação de segurança falhou. Recarregue e tente novamente.' } }) });
+  await rec.page.locator('.g-t').first().click();
+  await rec.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await rec.page.locator('.g-rem-link').click();
+  await espera(rec.page, 400);
+  await rec.page.selectOption('#g-rem-motivo', 'eu');
+  await rec.page.fill('#g-rem-email', 'ana@example.com');
+  await rec.page.locator('#g-rem-enviar').click();
+  await espera(rec.page, 600);
+  const recusa = await rec.page.evaluate(() => ({
+    erro: document.getElementById('g-rem-erro')?.textContent || '',
+    formVisivel: !(/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
+    fotos: document.querySelectorAll('.g-t').length,
+    habilitado: !(/** @type {HTMLButtonElement} */ (document.getElementById('g-rem-enviar'))).disabled,
+  }));
+  registra(recusa.erro.includes('Verificação') && recusa.formVisivel && recusa.fotos === total0 && recusa.habilitado,
+    'Pedir remoção: servidor recusa — mostra o motivo, mantém a foto e deixa tentar de novo (com novo token)', recusa);
+  registra(rec.estado.erros.length === 0 && rec.estado.csp.length === 0, 'Pedir remoção (recusa): sem erro de JS nem CSP', [...rec.estado.erros, ...rec.estado.csp]);
+  await rec.ctx.close();
+
+  // Passou do teto: o pedido foi registrado, a foto NÃO sai, e a página não finge que saiu.
+  const teto = await abre({ pagina: PAG, remocao: () => ({ status: 200, json: { ok: true, ocultada: false, motivoNaoOculta: 'ip' } }) });
+  await teto.page.locator('.g-t').first().click();
+  await teto.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await teto.page.locator('.g-rem-link').click();
+  await espera(teto.page, 400);
+  await teto.page.selectOption('#g-rem-motivo', 'outro');
+  await teto.page.fill('#g-rem-email', 'ana@example.com');
+  await teto.page.locator('#g-rem-enviar').click();
+  await espera(teto.page, 600);
+  const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: document.querySelectorAll('.g-t').length }));
+  registra(semOcultar.fotos === total0 && !semOcultar.txt.includes('saiu da galeria') && semOcultar.txt.includes('analisar'),
+    'Pedir remoção: acima do teto a foto continua na galeria e o texto só diz que será analisado', semOcultar);
+  await teto.ctx.close();
+
+  // Bloqueador de anúncios: o Turnstile não carrega, o aviso aparece e o botão fica desligado.
+  const bloq = await abre({ pagina: PAG, turnstile: 'bloqueado' });
+  await bloq.page.locator('.g-t').first().click();
+  await bloq.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await bloq.page.locator('.g-rem-link').click();
+  await espera(bloq.page, 600);
+  const bl = await bloq.page.evaluate(() => ({ erro: document.getElementById('g-rem-erro')?.textContent || '', desligado: /** @type {HTMLButtonElement} */ (document.getElementById('g-rem-enviar')).disabled }));
+  registra(bl.erro.includes('verificação de segurança') && bl.desligado, 'Pedir remoção: Turnstile bloqueado — avisa e não deixa enviar', bl);
+  await bloq.ctx.close();
+
+  // Última foto da galeria: depois do pedido o visualizador fecha, sem erro.
+  const UMA = { ...LISTAGEM, total: 1, secoes: [{ nome: '', caminho: '', fotos: [raiz[0]] }] };
+  const solo = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: UMA, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' }) });
+  await solo.page.locator('.g-t').first().click();
+  await solo.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await solo.page.locator('.g-rem-link').click();
+  await espera(solo.page, 400);
+  await solo.page.selectOption('#g-rem-motivo', 'eu');
+  await solo.page.fill('#g-rem-email', 'ana@example.com');
+  await solo.page.locator('#g-rem-enviar').click();
+  await espera(solo.page, 600);
+  await solo.page.keyboard.press('Escape');
+  await espera(solo.page, 700);
+  const vazio = await solo.page.evaluate(() => ({ pswp: !!document.querySelector('.pswp--open'), dialogo: /** @type {HTMLDialogElement} */ (document.getElementById('g-rem')).open, fotos: document.querySelectorAll('.g-t').length }));
+  registra(!vazio.pswp && !vazio.dialogo && vazio.fotos === 0, 'Pedir remoção: era a única foto — o visualizador fecha e a grade fica vazia', vazio);
+  registra(solo.estado.erros.length === 0 && solo.estado.csp.length === 0, 'Pedir remoção (última foto): sem erro de JS nem CSP', [...solo.estado.erros, ...solo.estado.csp]);
+  await solo.ctx.close();
+
+  // No celular: o link cabe na tela e o formulário não vaza para o lado.
+  const cel = await abre({ pagina: PAG, viewport: { width: 360, height: 780 }, dpr: 3, toque: true });
+  await cel.page.locator('.g-t').first().click();
+  await cel.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(cel.page, 500);
+  const cx = await cel.page.locator('.g-rem-link').boundingBox();
+  registra(!!cx && cx.x >= 0 && cx.x + cx.width <= 360 && cx.height >= 44, 'Pedir remoção no celular (360 px): o link cabe na tela e tem 44 px de alvo', cx);
+  if (PRINTS) await cel.page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-celular.png') });
+  await cel.page.locator('.g-rem-link').tap();
+  await espera(cel.page, 500);
+  const medidas = await cel.page.evaluate(() => {
+    const d = document.getElementById('g-rem');
+    const r = d ? d.getBoundingClientRect() : { left: 0, right: 0, top: 0, bottom: 0 };
+    const alvos = [...document.querySelectorAll('#g-rem button, #g-rem select, #g-rem input:not(#company_website)')].filter(e => /** @type {HTMLElement} */ (e).offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height));
+    return { l: Math.round(r.left), r: Math.round(r.right), b: Math.round(r.bottom), h: window.innerHeight, rolagemX: document.documentElement.scrollWidth > window.innerWidth, alvos };
+  });
+  registra(medidas.l >= 0 && medidas.r <= 360 && medidas.b <= medidas.h && !medidas.rolagemX && medidas.alvos.every(a => a >= 40), 'Pedir remoção no celular: o formulário cabe na tela e os campos têm alvo de toque', medidas);
+  if (PRINTS) await cel.page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-formulario-celular.png') });
+  await cel.ctx.close();
+
+  // Tema escuro: o link e o formulário continuam legíveis.
+  const esc = await abre({ pagina: PAG, escuro: true });
+  await esc.page.locator('.g-t').first().click();
+  await esc.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await esc.page.locator('.g-rem-link').click();
+  await espera(esc.page, 500);
+  if (PRINTS) await esc.page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-escuro.png') });
+  await esc.ctx.close();
+
+  // O dono não tem o link nem o formulário (ele tem o "Ocultar").
+  const donoPag = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [], redes: REDES });
+  const d = await abre({ pagina: donoPag });
+  await d.page.locator('.g-t').first().click();
+  await d.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(d.page, 400);
+  registra((await d.page.locator('.g-rem-link').count()) === 0 && (await d.page.locator('#g-rem').count()) === 0, 'Pedir remoção: o dono não vê o link nem o formulário');
+  await d.ctx.close();
 });
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------

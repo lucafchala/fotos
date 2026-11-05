@@ -2251,8 +2251,17 @@ export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
 
-  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' })[req.method] || req.method;
+  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' })[req.method] || req.method;
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
+  const galeria = req.origem === 'galeria';
+  const motivo = /** @type {Record<string, string>} */ ({ eu: 'Sou eu na foto', menor: 'Sou responsável por um menor na foto', outro: 'Outro motivo' })[req.motivo] || '';
+  // Linhas só do pedido feito dentro da galeria: a foto, o motivo e o que o
+  // site fez com ela. O link abre a galeria; o dono logado vê a foto marcada.
+  const linhasGaleria = galeria ? `
+    ${req.prioridade ? '<tr><td style="padding:8px 0;color:#b00020;font-weight:bold" colspan="2">PRIORIDADE: o pedido é de responsável por um menor de idade</td></tr>' : ''}
+    ${motivo ? `<tr><td style="padding:8px 0;color:#666">Motivo</td><td style="padding:8px 0">${esc(motivo)}</td></tr>` : ''}
+    ${req.fotoNome ? `<tr><td style="padding:8px 0;color:#666">Foto</td><td style="padding:8px 0">${esc(req.fotoNome)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;color:#666">Situação</td><td style="padding:8px 0">${req.ocultada ? 'A foto foi <strong>ocultada da galeria</strong> até você decidir (painel → Pedidos)' : '<strong>A foto NÃO foi ocultada</strong> (limite de pedidos atingido). Decida no painel → Pedidos'}</td></tr>` : '';
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -2261,7 +2270,8 @@ export async function sendRemovalEmail(env, req) {
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:120px">Projeto</td><td style="padding:8px 0"><strong>${esc(req.eventTitle)}</strong> &nbsp;<span style="color:#aaa">/${esc(req.eventSlug)}</span></td></tr>
     <tr><td style="padding:8px 0;color:#666">Tipo</td><td style="padding:8px 0">${esc(methodLabel)}</td></tr>
-    ${req.value ? `<tr><td style="padding:8px 0;color:#666">Identificação</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
+    ${linhasGaleria}
+    ${req.value ? `<tr><td style="padding:8px 0;color:#666">${galeria ? 'Galeria' : 'Identificação'}</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
     ${req.method === 'upload' ? `<tr><td style="padding:8px 0;color:#666">Arquivo</td><td style="padding:8px 0">${esc(req.fileName || 'em anexo')}</td></tr>` : ''}
     ${req.email ? `<tr><td style="padding:8px 0;color:#666">E-mail</td><td style="padding:8px 0">${esc(req.email)}</td></tr>` : ''}
     ${req.phone ? `<tr><td style="padding:8px 0;color:#666">Telefone</td><td style="padding:8px 0">${esc(req.phone)}</td></tr>` : ''}
@@ -2275,7 +2285,7 @@ export async function sendRemovalEmail(env, req) {
   const body = {
     from: 'Fotos <noreply@lucafchala.com>',
     to: [env.ADMIN_EMAIL],
-    subject: `🗑 Remoção solicitada — ${req.eventTitle}`,
+    subject: `${req.prioridade ? '🚨 PRIORIDADE (menor) · ' : ''}🗑 Remoção solicitada — ${req.eventTitle}`,
     html,
   };
 
@@ -2575,7 +2585,16 @@ export async function sendConfirmationEmail(env, req) {
   if (!apiKey || !req.email) return false;
 
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
-  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado' })[req.method] || req.method;
+  const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' })[req.method] || req.method;
+  const galeria = req.origem === 'galeria';
+  // Pedido da galeria: diz a verdade sobre o que aconteceu com a foto. Escondeu
+  // (o caso comum): saiu da galeria e fica fora até a análise. Não escondeu (teto
+  // diário): o pedido está registrado e será analisado, a foto segue por ora.
+  const fecho = galeria
+    ? (req.ocultada
+      ? 'A foto já saiu da galeria e continua fora dela enquanto analiso o pedido. Você recebe a resposta por e-mail.'
+      : 'Vou analisar o pedido e responder por e-mail. A foto continua na galeria até lá.')
+    : 'Analisaremos o pedido em breve.';
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -2585,10 +2604,11 @@ export async function sendConfirmationEmail(env, req) {
   <table style="width:100%;border-collapse:collapse;font-size:14px">
     <tr><td style="padding:8px 0;color:#666;width:120px">Projeto</td><td style="padding:8px 0"><strong>${esc(req.eventTitle)}</strong></td></tr>
     <tr><td style="padding:8px 0;color:#666">Tipo</td><td style="padding:8px 0">${esc(methodLabel)}</td></tr>
-    ${req.value ? `<tr><td style="padding:8px 0;color:#666">Identificação</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
+    ${req.value && !galeria ? `<tr><td style="padding:8px 0;color:#666">Identificação</td><td style="padding:8px 0">${esc(req.value)}</td></tr>` : ''}
+    ${galeria && req.fotoNome ? `<tr><td style="padding:8px 0;color:#666">Foto</td><td style="padding:8px 0">${esc(req.fotoNome)}</td></tr>` : ''}
     ${req.message ? `<tr><td style="padding:8px 0;color:#666;vertical-align:top">Mensagem</td><td style="padding:8px 0">${esc(req.message)}</td></tr>` : ''}
   </table>
-  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">Analisaremos o pedido em breve.</p>
+  <p style="margin-top:24px;font-size:14px;line-height:1.6;color:#444">${esc(fecho)}</p>
   <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Em caso de dúvidas, fale comigo pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou por <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;

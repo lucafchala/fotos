@@ -653,6 +653,27 @@ da navegação atualiza sozinho.
 - A franquia de e-mail (Resend) é a mais apertada depois do KV (`TODO.md`); cada
   resolução gasta um.
 
+**Pedidos feitos pela galeria** ("Pedir remoção desta foto", README). Vêm
+com `origem: 'galeria'` e mostram a **miniatura da foto** (lh3, 160 px) com
+link para o álbum, o motivo (sou eu / menor de idade / outro) e, para menor, o
+selo de **prioridade**. A foto já foi ocultada na hora (ou não, se passou de
+um teto: o pedido diz "a foto NÃO foi ocultada"). Em vez de só "Marcar como
+resolvido", os botões decidem a foto:
+
+- **Manter oculta** (ou **Ocultar da galeria**, se o teto a deixou visível):
+  a foto fica em `fotosOcultas`, sai da pendência e o pedido é resolvido com
+  o e-mail de atendido.
+- **Devolver à galeria** (**Manter na galeria**, se não estava oculta): a
+  foto sai de `fotosOcultas` e da pendência; o pedido é resolvido **sem**
+  e-mail (dizer "foto removida" seria falso).
+
+`PUT /api/removal-requests/<id>/resolve` aceita `{desfecho: 'mantida' |
+'devolvida'}`; sem corpo, nada muda no evento. No modo galeria do dono, a foto
+oculta a pedido leva o selo **"Oculta a pedido"**. Custo no KV: 1 escrita do
+evento (se o desfecho a muda) mais 1 do pedido. Cobertura:
+`tests/galeria-remocao.test.js` e o cenário "Pedidos da galeria" do
+`verifica:painel`.
+
 Os pedidos são carregados na abertura da página (para o selo) e recarregados a
 cada resolução. Falha ao carregar: "Erro ao carregar solicitações." na seção.
 

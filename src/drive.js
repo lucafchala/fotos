@@ -372,6 +372,41 @@ export function normalizaOcultas(v) {
 }
 
 /**
+ * Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono
+ * (`event.ocultasPendentes`): `{ id, em, pedido }` — a foto, quando saiu da
+ * galeria (ISO) e o id do pedido de remoção que a escondeu. Tudo o que a
+ * lista aceita já está em `fotosOcultas` (a pendência é uma marca sobre uma
+ * foto oculta, não um segundo mecanismo de ocultar): com `ocultas`, entrada
+ * de foto que não está oculta é descartada. IDs válidos, sem repetição, data
+ * válida (normalizada), pedido hexadecimal ou vazio, no máximo
+ * GALERIA_MAX_OCULTAS. Qualquer outra forma vira lista vazia.
+ * @param {unknown} v
+ * @param {readonly string[]} [ocultas] as fotos ocultas do mesmo evento
+ * @returns {{ id: string, em: string, pedido: string }[]}
+ */
+export function normalizaPendentes(v, ocultas) {
+  if (!Array.isArray(v)) return [];
+  const permitidas = ocultas ? new Set(ocultas) : null;
+  /** @type {Map<string, { id: string, em: string, pedido: string }>} */
+  const out = new Map();
+  for (const e of v) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+    const { id, em, pedido } = /** @type {Record<string, unknown>} */ (e);
+    if (typeof id !== 'string' || !ID_RE.test(id) || out.has(id)) continue;
+    if (permitidas && !permitidas.has(id)) continue;
+    const t = typeof em === 'string' ? new Date(em).getTime() : NaN;
+    if (!Number.isFinite(t)) continue;
+    out.set(id, {
+      id,
+      em: new Date(t).toISOString(),
+      pedido: typeof pedido === 'string' && /^[a-f0-9]{1,64}$/.test(pedido) ? pedido : '',
+    });
+    if (out.size >= GALERIA_MAX_OCULTAS) break;
+  }
+  return [...out.values()];
+}
+
+/**
  * URL da foto redimensionada pelo próprio Google (lh3), sem chave. A largura é
  * o lado HORIZONTAL; o lh3 não amplia além do original.
  * @param {string} id

@@ -620,8 +620,8 @@ fotos/
 │   ├── build-icons.mjs      ← rasteriza src/content/icon-svg.js em PNG (src/content/icons.js, npm run build:icons)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail, álbum restrito sem Turnstile) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
-│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads exatos, "Salvar no Fotos" no iPhone (npm run verifica:galeria)
-│   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção, métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
+│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads exatos, "Salvar no Fotos" no iPhone, "Pedir remoção" (npm run verifica:galeria)
+│   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção (inclusive os feitos pela galeria, com foto e as duas decisões), métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
 │   ├── vigia-csp.mjs        ← o vigia de CSP dos cinco roteiros: qualquer mensagem de CSP no console reprova, e uma página-canário prova que o vigia enxerga e a política bloqueia (#126)
 │   ├── worker-local.mjs     ← o `src/index.js` de verdade num servidor HTTP local: KV e Durable Objects em memória, Turnstile e Resend interceptados, outros hosts recebem 599 (o harness de docs/VERIFICACAO.md §2)
@@ -905,6 +905,7 @@ compatibilidade sem comprar segurança.
 | GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo. **Indexada no Google** só a de álbum público e listado, vista por visitante, fora da prévia e com fotos (`galeriaIndexavel()`; ver [No Google](#no-google)); o resto leva `noindex` |
 | GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto, **sem alterar o arquivo** (nome e bytes exatos): `max` = o original da pasta do projeto, pela Drive API (chave só no servidor); `redes` = o arquivo de mesmo nome da pasta do Instagram do projeto (`driveUrlInstagram`), também pela Drive API. `<id>` é sempre o da foto na galeria; o do arquivo do Instagram sai da listagem do servidor, nunca do pedido. Foto fora da pasta do projeto, sem par no Instagram ou sem pasta do Instagram: 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
+| POST | `/api/galeria/remocao` | "Pedir remoção desta foto" da galeria (visitante; `{slug, foto, email, motivo, mensagem, cf-turnstile-response, token, ts, company_website}`): confere honeypot, token do formulário, Turnstile e as regras de acesso do álbum (família/privado exigem o passe; "Em breve" é 404), exige a foto na listagem (404), oculta na hora (`fotosOcultas` + `ocultasPendentes`) e registra o pedido no painel. Devolve `{ok, ocultada, motivoNaoOculta?}`; 429 acima de 10 pedidos/IP/dia |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v3** (eventos + categorias + solicitações + registro de consentimento) |
@@ -1915,6 +1916,47 @@ continua no Drive: ocultar tira da galeria do site; para tirar de vez, apaga-se
 no Drive. É o caminho de um pedido de remoção (LGPD) — o texto do painel na
 seção de pedidos agora diz para ocultar na galeria e depois remover no Drive. O
 backup/restauração e o formulário do painel só gravam IDs válidos.
+
+### Pedir remoção de uma foto (visitante)
+
+Sob a legenda de cada foto no visualizador há o link **"Pedir remoção"**:
+texto pequeno e apagado (contraste de 5,3:1 no pior caso, acima do mínimo AA),
+alvo de toque de 44 px por padding, alcançável pelo Tab, sem ícone na barra e
+só para visitantes (o dono não o vê). Abre um `<dialog>` nativo (fora do
+trap de foco do PhotoSwipe) com a miniatura, **e-mail** (obrigatório),
+**motivo** (sou eu / menor de idade / outro), mensagem opcional, honeypot
+`company_website` e token do formulário. O Turnstile só é carregado quando o
+diálogo abre. A confirmação diz que a foto já saiu da galeria e que o pedido
+será analisado.
+
+**Rota própria** (`POST /api/galeria/remocao`) em vez do
+`/api/removal-request`: este exige telefone, consentimento e um método de
+identificação da foto, e não oculta nada. O final comum (gravar o pedido e
+mandar os e-mails) é compartilhado (`registraPedidoPublico`). A ordem é
+honeypot, token, teto de pedidos por IP, Turnstile, validação, acesso ao
+álbum, foto na listagem, **ocultar** (um `saveEvents`) e só então registrar o
+pedido; assim `ocultada` reflete o que aconteceu de fato, e uma falha do KV ao
+ocultar ainda registra o pedido.
+
+**Tetos** (`src/config.js`): `GALERIA_REMOCAO_OCULTA_POR_IP_DIA` = 5,
+`GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA` = 20 e
+`GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA` = 10. Passou do teto de ocultação: o
+pedido é registrado e avisado, a foto **não** é ocultada
+(`motivoNaoOculta: 'ip' | 'album'`) e o painel oferece "Ocultar da galeria".
+Pedido de menor **não** fura os tetos (só ganha prioridade e assunto
+próprio): furar seria um atalho de abuso, e o dono devolve à galeria o que
+for engano.
+
+**Dados.** A foto fica em `fotosOcultas` (some do HTML, do sitemap, do JSON-LD
+e do download para o público) e em `ocultasPendentes: [{id, em, pedido}]`
+(sempre um subconjunto de `fotosOcultas`; o dono vê o selo **"Oculta a
+pedido"**). No painel, **Manter oculta** tira a foto da pendência e resolve o
+pedido (e-mail de atendido); **Devolver à galeria** a tira de `fotosOcultas`
+e da pendência, sem e-mail. O botão de olho do dono também encerra a pendência.
+Como a galeria do visitante é `private, no-cache`, a ocultação chega aos
+outros visitantes em até ~2 min. Custo: ver `TODO.md`. Testes:
+`tests/galeria-remocao.test.js`; `verifica:galeria` (cenário 6e) e
+`verifica:painel` ("Pedidos da galeria").
 
 ### No Google
 

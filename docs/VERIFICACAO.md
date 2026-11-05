@@ -266,6 +266,11 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
    seta, Esc devolve o foco);
 5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1); no
    computador, Pedidos percorrido pelo Tab;
+6a. **Pedidos da galeria**, com semente própria: três pedidos de visitantes
+   (um de menor, com prioridade; um que passou do teto), a miniatura lh3, o
+   álbum, "Manter oculta" (o evento mantém o ID em `fotosOcultas` e a pendência
+   some), "Devolver à galeria" (o ID sai das duas listas) e "Ocultar da
+   galeria"; botões de 44 px no celular;
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
    dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
@@ -358,6 +363,13 @@ Cobre:
   oculta aparece apagada, com o selo "Oculta", a faixa do dono conta
   quantas estão ocultas, no celular (360 px) a barra do visualizador cabe
   com o contador numa linha, e o visitante não vê nem botão nem selo;
+- **pedir remoção** (cenário 6e) — o link "Pedir remoção" sob a legenda
+  (alvo de 44 px, sem ícone na barra, alcançável pelo Tab), o Turnstile só
+  carrega ao abrir o diálogo, Enter abre com o foco no motivo e Esc fecha
+  devolvendo o foco com o visualizador aberto, validação do e-mail, o corpo
+  enviado, a confirmação, a foto some da grade e o visualizador segue,
+  recusa 403, passou do teto (`ocultada: false`), Turnstile bloqueado, última
+  foto, 360 px, tema escuro e o dono sem link;
 - **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
