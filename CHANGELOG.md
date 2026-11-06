@@ -50,6 +50,11 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 - **CI:** o limite do job "Roteiros no navegador" subiu de 20 para 30 minutos.
   Ele passava com quase 18 e foi cancelado por tempo uma vez.
 
+### Corrigido
+
+- **Painel:** faltava o interruptor **Destaque máximo no site**. O servidor já
+  gravava o campo desde a 3.3.0, mas não havia como ligá-lo pelo painel.
+
 Sem JavaScript, ou se a lista não carregar, o botão continua abrindo a pasta
 do álbum.
 
