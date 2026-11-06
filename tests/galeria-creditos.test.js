@@ -257,3 +257,68 @@ describe('a página da galeria', () => {
     expect(await res.text()).not.toContain(EMAIL_MAG);
   });
 });
+
+describe('autor padrão configurável (linha "* = Nome")', () => {
+  const MAIS_PADRAO = `* = Turma 2026\nmag = Mag <${EMAIL_MAG}>\n`;
+
+  it('a linha "*" entra no campo normalizado, com e-mail opcional', () => {
+    expect(normalizaCreditos('* = Turma 2026')).toBe('* = Turma 2026');
+    expect(normalizaCreditos('*=Turma 2026 <TURMA@Example.com>')).toBe('* = Turma 2026 <turma@example.com>');
+    expect(emailDoAutor('* = Turma 2026 <turma@example.com>', 'Turma 2026')).toBe('turma@example.com');
+  });
+
+  it('a foto fora de pasta de autor é do autor padrão do projeto; as pastas de autor continuam valendo', async () => {
+    const d = await listaPasta(env, raiz, { creditos: MAIS_PADRAO });
+    expect(d.aut).toEqual(['Turma 2026', 'Mag']);
+    const rz = d.secoes[0];
+    const solta = rz.fotos.find(f => f[0] === 'RAIZ_FOTO_0001');
+    expect(solta[5] || 0).toBe(0);
+    expect(rz.fotos.find(f => f[0] === 'MAG_FOTO_00001')[5]).toBe(1);
+  });
+
+  it('sem a linha "*" o padrão continua o Luca', async () => {
+    const d = await listaPasta(env, raiz, { creditos: CREDITOS });
+    expect(d.aut[0]).toBe('Luca F. Chala');
+  });
+
+  it('com a linha "*" mas sem "chala", a pasta Chala volta a ser seção (o campo manda)', async () => {
+    const d = await listaPasta(env, raiz, { creditos: MAIS_PADRAO });
+    expect(d.secoes.map(s => s.nome)).toContain('Chala');
+  });
+
+  it('uma pasta do Drive chamada "*" não vira pasta de autor', async () => {
+    ARVORE[RAIZ][0].push(pasta('PASTA_ESTRELA_01', '*'));
+    ARVORE.PASTA_ESTRELA_01 = [[img('ESTRELA_FOTO_01', 'e1.jpg')]];
+    try {
+      const d = await listaPasta(env, raiz, { creditos: MAIS_PADRAO });
+      expect(d.secoes.map(s => s.nome)).toContain('*');
+    } finally {
+      ARVORE[RAIZ][0].pop();
+      delete ARVORE.PASTA_ESTRELA_01;
+    }
+  });
+
+  it('mudar o autor padrão muda a chave do cache (não serve a lista antiga)', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    await listaPasta(env, raiz, { creditos: '* = Turma A' });
+    const n = chamadas.length;
+    const outra = await listaPasta(env, raiz, { creditos: '* = Turma B' });
+    expect(chamadas.length).toBeGreaterThan(n);
+    expect(outra.aut[0]).toBe('Turma B');
+  });
+
+  it('a página mostra "Fotos: Turma 2026 e Mag", o JSON-LD usa o nome e o e-mail nunca sai', async () => {
+    await saveEvents(env, [{
+      id: '1', slug: 'formatura', title: 'Formatura 2026', accessType: 'public', galeriaCreditos: `* = Turma 2026 <turma@example.com>\nmag = Mag <${EMAIL_MAG}>`,
+      driveUrl: `https://drive.google.com/drive/folders/${RAIZ}?usp=sharing`,
+    }]);
+    const res = await worker.fetch(new Request(SITE + '/galeria/formatura', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), env, { waitUntil() {} });
+    const html = await res.text();
+    expect(html).toContain('Fotos: Turma 2026 e Mag');
+    expect(html).toContain('"creditText":"Turma 2026"');
+    expect(html).not.toContain('Luca F. Chala<');
+    expect(html).not.toContain('turma@example.com');
+    expect(html).not.toContain(EMAIL_MAG);
+  });
+});

@@ -124,7 +124,11 @@ export const ordemNatural = (a, b) => COLLATOR.compare(a, b);
 // `pasta = Nome`. Uma pasta do Drive cujo nome (aparado, minúsculo, sem acento)
 // bate com uma chave NÃO é uma seção: as fotos dela entram na seção da pasta de
 // cima, marcadas com o autor, e ela não conta para o limite de profundidade.
-// Foto fora de pasta de autor é do autor padrão (AUTOR_PADRAO).
+// Foto fora de pasta de autor é do autor padrão (AUTOR_PADRAO), a não ser que o
+// campo tenha a linha `* = Nome[ <e-mail>]`: ela troca o autor padrão DAQUELE
+// projeto (Santa: `* = Turma 2026`). A chave `*` nunca casa com uma pasta do
+// Drive, mesmo que alguém dê esse nome a uma.
+export const CHAVE_AUTOR_PADRAO = '*';
 
 // eslint-disable-next-line no-control-regex
 const CONTROLE_RE = /[\u0000-\u001f\u007f]/g;
@@ -565,7 +569,7 @@ export async function consultaArquivo(env, id, rk = '') {
  */
 async function percorre(chave, raiz, maxChamadas, creditos) {
   /** @type {string[]} */
-  const aut = [AUTOR_PADRAO];
+  const aut = [creditos.get(CHAVE_AUTOR_PADRAO) || AUTOR_PADRAO];
   /** @param {string} nome */
   const indiceAutor = nome => {
     const i = aut.indexOf(nome);
@@ -600,7 +604,8 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
         const mime = typeof f.mimeType === 'string' ? f.mimeType : '';
         if (mime === FOLDER_MIME) {
           const rkPasta = typeof f.resourceKey === 'string' ? f.resourceKey : '';
-          const autorDaPasta = creditos.get(chavePasta(f.name));
+          const chaveDaPasta = chavePasta(f.name);
+          const autorDaPasta = chaveDaPasta === CHAVE_AUTOR_PADRAO ? undefined : creditos.get(chaveDaPasta);
           if (autorDaPasta !== undefined) {
             // Pasta de autor: não é seção. Mesmo caminho do pai (não aumenta a
             // profundidade); as fotos dela levam o autor.
