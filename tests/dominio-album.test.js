@@ -3,13 +3,14 @@
 //  2. www. vai para o domínio sem www., preservando caminho e query;
 //  3. o painel volta para o domínio principal (a sessão mora lá);
 //  4. o resto do site responde igual nesse domínio — e o domínio principal
-//     não muda nada.
-import { describe, it, expect } from 'vitest';
+//     não muda nada;
+//  5. sem o projeto (ou com ele oculto), a raiz mostra "em breve", não um 404.
+import { describe, it, expect, vi } from 'vitest';
 import worker, { rotaDoDominioDeAlbum } from '../src/index.js';
 import { DOMINIOS_DE_ALBUM } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 
-const SLUG = DOMINIOS_DE_ALBUM['entrenos2026.com'];
+const SLUG = DOMINIOS_DE_ALBUM['entrenos2026.com'].slug;
 const ctx = { waitUntil: () => {} };
 
 function kv(events = []) {
@@ -19,10 +20,13 @@ function kv(events = []) {
     async list() { return { keys: [], list_complete: true }; } };
 }
 
-function pede(endereco, init) {
-  const env = withDurableObjects({ FOTOS: kv() });
+const ALBUM = [{ id: '1', slug: SLUG, title: 'Entre Nós', accessType: 'public' }];
+/** @param {string} endereco @param {RequestInit} [init] @param {any[]} [eventos] */
+function pede(endereco, init, eventos = ALBUM) {
+  const env = withDurableObjects({ FOTOS: kv(eventos) });
   return worker.fetch(new Request(endereco, init), env, ctx);
 }
+const envCom = (eventos = ALBUM) => withDurableObjects({ FOTOS: kv(eventos) });
 
 describe('domínio de álbum (entrenos2026.com)', () => {
   it('aponta para um slug válido de projeto', () => {
@@ -49,8 +53,8 @@ describe('domínio de álbum (entrenos2026.com)', () => {
     expect(res.headers.get('Location')).toBe('https://entrenos2026.com/galeria/x/cap?a=1');
   });
 
-  it('maiúsculas no host não escapam do desvio', () => {
-    const res = rotaDoDominioDeAlbum(new URL('https://EntreNos2026.COM/'), '/');
+  it('maiúsculas no host não escapam do desvio', async () => {
+    const res = await rotaDoDominioDeAlbum(new URL('https://EntreNos2026.COM/'), '/', envCom());
     expect(res?.headers.get('Location')).toBe(`/galeria/${SLUG}`);
   });
 
@@ -65,14 +69,30 @@ describe('domínio de álbum (entrenos2026.com)', () => {
   it('o resto do site responde igual nesse domínio', async () => {
     const res = await pede('https://entrenos2026.com/privacidade');
     expect(res.status).toBe(200);
-    expect(rotaDoDominioDeAlbum(new URL('https://entrenos2026.com/galeria/x'), '/galeria/x')).toBeNull();
+    expect(await rotaDoDominioDeAlbum(new URL('https://entrenos2026.com/galeria/x'), '/galeria/x', envCom())).toBeNull();
   });
 
   it('o domínio principal e domínios parecidos não mudam', async () => {
     const res = await pede('https://fotos.lucafchala.com/');
     expect(res.status).toBe(200);
     for (const host of ['entrenos2026.com.evil.example', 'xentrenos2026.com', 'fotos.lucafchala.com']) {
-      expect(rotaDoDominioDeAlbum(new URL(`https://${host}/`), '/')).toBeNull();
+      expect(await rotaDoDominioDeAlbum(new URL(`https://${host}/`), '/', envCom())).toBeNull();
+    }
+  });
+
+  it('sem o projeto, ou com ele oculto, a raiz mostra "em breve" (200, noindex), não um 404', async () => {
+    for (const eventos of [[], [{ ...ALBUM[0], visible: false }]]) {
+      // Isolate frio: getEvents tem cache de módulo, e o teste anterior
+      // serviria a lista dele (com o projeto) no lugar desta.
+      vi.resetModules();
+      const { default: frio } = await import('../src/index.js');
+      const res = await frio.fetch(new Request('https://entrenos2026.com/'), envCom(eventos), ctx);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Robots-Tag')).toBe('noindex');
+      const h = await res.text();
+      expect(h).toContain('<h1>Entre Nós</h1>');
+      expect(h).toContain('Turma 2026');
+      expect(h).not.toContain('<script');
     }
   });
 });

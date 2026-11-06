@@ -45,15 +45,19 @@ export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
 //   - www. vai para o domínio sem www. (301);
 //   - o painel volta para o domínio principal, onde mora a sessão;
 //   - o resto responde igual (mesma origem para formulários e downloads).
-// Chave = domínio sem www., valor = slug do projeto no painel.
+// Enquanto o projeto não existe (ou está oculto), a raiz mostra uma página
+// "em breve" com `titulo` e `linha`, em vez de levar a um 404.
+// Chave = domínio sem www.; `slug` = o do projeto no painel.
 // ⚠️ O Turnstile só vale nos domínios cadastrados no widget: adicione o
 // domínio lá também, ou todo formulário desta origem é recusado.
 // Texto de abertura do índice da galeria por capítulos (campo do projeto
 // `galeriaAbertura`): parágrafos separados por linha em branco, sem marcação.
 export const GALERIA_ABERTURA_MAX = 2000;
 
-/** @type {Readonly<Record<string, string>>} */
-export const DOMINIOS_DE_ALBUM = Object.freeze({ 'entrenos2026.com': 'entrenos2026' });
+/** @type {Readonly<Record<string, { slug: string, titulo: string, linha: string }>>} */
+export const DOMINIOS_DE_ALBUM = Object.freeze({
+  'entrenos2026.com': Object.freeze({ slug: 'entrenos2026', titulo: 'Entre Nós', linha: 'Turma 2026' }),
+});
 
 // Rate limit por IP do portão do Drive — balde de fichas (RateLimiter.take).
 // Dimensionado para o caso real de pico: o público de um evento abrindo o
