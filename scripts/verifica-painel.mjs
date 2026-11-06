@@ -35,6 +35,7 @@
 import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
+import jsQR from 'jsqr';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
@@ -1147,6 +1148,92 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await print(page, `${id}-pedidos-galeria-resolvidos`);
       // (O e-mail de "atendido" não é conferido aqui: este worker local não tem chave do Resend; o teste unitário cobre.)
       registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: Pedidos da galeria sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    } finally {
+      await ctx.close();
+      await w.fecha();
+    }
+  });
+}
+
+// ---- QR code do projeto (item k, #251) --------------------------------------
+// O servidor devolve a matriz; o navegador desenha o PNG e monta o SVG. Aqui
+// baixa-se os dois arquivos de verdade e decodifica-se com o jsqr: o QR tem de
+// levar ao link certo, com o título embaixo e sem erro de JS nem de CSP.
+for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
+  ['iPhone 390@3', { width: 390, height: 844 }, 3, true],
+  ['Computador 1440@1', { width: 1440, height: 900 }, 1, false],
+])) {
+  await cenario(`QR code, ${rotulo}`, async () => {
+    const { w, ctx, page, estado } = await abre(viewport, dpr, toque);
+    try {
+      const card = page.locator('#evt-ev1');
+      await aciona(card.locator('[data-action="menu"]'), toque);
+      await aciona(card.locator('.menu [data-action="qr"]'), toque);
+      await page.waitForSelector('#qr-tela:not([hidden])', { timeout: 15000 });
+      const url = (await page.locator('#qr-url').innerText()).trim();
+      registra(/\/galeria\/formatura-medicina-2026$/.test(url), `${rotulo}: o QR do projeto com capítulos leva ao índice da galeria`, url);
+      if (toque) {
+        const pequenos = await alvosPequenos(page, '.qr-sheet');
+        registra(pequenos.length === 0, `${rotulo}: os botões do QR têm 44 px`, pequenos);
+      }
+      registra(await page.locator('#qr-png').isEnabled() && await page.locator('#qr-svg').isEnabled(), `${rotulo}: Baixar PNG e Baixar SVG ficam ativos`);
+
+      // PNG: baixa, desenha num canvas na própria página e decodifica no Node.
+      const [dlPng] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-png'), toque)]);
+      const caminhoPng = await dlPng.path();
+      const bytesPng = readFileSync(caminhoPng);
+      const pxPng = await page.evaluate(async b64 => {
+        const img = new window.Image();
+        img.src = 'data:image/png;base64,' + b64;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+        g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, data: Array.from(d.data) };
+      }, bytesPng.toString('base64'));
+      const lidoPng = jsQR(new Uint8ClampedArray(pxPng.data), pxPng.w, pxPng.h);
+      registra(dlPng.suggestedFilename() === 'qr-formatura-medicina-2026.png' && pxPng.w >= 1000 && !!lidoPng && lidoPng.data === url,
+        `${rotulo}: o PNG baixado é grande e decodifica para o link`, { nome: dlPng.suggestedFilename(), w: pxPng.w, h: pxPng.h, lido: lidoPng && lidoPng.data });
+
+      // SVG: baixa, rasteriza na página e decodifica; o título vem embaixo.
+      const [dlSvg] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-svg'), toque)]);
+      const texto = readFileSync(await dlSvg.path(), 'utf8');
+      const pxSvg = await page.evaluate(async svg => {
+        const img = new window.Image();
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = 800;
+        c.height = Math.round(800 * img.naturalHeight / img.naturalWidth);
+        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+        g.drawImage(img, 0, 0, c.width, c.height);
+        const d = g.getImageData(0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, data: Array.from(d.data) };
+      }, texto);
+      const lidoSvg = jsQR(new Uint8ClampedArray(pxSvg.data), pxSvg.w, pxSvg.h);
+      registra(dlSvg.suggestedFilename() === 'qr-formatura-medicina-2026.svg' && texto.includes('Formatura Medicina 2026') && !!lidoSvg && lidoSvg.data === url,
+        `${rotulo}: o SVG baixado tem o título embaixo e decodifica para o link`, { nome: dlSvg.suggestedFilename(), lido: lidoSvg && lidoSvg.data });
+
+      // Seletor de capítulo: só aparece se a lista de capítulos veio (o Drive
+      // deste worker local pode não responder); se vier, trocar leva ao capítulo.
+      if (await page.locator('#qr-seletor').isVisible()) {
+        const opcoes = await page.locator('#qr-alvo option').count();
+        if (opcoes > 1) {
+          await page.selectOption('#qr-alvo', { index: 1 });
+          await page.waitForFunction(() => /\/galeria\/[^/]+\/[^/]+$/.test((document.getElementById('qr-url') || {}).textContent || ''), null, { timeout: 15000 });
+          registra(true, `${rotulo}: escolher um capítulo troca o QR para o link dele`, await page.locator('#qr-url').innerText());
+        }
+      }
+
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.qr-sheet', { state: 'detached', timeout: 3000 });
+      const foco = await page.evaluate(() => !!document.activeElement && document.activeElement.getAttribute('data-action'));
+      const livre = await page.evaluate(() => !(document.getElementById('app') || {}).inert);
+      registra(livre && foco === 'menu', `${rotulo}: Esc fecha o QR, destrava o painel e devolve o foco ao botão "⋯"`, { foco, livre });
+      registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: QR sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
     } finally {
       await ctx.close();
       await w.fecha();

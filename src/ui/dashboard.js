@@ -147,6 +147,7 @@ export const ICONES = {
   ocultar: svg('<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>'),
   mostrar: svg('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
   abrir: svg('<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'),
+  qr: svg('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h1"/>'),
   duplicar: svg('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>'),
   excluir: svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>'),
 };
@@ -233,6 +234,7 @@ export function cardProjetoPainel(e, h, marcado) {
     + itemMenu + '"pin">' + h.icones.destaque + '<span>' + (e.pinned ? 'Remover destaque' : 'Destacar na galeria') + '</span></button>'
     + itemMenu + '"vis">' + (visivel ? h.icones.ocultar : h.icones.mostrar) + '<span>' + (visivel ? 'Ocultar da galeria' : 'Mostrar na galeria') + '</span></button>'
     + '<a class="menu-item" role="menuitem" href="/' + slug + '" target="_blank" rel="noopener">' + h.icones.abrir + '<span>Abrir a página do projeto</span></a>'
+    + itemMenu + '"qr">' + h.icones.qr + '<span>QR code da galeria…</span></button>'
     + itemMenu + '"dup">' + h.icones.duplicar + '<span>Duplicar</span></button>'
     + '<div class="menu-sep" role="separator"></div>'
     + '<button type="button" class="menu-item danger" role="menuitem" data-id="' + id + '" data-action="del">' + h.icones.excluir + '<span>Excluir…</span></button>'
@@ -696,6 +698,14 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     .views-cell .views-badge{position:relative;z-index:1}
     /* export buttons group */
     .export-grid{display:flex;flex-wrap:wrap;gap:.5rem}
+    /* QR code do projeto (#251) */
+    .qr-sheet{max-width:440px}
+    .qr-sheet .confirm-body{padding-bottom:.75rem}
+    .qr-seletor{display:block;font-size:.78rem;color:var(--text2);margin:.75rem 0}
+    .qr-seletor select{display:block;width:100%;margin-top:.35rem;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:.7rem .875rem;border-radius:8px;font-size:.875rem}
+    .qr-tela{display:block;margin:.75rem auto;max-width:100%;height:auto;background:#fff;border-radius:8px}
+    .qr-url{font-size:.75rem;color:var(--text3);overflow-wrap:anywhere;text-align:center}
+    .qr-sheet .confirm-foot{flex-wrap:wrap}
     /* confirm dialog */
     .confirm-sheet{background:var(--bg);width:100%;max-width:400px;border-radius:14px;border:1px solid var(--border);overflow:hidden;margin:0 1rem}
     .confirm-body{padding:1.5rem 1.5rem 1.25rem}
@@ -1441,10 +1451,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (!btn) return;
       const { action, id } = btn.dataset;
       if (action === 'menu') { alternaMenu(btn); return; }
+      // O foco volta ao "⋯" que abriu o menu (o item clicado some com ele).
+      const abridor = menuAberto ? menuAberto.botao : null;
       fechaMenus();
       if (action === 'edit') openForm(id);
       else if (action === 'dup') duplicateEvent(id);
       else if (action === 'del') deleteEvent(id);
+      else if (action === 'qr') abreQr(id, abridor);
       else if (action === 'pin') togglePin(id);
       else if (action === 'vis') toggleVisible(id);
     });
@@ -2325,6 +2338,181 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         document.addEventListener('keydown', onKey, true);
         setTimeout(() => (typeInput || okBtn).focus(), 30);
       });
+    }
+
+    // ---- QR code do projeto (#251) ----
+    // A matriz vem do servidor (GET /api/qr, src/qr.js); aqui só se desenha e
+    // se baixa — PNG em alta resolução (canvas) e SVG (vetorial), os dois com o
+    // título embaixo. O leitor tem de receber a margem de 4 módulos: ela está
+    // dentro da imagem (wm = n + 8).
+    function quebraTituloQr(texto, maxChars) {
+      const linhas = [];
+      let atual = '';
+      String(texto).split(' ').forEach(function(p) {
+        if (atual && (atual + ' ' + p).length > maxChars) { linhas.push(atual); atual = p; }
+        else atual = atual ? atual + ' ' + p : p;
+      });
+      if (atual) linhas.push(atual);
+      return linhas;
+    }
+    function geometriaQr(qr, titulo) {
+      const wm = qr.n + 8;
+      const fs = wm / 20;
+      const linhas = quebraTituloQr(titulo, Math.floor(wm * 0.92 / (fs * 0.55)));
+      return { wm: wm, fs: fs, linhas: linhas, hm: wm + fs * 0.4 + fs * 1.3 * linhas.length + fs * 0.4 };
+    }
+    function baselineQr(g, i) { return g.wm + g.fs * 0.4 + g.fs * (0.95 + 1.3 * i); }
+    function desenhaQr(canvas, qr, titulo, alvoPx) {
+      const g = geometriaQr(qr, titulo);
+      const s = Math.max(2, Math.floor(alvoPx / g.wm));
+      canvas.width = g.wm * s;
+      canvas.height = Math.ceil(g.hm * s);
+      const c = canvas.getContext('2d');
+      c.fillStyle = '#fff';
+      c.fillRect(0, 0, canvas.width, canvas.height);
+      c.fillStyle = '#000';
+      qr.linhas.forEach(function(linha, y) {
+        for (let x = 0; x < linha.length; x++) if (linha.charAt(x) === '1') c.fillRect((x + 4) * s, (y + 4) * s, s, s);
+      });
+      c.textAlign = 'center';
+      c.textBaseline = 'alphabetic';
+      g.linhas.forEach(function(t, i) {
+        let px = g.fs * s;
+        c.font = '600 ' + px + 'px Arial, Helvetica, sans-serif';
+        const larg = c.measureText(t).width;
+        if (larg > canvas.width * 0.94) { px = px * canvas.width * 0.94 / larg; c.font = '600 ' + px + 'px Arial, Helvetica, sans-serif'; }
+        c.fillText(t, canvas.width / 2, baselineQr(g, i) * s);
+      });
+    }
+    function svgDoQr(qr, titulo) {
+      const g = geometriaQr(qr, titulo);
+      let d = '';
+      qr.linhas.forEach(function(linha, y) {
+        let x = 0;
+        while (x < linha.length) {
+          if (linha.charAt(x) === '1') {
+            let f = x;
+            while (f < linha.length && linha.charAt(f) === '1') f++;
+            d += 'M' + (x + 4) + ' ' + (y + 4) + 'h' + (f - x) + 'v1h-' + (f - x) + 'z';
+            x = f;
+          } else x++;
+        }
+      });
+      const hm = Math.ceil(g.hm * 100) / 100;
+      const textos = g.linhas.map(function(t, i) {
+        return '<text x="' + (g.wm / 2) + '" y="' + baselineQr(g, i).toFixed(2) + '" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="600" font-size="' + g.fs.toFixed(3) + '" fill="#000">' + esc(t) + '</text>';
+      }).join('');
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + g.wm + ' ' + hm + '" width="' + (g.wm * 20) + '" height="' + Math.ceil(hm * 20) + '">'
+        + '<title>' + esc(titulo) + '</title><rect width="100%" height="100%" fill="#fff"/>'
+        + '<path d="' + d + '" fill="#000" shape-rendering="crispEdges"/>' + textos + '</svg>';
+    }
+    function baixaArquivoQr(blob, nome) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function() { URL.revokeObjectURL(a.href); }, 4000);
+    }
+    async function abreQr(id, abridor) {
+      const ev = events.find(function(x) { return x.id === id; });
+      if (!ev) return;
+      const prev = abridor || document.activeElement;
+      const overlay = document.createElement('div');
+      overlay.className = 'overlay open';
+      overlay.style.alignItems = 'center';
+      overlay.innerHTML =
+        '<div class="confirm-sheet qr-sheet" role="dialog" aria-modal="true" aria-labelledby="qr-titulo">' +
+          '<div class="confirm-body">' +
+            '<h3 id="qr-titulo">QR code — ' + esc(ev.title || ev.slug) + '</h3>' +
+            '<p id="qr-aviso" role="status" aria-live="polite">Carregando...</p>' +
+            '<label class="qr-seletor" id="qr-seletor" hidden>Qual link<select id="qr-alvo"></select></label>' +
+            '<canvas class="qr-tela" id="qr-tela" hidden role="img" aria-label="QR code"></canvas>' +
+            '<div class="qr-url" id="qr-url"></div>' +
+          '</div>' +
+          '<div class="confirm-foot">' +
+            '<button type="button" class="confirm-cancel" id="qr-fechar">Fechar</button>' +
+            '<button type="button" class="confirm-cancel" id="qr-svg" disabled>Baixar SVG</button>' +
+            '<button type="button" class="confirm-ok" id="qr-png" disabled>Baixar PNG</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      const atras = [document.getElementById('app'), document.getElementById('overlay')];
+      const eraInerte = atras.map(function(el) { return !!el && el.inert; });
+      atras.forEach(function(el) { if (el) el.inert = true; });
+      const q = function(sel) { return overlay.querySelector(sel); };
+      let atual = null;
+      let capAtual = '';
+      function fecha() {
+        document.removeEventListener('keydown', onKey, true);
+        atras.forEach(function(el, i) { if (el) el.inert = eraInerte[i]; });
+        overlay.remove();
+        if (prev && typeof prev.focus === 'function') { try { prev.focus(); } catch (e) {} }
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); fecha(); }
+        else if (e.key === 'Tab') {
+          const f = Array.prototype.filter.call(overlay.querySelectorAll('select, button'), function(el) { return !el.disabled && !el.hidden && !(el.closest('[hidden]')); });
+          if (!f.length) return;
+          const idx = f.indexOf(document.activeElement);
+          e.preventDefault();
+          f[e.shiftKey ? (idx <= 0 ? f.length - 1 : idx - 1) : (idx === f.length - 1 ? 0 : idx + 1)].focus();
+        }
+      }
+      document.addEventListener('keydown', onKey, true);
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) fecha(); });
+      q('#qr-fechar').addEventListener('click', fecha);
+      q('#qr-png').addEventListener('click', function() {
+        if (!atual) return;
+        const tela = document.createElement('canvas');
+        desenhaQr(tela, atual, atual.titulo, 1800);
+        tela.toBlob(function(blob) { if (blob) baixaArquivoQr(blob, 'qr-' + ev.slug + (capAtual ? '-' + capAtual : '') + '.png'); }, 'image/png');
+      });
+      q('#qr-svg').addEventListener('click', function() {
+        if (!atual) return;
+        baixaArquivoQr(new Blob([svgDoQr(atual, atual.titulo)], { type: 'image/svg+xml' }), 'qr-' + ev.slug + (capAtual ? '-' + capAtual : '') + '.svg');
+      });
+      async function carrega(cap) {
+        q('#qr-png').disabled = true;
+        q('#qr-svg').disabled = true;
+        try {
+          const r = await api('GET', '/api/qr?slug=' + encodeURIComponent(ev.slug) + (cap ? '&cap=' + encodeURIComponent(cap) : ''));
+          atual = r;
+          capAtual = cap;
+          const tela = q('#qr-tela');
+          tela.hidden = false;
+          desenhaQr(tela, r, r.titulo, 320);
+          tela.style.width = Math.min(tela.width, 320) + 'px';
+          tela.setAttribute('aria-label', 'QR code de ' + r.titulo);
+          q('#qr-url').textContent = r.url;
+          q('#qr-aviso').textContent = r.destino === 'projeto' ? 'Este projeto ainda não tem pasta do Drive: o QR leva à página do projeto.'
+            : r.destino === 'indice' ? 'O QR leva ao índice de eventos do projeto.' : r.destino === 'capitulo' ? 'O QR leva direto a este evento.' : 'O QR leva à galeria do projeto.';
+          q('#qr-png').disabled = false;
+          q('#qr-svg').disabled = false;
+          return r;
+        } catch (err) {
+          q('#qr-aviso').textContent = 'Não foi possível gerar o QR code: ' + err.message;
+          return null;
+        }
+      }
+      const r0 = await carrega('');
+      if (r0 && r0.capitulos && r0.capitulos.length) {
+        const sel = q('#qr-alvo');
+        const base = document.createElement('option');
+        base.value = '';
+        base.textContent = 'Índice de todos os eventos';
+        sel.appendChild(base);
+        r0.capitulos.forEach(function(c) {
+          const o = document.createElement('option');
+          o.value = c.slug;
+          o.textContent = c.nome;
+          sel.appendChild(o);
+        });
+        q('#qr-seletor').hidden = false;
+        sel.addEventListener('change', function() { carrega(sel.value); });
+      }
+      setTimeout(function() { (q('#qr-png').disabled ? q('#qr-fechar') : q('#qr-png')).focus(); }, 30);
     }
 
     // ---- Row action helpers ----

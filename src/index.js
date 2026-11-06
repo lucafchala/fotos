@@ -17,6 +17,7 @@ import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
+import { qrLinhas } from './qr.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -311,6 +312,7 @@ const worker = {
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
+      if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
       if (path === '/api/categories' && method === 'POST') return await handleCreateCategory(request, env);
@@ -1617,6 +1619,54 @@ export async function handleGaleriaApagadas(request, env, url) {
   const events = await getEvents(env, true);
   if (!events.some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
   return jsonOk({ slug, retencaoDias: SUMIRAM_RETENCAO_DIAS, fotos: await listaApagadas(env, slug) });
+}
+
+// ---------------------------------------------------------------------------
+// API: QR code do projeto (v3.1, #251)
+// ---------------------------------------------------------------------------
+// O link público da galeria do projeto (o ÍNDICE de eventos quando a galeria é
+// por capítulos) ou o de um capítulo, já como matriz de módulos (src/qr.js): o
+// navegador do dono só desenha e baixa PNG/SVG. Sem `cap`, devolve também a
+// lista de capítulos (nome e slug) para o seletor — uma leitura do índice, que
+// já vem do cache. Projeto sem pasta do Drive não tem galeria: o QR leva à
+// página do projeto.
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleQr(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const slug = String(url.searchParams.get('slug') || '');
+  const capSlug = String(url.searchParams.get('cap') || '');
+  const events = await getEvents(env, true);
+  const event = events.find(e => e.slug === slug);
+  if (!event) return jsonErr('Projeto não encontrado.', 404);
+  const titulo = String(event.title || slug);
+  const temGaleria = !!pastaDoDrive(event.driveUrl);
+  /** @type {{ slug: string, nome: string }[]} */
+  let capitulos = [];
+  let nomeCap = '';
+  if (temGaleria && event.galeriaCapitulos) {
+    const alvo = await alvoDaGaleria(env, event, capSlug, false, undefined);
+    if (alvo.kind === 'nao') return jsonErr('Capítulo não encontrado.', 404);
+    if (alvo.kind === 'ok' && alvo.caps) {
+      if (!capSlug) capitulos = alvo.caps.caps.map(c => ({ slug: c.slug, nome: c.nome }));
+      else if (alvo.capitulo) nomeCap = alvo.capitulo.nome;
+    }
+    // Drive fora do ar: o QR do índice continua valendo, só sem a lista.
+  } else if (capSlug) {
+    return jsonErr('Este projeto não tem galeria por capítulos.', 404);
+  }
+  const caminho = !temGaleria ? `/${slug}` : capSlug ? `/galeria/${slug}/${capSlug}` : `/galeria/${slug}`;
+  const alvoUrl = SITE_URL + caminho;
+  const qr = qrLinhas(alvoUrl);
+  return jsonOk({
+    slug, url: alvoUrl, titulo: nomeCap ? `${titulo} · ${nomeCap}` : titulo,
+    destino: !temGaleria ? 'projeto' : capSlug ? 'capitulo' : event.galeriaCapitulos ? 'indice' : 'galeria',
+    n: qr.n, linhas: qr.linhas, capitulos,
+  });
 }
 
 // ---------------------------------------------------------------------------
