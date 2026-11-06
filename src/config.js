@@ -168,6 +168,18 @@ export const SUMIRAM_CONFERIR_MAX = 10;
 // Dias que o painel guarda "Fotos apagadas recentemente" (id, nome, autor,
 // capítulo, seção e data de captura; sem e-mail nem dado de visitante).
 export const SUMIRAM_RETENCAO_DIAS = 30;
+
+// "Fotos novas desde a sua última visita" (v3.1, #250). O Drive diz quando cada
+// arquivo chegou (`createdTime`); a lista leva esse instante, em minutos desde
+// EPOCA_CRIADA_MS, só para o que chegou nos últimos NOVAS_JANELA_DIAS dias (quem
+// volta depois disso vê tudo como "antigo": a lista não engorda com o acervo).
+// O instante da última visita fica só no localStorage do visitante.
+export const NOVAS_JANELA_DIAS = 90;
+export const EPOCA_CRIADA_MS = Date.UTC(2025, 0, 1);
+// Visita nova = mais de NOVAS_SESSAO_MIN minutos desde a anterior; dentro disso é a mesma sessão.
+export const NOVAS_SESSAO_MIN = 30;
+// Quantos instantes recentes o resumo do índice guarda por capítulo (os mais novos).
+export const NOVAS_RESUMO_MAX = 100;
 // Cópias a autores por releitura (cada uma é um envio + uma ficha de teto, e
 // as duas contam na conta de 50 subrequisições da invocação).
 export const SUMIRAM_COPIAS_MAX = 3;

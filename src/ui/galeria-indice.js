@@ -1,12 +1,13 @@
 // Índice da galeria por capítulos (v3.1): um cartão por subpasta de primeiro
-// nível da pasta do projeto. Página só de servidor — sem script, então nada de
-// JS do navegador aqui. O cartão leva a capa e a contagem do RESUMO guardado
+// nível da pasta do projeto. Página de servidor; o único JS do navegador é o
+// pequeno script das "N novas" (#250, SCRIPT_NOVAS, com nonce). O cartão leva a capa e a contagem do RESUMO guardado
 // no cache (drive.js, registraResumo): capítulo que ninguém abriu ainda fica com
 // um espaço reservado e o texto "Ver fotos" (ler a lista de cada capítulo só
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
 import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
+import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -18,9 +19,10 @@ const SITE_URL = 'https://fotos.lucafchala.com';
  *   ocultas: string[],
  *   dono: boolean,
  *   indexavel: boolean,
+ *   nonce?: string,
  * }} p
  */
-export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel }) {
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const base = `/galeria/${slug}`;
@@ -54,7 +56,10 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
       ? `<img src="${escape(urlLh3(capa, 480))}" alt="" width="480" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
       : '<span class="ix-vazio" aria-hidden="true"></span>';
     const sub = r ? (n === 0 ? 'vazio' : n === 1 ? '1 foto' : `${n} fotos`) : 'Ver fotos';
-    return `<li><a class="ix-card${vazio(c) ? ' ix-card-vazio' : ''}" href="${escape(href)}">${img}<span class="ix-nome">${escape(c.nome)}</span><span class="ix-sub">${escape(sub)}</span></a></li>`;
+    // Fotos novas (#250): os instantes recentes vão no cartão; quem decide o
+    // que é "novo" é o navegador, comparando com a última visita guardada lá.
+    const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
+    return `<li><a class="ix-card${vazio(c) ? ' ix-card-vazio' : ''}" href="${escape(href)}" data-cap="${escape(c.slug)}"${cr}>${img}<span class="ix-nome">${escape(c.nome)}</span><span class="ix-sub">${escape(sub)}</span></a></li>`;
   });
   const og = caps.caps.map(c => resumo[c.id]).find(r => r && r.capas.find(id => !ocultasSet.has(id)));
   const ogCapa = og ? og.capas.find(id => !ocultasSet.has(id)) : '';
@@ -113,6 +118,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     .ix-nome{padding:.6rem .75rem .1rem;font-size:.92rem;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
     .ix-sub{padding:0 .75rem .75rem;font-size:.78rem;color:var(--text-muted)}
     .ix-card-vazio{opacity:.65;border-style:dashed}
+    .ix-novas{display:inline-block;margin-left:.45rem;padding:.05rem .45rem;border:1px solid var(--accent);border-radius:999px;font-size:.7rem;color:var(--accent);white-space:nowrap}
     .ix-vazio-msg{padding:2rem var(--pad);color:var(--text-muted)}
   </style>
 </head>
@@ -127,6 +133,42 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   <main id="g-main" aria-label="Eventos">
     ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : `<p class="ix-vazio-msg">${dono && !caps.caps.length ? 'A pasta não tem subpastas: não há eventos para mostrar.' : 'As fotos estão chegando. Volte em breve.'}</p>`}
   </main>
+  ${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
 </body>
 </html>`;
 }
+
+/**
+ * Marca "N novas" nos cartões. A última visita a cada capítulo mora só no
+ * localStorage do visitante (gravada pela página do capítulo): nada disto vai
+ * ao servidor. Sem visita anterior não há o que comparar e nada é marcado.
+ * Fica fora de qualquer crase, `dollar-chave` e barra invertida: é JS de navegador
+ * dentro de um template literal.
+ * @param {string} slug
+ */
+const SCRIPT_NOVAS = slug => `(function () {
+  var SLUG = ${JSON.stringify(slug).replace(/</g, '\\u003c')};
+  var EPOCA = ${EPOCA_CRIADA_MS};
+  var SESSAO = ${NOVAS_SESSAO_MIN} * 60000;
+  var MAX = ${NOVAS_RESUMO_MAX};
+  var agora = Date.now();
+  var cartoes = document.querySelectorAll('a.ix-card[data-cr]');
+  for (var i = 0; i < cartoes.length; i++) {
+    var a = cartoes[i];
+    var ant = 0;
+    try {
+      var v = JSON.parse(localStorage.getItem('gal-visita:' + SLUG + ':' + a.getAttribute('data-cap')) || 'null');
+      if (v && typeof v.u === 'number') ant = agora - v.u > SESSAO ? v.u : (typeof v.p === 'number' ? v.p : 0);
+    } catch (e) { ant = 0; }
+    if (!ant) continue;
+    var cr = a.getAttribute('data-cr').split(',');
+    var n = 0;
+    for (var j = 0; j < cr.length; j++) if (EPOCA + Number(cr[j]) * 60000 > ant) n++;
+    if (!n) continue;
+    var s = document.createElement('span');
+    s.className = 'ix-novas';
+    s.textContent = (n >= MAX ? MAX + '+' : n) + (n === 1 ? ' nova' : ' novas');
+    var sub = a.querySelector('.ix-sub');
+    if (sub) sub.appendChild(s);
+  }
+})();`;

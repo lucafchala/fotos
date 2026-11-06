@@ -23,6 +23,7 @@ import {
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
   GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
+  NOVAS_JANELA_DIAS, EPOCA_CRIADA_MS, NOVAS_RESUMO_MAX,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -30,7 +31,7 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
 // `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis))';
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime)';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
@@ -56,7 +57,10 @@ const NOME_MAX = 255;
  *  - LISTA [id, nome, bytes]: a foto é um Live Photo e esse é o vídeo dele (o
  *    .MOV/.MP4 de mesmo nome na mesma pasta). O vídeo NÃO é um item à parte:
  *    some e aparece só como "Baixar vídeo do Live Photo".
- * @typedef {[string, number, number, string, number, number?, number?, (number | [string, string, number])?]} FotoDrive
+ * `criada` (item j, #250, índice 8): minutos desde 2025-01-01 (UTC) em que o
+ * arquivo chegou à pasta (`createdTime`) — só para o que chegou nos últimos
+ * NOVAS_JANELA_DIAS dias; o resto não leva, e a lista não engorda.
+ * @typedef {[string, number, number, string, number, number?, number?, (number | [string, string, number] | null)?, number?]} FotoDrive
  */
 /**
  * @typedef {{ nome: string, caminho: string, fotos: FotoDrive[] }} SecaoDrive
@@ -702,7 +706,7 @@ function pareiaLive(secoes) {
     for (const f of secao.fotos) {
       if (typeof f[7] === 'number' && f[7] <= LIVE_DURACAO_MAX_S) {
         const par = fotos.get(`${f[5] || 0}\u0001${chaveDeNome(f[3])}`);
-        if (par && par[7] === undefined) {
+        if (par && par[7] == null) {
           par[5] = par[5] || 0;
           par[6] = par[6] || 0;
           par[7] = [f[0], f[3], f[4]];
@@ -753,7 +757,9 @@ function fotoCompacta(f, autor) {
   /** @type {FotoDrive} */
   const foto = [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
   const hora = horaDaFoto(meta.time);
-  if (autor || hora) { foto[5] = autor; if (hora) foto[6] = hora; }
+  const criada = criadaEmMin(f.createdTime);
+  if (autor || hora || criada) { foto[5] = autor; if (hora) foto[6] = hora; }
+  if (criada) { foto[6] = foto[6] || 0; foto[7] = null; foto[8] = criada; }
   return foto;
 }
 
@@ -773,7 +779,25 @@ function videoCompacto(f, autor) {
   const ms = Number(meta.durationMillis);
   const dur = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
   const bytes = Number.parseInt(String(f.size || '0'), 10);
-  return [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0, autor, 0, dur];
+  /** @type {FotoDrive} */
+  const video = [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0, autor, 0, dur];
+  const criada = criadaEmMin(f.createdTime);
+  if (criada) video[8] = criada;
+  return video;
+}
+
+/**
+ * `createdTime` do Drive → minutos desde EPOCA_CRIADA_MS, ou 0 quando falta,
+ * é inválido ou é mais velho que a janela das "fotos novas" (nunca será nova
+ * para quem volta dentro da janela).
+ * @param {unknown} t
+ */
+export function criadaEmMin(t) {
+  const ms = typeof t === 'string' ? Date.parse(t) : NaN;
+  if (!Number.isFinite(ms)) return 0;
+  if (Date.now() - ms > NOVAS_JANELA_DIAS * 86_400_000) return 0;
+  const m = Math.floor((ms - EPOCA_CRIADA_MS) / 60_000);
+  return m > 0 ? m : 0;
 }
 
 /**
@@ -1391,7 +1415,7 @@ export function achaCapitulo(dados, slug) {
 // um por projeto, na Cache API (nunca KV). Cada capítulo aberto atualiza o seu
 // pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
 // um espaço reservado.
-/** @typedef {{ n: number, capas: string[] }} ResumoCap */
+/** @typedef {{ n: number, capas: string[], cr?: number[] }} ResumoCap  `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX */
 const RESUMO_MEM_MS = 6 * 3600 * 1000;
 /** @type {Map<string, { em: number, mapa: Record<string, ResumoCap> }>} */
 const memoriaResumo = new Map();
@@ -1438,9 +1462,13 @@ export async function registraResumo(raizId, capId, listagem) {
   }
   /** @type {ResumoCap} */
   const novo = { n: listagem.total, capas };
+  /** @type {number[]} */
+  const cr = [];
+  for (const sec of listagem.secoes) for (const f of sec.fotos) if (f[8]) cr.push(f[8]);
+  if (cr.length) novo.cr = cr.sort((a, b) => b - a).slice(0, NOVAS_RESUMO_MAX);
   const mapa = { ...(await lerResumo(raizId)) };
   const velho = mapa[capId];
-  if (velho && velho.n === novo.n && velho.capas.join() === capas.join()) return;
+  if (velho && velho.n === novo.n && velho.capas.join() === capas.join() && (velho.cr || []).join() === (novo.cr || []).join()) return;
   mapa[capId] = novo;
   memoriaResumo.set(raizId, { em: Date.now(), mapa });
   const store = cacheStore();

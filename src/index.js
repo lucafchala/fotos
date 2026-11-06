@@ -3931,7 +3931,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const resumo = await lerResumo(alvo.raiz.id);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel });
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {

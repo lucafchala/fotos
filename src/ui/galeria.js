@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
@@ -302,17 +302,20 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     const r = redes.get(f[0]);
     const autor = f[5] || 0;
     const extra = f[7];
-    const temExtra = extra !== undefined;
+    const temExtra = extra != null;
+    // Item j (#250): minutos desde cr0 em que a foto chegou à pasta (só as recentes).
+    const criada = f[8] || 0;
     if (r) comRedes++;
     const cauda = nomes ? nomes.cauda[f[0]] || '' : '';
-    if (!r && !autor && !cauda && !temExtra) return f.slice(0, 5);
+    if (!r && !autor && !cauda && !temExtra && !criada) return f.slice(0, 5);
     const nomeRedes = r && r[3] !== f[3] ? r[3] : '';
     /** @type {any[]} */
     const out = [...f.slice(0, 5), r ? r[4] : -1];
-    if (nomeRedes || autor || cauda || temExtra) out.push(nomeRedes);
-    if (autor || cauda || temExtra) out.push(autor);
-    if (cauda || temExtra) out.push(cauda);
-    if (temExtra) out.push(extra);
+    if (nomeRedes || autor || cauda || temExtra || criada) out.push(nomeRedes);
+    if (autor || cauda || temExtra || criada) out.push(autor);
+    if (cauda || temExtra || criada) out.push(cauda);
+    if (temExtra || criada) out.push(temExtra ? extra : null);
+    if (criada) out.push(criada);
     return out;
   };
 
@@ -324,6 +327,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     autores,
     // Prefixo do nome do arquivo de cada seção (na ordem de `secoes`).
     amigavel: nomes && listagemBruta ? listagem.secoes.map(sec => nomes.pre[listagemBruta.secoes.findIndex(b => b.caminho === sec.caminho)] || '') : null,
+    // Fotos novas (#250): a origem dos minutos de f[10] e a duração da sessão.
+    cr0: EPOCA_CRIADA_MS,
+    sessao: NOVAS_SESSAO_MIN,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
     // "Pelo Google Drive" da folha "Baixar tudo": a pasta DESTA página (o
@@ -476,6 +482,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     /* Item 1f: vídeo (play + duração) e Live Photo (LIVE) no canto de baixo à
        direita; miniatura que não carregou (HEIC/RAW sem prévia, vídeo ainda
        processando) vira um bloco com a extensão. */
+    .g-t .g-nova{position:absolute;left:6px;top:6px;padding:.1rem .4rem;border-radius:4px;background:var(--accent);color:var(--accent-text);font-size:.62rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;pointer-events:none}
+    .g-t.oculta .g-nova,.g-t.pendente .g-nova{display:none}
     .g-t .g-play,.g-t .g-live{position:absolute;right:6px;bottom:6px;display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .5rem;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font-size:.72rem;font-weight:600;font-variant-numeric:tabular-nums;pointer-events:none}
     .g-t .g-live{font-size:.62rem;font-weight:700;letter-spacing:.12em}
     .g-t .g-play::before{content:"";border-left:7px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
@@ -739,7 +747,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
@@ -771,9 +779,28 @@ const SCRIPT = `
   }
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, cauda: string, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string, video: boolean, dur: number, live: { id: string, nome: string, bytes: number } | null }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, cauda: string, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string, video: boolean, dur: number, live: { id: string, nome: string, bytes: number } | null, nova: boolean }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
+  // ---- Fotos novas desde a última visita (#250) ----
+  // O instante da visita anterior fica só neste aparelho (localStorage, por
+  // projeto e capítulo): nada vai ao servidor. Visita nova = mais de D.sessao
+  // minutos desde a anterior, para recarregar a página não apagar as marcas.
+  // Primeira visita: não há com o que comparar, então nada é marcado.
+  const CHAVE_VISITA = 'gal-visita:' + D.slug + ':' + (D.cap || '');
+  let visitaAnt = 0;
+  (function () {
+    const agora = Date.now();
+    let p = 0;
+    let u = 0;
+    try {
+      const v = JSON.parse(localStorage.getItem(CHAVE_VISITA) || 'null');
+      if (v && typeof v.u === 'number') { u = v.u; p = typeof v.p === 'number' ? v.p : 0; }
+    } catch (e) { /* sem armazenamento: sem marcas */ }
+    if (u && agora - u > D.sessao * 60000) p = u;
+    visitaAnt = p;
+    try { localStorage.setItem(CHAVE_VISITA, JSON.stringify({ p: p, u: agora })); } catch (e) { /* idem */ }
+  })();
   let rw = '';
   const lh3 = function (id, w) { return 'https://lh3.googleusercontent.com/d/' + id + '=w' + Math.round(w) + rw; };
   const semExt = function (n) { return String(n || '').replace(/[.][^.]+$/, ''); };
@@ -852,12 +879,13 @@ const SCRIPT = `
         const extra = f[9];
         const ehVid = typeof extra === 'number';
         const live = Array.isArray(extra) ? { id: extra[0], nome: extra[1], bytes: extra[2] } : null;
+        const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
         const a = document.createElement('a');
-        a.className = 'g-t' + (ehVid ? ' g-video' : '');
+        a.className = 'g-t' + (ehVid ? ' g-video' : '') + (nova ? ' nova' : '');
         a.href = '#foto=' + f[0];
         a.dataset.i = String(i);
         a.dataset.ext = extDoNome(f[3]).toUpperCase();
-        a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]));
+        a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]) + (nova ? ', nova' : ''));
         const img = document.createElement('img');
         img.alt = altDe(i, ehVid);
         img.decoding = 'async';
@@ -881,6 +909,13 @@ const SCRIPT = `
           sel.textContent = ehVid ? (extra > 0 ? fmtDur(extra) : '') : 'LIVE';
           a.appendChild(sel);
         }
+        if (nova) {
+          const nv = document.createElement('span');
+          nv.className = 'g-nova';
+          nv.setAttribute('aria-hidden', 'true');
+          nv.textContent = 'nova';
+          a.appendChild(nv);
+        }
         if (D.dono) {
           const oc = document.createElement('span');
           oc.className = 'g-oc';
@@ -888,7 +923,7 @@ const SCRIPT = `
           a.appendChild(oc);
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova };
         if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
         img.addEventListener('error', function () { img.classList.add('ok'); a.classList.add('sem-mini'); });
@@ -1017,6 +1052,7 @@ const SCRIPT = `
   const fav = leLista(CHAVE_FAV);
   let modoSel = false;
   let filtroFav = false;
+  let filtroNovas = false;
   // Seleção que chegou por link (#sel=id.id.id, #213): a galeria abre só com
   // essas fotos. Vive no fragmento — não vai ao servidor nem é gravada.
   /** @type {Set<string> | null} */
@@ -1043,7 +1079,7 @@ const SCRIPT = `
   function filtroAtivo() {
     const a = filtroAutor;
     const l = filtroLink;
-    const base = l ? function (f) { return l.has(f.id); } : filtroFav ? function (f) { return fav.has(f.id); } : null;
+    const base = l ? function (f) { return l.has(f.id); } : (filtroFav || filtroNovas) ? function (f) { return (!filtroFav || fav.has(f.id)) && (!filtroNovas || f.nova); } : null;
     if (a < 0) return base;
     return function (f) { return f.autor === a && (!base || base(f)); };
   }
@@ -1064,7 +1100,7 @@ const SCRIPT = `
     f.el.classList.toggle('fav', gosto);
     // O check e o coração são só visuais (aria-hidden): o leitor de tela ouve
     // o estado no nome.
-    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
+    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (f.nova ? ', nova' : '') + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
   }
   function atualizaBarra() {
     if (!barra || !barraN) return;
@@ -1206,6 +1242,20 @@ const SCRIPT = `
     }
   }
 
+  function ligaFiltroNovas(liga) {
+    const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-novas';
+    filtroNovas = liga;
+    recalculaVistas();
+    montaChips();
+    diagramaTudo();
+    atualizaBarra();
+    window.scrollTo(0, 0);
+    if (tinhaFoco) {
+      const alvo = chips ? chips.querySelector('[data-acao="filtro-novas"]') : null;
+      if (alvo) /** @type {HTMLElement} */ (alvo).focus({ preventScroll: true });
+    }
+  }
+
   function ligaFiltroFav(liga) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-fav';
     filtroFav = liga;
@@ -1281,7 +1331,7 @@ const SCRIPT = `
       medeTopo();
       return;
     }
-    if (D.secoes.length > 1 && !filtroFav) {
+    if (D.secoes.length > 1 && !filtroFav && !filtroNovas) {
       D.secoes.forEach(function (sec, k) {
         const b = botaoChip(sec.nome || 'Fotos', sec.fotos.length);
         b.dataset.acao = 'ir-sec';
@@ -1292,6 +1342,14 @@ const SCRIPT = `
       chipsSec[0].setAttribute('aria-current', 'true');
     }
     chipsAutores();
+    const nNovas = fotos.filter(function (f) { return f.nova; }).length;
+    if (nNovas) {
+      const bn = botaoChip('Só as novas', nNovas);
+      bn.dataset.acao = 'filtro-novas';
+      bn.setAttribute('aria-pressed', String(filtroNovas));
+      bn.title = 'Fotos que chegaram depois da sua última visita';
+      chips.appendChild(bn);
+    }
     chipFav = null;
     if (fav.size || filtroFav) {
       const b = botaoChip('Favoritas', fav.size);
@@ -2591,6 +2649,7 @@ const SCRIPT = `
     else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
+    else if (acao === 'filtro-novas') ligaFiltroNovas(!filtroNovas);
     else if (acao === 'filtro-autor') ligaFiltroAutor(Number(b.dataset.aut));
     else if (acao === 'compartilhar-fav') compartilhaFavoritas();
     else if (acao === 'sai-link') saiDoLink();

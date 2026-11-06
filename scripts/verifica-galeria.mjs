@@ -26,7 +26,7 @@ import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../src/config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, EPOCA_CRIADA_MS } from '../src/config.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -170,6 +170,18 @@ async function abre(o = {}) {
       Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
     });
+  }
+  if (o.semStorage) {
+    await page.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('bloqueado'); } }); });
+  }
+  if (o.storage) {
+    // localStorage semeado antes da página rodar (só na primeira carga da aba,
+    // para um recarregamento ver o que a própria página gravou).
+    await page.addInitScript(entradas => {
+      if (window.sessionStorage.getItem('__semeado')) return;
+      window.sessionStorage.setItem('__semeado', '1');
+      for (const [k, v] of entradas) localStorage.setItem(k, v);
+    }, Object.entries(o.storage));
   }
   if (o.compartilhar) {
     // Web Share de arquivos de mentira: guarda nome, tipo, tamanho e os bytes
@@ -1350,7 +1362,7 @@ const CAPS_IDX = {
 const RESUMO_IDX = { CAPABERTURA0001: { n: 1, capas: [raiz[0][0]] }, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]] }, CAPGALA00000001: { n: 120, capas: [raiz[2][0]] }, CAPVAZIO0000001: { n: 0, capas: [] } };
 for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360', { width: 360, height: 780 }, 2, false], ['visitante 390', { width: 390, height: 844 }, 3, false], ['dono 360', { width: 360, height: 780 }, 2, true]])) {
   await cenario(`Índice: ${nome}`, async () => {
-    const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo: RESUMO_IDX, ocultas: [], dono, indexavel: true });
+    const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo: RESUMO_IDX, ocultas: [], dono, indexavel: true, nonce: NONCE });
     const { ctx, page, estado } = await abre({ pagina, viewport, dpr, toque: true });
     await espera(page, 500);
     const m = await page.evaluate(() => {
@@ -1375,6 +1387,22 @@ for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360
     await ctx.close();
   });
 }
+
+// "N novas" nos cartões (item j, #250): a visita anterior ao capítulo está no
+// localStorage; só o cartão com foto mais nova que ela ganha a marca.
+await cenario('Índice: N novas desde a última visita', async () => {
+  const agora = Date.now();
+  const cr = (/** @type {number} */ atrasoMs) => Math.floor((agora - atrasoMs - EPOCA_CRIADA_MS) / 60_000);
+  const resumo = { ...RESUMO_IDX, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]], cr: [cr(3_600_000), cr(2 * 3_600_000), cr(10 * 3_600_000)] } };
+  const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo, ocultas: [], dono: false, indexavel: true, nonce: NONCE });
+  const visita = { p: 0, u: agora - 5 * 3_600_000 };
+  const { ctx, page, estado } = await abre({ pagina, viewport: { width: 390, height: 844 }, dpr: 2, toque: true, storage: { 'gal-visita:formatura:cerimonia': JSON.stringify(visita), 'gal-visita:formatura:abertura': JSON.stringify(visita) } });
+  await espera(page, 500);
+  const m = await page.evaluate(() => [...document.querySelectorAll('.ix-card')].map(c => ((c.querySelector('.ix-novas') || {}).textContent || '')));
+  registra(m[1] === '2 novas' && m[0] === '' && m[2] === '', 'Índice novas: só o capítulo com fotos depois da última visita ganha "2 novas" (a foto de 10 h atrás é anterior)', m);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Índice novas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
 
 // ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
 // O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
@@ -1479,6 +1507,83 @@ await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
   registra(estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0, 'Vídeo: sem a liberação no CSP o frame do Drive é barrado (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive });
   await ctx.close();
 });
+
+// ---- 6h. Fotos novas desde a última visita (item j, #250) -------------------
+// A última visita vive só no localStorage. Com visita anterior há duas horas:
+// as fotos que chegaram depois ganham a marca "nova" (e o rótulo diz), o chip
+// "Só as novas" filtra a grade, e recarregar a página não apaga as marcas.
+// Sem visita anterior nada é marcado, e a página grava a visita de agora.
+{
+  const cr = (/** @type {number} */ atrasoMs) => Math.floor((Date.now() - atrasoMs - EPOCA_CRIADA_MS) / 60_000);
+  const HORA = 3_600_000;
+  const NOVAS_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
+    ['NOVASFOTO_000001', 4000, 3000, 'chegou-agora.jpg', 3_000_000, 0, 0, null, cr(HORA)],
+    ['NOVASFOTO_000002', 4000, 3000, 'chegou-ontem.jpg', 3_000_000, 0, 0, null, cr(3 * HORA)],
+    ['NOVASFOTO_000003', 4000, 3000, 'sem-data.jpg', 3_000_000],
+    ['NOVASVIDEO_00001', 1920, 1080, 'filme.mp4', 9_000_000, 0, 0, 20, cr(HORA / 2)],
+  ]);
+  for (const f of NOVAS_FOTOS) POR_ID.set(f[0], /** @type {any} */ (f));
+  const PAGINA_NOVAS = galeriaHTML({
+    event: EVENTO, nonce: NONCE, erro: null,
+    listagem: { v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false, total: 4, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: NOVAS_FOTOS }] },
+  });
+  const CHAVE = 'gal-visita:formatura:';
+  const leTela = (/** @type {import('playwright-core').Page} */ page) => page.evaluate(() => ({
+    marcadas: [...document.querySelectorAll('.g-t.nova')].map(a => a.getAttribute('data-i')),
+    selos: document.querySelectorAll('.g-t .g-nova').length,
+    rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label') || ''),
+    chip: (() => { const b = document.querySelector('[data-acao="filtro-novas"]'); return b ? (b.textContent || '').trim() : null; })(),
+    visiveis: [...document.querySelectorAll('.g-t')].filter(a => /** @type {HTMLElement} */ (a).offsetParent !== null && !/** @type {HTMLElement} */ (a).hidden).length,
+    visita: localStorage.getItem('gal-visita:formatura:'),
+    lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+  }));
+  for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { width: 1440, height: 900 }, 1, false], ['iPhone 390', { width: 390, height: 844 }, 3, true]])) {
+    await cenario(`Fotos novas: ${nome}`, async () => {
+      const antes = Date.now() - 2 * HORA;
+      const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS, viewport, dpr, toque, storage: { [CHAVE]: JSON.stringify({ p: 0, u: antes }) } });
+      await espera(page, 500);
+      const t = await leTela(page);
+      registra(t.marcadas.join() === '0,3' && t.selos === 2, `Fotos novas ${nome}: só o que chegou depois da visita anterior ganha a marca (a foto e o vídeo recentes; não a antiga nem a sem data)`, t);
+      registra(/, nova$/.test(t.rotulos[0]) && /, nova$/.test(t.rotulos[3]) && !/nova/.test(t.rotulos[1]) && !/nova/.test(t.rotulos[2]), `Fotos novas ${nome}: o rótulo de acessibilidade diz "nova"`, t.rotulos);
+      registra(t.chip === 'Só as novas2', `Fotos novas ${nome}: o chip "Só as novas" mostra a contagem`, t.chip);
+      const v = JSON.parse(t.visita || 'null');
+      registra(!!v && v.p === antes && v.u > antes + HORA, `Fotos novas ${nome}: a página grava a visita de agora e guarda a anterior`, t.visita);
+      registra(!t.lateral, `Fotos novas ${nome}: sem rolagem lateral`);
+
+      // O filtro.
+      await page.locator('[data-acao="filtro-novas"]').click();
+      await espera(page, 700);
+      const f = await leTela(page);
+      registra(f.visiveis === 2 && /true/.test(await page.locator('[data-acao="filtro-novas"]').getAttribute('aria-pressed') || ''), `Fotos novas ${nome}: "Só as novas" deixa só as duas na grade`, f);
+      await page.locator('[data-acao="filtro-novas"]').click();
+      await espera(page, 700);
+      registra((await leTela(page)).visiveis === 4, `Fotos novas ${nome}: tocar de novo volta todas`);
+
+      // Recarregar dentro da mesma sessão mantém as marcas.
+      await page.reload();
+      await espera(page, 900);
+      const r = await leTela(page);
+      registra(r.marcadas.join() === '0,3', `Fotos novas ${nome}: recarregar dentro de 30 minutos não apaga as marcas`, r);
+      registra(estado.erros.length === 0 && estado.csp.length === 0, `Fotos novas ${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+      await ctx.close();
+    });
+  }
+  await cenario('Fotos novas: primeira visita', async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS });
+    await espera(page, 400);
+    const t = await leTela(page);
+    const v = JSON.parse(t.visita || 'null');
+    registra(t.selos === 0 && t.chip === null && !!v && v.p === 0, 'Fotos novas: sem visita anterior nada é marcado e a visita de agora é gravada', t);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fotos novas: primeira visita sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+  await cenario('Fotos novas: sem localStorage', async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS, semStorage: true });
+    await espera(page, 400);
+    registra(estado.erros.length === 0 && (await page.locator('.g-t').count()) === 4, 'Fotos novas: com o armazenamento bloqueado a galeria abre normalmente, sem marcas', estado.erros);
+    await ctx.close();
+  });
+}
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {
