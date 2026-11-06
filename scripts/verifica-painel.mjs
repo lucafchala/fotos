@@ -35,6 +35,7 @@
 import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
+import jsQR from 'jsqr';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
@@ -77,12 +78,13 @@ const ev = (i, o) => ({
   id: 'ev' + i, slug: o.slug, title: o.title, status: o.status || 'entregue',
   driveUrl: `https://drive.google.com/drive/folders/PASTA_${String(i).padStart(10, '0')}`,
   driveUrlInstagram: '', projectUrl: '', photos: [lh(`FOTO_${i}_AAAAAAAAAA`)], thumbnailUrl: lh(`FOTO_${i}_AAAAAAAAAA`),
+  galeriaCapitulos: !!o.capitulos,
   visible: o.visible !== false, comingSoon: !!o.comingSoon, pinned: !!o.pinned, accessType: o.access || 'public',
   category: o.cat || 'Formatura', date: o.date || '2026-09-20', promisedDate: o.prazo || '', eventCredits: '',
   longDescription: 'Descrição.', photosAlert: { active: false, addedAt: null, expiresAfterHours: 24 },
 });
 const EVENTOS = [
-  ev(1, { slug: 'formatura-medicina-2026', title: 'Formatura Medicina 2026', pinned: true, date: '2026-10-04' }),
+  ev(1, { slug: 'formatura-medicina-2026', title: 'Formatura Medicina 2026', pinned: true, capitulos: true, date: '2026-10-04' }),
   ev(2, { slug: 'casamento-ana-e-joao', title: 'Casamento Ana & João', cat: 'Casamento', access: 'family', date: '2026-09-27' }),
   ev(3, { slug: 'piauifut-2026', title: 'PiauiFut+ 2026', cat: 'Esporte', status: 'em-edicao', prazo: '2026-01-10', date: '2026-09-14' }),
   ev(4, { slug: 'baile-de-gala', title: 'Baile de Gala 3º Ano', comingSoon: true, status: 'em-revisao', prazo: '2099-11-02', date: '2026-11-02' }),
@@ -727,6 +729,68 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(/^metricas-por-dia-\d{4}-\d{2}-\d{2}\.csv$/.test(baixado.suggestedFilename()) && csv.startsWith('dia,slug,titulo,visitas,abriram_drive'),
         `${rotulo}: CSV da série por dia`, baixado.suggestedFilename());
 
+      // ---- 6b. Aba "Galeria" das métricas (v3.1) -----------------------------
+      // role=tablist com teclado, os números da galeria do projeto, as duas
+      // curvas, o ranking de capítulos (só projeto com capítulos) e o CSV.
+      const abaGeral = page.locator('#mtab-geral');
+      const abaGaleria = page.locator('#mtab-galeria');
+      registra((await page.locator('#metrics-abas[role="tablist"] [role="tab"]').count()) === 2
+        && (await abaGeral.getAttribute('aria-selected')) === 'true' && (await abaGaleria.getAttribute('aria-selected')) === 'false'
+        && (await page.locator('#mpanel-galeria').isHidden()) && (await page.locator('#mpanel-geral').isVisible()),
+        `${rotulo}: métricas têm abas Geral e Galeria (tablist); Geral aberta por padrão`);
+      if (toque) {
+        const alturas = await page.$$eval('#metrics-abas [role="tab"]', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+        registra(alturas.every(h => h >= 44), `${rotulo}: as abas das métricas têm 44 px de alto`, alturas);
+      }
+      await aciona(abaGaleria, toque);
+      await page.waitForSelector('#grafico-galeria-aberturas svg', { timeout: 6000 });
+      registra((await abaGaleria.getAttribute('aria-selected')) === 'true' && (await page.locator('#mpanel-geral').isHidden()) && (await page.locator('#mpanel-galeria').isVisible())
+        && (await abaGaleria.getAttribute('tabindex')) === '0' && (await abaGeral.getAttribute('tabindex')) === '-1',
+        `${rotulo}: tocar em "Galeria" troca o painel e a aba na ordem do Tab`);
+      const rotulosGal = await page.locator('#galeria-resumo .resumo-lab').allTextContents();
+      registra(rotulosGal.join('|') === 'Abriram a galeria|Fotos baixadas|Baixadas por abertura', `${rotulo}: aba Galeria mostra aberturas, baixadas e a razão baixadas por abertura`, rotulosGal);
+      const deltaGal = ((await page.locator('#galeria-resumo .resumo-delta').first().textContent()) || '').trim();
+      registra(/vs\. 7 dias antes|vs\. 30 dias antes/.test(deltaGal), `${rotulo}: o número da galeria vem comparado com o período anterior ("${deltaGal}")`, deltaGal);
+      registra((await page.locator('#grafico-galeria-aberturas svg path[fill="none"]').count()) === 1 && (await page.locator('#grafico-galeria-baixadas svg path[fill="none"]').count()) === 2
+        && (await page.locator('#galeria-baixadas-legenda span').count()) === 2,
+        `${rotulo}: curva de aberturas por dia e duas curvas de baixadas (para redes, máximo)`);
+      registra(await page.locator('#bloco-galeria-capitulos').isHidden(), `${rotulo}: com todos os projetos não há ranking de capítulos`);
+      await page.selectOption('#metrics-projeto', 'casamento-ana-e-joao');
+      await espera(page, 250);
+      registra(await page.locator('#bloco-galeria-capitulos').isHidden(), `${rotulo}: projeto sem capítulos não mostra ranking de capítulos`);
+      await page.selectOption('#metrics-projeto', 'formatura-medicina-2026');
+      await espera(page, 250);
+      const capitulosRank = await page.locator('#galeria-capitulos .cap-nome').allTextContents();
+      registra(await page.locator('#bloco-galeria-capitulos').isVisible() && capitulosRank.join('|') === 'Abertura|Cerimonia|Festa',
+        `${rotulo}: projeto com capítulos lista os capítulos do mais ao menos aberto`, capitulosRank);
+      const medidaGal = await page.evaluate(() => ({ sw: document.scrollingElement ? document.scrollingElement.scrollWidth : 0 }));
+      registra(medidaGal.sw <= viewport.width, `${rotulo}: a aba Galeria não vaza para o lado`, medidaGal);
+      const [baixadoGal] = await Promise.all([
+        page.waitForEvent('download', { timeout: 6000 }),
+        aciona(page.locator('#galeria-csv'), toque),
+      ]);
+      const caminhoGal = await baixadoGal.path();
+      const csvGal = caminhoGal ? readFileSync(caminhoGal, 'utf8').replace(/^\uFEFF/, '') : '';
+      registra(/^galeria-por-dia-\d{4}-\d{2}-\d{2}\.csv$/.test(baixadoGal.suggestedFilename()) && csvGal.startsWith('dia,slug,capitulo,aberturas,baixadas_redes,baixadas_max')
+        && csvGal.includes(',festa,'), `${rotulo}: CSV da galeria por dia (com os capítulos)`, baixadoGal.suggestedFilename());
+      if (PRINTS) await print(page, `${id}-metricas-galeria`);
+      if (!toque) {
+        await abaGaleria.focus();
+        await page.keyboard.press('ArrowLeft');
+        const aposEsq = (await abaGeral.getAttribute('aria-selected')) === 'true' && await abaGeral.evaluate(el => el === document.activeElement);
+        await page.keyboard.press('ArrowRight');
+        const aposDir = (await abaGaleria.getAttribute('aria-selected')) === 'true' && await abaGaleria.evaluate(el => el === document.activeElement);
+        await page.keyboard.press('Home');
+        const aposHome = (await abaGeral.getAttribute('aria-selected')) === 'true';
+        await page.keyboard.press('End');
+        const aposEnd = (await abaGaleria.getAttribute('aria-selected')) === 'true';
+        registra(aposEsq && aposDir && aposHome && aposEnd, `${rotulo}: nas abas, setas, Home e End trocam e levam o foco`, { aposEsq, aposDir, aposHome, aposEnd });
+      }
+      await aciona(abaGeral, toque);
+      await page.selectOption('#metrics-projeto', '');
+      await espera(page, 250);
+      registra((await page.locator('#mpanel-galeria').isHidden()) && (await page.locator('#grafico-acessos svg').count()) === 1, `${rotulo}: voltar à aba Geral redesenha o gráfico de acessos`);
+
       const medida = await page.evaluate(() => ({ sw: document.scrollingElement ? document.scrollingElement.scrollWidth : 0, escala: window.visualViewport ? window.visualViewport.scale : 1 }));
       registra(medida.sw <= viewport.width && medida.escala >= 0.99, `${rotulo}: as métricas desenhadas não vazam para o lado`, medida);
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -993,29 +1057,27 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
 }
 
 // ---- Pedidos feitos pela galeria ("Pedir remoção desta foto") -----------------
-// Três pedidos de visitantes no mesmo álbum: dois cuja foto foi escondida na
-// hora (um de menor, com prioridade) e um que passou do teto (a foto NÃO foi
-// escondida). O dono vê a miniatura e o álbum, decide por botão — "Manter
-// oculta", "Devolver à galeria", "Ocultar da galeria" — e cada decisão acerta o
-// evento no KV (fotosOcultas e ocultasPendentes) e resolve o pedido.
+// O pedido NÃO esconde a foto (aprovação pelo dono). Três pedidos no mesmo
+// álbum: dois de fotos que seguem na galeria (um de menor, com prioridade) e um
+// de foto que o próprio dono já tinha escondido. O dono vê a miniatura e o
+// álbum e decide por botão — "Remover da galeria" ou "Manter na galeria" — e
+// cada decisão acerta o evento no KV (fotosOcultas) e resolve o pedido.
 const FA = 'FOTO_PEDIDO_A_01', FB = 'FOTO_PEDIDO_B_02', FC = 'FOTO_PEDIDO_C_03', FD = 'FOTO_JA_OCULTA_04';
 const pedidoGaleria = (/** @type {string} */ id, /** @type {string} */ foto, /** @type {Record<string, any>} */ o) => ({
   id, eventSlug: 'formatura-medicina-2026', eventTitle: 'Formatura Medicina 2026', method: 'galeria', origem: 'galeria',
-  value: 'https://fotos.lucafchala.com/galeria/formatura-medicina-2026', fotoId: foto, fotoNome: `${foto}.jpg`, motivo: 'eu', prioridade: false, ocultada: true,
+  value: 'https://fotos.lucafchala.com/galeria/formatura-medicina-2026', fotoId: foto, fotoNome: `${foto}.jpg`, motivo: 'eu', prioridade: false, ocultada: false,
   email: 'visitante@example.com', phone: '', message: 'Prefiro não aparecer.', fileName: null, fileBase64: null, resolved: false,
   createdAt: new Date(agora - 600e3).toISOString(), emailStatus: 'sent', confirmEmailStatus: 'sent', ...o,
 });
 const PEDIDOS_GALERIA = [
   pedidoGaleria('c'.repeat(32), FA, { motivo: 'menor', prioridade: true }),
   pedidoGaleria('d'.repeat(32), FB, { createdAt: new Date(agora - 1200e3).toISOString() }),
-  pedidoGaleria('e'.repeat(32), FC, { ocultada: false, motivo: 'outro', createdAt: new Date(agora - 1800e3).toISOString() }),
+  pedidoGaleria('e'.repeat(32), FC, { ocultada: true, motivo: 'outro', createdAt: new Date(agora - 1800e3).toISOString() }),
 ];
-const emPendente = (/** @type {string} */ foto, /** @type {string} */ pedido) => ({ id: foto, em: new Date(agora - 600e3).toISOString(), pedido });
 const SEMENTE_GALERIA = {
   events: JSON.stringify([{
     ...EVENTOS[0],
-    fotosOcultas: [FA, FB, FD],
-    ocultasPendentes: [emPendente(FA, PEDIDOS_GALERIA[0].id), emPendente(FB, PEDIDOS_GALERIA[1].id)],
+    fotosOcultas: [FC, FD],
   }, ...EVENTOS.slice(1)]),
   categories: JSON.stringify(['Formatura']),
   ...Object.fromEntries(PEDIDOS_GALERIA.map(p => [`removal_request:${p.id}`, JSON.stringify(p)])),
@@ -1043,47 +1105,135 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         `${rotulo}: mostra o álbum, o motivo e a prioridade do menor`, textos.slice(0, 300));
       const links = await page.locator('#tab-requests .req-foto a[href="/galeria/formatura-medicina-2026"]').count();
       registra(links === 3, `${rotulo}: cada pedido leva ao álbum`, links);
-      registra(textos.includes('foto NÃO foi ocultada'), `${rotulo}: o pedido que passou do teto diz que a foto não foi ocultada`);
+      registra(textos.includes('a foto continua na galeria até você decidir') && textos.includes('a foto está oculta da galeria') && !textos.includes('NÃO foi ocultada'),
+        `${rotulo}: cada pedido diz se a foto continua na galeria ou já estava oculta`);
       const rotulos = await page.locator('[data-action="decidirFoto"]').allTextContents();
-      registra(rotulos.filter(t => t === 'Manter oculta').length === 2 && rotulos.filter(t => t === 'Devolver à galeria').length === 2
-        && rotulos.includes('Ocultar da galeria') && rotulos.includes('Manter na galeria'), `${rotulo}: os botões de decisão de cada pedido`, rotulos);
+      registra(rotulos.filter(t => t === 'Remover da galeria').length === 3 && rotulos.filter(t => t === 'Manter na galeria').length === 3 && rotulos.length === 6,
+        `${rotulo}: cada pedido tem só "Remover da galeria" e "Manter na galeria"`, rotulos);
       if (toque) {
         const pequenos = await alvosPequenos(page, '#tab-requests');
         registra(pequenos.length === 0, `${rotulo}: os botões de Pedidos da galeria têm 44 px`, pequenos.slice(0, 6));
       }
 
-      // "Manter oculta" no pedido do menor: resolve, sai da pendência, segue oculta.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[0].id}"]`), toque);
+      // "Remover da galeria" no pedido do menor: esconde a foto e resolve.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="removida"][data-id="${PEDIDOS_GALERIA[0].id}"]`), toque);
       const m1 = await aviso(page);
       await espera(page, 600);
       const e1 = evento();
-      registra(e1.fotosOcultas.includes(FA) && !e1.ocultasPendentes.some((/** @type {any} */ p) => p.id === FA) && e1.ocultasPendentes.length === 1
-        && pedidoNoKv(PEDIDOS_GALERIA[0].id).resolved === true && pedidoNoKv(PEDIDOS_GALERIA[0].id).desfecho === 'mantida',
-        `${rotulo}: "Manter oculta" resolve o pedido, tira da pendência e mantém a foto oculta`, { aviso: m1, ocultas: e1.fotosOcultas, pend: e1.ocultasPendentes.map((/** @type {any} */ p) => p.id) });
+      registra(e1.fotosOcultas.includes(FA) && e1.fotosOcultas.includes(FC) && e1.fotosOcultas.includes(FD) && !e1.fotosOcultas.includes(FB)
+        && pedidoNoKv(PEDIDOS_GALERIA[0].id).resolved === true && pedidoNoKv(PEDIDOS_GALERIA[0].id).desfecho === 'removida',
+        `${rotulo}: "Remover da galeria" esconde a foto e resolve o pedido, sem mexer nas outras`, { aviso: m1, ocultas: e1.fotosOcultas });
+      registra(/removida da galeria/i.test(m1 || ''), `${rotulo}: o aviso confirma a remoção e que a pessoa foi avisada`, m1);
       await someAviso(page);
 
-      // "Devolver à galeria": sai de fotosOcultas e da pendência.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="devolvida"][data-id="${PEDIDOS_GALERIA[1].id}"]`), toque);
+      // "Manter na galeria": a foto segue visível, nada é escondido.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida_na_galeria"][data-id="${PEDIDOS_GALERIA[1].id}"]`), toque);
       await aviso(page);
       await espera(page, 600);
       const e2 = evento();
-      registra(!e2.fotosOcultas.includes(FB) && e2.fotosOcultas.includes(FA) && e2.fotosOcultas.includes(FD) && e2.ocultasPendentes.length === 0
-        && pedidoNoKv(PEDIDOS_GALERIA[1].id).desfecho === 'devolvida' && pedidoNoKv(PEDIDOS_GALERIA[1].id).resolved === true,
-        `${rotulo}: "Devolver à galeria" tira a foto das ocultas e da pendência, sem mexer nas outras`, { ocultas: e2.fotosOcultas, pend: e2.ocultasPendentes });
+      registra(!e2.fotosOcultas.includes(FB) && e2.fotosOcultas.includes(FA) && e2.fotosOcultas.includes(FD)
+        && pedidoNoKv(PEDIDOS_GALERIA[1].id).desfecho === 'mantida_na_galeria' && pedidoNoKv(PEDIDOS_GALERIA[1].id).resolved === true,
+        `${rotulo}: "Manter na galeria" resolve o pedido e deixa a foto visível`, { ocultas: e2.fotosOcultas });
       await someAviso(page);
 
-      // O pedido que o teto não escondeu: "Ocultar da galeria" esconde agora.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[2].id}"]`), toque);
+      // Foto que o dono já tinha escondido: "Manter na galeria" a devolve.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida_na_galeria"][data-id="${PEDIDOS_GALERIA[2].id}"]`), toque);
       await aviso(page);
       await espera(page, 600);
       const e3 = evento();
-      registra(e3.fotosOcultas.includes(FC) && e3.ocultasPendentes.length === 0 && pedidoNoKv(PEDIDOS_GALERIA[2].id).resolved === true,
-        `${rotulo}: "Ocultar da galeria" esconde a foto que o teto deixou visível`, e3.fotosOcultas);
+      registra(!e3.fotosOcultas.includes(FC) && e3.fotosOcultas.includes(FD) && e3.fotosOcultas.includes(FA) && pedidoNoKv(PEDIDOS_GALERIA[2].id).resolved === true,
+        `${rotulo}: "Manter na galeria" devolve a foto que o dono tinha escondido`, e3.fotosOcultas);
       registra((await page.locator('#requests-badge').count()) === 0 || !(await page.locator('#requests-badge').isVisible()), `${rotulo}: sem pedidos pendentes, o selo some`);
-      // O resolvido (aviso de "foto mantida oculta") fica sob "resolvidas".
+      // Os resolvidos ficam sob "resolvidas".
       await print(page, `${id}-pedidos-galeria-resolvidos`);
       // (O e-mail de "atendido" não é conferido aqui: este worker local não tem chave do Resend; o teste unitário cobre.)
       registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: Pedidos da galeria sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    } finally {
+      await ctx.close();
+      await w.fecha();
+    }
+  });
+}
+
+// ---- QR code do projeto (item k, #251) --------------------------------------
+// O servidor devolve a matriz; o navegador desenha o PNG e monta o SVG. Aqui
+// baixa-se os dois arquivos de verdade e decodifica-se com o jsqr: o QR tem de
+// levar ao link certo, com o título embaixo e sem erro de JS nem de CSP.
+for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
+  ['iPhone 390@3', { width: 390, height: 844 }, 3, true],
+  ['Computador 1440@1', { width: 1440, height: 900 }, 1, false],
+])) {
+  await cenario(`QR code, ${rotulo}`, async () => {
+    const { w, ctx, page, estado } = await abre(viewport, dpr, toque);
+    try {
+      const card = page.locator('#evt-ev1');
+      await aciona(card.locator('[data-action="menu"]'), toque);
+      await aciona(card.locator('.menu [data-action="qr"]'), toque);
+      await page.waitForSelector('#qr-tela:not([hidden])', { timeout: 15000 });
+      const url = (await page.locator('#qr-url').innerText()).trim();
+      registra(/\/galeria\/formatura-medicina-2026$/.test(url), `${rotulo}: o QR do projeto com capítulos leva ao índice da galeria`, url);
+      if (toque) {
+        const pequenos = await alvosPequenos(page, '.qr-sheet');
+        registra(pequenos.length === 0, `${rotulo}: os botões do QR têm 44 px`, pequenos);
+      }
+      registra(await page.locator('#qr-png').isEnabled() && await page.locator('#qr-svg').isEnabled(), `${rotulo}: Baixar PNG e Baixar SVG ficam ativos`);
+
+      // PNG: baixa, desenha num canvas na própria página e decodifica no Node.
+      const [dlPng] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-png'), toque)]);
+      const caminhoPng = await dlPng.path();
+      const bytesPng = readFileSync(caminhoPng);
+      const pxPng = await page.evaluate(async b64 => {
+        const img = new window.Image();
+        img.src = 'data:image/png;base64,' + b64;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+        g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, data: Array.from(d.data) };
+      }, bytesPng.toString('base64'));
+      const lidoPng = jsQR(new Uint8ClampedArray(pxPng.data), pxPng.w, pxPng.h);
+      registra(dlPng.suggestedFilename() === 'qr-formatura-medicina-2026.png' && pxPng.w >= 1000 && !!lidoPng && lidoPng.data === url,
+        `${rotulo}: o PNG baixado é grande e decodifica para o link`, { nome: dlPng.suggestedFilename(), w: pxPng.w, h: pxPng.h, lido: lidoPng && lidoPng.data });
+
+      // SVG: baixa, rasteriza na página e decodifica; o título vem embaixo.
+      const [dlSvg] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-svg'), toque)]);
+      const texto = readFileSync(await dlSvg.path(), 'utf8');
+      const pxSvg = await page.evaluate(async svg => {
+        const img = new window.Image();
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = 800;
+        c.height = Math.round(800 * img.naturalHeight / img.naturalWidth);
+        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+        g.drawImage(img, 0, 0, c.width, c.height);
+        const d = g.getImageData(0, 0, c.width, c.height);
+        return { w: c.width, h: c.height, data: Array.from(d.data) };
+      }, texto);
+      const lidoSvg = jsQR(new Uint8ClampedArray(pxSvg.data), pxSvg.w, pxSvg.h);
+      registra(dlSvg.suggestedFilename() === 'qr-formatura-medicina-2026.svg' && texto.includes('Formatura Medicina 2026') && !!lidoSvg && lidoSvg.data === url,
+        `${rotulo}: o SVG baixado tem o título embaixo e decodifica para o link`, { nome: dlSvg.suggestedFilename(), lido: lidoSvg && lidoSvg.data });
+
+      // Seletor de capítulo: só aparece se a lista de capítulos veio (o Drive
+      // deste worker local pode não responder); se vier, trocar leva ao capítulo.
+      if (await page.locator('#qr-seletor').isVisible()) {
+        const opcoes = await page.locator('#qr-alvo option').count();
+        if (opcoes > 1) {
+          await page.selectOption('#qr-alvo', { index: 1 });
+          await page.waitForFunction(() => /\/galeria\/[^/]+\/[^/]+$/.test((document.getElementById('qr-url') || {}).textContent || ''), null, { timeout: 15000 });
+          registra(true, `${rotulo}: escolher um capítulo troca o QR para o link dele`, await page.locator('#qr-url').innerText());
+        }
+      }
+
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.qr-sheet', { state: 'detached', timeout: 3000 });
+      const foco = await page.evaluate(() => !!document.activeElement && document.activeElement.getAttribute('data-action'));
+      const livre = await page.evaluate(() => !(document.getElementById('app') || {}).inert);
+      registra(livre && foco === 'menu', `${rotulo}: Esc fecha o QR, destrava o painel e devolve o foco ao botão "⋯"`, { foco, livre });
+      registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: QR sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
     } finally {
       await ctx.close();
       await w.fecha();
@@ -1119,6 +1269,10 @@ for (const escuro of [false, true]) {
       await page.evaluate(() => /** @type {HTMLElement} */ (document.querySelector('nav.nav [data-tab="metrics"]')).click());
       await espera(page, 800);
       await verificaAxe(page, registra, `painel: Métricas (${tema})`);
+      await page.evaluate(() => /** @type {HTMLElement} */ (document.getElementById('mtab-galeria')).click());
+      await page.selectOption('#metrics-projeto', 'formatura-medicina-2026');
+      await espera(page, 600);
+      await verificaAxe(page, registra, `painel: Métricas, aba Galeria com capítulos (${tema})`);
       registra(csp.length === 0 && erros.length === 0, `axe (${tema}): sem erro de JS nem mensagem de CSP`, [...erros, ...csp]);
     } finally {
       await ctx.close();

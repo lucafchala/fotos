@@ -94,6 +94,16 @@ renderização.
 | **Fundamento (art. 33)** | **III** — Termos de Serviço e política de privacidade do Google |
 | **Minimização aplicada** | Nada do player antes do clique; domínio *nocookie*; a CSP e a Permissions-Policy liberam só esses dois hosts. Projeto sem vídeo não fala com o YouTube |
 
+### 5.1. Google — player do Google Drive (vídeo da galeria própria)
+
+| | |
+| --- | --- |
+| **Sede** | Estados Unidos (Google LLC) |
+| **Papel** | Reproduz, no player embutido do Drive, o vídeo que está na pasta do projeto |
+| **Dados** | Nada do player é carregado com a página: só **depois do toque** num vídeo da galeria o player (`drive.google.com`) é carregado e o Google passa a tratar **IP, navegador e dados de reprodução** |
+| **Fundamento (art. 33)** | **III** — Termos de Serviço e política de privacidade do Google |
+| **Minimização aplicada** | Nada antes do toque; a CSP libera esse host só nas páginas de galeria com vídeo |
+
 ### 6. GitHub — código-fonte
 
 Hospeda **apenas código-fonte**, sem dados pessoais de titulares. Não é operador
@@ -111,6 +121,7 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 | Google Drive | **As fotografias** | **Alto** | Art. 33, III ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
 | Resend | E-mail, telefone, foto anexa | Alto | Art. 33, III | Não — é o canal de e-mail |
 | YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, III | Sim — basta não colocar vídeo no projeto |
+| Google (player do Drive) | IP/navegador e dados de reprodução, só depois do toque num vídeo da galeria | Baixo | Art. 33, III | Sim — basta a pasta não ter vídeo |
 | Google Fonts | Nada (era o IP do visitante) | — | — | **Eliminado em 23/09/2026** — fontes servidas pela própria origem |
 
 ## Transparência ao titular

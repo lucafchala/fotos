@@ -1,5 +1,5 @@
 // Publica a prévia do PR com os segredos do build — e assim toda prévia, nova
-// ou já existente, fica com os valores atuais (README, "Prévia de PR").
+// ou já existente, fica com os valores atuais (docs/REFERENCIA.md, "Prévia de PR").
 //
 // -------------------------------------------------------------------------
 // Por que este arquivo existe
@@ -54,7 +54,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** Os segredos que uma prévia recebe — a tabela do README, "Prévia de PR". */
+/** Os segredos que uma prévia recebe — a tabela de docs/REFERENCIA.md, "Prévia de PR". */
 export const SEGREDOS_DA_PREVIA = /** @type {const} */ ([
   'ADMIN_PASSWORD',
   'SIGNING_SECRET',
@@ -119,13 +119,13 @@ export function argumentosDoWrangler(arquivo, extras) {
 function main() {
   const { segredos, gerados, ausentes, vazios, ignorados } = segredosDoBuild(process.env);
   for (const chave of ignorados) {
-    console.warn(`[prévia] ${chave} ignorado: não é segredo de prévia (README, "Prévia de PR").`);
+    console.warn(`[prévia] ${chave} ignorado: não é segredo de prévia (docs/REFERENCIA.md, "Prévia de PR").`);
   }
   for (const chave of vazios) console.warn(`[prévia] ${chave} está vazio no build: não sobe.`);
 
   const doBuild = Object.keys(segredos).filter((nome) => !gerados.includes(nome));
   if (doBuild.length) console.log(`[prévia] segredos do build que vão junto: ${doBuild.join(', ')}.`);
-  else console.warn('[prévia] nenhum PREVIA_* no build (README, "Prévia de PR").');
+  else console.warn('[prévia] nenhum PREVIA_* no build (docs/REFERENCIA.md, "Prévia de PR").');
   for (const nome of gerados) {
     console.log(`[prévia] ${nome}: gerado neste build, porque não há ${PREFIXO}${nome} no build.`);
   }

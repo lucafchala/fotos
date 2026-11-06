@@ -18,7 +18,91 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.0.0] — ainda não publicada
+## [3.1.0] — 2026-11-06
+
+Função nova para o dono e para o visitante, mais **duas tabelas novas no D1**
+(`galeria_snapshot` e `galeria_apagadas`, migrações `0003` e `0004`, aplicadas
+pelo deploy) e **Termos e Privacidade 2026-11-06**: a pasta do Drive de um
+projeto pode ser colaborativa, e o "Pedir remoção" passou a depender da
+decisão do dono.
+
+### Novo
+
+- **Pasta do Drive colaborativa.** Qualquer pessoa com o link envia fotos
+  (e também pode apagar): continue com "Qualquer pessoa com o link: Editor".
+  As defesas são as abaixo; o porquê está em `RETOMADA.md` §5.20.
+- **Créditos por pasta de autor.** Campo "Créditos por pasta" (`pasta = Nome`,
+  até 20 linhas, e-mail opcional que nunca sai do servidor): "Fotos: Ana e
+  Bruno", filtro por fotógrafo, "Foto: Nome" no visualizador e JSON-LD por
+  autor. A linha `* = Nome` define o autor das fotos que não estão em pasta de
+  autor.
+- **Aviso por e-mail ao autor** quando chega um pedido de remoção de foto
+  dele, quando o dono decide e quando oculta ou devolve a foto (nunca o e-mail
+  nem a mensagem de quem pediu; um aviso por foto e tipo a cada 24 h, teto de
+  20/dia).
+- **Galeria por capítulos.** Opção do projeto: `/galeria/<projeto>` vira um
+  índice de cartões (um por subpasta de primeiro nível) e cada capítulo abre
+  em `/galeria/<projeto>/<capítulo>`. Contadores, sitemap, download, pedido de
+  remoção e aviso ao autor são por capítulo; capítulo vazio some do índice.
+  Cartão de link (Open Graph) por capítulo e no índice, com capa e contagem; em
+  álbum de família ou privado o cartão sai genérico.
+- **Todas as mídias da pasta.** Vídeos (com a duração), Live Photos (o vídeo
+  curto de mesmo nome vira parte da foto) e fotos HEIC/HEIF do iPhone entram
+  na galeria. O vídeo abre como fachada ("Tocar"): nada do Google carrega
+  antes do toque, e a CSP libera o player do Drive só em página com vídeo.
+  Download do vídeo em fluxo, nos bytes originais.
+- **Nomes amigáveis nos downloads** (opcional, desligado): só o nome do
+  arquivo baixado muda (`<Título> - <Seção> - <Autor> - <data>`), nunca o
+  conteúdo.
+- **Atualização automática com período** (10 min, 1 h, 6 h ou 24 h) e a
+  **foto durável da lista** no D1. Desligada, a galeria mostra a última lista
+  até o dono tocar em "Atualizar agora": é a moderação de uma pasta
+  colaborativa.
+- **Aviso de fotos apagadas do Drive** (e-mail-resumo ao dono, cópia ao autor)
+  e "Fotos apagadas recentemente" no painel (30 dias).
+- **Fotos novas desde a última visita** (fecha #250): marca "nova", chip "Só
+  as novas" e "N novas" no cartão do capítulo. A última visita fica só no
+  `localStorage` do visitante; nada vai ao servidor e não há cookie novo.
+- **QR code da galeria no painel** (fecha #251): no menu "⋯" do projeto, com o
+  link do índice ou de cada capítulo, **Baixar PNG** e **Baixar SVG** em alta
+  resolução, com o título embaixo.
+- **Aba Galeria nas métricas**: aberturas por dia, fotos baixadas (redes e
+  tamanho máximo), baixadas por abertura, comparação com o período anterior,
+  ranking por capítulo e CSV.
+
+### Mudou
+
+- **"Pedir remoção" é só por aprovação.** O pedido vai ao painel e por e-mail
+  ao dono; a foto **continua na galeria até ele decidir**. "Remover da
+  galeria" esconde a foto e avisa quem pediu e o autor; "Manter na galeria"
+  avisa os dois. "Responsável por um menor" tem prioridade. Saem os tetos de
+  ocultação por IP e por álbum; ficam os limites por IP (30 por dia no painel,
+  até 200 só por e-mail, depois uma página amigável).
+- **Pico de acessos.** Lista vencida servida na hora e relida por um só;
+  download com fila no navegador ("Na fila... tentando de novo"), botão
+  "Baixar o evento inteiro (Google Drive)" por capítulo e limites por IP em
+  degraus.
+- **Termos e Privacidade (2026-11-06)**: vários autores, álbum colaborativo,
+  nomes amigáveis, pedido de remoção por aprovação, dados lidos do Drive,
+  contagem por capítulo, `localStorage`, as novas tabelas, o player do Drive
+  como terceiro depois do toque. ROPA, retenção, checklist e transferência
+  internacional acompanham.
+- **Orçamento de subrequisições**: tetos de páginas da listagem menores
+  (26, 6 e 18) para dar folga à detecção de fotos apagadas e ao D1.
+- Sai o popup "Nova galeria de fotos" da página do evento.
+
+### Corrigido
+
+- O teste de CPU da página de 6000 itens compara com uma carga de referência
+  medida junto (razão), em vez de um teto absoluto que oscilava sob carga.
+- README e TODO sem o fluxo antigo de "ocultar na hora" e sem "nome e bytes
+  exatos" para o arquivo baixado.
+- **README novo**, curto, com o que o site faz para o visitante e para o dono;
+  a referência técnica completa passa a `docs/REFERENCIA.md`.
+- Dependências de desenvolvimento: eslint 10.14.0, `@cloudflare/workers-types`
+  5.20261102.1 e wrangler 4.156.2 (Dependabot #261, #262, #263).
+
+## [3.0.0] — 2026-11-06
 
 **Maior** porque muda o que o visitante aceita (Termos e Privacidade
 2026-10-29) e o formato do backup (v3).
@@ -126,7 +210,7 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 - **Restaurar backup**: o consentimento é restaurado antes dos pedidos de
   remoção, e uma seção que falha não esconde as outras.
 
-## [2.2.1] — ainda não publicada
+## [2.2.1] — 2026-11-06
 
 ### Mudou
 
@@ -138,7 +222,7 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   novo. O `vitest-pool-workers` avisa que passou a se chamar
   `@cloudflare/vitest-plugin`; a troca fica para o #180.
 
-## [2.2.0] — ainda não publicada
+## [2.2.0] — 2026-11-06
 
 ### Novo
 

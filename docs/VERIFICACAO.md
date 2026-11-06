@@ -267,10 +267,16 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
 5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1); no
    computador, Pedidos percorrido pelo Tab;
 6a. **Pedidos da galeria**, com semente própria: três pedidos de visitantes
-   (um de menor, com prioridade; um que passou do teto), a miniatura lh3, o
-   álbum, "Manter oculta" (o evento mantém o ID em `fotosOcultas` e a pendência
-   some), "Devolver à galeria" (o ID sai das duas listas) e "Ocultar da
-   galeria"; botões de 44 px no celular;
+   (um de menor, com prioridade; um de foto que o dono já tinha escondido), a
+   miniatura lh3, o álbum, o texto "a foto continua na galeria até você
+   decidir" e só dois botões por pedido: "Remover da galeria" (a foto entra em
+   `fotosOcultas` e o pedido é resolvido) e "Manter na galeria" (a foto fica ou
+   volta; os IDs das outras não mudam); botões de 44 px no celular;
+6b. **QR code**: abre o "⋯" do projeto, "QR code da galeria…", espera o QR,
+   baixa o PNG e o SVG de verdade, desenha cada um num canvas da página e
+   decodifica com o jsqr (devDependency) para conferir que levam ao link do
+   projeto; título no SVG, botões de 44 px no celular, Esc fecha, devolve o foco
+   ao "⋯" e destrava o painel; sem erro de JS nem de CSP;
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
    dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
@@ -367,9 +373,19 @@ Cobre:
   (alvo de 44 px, sem ícone na barra, alcançável pelo Tab), o Turnstile só
   carrega ao abrir o diálogo, Enter abre com o foco no motivo e Esc fecha
   devolvendo o foco com o visualizador aberto, validação do e-mail, o corpo
-  enviado, a confirmação, a foto some da grade e o visualizador segue,
-  recusa 403, passou do teto (`ocultada: false`), Turnstile bloqueado, última
-  foto, 360 px, tema escuro e o dono sem link;
+  enviado, a confirmação ("o fotógrafo vai analisar e você recebe a resposta
+  por e-mail"), a foto **continua** na grade (o pedido não a esconde) e o
+  visualizador segue, recusa 403, Turnstile bloqueado, 360 px, tema escuro e
+  o dono sem link;
+- **vídeos e Live Photos** (item 1f) — selo de play com a duração e selo LIVE
+  na grade; no visualizador o vídeo abre como fachada (miniatura + "Tocar"),
+  **nenhum iframe do Google antes do toque**; o toque põe o player do Drive e
+  sair do slide devolve a fachada; com a CSP sem `driveFrame` o player é
+  barrado (a CSP libera `drive.google.com` só em página com vídeo);
+- **fotos novas** (item j) — com a última visita guardada no `localStorage`,
+  só o que chegou depois ganha a marca "nova" (e ", nova" no rótulo), o chip
+  "Só as novas" mostra a contagem e filtra, a primeira visita não marca nada
+  e sem `localStorage` a página funciona; no índice de capítulos, "N novas";
 - **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas

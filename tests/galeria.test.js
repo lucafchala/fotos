@@ -22,6 +22,7 @@ import { dashboardHTML } from '../src/ui/dashboard.js';
 import { GALERIA_MAX_PASTAS, GALERIA_MAX_CHAMADAS, GALERIA_MAX_CHAMADAS_IG } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
+import { d1Contado } from './helpers/d1.js';
 import { contaScriptTags, foraDosScripts } from './helpers/paginas.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 
@@ -50,14 +51,14 @@ const EVENTOS = [
   { id: '2', slug: 'so-arquivo', title: 'Só arquivo', accessType: 'public', driveUrl: 'https://drive.google.com/file/d/ARQUIVO_SOLTO_1/view' },
 ];
 
-// A pasta de mentira: raiz com fotos (uma girada, uma sem dimensões), um
-// vídeo, um PDF e uma subpasta com duas páginas de resultado.
+// A pasta de mentira: raiz com fotos (uma girada, uma sem dimensões), um PDF
+// e uma subpasta com duas páginas de resultado. (Vídeo e Live Photo têm a
+// pasta deles em galeria-midia.test.js: aqui a galeria é só de fotos.)
 const ARVORE = {
   [RAIZ]: [[
     { id: 'FOTO_DEZ_00010', name: '010.jpg', mimeType: 'image/jpeg', size: '18000000', imageMediaMetadata: { width: 6000, height: 4000, rotation: 0 } },
     { id: 'FOTO_DOIS_0002', name: '002.jpg', mimeType: 'image/jpeg', size: '17000000', imageMediaMetadata: { width: 6000, height: 4000, rotation: 1 } },
     { id: 'FOTO_UM_000001', name: '1.HEIC', mimeType: 'image/heic', size: '3000000', resourceKey: 'rkFoto' },
-    { id: 'VIDEO_0000001', name: 'v.mp4', mimeType: 'video/mp4' },
     { id: 'PDF_000000001', name: 'contrato.pdf', mimeType: 'application/pdf' },
     { id: SUB, name: 'Festa', mimeType: 'application/vnd.google-apps.folder', resourceKey: 'rkSub' },
   ]],
@@ -134,6 +135,8 @@ function get(path, { logado = true, accept = '*/*' } = {}) {
     headers: { Accept: accept, ...(logado ? { Cookie: `__Host-session=${TOKEN}` } : {}) },
   }), env, ctx);
 }
+/** A chave do cache sem o hash dos créditos (/c<hash>) do final. */
+const semHash = k => k.replace(/\/c[0-9a-z]+$/, '');
 const chamadasDrive = () => chamadas.filter(c => c.url.startsWith('https://www.googleapis.com/drive/v3/files?'));
 
 // ---------------------------------------------------------------------------
@@ -164,7 +167,7 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     expect(chamadas).toHaveLength(0);
   });
 
-  it('raiz primeiro, subpasta vira seção; ordem natural; rotação aplicada; vídeo e PDF só contados', async () => {
+  it('raiz primeiro, subpasta vira seção; ordem natural; rotação aplicada; PDF só contado', async () => {
     const d = await listaPasta(env, { id: RAIZ, resourceKey: '' });
     expect(d.secoes.map(s => s.nome)).toEqual(['', 'Festa']);
     // "1" antes de "002" antes de "010": a numeração do fotógrafo.
@@ -176,7 +179,7 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     // Duas páginas de resultado na subpasta, as duas lidas.
     expect(d.secoes[1].fotos.map(f => f[3])).toEqual(['a.jpg', 'b.jpg']);
     expect(d.total).toBe(5);
-    expect(d.videos).toBe(1);
+    expect(d.videos).toBe(0);
     expect(d.outros).toBe(1);
     expect(d.truncada).toBe(false);
     expect(d.rk).toEqual({ FOTO_UM_000001: 'rkFoto' });
@@ -207,7 +210,8 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     const caches = fakeCaches();
     vi.stubGlobal('caches', caches);
     const primeira = await listaPasta(env, { id: RAIZ, resourceKey: '' });
-    expect([...caches._store.keys()]).toEqual([`https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`]);
+    // A chave leva o teto e o hash dos créditos (v3.1).
+    expect([...caches._store.keys()].map(semHash)).toEqual([`https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`]);
     limpaCacheDrive(); // isolate novo: a memória some, a Cache API do data center fica
     const n = chamadas.length;
     const segunda = await listaPasta(env, { id: RAIZ, resourceKey: '' });
@@ -294,7 +298,9 @@ describe('/galeria/<slug> — só o dono', () => {
     expect(html).toContain('Formatura 2026');
     expect(html).toContain('class="g-dono"');
     for (const v of VENDOR) expect(html).toContain(v.path);
-    expect(html).not.toMatch(/vídeo/); // aviso de vídeos removido (29/10/2026)
+    // O aviso "vídeos ficam de fora" (removido em 29/10/2026) não volta: desde o
+    // item 1f o vídeo é um item da galeria, não uma ausência a explicar.
+    expect(html).not.toMatch(/vídeos? (ficam|foram|não)/i);
   });
 
   it('logado, projeto inexistente: 404', async () => {
@@ -356,16 +362,78 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     expect(await res.text()).toBe('ORIGINAL');
   });
 
-  it('cota de download do Google estourada: erro claro para o script (JSON) e para quem abriu o link (página)', async () => {
+  it('cota de download do Google estourada: "ocupado" amigável com Retry-After de 20 a 60 s, JSON e página (item 1g)', async () => {
     rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/')
-      ? Response.json({ error: { code: 403, errors: [{ reason: 'downloadQuotaExceeded' }] } }, { status: 403 })
+      ? Response.json({ error: { code: 403, message: 'SEGREDO-DO-GOOGLE', errors: [{ reason: 'downloadQuotaExceeded' }] } }, { status: 403 })
       : null);
     const json = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
-    expect(json.status).toBe(502);
-    expect((await json.json()).error).toMatch(/limitou downloads desta foto/);
+    expect(json.status).toBe(503);
+    const espera = Number(json.headers.get('Retry-After'));
+    expect(espera).toBeGreaterThanOrEqual(20);
+    expect(espera).toBeLessThanOrEqual(60);
+    const corpo = await json.json();
+    expect(corpo).toMatchObject({ ocupado: true, retryAfter: espera });
+    expect(corpo.error).toMatch(/Muita gente baixando esta foto agora/);
+    expect(JSON.stringify(corpo)).not.toContain('SEGREDO-DO-GOOGLE'); // erro cru do Google nunca vaza
     const pag = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max', { accept: 'text/html' });
+    expect(pag.status).toBe(503);
     expect(pag.headers.get('Content-Type')).toMatch(/text\/html/);
-    expect(await pag.text()).toMatch(/limitou downloads desta foto/);
+    const html = await pag.text();
+    expect(html).toMatch(/Muita gente baixando esta foto agora/);
+    expect(html).not.toContain('SEGREDO-DO-GOOGLE');
+  });
+
+  it('429 do Google: tenta UMA vez mais e, se passar, entrega o arquivo normalmente (item 1g)', async () => {
+    let n = 0;
+    rotaExtra = url => {
+      if (!url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')) return null;
+      n++;
+      return n === 1 ? new Response('{}', { status: 429 }) : new Response('ORIGINAL', { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    };
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ORIGINAL');
+    expect(n).toBe(2);
+  });
+
+  it('429 persistente: só UMA retentativa (2 pedidos ao Google) e depois "ocupado"', async () => {
+    let n = 0;
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? (n++, new Response('{}', { status: 429 })) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(503);
+    expect(n).toBe(2);
+    expect((await res.json()).ocupado).toBe(true);
+  });
+
+  it('erro que NÃO é de limite não é retentado nem vira "ocupado"', async () => {
+    let n = 0;
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? (n++, new Response('{}', { status: 500 })) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(res.status).toBe(502);
+    expect(n).toBe(1);
+    expect((await res.json()).ocupado).toBeUndefined();
+  });
+
+  it('"pronto?" (p=1): pede só o primeiro byte, responde 204 e não conta como baixada', async () => {
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')
+      ? new Response('O', { status: 206, headers: { 'Content-Type': 'image/jpeg', 'Content-Range': 'bytes 0-0/8' } })
+      : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Content-Disposition')).toBeNull();
+    const up = chamadas.find(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'));
+    expect(up.headers.Range).toBe('bytes=0-0');
+  });
+
+  it('"pronto?" com o Google ocupado: 503 + Retry-After, para a fila do navegador', async () => {
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? new Response('{}', { status: 429 }) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(503);
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThanOrEqual(20);
+  });
+
+  it('"pronto?" de foto que não existe ou está oculta: 404, como o download', async () => {
+    expect((await get('/galeria/formatura/baixar/FORA_DA_PASTA_1?v=max&p=1')).status).toBe(404);
   });
 });
 
@@ -693,9 +761,9 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
     const html = render(fotos37);
     const dono = html.match(/<div class="g-dono">([\s\S]*?)<\/div>\s*<header/);
     expect(dono).not.toBeNull();
-    for (const t of ['← Painel', 'Página do projeto', 'Atualizar lista', 'Lista do Drive de 10/10, 09:00']) expect(dono?.[1]).toContain(t);
+    for (const t of ['← Painel', 'Página do projeto', 'Atualizar agora', 'Atualizada em 10/10, 09:00']) expect(dono?.[1]).toContain(t);
     const cab = html.match(/<header class="g-top"[\s\S]*?<\/header>/);
-    expect(cab?.[0]).not.toContain('Atualizar lista');
+    expect(cab?.[0]).not.toContain('Atualizar agora');
     expect(cab?.[0]).not.toContain('← Painel');
   });
 
@@ -896,6 +964,9 @@ describe('fotos ocultas', () => {
     expect(html).toContain('4 fotos');
     chamadas.length = 0;
     expect((await visitante(`/galeria/formatura/baixar/${OCULTA}?v=max`)).status).toBe(404);
+    expect(chamadas.some(c => c.url.includes(OCULTA))).toBe(false);
+    // A sonda "pronto?" (fila do navegador) também não confirma que a oculta existe.
+    expect((await visitante(`/galeria/formatura/baixar/${OCULTA}?v=max&p=1&c=0`)).status).toBe(404);
     expect(chamadas.some(c => c.url.includes(OCULTA))).toBe(false);
   });
 
@@ -1256,6 +1327,9 @@ describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
       fake.default[m] = (...a) => { cache++; return orig(...a); };
     }
     vi.stubGlobal('caches', fake);
+    // O D1 (foto durável da lista, v3.1) também conta: ler o hash e gravar.
+    const d1c = d1Contado();
+    env.CONSENT_DB = d1c.db;
     rotaExtra = url => {
       if (url.pathname !== '/drive/v3/files') return null;
       const q = url.searchParams.get('q') || '';
@@ -1268,7 +1342,8 @@ describe('download: limite por IP (balde de fichas no RateLimiter)', () => {
     const res = await visitante('/galeria/formatura/baixar/GA_PAGINA_00000?v=redes');
     await new Promise(r => setTimeout(r, 0));
     expect(res.status).toBe(200);
-    const total = chamadas.length + kv + cache + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    const total = chamadas.length + kv + cache + d1c.n() + env.RATELIMIT._calls().length + env.COUNTER._calls().length;
+    expect(d1c.n()).toBeGreaterThan(0); // o D1 entrou na conta
     expect(chamadasDrive().length).toBeGreaterThan(GALERIA_MAX_CHAMADAS_IG); // as duas pastas foram lidas até o teto
     expect(total).toBeLessThanOrEqual(49);
   });
@@ -1334,7 +1409,7 @@ describe('listaPasta: o teto de páginas faz parte da chave do cache', () => {
     limpaCacheDrive();
     const grande = await listaPasta(env, { id: RAIZ, resourceKey: '' });
     expect(grande.total).toBeGreaterThan(pequena.total);
-    expect([...caches._store.keys()].sort()).toEqual([
+    expect([...caches._store.keys()].map(semHash).sort()).toEqual([
       `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS}`,
       `https://fotos.invalid/__galeria/${RAIZ}/m${GALERIA_MAX_CHAMADAS_IG}`,
     ].sort());

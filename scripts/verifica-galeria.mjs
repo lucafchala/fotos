@@ -15,16 +15,18 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event */
+/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event, HTMLAnchorElement */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { galeriaHTML } from '../src/ui/galeria.js';
+import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
+import { nomeAmigavel } from '../src/nomes.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE } from '../src/config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, EPOCA_CRIADA_MS } from '../src/config.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -149,7 +151,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any } }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any }, driveFrame?: boolean }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -168,6 +170,18 @@ async function abre(o = {}) {
       Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
     });
+  }
+  if (o.semStorage) {
+    await page.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('bloqueado'); } }); });
+  }
+  if (o.storage) {
+    // localStorage semeado antes da página rodar (só na primeira carga da aba,
+    // para um recarregamento ver o que a própria página gravou).
+    await page.addInitScript(entradas => {
+      if (window.sessionStorage.getItem('__semeado')) return;
+      window.sessionStorage.setItem('__semeado', '1');
+      for (const [k, v] of entradas) localStorage.setItem(k, v);
+    }, Object.entries(o.storage));
   }
   if (o.compartilhar) {
     // Web Share de arquivos de mentira: guarda nome, tipo, tamanho e os bytes
@@ -202,6 +216,8 @@ async function abre(o = {}) {
     // Quantas vezes o script do Turnstile foi pedido, e os corpos enviados a
     // /api/galeria/remocao ("Pedir remoção").
     turnstile: 0,
+    // Pedidos ao player do Drive (item 1f): só depois do toque no play.
+    drive: /** @type {string[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
   /** @type {Set<string>} */
@@ -223,15 +239,16 @@ async function abre(o = {}) {
       if (o.turnstile === 'bloqueado') return route.abort();
       return route.fulfill({ contentType: 'text/javascript', body: TURNSTILE_FALSO });
     }
+    if (u.host === 'drive.google.com') estado.drive.push(u.pathname);
     if (u.host !== 'fotos.test') return route.fulfill({ status: 204, body: '' });
     if (u.pathname === '/api/galeria/remocao' && r.method() === 'POST') {
       const corpo = JSON.parse(r.postData() || '{}');
       estado.remocao.push(corpo);
-      const resp = (o.remocao || (() => ({ status: 200, json: { ok: true, ocultada: true } })))(corpo);
+      const resp = (o.remocao || (() => ({ status: 200, json: { ok: true } })))(corpo);
       return route.fulfill({ status: resp.status, contentType: 'application/json', body: JSON.stringify(resp.json) });
     }
-    if (u.pathname === '/galeria/formatura') {
-      return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE), body: o.pagina || PAGINA });
+    if (u.pathname === '/galeria/formatura' || u.pathname === '/galeria/formatura/cerimonia') {
+      return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE, o.driveFrame ? { driveFrame: true } : undefined), body: o.pagina || PAGINA });
     }
     if (u.pathname === '/api/galeria/ocultar' && r.method() === 'POST') {
       const corpo = JSON.parse(r.postData() || '{}');
@@ -241,12 +258,13 @@ async function abre(o = {}) {
     }
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
-    const b = u.pathname.match(/^\/galeria\/formatura\/baixar\/([A-Za-z0-9_-]+)$/);
+    const b = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
       estado.pedidos.push(u.pathname.split('/').pop() + u.search);
       // Limite por IP esgotado (Wi-Fi de evento): o servidor manda esperar.
-      if (o.limite429) {
+      // limite429Vezes: só os N primeiros pedidos recebem 429 (depois libera).
+      if (o.limite429 && (!o.limite429Vezes || estado.pedidos.length <= o.limite429Vezes)) {
         return route.fulfill({
           status: 429,
           headers: { 'Content-Type': 'application/json', 'Retry-After': String(o.limite429) },
@@ -254,6 +272,8 @@ async function abre(o = {}) {
         });
       }
       const nome = nomeBaixado(b[1], variante);
+      // Sonda "está pronto?" (?p=1): o servidor responde 204 sem corpo.
+      if (u.searchParams.get('p') === '1') return route.fulfill({ status: nome ? 204 : 404, body: '' });
       // Como o servidor: só devolve o que existe (foto sem par no Instagram: 404).
       if (!nome) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"x"}' });
       estado.downloads.push(`${b[1]}:${variante}`);
@@ -455,8 +475,11 @@ await cenario('Visualizador no desktop', async () => {
   await page.keyboard.press('ArrowRight');
   await espera(page, 600);
   registra(/[#]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
+  // A legenda é o nome da foto e, abaixo, o crédito ("Foto: <autor>"; sem pasta
+  // de autor, o padrão do site) — duas linhas, o nome primeiro.
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  registra(legenda === '002', 'Desktop: legenda mostra o número da foto', legenda);
+  const credito = await page.locator('.pswp__g-legenda .g-leg-a').textContent();
+  registra(legenda === '002Foto: Luca F. Chala' && credito === 'Foto: Luca F. Chala', 'Desktop: legenda mostra o número da foto e o crédito do autor padrão', legenda);
   const altAberta = await page.evaluate(() => [...document.querySelectorAll('.pswp__item[aria-hidden="false"] img')].map(im => /** @type {HTMLImageElement} */ (im).alt).find(Boolean) || '');
   registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
@@ -506,7 +529,7 @@ await cenario('Link direto', async () => {
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(page, 800);
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  registra(legenda === 'festa-5 · Festa', 'Link direto #foto= abre na foto certa, com a seção na legenda', legenda);
+  registra(legenda === 'festa-5 · FestaFoto: Luca F. Chala', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
   await page.evaluate(() => history.back());
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
@@ -706,7 +729,9 @@ await cenario('iPhone recusa o Salvar no Fotos', async () => {
   await ctx.close();
 });
 
-// 429 do limite por IP: a página mostra a espera e NÃO repete sozinha nem a cada toque.
+// 429 do limite por IP: Compartilhar mostra a espera e não repete a cada toque;
+// "Salvar no Fotos" entra na fila (contagem no botão, Cancelar) e só uma
+// tentativa por vez sai desta aba.
 await cenario('Limite por IP no download (429)', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE, limite429: 30 });
   await page.locator('.g-t').first().tap();
@@ -719,19 +744,79 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.pswp__button--g-compartilhar').tap();
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
-  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
-  await espera(page, 800);
+  const salvar = page.locator('.g-ver-a').first().locator('.g-btn').first();
+  await salvar.tap();
+  await espera(page, 1500);
   const msg = (await page.locator('#g-folha-msg').textContent()) || '';
-  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(msg), 'Limite: "Salvar no Fotos" mostra a mesma espera na folha', msg);
+  registra(/Você está na fila/.test(msg), 'Limite: "Salvar no Fotos" entra na fila e explica na folha', msg);
+  registra(/Na fila… tentando de novo em \d+ s/.test((await salvar.textContent()) || ''), 'Limite: o botão mostra a contagem "Na fila… tentando de novo em N s"', await salvar.textContent());
+  registra(await page.locator('[data-acao="cancela-fila"]').count() === 1, 'Limite: aparece o botão Cancelar (um só)', '');
   /** @type {string[]} */
   const baixados = [];
   page.on('download', d => baixados.push(urlDe(d)));
   await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
-  await espera(page, 2500);
-  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: depois do 429 nenhum outro pedido sai durante a espera (nem laço, nem toque, nem "Baixar arquivo")', { pedidos: estado.pedidos, baixados });
+  await espera(page, 1500);
+  registra(/Já há downloads na fila/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Limite: com a fila andando, "Baixar arquivo" não abre outra tentativa', await page.locator('#g-folha-msg').textContent());
+  registra(estado.pedidos.length === 2 && baixados.length === 0, 'Limite: só saíram o Compartilhar e a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
   registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
+  await page.locator('[data-acao="cancela-fila"]').tap();
+  await espera(page, 1500);
+  registra(await page.locator('[data-acao="cancela-fila"]').count() === 0, 'Limite: Cancelar encerra a fila e some', '');
+  registra(estado.pedidos.length === 2, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
+});
+
+// A fila sozinha: a sonda recebe 429 (Retry-After 2), o botão conta, depois
+// libera e o download sai sem ninguém tocar de novo.
+await cenario('Fila de download libera sozinha', async () => {
+  const { ctx, page, estado } = await abre({ limite429: 2, limite429Vezes: 1 });
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').click();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const botao = page.locator('.g-op').first();
+  await botao.click();
+  await page.waitForFunction(() => /Na fila/.test(document.querySelector('.g-op')?.textContent || ''), null, { timeout: 5000 });
+  registra(true, 'Fila: o botão vira "Na fila…" quando a sonda recebe 429', await botao.textContent());
+  await page.waitForEvent('download', { timeout: 12000 }).catch(() => null);
+  await espera(page, 300);
+  registra(baixados.length === 1, 'Fila: depois da espera o download sai sozinho (1 arquivo)', baixados);
+  // O download do <a download> é visto pelo evento 'download' (não passa pelo
+  // route do script): os pedidos vistos são só as duas sondas, ambas leves.
+  registra(estado.pedidos.length === 2 && estado.pedidos.every(p => /[?&]p=1/.test(p)) && baixados[0] === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes',
+    'Fila: sonda 429, sonda 204 e então o download da foto (a espera usa só o endpoint leve)', { pedidos: estado.pedidos, baixados });
+  registra(!/Na fila/.test((await botao.textContent()) || ''), 'Fila: o botão volta ao texto normal', await botao.textContent());
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fila: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Botão "Baixar o evento inteiro (Google Drive)": abre a pasta do capítulo em
+// outra aba e o "Pelo Google Drive" da folha "Baixar tudo" aponta para ela.
+await cenario('Botão da pasta no Drive', async () => {
+  const ID = 'CAPITULO_PASTA_0002';
+  const comPasta = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, pastaDrive: { id: ID, resourceKey: '0-abc' }, redes: REDES });
+  const { ctx, page, estado } = await abre({ pagina: comPasta });
+  const a = page.locator('a[data-acao="pasta-drive"]');
+  registra(await a.count() === 1, 'Pasta no Drive: o botão existe uma vez', await a.count());
+  registra(await a.getAttribute('href') === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, 'Pasta no Drive: o link é o da pasta (com resourcekey)', await a.getAttribute('href'));
+  registra(await a.getAttribute('target') === '_blank' && /noopener/.test((await a.getAttribute('rel')) || ''), 'Pasta no Drive: abre em outra aba, sem opener', await a.getAttribute('rel'));
+  registra(/⋮ → Fazer download/.test((await page.locator('.g-pasta-drive').textContent()) || ''), 'Pasta no Drive: a ajuda diz onde tocar', await page.locator('.g-pasta-drive').textContent());
+  const alt = await a.boundingBox();
+  registra(!!alt && alt.height >= 44, 'Pasta no Drive: alvo de toque com 44 px', alt);
+  await page.locator('[data-acao="baixar-tudo"]').first().click().catch(() => {});
+  await espera(page, 400);
+  const href = await page.locator('#g-folha-ops a.g-op').first().getAttribute('href').catch(() => null);
+  registra(href === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, '"Baixar tudo" > "Pelo Google Drive" abre a pasta do capítulo', href);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pasta no Drive: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+  const sem = await abre({});
+  registra(await sem.page.locator('a[data-acao="pasta-drive"]').count() === 0, 'Pasta no Drive: sem pastaDrive, sem botão', '');
+  await sem.ctx.close();
 });
 
 // iPad: finge ser um Mac (UA e plataforma), mas tem toque — também é iOS.
@@ -1020,7 +1105,7 @@ await cenario('Pedir remoção', async () => {
   await page.locator('#g-rem-enviar').click();
   registra((await page.locator('#g-rem-erro').textContent() || '').includes('e-mail') && estado.remocao.length === 0, 'Pedir remoção: sem e-mail válido, avisa e não envia');
 
-  // Enviar. O servidor de mentira diz que escondeu a foto.
+  // Enviar. O servidor de mentira só registra: o pedido nunca esconde a foto.
   await page.fill('#g-rem-email', 'Ana@Example.com ');
   await page.fill('#g-rem-msg', 'É a minha filha.');
   await page.locator('#g-rem-enviar').click();
@@ -1034,19 +1119,20 @@ await cenario('Pedir remoção', async () => {
     texto: document.getElementById('g-rem-ok-txt')?.textContent || '',
     form: (/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
   }));
-  registra(ok.visivel && ok.form && ok.texto.includes('saiu da galeria agora') && ok.texto.includes('analisar') && ok.texto.includes('e-mail'),
-    'Pedir remoção: a confirmação diz que a foto saiu agora, que o fotógrafo vai analisar e que a resposta vai por e-mail', ok);
+  registra(ok.visivel && ok.form && ok.texto.includes('Recebemos o pedido') && ok.texto.includes('O fotógrafo vai analisar') && ok.texto.includes('e-mail')
+    && !/saiu|na hora|agora|minutos/i.test(ok.texto),
+    'Pedir remoção: a confirmação diz só que o fotógrafo vai analisar e responder por e-mail (nada de "sai na hora")', ok);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-ok.png') });
 
-  // A foto some da grade e o visualizador segue para a seguinte.
+  // A foto CONTINUA na grade e no visualizador: quem decide é o fotógrafo.
   const aposEnvio = await page.evaluate(([a, b]) => ({
     alvoNaGrade: document.querySelectorAll('.g-t[href="#foto=' + a + '"]').length,
     seguinteNaGrade: document.querySelectorAll('.g-t[href="#foto=' + b + '"]').length,
     total: document.querySelectorAll('.g-t').length,
     indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
   }), [ALVO, SEGUINTE]);
-  registra(aposEnvio.alvoNaGrade === 0 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 - 1 && aposEnvio.indices,
-    'Pedir remoção: depois do envio a foto some da grade e os índices continuam em ordem', aposEnvio);
+  registra(aposEnvio.alvoNaGrade === 1 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 && aposEnvio.indices,
+    'Pedir remoção: depois do envio a foto continua na grade (o pedido não esconde nada)', aposEnvio);
   await page.keyboard.press('Escape');
   await espera(page, 600);
   const viewer = await page.evaluate(() => ({
@@ -1054,8 +1140,8 @@ await cenario('Pedir remoção', async () => {
     contador: document.querySelector('.pswp__counter')?.textContent || '',
     src: /** @type {HTMLImageElement | null} */ (document.querySelector('.pswp__item:not([aria-hidden="true"]) img.pswp__img:not(.pswp__img--placeholder)'))?.currentSrc || '',
   }));
-  registra(viewer.pswp && viewer.contador === '1 de ' + (total0 - 1) && viewer.src.includes(SEGUINTE),
-    'Pedir remoção: ao fechar a confirmação, o visualizador já está na foto seguinte, com o contador recalculado', viewer);
+  registra(viewer.pswp && viewer.contador === '1 de ' + total0 && viewer.src.includes(ALVO),
+    'Pedir remoção: ao fechar a confirmação, o visualizador segue na mesma foto, com o contador intacto', viewer);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pedir remoção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 
@@ -1080,8 +1166,8 @@ await cenario('Pedir remoção', async () => {
   registra(rec.estado.erros.length === 0 && rec.estado.csp.length === 0, 'Pedir remoção (recusa): sem erro de JS nem CSP', [...rec.estado.erros, ...rec.estado.csp]);
   await rec.ctx.close();
 
-  // Passou do teto: o pedido foi registrado, a foto NÃO sai, e a página não finge que saiu.
-  const teto = await abre({ pagina: PAG, remocao: () => ({ status: 200, json: { ok: true, ocultada: false, motivoNaoOculta: 'ip' } }) });
+  // Acima do teto de pedidos por IP o servidor segue só por e-mail e responde o mesmo: a página não muda.
+  const teto = await abre({ pagina: PAG, remocao: () => ({ status: 200, json: { ok: true } }) });
   await teto.page.locator('.g-t').first().click();
   await teto.page.waitForSelector('.pswp--open', { timeout: 5000 });
   await teto.page.locator('.g-rem-link').click();
@@ -1092,7 +1178,7 @@ await cenario('Pedir remoção', async () => {
   await espera(teto.page, 600);
   const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: document.querySelectorAll('.g-t').length }));
   registra(semOcultar.fotos === total0 && !semOcultar.txt.includes('saiu da galeria') && semOcultar.txt.includes('analisar'),
-    'Pedir remoção: acima do teto a foto continua na galeria e o texto só diz que será analisado', semOcultar);
+    'Pedir remoção: a foto continua na galeria e o texto só diz que será analisado', semOcultar);
   await teto.ctx.close();
 
   // Bloqueador de anúncios: o Turnstile não carrega, o aviso aparece e o botão fica desligado.
@@ -1105,7 +1191,7 @@ await cenario('Pedir remoção', async () => {
   registra(bl.erro.includes('verificação de segurança') && bl.desligado, 'Pedir remoção: Turnstile bloqueado — avisa e não deixa enviar', bl);
   await bloq.ctx.close();
 
-  // Última foto da galeria: depois do pedido o visualizador fecha, sem erro.
+  // Galeria de uma foto só: depois do pedido ela continua lá e o visualizador não fecha sozinho.
   const UMA = { ...LISTAGEM, total: 1, secoes: [{ nome: '', caminho: '', fotos: [raiz[0]] }] };
   const solo = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: UMA, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' }) });
   await solo.page.locator('.g-t').first().click();
@@ -1119,8 +1205,8 @@ await cenario('Pedir remoção', async () => {
   await solo.page.keyboard.press('Escape');
   await espera(solo.page, 700);
   const vazio = await solo.page.evaluate(() => ({ pswp: !!document.querySelector('.pswp--open'), dialogo: /** @type {HTMLDialogElement} */ (document.getElementById('g-rem')).open, fotos: document.querySelectorAll('.g-t').length }));
-  registra(!vazio.pswp && !vazio.dialogo && vazio.fotos === 0, 'Pedir remoção: era a única foto — o visualizador fecha e a grade fica vazia', vazio);
-  registra(solo.estado.erros.length === 0 && solo.estado.csp.length === 0, 'Pedir remoção (última foto): sem erro de JS nem CSP', [...solo.estado.erros, ...solo.estado.csp]);
+  registra(vazio.pswp && !vazio.dialogo && vazio.fotos === 1, 'Pedir remoção: era a única foto — ela continua na grade e o visualizador segue aberto', vazio);
+  registra(solo.estado.erros.length === 0 && solo.estado.csp.length === 0, 'Pedir remoção (única foto): sem erro de JS nem CSP', [...solo.estado.erros, ...solo.estado.csp]);
   await solo.ctx.close();
 
   // No celular: o link cabe na tela e o formulário não vaza para o lado.
@@ -1161,6 +1247,343 @@ await cenario('Pedir remoção', async () => {
   registra((await d.page.locator('.g-rem-link').count()) === 0 && (await d.page.locator('#g-rem').count()) === 0, 'Pedir remoção: o dono não vê o link nem o formulário');
   await d.ctx.close();
 });
+
+// ---- 6f. Galeria por capítulos: créditos, nomes amigáveis, navegação -----------
+// A página de UM capítulo (v3.1): vários fotógrafos na mesma pasta (linha
+// "Fotos: A, B e C", filtro por fotógrafo, "Foto: X" na legenda), o nome do
+// arquivo baixado com a data/hora da foto (a página junta o mesmo que o
+// servidor manda no Content-Disposition), e a navegação para o capítulo
+// anterior/seguinte e o índice. Em 390 e em 360 px, sem rolagem lateral.
+const AUTORES_CAP = ['Luca F. Chala', 'Ana Souza', 'Bruno Lima'];
+const NOME_LONGO = 'Festa de gala com um nome bem comprido para testar o corte no celular';
+/** @param {typeof raiz} fotos @param {number} desde */
+const comAutor = (fotos, desde) => fotos.map((f, i) => /** @type {import('../src/drive.js').FotoDrive} */ ([f[0], f[1], f[2], f[3], f[4], (desde + i) % 3, 20261105143000 + (desde + i) * 7]));
+const LISTAGEM_CAP = {
+  v: /** @type {2} */ (2), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  total: 12, videos: 0, outros: 0, rk: {}, aut: AUTORES_CAP,
+  secoes: [{ nome: '', caminho: '', fotos: comAutor(raiz.slice(0, 6), 0) }, { nome: 'Brinde', caminho: 'Brinde', fotos: comAutor(festa.slice(0, 6), 6) }],
+};
+const EVENTO_CAP = { ...EVENTO, nomesAmigaveis: true, galeriaCapitulos: true };
+const CAP_ATUAL = { slug: 'cerimonia', nome: 'Cerimônia', anterior: { slug: 'abertura', nome: 'Abertura' }, proximo: { slug: 'festa-de-gala', nome: NOME_LONGO } };
+const PAGINA_CAP = galeriaHTML({ event: /** @type {any} */ (EVENTO_CAP), listagem: LISTAGEM_CAP, listagemBruta: LISTAGEM_CAP, capituloNome: 'Cerimônia', capitulo: CAP_ATUAL, erro: null, nonce: NONCE, dono: false, formToken: '' });
+for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { width: 390, height: 844 }, 3], ['Android 360', { width: 360, height: 780 }, 2]])) {
+  await cenario(`Capítulo: ${nome}`, async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_CAP, url: 'https://fotos.test/galeria/formatura/cerimonia', viewport, dpr, toque: true });
+    await espera(page, 800);
+    const topo = await page.evaluate(() => {
+      const nav = /** @type {HTMLElement} */ (document.querySelector('.g-cap-topo'));
+      const links = [...document.querySelectorAll('.g-cap-topo .g-cap-a, .g-cap-fim .g-cap-a')].map(a => {
+        const r = a.getBoundingClientRect();
+        return { href: a.getAttribute('href'), alt: Math.round(r.height), dir: Math.round(r.right), esq: Math.round(r.left) };
+      });
+      const chips = /** @type {HTMLElement} */ (document.getElementById('g-chips'));
+      const cr = [...document.querySelectorAll('.g-chip')].map(c => Math.round(c.getBoundingClientRect().height));
+      return {
+        h1: (document.getElementById('g-h1') || {}).textContent,
+        autores: (document.querySelector('.g-autores') || {}).textContent,
+        title: document.title,
+        navOverflow: nav.scrollWidth > nav.clientWidth + 1,
+        links,
+        chipsVisiveis: !chips.hidden,
+        grupo: [...document.querySelectorAll('.g-chips-grupo [data-acao="filtro-autor"]')].map(b => (b.textContent || '').replace(/\s+/g, ' ').trim()),
+        grupoRotulo: (document.querySelector('.g-chips-grupo') || document.body).getAttribute('aria-label'),
+        chipsAlturas: cr,
+        lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+      };
+    });
+    registra(topo.h1 === 'Formatura 2026 · Cerimônia' && /Cerimônia/.test(topo.title), `${nome}: o título diz o evento e o capítulo`, { h1: topo.h1, title: topo.title });
+    registra(topo.autores === 'Fotos: Luca F. Chala, Ana Souza e Bruno Lima', `${nome}: a linha de créditos lista os três fotógrafos`, topo.autores);
+    registra(topo.chipsVisiveis && topo.grupoRotulo === 'Fotógrafo' && topo.grupo.length === 4 && /^Todos/.test(topo.grupo[0]) && topo.grupo.slice(1).every((t, i) => t.startsWith(AUTORES_CAP[i])),
+      `${nome}: filtro por fotógrafo (Todos + um por autor), em grupo rotulado`, topo.grupo);
+    registra(topo.chipsAlturas.length > 0 && topo.chipsAlturas.every(h => h >= 44), `${nome}: todos os chips têm 44 px de alvo`, topo.chipsAlturas);
+    const hrefs = topo.links.map(l => l.href);
+    registra(hrefs.includes('/galeria/formatura/abertura') && hrefs.includes('/galeria/formatura/festa-de-gala') && hrefs.includes('/galeria/formatura'),
+      `${nome}: navegação para o capítulo anterior, o seguinte e o índice`, hrefs);
+    registra(topo.links.every(l => l.alt >= 44 && l.esq >= 0 && l.dir <= viewport.width), `${nome}: os links de capítulo têm 44 px e cabem na largura (nome longo cortado)`, topo.links);
+    registra(!topo.navOverflow && !topo.lateral, `${nome}: a barra de capítulos e a página não rolam para o lado`, { nav: topo.navOverflow, pagina: topo.lateral });
+
+    // Filtrar por Ana: só as fotos dela (índices 1, 4, 7, 10 → 4 fotos).
+    const total = await page.locator('.g-t').count();
+    await page.locator('.g-chips-grupo [data-acao="filtro-autor"]').nth(2).tap();
+    await espera(page, 500);
+    const filtrado = await page.evaluate(() => ({
+      n: document.querySelectorAll('.g-t').length,
+      marcado: [...document.querySelectorAll('.g-chips-grupo [aria-pressed="true"]')].map(b => (b.textContent || '').trim().split(/\s+/).slice(0, 2).join(' ')),
+      lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+    }));
+    registra(total === 12 && filtrado.n === 4 && filtrado.marcado.length === 1 && filtrado.marcado[0].startsWith('Ana') && !filtrado.lateral,
+      `${nome}: filtrar por Ana mostra só as 4 fotos dela, com o chip marcado`, { total, ...filtrado });
+    await page.locator('.g-chips-grupo [data-acao="filtro-autor"]').nth(2).tap();
+    await espera(page, 400);
+    registra(await page.locator('.g-t').count() === 12, `${nome}: tocar de novo no fotógrafo volta a todas as fotos`);
+
+    // Legenda do visualizador com o crédito, e o nome amigável do download.
+    await page.evaluate(() => {
+      /** @type {any} */ (window).__links = [];
+      const orig = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {
+        /** @type {any} */ (window).__links.push({ href: this.getAttribute('href'), download: this.getAttribute('download') });
+        return orig.call(this);
+      };
+    });
+    await page.locator('.g-t').nth(1).tap(); // foto 2: da Ana, na seção da raiz
+    await page.waitForSelector('.pswp--open');
+    await espera(page, 800);
+    const legenda = await page.evaluate(() => ({ txt: (document.querySelector('.g-leg-a') || {}).textContent || '', todo: (document.querySelector('.pswp__custom-caption, .g-legenda') || document.body).textContent || '' }));
+    registra(legenda.txt === 'Foto: Ana Souza', `${nome}: a legenda do visualizador credita a fotógrafa da foto`, legenda.txt);
+    await page.locator('.pswp__button--g-baixar').tap();
+    await page.waitForSelector('#g-folha:not([hidden])');
+    await page.locator('.g-op').last().tap();
+    await espera(page, 600);
+    const links = await page.evaluate(() => /** @type {any} */ (window).__links);
+    const idAna = LISTAGEM_CAP.secoes[0].fotos[1][0];
+    const esperado = nomeAmigavel(/** @type {any} */ (LISTAGEM_CAP), { titulo: 'Formatura 2026', capitulo: 'Cerimônia' }, idAna, 'x.jpg');
+    const baixou = links.find((/** @type {any} */ l) => /\/baixar\//.test(l.href || ''));
+    registra(!!baixou && baixou.href === `/galeria/formatura/cerimonia/baixar/${idAna}?v=max` && baixou.download === esperado && /Ana Souza/.test(esperado || '') && /Cerim/.test(esperado || '') && esperado !== LISTAGEM_CAP.secoes[0].fotos[1][3],
+      `${nome}: o download leva o nome amigável (evento, capítulo, fotógrafa, data/hora) — o mesmo cálculo do servidor`, { baixou, esperado });
+    if (nome === 'iPhone 390') await verificaAxe(page, registra, `${nome}: capítulo com vários fotógrafos (tema claro)`);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: capítulo sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
+
+// ---- 6g. Índice de capítulos ----------------------------------------------------
+// Um cartão por subpasta, com a capa e a contagem do resumo; capítulo vazio só
+// para o dono; nome comprido quebra sem estourar a tela (360 px).
+const CAPS_IDX = {
+  v: /** @type {1} */ (1), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  caps: [
+    { id: 'CAPABERTURA0001', rk: '', bruto: 'Abertura', nome: 'Abertura', slug: 'abertura' },
+    { id: 'CAPCERIMONIA001', rk: '', bruto: 'Cerimônia', nome: 'Cerimônia', slug: 'cerimonia' },
+    { id: 'CAPGALA00000001', rk: '', bruto: NOME_LONGO, nome: NOME_LONGO, slug: 'festa-de-gala' },
+    { id: 'CAPVAZIO0000001', rk: '', bruto: 'Ainda sem fotos', nome: 'Ainda sem fotos', slug: 'ainda-sem-fotos' },
+  ],
+};
+const RESUMO_IDX = { CAPABERTURA0001: { n: 1, capas: [raiz[0][0]] }, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]] }, CAPGALA00000001: { n: 120, capas: [raiz[2][0]] }, CAPVAZIO0000001: { n: 0, capas: [] } };
+for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360', { width: 360, height: 780 }, 2, false], ['visitante 390', { width: 390, height: 844 }, 3, false], ['dono 360', { width: 360, height: 780 }, 2, true]])) {
+  await cenario(`Índice: ${nome}`, async () => {
+    const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo: RESUMO_IDX, ocultas: [], dono, indexavel: true, nonce: NONCE });
+    const { ctx, page, estado } = await abre({ pagina, viewport, dpr, toque: true });
+    await espera(page, 500);
+    const m = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.ix-card')].map(c => {
+        const r = c.getBoundingClientRect();
+        return { nome: (c.querySelector('.ix-nome') || {}).textContent, sub: (c.querySelector('.ix-sub') || {}).textContent, href: c.getAttribute('href'), alt: Math.round(r.height), esq: Math.round(r.left), dir: Math.round(r.right) };
+      });
+      return { cards, lateral: document.scrollingElement.scrollWidth > window.innerWidth, h1: (document.querySelector('h1') || {}).textContent, meta: (document.querySelector('.ix-meta') || {}).textContent };
+    });
+    const nomes = m.cards.map(c => c.nome);
+    registra(m.h1 === 'Formatura 2026', `Índice ${nome}: o título é o do evento`, m.h1);
+    if (dono) {
+      registra(m.cards.length === 4 && m.cards[3].sub === 'vazio', `Índice ${nome}: o dono vê o capítulo vazio, marcado "vazio"`, m.cards.map(c => c.sub));
+    } else {
+      registra(m.cards.length === 3 && !nomes.includes('Ainda sem fotos'), `Índice ${nome}: o visitante não vê o capítulo vazio`, nomes);
+      registra(m.cards[0].sub === '1 foto' && m.cards[1].sub === '12 fotos', `Índice ${nome}: a contagem do cartão (singular e plural)`, m.cards.map(c => c.sub));
+    }
+    registra(m.cards.every(c => c.href && c.href.startsWith('/galeria/formatura/') && c.alt >= 44 && c.esq >= 0 && c.dir <= viewport.width), `Índice ${nome}: cada cartão leva ao capítulo, cabe na tela e tem alvo de toque`, m.cards);
+    registra(!m.lateral, `Índice ${nome}: sem rolagem lateral (nome comprido incluso)`);
+    if (nome === 'visitante 390') await verificaAxe(page, registra, `Índice ${nome}: capítulos (tema claro)`);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `Índice ${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
+
+// "N novas" nos cartões (item j, #250): a visita anterior ao capítulo está no
+// localStorage; só o cartão com foto mais nova que ela ganha a marca.
+await cenario('Índice: N novas desde a última visita', async () => {
+  const agora = Date.now();
+  const cr = (/** @type {number} */ atrasoMs) => Math.floor((agora - atrasoMs - EPOCA_CRIADA_MS) / 60_000);
+  const resumo = { ...RESUMO_IDX, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]], cr: [cr(3_600_000), cr(2 * 3_600_000), cr(10 * 3_600_000)] } };
+  const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo, ocultas: [], dono: false, indexavel: true, nonce: NONCE });
+  const visita = { p: 0, u: agora - 5 * 3_600_000 };
+  const { ctx, page, estado } = await abre({ pagina, viewport: { width: 390, height: 844 }, dpr: 2, toque: true, storage: { 'gal-visita:formatura:cerimonia': JSON.stringify(visita), 'gal-visita:formatura:abertura': JSON.stringify(visita) } });
+  await espera(page, 500);
+  const m = await page.evaluate(() => [...document.querySelectorAll('.ix-card')].map(c => ((c.querySelector('.ix-novas') || {}).textContent || '')));
+  registra(m[1] === '2 novas' && m[0] === '' && m[2] === '', 'Índice novas: só o capítulo com fotos depois da última visita ganha "2 novas" (a foto de 10 h atrás é anterior)', m);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Índice novas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
+// O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
+// foto com selo "LIVE". No visualizador o vídeo abre como FACHADA (miniatura +
+// botão de play, nada do Google carrega); só o toque no play coloca o iframe do
+// player do Drive. O CSP libera o frame do Drive só nesta página.
+const MIDIA_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
+  ['MIDIAFOTO_000001', 4032, 3024, 'IMG_0100.HEIC', 3_000_000, 0, 20261105143000, ['MIDIALIVE_000001', 'IMG_0100.MOV', 2_000_000]],
+  ['MIDIAVIDEO_00001', 1920, 1080, 'passeio.mp4', 90_000_000, 0, 0, 75],
+  ['MIDIAFOTO_000002', 4032, 3024, 'IMG_0101.jpg', 3_000_000, 0, 20261105143100],
+]);
+for (const f of MIDIA_FOTOS) POR_ID.set(f[0], /** @type {any} */ (f));
+const LISTAGEM_MIDIA = {
+  v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  total: 3, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: MIDIA_FOTOS }],
+};
+const PAGINA_MIDIA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM_MIDIA, erro: null, nonce: NONCE });
+for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { width: 1440, height: 900 }, 1, false], ['iPhone 390', { width: 390, height: 844 }, 3, true]])) {
+  await cenario(`Vídeo: ${nome}`, async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, viewport, dpr, toque, driveFrame: true });
+    await espera(page, 800);
+    const grade = await page.evaluate(() => ({
+      n: document.querySelectorAll('.g-t').length,
+      play: [...document.querySelectorAll('.g-t .g-play')].map(e => (e.textContent || '').trim()),
+      live: [...document.querySelectorAll('.g-t .g-live')].map(e => (e.textContent || '').trim()),
+      rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label')),
+      iframes: document.querySelectorAll('iframe').length,
+      lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+    }));
+    registra(grade.n === 3 && grade.play.length === 1 && grade.play[0] === '1:15' && grade.live.length === 1 && grade.live[0] === 'LIVE',
+      `Vídeo ${nome}: a grade mostra o selo de play com a duração (1:15) e o selo LIVE na foto`, grade);
+    registra(/^Vídeo passeio/.test(grade.rotulos[1] || '') && /^Live Photo IMG_0100/.test(grade.rotulos[0] || '') && /^Foto IMG_0101/.test(grade.rotulos[2] || ''),
+      `Vídeo ${nome}: o rótulo de cada tile diz se é vídeo, Live Photo ou foto`, grade.rotulos);
+    registra(grade.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: antes do toque nenhum iframe e nenhum pedido ao Google Drive`, { iframes: grade.iframes, drive: estado.drive });
+    registra(!grade.lateral, `Vídeo ${nome}: sem rolagem lateral`);
+
+    // Abre o vídeo: fachada, ainda sem iframe nem pedido ao Drive.
+    if (toque) await page.locator('.g-t').nth(1).tap(); else await page.locator('.g-t').nth(1).click();
+    await page.waitForSelector('.pswp--open', { timeout: 5000 });
+    await espera(page, 1000);
+    const fachada = await page.evaluate(() => {
+      const box = document.querySelector('.pswp__item[aria-hidden="false"] .g-vid') || document.querySelector('.pswp .g-vid');
+      const b = box && box.querySelector('.g-vid-play');
+      const r = b ? b.getBoundingClientRect() : null;
+      return {
+        tem: !!box, botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', dur: box && box.querySelector('.g-vid-dur') ? (box.querySelector('.g-vid-dur').textContent || '') : '',
+        alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, iframes: document.querySelectorAll('iframe').length,
+        legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent,
+      };
+    });
+    registra(fachada.tem && fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo) && fachada.dur === '1:15' && fachada.alvo >= 44,
+      `Vídeo ${nome}: o visualizador abre a fachada (miniatura, botão Tocar com 44 px e duração)`, fachada);
+    registra(fachada.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: a fachada não carrega nada do Google`, { iframes: fachada.iframes, drive: estado.drive });
+    registra(/passeio/.test(fachada.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, fachada.legenda);
+
+    // O toque no play coloca o iframe do player, sem violar o CSP.
+    if (toque) await page.locator('.g-vid-play').first().tap(); else await page.locator('.g-vid-play').first().click();
+    await espera(page, 900);
+    const tocando = await page.evaluate(() => {
+      const f = document.querySelector('.pswp iframe');
+      return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow'), sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy') } : null;
+    });
+    registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen',
+      `Vídeo ${nome}: o toque no play põe o player do Drive (/preview, só tela cheia)`, tocando);
+    registra(estado.drive.some(x => x === '/file/d/MIDIAVIDEO_00001/preview'), `Vídeo ${nome}: só agora o Drive é chamado`, estado.drive);
+
+    // Sair do slide devolve a fachada (o vídeo para de tocar).
+    // (Com o foco dentro do player o teclado é do player: troca pelos botões.)
+    if (toque) {
+      // No toque o PhotoSwipe esconde as setas (a troca é o arrastar): fecha e
+      // reabre o vídeo — o player não pode voltar sozinho.
+      await page.locator('.pswp__button--close').tap();
+      await espera(page, 700);
+      await page.locator('.g-t').nth(1).tap();
+      await page.waitForSelector('.pswp--open', { timeout: 5000 });
+      await espera(page, 900);
+    } else {
+      await page.locator('.pswp__button--arrow--prev').click();
+      await espera(page, 800);
+      await page.locator('.pswp__button--arrow--next').click();
+      await espera(page, 800);
+    }
+    const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
+    registra(volta.iframes === 0 && volta.botao, `Vídeo ${nome}: sair do slide e voltar traz a fachada de novo (o vídeo parou)`, volta);
+
+    // Live Photo: o download oferece a foto E o vídeo do Live.
+    if (toque) await page.locator('.pswp__button--close').tap(); else await page.locator('.pswp__button--close').click();
+    await espera(page, 600);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `Vídeo ${nome}: sem erro de JS nem violação de CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
+await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
+  // Prova de que a liberação do frame do Drive é mesmo o que faz o player
+  // funcionar: sem ela (página sem vídeo no servidor) o navegador bloqueia.
+  const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: false });
+  await page.locator('.g-t').nth(1).click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(page, 800);
+  await page.locator('.g-vid-play').first().click();
+  await espera(page, 800);
+  registra(estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0, 'Vídeo: sem a liberação no CSP o frame do Drive é barrado (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive });
+  await ctx.close();
+});
+
+// ---- 6h. Fotos novas desde a última visita (item j, #250) -------------------
+// A última visita vive só no localStorage. Com visita anterior há duas horas:
+// as fotos que chegaram depois ganham a marca "nova" (e o rótulo diz), o chip
+// "Só as novas" filtra a grade, e recarregar a página não apaga as marcas.
+// Sem visita anterior nada é marcado, e a página grava a visita de agora.
+{
+  const cr = (/** @type {number} */ atrasoMs) => Math.floor((Date.now() - atrasoMs - EPOCA_CRIADA_MS) / 60_000);
+  const HORA = 3_600_000;
+  const NOVAS_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
+    ['NOVASFOTO_000001', 4000, 3000, 'chegou-agora.jpg', 3_000_000, 0, 0, null, cr(HORA)],
+    ['NOVASFOTO_000002', 4000, 3000, 'chegou-ontem.jpg', 3_000_000, 0, 0, null, cr(3 * HORA)],
+    ['NOVASFOTO_000003', 4000, 3000, 'sem-data.jpg', 3_000_000],
+    ['NOVASVIDEO_00001', 1920, 1080, 'filme.mp4', 9_000_000, 0, 0, 20, cr(HORA / 2)],
+  ]);
+  for (const f of NOVAS_FOTOS) POR_ID.set(f[0], /** @type {any} */ (f));
+  const PAGINA_NOVAS = galeriaHTML({
+    event: EVENTO, nonce: NONCE, erro: null,
+    listagem: { v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false, total: 4, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: NOVAS_FOTOS }] },
+  });
+  const CHAVE = 'gal-visita:formatura:';
+  const leTela = (/** @type {import('playwright-core').Page} */ page) => page.evaluate(() => ({
+    marcadas: [...document.querySelectorAll('.g-t.nova')].map(a => a.getAttribute('data-i')),
+    selos: document.querySelectorAll('.g-t .g-nova').length,
+    rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label') || ''),
+    chip: (() => { const b = document.querySelector('[data-acao="filtro-novas"]'); return b ? (b.textContent || '').trim() : null; })(),
+    visiveis: [...document.querySelectorAll('.g-t')].filter(a => /** @type {HTMLElement} */ (a).offsetParent !== null && !/** @type {HTMLElement} */ (a).hidden).length,
+    visita: localStorage.getItem('gal-visita:formatura:'),
+    lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+  }));
+  for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { width: 1440, height: 900 }, 1, false], ['iPhone 390', { width: 390, height: 844 }, 3, true]])) {
+    await cenario(`Fotos novas: ${nome}`, async () => {
+      const antes = Date.now() - 2 * HORA;
+      const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS, viewport, dpr, toque, storage: { [CHAVE]: JSON.stringify({ p: 0, u: antes }) } });
+      await espera(page, 500);
+      const t = await leTela(page);
+      registra(t.marcadas.join() === '0,3' && t.selos === 2, `Fotos novas ${nome}: só o que chegou depois da visita anterior ganha a marca (a foto e o vídeo recentes; não a antiga nem a sem data)`, t);
+      registra(/, nova$/.test(t.rotulos[0]) && /, nova$/.test(t.rotulos[3]) && !/nova/.test(t.rotulos[1]) && !/nova/.test(t.rotulos[2]), `Fotos novas ${nome}: o rótulo de acessibilidade diz "nova"`, t.rotulos);
+      registra(t.chip === 'Só as novas2', `Fotos novas ${nome}: o chip "Só as novas" mostra a contagem`, t.chip);
+      const v = JSON.parse(t.visita || 'null');
+      registra(!!v && v.p === antes && v.u > antes + HORA, `Fotos novas ${nome}: a página grava a visita de agora e guarda a anterior`, t.visita);
+      registra(!t.lateral, `Fotos novas ${nome}: sem rolagem lateral`);
+
+      // O filtro.
+      await page.locator('[data-acao="filtro-novas"]').click();
+      await espera(page, 700);
+      const f = await leTela(page);
+      registra(f.visiveis === 2 && /true/.test(await page.locator('[data-acao="filtro-novas"]').getAttribute('aria-pressed') || ''), `Fotos novas ${nome}: "Só as novas" deixa só as duas na grade`, f);
+      await page.locator('[data-acao="filtro-novas"]').click();
+      await espera(page, 700);
+      registra((await leTela(page)).visiveis === 4, `Fotos novas ${nome}: tocar de novo volta todas`);
+
+      // Recarregar dentro da mesma sessão mantém as marcas.
+      await page.reload();
+      await espera(page, 900);
+      const r = await leTela(page);
+      registra(r.marcadas.join() === '0,3', `Fotos novas ${nome}: recarregar dentro de 30 minutos não apaga as marcas`, r);
+      registra(estado.erros.length === 0 && estado.csp.length === 0, `Fotos novas ${nome}: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
+      await ctx.close();
+    });
+  }
+  await cenario('Fotos novas: primeira visita', async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS });
+    await espera(page, 400);
+    const t = await leTela(page);
+    const v = JSON.parse(t.visita || 'null');
+    registra(t.selos === 0 && t.chip === null && !!v && v.p === 0, 'Fotos novas: sem visita anterior nada é marcado e a visita de agora é gravada', t);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fotos novas: primeira visita sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+  await cenario('Fotos novas: sem localStorage', async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_NOVAS, semStorage: true });
+    await espera(page, 400);
+    registra(estado.erros.length === 0 && (await page.locator('.g-t').count()) === 4, 'Fotos novas: com o armazenamento bloqueado a galeria abre normalmente, sem marcas', estado.erros);
+    await ctx.close();
+  });
+}
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {

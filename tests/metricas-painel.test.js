@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 const fonte = readFileSync(new URL('../src/ui/dashboard.js', import.meta.url), 'utf8');
 
 const NOMES = [
-  'escalaMetricas', 'recorteMetricas', 'taxaAbertura', 'pctTaxa', 'variacao', 'indicePico', 'mediaPorSemana',
+  'escalaMetricas', 'recorteMetricas', 'recorteGaleria', 'taxaAbertura', 'pctTaxa', 'variacao', 'indicePico', 'mediaPorSemana',
   'diaCurto', 'diaLongo', 'marcasX', 'geoX', 'geoY', 'svgLinhas', 'svgColunas', 'sparkline',
 ];
 
@@ -314,5 +314,71 @@ describe('taxa de abertura — nunca passa de 100%', () => {
     expect(fonte).toMatch(/Aberturas \(Drive ou galeria\) ÷ visitas, limitado a 100%/);
     expect(fonte).toMatch(/title="' \+ DICA_TAXA \+ '"/);
     expect(fonte).toMatch(/robôs desconhecidos/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('recorteGaleria — a aba Galeria (v3.1)', () => {
+  const dias = diasAte('2026-10-10', 10);
+  const zeros = () => new Array(10).fill(0);
+  // Período de 3 dias = índices 7..9; o anterior = 4..6.
+  const d = {
+    dias,
+    primeiroDia: dias[0],
+    projetos: {
+      a: { views: zeros(), driveClicks: zeros(), galeria: [0, 0, 0, 0, 2, 2, 2, 1, 2, 3], baixarRedes: [0, 0, 0, 0, 0, 0, 0, 4, 0, 2], baixarMax: [0, 0, 0, 0, 0, 0, 0, 0, 3, 0] },
+      b: { views: zeros(), driveClicks: zeros(), galeria: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5], baixarRedes: zeros(), baixarMax: zeros() },
+    },
+    capitulos: {
+      a: {
+        'festa': [0, 0, 0, 0, 1, 1, 0, 1, 1, 2],
+        'cerimonia': [0, 0, 0, 0, 1, 0, 1, 0, 1, 0],
+        'vazio': zeros(),
+      },
+    },
+  };
+
+  it('razão baixadas ÷ aberturas, com a do período anterior', () => {
+    const r = G.recorteGaleria(d, 3, 'a');
+    expect(r.totG).toBe(6);
+    expect(r.totR + r.totM).toBe(9);
+    expect(r.razao).toBe(1.5);
+    expect(r.temAnterior).toBe(true);
+    expect(r.antG).toBe(6);
+    expect(r.antB).toBe(0);
+    expect(r.razaoAnt).toBe(0);
+  });
+
+  it('sem abertura a razão é null (nunca NaN nem divisão por zero)', () => {
+    const r = G.recorteGaleria({ ...d, projetos: { z: { views: zeros(), driveClicks: zeros() } } }, 3, '');
+    expect(r.razao).toBeNull();
+    expect(r.razaoAnt).toBeNull();
+    expect(r.totG).toBe(0);
+  });
+
+  it('todos os projetos somam; um projeto escolhido separa', () => {
+    expect(G.recorteGaleria(d, 3, '').totG).toBe(11);
+    expect(G.recorteGaleria(d, 3, 'b').totG).toBe(5);
+  });
+
+  it('capítulos: só com projeto escolhido, do mais aberto ao menos, sem os que ninguém abriu, com o período anterior', () => {
+    expect(G.recorteGaleria(d, 3, '').capitulos).toEqual([]);
+    const r = G.recorteGaleria(d, 3, 'a');
+    expect(r.capitulos).toEqual([
+      { slug: 'festa', total: 4, ant: 2 },
+      { slug: 'cerimonia', total: 1, ant: 2 },
+    ]);
+  });
+
+  it('projeto sem capítulos e série sem o campo "capitulos" (servidor antigo) não quebram', () => {
+    expect(G.recorteGaleria(d, 3, 'b').capitulos).toEqual([]);
+    const semCaps = { ...d };
+    delete semCaps.capitulos;
+    expect(G.recorteGaleria(semCaps, 3, 'a').capitulos).toEqual([]);
+  });
+
+  it('empate no ranking desempata pelo nome (ordem estável)', () => {
+    const e = { ...d, capitulos: { a: { b: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0], a: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0] } } };
+    expect(G.recorteGaleria(e, 3, 'a').capitulos.map(c => c.slug)).toEqual(['a', 'b']);
   });
 });

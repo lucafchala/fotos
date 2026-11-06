@@ -259,7 +259,7 @@ non-versioned deployment". Isso pega o `deploy.yml`, que sobe a versão do
 portão por esse caminho: depois do merge de um PR com migração nova
 (`[[migrations]]` com uma tag nova no `wrangler.toml`), o deploy **falha no
 upload**, de propósito e com a mensagem explicando, e o caminho é redisparar à
-mão com `unversioned: true` (README, deploy manual). Não há atalho: migração e
+mão com `unversioned: true` (docs/REFERENCIA.md, deploy manual). Não há atalho: migração e
 código sobem juntos, não dá para aplicar só a migração antes.
 
 Até 12/10/2026 isso pegava também **todo build de PR**: o Cloudflare Workers
@@ -271,7 +271,7 @@ comentário do bot no PR não trazia link nenhum: só "Deployment successful" e,
 no check, um Version ID.
 
 Desde então os builds de PR saem por **`npx wrangler preview`** (Worker
-Previews; README, "Prévia de PR"): cada prévia tem dados próprios e um
+Previews; docs/REFERENCIA.md, "Prévia de PR"): cada prévia tem dados próprios e um
 namespace de Durable Object próprio, criado a partir das migrações do topo do
 `wrangler.toml`. Como uma migração **nova** chega a uma prévia que já existe
 ainda não foi visto — o primeiro PR com `v2` responde, e o resultado entra
@@ -463,8 +463,8 @@ há liberação gradual por porcentagem: isso foi substituído pela abertura
 direta. A página do álbum público leva primeiro à galeria ("Ver e baixar as
 fotos"); o Drive virou opção secundária. A faixa do dono (atalhos do painel,
 "Atualizar lista") só aparece para o dono logado; `?atualizar` só relê o Drive
-para o dono. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
-"Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link".
+para o dono. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo em docs/REFERENCIA.md,
+"Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link" (**Leitor** basta para a galeria ler; a pasta **colaborativa** da v3.1 é "Editor", ver §5.20).
 
 O que já mordeu, ou morderia:
 
@@ -550,21 +550,24 @@ O que já mordeu, ou morderia:
   navegação vira download antes da rota. O `verifica:galeria` confere a URL do
   download; o nome do arquivo (o `Content-Disposition`) está na suíte.
 
-- **Pedir remoção desta foto (novembro/2026, branch `v3-remocao`).** Rota
-  própria `POST /api/galeria/remocao` (o `/api/removal-request` exige telefone
-  e consentimento e não oculta). Ordem: honeypot, token, teto de pedidos por IP,
-  Turnstile, validação, `podeVerGaleria`, foto na listagem, ocultar (um
-  `saveEvents`) e registrar (`registraPedidoPublico`). `ocultasPendentes` é
-  sempre subconjunto de `fotosOcultas` (`normalizaPendentes`). Tetos em
-  `src/config.js` (5 por IP/dia, 20 por álbum/dia, 10 pedidos por IP/dia);
-  menor NÃO fura os tetos. As chaves `galeria-oculta` e `galeria-remocao`
-  precisam estar em `LIMITES_DO_APARELHO` (`src/previa.js`; um teste cobra).
-  O formulário é um `<dialog>` nativo, não parte do PhotoSwipe (o trap de foco
-  dele brigaria com o Turnstile). O script da galeria continua sem crase,
-  `${}` nem barra invertida. Risco conhecido: o `events` é lido-modificado-
-  gravado, então duas ocultações simultâneas podem perder uma (a janela é
-  pequena; o pedido continua registrado e o dono vê o selo). O contador "N
-  fotos" do cabeçalho não atualiza ao vivo.
+- **Pedir remoção desta foto (novembro/2026; por aprovação desde a v3.1).**
+  Rota própria `POST /api/galeria/remocao` (o `/api/removal-request` exige
+  telefone e consentimento). Ordem: honeypot, token, limite de pedidos por IP,
+  Turnstile, validação, `podeVerGaleria`, foto na listagem e `registraPedidoPublico`.
+  **O pedido NÃO esconde a foto**: ela fica no ar até o dono decidir no painel
+  ("Remover da galeria" esconde, avisa quem pediu e o autor; "Manter na
+  galeria" avisa os dois). Limites em `src/config.js`: 30 pedidos por IP/dia
+  chegam ao painel, até 200 só por e-mail, depois uma página amigável; menor
+  ganha prioridade e assunto próprio, sem furar limite. Não existem mais os
+  tetos de ocultação (5 por IP, 20 por álbum) nem o balde `galeria-oculta`;
+  `ocultasPendentes` não é mais gravado (um backup antigo com o campo ainda
+  restaura) e os desfechos antigos `mantida`/`devolvida` continuam valendo.
+  `galeria-remocao` e `galeria-remocao-email` precisam estar em
+  `LIMITES_DO_APARELHO` (`src/previa.js`; um teste cobra). O formulário é um
+  `<dialog>` nativo, não parte do PhotoSwipe (o trap de foco dele brigaria com
+  o Turnstile). O script da galeria continua sem crase, `${}` nem barra
+  invertida. Os Termos e a Privacidade descrevem exatamente isso (a foto fica
+  até o dono decidir): mudar o comportamento muda o texto e a `TERMS_VERSION`.
 
 ### 5.14. Painel: o card de evento vai ao navegador por `toString()` — e o bundle mexe nele
 
@@ -630,7 +633,7 @@ lista inteira e saiu com ela.
 
 ### 5.16. Prévia de PR: a faixa vem antes da página — e as simulações trocam o `env`, não o código
 
-A prévia de cada PR (Cloudflare Worker Previews; README, "Prévia de PR") roda
+A prévia de cada PR (Cloudflare Worker Previews; docs/REFERENCIA.md, "Prévia de PR") roda
 o código de produção com uma camada por fora do roteador, `src/previa.js`,
 ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
 `wrangler.toml` declara). Quatro coisas que valem saber antes de mexer nela:
@@ -675,7 +678,7 @@ que o código, a cada push. Duas consequências:
 
 - só os cinco nomes de `SEGREDOS_DA_PREVIA` sobem, e só com o prefixo; um
   `PREVIA_*` a mais é ignorado com aviso. Segredo novo de prévia: acrescente
-  lá, e o teste exige a linha dele no README;
+  lá, e o teste exige a linha dele em docs/REFERENCIA.md;
 - o script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma
   prévia que já o recebeu (`npx wrangler preview secret delete`);
 - sem `PREVIA_SIGNING_SECRET`, o build **gera** um a cada publicação (64
@@ -744,6 +747,140 @@ FALHA no relatório: antes, um campo que não aparecia derrubava o roteiro sem
 imprimir nada, e uma mutação "escapava" só porque o processo morria.
 
 ---
+
+### 5.19. Pico de acessos na galeria: o que cada visitante custa (item 1g)
+
+Medido por `tests/galeria-pico.test.js` (rode `MEDE_CPU=1 npx vitest run tests/galeria-pico.test.js` para ver
+os números de CPU). O plano gratuito limita **100 mil requisições/dia** ao
+Worker e **100 mil linhas escritas/dia** aos Durable Objects, e ~1000
+escritas de KV/dia na conta.
+
+**Requisições ao Worker por visitante** (as miniaturas e as fotos do
+visualizador vão direto ao `lh3.googleusercontent.com`; não passam pelo Worker):
+
+| O que o visitante faz | Requisições ao Worker |
+|---|---|
+| Abre a galeria/capítulo | 1 (HTML) + 3 de vendor (PhotoSwipe: CSS e 2 JS, imutáveis; o navegador guarda, a 2a visita gasta 0) |
+| Percorre as fotos e abre o visualizador | 0 (tudo no lh3) |
+| Baixa 1 foto | 2 (sonda `?p=1` + o download) |
+| Baixa N fotos | 2 por foto |
+| Compartilhar / "Salvar no Fotos" | 1 por foto (busca do arquivo; no iPhone, sem sonda) |
+
+Uma pessoa que só olha custa ~4 requisições na 1a vez e 1 nas seguintes. Um
+evento com 1.000 pessoas que baixam 5 fotos cada: ~1.000 x 4 + 1.000 x 5 x 2 = 14.000
+requisições, 14% da cota do dia.
+
+**Chamadas a infraestrutura por caminho** (contagem do teste, página já
+quente):
+
+| Caminho | KV (escrita) | Durable Object | D1 | Drive (listagem) | Cache API |
+|---|---|---|---|---|---|
+| Página, cookie `gv_<slug>` presente | 0 | 0 | 0 | 0 | 1 leitura |
+| Página, 1a visita do navegador na hora | 0 | 1 (contador, em `waitUntil`) | 0 | 0 | 1 leitura |
+| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo) | 0 |
+| Lista vencida | 0 | 1 (lease, só quem relê) | 0 ou 1 (snapshot) | 1 listagem no mundo todo | 1 escrita |
+
+CPU da página de capítulo com 6.000 itens, memória quente: ~3,5 ms para montar
+o HTML e ~6,4 ms na requisição inteira (meta: <= 10 ms; o teto do plano é 10 ms).
+
+**Por que a lista não "estoura" quando vence:** o site serve a lista vencida
+(memória, depois Cache API, depois snapshot no D1) e **uma única** requisição
+no mundo relê o Drive, por um lease curto no DO (`tomaLease`). Sem nenhuma
+lista guardada, só quem ganha o lease lista; os outros veem "Carregando as
+fotos…" (503, `Retry-After: 5`, atualiza sozinha em 4 s). O teste de 200
+requisições simultâneas prende: no máximo 1 listagem.
+
+**Limites por IP e Wi-Fi de evento (NAT):** ver o bloco "AUDITORIA DOS LIMITES
+POR IP" em `src/config.js`. Ver, abrir capítulo, ver foto e baixar não barram
+300 pessoas atrás de um IP; só os limites antiabuso (pedir remoção, ocultar,
+formulários, login) são por IP, e o excesso de pedidos de remoção vai para o
+fluxo "chega ao dono por e-mail" em vez de erro.
+
+**Download sob carga:** o Google recusa arquivos muito baixados. O Worker tenta
+de novo uma vez e, se continuar, responde 503 "ocupado" com `Retry-After` de
+20 a 60 s (com jitter). No navegador o botão vira "Na fila… tentando de novo em
+N s" e tenta sozinho, com espera crescente, por até ~5 min; "Cancelar" encerra;
+só uma tentativa por vez por aba. Atenção: a fila para se a pessoa fecha a
+janela (não há fila em segundo plano). Sem fila e sem Worker: o botão "Baixar o
+evento inteiro (Google Drive)" (por capítulo) abre a pasta no Drive, que
+gera o .zip por conta própria; nenhum link por e-mail.
+
+**O que acontece se a cota acabar:** passadas as 100 mil requisições/dia, o
+Workers responde com erro 1015/429 para todo mundo até 00:00 UTC (21:00 em
+Brasília). Os assets e as fotos do lh3 já em cache do navegador continuam. Se
+o limite de linhas escritas do DO (100 mil/dia; ~3 por download) estourar, os
+contadores e os limites param de responder: o site trata isso como "falha
+aberta" nos limites de leitura e segue servindo, mas as métricas ficam
+incompletas até o dia seguinte.
+
+**Como acompanhar** (painel da Cloudflare, sem custo): Workers & Pages >
+`fotos` > Metrics (requisições, erros, CPU time, subrequests); Storage &
+Databases > Durable Objects (linhas lidas/escritas); D1 > o banco do
+consentimento (linhas lidas/escritas). Antes de um evento grande, abra essas
+três abas e veja se o dia anterior ficou abaixo de 30% das cotas. Um evento
+maior que ~5.000 pessoas no mesmo dia pede o plano pago do Workers
+(US$ 5/mês, 10 milhões de requisições).
+
+### 5.20. Pasta colaborativa, mídias do Drive e o que a v3.1 mudou na galeria
+
+**A pasta do Drive de um projeto pode ser colaborativa**: "Qualquer pessoa com
+o link: **Editor**". É de propósito (a turma envia as próprias fotos) e é o
+contrário do que este documento dizia antes ("troque para Leitor"): **não
+troque**. A chave de API da galeria só precisa ler, mas quem tem o link também
+pode enviar, mover e **apagar**. O risco é real: foto indevida enviada por
+qualquer um, e foto apagada por qualquer um. As defesas, todas já no código:
+
+- **Alerta de fotos apagadas (1d).** Cada releitura compara a lista nova com a
+  durável anterior (D1 `galeria_snapshot`), confere os ids que sumiram
+  (`files.get`: inexistente ou na lixeira = apagada; existe fora da lixeira =
+  movida, só log), grava em `galeria_apagadas` (30 dias) e manda **um**
+  e-mail-resumo ao dono (teto 10/dia) e uma cópia ao autor com e-mail nos
+  créditos. O painel lista "Fotos apagadas recentemente". Quem enviou pode
+  reenviar: a lixeira é de quem é dono do arquivo. Código: `src/sumiram.js`.
+- **Atualização automática desligada (1e) é moderação.** Com a opção desligada
+  a galeria mostra a última lista durável até o dono tocar em "Atualizar
+  agora": nada que alguém envie aparece sem passar por ele.
+- **Ocultar** (olho no visualizador) tira a foto do site sem mexer no Drive; o
+  **pedido de remoção** vai ao dono, que decide (§5.13).
+- **Álbum restrito** (família/privado) segue com o portão: o link do Drive é de
+  quem o recebe.
+- **Nomes amigáveis** mudam só o nome do arquivo baixado; o autor vem da
+  subpasta de créditos (`pasta = Nome`) ou da linha `* = Nome` (item h).
+
+**Mídias da pasta (1f).** A lista é `v3` e traz, além de fotos, vídeos (com a
+duração) e Live Photos (o `.MOV`/`.MP4` curto de mesmo nome, seção e autor de
+uma foto, até 10 s, vira o "vídeo do Live" dela; vídeo longo, sem foto de mesmo
+nome ou de outro autor continua sendo item). iPhone envia **HEIC** e Live
+Photo: a galeria aceita todo arquivo que o Drive vê como imagem (JPEG,
+HEIC/HEIF, PNG...) e a miniatura vem do `lh3` do Google. **Não verificado
+contra o Google**: se o `lh3` não servir miniatura para HEIC/RAW ou vídeo, a
+grade mostra o quadrado vazio; a rota de download entrega os bytes originais de
+qualquer forma. Arquivo com tipo `application/octet-stream` (alguns HEIC/RAW
+enviados por apps) não entra na lista. No visualizador o vídeo abre como
+**fachada** (miniatura + "Tocar"): **nada do Google carrega antes do toque**;
+o toque põe o iframe `drive.google.com/.../preview`, e a CSP libera
+`frame-src drive.google.com` SÓ em página que tem vídeo. Para a Privacidade o
+Google passa a ser terceiro nessa hora (ROPA §11, `transferencia-internacional`
+§5.1, cookies). Download de vídeo: fluxo, bytes originais, conta em "Fotos
+baixadas" (*tamanho máximo*); "para redes" não existe para vídeo; sitemap e
+`og:image` ignoram vídeo.
+
+**Fotos novas (j).** A lista leva `createdTime` (minutos desde 2025-01-01) só
+para o que chegou nos últimos 90 dias. A "última visita" mora no
+`localStorage` do visitante (`gal-visita:<projeto>:<capítulo>`; sessão de 30
+min); primeira visita não marca nada; o servidor não guarda nada. Conta as
+próprias fotos enviadas pelo visitante também.
+
+**QR code (k).** `GET /api/qr` devolve a matriz (`src/qr.js`, gerador próprio,
+até 213 bytes); o PNG e o SVG são montados no navegador do dono. O teste
+decodifica com o `jsqr` (só devDependency).
+
+**Orçamento de subrequisições.** Os tetos de páginas da listagem caíram (26/6/18
+em `src/config.js`) para deixar folga ao alerta de fotos apagadas na mesma
+invocação; pasta enorme é truncada mais cedo (e uma listagem truncada nunca
+conclui "sumiu"). Não afrouxe os testes de orçamento (`tests/galeria.test.js`,
+`tests/galeria-capitulos.test.js`); adapte-os e mantenha a conta comentada em
+`src/config.js`.
 
 ## 6. Como fazer uma mudança
 
@@ -909,7 +1046,8 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | --- | --- |
 | **RETOMADA.md** (este) | Ao voltar depois de um tempo |
 | [CLAUDE.md](./CLAUDE.md) / [llms.md](./llms.md) | Sessão de agente: quais ferramentas usar (GitHub API, verificação) |
-| [README.md](./README.md) | Referência completa: rotas, dados, deploy, decisões |
+| [README.md](./README.md) | O que o site faz, em resumo, e como começar |
+| [docs/REFERENCIA.md](./docs/REFERENCIA.md) | Referência completa: rotas, dados, deploy, decisões |
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | Política, orçamento de cota, regras vivas, o que foi decidido e por quê |
 | [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |

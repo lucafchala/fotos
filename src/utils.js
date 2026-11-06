@@ -75,7 +75,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-10-29';
+export const TERMS_VERSION = '2026-11-06';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -1098,6 +1098,36 @@ export async function takeToken(env, ip, key, bucket) {
   } catch (e) {
     noteDegraded('rate limit indisponível', `${key} — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
     return { ok: true, retryAfter: 0 };
+  }
+}
+
+// Lease de releitura (item 1g, ver GALERIA_LEASE_S em config.js): true = este
+// chamador pode fazer o trabalho caro. Falha ABERTO (Durable Object fora ->
+// lê, como antes do lease; o single-flight do isolate ainda segura o bando).
+/**
+ * @param {Env} env
+ * @param {string} chave
+ * @param {number} ms
+ * @returns {Promise<boolean>}
+ */
+export async function tomaLease(env, chave, ms) {
+  if (!env || !env.RATELIMIT) return true;
+  try {
+    const id = env.RATELIMIT.idFromName(`lease:${chave}`);
+    return await env.RATELIMIT.get(id).lease(ms);
+  } catch (e) {
+    noteDegraded('lease indisponível', `${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+    return true;
+  }
+}
+
+/** Encurta o lease depois de uma leitura que deu certo (ver RateLimiter.solta). Nunca lança. @param {Env} env @param {string} chave @param {number} ms */
+export async function soltaLease(env, chave, ms) {
+  if (!env || !env.RATELIMIT) return;
+  try {
+    await env.RATELIMIT.get(env.RATELIMIT.idFromName(`lease:${chave}`)).solta(ms);
+  } catch (e) {
+    noteDegraded('lease indisponível', `${umaLinha(errMessage(e)).slice(0, 120)}`, e);
   }
 }
 
@@ -2260,8 +2290,9 @@ export async function sendRemovalEmail(env, req) {
   const linhasGaleria = galeria ? `
     ${req.prioridade ? '<tr><td style="padding:8px 0;color:#b00020;font-weight:bold" colspan="2">PRIORIDADE: o pedido é de responsável por um menor de idade</td></tr>' : ''}
     ${motivo ? `<tr><td style="padding:8px 0;color:#666">Motivo</td><td style="padding:8px 0">${esc(motivo)}</td></tr>` : ''}
+    ${req.capitulo ? `<tr><td style="padding:8px 0;color:#666">Capítulo</td><td style="padding:8px 0">${esc(req.capitulo)}</td></tr>` : ''}
     ${req.fotoNome ? `<tr><td style="padding:8px 0;color:#666">Foto</td><td style="padding:8px 0">${esc(req.fotoNome)}</td></tr>` : ''}
-    <tr><td style="padding:8px 0;color:#666">Situação</td><td style="padding:8px 0">${req.ocultada ? 'A foto foi <strong>ocultada da galeria</strong> até você decidir (painel → Pedidos)' : '<strong>A foto NÃO foi ocultada</strong> (limite de pedidos atingido). Decida no painel → Pedidos'}</td></tr>` : '';
+    <tr><td style="padding:8px 0;color:#666">Situação</td><td style="padding:8px 0">${req.ocultada ? 'A foto já estava <strong>oculta</strong> da galeria. Decida no painel → Pedidos' : 'A foto <strong>continua na galeria</strong> até você decidir. Painel → Pedidos: “Remover da galeria” ou “Manter na galeria”'}</td></tr>` : '';
 
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -2338,6 +2369,179 @@ export async function sendResolvedEmail(env, req) {
       from: 'Fotos <noreply@lucafchala.com>',
       to: [req.email],
       subject: `Solicitação atendida — ${req.eventTitle}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
+ * Resposta a quem pediu a remoção de uma foto da galeria quando o dono decidiu
+ * MANTER a foto. Só o que ele precisa saber: o pedido foi analisado e a foto
+ * continua; e por onde continuar a conversa. Nada do autor da foto.
+ * @param {Env} env
+ * @param {Pedido} req
+ */
+export async function sendMantidaEmail(env, req) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !req.email) return false;
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">Resposta ao seu pedido de remoção</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
+  <p style="font-size:14px;line-height:1.6;margin-bottom:16px">Olá! Analisamos o seu pedido de remoção de foto do projeto <strong>${esc(req.eventTitle)}</strong>${req.fotoNome ? ` (${esc(req.fotoNome)})` : ''} e decidimos <strong>manter a foto na galeria</strong>.</p>
+  <p style="margin-top:12px;font-size:14px;line-height:1.6;color:#444">Se você não concorda, escreva para <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a> explicando o motivo; o pedido será analisado de novo.</p>
+  <p style="margin-top:12px;font-size:13px;line-height:1.6;color:#666">Qualquer outra dúvida, fale comigo pelo <a href="https://wa.me/5511989211178" style="color:#888">WhatsApp</a> ou envie um e-mail para <a href="mailto:suporte@lucafchala.com" style="color:#888">suporte@lucafchala.com</a>.</p>
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: corpoResend(env, {
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [req.email],
+      subject: `Resposta ao seu pedido — ${req.eventTitle}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
+ * O texto de cada ocorrência do aviso ao autor (v3.1). Pura, para o teste.
+ * @param {'pedido' | 'removida' | 'mantida_na_galeria' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada'} tipo
+ * @param {boolean} ocultada só no 'pedido': a foto já estava oculta (o dono a escondeu antes)?
+ */
+export function textoAvisoAutor(tipo, ocultada) {
+  switch (tipo) {
+    case 'pedido':
+      return {
+        assunto: 'Pedido de remoção de uma foto sua',
+        frase: ocultada
+          ? 'Chegou um pedido de remoção de uma foto sua. Ela já estava oculta da galeria e o pedido aguarda a decisão do Luca.'
+          : 'Chegou um pedido de remoção de uma foto sua. Ela continua na galeria e o pedido aguarda a decisão do Luca.',
+      };
+    case 'removida':
+      return { assunto: 'Uma foto sua foi removida da galeria', frase: 'O Luca analisou o pedido de remoção e decidiu remover a foto da galeria.' };
+    case 'mantida_na_galeria':
+      return { assunto: 'Uma foto sua continua na galeria', frase: 'O Luca analisou o pedido de remoção e decidiu manter a foto na galeria.' };
+    case 'mantida':
+      return { assunto: 'Uma foto sua continua oculta', frase: 'O Luca analisou o pedido de remoção: a foto continua oculta da galeria.' };
+    case 'devolvida':
+      return { assunto: 'Uma foto sua voltou à galeria', frase: 'O Luca analisou o pedido de remoção: a foto voltou à galeria.' };
+    case 'oculta':
+      return { assunto: 'Uma foto sua foi ocultada', frase: 'O Luca ocultou uma foto sua da galeria.' };
+    default:
+      return { assunto: 'Uma foto sua voltou à galeria', frase: 'O Luca devolveu uma foto sua à galeria.' };
+  }
+}
+
+/**
+ * Aviso ao autor de uma foto. Conteúdo mínimo: projeto, capítulo e seção,
+ * miniatura e link da foto, categoria do motivo, data e o que aconteceu. NUNCA
+ * o e-mail nem a mensagem de quem pediu a remoção.
+ * @param {Env} env
+ * @param {{ to: string, tipo: 'pedido' | 'removida' | 'mantida_na_galeria' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada', projeto: string, capitulo?: string, secao?: string, fotoId: string, motivo?: string, ocultada?: boolean }} d
+ */
+export async function sendAutorEmail(env, d) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !d.to) return false;
+  const esc = escape;
+  const { assunto, frase } = textoAvisoAutor(d.tipo, !!d.ocultada);
+  const motivos = /** @type {Record<string, string>} */ ({
+    eu: 'a pessoa que pediu aparece na foto',
+    menor: 'quem pediu é responsável por um menor que aparece na foto',
+    outro: 'outro motivo',
+  });
+  const onde = [d.projeto, d.capitulo, d.secao].filter(Boolean).map(esc).join(' · ');
+  const thumb = `https://lh3.googleusercontent.com/d/${encodeURIComponent(d.fotoId)}=w320`;
+  const link = `https://drive.google.com/file/d/${encodeURIComponent(d.fotoId)}/view`;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">${esc(assunto)}</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
+  <p style="font-size:14px;line-height:1.6;margin-bottom:12px">${esc(frase)}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Onde: ${onde}</p>
+  ${d.tipo === 'pedido' && d.motivo && motivos[d.motivo] ? `<p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Motivo: ${esc(motivos[d.motivo])}</p>` : ''}
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 12px">Data: ${esc(dataHoraBR())}</p>
+  <p style="margin:0 0 12px"><a href="${link}"><img src="${thumb}" alt="Miniatura da foto" width="160" style="max-width:160px;border-radius:6px"></a></p>
+  <p style="font-size:13px;line-height:1.6;color:#666"><a href="${link}" style="color:#888">Ver a foto</a></p>
+  <p style="margin-top:20px;font-size:13px;line-height:1.6;color:#666">O Luca cuida da resposta a quem pediu; você não precisa fazer nada. Dúvidas: <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a>.</p>
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: corpoResend(env, {
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [d.to],
+      subject: `${assunto} — ${d.projeto}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.status);
+    throw new Error(`Resend ${res.status}: ${text}`);
+  }
+  return true;
+}
+
+/**
+ * Resumo de fotos que sumiram da pasta do Drive (v3.1), um e-mail por
+ * releitura. Ao dono, traz tudo; a cópia ao autor (`paraAutor`) traz só as
+ * fotos dele, sem a contagem das outras. Os nomes de arquivo vêm do Drive e
+ * entram escapados.
+ * @param {Env} env
+ * @param {{
+ *   to: string, paraAutor?: boolean, projeto: string, capitulo?: string,
+ *   itens: { nome: string, autor: string, secao: string, captura: string }[],
+ *   naoConferidas?: number, de: string, ate: string,
+ * }} d
+ */
+export async function sendSumiramEmail(env, d) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !d.to) return false;
+  const esc = escape;
+  const onde = [d.projeto, d.capitulo].filter(Boolean).map(esc).join(' · ');
+  const n = d.itens.length;
+  const assunto = d.paraAutor
+    ? (n === 1 ? 'Uma foto sua sumiu da pasta do Drive' : `${n} fotos suas sumiram da pasta do Drive`)
+    : (n + (d.naoConferidas || 0) === 1 ? 'Uma foto sumiu da pasta do Drive' : `${n + (d.naoConferidas || 0)} fotos sumiram da pasta do Drive`);
+  const linhas = d.itens.map(i => `<li style="margin:0 0 8px"><strong>${esc(i.nome)}</strong><br><span style="color:#666">${[i.autor && `autor: ${esc(i.autor)}`, i.captura && `captura: ${esc(i.captura)}`, i.secao && `seção: ${esc(i.secao)}`].filter(Boolean).join(' · ')}</span></li>`).join('');
+  const extra = !d.paraAutor && d.naoConferidas
+    ? `<p style="font-size:14px;line-height:1.6;margin:0 0 12px">${d.itens.length ? 'Além dessas, ' : ''}<strong>${d.naoConferidas}</strong> ${d.naoConferidas === 1 ? 'foto também sumiu' : 'fotos também sumiram'}, sem conferência individual (muitas de uma vez, ou o Google não respondeu). Veja a pasta no Drive.</p>`
+    : '';
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">${esc(assunto)}</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 4px">Onde: ${onde}</p>
+  <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 12px">Sumiu entre ${esc(d.de)} e ${esc(d.ate)} (as duas leituras da pasta).</p>
+  ${linhas ? `<ul style="font-size:14px;line-height:1.5;padding-left:18px;margin:0 0 12px">${linhas}</ul>` : ''}
+  ${extra}
+  <p style="font-size:13px;line-height:1.6;color:#666">Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.</p>
+  ${d.paraAutor ? '<p style="font-size:13px;line-height:1.6;color:#666">Você não precisa fazer nada. Dúvidas: <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a>.</p>' : '<p style="font-size:13px;line-height:1.6;color:#666">A lista fica no painel, em "Fotos apagadas recentemente" (30 dias).</p>'}
+  <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
+</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: corpoResend(env, {
+      from: 'Fotos <noreply@lucafchala.com>',
+      to: [d.to],
+      subject: `${assunto} — ${d.projeto}`,
       html,
     }),
   });
@@ -2587,13 +2791,10 @@ export async function sendConfirmationEmail(env, req) {
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
   const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' })[req.method] || req.method;
   const galeria = req.origem === 'galeria';
-  // Pedido da galeria: diz a verdade sobre o que aconteceu com a foto. Escondeu
-  // (o caso comum): saiu da galeria e fica fora até a análise. Não escondeu (teto
-  // diário): o pedido está registrado e será analisado, a foto segue por ora.
+  // Pedido da galeria: a foto não sai sozinha. O dono analisa e quem pediu
+  // recebe a resposta por e-mail.
   const fecho = galeria
-    ? (req.ocultada
-      ? 'A foto já saiu da galeria e continua fora dela enquanto analiso o pedido. Você recebe a resposta por e-mail.'
-      : 'Vou analisar o pedido e responder por e-mail. A foto continua na galeria até lá.')
+    ? 'Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.'
     : 'Analisaremos o pedido em breve.';
 
   const html = `

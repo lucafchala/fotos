@@ -206,12 +206,17 @@ export class Counter extends DurableObject {
 
   // Apaga os totais E a série diária deles: um projeto excluído não pode
   // deixar baldes órfãos ocupando o objeto até a poda (400 dias).
+  // Uma chave terminada em "*" é um PREFIXO: `galeria_views:formatura:*` leva os
+  // contadores de todos os capítulos do projeto (galeria por capítulos, v3.1).
   /** @param {string[]} keys */
   async remove(keys) {
-    const alvo = new Set(keys);
-    const apagar = [...keys];
+    const exatas = new Set(keys.filter(k => !k.endsWith('*')));
+    const prefixos = keys.filter(k => k.endsWith('*')).map(k => k.slice(0, -1));
+    const casa = (/** @type {string} */ base) => exatas.has(base) || prefixos.some(p => base.startsWith(p));
+    const apagar = [...exatas];
     for (const k of this.#counts.keys()) {
-      if (k.startsWith(DIARIO) && alvo.has(k.slice(PREFIXO_DIA))) apagar.push(k);
+      const base = k.startsWith(DIARIO) ? k.slice(PREFIXO_DIA) : k;
+      if (casa(base) && !exatas.has(k)) apagar.push(k);
     }
     for (const k of apagar) this.#counts.delete(k);
     for (let i = 0; i < apagar.length; i += 128) await this.ctx.storage.delete(apagar.slice(i, i + 128));
@@ -307,6 +312,43 @@ export class RateLimiter extends DurableObject {
     // alarme se reagenda sozinho enquanto o balde não encher (ver alarm()).
     if (!rec) await this.ctx.storage.setAlarm(agora + Math.ceil(1 / porMs));
     return { ok: true, retryAfter: 0 };
+  }
+
+  /**
+   * Lease (item 1g): direito exclusivo, por `ms`, de fazer um trabalho caro
+   * (reler a lista do Drive). Atômico pelo mesmo motivo de `check()`: leitura
+   * e gravação sem `await` no meio. Quem pergunta e NÃO ganha não grava nada.
+   * Quando o prazo passa, o alarme recolhe o objeto.
+   * @param {number} ms
+   * @returns {Promise<boolean>} true se este chamador ganhou
+   */
+  async lease(ms) {
+    const agora = Date.now();
+    /** @type {number | undefined} */
+    const ate = await this.ctx.storage.get('l');
+    if (typeof ate === 'number' && ate > agora) return false;
+    const novo = agora + Math.max(1000, Math.floor(ms));
+    await this.ctx.storage.put('l', novo);
+    await this.ctx.storage.setAlarm(novo + 1000);
+    return true;
+  }
+
+  /**
+   * Quem ganhou o lease e TERMINOU (bem ou mal) o devolve: com `ms` <= 0 o
+   * objeto é apagado e o próximo pode ganhar; com `ms` > 0, encurta o que
+   * sobrou para essa folga. Sem isto, uma leitura que já acabou seguraria
+   * todo o prazo do lease (45 s) e a próxima troca de lista esperaria por ele.
+   * Se o isolate morre no meio, ninguém chama isto e o prazo inteiro é o freio.
+   * @param {number} ms
+   */
+  async solta(ms) {
+    if (ms <= 0) {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+    const novo = Date.now() + Math.floor(ms);
+    await this.ctx.storage.put('l', novo);
+    await this.ctx.storage.setAlarm(novo + 1000);
   }
 
   // Zera o objeto: janela, balde e alarme. Só a PRÉVIA chama (a ação "Zerar

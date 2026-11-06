@@ -16,6 +16,7 @@ import { legalHTML } from '../../src/ui/legal.js';
 import { docHTML } from '../../src/ui/doc.js';
 import { LEGAL_DOCS } from '../../src/content/legal-docs.js';
 import { galeriaHTML } from '../../src/ui/galeria.js';
+import { galeriaIndiceHTML } from '../../src/ui/galeria-indice.js';
 import { comFaixa, SIMULACOES } from '../../src/previa.js';
 
 export const EVENTO = {
@@ -87,6 +88,13 @@ export function variacoes() {
     eventoComVideo: eventHTML({ ...EVENTO, youtubeId: 'dQw4w9WgXcQ' }, '2026', null, 'NONCE', 'dn', 'ft'),
     suporteComErro: supportHTML(false, 'erro', { name: 'x' }, 'NONCE', 'ft'),
     suporteEnviado: supportHTML(true, '', {}, 'NONCE', 'ft'),
+    // Índice por capítulos: leva o script das "N novas" (#250), com nonce.
+    galeriaIndice: galeriaIndiceHTML({
+      event: { ...EVENTO, galeriaCapitulos: true },
+      caps: { caps: [{ id: 'CAP1', slug: 'abertura', nome: 'Abertura' }], em: 0, truncada: false },
+      resumo: { CAP1: { n: 3, capas: ['AAA'], cr: [100, 200] } },
+      ocultas: [], dono: false, indexavel: false, nonce: 'NONCE',
+    }),
     galeriaPropriaComErro: galeriaHTML({ event: EVENTO, listagem: null, erro: { codigo: 'chave-ausente', mensagem: 'Falta a chave.' }, nonce: 'NONCE' }),
     // A faixa da prévia de PR (src/previa.js) entra por cima de qualquer página:
     // com tudo desligado e com toda simulação ligada e um aviso aberto.

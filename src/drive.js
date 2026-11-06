@@ -15,19 +15,27 @@
 // isolate e na Cache API (grátis, sem cota de escrita — o mesmo padrão da cópia
 // da lista de eventos em utils.js). Nenhuma escrita de KV.
 
+import { lerSnapshot, gravaSnapshot } from './snapshot.js';
+import { tomaLease, soltaLease } from './utils.js';
 import {
-  GALERIA_LISTA_TTL_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
-  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS,
+  GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
+  GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
+  AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
+  GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
+  GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
+  NOVAS_JANELA_DIAS, EPOCA_CRIADA_MS, NOVAS_RESUMO_MAX,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation))';
+// `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime)';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
+const CAMPOS_PASTAS = 'nextPageToken,files(id,name,resourceKey)';
 const ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 const TIMEOUT_MS = 8000;
 // Nome de arquivo guardado por inteiro até aqui: o download devolve o nome
@@ -35,15 +43,29 @@ const TIMEOUT_MS = 8000;
 const NOME_MAX = 255;
 
 /**
- * Uma foto da listagem, em forma compacta (vai para o cache e para a página):
- * [id, largura, altura, nome, bytes]. Largura/altura já com a rotação EXIF
- * aplicada (o lh3 entrega a foto girada); 0 quando o Drive não informou.
- * @typedef {[string, number, number, string, number]} FotoDrive
+ * Um item da listagem (foto ou vídeo), em forma compacta (vai para o cache e
+ * para a página): [id, largura, altura, nome, bytes, autor, hora, extra].
+ * Largura/altura já com a rotação EXIF aplicada (o lh3 entrega a foto girada);
+ * 0 quando o Drive não informou. `autor` é o índice em `ListagemDrive.aut` (0 =
+ * autor padrão) e `hora` a data de captura como número AAAAMMDDHHMMSS (0 = sem
+ * data); estes SÓ existem na tupla quando diferem de 0 (JSON compacto: nenhuma
+ * foto de álbum comum paga bytes a mais).
+ *
+ * `extra` (item 1f) só existe quando há o que dizer, e tem duas formas:
+ *  - NÚMERO: o item é um VÍDEO e o número é a duração em segundos (0 = o Drive
+ *    não informou). Vídeo não tem hora de captura nem versão "para redes".
+ *  - LISTA [id, nome, bytes]: a foto é um Live Photo e esse é o vídeo dele (o
+ *    .MOV/.MP4 de mesmo nome na mesma pasta). O vídeo NÃO é um item à parte:
+ *    some e aparece só como "Baixar vídeo do Live Photo".
+ * `criada` (item j, #250, índice 8): minutos desde 2025-01-01 (UTC) em que o
+ * arquivo chegou à pasta (`createdTime`) — só para o que chegou nos últimos
+ * NOVAS_JANELA_DIAS dias; o resto não leva, e a lista não engorda.
+ * @typedef {[string, number, number, string, number, number?, number?, (number | [string, string, number] | null)?, number?]} FotoDrive
  */
 /**
  * @typedef {{ nome: string, caminho: string, fotos: FotoDrive[] }} SecaoDrive
  * @typedef {{
- *   v: 1,
+ *   v: 2 | 3,
  *   pasta: string,
  *   em: string,
  *   truncada: boolean,
@@ -52,6 +74,8 @@ const NOME_MAX = 255;
  *   videos: number,
  *   outros: number,
  *   rk: Record<string, string>,
+ *   aut: string[],
+ *   ch?: number,
  * }} ListagemDrive
  */
 
@@ -59,7 +83,7 @@ const NOME_MAX = 255;
 // em vez de "deu erro". A mensagem é para pessoa, não para log.
 export class DriveError extends Error {
   /**
-   * @param {'chave-ausente'|'chave-invalida'|'chave-restrita'|'api-desligada'|'pasta-inacessivel'|'limite'|'falha'} codigo
+   * @param {'chave-ausente'|'chave-invalida'|'chave-restrita'|'api-desligada'|'pasta-inacessivel'|'limite'|'falha'|'carregando'} codigo
    * @param {string} mensagem
    */
   constructor(codigo, mensagem) {
@@ -97,6 +121,135 @@ const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base'
 /** @param {string} a @param {string} b */
 export const ordemNatural = (a, b) => COLLATOR.compare(a, b);
 
+// ---------------------------------------------------------------------------
+// Créditos por pasta de autor (v3.1)
+// ---------------------------------------------------------------------------
+// O campo do projeto "Créditos por pasta" tem uma linha por autor,
+// `pasta = Nome`. Uma pasta do Drive cujo nome (aparado, minúsculo, sem acento)
+// bate com uma chave NÃO é uma seção: as fotos dela entram na seção da pasta de
+// cima, marcadas com o autor, e ela não conta para o limite de profundidade.
+// Foto fora de pasta de autor é do autor padrão (AUTOR_PADRAO), a não ser que o
+// campo tenha a linha `* = Nome[ <e-mail>]`: ela troca o autor padrão DAQUELE
+// projeto (Santa: `* = Turma 2026`). A chave `*` nunca casa com uma pasta do
+// Drive, mesmo que alguém dê esse nome a uma.
+export const CHAVE_AUTOR_PADRAO = '*';
+
+// eslint-disable-next-line no-control-regex
+const CONTROLE_RE = /[\u0000-\u001f\u007f]/g;
+
+/**
+ * Chave de comparação do nome de uma pasta: sem acento, minúscula, espaços
+ * simples e aparados. "  Mag " e "MAG" são a mesma pasta.
+ * @param {unknown} nome
+ */
+export function chavePasta(nome) {
+  return String(nome == null ? '' : nome)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Uma linha do campo: `pasta = Nome` ou `pasta = Nome <email@exemplo.com>`.
+ * O e-mail (opcional) é de uso interno — avisar a autora de ocorrências com as
+ * fotos dela (v3.1) — e NUNCA sai do servidor para a página pública: não entra
+ * na listagem, no HTML, no JSON-LD nem no sitemap. E-mail que não passa na
+ * validação é descartado (o nome fica).
+ * @param {string} resto o que vem depois do "="
+ * @returns {{ nome: string, email: string }}
+ */
+function nomeEEmail(resto) {
+  const limpa = (/** @type {string} */ t) => t.replace(CONTROLE_RE, ' ').replace(/\s+/g, ' ').trim();
+  const m = resto.match(/^([^<]*)<([^<>]*)>\s*$/);
+  const nome = limpa(m ? m[1] : resto).replace(/[<>]/g, '').trim().slice(0, GALERIA_CREDITOS_NOME_MAX);
+  const email = m ? limpa(m[2]).toLowerCase() : '';
+  return { nome, email: email && email.length <= GALERIA_CREDITOS_EMAIL_MAX && EMAIL_RE.test(email) ? email : '' };
+}
+
+/**
+ * Os créditos como o projeto grava: só linhas `pasta = Nome[ <e-mail>]` válidas
+ * (chave e nome não vazios, nome até GALERIA_CREDITOS_NOME_MAX, sem caractere
+ * de controle), sem chave repetida (vale a primeira), no máximo
+ * GALERIA_CREDITOS_MAX_LINHAS. Vazio = "use o padrão" (CREDITOS_PADRAO).
+ * @param {unknown} v
+ * @returns {string}
+ */
+export function normalizaCreditos(v) {
+  if (typeof v !== 'string') return '';
+  /** @type {Map<string, string>} */
+  const vistos = new Map();
+  for (const linha of v.split(/\r?\n/)) {
+    const i = linha.indexOf('=');
+    if (i < 1) continue;
+    const pasta = linha.slice(0, i).replace(CONTROLE_RE, ' ').replace(/\s+/g, ' ').trim().slice(0, GALERIA_CREDITOS_NOME_MAX);
+    const { nome, email } = nomeEEmail(linha.slice(i + 1));
+    const k = chavePasta(pasta);
+    if (!k || !nome || vistos.has(k)) continue;
+    vistos.set(k, `${pasta} = ${nome}${email ? ` <${email}>` : ''}`);
+    if (vistos.size >= GALERIA_CREDITOS_MAX_LINHAS) break;
+  }
+  return [...vistos.values()].join('\n');
+}
+
+/**
+ * chave da pasta → autor, já com o padrão quando o campo está vazio. Só o
+ * NOME (o e-mail fica fora: ver `emailDoAutor`).
+ * @param {unknown} v
+ * @returns {Map<string, string>}
+ */
+export function parseCreditos(v) {
+  const texto = normalizaCreditos(v) || CREDITOS_PADRAO;
+  /** @type {Map<string, string>} */
+  const mapa = new Map();
+  for (const linha of texto.split('\n')) {
+    const i = linha.indexOf(' = ');
+    mapa.set(chavePasta(linha.slice(0, i)), nomeEEmail(linha.slice(i + 3)).nome);
+  }
+  return mapa;
+}
+
+/**
+ * O e-mail cadastrado para um autor (o primeiro, se o mesmo nome aparece em
+ * mais de uma pasta), ou '' — só para o servidor avisar a autora; nunca vai
+ * para a página.
+ * @param {unknown} creditos o campo do projeto
+ * @param {string} autor nome do autor, como na listagem
+ * @returns {string}
+ */
+export function emailDoAutor(creditos, autor) {
+  const texto = normalizaCreditos(creditos);
+  for (const linha of texto.split('\n')) {
+    const i = linha.indexOf(' = ');
+    if (i < 0) continue;
+    const { nome, email } = nomeEEmail(linha.slice(i + 3));
+    if (email && nome === autor) return email;
+  }
+  return '';
+}
+
+/** Hash curto (FNV-1a, base 36) dos créditos efetivos — entra na chave do cache. @param {string} t */
+function hashCreditos(t) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+
+/** @param {unknown} v */
+const creditosEfetivos = v => normalizaCreditos(v) || CREDITOS_PADRAO;
+
+/**
+ * "AAAA:MM:DD HH:MM:SS" (EXIF) → AAAAMMDDHHMMSS como número; 0 se não houver
+ * data legível. O Drive não informa fuso: é a hora de parede da câmera.
+ * @param {unknown} t
+ */
+function horaDaFoto(t) {
+  if (typeof t !== 'string') return 0;
+  const m = t.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return 0;
+  const [ano, mes, dia, h, mi, se] = m.slice(1).map(Number);
+  if (ano < 1900 || mes < 1 || mes > 12 || dia < 1 || dia > 31 || h > 23 || mi > 59 || se > 60) return 0;
+  return Number(m.slice(1).join(''));
+}
+
 /** @type {Map<string, { em: number, dados: ListagemDrive }>} */
 const memoria = new Map();
 // A chave leva o TETO de páginas: a galeria (GALERIA_MAX_CHAMADAS) e a pasta do
@@ -104,69 +257,306 @@ const memoria = new Map();
 // feita com o teto de 8 páginas, guardada só pelo id da pasta, serviria de
 // "completa" a quem pediu 30 (e a de 30 vazaria para quem pediu 8, estourando
 // a conta das 50 subrequisições se virasse a base de uma releitura).
-/** @param {string} id @param {number} maxChamadas */
-const chaveMemoria = (id, maxChamadas) => `${id}#${maxChamadas}`;
-/** @param {string} id @param {number} maxChamadas */
-const chaveCache = (id, maxChamadas) => `https://fotos.invalid/__galeria/${id}/m${maxChamadas}`;
+// Os créditos também entram na chave: mudar "pasta = Nome" no painel muda o
+// que a listagem É (quais pastas viram seção, quem assina cada foto), então a
+// lista feita com os créditos antigos não pode servir.
+/** @param {string} id @param {number} maxChamadas @param {string} h */
+const chaveMemoria = (id, maxChamadas, h) => `${id}#${maxChamadas}#${h}`;
+/** @param {string} id @param {number} maxChamadas @param {string} h */
+const chaveCache = (id, maxChamadas, h) => `https://fotos.invalid/__galeria/${id}/m${maxChamadas}/c${h}`;
 
 function cacheStore() {
   // Ausente no vitest e fora do runtime Workers — o cache é best-effort.
   return (typeof caches !== 'undefined' && caches && caches.default) || null;
 }
 
+
+// ---------------------------------------------------------------------------
+// Leitura resiliente a pico (item 1g)
+// ---------------------------------------------------------------------------
+// Uma função para as duas leituras (fotos de uma pasta e lista de capítulos):
+//  1. memória do isolate fresca -> devolve (0 chamadas);
+//  2. `fonte(temVelho)`: Cache API e, sem nada, a foto durável (D1) — pode
+//     devolver lista VENCIDA (`fresco: false`), que ainda é servida;
+//  3. lista vencida (até GALERIA_VELHO_MAX_S): serve JÁ e, em segundo plano,
+//     só quem ganhar o lease relê. O isolate re-pergunta só a cada
+//     GALERIA_REVERIFICA_S;
+//  4. nenhuma lista: só quem ganha o lease lista (e responde); quem perde
+//     espera um pouco pela lista do outro e, se ela não vier, `carregando`;
+//  5. `atualizar` (dono, "Atualizar agora"): relê direto, sem lease.
+// DENTRO do isolate, a releitura (`voos`) e a decisão de reler (`decisoes`)
+// são únicas por chave: 200 requisições no mesmo isolate compartilham uma
+// promessa, e só a primeira gasta cache, lease ou Drive.
+/** @type {Map<string, Promise<any>>} */
+const voos = new Map();
+/** @type {Map<string, Promise<any>>} */
+const decisoes = new Map();
+/** @param {number} ms */
+const dorme = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * @template {{ em: string }} T
+ * @param {any} env
+ * @param {{ waitUntil?: (p: Promise<any>) => void } | null | undefined} ctx
+ * @param {{
+ *   kMem: string,
+ *   leaseChave: string,
+ *   memo: Map<string, { em: number, dados: T }>,
+ *   ttlMs: number,
+ *   atualizar: boolean,
+ *   fonte: (temVelho: boolean) => Promise<{ dados: T, fresco: boolean } | null>,
+ *   refaz: (forcar: boolean) => Promise<T>,
+ * }} o
+ * @returns {Promise<T>}
+ */
+async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz }) {
+  /** @param {boolean} forcar @returns {Promise<T>} */
+  const voo = forcar => {
+    const em = voos.get(kMem);
+    if (em) return em;
+    const p = refaz(forcar).finally(() => { if (voos.get(kMem) === p) voos.delete(kMem); });
+    voos.set(kMem, p);
+    return p;
+  };
+  if (atualizar) return voo(true);
+
+  const mem = memo.get(kMem);
+  if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
+  const velhoMem = mem ? mem.dados : null;
+  const emCurso = decisoes.get(kMem);
+  if (emCurso) return velhoMem || emCurso;
+
+  /** @returns {Promise<T>} */
+  const decide = async () => {
+    let velho = velhoMem;
+    const achada = await fonte(!!velho);
+    if (achada) {
+      if (achada.fresco) {
+        memo.set(kMem, { em: Date.now(), dados: achada.dados });
+        return achada.dados;
+      }
+      if (!velho || Date.parse(achada.dados.em) > Date.parse(velho.em)) velho = achada.dados;
+    }
+    if (velho && Date.now() - Date.parse(velho.em) <= GALERIA_VELHO_MAX_S * 1000) {
+      // Serve a velha e deixa a memória "quase vencida": o isolate pergunta de
+      // novo em GALERIA_REVERIFICA_S, não a cada visita.
+      memo.set(kMem, { em: Date.now() - ttlMs + GALERIA_REVERIFICA_S * 1000, dados: velho });
+      const tarefa = (async () => {
+        if (!await tomaLease(env, leaseChave, GALERIA_LEASE_S * 1000)) return;
+        try {
+          await voo(false);
+          await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        } catch (e) { console.error('galeria: releitura em segundo plano falhou', e); }
+      })();
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(tarefa); else await tarefa;
+      return velho;
+    }
+    // Nenhuma lista guardada: só o ganhador do lease lista.
+    if (await tomaLease(env, leaseChave, GALERIA_LEASE_S * 1000)) {
+      try {
+        const dados = await voo(false);
+        await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        return dados;
+      } catch (e) {
+        // Sem lista nenhuma, o erro (chave inválida, pasta privada…) é o que a
+        // página precisa mostrar: a folga curta deixa o próximo ver o mesmo
+        // erro em segundos, sem 200 tentativas seguidas.
+        await soltaLease(env, leaseChave, GALERIA_LEASE_POS_S * 1000);
+        throw e;
+      }
+    }
+    for (let i = 0; i < GALERIA_ESPERAS; i++) {
+      await dorme(GALERIA_ESPERA_MS);
+      const outra = await fonte(false);
+      if (outra) {
+        memo.set(kMem, { em: Date.now(), dados: outra.dados });
+        return outra.dados;
+      }
+    }
+    throw new DriveError('carregando', 'As fotos estão sendo carregadas pela primeira vez. A página tenta de novo sozinha.');
+  };
+  const p = decide().finally(() => { if (decisoes.get(kMem) === p) decisoes.delete(kMem); });
+  decisoes.set(kMem, p);
+  return p;
+}
+
 /** Só para testes: o cache de módulo vazaria entre casos. */
-export function limpaCacheDrive() { memoria.clear(); }
+export function limpaCacheDrive() { memoria.clear(); memoriaCaps.clear(); memoriaResumo.clear(); voos.clear(); decisoes.clear(); }
+
+/**
+ * Período da atualização automática, em segundos: um dos GALERIA_PERIODOS_S;
+ * qualquer outra coisa cai no padrão (10 min).
+ * @param {unknown} v
+ */
+export function periodoValido(v) {
+  const n = Number(v);
+  return GALERIA_PERIODOS_S.includes(n) ? n : GALERIA_LISTA_TTL_S;
+}
+
+/**
+ * Como a lista do Drive deste projeto é renovada (campos do painel
+ * "Atualização automática" e "Período").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ * @returns {{ auto: boolean, periodo: number }}
+ */
+export function politicaDaGaleria(event) {
+  return { auto: event.galeriaAtualizacaoAuto !== false, periodo: periodoValido(event.galeriaPeriodo) };
+}
+
+/**
+ * Política da pasta do Instagram: ela não tem foto durável, então, com a
+ * atualização automática desligada, só é relida a cada 24 h (ou no "Atualizar agora").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ */
+export function politicaDoInstagram(event) {
+  const p = politicaDaGaleria(event);
+  return { auto: true, periodo: p.auto ? p.periodo : GALERIA_PERIODOS_S[GALERIA_PERIODOS_S.length - 1] };
+}
+
+/**
+ * Frase curta da política, para a faixa do dono ("a cada 10 minutos").
+ * @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown }} event
+ */
+export function descreveRenovacao(event) {
+  const { auto, periodo } = politicaDaGaleria(event);
+  if (!auto) return 'atualização automática desligada: a lista só muda quando você toca em "Atualizar agora"';
+  const rotulo = periodo >= 86400 ? '24 horas' : periodo >= 3600 ? `${periodo / 3600} ${periodo === 3600 ? 'hora' : 'horas'}` : `${periodo / 60} minutos`;
+  return `a lista se renova sozinha a cada ${rotulo}`;
+}
+
+/** @param {{ galeriaAtualizacaoAuto?: unknown, galeriaPeriodo?: unknown, slug?: string, galeriaCreditos?: string }} event @param {number} maxChamadas */
+export function opcoesBasicasDaLista(event, maxChamadas) {
+  return { creditos: event.galeriaCreditos || '', maxChamadas, snapshot: true, slug: String(event.slug || ''), ...politicaDaGaleria(event) };
+}
 
 /**
  * Lê a pasta do projeto: fotos da raiz e de subpastas (cada subpasta vira uma
  * seção), com limites que mantêm uma requisição dentro do plano gratuito.
- * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ *
+ * Quando a lista é relida (v3.1):
+ *  - atualização automática LIGADA: passou o `periodo` desde a última leitura
+ *    (memória do isolate, depois Cache API; a idade vem do próprio `em` da
+ *    lista, então mudar o período no painel vale na hora);
+ *  - DESLIGADA: nunca sozinha. A página mostra a foto durável (D1) até o dono
+ *    pedir `atualizar`. Sem foto ainda, lê uma vez e grava.
+ * Com `snapshot`, a lista relida vai para o D1 (só se mudou; o `atualizar`
+ * grava sempre).
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
  * @param {{ id: string, resourceKey: string }} pasta
- * @param {{ atualizar?: boolean, maxChamadas?: number }} [opts] `maxChamadas`:
+ * @param {{ atualizar?: boolean, maxChamadas?: number, creditos?: string, auto?: boolean, periodo?: number, snapshot?: boolean, slug?: string, ctx?: { waitUntil?: (p: Promise<any>) => void }, aoMudar?: (env: any, anterior: ListagemDrive, nova: ListagemDrive) => Promise<void> }} [opts] `aoMudar`: chamado quando a lista relida difere da foto durável anterior (detecção de fotos sumidas, sumiram.js); `maxChamadas`:
  *   teto de páginas da API nesta pasta (a do Instagram usa um menor, para as
- *   duas listas frias caberem nas 50 subrequisições da invocação)
+ *   duas listas frias caberem nas 50 subrequisições da invocação); `creditos`:
+ *   o campo "Créditos por pasta" do projeto (vazio = padrão)
  * @returns {Promise<ListagemDrive>}
  */
-export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS } = {}) {
+export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = GALERIA_MAX_CHAMADAS, creditos = '', auto = true, periodo = GALERIA_LISTA_TTL_S, snapshot = false, slug = '', aoMudar, ctx } = {}) {
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
   if (!chave) {
     throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
   }
   if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
 
-  const kMem = chaveMemoria(pasta.id, maxChamadas);
-  const kCache = chaveCache(pasta.id, maxChamadas);
-  if (!atualizar) {
-    const mem = memoria.get(kMem);
-    if (mem && Date.now() - mem.em < GALERIA_LISTA_TTL_S * 1000) return mem.dados;
-    const store = cacheStore();
-    if (store) {
-      try {
-        const hit = await store.match(kCache);
-        if (hit) {
-          const dados = /** @type {ListagemDrive} */ (await hit.json());
-          memoria.set(kMem, { em: Date.now(), dados });
-          return dados;
+  const efetivos = creditosEfetivos(creditos);
+  const h = hashCreditos(efetivos);
+  const kMem = chaveMemoria(pasta.id, maxChamadas, h);
+  const kCache = chaveCache(pasta.id, maxChamadas, h);
+  const congelada = snapshot && !auto;
+  const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
+  const ctxSnap = `m${maxChamadas}#${h}`;
+
+  // O que a última leitura da foto durável viu: o hash (ou null = sem linha),
+  // para a gravação não ler de novo. undefined = não leu.
+  /** @type {string | null | undefined} */
+  let hashLido;
+  /** @param {boolean} temVelho @returns {Promise<{ dados: ListagemDrive, fresco: boolean } | null>} */
+  const fonte = async temVelho => {
+    if (!congelada) {
+      const store = cacheStore();
+      if (store) {
+        try {
+          const hit = await store.match(kCache);
+          if (hit) {
+            const dados = /** @type {ListagemDrive} */ (await hit.json());
+            // A idade é a da própria lista: mudar o período no painel vale na hora.
+            // v2 (antes dos vídeos, item 1f) é servida vencida: a próxima leitura refaz.
+            if (dados && (dados.v === 3 || dados.v === 2)) return { dados, fresco: dados.v === 3 && Date.now() - Date.parse(dados.em) < ttlMs };
+          }
+        } catch (e) {
+          console.error('galeria: leitura do cache falhou', e);
         }
-      } catch (e) {
-        console.error('galeria: leitura do cache falhou', e);
       }
     }
-  }
-
-  const dados = await percorre(chave, pasta, maxChamadas);
-  memoria.set(kMem, { em: Date.now(), dados });
-  const store = cacheStore();
-  if (store) {
-    try {
-      await store.put(kCache, new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${GALERIA_LISTA_TTL_S}` },
-      }));
-    } catch (e) {
-      console.error('galeria: escrita do cache falhou', e);
+    // A foto durável: com a atualização automática DESLIGADA é a fonte (vale
+    // sempre); ligada, é a última lista conhecida, servida vencida enquanto
+    // alguém relê. Quem já tem lista na memória não vai ao D1.
+    if (snapshot && !temVelho) {
+      const foto = await lerSnapshot(env, pasta.id, ctxSnap);
+      hashLido = foto ? foto.hash : null;
+      if (foto) {
+        try {
+          const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
+          if (dados && (dados.v === 3 || dados.v === 2)) return { dados, fresco: congelada };
+        } catch (e) {
+          console.error('galeria: foto da lista ilegível', e);
+        }
+      }
     }
+    return null;
+  };
+
+  /** @param {boolean} forcar */
+  const refaz = async forcar => {
+    const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
+    memoria.set(kMem, { em: Date.now(), dados });
+    if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, {
+      forcar: forcar || congelada, slug, antes: hashLido,
+      aoMudar: aoMudar ? anterior => aoMudar(env, /** @type {ListagemDrive} */ (anterior), dados) : undefined,
+    });
+    const store = congelada ? null : cacheStore();
+    if (store) {
+      try {
+        await store.put(kCache, new Response(JSON.stringify(dados), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
+        }));
+      } catch (e) {
+        console.error('galeria: escrita do cache falhou', e);
+      }
+    }
+    return dados;
+  };
+
+  return leComRenovacao(env, ctx, { kMem, leaseChave: `l:${kMem}`, memo: memoria, ttlMs, atualizar, fonte, refaz });
+}
+
+/**
+ * O que aconteceu com um arquivo que sumiu da listagem: `files.get` com
+ * `trashed,parents`. 404 ou na lixeira = "apagada"; existe fora da lixeira =
+ * "movida" (só registra); qualquer outra resposta (limite, 5xx, tempo) =
+ * "indefinida" (não conclui nada). Custa UMA subrequisição.
+ * Atenção: 404 também é o que a API devolve a um arquivo tirado da pasta
+ * compartilhada para um lugar privado — para a galeria, é a mesma coisa:
+ * a foto deixou de existir para o público.
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {string} id
+ * @param {string} [rk] resourceKey do arquivo, se havia
+ * @returns {Promise<'apagada' | 'movida' | 'indefinida'>}
+ */
+export async function consultaArquivo(env, id, rk = '') {
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  if (!chave || !ID_RE.test(id)) return 'indefinida';
+  const params = new URLSearchParams({ fields: 'trashed,parents', supportsAllDrives: 'true', key: chave });
+  /** @type {Record<string, string>} */
+  const headers = { Accept: 'application/json' };
+  if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${id}/${rk}`;
+  try {
+    const res = await fetch(`${DRIVE_FILES}/${encodeURIComponent(id)}?${params}`, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (res.status === 404) return 'apagada';
+    if (!res.ok) return 'indefinida';
+    const corpo = /** @type {any} */ (await res.json());
+    return corpo && corpo.trashed === true ? 'apagada' : 'movida';
+  } catch {
+    return 'indefinida';
   }
-  return dados;
 }
 
 /**
@@ -178,11 +568,21 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
  * @param {string} chave
  * @param {{ id: string, resourceKey: string }} raiz
  * @param {number} maxChamadas
+ * @param {Map<string, string>} creditos chave de pasta → autor (parseCreditos)
  * @returns {Promise<ListagemDrive>}
  */
-async function percorre(chave, raiz, maxChamadas) {
-  /** @type {{ id: string, rk: string, caminho: string[] }[]} */
-  const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [] }];
+async function percorre(chave, raiz, maxChamadas, creditos) {
+  /** @type {string[]} */
+  const aut = [creditos.get(CHAVE_AUTOR_PADRAO) || AUTOR_PADRAO];
+  /** @param {string} nome */
+  const indiceAutor = nome => {
+    const i = aut.indexOf(nome);
+    if (i >= 0) return i;
+    aut.push(nome);
+    return aut.length - 1;
+  };
+  /** @type {{ id: string, rk: string, caminho: string[], autor: number }[]} */
+  const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
   /** @type {Map<string, SecaoDrive>} */
   const secoes = new Map();
   /** @type {Record<string, string>} */
@@ -191,7 +591,7 @@ async function percorre(chave, raiz, maxChamadas) {
 
   percurso:
   while (fila.length) {
-    const atual = /** @type {{ id: string, rk: string, caminho: string[] }} */ (fila.shift());
+    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number }} */ (fila.shift());
     const caminho = atual.caminho.join(' / ');
     let secao = secoes.get(caminho);
     if (!secao) {
@@ -207,21 +607,36 @@ async function percorre(chave, raiz, maxChamadas) {
         if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
         const mime = typeof f.mimeType === 'string' ? f.mimeType : '';
         if (mime === FOLDER_MIME) {
-          if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < GALERIA_MAX_PASTAS) {
+          const rkPasta = typeof f.resourceKey === 'string' ? f.resourceKey : '';
+          const chaveDaPasta = chavePasta(f.name);
+          const autorDaPasta = chaveDaPasta === CHAVE_AUTOR_PADRAO ? undefined : creditos.get(chaveDaPasta);
+          if (autorDaPasta !== undefined) {
+            // Pasta de autor: não é seção. Mesmo caminho do pai (não aumenta a
+            // profundidade); as fotos dela levam o autor.
+            if (pastas < GALERIA_MAX_PASTAS) {
+              pastas++;
+              fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: indiceAutor(autorDaPasta) });
+            } else {
+              truncada = true;
+            }
+          } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < GALERIA_MAX_PASTAS) {
             pastas++;
-            fila.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)] });
+            fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
           } else {
             truncada = true;
           }
           continue;
         }
-        if (mime.startsWith('image/')) {
+        // Item 1f: tudo o que o Drive vê como imagem (JPEG, HEIC/HEIF, PNG,
+        // WEBP, GIF e RAW) e todo vídeo entram na galeria.
+        const ehImg = mime.startsWith('image/');
+        const ehVid = !ehImg && mime.startsWith('video/');
+        if (ehImg || ehVid) {
           if (total >= GALERIA_MAX_FOTOS) { truncada = true; continue; }
           total++;
-          secao.fotos.push(fotoCompacta(f));
+          if (ehVid) videos++;
+          secao.fotos.push(ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor));
           if (typeof f.resourceKey === 'string' && f.resourceKey) rk[f.id] = f.resourceKey;
-        } else if (mime.startsWith('video/')) {
-          videos++;
         } else {
           outros++;
         }
@@ -230,21 +645,107 @@ async function percorre(chave, raiz, maxChamadas) {
     } while (pageToken);
   }
 
-  for (const s of secoes.values()) s.fotos.sort((a, b) => ordemNatural(a[3], b[3]));
+  // Live Photo: o .MOV/.MP4 de mesmo nome da foto deixa de ser um item e passa
+  // a ser o "vídeo do Live Photo" dela.
+  const pareados = pareiaLive(secoes.values());
+  total -= pareados;
+  videos -= pareados;
+  for (const s of secoes.values()) s.fotos.sort(ordemDaSecao(s.fotos));
   // Raiz primeiro, depois as subpastas em ordem natural; seção vazia some (uma
   // pasta só de subpastas não deixa um título solto sem foto embaixo).
   const lista = [...secoes.values()]
     .filter(s => s.fotos.length > 0)
     .sort((a, b) => (a.caminho === '' ? -1 : b.caminho === '' ? 1 : ordemNatural(a.caminho, b.caminho)));
 
-  return { v: 1, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk };
+  return { v: 3, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas };
+}
+
+// Um Live Photo do iPhone é uma foto (.HEIC/.JPG) mais um vídeo de poucos
+// segundos (.MOV) com o MESMO nome. Acima disto é um vídeo de verdade que por
+// acaso tem o nome de uma foto.
+const LIVE_DURACAO_MAX_S = 10;
+
+/** @param {FotoDrive} f é um vídeo (extra numérico)? */
+export const ehVideo = f => typeof f[7] === 'number';
+
+/**
+ * O vídeo do Live Photo de uma foto, ou null.
+ * @param {FotoDrive} f
+ * @returns {{ id: string, nome: string, bytes: number } | null}
+ */
+export function liveDe(f) {
+  const l = f[7];
+  return Array.isArray(l) ? { id: l[0], nome: l[1], bytes: l[2] } : null;
+}
+
+/** A listagem tem ao menos um vídeo (item)? @param {ListagemDrive} dados */
+export function temVideo(dados) {
+  for (const s of dados.secoes) for (const f of s.fotos) if (typeof f[7] === 'number') return true;
+  return false;
+}
+
+/**
+ * Casa cada vídeo curto com a foto de mesmo nome (sem extensão, sem diferenciar
+ * maiúscula), da MESMA seção e do MESMO autor. A foto ganha o vídeo em `extra`
+ * e o vídeo sai da seção. Vídeo sem foto de mesmo nome, ou longo, fica como
+ * item. Devolve quantos vídeos foram absorvidos.
+ * @param {Iterable<SecaoDrive>} secoes
+ */
+function pareiaLive(secoes) {
+  let pareados = 0;
+  for (const secao of secoes) {
+    /** @type {Map<string, FotoDrive>} */
+    const fotos = new Map();
+    for (const f of secao.fotos) {
+      if (typeof f[7] === 'number') continue;
+      const k = `${f[5] || 0}\u0001${chaveDeNome(f[3])}`;
+      if (!fotos.has(k)) fotos.set(k, f);
+    }
+    if (!fotos.size) continue;
+    const resto = [];
+    for (const f of secao.fotos) {
+      if (typeof f[7] === 'number' && f[7] <= LIVE_DURACAO_MAX_S) {
+        const par = fotos.get(`${f[5] || 0}\u0001${chaveDeNome(f[3])}`);
+        if (par && par[7] == null) {
+          par[5] = par[5] || 0;
+          par[6] = par[6] || 0;
+          par[7] = [f[0], f[3], f[4]];
+          pareados++;
+          continue;
+        }
+      }
+      resto.push(f);
+    }
+    secao.fotos = resto;
+  }
+  return pareados;
+}
+
+/**
+ * A ordem de uma seção: a de hoje (nome, natural) quando todas as fotos são do
+ * mesmo autor; com autores misturados, pela hora da captura — é o que faz as
+ * fotos de câmeras diferentes se intercalarem na ordem em que aconteceram — e
+ * as sem hora por último, em ordem natural de nome.
+ * @param {FotoDrive[]} fotos
+ * @returns {(a: FotoDrive, b: FotoDrive) => number}
+ */
+function ordemDaSecao(fotos) {
+  const misturada = fotos.some(f => (f[5] || 0) !== (fotos[0][5] || 0));
+  if (!misturada) return (a, b) => ordemNatural(a[3], b[3]);
+  return (a, b) => {
+    const ha = a[6] || 0, hb = b[6] || 0;
+    if (ha && hb && ha !== hb) return ha - hb;
+    if (!ha !== !hb) return ha ? -1 : 1;
+    return ordemNatural(a[3], b[3]);
+  };
 }
 
 /**
  * @param {any} f arquivo como a API devolve
+ * @param {number} autor índice do autor em `aut`
  * @returns {FotoDrive}
  */
-function fotoCompacta(f) {
+function fotoCompacta(f, autor) {
   const meta = f.imageMediaMetadata && typeof f.imageMediaMetadata === 'object' ? f.imageMediaMetadata : {};
   let w = Number.isInteger(meta.width) && meta.width > 0 ? meta.width : 0;
   let h = Number.isInteger(meta.height) && meta.height > 0 ? meta.height : 0;
@@ -253,18 +754,62 @@ function fotoCompacta(f) {
   // isto a grade reservaria uma caixa deitada para uma foto em pé.
   if (meta.rotation === 1 || meta.rotation === 3) [w, h] = [h, w];
   const bytes = Number.parseInt(String(f.size || '0'), 10);
-  return [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
+  /** @type {FotoDrive} */
+  const foto = [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0];
+  const hora = horaDaFoto(meta.time);
+  const criada = criadaEmMin(f.createdTime);
+  if (autor || hora || criada) { foto[5] = autor; if (hora) foto[6] = hora; }
+  if (criada) { foto[6] = foto[6] || 0; foto[7] = null; foto[8] = criada; }
+  return foto;
+}
+
+/**
+ * Um vídeo da pasta como item da listagem: [id, l, a, nome, bytes, autor, 0,
+ * duração em segundos]. O Drive guarda a largura/altura do vídeo SEM a rotação
+ * do aparelho (um vídeo em pé costuma vir deitado): é só a proporção da caixa
+ * até a miniatura chegar.
+ * @param {any} f arquivo como a API devolve
+ * @param {number} autor índice do autor em `aut`
+ * @returns {FotoDrive}
+ */
+function videoCompacto(f, autor) {
+  const meta = f.videoMediaMetadata && typeof f.videoMediaMetadata === 'object' ? f.videoMediaMetadata : {};
+  const w = Number.isInteger(meta.width) && meta.width > 0 ? meta.width : 0;
+  const h = Number.isInteger(meta.height) && meta.height > 0 ? meta.height : 0;
+  const ms = Number(meta.durationMillis);
+  const dur = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+  const bytes = Number.parseInt(String(f.size || '0'), 10);
+  /** @type {FotoDrive} */
+  const video = [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0, autor, 0, dur];
+  const criada = criadaEmMin(f.createdTime);
+  if (criada) video[8] = criada;
+  return video;
+}
+
+/**
+ * `createdTime` do Drive → minutos desde EPOCA_CRIADA_MS, ou 0 quando falta,
+ * é inválido ou é mais velho que a janela das "fotos novas" (nunca será nova
+ * para quem volta dentro da janela).
+ * @param {unknown} t
+ */
+export function criadaEmMin(t) {
+  const ms = typeof t === 'string' ? Date.parse(t) : NaN;
+  if (!Number.isFinite(ms)) return 0;
+  if (Date.now() - ms > NOVAS_JANELA_DIAS * 86_400_000) return 0;
+  const m = Math.floor((ms - EPOCA_CRIADA_MS) / 60_000);
+  return m > 0 ? m : 0;
 }
 
 /**
  * @param {string} chave
  * @param {{ id: string, rk: string }} pasta
  * @param {string} pageToken
+ * @param {boolean} [soPastas] só as subpastas (o índice de capítulos)
  */
-async function chamaDrive(chave, pasta, pageToken) {
+async function chamaDrive(chave, pasta, pageToken, soPastas = false) {
   const params = new URLSearchParams({
-    q: `'${pasta.id}' in parents and trashed = false`,
-    fields: CAMPOS,
+    q: `'${pasta.id}' in parents and trashed = false${soPastas ? ` and mimeType = '${FOLDER_MIME}'` : ''}`,
+    fields: soPastas ? CAMPOS_PASTAS : CAMPOS,
     pageSize: '1000',
     supportsAllDrives: 'true',
     includeItemsFromAllDrives: 'true',
@@ -329,6 +874,25 @@ export async function erroDaApi(res) {
 export function achaFoto(dados, id) {
   for (const s of dados.secoes) {
     for (const f of s.fotos) if (f[0] === id) return f;
+  }
+  return null;
+}
+
+/**
+ * Procura um ARQUIVO para baixar: o item da listagem OU o vídeo de um Live
+ * Photo (que não é item). `foto` é sempre o item dono (é dele que valem
+ * ocultar, remoção e capítulo); `arquivo` é o que se entrega.
+ * @param {ListagemDrive} dados
+ * @param {string} id
+ * @returns {{ foto: FotoDrive, arquivo: FotoDrive, live: boolean } | null}
+ */
+export function achaArquivo(dados, id) {
+  for (const s of dados.secoes) {
+    for (const f of s.fotos) {
+      if (f[0] === id) return { foto: f, arquivo: f, live: false };
+      const l = f[7];
+      if (Array.isArray(l) && l[0] === id) return { foto: f, arquivo: [l[0], 0, 0, l[1], l[2], f[5] || 0, f[6] || 0], live: true };
+    }
   }
   return null;
 }
@@ -493,6 +1057,7 @@ function indiceDoIg(ig) {
   for (const s of ig.secoes) {
     const caminho = caminhoChave(s.caminho);
     for (const foto of s.fotos) {
+      if (typeof foto[7] === 'number') continue; // vídeo da pasta do Instagram não casa com foto
       const k = chaveDeNome(foto[3]);
       poe(indice.exato, k, { caminho, foto, prox: null });
       if (terminaComSufixo(k)) {
@@ -565,6 +1130,7 @@ export function casaRedes(galeria, ig) {
   for (const s of galeria.secoes) {
     const caminho = caminhoChave(s.caminho);
     for (const f of s.fotos) {
+      if (typeof f[7] === 'number') continue; // vídeo não tem versão "para redes"
       const k = chaveDeNome(f[3]);
       const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho);
       if (par) mapa.set(f[0], par);
@@ -672,4 +1238,311 @@ export function pastaInstagram(event) {
   if (!ig) return null;
   const galeria = pastaDoDrive(event.driveUrl);
   return galeria && galeria.id === ig.id ? null : ig;
+}
+
+// ---------------------------------------------------------------------------
+// Galeria por capítulos (v3.1)
+// ---------------------------------------------------------------------------
+// Com "Galeria por capítulos" ligado no projeto, cada subpasta de PRIMEIRO
+// nível da pasta do projeto é uma página (`/galeria/<slug>/<capitulo>`) e a
+// raiz vira um índice de cartões. O índice custa UMA página da API (só as
+// subpastas); o capítulo é lido com `listaPasta` como se a subpasta fosse a
+// raiz. Fotos soltas na raiz não aparecem neste modo (documentado).
+//
+// Quem aparece nas rotas é o `slug` do capítulo, feito do nome da pasta; o ID
+// da pasta nunca vem do navegador — o servidor o acha aqui, na lista que ele
+// mesmo leu do Drive.
+
+/**
+ * @typedef {{ id: string, rk: string, bruto: string, nome: string, slug: string }} Capitulo
+ * @typedef {{ v: 1, pasta: string, em: string, truncada: boolean, caps: Capitulo[] }} CapitulosDrive
+ */
+
+// Slugs que colidiriam com rotas da própria galeria.
+const SLUGS_RESERVADOS = new Set(['baixar', 'sitemap']);
+const ANO_RE = /^(?:19|20)\d{2}(?!\d)/;
+
+/**
+ * O nome do capítulo como a página o mostra: sem controle, "_" vira espaço,
+ * espaços repetidos somem e o prefixo de ordenação ("01 - ", "2. ") cai — mas
+ * ano ("2026 - Formatura") fica. Nome que ficaria vazio volta como estava.
+ * @param {unknown} bruto
+ */
+export function nomeDeCapitulo(bruto) {
+  const base = String(bruto == null ? '' : bruto).replace(CONTROLE_RE, ' ').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
+  const sem = base.replace(/^\d{1,2}\s*[-.)–]\s+/, '').trim();
+  return (sem || base || 'Sem nome').slice(0, 80);
+}
+
+/** a-z, 0-9 e hífen, sem acento; no máximo 60. @param {string} nome */
+export function slugBaseDeCapitulo(nome) {
+  const s = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/g, '');
+  return s || 'capitulo';
+}
+
+/**
+ * Anos (nome que começa com 19xx/20xx) do mais novo para o mais velho; depois
+ * os demais, em ordem natural. Empate de ano: ordem natural do nome.
+ * @param {{ nome: string }} a
+ * @param {{ nome: string }} b
+ */
+export function ordemDeCapitulos(a, b) {
+  const ya = ANO_RE.exec(a.nome), yb = ANO_RE.exec(b.nome);
+  if (ya && yb) return Number(yb[0]) - Number(ya[0]) || ordemNatural(a.nome, b.nome);
+  if (ya) return -1;
+  if (yb) return 1;
+  return ordemNatural(a.nome, b.nome);
+}
+
+/**
+ * @param {{ id: string, rk: string, bruto: string }[]} pastas
+ * @returns {Capitulo[]}
+ */
+function montaCapitulos(pastas) {
+  const itens = pastas.map(p => ({ ...p, nome: nomeDeCapitulo(p.bruto) })).sort((a, b) => ordemDeCapitulos(a, b) || (a.id < b.id ? -1 : 1));
+  const usados = new Set(SLUGS_RESERVADOS);
+  return itens.map(p => {
+    const base = slugBaseDeCapitulo(p.nome);
+    let slug = base;
+    if (usados.has(slug)) {
+      const curto = p.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4) || 'x';
+      slug = `${base.slice(0, 55)}-${curto}`.replace(/-+/g, '-');
+      for (let i = 2; usados.has(slug); i++) slug = `${base.slice(0, 50)}-${curto}-${i}`;
+    }
+    usados.add(slug);
+    return { id: p.id, rk: p.rk, bruto: p.bruto, nome: p.nome, slug };
+  });
+}
+
+/** @type {Map<string, { em: number, dados: CapitulosDrive }>} */
+const memoriaCaps = new Map();
+/** @param {string} id */
+const chaveCaps = id => `https://fotos.invalid/__galeria/capitulos/${id}/v1`;
+
+/**
+ * Os capítulos de um projeto: UMA chamada à API (só as subpastas de primeiro
+ * nível), guardada pelo mesmo prazo das listagens (memória + Cache API).
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string, CONSENT_DB?: D1Database }} env
+ * @param {{ id: string, resourceKey: string }} pasta
+ * @param {{ atualizar?: boolean, auto?: boolean, periodo?: number, slug?: string, ctx?: { waitUntil?: (p: Promise<any>) => void } }} [opts] política de renovação (ver listaPasta)
+ * @returns {Promise<CapitulosDrive>}
+ */
+export async function listaCapitulos(env, pasta, { atualizar = false, auto = true, periodo = GALERIA_LISTA_TTL_S, slug = '', ctx } = {}) {
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  if (!chave) throw new DriveError('chave-ausente', 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).');
+  if (!ID_RE.test(pasta.id)) throw new DriveError('pasta-inacessivel', 'O link do Drive deste projeto não aponta para uma pasta.');
+  const congelada = !auto;
+  const ttlMs = (congelada ? GALERIA_SNAPSHOT_MEM_S : periodo) * 1000;
+  const chaveSnap = `c:${pasta.id}`;
+
+  /** @type {string | null | undefined} */
+  let hashLido;
+  /** @param {boolean} temVelho @returns {Promise<{ dados: CapitulosDrive, fresco: boolean } | null>} */
+  const fonte = async temVelho => {
+    if (!congelada) {
+      const store = cacheStore();
+      if (store) {
+        try {
+          const hit = await store.match(chaveCaps(pasta.id));
+          if (hit) {
+            const dados = /** @type {CapitulosDrive} */ (await hit.json());
+            if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados, fresco: Date.now() - Date.parse(dados.em) < ttlMs };
+          }
+        } catch (e) {
+          console.error('galeria: leitura do cache dos capítulos falhou', e);
+        }
+      }
+    }
+    if (!temVelho) {
+      const foto = await lerSnapshot(env, chaveSnap, 'v1');
+      hashLido = foto ? foto.hash : null;
+      if (foto) {
+        try {
+          const dados = /** @type {CapitulosDrive} */ (JSON.parse(foto.dados));
+          if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados, fresco: congelada };
+        } catch (e) {
+          console.error('galeria: foto dos capítulos ilegível', e);
+        }
+      }
+    }
+    return null;
+  };
+
+  /** @param {boolean} forcar */
+  const refaz = async forcar => {
+    const pagina = await chamaDrive(chave, { id: pasta.id, rk: pasta.resourceKey }, '', true);
+    /** @type {{ id: string, rk: string, bruto: string }[]} */
+    const pastas = [];
+    for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
+      if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
+      pastas.push({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', bruto: String(f.name || 'Sem nome').slice(0, 120) });
+    }
+    const truncada = !!pagina.nextPageToken || pastas.length > GALERIA_MAX_CAPITULOS;
+    /** @type {CapitulosDrive} */
+    const dados = { v: 1, pasta: pasta.id, em: new Date().toISOString(), truncada, caps: montaCapitulos(pastas.slice(0, GALERIA_MAX_CAPITULOS)) };
+    memoriaCaps.set(pasta.id, { em: Date.now(), dados });
+    await gravaSnapshot(env, chaveSnap, 'v1', dados, { forcar: forcar || congelada, slug, antes: hashLido });
+    const store = congelada ? null : cacheStore();
+    if (store) {
+      try {
+        await store.put(chaveCaps(pasta.id), new Response(JSON.stringify(dados), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${periodo}` },
+        }));
+      } catch (e) {
+        console.error('galeria: escrita do cache dos capítulos falhou', e);
+      }
+    }
+    return dados;
+  };
+
+  return leComRenovacao(env, ctx, { kMem: pasta.id, leaseChave: `c:${pasta.id}`, memo: memoriaCaps, ttlMs, atualizar, fonte, refaz });
+}
+
+/**
+ * @param {CapitulosDrive} dados
+ * @param {string} slug
+ * @returns {{ cap: Capitulo, anterior: Capitulo | null, proximo: Capitulo | null } | null}
+ */
+export function achaCapitulo(dados, slug) {
+  const i = dados.caps.findIndex(c => c.slug === slug);
+  if (i < 0) return null;
+  return { cap: dados.caps[i], anterior: dados.caps[i - 1] || null, proximo: dados.caps[i + 1] || null };
+}
+
+// O resumo de cada capítulo (quantas fotos, quais as três primeiras) para os
+// cartões do índice, SEM ler as listas de todos os capítulos: um mapa pequeno,
+// um por projeto, na Cache API (nunca KV). Cada capítulo aberto atualiza o seu
+// pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
+// um espaço reservado.
+/** @typedef {{ n: number, capas: string[], cr?: number[] }} ResumoCap  `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX */
+const RESUMO_MEM_MS = 6 * 3600 * 1000;
+/** @type {Map<string, { em: number, mapa: Record<string, ResumoCap> }>} */
+const memoriaResumo = new Map();
+/** @param {string} id */
+const chaveResumo = id => `https://fotos.invalid/__galeria/resumo/${id}`;
+
+/**
+ * @param {string} raizId
+ * @returns {Promise<Record<string, ResumoCap>>}
+ */
+export async function lerResumo(raizId) {
+  const mem = memoriaResumo.get(raizId);
+  if (mem && Date.now() - mem.em < RESUMO_MEM_MS) return mem.mapa;
+  const store = cacheStore();
+  if (store) {
+    try {
+      const hit = await store.match(chaveResumo(raizId));
+      if (hit) {
+        const j = /** @type {any} */ (await hit.json());
+        if (j && j.v === 1 && j.mapa && typeof j.mapa === 'object') {
+          memoriaResumo.set(raizId, { em: Date.now(), mapa: j.mapa });
+          return j.mapa;
+        }
+      }
+    } catch (e) {
+      console.error('galeria: leitura do resumo dos capítulos falhou', e);
+    }
+  }
+  return mem ? mem.mapa : {};
+}
+
+/**
+ * Guarda o resumo de UM capítulo, se mudou. No caso comum (nada mudou, isolate
+ * quente) não gasta subrequisição nenhuma.
+ * @param {string} raizId
+ * @param {string} capId
+ * @param {ListagemDrive} listagem a listagem CRUA do capítulo (com as ocultas)
+ */
+export async function registraResumo(raizId, capId, listagem) {
+  const capas = [];
+  for (const sec of listagem.secoes) {
+    for (const f of sec.fotos) { if (capas.length < 3) capas.push(f[0]); }
+    if (capas.length >= 3) break;
+  }
+  /** @type {ResumoCap} */
+  const novo = { n: listagem.total, capas };
+  /** @type {number[]} */
+  const cr = [];
+  for (const sec of listagem.secoes) for (const f of sec.fotos) if (f[8]) cr.push(f[8]);
+  if (cr.length) novo.cr = cr.sort((a, b) => b - a).slice(0, NOVAS_RESUMO_MAX);
+  const mapa = { ...(await lerResumo(raizId)) };
+  const velho = mapa[capId];
+  if (velho && velho.n === novo.n && velho.capas.join() === capas.join() && (velho.cr || []).join() === (novo.cr || []).join()) return;
+  mapa[capId] = novo;
+  memoriaResumo.set(raizId, { em: Date.now(), mapa });
+  const store = cacheStore();
+  if (!store) return;
+  try {
+    await store.put(chaveResumo(raizId), new Response(JSON.stringify({ v: 1, mapa }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' },
+    }));
+  } catch (e) {
+    console.error('galeria: escrita do resumo dos capítulos falhou', e);
+  }
+}
+
+/** @type {WeakMap<ListagemDrive, { nome: string, saida: ListagemDrive }>} */
+const comPrefixo = new WeakMap();
+/**
+ * A listagem de um capítulo com o NOME DA PASTA do capítulo na frente do
+ * caminho de cada seção — só para o casamento "para redes": a pasta do
+ * Instagram é lida inteira (uma vez, compartilhada por todos os capítulos), e
+ * os caminhos dela começam pela pasta do capítulo. Casar pelo mesmo caminho é o
+ * que faz "IMG_0001" de um capítulo não pegar o "IMG_0001" de outro. A mesma
+ * lista de saída por listagem (o casamento guardado depende da identidade).
+ * @param {ListagemDrive} listagem
+ * @param {string} nomeBruto
+ * @returns {ListagemDrive}
+ */
+export function comPrefixoDeCapitulo(listagem, nomeBruto) {
+  const guardado = comPrefixo.get(listagem);
+  if (guardado && guardado.nome === nomeBruto) return guardado.saida;
+  const saida = { ...listagem, secoes: listagem.secoes.map(s => ({ ...s, caminho: s.caminho ? `${nomeBruto} / ${s.caminho}` : nomeBruto })) };
+  comPrefixo.set(listagem, { nome: nomeBruto, saida });
+  return saida;
+}
+
+/** Só para testes. */
+export function limpaCacheCapitulos() { memoriaCaps.clear(); memoriaResumo.clear(); }
+
+/**
+ * Onde ler: a pasta do projeto (galeria comum) ou a subpasta do capítulo. UMA
+ * função para a página, o download, o pedido de remoção, o sitemap e o aviso ao
+ * autor — nenhum deles confia num ID de pasta que veio do navegador.
+ *  - `ok`:   `pasta` é o que listar (null no ÍNDICE do modo capítulos), `caps` a
+ *            lista de capítulos (null no modo comum) e `capitulo` o escolhido;
+ *  - `nao`:  capítulo que não existe (ou `capSlug` num projeto sem capítulos): 404;
+ *  - `erro`: o Drive falhou; `codigo`/`mensagem` como em DriveError.
+ * @param {{ GOOGLE_DRIVE_API_KEY?: string }} env
+ * @param {Record<string, any>} event
+ * @param {string} [capSlug]
+ * @param {boolean} [atualizar]
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx] o contexto da invocação (releitura em segundo plano)
+ * @returns {Promise<
+ *   { kind: 'ok', raiz: { id: string, resourceKey: string }, pasta: { id: string, resourceKey: string } | null, caps: CapitulosDrive | null, capitulo: Capitulo | null, anterior: Capitulo | null, proximo: Capitulo | null, maxChamadas: number }
+ *   | { kind: 'nao' }
+ *   | { kind: 'erro', codigo: string, mensagem: string }>}
+ */
+export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false, ctx = undefined) {
+  const raiz = pastaDoDrive(event.driveUrl);
+  if (!raiz) return { kind: 'erro', codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
+  if (!event.galeriaCapitulos) {
+    if (capSlug) return { kind: 'nao' };
+    return { kind: 'ok', raiz, pasta: raiz, caps: null, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS };
+  }
+  let caps;
+  try {
+    caps = await listaCapitulos(env, raiz, { atualizar, ctx, slug: String(event.slug || ''), ...politicaDaGaleria(event) });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return { kind: 'erro', codigo: e.codigo, mensagem: e.message };
+  }
+  if (!capSlug) return { kind: 'ok', raiz, pasta: null, caps, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS_CAP };
+  const ach = achaCapitulo(caps, capSlug);
+  if (!ach) return { kind: 'nao' };
+  return {
+    kind: 'ok', raiz, pasta: { id: ach.cap.id, resourceKey: ach.cap.rk }, caps,
+    capitulo: ach.cap, anterior: ach.anterior, proximo: ach.proximo, maxChamadas: GALERIA_MAX_CHAMADAS_CAP,
+  };
 }
