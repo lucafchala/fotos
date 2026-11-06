@@ -237,6 +237,7 @@ prometido.
 | Destacar na galeria / Remover destaque | `pin` | alterna `pinned` | `PUT /api/events/<id>` com `{ pinned }` |
 | Ocultar da galeria / Mostrar na galeria | `vis` | alterna `visible` | `PUT /api/events/<id>` com o evento inteiro e `visible` invertido |
 | Abrir a página do projeto | — (link `/<slug>`, nova aba) | abre a página pública | nenhuma |
+| QR code da galeria… | `qr` | abre uma janela com o QR do link da galeria (projeto com capítulos: o do índice, com um seletor para o de cada capítulo), o link por extenso e os botões **Baixar PNG** e **Baixar SVG** (alta resolução, com o título embaixo). O servidor só devolve a matriz; o PNG e o SVG são montados no seu navegador. Esc fecha e devolve o foco ao "⋯" | `GET /api/qr?slug=…[&cap=…]` |
 | Duplicar | `dup` | abre o formulário de "novo evento" preenchido | nenhuma até salvar (`POST /api/events`) |
 | Excluir… | `del` | pede digitar o título; depois exclui | `DELETE /api/events/<id>` |
 
@@ -464,9 +465,9 @@ para o topo (a folha guardava a rolagem anterior).
 | `f-drive` | `driveUrl` | `https://` (`toHttps`), ≤ 2000; obrigatório na criação |
 | lista de capas | `photos` e `thumbnailUrl` (= a primeira) | até 6, `toHttps` em cada. Na edição a capa segue a lista: esvaziá-la tira a capa; um `PUT` sem `photos` (o "Destacar") não mexe nela |
 | `f-drive-ig` | `driveUrlInstagram` | `toHttps` |
-| `f-creditos` | `galeriaCreditos` | uma linha por autor, `pasta = Nome` (opcional `<email@example.com>` no fim; o e-mail só existe no painel e no backup, nunca na página, no JSON-LD, no sitemap ou nas APIs públicas); até 20 linhas, nome ≤ 80, e-mail ≤ 120 (`normalizaCreditos`). Subpasta de primeiro nível com esse nome vira "Foto: Nome". **Aviso ao autor:** com e-mail na linha, o autor recebe um e-mail curto quando (a) chega um pedido de remoção de foto dele, (b) você decide ("Manter oculta" / "Devolver à galeria") ou (c) você oculta/devolve a foto pelo botão da galeria. O e-mail leva projeto, seção, miniatura, link da foto, a categoria do motivo e a data; nunca o e-mail nem a mensagem de quem pediu. No máximo um aviso por foto e tipo a cada 24 h; teto de 20 avisos/dia (`AUTOR_AVISO_DIA`) — passado o teto o aviso é pulado e aparece no `/healthz`; falha do Resend nunca atrapalha a ação. Foto do autor padrão ou de autor sem e-mail não gera aviso |
+| `f-creditos` | `galeriaCreditos` | uma linha por autor, `pasta = Nome` (opcional `<email@example.com>` no fim; o e-mail só existe no painel e no backup, nunca na página, no JSON-LD, no sitemap ou nas APIs públicas); até 20 linhas, nome ≤ 80, e-mail ≤ 120 (`normalizaCreditos`). Subpasta de primeiro nível com esse nome vira "Foto: Nome". **Linha `* = Nome`** (item h; ex.: `* = Turma 2026`): define o autor das fotos que **não** estão em pasta de autor, no lugar do autor padrão de sempre; aceita e-mail opcional (o aviso ao autor também vale para ele) e só vale se o nome não for vazio. Uma pasta do Drive chamada `*` nunca vira pasta de autor. A linha entra na chave do cache da lista: mudar o autor padrão não serve a lista antiga. **Aviso ao autor:** com e-mail na linha, o autor recebe um e-mail curto quando (a) chega um pedido de remoção de foto dele, (b) você decide ("Remover da galeria" / "Manter na galeria") ou (c) você oculta/devolve a foto pelo botão da galeria. O e-mail leva projeto, seção, miniatura, link da foto, a categoria do motivo e a data; nunca o e-mail nem a mensagem de quem pediu. No máximo um aviso por foto e tipo a cada 24 h; teto de 20 avisos/dia (`AUTOR_AVISO_DIA`) — passado o teto o aviso é pulado e aparece no `/healthz`; falha do Resend nunca atrapalha a ação. Foto de autor sem e-mail (inclusive o padrão, sem a linha `*` com e-mail) não gera aviso |
 | `f-nomes-amigaveis` | `nomesAmigaveis` | `=== true` (padrão desligado). Muda **só o nome do arquivo** no download (`Content-Disposition`): `<Título> - <Seção> - <Autor> - <AAAA-MM-DD HHhMMmSS>.<ext>`; sem data de captura, entra o número da foto na seção (3 dígitos); nome repetido ganha `-2`, `-3`. Os bytes e o EXIF são os do Drive; o nome é calculado no servidor (`src/nomes.js`) |
-| `f-galeria-capitulos` | `galeriaCapitulos` | `=== true` (padrão desligado). Com a opção ligada, `/galeria/<projeto>` é um **índice** com um cartão por subpasta de primeiro nível da pasta do Drive (nome sem o número de ordem; anos do mais novo ao mais antigo, depois ordem natural) e cada subpasta abre em `/galeria/<projeto>/<capítulo>`, a galeria completa dela. O índice custa 1 chamada ao Drive; a capa e a contagem do cartão vêm de um resumo no cache, preenchido quando o capítulo é aberto (antes disso o cartão mostra "Ver fotos"). Fotos soltas na raiz não aparecem. Capítulo cujo resumo guardado diz 0 fotos **não aparece para o visitante** (o dono o vê com a marca "vazio"); capítulo sem resumo ainda aparece normalmente; com todos vazios o visitante lê "As fotos estão chegando". Ocultas, pedidos de remoção e favoritas continuam por ID de foto, no projeto. Contadores: `galeria_views:<projeto>` e `galeria_views:<projeto>:<capítulo>`. Os links de download antigos (sem capítulo) deixam de valer |
+| `f-galeria-capitulos` | `galeriaCapitulos` | `=== true` (padrão desligado). Com a opção ligada, `/galeria/<projeto>` é um **índice** com um cartão por subpasta de primeiro nível da pasta do Drive (nome sem o número de ordem; anos do mais novo ao mais antigo, depois ordem natural) e cada subpasta abre em `/galeria/<projeto>/<capítulo>`, a galeria completa dela. O índice custa 1 chamada ao Drive; a capa e a contagem do cartão vêm de um resumo no cache, preenchido quando o capítulo é aberto (antes disso o cartão mostra "Ver fotos"). Fotos soltas na raiz não aparecem. Capítulo cujo resumo guardado diz 0 fotos **não aparece para o visitante** (o dono o vê com a marca "vazio"); capítulo sem resumo ainda aparece normalmente; com todos vazios o visitante lê "As fotos estão chegando". Ocultas, pedidos de remoção e favoritas continuam por ID de foto, no projeto. Contadores: `galeria_views:<projeto>` e `galeria_views:<projeto>:<capítulo>`. Os links de download antigos (sem capítulo) deixam de valer. **Fotos novas (3.1, item j):** o cartão do capítulo mostra "N novas" (as fotos que chegaram desde a última visita *daquele visitante*, guardada só no `localStorage` dele; até 100, contadas na lista sem descontar as ocultas) e, dentro do capítulo, o chip "Só as novas" filtra a grade; o servidor não guarda nada do visitante |
 | `f-galeria-auto` + `f-galeria-periodo` | `galeriaAtualizacaoAuto` + `galeriaPeriodo` | Atualização da lista do Drive. **Automática** (padrão, ligada): a galeria relê a pasta quando passa o **período** (10 min padrão; 1 h, 6 h ou 24 h; qualquer outro valor vira 10 min), só quando alguém abre a página. **Desligada**: a lista fica congelada na última foto durável (tabela `galeria_snapshot` do D1, migração `0003`) até o dono tocar em **Atualizar agora** (`?atualizar=1`, só logado) na faixa do dono da galeria ou no link do painel. Serve de **moderação**: a pasta do Drive é colaborativa (qualquer um com o link envia e apaga) e congelar a lista impede que uma foto indevida apareça sozinha. A foto durável só é regravada quando o conteúdo muda (hash), e o "Atualizar agora" regrava sempre; sem foto ainda, lê uma vez e guarda. Vale também para a lista de capítulos e para cada capítulo (uma linha por pasta). A pasta do Instagram não tem foto durável: desligada, é relida só a cada 24 h. A faixa do dono mostra "Atualizada em <data/hora>". Sem o banco D1, tudo funciona (a lista só não fica congelada). Apagar o projeto apaga as linhas dele |
 | `f-youtube` | `youtubeId` | só o ID de 11 caracteres (`youtubeIdFrom`); link que não é do YouTube vira vazio |
 | `f-youtube-mais` | `youtubeMais` | uma linha por vídeo; até 5, sem repetir; `vertical` no fim da linha ou link de Shorts marca vertical (`youtubeMaisFrom`) |
@@ -480,6 +481,8 @@ para o topo (a folha guardava a rolagem anterior).
 | `f-credits` | `eventCredits` | ≤ 200 |
 | `f-purl` | `projectUrl` | `toHttps`, ≤ 2000 |
 | `f-alert-active`, `f-alert-kind`, `f-alert-expires` | `photosAlert` | `normalizePhotosAlert`: ativo, `addedAt`, horas (0 = não expira; teto de 1 ano) e tipo (`fotos` / `videos`) |
+
+**Vídeos e Live Photos nas métricas (3.1, item 1f).** O download de um vídeo (ou do vídeo de um Live Photo) conta em "Fotos baixadas" como versão *tamanho máximo*; "para redes" não existe para vídeo. Abrir um vídeo no visualizador não conta como download.
 
 **Fotos apagadas recentemente** (botão no mesmo bloco da galeria, ao editar o evento): a cada releitura da lista, as fotos que estavam na foto durável anterior e sumiram são conferidas no Drive (`files.get`, no máximo 10 por releitura; listagem truncada não conclui nada). Inexistente ou na lixeira = **apagada**; ainda existe em outra pasta = **movida** (só log). Mais de 10 de uma vez: o e-mail traz só a contagem. Cada releitura com apagadas manda **um** e-mail-resumo ao dono (`ADMIN_EMAIL`; teto de 10/dia, depois só o painel e o healthz) e, para cada autor com e-mail nos créditos, uma cópia só com as fotos dele (teto `AUTOR_AVISO_DIA`). A mesma foto não é avisada duas vezes. A lista (tabela `galeria_apagadas`, migração `0004`) guarda id, nome do arquivo, autor, capítulo, seção e data de captura por **30 dias** e depois é apagada; não guarda e-mail, GPS nem dado de visitante. Apagar o projeto apaga as linhas dele. Arquivos apagados vão para a lixeira de quem é dono do arquivo: quem enviou pode reenviar.
 
@@ -662,22 +665,26 @@ da navegação atualiza sozinho.
 **Pedidos feitos pela galeria** ("Pedir remoção desta foto", README). Vêm
 com `origem: 'galeria'` e mostram a **miniatura da foto** (lh3, 160 px) com
 link para o álbum, o motivo (sou eu / menor de idade / outro) e, para menor, o
-selo de **prioridade**. A foto já foi ocultada na hora (ou não, se passou de
-um teto: o pedido diz "a foto NÃO foi ocultada"). Em vez de só "Marcar como
-resolvido", os botões decidem a foto:
+selo de **prioridade**. O pedido **não esconde a foto**: ela continua na
+galeria até você decidir (o card diz "a foto continua na galeria até você
+decidir", ou "a foto está oculta da galeria" se você já a tinha escondido). Em
+vez de só "Marcar como resolvido", os botões decidem a foto:
 
-- **Manter oculta** (ou **Ocultar da galeria**, se o teto a deixou visível):
-  a foto fica em `fotosOcultas`, sai da pendência e o pedido é resolvido com
-  o e-mail de atendido.
-- **Devolver à galeria** (**Manter na galeria**, se não estava oculta): a
-  foto sai de `fotosOcultas` e da pendência; o pedido é resolvido **sem**
-  e-mail (dizer "foto removida" seria falso).
+- **Remover da galeria**: a foto vai para `fotosOcultas` (sai do site em até
+  2 minutos), o pedido é resolvido e **quem pediu** recebe o e-mail de
+  atendido; o **autor** da foto (se tem e-mail nos créditos) é avisado.
+  Apague também a foto no Drive. Se o projeto já está no teto de fotos
+  ocultas, o painel responde 409 em português.
+- **Manter na galeria**: a foto fica (ou volta, se estava oculta), o pedido é
+  resolvido, e quem pediu recebe um e-mail explicando que a foto foi mantida;
+  o autor também é avisado.
 
-`PUT /api/removal-requests/<id>/resolve` aceita `{desfecho: 'mantida' |
-'devolvida'}`; sem corpo, nada muda no evento. No modo galeria do dono, a foto
-oculta a pedido leva o selo **"Oculta a pedido"**. Custo no KV: 1 escrita do
-evento (se o desfecho a muda) mais 1 do pedido. Cobertura:
-`tests/galeria-remocao.test.js` e o cenário "Pedidos da galeria" do
+`PUT /api/removal-requests/<id>/resolve` aceita `{desfecho: 'removida' |
+'mantida_na_galeria'}`; os nomes antigos `mantida` e `devolvida` continuam
+valendo para pedidos e telas antigas. Sem corpo, nada muda no evento. No modo
+galeria do dono, a foto oculta a pedido leva o selo **"Oculta a pedido"**.
+Custo no KV: 1 escrita do evento (se o desfecho a muda) mais 1 do pedido.
+Cobertura: `tests/galeria-remocao.test.js` e o cenário "Pedidos da galeria" do
 `verifica:painel`.
 
 Os pedidos são carregados na abertura da página (para o selo) e recarregados a

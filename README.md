@@ -905,9 +905,10 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
 | GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo. **Indexada no Google** só a de álbum público e listado, vista por visitante, fora da prévia e com fotos (`galeriaIndexavel()`; ver [No Google](#no-google)); o resto leva `noindex` |
-| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto, **sem alterar o arquivo** (nome e bytes exatos): `max` = o original da pasta do projeto, pela Drive API (chave só no servidor); `redes` = o arquivo de mesmo nome da pasta do Instagram do projeto (`driveUrlInstagram`), também pela Drive API. `<id>` é sempre o da foto na galeria; o do arquivo do Instagram sai da listagem do servidor, nunca do pedido. Foto fora da pasta do projeto, sem par no Instagram ou sem pasta do Instagram: 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto, **sem alterar o arquivo** (bytes exatos; o nome é o do Drive, ou o amigável quando o projeto liga `nomesAmigaveis`): `max` = o original da pasta do projeto, pela Drive API (chave só no servidor); `redes` = o arquivo de mesmo nome da pasta do Instagram do projeto (`driveUrlInstagram`), também pela Drive API. `<id>` é sempre o da foto na galeria; o do arquivo do Instagram sai da listagem do servidor, nunca do pedido. Foto fora da pasta do projeto, sem par no Instagram ou sem pasta do Instagram: 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público. `Disallow` no `robots.txt` e `X-Robots-Tag: noindex` em toda resposta |
+| GET | `/api/qr?slug=<projeto>[&cap=<capítulo>]` | QR code do link da galeria (painel; 401 sem sessão): `{slug, url, titulo, destino, n, linhas, capitulos}`, a matriz como linhas de "0"/"1" (gerador próprio em `src/qr.js`, ISO 18004 até 213 bytes); sem `cap`, projeto com capítulos devolve o índice e a lista de capítulos; o PNG e o SVG são montados no navegador do dono |
 | POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
-| POST | `/api/galeria/remocao` | "Pedir remoção desta foto" da galeria (visitante; `{slug, foto, email, motivo, mensagem, cf-turnstile-response, token, ts, company_website}`): confere honeypot, token do formulário, Turnstile e as regras de acesso do álbum (família/privado exigem o passe; "Em breve" é 404), exige a foto na listagem (404), oculta na hora (`fotosOcultas` + `ocultasPendentes`) e registra o pedido no painel. Devolve `{ok, ocultada, motivoNaoOculta?}`; 429 acima de 10 pedidos/IP/dia |
+| POST | `/api/galeria/remocao` | "Pedir remoção desta foto" da galeria (visitante; `{slug, foto, email, motivo, mensagem, cf-turnstile-response, token, ts, company_website}`): confere honeypot, token do formulário, Turnstile e as regras de acesso do álbum (família/privado exigem o passe; "Em breve" é 404), exige a foto na listagem (404) e registra o pedido no painel e por e-mail; **não oculta a foto** (o dono decide). Devolve `{ok}`; 429 acima de 30 pedidos/IP/dia (acima de 200 só por e-mail, página amigável) |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v3** (eventos + categorias + solicitações + registro de consentimento) |
@@ -1867,8 +1868,9 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
   camada de cima (a folha de download, depois a foto) em vez de sair da
   galeria — como num app.
-- **Downloads em duas versões, sem alterar o arquivo** (nome e bytes exatos
-  do Drive; o site não redimensiona, não renomeia, não recodifica): *tamanho
+- **Downloads em duas versões, sem alterar o arquivo** (bytes exatos do
+  Drive; o site não redimensiona nem recodifica, e só renomeia se o projeto
+  ligar os nomes amigáveis): *tamanho
   máximo* — o original da pasta do projeto — e *para redes* — o arquivo **da
   pasta do Instagram** (`driveUrlInstagram`) que casa com a foto. A opção
   "para redes" só aparece nas fotos que têm esse par (a folha, o "Baixar tudo" e
@@ -1928,37 +1930,33 @@ só para visitantes (o dono não o vê). Abre um `<dialog>` nativo (fora do
 trap de foco do PhotoSwipe) com a miniatura, **e-mail** (obrigatório),
 **motivo** (sou eu / menor de idade / outro), mensagem opcional, honeypot
 `company_website` e token do formulário. O Turnstile só é carregado quando o
-diálogo abre. A confirmação diz que a foto já saiu da galeria e que o pedido
-será analisado.
+diálogo abre. A confirmação diz que o fotógrafo vai analisar e que a resposta
+chega por e-mail; a foto continua na galeria até a decisão.
 
 **Rota própria** (`POST /api/galeria/remocao`) em vez do
 `/api/removal-request`: este exige telefone, consentimento e um método de
 identificação da foto, e não oculta nada. O final comum (gravar o pedido e
 mandar os e-mails) é compartilhado (`registraPedidoPublico`). A ordem é
 honeypot, token, teto de pedidos por IP, Turnstile, validação, acesso ao
-álbum, foto na listagem, **ocultar** (um `saveEvents`) e só então registrar o
-pedido; assim `ocultada` reflete o que aconteceu de fato, e uma falha do KV ao
-ocultar ainda registra o pedido.
+álbum, foto na listagem e então registrar o pedido (nada é ocultado nesse
+caminho); o pedido segue ao painel e por e-mail ao dono.
 
-**Tetos** (`src/config.js`): `GALERIA_REMOCAO_OCULTA_POR_IP_DIA` = 5,
-`GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA` = 20 e
-`GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA` = 10. Passou do teto de ocultação: o
-pedido é registrado e avisado, a foto **não** é ocultada
-(`motivoNaoOculta: 'ip' | 'album'`) e o painel oferece "Ocultar da galeria".
-Pedido de menor **não** fura os tetos (só ganha prioridade e assunto
-próprio): furar seria um atalho de abuso, e o dono devolve à galeria o que
-for engano.
+**Limites** (`src/config.js`): `GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA` = 30 pedidos
+por IP e dia chegam ao painel; até `GALERIA_REMOCAO_EMAIL_POR_IP_DIA` = 200 só
+por e-mail; depois, uma página amigável. Pedido de menor ganha prioridade e
+assunto próprio, sem furar limite nenhum.
 
-**Dados.** A foto fica em `fotosOcultas` (some do HTML, do sitemap, do JSON-LD
-e do download para o público) e em `ocultasPendentes: [{id, em, pedido}]`
-(sempre um subconjunto de `fotosOcultas`; o dono vê o selo **"Oculta a
-pedido"**). No painel, **Manter oculta** tira a foto da pendência e resolve o
-pedido (e-mail de atendido); **Devolver à galeria** a tira de `fotosOcultas`
-e da pendência, sem e-mail. O botão de olho do dono também encerra a pendência.
-Como a galeria do visitante é `private, no-cache`, a ocultação chega aos
-outros visitantes em até ~2 min. Custo: ver `TODO.md`. Testes:
-`tests/galeria-remocao.test.js`; `verifica:galeria` (cenário 6e) e
-`verifica:painel` ("Pedidos da galeria").
+**Dados e decisão.** O pedido **não esconde a foto**: ela continua na galeria
+até o dono decidir no painel. **Remover da galeria** coloca a foto em
+`fotosOcultas` (some do HTML, do sitemap, do JSON-LD e do download para o
+público, em até ~2 min), resolve o pedido e avisa quem pediu e o autor;
+**Manter na galeria** resolve o pedido, deixa (ou devolve) a foto visível e
+avisa quem pediu e o autor. `PUT /api/removal-requests/<id>/resolve` aceita
+`{desfecho: 'removida' | 'mantida_na_galeria'}`; os nomes antigos `mantida` e
+`devolvida` ainda valem. O campo `ocultasPendentes` não é mais gravado (um
+backup antigo com ele ainda restaura). Custo: ver `TODO.md`. Testes:
+`tests/galeria-remocao.test.js`; `verifica:galeria` e `verifica:painel`
+("Pedidos da galeria").
 
 ### No Google
 
