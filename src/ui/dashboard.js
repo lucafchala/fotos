@@ -1209,6 +1209,16 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           </div>
           <div class="field">
             <div class="toggle-row">
+              <label class="toggle-label" for="f-busca-rosto">Busca pelo rosto (galeria por capítulos)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-busca-rosto" aria-describedby="dica-busca-rosto">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O índice do álbum ganha o botão <em>Procurar meu rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
               <label class="toggle-label" for="f-galeria-auto">Atualização automática da lista de fotos</label>
               <label class="toggle">
                 <input type="checkbox" id="f-galeria-auto" aria-describedby="dica-galeria-auto" checked>
@@ -1841,6 +1851,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-abertura').value = e ? (e.galeriaAbertura || '') : '';
       document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
+      document.getElementById('f-busca-rosto').checked = !!(e && e.buscaRosto);
       document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
       document.getElementById('f-galeria-periodo').value = String(e && e.galeriaPeriodo || 600);
       document.getElementById('f-apagadas').hidden = true;
@@ -1906,7 +1917,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1961,7 +1972,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-busca-rosto', f.buscaRosto); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2214,6 +2225,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         galeriaAbertura: document.getElementById('f-abertura').value,
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
+        buscaRosto: document.getElementById('f-busca-rosto').checked,
         galeriaAtualizacaoAuto: document.getElementById('f-galeria-auto').checked,
         galeriaPeriodo: Number(document.getElementById('f-galeria-periodo').value) || 600,
         driveUrlVideos: document.getElementById('f-drive-videos').value.trim(),

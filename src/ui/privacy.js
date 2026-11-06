@@ -73,7 +73,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 10 de outubro de 2026</p>
+    <p class="updated">Atualizada em 6 de novembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -112,11 +112,22 @@ export function privacyHTML() {
     <p><strong>Fotos de terceiros e de menores em álbuns públicos.</strong> Um álbum pode reunir fotos de mais de uma pessoa (a pasta do Drive pode ser colaborativa) e mostrar terceiros e menores de idade. Por isso há sempre um canal de remoção, na própria galeria e no rodapé do evento, e os pedidos de quem é <strong>responsável por um menor</strong> têm prioridade. O autor da foto é avisado do pedido e da decisão, <strong>sem receber os dados de contato</strong> de quem pediu.</p>
     <p>Para uso em portfólio, a exibição segue o legítimo interesse. Qualquer pessoa retratada pode exercer seu direito de oposição solicitando a remoção da imagem pelo canal facilitado no rodapé do evento.</p>
 
+    <h2 id="busca-rosto">3.1. Busca pelo rosto</h2>
+    <p>Alguns álbuns públicos têm o botão <em>“Procurar meu rosto”</em>: você envia uma selfie e o site mostra as fotos do álbum em que você provavelmente aparece. O rosto é um <strong>dado biométrico</strong>, um dado pessoal sensível (art. 5º, II, e art. 11 da LGPD), e por isso a busca funciona assim:</p>
+    <ul>
+      <li><strong>Só com o seu consentimento.</strong> A busca só começa depois que você marca que concorda, a cada vez. A selfie é reduzida no seu aparelho, enviada à <strong>Amazon Rekognition</strong> (Amazon Web Services, região de São Paulo) só para a comparação e <strong>não é guardada</strong> nem pelo site nem pela Amazon.</li>
+      <li><strong>O índice do álbum.</strong> Para a comparação, cada rosto das fotos do álbum vira um código numérico (um “vetor”), guardado na Amazon Rekognition. O código não traz nome nem identifica ninguém sozinho: só diz em qual foto há um rosto parecido. Ele é montado a partir das fotos públicas do álbum e acompanha o álbum: foto oculta ou removida sai do índice.</li>
+      <li><strong>Você pode sair da busca.</strong> Pelo link <em>“Não quero aparecer na busca”</em>, no mesmo botão, você envia uma selfie e o site tira o seu rosto do índice; ninguém mais acha as suas fotos pela busca, nem as que chegarem depois. Para isso o seu rosto fica guardado, só para esse fim, até o fim do álbum. Também pode pedir por <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</li>
+      <li><strong>Resultado aproximado.</strong> A comparação é automática e pode errar para os dois lados; ela não identifica pessoas por nome e não toma decisão nenhuma sobre você.</li>
+      <li><strong>Use só com o seu rosto.</strong> Procurar outra pessoa sem a autorização dela não é permitido: a busca existe para cada um achar as próprias fotos.</li>
+    </ul>
+
     <h2>4. Com quem os dados são compartilhados</h2>
     <p>Para funcionar, o site utiliza serviços de terceiros que podem processar dados:</p>
     <ul>
       <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos e os vídeos dos eventos. Nos vídeos da galeria, o player do Google Drive só é carregado quando você toca para reproduzir; a partir daí, o Google passa a ser um terceiro que recebe os dados do seu acesso, e vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
       <li><strong>Resend</strong> — envio dos e-mails das solicitações, do suporte e dos códigos de acesso.</li>
+      <li><strong>Amazon Web Services (Amazon Rekognition)</strong> — só nos álbuns com busca pelo rosto: compara a selfie com o índice do álbum, na região de São Paulo. Ver a seção 3.1.</li>
       <li><strong>YouTube (Google)</strong> — só em projetos que têm um vídeo na página. A imagem de capa do vídeo vem do YouTube junto com a página; o player em si só é carregado quando você clica em reproduzir, no modo de privacidade aprimorada (<code>youtube-nocookie.com</code>). A partir daí vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
       <li><strong>Cloudflare</strong> — hospedagem do site, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
     </ul>
@@ -128,13 +139,14 @@ export function privacyHTML() {
     <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
 
     <h2>4.2. Decisões automatizadas</h2>
-    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você pode receber um código por e-mail e seguir, ou usar o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
+    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A busca pelo rosto (seção 3.1) só sugere fotos para você conferir. A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você pode receber um código por e-mail e seguir, ou usar o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
 
     <h2>5. Por quanto tempo guardamos</h2>
     <ul>
       <li><strong>Solicitações de remoção:</strong> mantidas enquanto necessárias para atender ao pedido e <strong>apagadas automaticamente em até 6 meses após a resolução</strong>.</li>
       <li><strong>Cópia da lista de fotos de cada pasta:</strong> uma linha por pasta, substituída a cada atualização e apagada junto com o projeto.</li>
       <li><strong>Fotos apagadas recentemente:</strong> registradas por <strong>30 dias</strong> e apagadas automaticamente depois disso (ou junto com o projeto).</li>
+      <li><strong>Busca pelo rosto:</strong> a selfie da busca não é guardada. O índice de rostos de um álbum é apagado quando o álbum sai do ar ou a busca é desligada. O rosto de quem pediu para sair da busca fica guardado só para isso, até o índice ser apagado.</li>
       <li><strong>Mensagens de suporte:</strong> não ficam armazenadas no sistema do site — são entregues por e-mail para mim.</li>
       <li><strong>E-mail do código de acesso:</strong> não fica armazenado no site; o resumo (hash) usado para limitar envios some em até 2 horas.</li>
       <li><strong>Registros de autorização de uso de imagem:</strong> mantidos como comprovação do consentimento durante o prazo em que a autorização pode ser questionada e <strong>apagados automaticamente após 5 anos</strong>. Uma cópia deles também entra no arquivo de backup do site: fica guardado pelo responsável, protegido, e segue o mesmo prazo de 5 anos.</li>
