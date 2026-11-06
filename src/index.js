@@ -3671,7 +3671,9 @@ export function rotaDoDominioDeAlbum(url, path) {
     });
   }
   if (path === '/') return redirect(`/galeria/${DOMINIOS_DE_ALBUM[dominio]}${url.search}`);
-  if (path === '/dashboard' || path.startsWith('/dashboard/')) return redirect(`${SITE_URL}/dashboard`);
+  // O painel mora no domínio principal (é lá que o cookie da sessão vale).
+  const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
+  if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
   return null;
 }
 
