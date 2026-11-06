@@ -105,6 +105,7 @@ Cada site inclui uma linha:
   | `chala` | Luca | `chala = Luca F. Chala` |
   | `mag` | Mag | `mag = Mag <e-mail, só no painel>` |
   | `santa oficial` | Fotos oficiais do colégio | `santa oficial = Colégio Santa Cruz` |
+  | `comissao` | Comissão de Festas | `comissao = Comissão de Festas` |
   | `outros` | A turma | `outros = Turma 2026`; a pasta fica **aberta como Editor** para quem tem o link (são 20) |
 
   A foto fora dessas pastas recebe `* = Turma 2026`.
