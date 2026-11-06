@@ -326,7 +326,9 @@ describe('Ajustes: o bloco "Sair dos outros aparelhos" e o lembrete na página',
     // Na abertura, e não só depois do download: o texto de Ajustes nasce vazio.
     expect(html).toMatch(/renderCategoryManager\(\);\s*mostraUltimoBackup\(\);\s*loadRequests\(\);/);
     // Depois do download: a linha muda no lugar, sem recarregar.
-    expect(html).toMatch(/toast\('Backup baixado\.', 'ok'\);[\s\S]*?backupUltimo = new Date\(\)\.toISOString\(\);\s*mostraUltimoBackup\(\);/);
+    // (O texto do toast depende do registro de consentimento — avisoDoBackup,
+    // tests/backup-consentimento.test.js.)
+    expect(html).toMatch(/toast\(aviso\.texto, aviso\.tipo\);[\s\S]*?backupUltimo = new Date\(\)\.toISOString\(\);\s*mostraUltimoBackup\(\);/);
   });
 
   it('sem o parâmetro (as outras chamadas da página), o padrão é null', () => {

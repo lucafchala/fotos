@@ -152,7 +152,20 @@ describe('robots.txt e llms.txt: busca e resposta sim, treino não', () => {
     expect(treino).toContain('User-agent: Google-Extended');
     const busca = grupos.find(g => g.includes('User-agent: OAI-SearchBot'));
     expect(busca).toContain('Allow: /');
-    expect(busca).not.toContain('Disallow');
+    // Robô de busca só fica fora do download da galeria — nunca do site.
+    expect(busca).not.toMatch(/^Disallow: \/$/m);
+  });
+
+  it('download da galeria fechado para todo robô que rastreia; sitemaps das galerias anunciados', async () => {
+    // Cada download passa pelo Worker (original pela Drive API, cópia pelo
+    // lh3): robô baixando gasta a cota do Drive e do plano gratuito.
+    const txt = await (await pede('/robots.txt')).text();
+    const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
+    for (const g of grupos.filter(x => !x.includes('User-agent: GPTBot'))) {
+      expect(g).toMatch(/^Disallow: \/galeria\/\*\/baixar\/$/m);
+    }
+    expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap.xml');
+    expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap-galerias.xml');
   });
 
   it('o llms.txt diz que treino não é permitido e não libera robô de treino', async () => {
@@ -244,11 +257,20 @@ describe('handleLogin', () => {
   });
 
   it('blocks further attempts once the per-IP login rate limit is spent', async () => {
+    // O limite é uma janela FIXA de 600 s alinhada ao relógio (Date.now()). Dez
+    // PBKDF2 em sequência levam segundos (dezenas, com a máquina carregada); se
+    // a janela virasse no meio, a contagem zerava e a 11ª tentativa passava.
+    // Relógio congelado = tudo cai na mesma janela.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-15T15:00:00Z'));
     const stored = await hashPassword('correct-horse');
     const env = withDurableObjects({ FOTOS: fakeKV({ admin_password: stored }) });
-    for (let i = 0; i < 10; i++) {
-      await handleLogin(loginReq('wrong-guess', '5.5.5.5'), env);
-    }
+    // Gasta as 10 passagens direto no RateLimiter de verdade (mesma chave e
+    // mesmo `check` que handleLogin usa), em vez de 10 hashes PBKDF2 pelo
+    // handler: o que o teste prova é a 11ª tentativa, e esta é rápida e não
+    // depende de a máquina estar folgada.
+    const janela = env.RATELIMIT.get(env.RATELIMIT.idFromName('login:5.5.5.5'));
+    for (let i = 0; i < 10; i++) expect(await janela.check(10, 600)).toBe(true);
     // The 11th attempt is refused by the rate limiter before the password is even checked.
     const res = await handleLogin(loginReq('correct-horse', '5.5.5.5'), env);
     expect(res.status).toBe(302);

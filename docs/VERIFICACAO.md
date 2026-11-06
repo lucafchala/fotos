@@ -193,6 +193,16 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
   Galaxy 384@3,75) e desktop: a largura é a menor da escada 800/1200/1600 que
   cobre a tela em pixels físicos, WebP, a 1ª foto baixada uma vez só, ›› troca
   a foto, zoom pede `w2400`; economia de dados não pré-carrega vizinhas;
+- **capa lenta (CLS, #141)** — o `lh3` segura a foto: a caixa do carrossel e a
+  da foto única já nascem com o tamanho final (3:2 da largura, teto de 72vh),
+  no iPhone e no desktop, e quando a foto chega nada abaixo se mexe (CLS do
+  `PerformanceObserver` ≈ 0); trocar de foto não muda a altura;
+- **largura da janela de AGORA** — o lightbox abre na largura da tela em pixels
+  físicos e, com o celular deitado, a próxima foto vem na largura da janela
+  deitada; clique na faixa escura fora da foto fecha o lightbox;
+- **Turnstile só com intenção** — nenhum pedido ao `challenges.cloudflare.com`
+  antes de a pessoa interagir; abrir o portão carrega o script uma vez e libera
+  o link; a primeira rolagem já pré-aquece o desafio;
 - **429** — mostra a contagem, espera o `retryAfter` e libera sozinho; num 429
   sem fim, 1 + 5 esperas e para (sem martelar);
 - **erro comum** — uma tentativa automática e para; num 404 a caixa de erro
@@ -221,7 +231,7 @@ devolvendo um PNG de 1 px e registrando a largura/formato pedidos). Cobre:
 
 Uma exceção no meio de um cenário (um campo que não apareceu) vira FALHA com o
 erro, e o relatório sai do mesmo jeito — antes o roteiro caía sem imprimir as
-falhas já registradas. 62 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade).
+falhas já registradas. 93 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade).
 
 Prova o comportamento do **script da página**. O do servidor (balde de fichas,
 código, limites) está na suíte: `tests/drive-gate.test.js` e, para a
@@ -256,6 +266,11 @@ iPhone 390@3, Android 360@2 e computador 1440@1 —, como o dono faria:
    seta, Esc devolve o foco);
 5. resolver um pedido de remoção (o selo da navegação cai de 2 para 1); no
    computador, Pedidos percorrido pelo Tab;
+6a. **Pedidos da galeria**, com semente própria: três pedidos de visitantes
+   (um de menor, com prioridade; um que passou do teto), a miniatura lh3, o
+   álbum, "Manter oculta" (o evento mantém o ID em `fotosOcultas` e a pendência
+   some), "Devolver à galeria" (o ID sai das duas listas) e "Ocultar da
+   galeria"; botões de 44 px no celular;
 6. as Métricas com a série sintética: os números do período comparados com o
    anterior, o gráfico (7 e 30 dias; a cruz no mouse, no toque e no teclado; a
    dica que não cobre o ponto; o anel de foco), "Ver como tabela", dia da
@@ -324,12 +339,22 @@ Cobre:
   em pixels físicos; o zoom sobe a resolução por degraus até o original
   (desktop: roda; iPhone: duplo toque); setas, Esc, link direto `#foto=`;
   o **voltar** fecha a camada de cima (folha, depois foto) e fica na galeria;
-- **downloads** — a folha oferece "para redes" e "tamanho máximo" (com
-  dimensões e peso); no computador, um download por variante pelo proxy; no
-  celular (iPhone e Android pelo mesmo caminho), a foto é preparada e
-  "Salvar na galeria" entrega o **arquivo** ao compartilhamento;
-- **seleção** — marca, sobrevive a recarregar, baixa uma por foto, e o leitor
-  de tela ouve "selecionada";
+- **downloads** (arquivo exato, sem alteração) — a folha oferece "para redes"
+  só nas fotos que têm arquivo na pasta do Instagram (a sem par oferece só
+  "tamanho máximo") e mostra o **nome e o peso do arquivo** que sairá; no
+  computador e no Android, `<a download>` pela rota (URL de foto e versão
+  conferidas; o nome vem do servidor, e nenhum Web Share é chamado). No
+  **iPhone** (UA de iPhone) e no **iPad** (plataforma Mac com toque): "Salvar
+  no Fotos" entrega ao `navigator.share` o `File` com o nome e os **bytes
+  exatos** (256 valores, comparados em base64), "Baixar arquivo" é download
+  comum, botões com 44 px ou mais; sem `canShare` de arquivos, só "Baixar
+  arquivo". O nome exato no cabeçalho e a passagem dos bytes pelo servidor
+  estão em `tests/galeria.test.js`;
+- **seleção** — marca, sobrevive a recarregar, e com uma foto sem versão do
+  Instagram a folha diz "2 de 3 fotos têm esta versão" e baixa só essas em
+  "para redes" (as três em "tamanho máximo"); no iPhone, "Salvar 2 fotos no
+  Fotos" entrega os dois arquivos exatos numa só folha do sistema; o leitor de
+  tela ouve "selecionada";
 - **cabeçalho e favoritas** — chips por seção (com contagem, a atual marcada,
   tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
   aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,
@@ -338,16 +363,32 @@ Cobre:
   oculta aparece apagada, com o selo "Oculta", a faixa do dono conta
   quantas estão ocultas, no celular (360 px) a barra do visualizador cabe
   com o contador numa linha, e o visitante não vê nem botão nem selo;
+- **pedir remoção** (cenário 6e) — o link "Pedir remoção" sob a legenda
+  (alvo de 44 px, sem ícone na barra, alcançável pelo Tab), o Turnstile só
+  carrega ao abrir o diálogo, Enter abre com o foco no motivo e Esc fecha
+  devolvendo o foco com o visualizador aberto, validação do e-mail, o corpo
+  enviado, a confirmação, a foto some da grade e o visualizador segue,
+  recusa 403, passou do teto (`ocultada: false`), Turnstile bloqueado, última
+  foto, 360 px, tema escuro e o dono sem link;
 - **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
   (o roteiro reprova se a carga preguiçosa virar ansiosa);
+- **carga da página** — `fetchpriority=high` só na primeira linha (a do
+  LCP); `eager` só o que cai na primeira tela, o resto `lazy`; miniatura no
+  menor degrau que cobre largura × DPR (degraus de 100 px até 800); o CSS do
+  PhotoSwipe fora do HTML servido (entra com o visualizador, antes do
+  `<style>` da página: mesma cascata); coração da miniatura em CSS, sem `<svg>`
+  por foto; no celular até 430 px, a pré-carga da primeira foto pede o mesmo
+  arquivo que a `<img>` (um pedido só);
+- **alt das fotos** — na grade e no visualizador, "<evento> — foto i de n"
+  (SEO e leitor de tela), em todos os aparelhos;
 - **sem a chave** — a página mostra o passo a passo, sem erro de JS nem CSP;
 - **CSP** — todo cenário (grade, visualizador, link direto, downloads, "Salvar
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
   foi ao console.
 
-107 checagens em 25/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
+152 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
 sem nenhuma mensagem de violação. O zoom máximo do visualizador ("pede o
 ORIGINAL") oscilou uma vez em dez com a máquina carregada; rode os roteiros
 um de cada vez.
@@ -357,7 +398,8 @@ por aparelho, visualizador, folha de download, seleção, tema escuro) — olhe-
 o roteiro prova o comportamento, não a aparência.
 
 Prova o comportamento da **página**. O do servidor (quem vê, Drive
-API, cache, proxy que não é aberto) está em `tests/galeria.test.js`, e o que só
+API, cache, proxy que não é aberto, indexação por tipo de álbum, sitemaps de
+imagens, downloads fora do robô) está em `tests/galeria.test.js`, e o que só
 o workerd garante (bundle byte a byte, Cache API de verdade) em
 `tests/workers/galeria.workers.test.js`.
 

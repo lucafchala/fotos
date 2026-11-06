@@ -75,6 +75,12 @@ const DOCS = [
     summary: 'Modelos para assinatura: adulto, responsável por menor e instituição contratante.',
     tag: 'LGPD · Art. 14',
   },
+  {
+    slug: 'declaracao-de-acessibilidade', file: 'docs/legal/declaracao-de-acessibilidade.md',
+    title: 'Declaração de acessibilidade',
+    summary: 'O que já foi feito em acessibilidade, o que ainda falta e como relatar uma barreira.',
+    tag: 'LBI · WCAG 2.1 AA',
+  },
 ];
 
 // Mapa de arquivo → rota, para o renderizador reescrever os links entre

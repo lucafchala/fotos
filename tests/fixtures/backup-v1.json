@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "backupAt": "2025-03-14T18:02:41.512Z",
+  "eventCount": 2,
+  "events": [
+    {
+      "id": "m7q2k9x1",
+      "slug": "casamento-ana-e-bruno",
+      "title": "Casamento Ana e Bruno",
+      "longDescription": "Cerimônia e festa.",
+      "driveUrl": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "date": "2025-02-22",
+      "photos": ["https://lh3.googleusercontent.com/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0abcde"],
+      "visible": true,
+      "comingSoon": false,
+      "createdAt": "2025-02-23T10:11:12.000Z",
+      "updatedAt": "2025-02-25T09:00:00.000Z"
+    },
+    {
+      "id": "m7q3a0b2",
+      "slug": "ensaio-praia",
+      "title": "Ensaio na praia",
+      "driveUrl": "https://drive.google.com/drive/folders/1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654",
+      "date": "2025-03-01",
+      "photos": [],
+      "visible": false,
+      "createdAt": "2025-03-02T15:30:00.000Z"
+    }
+  ]
+}

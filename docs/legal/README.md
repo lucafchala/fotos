@@ -1,19 +1,8 @@
 # Documentação de conformidade — LGPD
 
-> ## ⚠️ Isto não é parecer jurídico
->
-> Todos os documentos desta pasta foram **redigidos com auxílio de IA** e
-> refletem o que o sistema faz de fato (foram escritos lendo o código, não
-> presumindo o que ele deveria fazer). Isso os torna um **pacote de handoff**
-> útil e um retrato honesto da operação — **não** um substituto para a análise
-> de um(a) advogado(a) brasileiro(a) com prática em LGPD e direito de imagem.
->
-> Vários pontos marcados **⚠️ DECISÃO JURÍDICA** ao longo dos arquivos dependem
-> de fatos que só o controlador conhece (o que está no contrato com a escola, se
-> há autorização assinada pelos responsáveis) ou de juízo profissional (prazos
-> prescricionais, cláusula de foro). Estes documentos **não** resolvem esses
-> pontos — eles os isolam e organizam para que a revisão jurídica seja rápida e
-> barata.
+> Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável
+> (29/10/2026). Os documentos refletem o que o sistema faz de fato (foram
+> escritos lendo o código, não presumindo o que ele deveria fazer).
 
 ## O que é cada arquivo
 
@@ -28,7 +17,7 @@
 | [`plano-resposta-incidentes.md`](./plano-resposta-incidentes.md) | O que fazer nas primeiras horas, critério de comunicação à ANPD e aos titulares, modelos prontos | Art. 48; Res. CD/ANPD nº 15/2024 |
 | [`politica-seguranca-informacao.md`](./politica-seguranca-informacao.md) | As medidas técnicas e administrativas que o art. 46 exige que existam — e a evidência de cada uma no código | Art. 46, 47, 49 |
 | [`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md) | Modelos para assinatura: adulto, responsável por menor, e instituição contratante | Art. 7º I, art. 14; CC art. 20 |
-| [`checklist-conformidade.md`](./checklist-conformidade.md) | Estado item a item: o que está pronto, o que falta, o que depende de decisão de terceiro | — |
+| [`checklist-conformidade.md`](./checklist-conformidade.md) | Estado item a item: o que está pronto, o que falta e o que foi decidido pelo responsável | — |
 
 ## Estes arquivos são publicados no site
 
@@ -70,9 +59,9 @@ Markdown suportado: títulos, parágrafos, listas, tabelas, blocos de código,
 citações (inclusive com título/tabela dentro), negrito, itálico, código inline
 e links. HTML cru no markdown é **escapado**, não interpretado.
 
-O resumo executivo para a revisão jurídica continua em
-[`../../LEGAL.md`](../../LEGAL.md); os pontos que dependem de parecer estão
-listados lá e referenciados aqui.
+O resumo executivo continua em
+[`../../LEGAL.md`](../../LEGAL.md); as decisões do responsável estão
+listadas lá e referenciadas aqui.
 
 ## Porte do agente de tratamento
 
@@ -84,12 +73,13 @@ indicação de encarregado facultativa desde que haja canal de comunicação
 divulgado, e prazos dobrados para atendimento.
 
 Estes documentos foram escritos **no formato completo**, sem invocar a
-simplificação. A razão é prática: é mais fácil um advogado dizer "você pode
-simplificar isto" do que reconstruir o que não foi feito. Não é uma opinião
-sobre o enquadramento.
+simplificação. A razão é prática: reconstruir o que não foi feito dá mais
+trabalho do que manter o que existe.
 
-⚠️ **DECISÃO JURÍDICA:** confirmar o enquadramento como agente de pequeno porte
-e quais flexibilizações o controlador quer efetivamente adotar.
+**Decisão do responsável (29/10/2026):** mantém-se o enquadramento de agente
+de tratamento de pequeno porte (Res. CD/ANPD nº 2/2022), que dispensa o ato
+formal de nomeação do encarregado — o canal divulgado cumpre o papel — e os
+documentos seguem no formato completo.
 
 ## Como manter isto vivo
 

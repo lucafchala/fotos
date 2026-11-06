@@ -345,6 +345,23 @@ exige_header "Permissions-Policy"        '^permissions-policy:.*camera=\(\)'
 exige_header "COOP"                      '^cross-origin-opener-policy: *same-origin'
 exige_header "Origin-Agent-Cluster"      '^origin-agent-cluster:'
 
+# HSTS de pelo menos 1 ano. O código manda 2 anos (src/security.js), mas a
+# Cloudflare pode reescrever o cabeçalho na borda — em out/2026 a zona
+# respondia 180 dias por cima do código, e só se via olhando a resposta.
+# Vale o MENOR max-age entre os cabeçalhos que chegarem (a borda pode somar
+# um segundo). 1 ano é o mínimo da lista de preload do Chrome.
+HSTS_MIN=31536000
+if [ -n "$HDRS" ]; then
+  hsts_max="$(printf '%s' "$HDRS" | grep -iE '^strict-transport-security:' | grep -ioE 'max-age=[0-9]+' | cut -d= -f2 | sort -n | head -1)"
+  if [ -z "$hsts_max" ]; then
+    registra "HSTS de 1 ano ou mais" FALHA "sem max-age"
+  elif [ "$hsts_max" -lt "$HSTS_MIN" ]; then
+    registra "HSTS de 1 ano ou mais" FALHA "max-age=$hsts_max ($((hsts_max / 86400)) dias): a borda da Cloudflare deve estar sobrescrevendo (SSL/TLS → Certificados de borda → HSTS)"
+  else
+    registra "HSTS de 1 ano ou mais" OK "max-age=$hsts_max ($((hsts_max / 86400)) dias)"
+  fi
+fi
+
 # A CSP aplicada é a ESTRITA (#126): o script-src não pode ter 'unsafe-inline'.
 # Pela CSP Level 3 o nonce faz o browser descartá-lo, então uma política com os
 # dois diria uma coisa e o browser faria outra; e sem o nonce (checado acima) o

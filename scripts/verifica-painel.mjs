@@ -132,8 +132,8 @@ await provaOVigia(browser, registra);
  * senha de um não pode atrapalhar o outro).
  * @param {{ width: number, height: number }} viewport @param {number} dpr @param {boolean} toque
  */
-async function abre(viewport, dpr, toque) {
-  const w = await sobeWorker({ kv: SEMENTE, contadores: CONTADORES });
+async function abre(viewport, dpr, toque, semente = SEMENTE) {
+  const w = await sobeWorker({ kv: semente, contadores: CONTADORES });
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: dpr, hasTouch: toque, isMobile: toque });
   const page = await ctx.newPage();
   const estado = { erros: /** @type {string[]} */ ([]), csp: /** @type {string[]} */ ([]) };
@@ -610,7 +610,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       registra(corDaAtiva === 'rgb(240, 235, 229)', `${rotulo}: a aba tocada fica com o branco da ativa`, corDaAtiva);
       await page.waitForSelector('#grafico-acessos svg', { timeout: 6000 });
       const rotulos = await page.locator('#metrics-resumo .resumo-lab').allTextContents();
-      registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período`, rotulos);
+      registra(rotulos.join('|') === 'Visitas|Abriram o Drive|Abriram a galeria|Fotos baixadas|Taxa de abertura|Hoje', `${rotulo}: métricas abrem com os números do período (Drive e galeria)`, rotulos);
       if (toque) {
         const alturaProjeto = Math.round(((await page.locator('#metrics-projeto').boundingBox()) || { height: 0 }).height * 10) / 10;
         registra(alturaProjeto >= 44, `${rotulo}: o seletor de projeto das métricas tem 44 px`, { alturaProjeto });
@@ -621,7 +621,10 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const pontos = await desenho.getAttribute('data-pontos');
       const linhas = await desenho.locator('path[fill="none"]').count();
       const itensLegenda = await page.locator('#acessos-legenda span').count();
-      registra(pontos === '30' && linhas === 2 && itensLegenda === 2, `${rotulo}: gráfico de 30 dias, duas linhas e a legenda`, { pontos, linhas, itensLegenda });
+      registra(pontos === '30' && linhas === 3 && itensLegenda === 3, `${rotulo}: gráfico de 30 dias, três linhas (visitas, Drive, galeria) e a legenda`, { pontos, linhas, itensLegenda });
+      const baixadas = page.locator('#grafico-baixadas svg');
+      registra((await baixadas.count()) === 1 && (await baixadas.locator('path[fill="none"]').count()) === 2 && (await page.locator('#baixadas-legenda span').count()) === 2,
+        `${rotulo}: "Fotos baixadas na galeria" desenha "para redes" e "tamanho máximo"`);
 
       await aciona(page.locator('#metrics-periodo [data-dias="7"]'), toque);
       await espera(page, 250);
@@ -640,8 +643,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       await espera(page, 200);
       const dica = page.locator('#dica-acessos');
       const textoDica = ((await dica.textContent()) || '').trim();
-      registra(await dica.isVisible() && /Visitas/.test(textoDica) && /Abriram o Drive/.test(textoDica),
-        `${rotulo}: ${toque ? 'tocar' : 'passar o mouse'} no gráfico mostra o dia e os dois números`, textoDica);
+      registra(await dica.isVisible() && /Visitas/.test(textoDica) && /Abriram o Drive/.test(textoDica) && /Abriram a galeria/.test(textoDica),
+        `${rotulo}: ${toque ? 'tocar' : 'passar o mouse'} no gráfico mostra o dia e os três números`, textoDica);
       const caixaDica = await dica.boundingBox();
       registra(!!caixaDica && caixaDica.x >= 0 && caixaDica.x + caixaDica.width <= viewport.width + 1, `${rotulo}: a dica cabe na tela`, caixaDica);
       if (PRINTS) await print(page, `${id}-metricas-dica`);
@@ -982,6 +985,105 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const esperadas = toque ? 17 : 18;
       registra(chaves.every(k => permitidas.includes(k)) && w.escritas.length === esperadas,
         `${rotulo}: o fluxo só grava o que deve no KV (${w.escritas.length} escritas)`, { chaves, esperadas });
+    } finally {
+      await ctx.close();
+      await w.fecha();
+    }
+  });
+}
+
+// ---- Pedidos feitos pela galeria ("Pedir remoção desta foto") -----------------
+// Três pedidos de visitantes no mesmo álbum: dois cuja foto foi escondida na
+// hora (um de menor, com prioridade) e um que passou do teto (a foto NÃO foi
+// escondida). O dono vê a miniatura e o álbum, decide por botão — "Manter
+// oculta", "Devolver à galeria", "Ocultar da galeria" — e cada decisão acerta o
+// evento no KV (fotosOcultas e ocultasPendentes) e resolve o pedido.
+const FA = 'FOTO_PEDIDO_A_01', FB = 'FOTO_PEDIDO_B_02', FC = 'FOTO_PEDIDO_C_03', FD = 'FOTO_JA_OCULTA_04';
+const pedidoGaleria = (/** @type {string} */ id, /** @type {string} */ foto, /** @type {Record<string, any>} */ o) => ({
+  id, eventSlug: 'formatura-medicina-2026', eventTitle: 'Formatura Medicina 2026', method: 'galeria', origem: 'galeria',
+  value: 'https://fotos.lucafchala.com/galeria/formatura-medicina-2026', fotoId: foto, fotoNome: `${foto}.jpg`, motivo: 'eu', prioridade: false, ocultada: true,
+  email: 'visitante@example.com', phone: '', message: 'Prefiro não aparecer.', fileName: null, fileBase64: null, resolved: false,
+  createdAt: new Date(agora - 600e3).toISOString(), emailStatus: 'sent', confirmEmailStatus: 'sent', ...o,
+});
+const PEDIDOS_GALERIA = [
+  pedidoGaleria('c'.repeat(32), FA, { motivo: 'menor', prioridade: true }),
+  pedidoGaleria('d'.repeat(32), FB, { createdAt: new Date(agora - 1200e3).toISOString() }),
+  pedidoGaleria('e'.repeat(32), FC, { ocultada: false, motivo: 'outro', createdAt: new Date(agora - 1800e3).toISOString() }),
+];
+const emPendente = (/** @type {string} */ foto, /** @type {string} */ pedido) => ({ id: foto, em: new Date(agora - 600e3).toISOString(), pedido });
+const SEMENTE_GALERIA = {
+  events: JSON.stringify([{
+    ...EVENTOS[0],
+    fotosOcultas: [FA, FB, FD],
+    ocultasPendentes: [emPendente(FA, PEDIDOS_GALERIA[0].id), emPendente(FB, PEDIDOS_GALERIA[1].id)],
+  }, ...EVENTOS.slice(1)]),
+  categories: JSON.stringify(['Formatura']),
+  ...Object.fromEntries(PEDIDOS_GALERIA.map(p => [`removal_request:${p.id}`, JSON.stringify(p)])),
+};
+
+for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
+  ['iPhone 390@3', { width: 390, height: 844 }, 3, true],
+  ['Computador 1440@1', { width: 1440, height: 900 }, 1, false],
+])) {
+  await cenario(`Pedidos da galeria, ${rotulo}`, async () => {
+    const { w, ctx, page, estado } = await abre(viewport, dpr, toque, SEMENTE_GALERIA);
+    try {
+      const id = rotulo.startsWith('iPhone') ? 'iphone' : 'desktop';
+      const evento = () => JSON.parse(/** @type {string} */ (w.kv.get('events'))).find((/** @type {any} */ e) => e.slug === 'formatura-medicina-2026');
+      const pedidoNoKv = (/** @type {string} */ i) => JSON.parse(/** @type {string} */ (w.kv.get(`removal_request:${i}`)));
+      await aciona(page.locator('nav.nav [data-tab="requests"]'), toque);
+      await page.waitForSelector('#tab-requests.active');
+      await espera(page, 500);
+      await print(page, `${id}-pedidos-galeria`);
+
+      const miniaturas = await page.evaluate(() => [...document.querySelectorAll('#tab-requests .req-foto img')].map(i => /** @type {HTMLImageElement} */ (i).src));
+      registra(miniaturas.length === 3 && miniaturas.some(m => m === `https://lh3.googleusercontent.com/d/${FA}=w160`), `${rotulo}: cada pedido da galeria mostra a miniatura da foto (lh3)`, miniaturas);
+      const textos = await page.locator('#tab-requests').innerText();
+      registra(textos.includes('Pedido pela galeria') && textos.includes('Formatura Medicina 2026') && textos.includes('Responsável por um menor na foto') && /prioridade/i.test(textos),
+        `${rotulo}: mostra o álbum, o motivo e a prioridade do menor`, textos.slice(0, 300));
+      const links = await page.locator('#tab-requests .req-foto a[href="/galeria/formatura-medicina-2026"]').count();
+      registra(links === 3, `${rotulo}: cada pedido leva ao álbum`, links);
+      registra(textos.includes('foto NÃO foi ocultada'), `${rotulo}: o pedido que passou do teto diz que a foto não foi ocultada`);
+      const rotulos = await page.locator('[data-action="decidirFoto"]').allTextContents();
+      registra(rotulos.filter(t => t === 'Manter oculta').length === 2 && rotulos.filter(t => t === 'Devolver à galeria').length === 2
+        && rotulos.includes('Ocultar da galeria') && rotulos.includes('Manter na galeria'), `${rotulo}: os botões de decisão de cada pedido`, rotulos);
+      if (toque) {
+        const pequenos = await alvosPequenos(page, '#tab-requests');
+        registra(pequenos.length === 0, `${rotulo}: os botões de Pedidos da galeria têm 44 px`, pequenos.slice(0, 6));
+      }
+
+      // "Manter oculta" no pedido do menor: resolve, sai da pendência, segue oculta.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[0].id}"]`), toque);
+      const m1 = await aviso(page);
+      await espera(page, 600);
+      const e1 = evento();
+      registra(e1.fotosOcultas.includes(FA) && !e1.ocultasPendentes.some((/** @type {any} */ p) => p.id === FA) && e1.ocultasPendentes.length === 1
+        && pedidoNoKv(PEDIDOS_GALERIA[0].id).resolved === true && pedidoNoKv(PEDIDOS_GALERIA[0].id).desfecho === 'mantida',
+        `${rotulo}: "Manter oculta" resolve o pedido, tira da pendência e mantém a foto oculta`, { aviso: m1, ocultas: e1.fotosOcultas, pend: e1.ocultasPendentes.map((/** @type {any} */ p) => p.id) });
+      await someAviso(page);
+
+      // "Devolver à galeria": sai de fotosOcultas e da pendência.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="devolvida"][data-id="${PEDIDOS_GALERIA[1].id}"]`), toque);
+      await aviso(page);
+      await espera(page, 600);
+      const e2 = evento();
+      registra(!e2.fotosOcultas.includes(FB) && e2.fotosOcultas.includes(FA) && e2.fotosOcultas.includes(FD) && e2.ocultasPendentes.length === 0
+        && pedidoNoKv(PEDIDOS_GALERIA[1].id).desfecho === 'devolvida' && pedidoNoKv(PEDIDOS_GALERIA[1].id).resolved === true,
+        `${rotulo}: "Devolver à galeria" tira a foto das ocultas e da pendência, sem mexer nas outras`, { ocultas: e2.fotosOcultas, pend: e2.ocultasPendentes });
+      await someAviso(page);
+
+      // O pedido que o teto não escondeu: "Ocultar da galeria" esconde agora.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[2].id}"]`), toque);
+      await aviso(page);
+      await espera(page, 600);
+      const e3 = evento();
+      registra(e3.fotosOcultas.includes(FC) && e3.ocultasPendentes.length === 0 && pedidoNoKv(PEDIDOS_GALERIA[2].id).resolved === true,
+        `${rotulo}: "Ocultar da galeria" esconde a foto que o teto deixou visível`, e3.fotosOcultas);
+      registra((await page.locator('#requests-badge').count()) === 0 || !(await page.locator('#requests-badge').isVisible()), `${rotulo}: sem pedidos pendentes, o selo some`);
+      // O resolvido (aviso de "foto mantida oculta") fica sob "resolvidas".
+      await print(page, `${id}-pedidos-galeria-resolvidos`);
+      // (O e-mail de "atendido" não é conferido aqui: este worker local não tem chave do Resend; o teste unitário cobre.)
+      registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: Pedidos da galeria sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
     } finally {
       await ctx.close();
       await w.fecha();

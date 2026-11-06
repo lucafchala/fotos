@@ -327,6 +327,20 @@ describe('GET /api/metrics/diario', () => {
     expect(d.primeiroDia, 'o painel diz desde quando há série').toBe(diaMenos(HOJE, 100));
   });
 
+  it('a galeria entra na série: aberturas e downloads das duas versões, alinhados aos dias', async () => {
+    vaiPara(HOJE);
+    await bumpCounter(env, null, 'galeria_views:formatura', 4);
+    await bumpCounter(env, null, 'baixar_redes:formatura', 7);
+    await bumpCounter(env, null, 'baixar_max:formatura', 2);
+    const d = await (await pede('?dias=7')).json();
+    const f = d.projetos.formatura;
+    expect(f.galeria.at(-1)).toBe(4);
+    expect(f.baixarRedes.at(-1)).toBe(7);
+    expect(f.baixarMax.at(-1)).toBe(2);
+    expect(f.views.every(n => n === 0), 'galeria não soma em visitas').toBe(true);
+    for (const k of ['views', 'driveClicks', 'galeria', 'baixarRedes', 'baixarMax']) expect(f[k]).toHaveLength(7);
+  });
+
   it('projeto oculto também aparece — o painel é do dono', async () => {
     await bumpCounter(env, null, 'views:casamento');
     const d = await (await pede('?dias=7')).json();

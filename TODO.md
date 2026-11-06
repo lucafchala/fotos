@@ -79,6 +79,15 @@ abre o Drive fica em ~8 linhas; um evento de 750 pessoas, em ~6 mil. Folga de
 sobra — mas é o número a olhar se um dia a contagem por dia ganhar mais
 dimensões.
 
+**Pedir remoção pela galeria (v3.0)**: cada pedido que **oculta** custa 1
+escrita do evento (`events`) mais 2 do pedido (o registro e o carimbo dos
+e-mails) = 3; um que passou do teto custa 2. Mais 1 a 2 linhas no
+RateLimiter (`galeria-remocao` por IP, `galeria-oculta` só quando oculta de
+fato). "Manter oculta" gasta 2 (evento + pedido), "Devolver à galeria" 2, e
+sem mudar o evento, 1. Com o teto de 10 pedidos por IP/dia e 20 ocultações por
+álbum/dia, o pior dia de um álbum fica em ~60 escritas de KV, contra as
+~1000/dia da conta. Vigiar se a galeria abrir para muito público.
+
 **Pedidos de remoção, um por chave (v2.0, #198)**: as escritas não mudaram (2
 por pedido — o pedido e o carimbo dos e-mails; 1 por "resolver"), e a migração
 do array antigo é uma vez só (≤ 500 escritas, no primeiro cron depois do
@@ -107,19 +116,25 @@ outros; subir esse número é decisão de orçamento de e-mail, não de UX.
 #235). A grade e o visualizador continuam saindo do `lh3` direto para o
 navegador (0 requisição de Worker por foto vista). O que muda é o
 **download**: cada um passa pelo Worker (o proxy que esconde a chave e põe o
-nome do arquivo) — 1 requisição de Worker + 1 subrequest por foto, só
-repassando o corpo, sem processar imagem (a CPU não cresce com o tamanho do
-arquivo). Um "baixar 30 para redes" são 30 requisições; 750 pessoas × 20
+nome exato do arquivo) — 1 requisição de Worker + 1 subrequest por foto (o
+download "para redes" soma a listagem da pasta do Instagram, em cache 10 min,
+até 8 subrequests frios), só repassando o corpo, sem processar imagem (a CPU
+não cresce com o tamanho do arquivo). Um "baixar 30 para redes" são 30 requisições; 750 pessoas × 20
 downloads = 15 mil, que cabe nas 100 mil/dia mas deixa de ser irrelevante —
 a distribuição já abriu (29/10/2026), e este é o número a olhar no dia. E
 cada download feito por visitante (não pelo dono) soma agora no Durable
-Object ~2 linhas escritas por foto (total + dia; 750 pessoas × 20 downloads
-≈ 30 mil linhas, dentro das 100 mil/dia — o outro número a olhar num evento
-grande). A página custa 1 requisição + até 30
-subrequests à Drive API a cada 10 min por pasta e data center (Cache API), e
+Object ~3 linhas escritas por foto (a ficha do limite por IP, `GALERIA_BAIXAR_BUCKET`,
+mais o total e o dia da contagem; 750 pessoas × 20 downloads ≈ 45 mil linhas,
+dentro das 100 mil/dia — o outro número a olhar num evento grande; o dono
+não gasta nenhuma). A página custa 1 requisição + até 30
+subrequests à Drive API a cada 10 min por pasta e data center (Cache API; até
+30 da pasta do projeto + 8 da do Instagram na mesma visita, ≈ 46 com o resto,
+abaixo das 50), e
 **nenhuma escrita de KV**. O limite que aparece primeiro num pico é o do
 Google, não o nosso: a Drive API recusa o original de um arquivo muito baixado
-(`downloadQuotaExceeded`, #233) — o *para redes* (lh3) segue funcionando.
+(`downloadQuotaExceeded`, #233) — desde a v3.0 isso vale também para o *para
+redes*, que agora é o arquivo da pasta do Instagram pela Drive API (antes era o
+lh3, que seguia funcionando); o botão "Abrir no Drive" da folha é o escape.
 
 ### O que acontece se estourar
 
