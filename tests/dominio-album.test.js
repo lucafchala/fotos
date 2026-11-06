@@ -91,8 +91,33 @@ describe('domínio de álbum (entrenos2026.com)', () => {
       expect(res.headers.get('X-Robots-Tag')).toBe('noindex');
       const h = await res.text();
       expect(h).toContain('<h1>Entre Nós</h1>');
-      expect(h).toContain('Turma 2026');
+      expect(h).toContain('Turma 2026 · Colégio Santa Cruz');
+      expect(h).toContain('Fotos de Luca F. Chala e Mag');
       expect(h).not.toContain('<script');
+    }
+  });
+
+  it('o robots.txt do domínio anuncia só o sitemap do álbum, com os endereços de lá', async () => {
+    const txt = await (await pede('https://entrenos2026.com/robots.txt')).text();
+    expect(txt).toContain('# robots.txt — entrenos2026.com');
+    expect(txt).toContain(`Sitemap: https://entrenos2026.com/sitemap-galeria-${SLUG}.xml`);
+    expect(txt).not.toContain('fotos.lucafchala.com/sitemap');
+    expect(txt).toContain('Disallow: /galeria/*/baixar/');
+    const principal = await (await pede('https://fotos.lucafchala.com/robots.txt')).text();
+    expect(principal).toContain('Sitemap: https://fotos.lucafchala.com/sitemap-galerias.xml');
+  });
+
+  it('os sitemaps do domínio principal deixam o álbum de domínio próprio de fora', async () => {
+    const drive = 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001';
+    const eventos = [{ ...ALBUM[0], driveUrl: drive }, { id: '2', slug: 'formatura', title: 'F', accessType: 'public', driveUrl: drive }];
+    vi.resetModules();
+    const { default: frio } = await import('../src/index.js');
+    for (const caminho of ['/sitemap.xml', '/sitemap-galerias.xml']) {
+      const xml = await (await frio.fetch(new Request(`https://fotos.lucafchala.com${caminho}`), envCom(eventos), ctx)).text();
+      expect(xml).toContain('formatura');
+      // A página do projeto (fotos.lucafchala.com/<slug>) continua; a galeria não.
+      expect(xml).not.toContain(`galeria/${SLUG}`);
+      expect(xml).not.toContain(`sitemap-galeria-${SLUG}`);
     }
   });
 });

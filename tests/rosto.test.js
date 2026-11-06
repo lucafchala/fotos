@@ -107,8 +107,38 @@ describe('buscaPorRosto', () => {
     expect(r).toEqual({ tipo: 'ok', resultados: [
       { cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 99.5 }, { cap: 'cap-b', id: 'FOTO_BBBBBBBB02', sim: 95 }, { cap: '', id: 'FOTO_SEMCAP0004', sim: 92 },
     ] });
-    expect(chamadas.map(x => x.corpo.CollectionId)).toEqual([c.sair, c.principal]);
+    // A foto de 99,5 vira semente (a oculta de 99,9 não): uma SearchFaces a mais.
+    expect(chamadas.map(x => `${x.op} ${x.corpo.CollectionId}`)).toEqual([`SearchFacesByImage ${c.sair}`, `SearchFacesByImage ${c.principal}`, `SearchFaces ${c.principal}`]);
     expect(chamadas[1].corpo.Image.Bytes).toBe(SELFIE);
+  });
+
+  it('busca em duas etapas: as sementes acham a pessoa de lado, abaixo dos achados diretos', async () => {
+    const { f, chamadas } = awsFalsa({
+      [`SearchFacesByImage ${c.principal}`]: { FaceMatches: [
+        { Similarity: 99.2, Face: { FaceId: 'semente-1', ExternalImageId: 'a:FOTO_AAAAAAAA01' } },
+        { Similarity: 98.5, Face: { FaceId: 'semente-1b', ExternalImageId: 'a:FOTO_AAAAAAAA01' } },
+        { Similarity: 98.1, Face: { FaceId: 'semente-2', ExternalImageId: 'b:FOTO_BBBBBBBB02' } },
+        { Similarity: 98.0, Face: { FaceId: 'nao-vira', ExternalImageId: 'c:FOTO_CCCCCCCC03' } },
+      ] },
+      SearchFaces: { FaceMatches: [FACE('d:FOTO_DELADO0004', 95), FACE('a:FOTO_AAAAAAAA01', 99)] },
+    });
+    const r = await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false });
+    // Só 2 sementes, de fotos diferentes; quem saiu não é consultado (temSair: false).
+    const buscas = chamadas.filter(x => x.op === 'SearchFaces');
+    expect(buscas.map(x => x.corpo.FaceId)).toEqual(['semente-1', 'semente-2']);
+    expect(chamadas[0].op).toBe('SearchFacesByImage');
+    expect(chamadas.filter(x => x.op === 'SearchFacesByImage')).toHaveLength(1);
+    expect(r.tipo === 'ok' && r.resultados.map(x => x.id)).toEqual(['FOTO_AAAAAAAA01', 'FOTO_BBBBBBBB02', 'FOTO_CCCCCCCC03', 'FOTO_DELADO0004']);
+    // A de lado entra com a semelhança vezes a da semente: 95 × 0,992 = 94,2.
+    expect(r.tipo === 'ok' && r.resultados[3].sim).toBe(94.2);
+  });
+
+  it('semente que falha não derruba a busca', async () => {
+    const { f } = awsFalsa({
+      [`SearchFacesByImage ${c.principal}`]: { FaceMatches: [FACE('a:FOTO_AAAAAAAA01', 99.9)] },
+      SearchFaces: new Error('ThrottlingException'),
+    });
+    expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false })).toEqual({ tipo: 'ok', resultados: [{ cap: 'a', id: 'FOTO_AAAAAAAA01', sim: 99.9 }] });
   });
 
   it('quem saiu da busca não é achado', async () => {
@@ -203,7 +233,16 @@ describe('/api/rosto/buscar e /api/rosto/sair', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.json()).toEqual({ ok: true, saiu: false, semIndice: false, resultados: [{ cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 98 }] });
-    expect(awsChamadas.map(c => c.op)).toEqual(['SearchFacesByImage', 'SearchFacesByImage']);
+    // Ninguém saiu deste álbum: a coleção de quem saiu nem é consultada.
+    expect(awsChamadas.map(c => `${c.op} ${c.corpo.CollectionId}`)).toEqual(['SearchFacesByImage fotos-album', 'SearchFaces fotos-album']);
+  });
+
+  it('depois que alguém sai, toda busca consulta quem saiu', async () => {
+    await saveEvents(env, [structuredClone(EVENTO)]);
+    expect((await busca({}, '/api/rosto/sair')).status).toBe(200);
+    awsChamadas = [];
+    expect((await busca()).status).toBe(200);
+    expect(awsChamadas[0]).toMatchObject({ op: 'SearchFacesByImage', corpo: { CollectionId: 'fotos-album-sair' } });
   });
 
   it('404 com a busca desligada, em álbum restrito, oculto ou sem as chaves da AWS', async () => {

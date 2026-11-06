@@ -9,7 +9,8 @@
 //      lista de fotos do JSON `g-dados` — a mesma lista que o visitante vê,
 //      já sem as fotos ocultas e sem vídeo;
 //   2. cria a coleção `fotos-<slug>` na Rekognition, se faltar;
-//   3. indexa as fotos novas (miniatura de 1600 px) e apaga do índice os
+//   3. indexa as fotos novas (miniatura de 2400 px, até 100 rostos, filtro de
+//      qualidade LOW para não perder rosto pequeno de foto de grupo) e apaga do índice os
 //      rostos das fotos que saíram do álbum.
 //
 // O estado (quais fotos já foram vistas, inclusive as sem rosto, que a
@@ -86,6 +87,21 @@ async function fotosDoAlbum(site, slug) {
 
 const espera = (/** @type {number} */ ms) => new Promise(r => setTimeout(r, ms));
 
+/**
+ * A foto para indexar: 2400 px (rosto pequeno em foto de grupo ainda tem
+ * pixels para a Rekognition); acima do teto de 5 MB da API, cai para 1600.
+ * @param {string} id
+ */
+async function miniatura(id) {
+  for (const w of [2400, 1600]) {
+    const r = await fetch(`https://lh3.googleusercontent.com/d/${id}=w${w}`, { headers: { 'User-Agent': UA } });
+    if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length <= 5_000_000) return bytes;
+  }
+  throw new Error('miniatura acima de 5 MB');
+}
+
 /** Chamada com nova tentativa quando a AWS pede calma. @type {typeof rekognition} */
 async function aws(cred, op, corpo) {
   for (let i = 0; ; i++) {
@@ -153,11 +169,8 @@ async function principal() {
     let rostos = 0; let falhas = 0;
     for (const [k, id] of novas) {
       try {
-        const r = await fetch(`https://lh3.googleusercontent.com/d/${id}=w1600`, { headers: { 'User-Agent': UA } });
-        if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
-        const bytes = new Uint8Array(await r.arrayBuffer());
-        if (bytes.length > 5_000_000) throw new Error('miniatura acima de 5 MB');
-        const res = await aws(cred, 'IndexFaces', { CollectionId: col, Image: { Bytes: base64(bytes) }, ExternalImageId: k, MaxFaces: 30, QualityFilter: 'AUTO', DetectionAttributes: [] });
+        const bytes = await miniatura(id);
+        const res = await aws(cred, 'IndexFaces', { CollectionId: col, Image: { Bytes: base64(bytes) }, ExternalImageId: k, MaxFaces: 100, QualityFilter: 'LOW', DetectionAttributes: [] });
         rostos += (res.FaceRecords || []).length;
         vistas.add(k);
       } catch (e) {

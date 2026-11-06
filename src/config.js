@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -53,10 +53,15 @@ export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
 // Texto de abertura do índice da galeria por capítulos (campo do projeto
 // `galeriaAbertura`): parágrafos separados por linha em branco, sem marcação.
 export const GALERIA_ABERTURA_MAX = 2000;
+// Apresentação do álbum (v3.3, src/ui/album.js): o estilo da primeira tela e o
+// recado do rodapé. O estilo é escolhido no painel e muda sem deploy.
+// O primeiro é o padrão (o escolhido para o álbum da turma).
+export const GALERIA_ESTILOS = Object.freeze(['mosaico', 'tela-cheia', 'recordacao', 'linha']);
+export const GALERIA_RECADO_MAX = 600;
 
-/** @type {Readonly<Record<string, { slug: string, titulo: string, linha: string }>>} */
+/** @type {Readonly<Record<string, { slug: string, titulo: string, linha: string, assinatura?: string }>>} */
 export const DOMINIOS_DE_ALBUM = Object.freeze({
-  'entrenos2026.com': Object.freeze({ slug: 'entrenos2026', titulo: 'Entre Nós', linha: 'Turma 2026' }),
+  'entrenos2026.com': Object.freeze({ slug: 'entrenos2026', titulo: 'Entre Nós', linha: 'Turma 2026 · Colégio Santa Cruz', assinatura: 'Fotos de Luca F. Chala e Mag' }),
 });
 
 // Rate limit por IP do portão do Drive — balde de fichas (RateLimiter.take).
@@ -472,7 +477,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.2.0';
+export const VERSAO = '3.3.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -494,9 +499,18 @@ export const ROSTO_MAX_RESULTADOS = 400;
 // base64 deixa folga e mantém o JSON.parse dentro dos 10 ms de CPU do plano
 // grátis.
 export const ROSTO_IMAGEM_MAX_B64 = 400_000;
+// Busca em duas etapas (v3.3): as fotos em que a pessoa aparece com
+// semelhança ≥ ROSTO_SEMENTE_MIN viram "sementes" e cada uma procura os
+// rostos parecidos com ELA — acha a mesma pessoa de lado, de longe ou com
+// pouca luz, que a selfie de frente sozinha perde. Até ROSTO_SEMENTES
+// chamadas a mais por busca.
+export const ROSTO_SEMENTES = 2;
+export const ROSTO_SEMENTE_MIN = 98;
+export const ROSTO_LIMIAR_SEMENTE = 92;
 // Por IP: a turma inteira no Wi-Fi da escola é UM IP (o mesmo raciocínio do
-// DRIVE_GATE_BUCKET). Global: teto de custo — cada busca são 2 chamadas de
-// US$ 0,001; 1500 de rajada + 125/h dá no pior dia ~US$ 9.
+// DRIVE_GATE_BUCKET). Global: teto de custo — uma busca custa de 1 a 4
+// chamadas de US$ 0,001 (quem saiu, o álbum e até 2 sementes); 1200 de rajada
+// + 100/h dá no pior dia ~3.600 buscas, uns US$ 14.
 export const ROSTO_BUSCA_IP_BUCKET = { capacity: 300, perHour: 300 };
-export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: 1500, perHour: 125 };
+export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: 1200, perHour: 100 };
 export const ROSTO_SAIR_POR_IP_DIA = 20;

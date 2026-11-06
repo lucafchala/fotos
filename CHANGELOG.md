@@ -18,6 +18,57 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.3.0] — ainda não publicada
+
+Função nova, sem nada para o dono fazer: a **apresentação do álbum**. Um projeto
+com "Texto de abertura" ganha uma página especial no índice da galeria por
+capítulos; os outros seguem iguais.
+
+### Novo
+
+- **Apresentação do álbum** (`src/ui/album.js`). Quatro estilos de primeira
+  tela, escolhidos no painel em **Estilo da abertura**:
+  - **Mosaico**, o padrão (o escolhido para o álbum da turma);
+  - **Foto em tela cheia**, com as fotos trocando sozinhas;
+  - **Álbum de recordação**, com polaroids e título manuscrito;
+  - **Linha do tempo**.
+
+  As fotos da abertura são as **Fotos de capa** do projeto, completadas pela
+  capa de cada evento. Em todos os estilos:
+  - a **linha do tempo** dos eventos, com o período de cada um ("mai – jun
+    2026", "2024 – 2026") pelas datas de captura e em ordem de data;
+  - **Quem fotografou**, com quantas fotos cada pessoa tem no álbum;
+  - o **Recado final**, um campo novo no projeto.
+
+  O visual é escuro, com o amarelo e o azul do Colégio Santa Cruz (#F9DE4B e
+  #243580) e as fontes **Fraunces** (títulos) e **Caveat** (recordação),
+  servidas pelo próprio site e só nesta página.
+- **entrenos2026.com como endereço principal do álbum.** O canonical, o
+  cartão de link e o QR code do álbum usam o domínio. O robots.txt do
+  entrenos2026.com anuncia o sitemap do álbum, e os sitemaps do
+  fotos.lucafchala.com deixam essa galeria de fora (a página do projeto
+  continua lá).
+- **Dica de envio:** quando os créditos têm a pasta `outros`, a abertura diz
+  "Para mandar fotos: abra o evento e a pasta outros". É o caso do álbum da
+  turma, com a pasta do Drive em somente leitura e só as `outros` abertas.
+- **"Em breve" com o azul e o amarelo da escola**, "Turma 2026 · Colégio
+  Santa Cruz" e "Fotos de Luca F. Chala e Mag".
+- **Busca pelo rosto mais certeira.**
+  - **Busca em duas etapas:** as fotos em que a pessoa aparece com
+    semelhança de 98% ou mais procuram os rostos parecidos com elas. Isso
+    acha a mesma pessoa de lado, de longe ou com pouca luz.
+  - **Fotos de grupo:** o indexador usa a foto com 2400 px e até 100 rostos
+    por foto.
+  - **Muita gente buscando ao mesmo tempo:** a página espera e tenta de novo
+    sozinha, até 3 vezes.
+  - **Uma chamada paga a menos por busca:** enquanto ninguém saiu da busca
+    no álbum, a coleção de quem saiu não é consultada.
+
+### Corrigido
+
+- Com menos de 3 fotos de capa escolhidas, a abertura ficava sem mosaico.
+  Agora as capas dos eventos completam.
+
 ## [3.2.0] — ainda não publicada
 
 Função nova, **desligada até o dono ligar**: a busca pelo rosto. Nada muda no

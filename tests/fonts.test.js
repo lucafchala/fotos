@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { FONTS } from '../src/content/fonts.js';
-import { fontFaceCSS, fontPreloadHTML } from '../src/utils.js';
+import { fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML } from '../src/utils.js';
 import { contentSecurityPolicy } from '../src/security.js';
 import worker from '../src/index.js';
 
@@ -26,8 +26,8 @@ const get = (/** @type {string} */ p, method = 'GET') =>
   worker.fetch(new Request('https://fotos.lucafchala.com' + p, { method }), /** @type {any} */ (env), /** @type {any} */ (ctx));
 
 describe('módulo gerado de fontes', () => {
-  it('tem a face normal e a itálica', () => {
-    expect(FONTS.map(f => f.style).sort()).toEqual(['italic', 'normal']);
+  it('tem o Inter normal e itálico, e as fontes da apresentação do álbum', () => {
+    expect(FONTS.map(f => `${f.family} ${f.style}`).sort()).toEqual(['Caveat normal', 'Fraunces italic', 'Fraunces normal', 'Inter italic', 'Inter normal']);
   });
 
   it.each(FONTS.map(f => [f.source, f]))('%s: o módulo gerado é o arquivo, byte a byte', (_s, f) => {
@@ -51,6 +51,11 @@ describe('módulo gerado de fontes', () => {
     const ofl = readFileSync(new URL('../fonts/OFL.txt', import.meta.url), 'utf8');
     expect(ofl).toMatch(/SIL OPEN FONT LICENSE Version 1\.1/);
     expect(ofl).toMatch(/The Inter Project Authors/);
+    for (const [arq, autores] of [['OFL-Fraunces.txt', /The Fraunces Project Authors/], ['OFL-Caveat.txt', /The Caveat Project Authors/]]) {
+      const txt = readFileSync(new URL('../fonts/' + arq, import.meta.url), 'utf8');
+      expect(txt).toMatch(/SIL Open Font License, Version 1\.1/);
+      expect(txt).toMatch(autores);
+    }
   });
 });
 
@@ -96,19 +101,25 @@ describe('rota /fonts/', () => {
 
 describe('páginas e CSP', () => {
   it('o @font-face declara cada arquivo gerado, com a faixa do subset e swap', () => {
-    const css = fontFaceCSS();
+    // As páginas comuns só declaram o Inter; a apresentação do álbum, o resto.
+    const inter = FONTS.filter(f => f.family === 'Inter');
+    expect(fontFaceCSS()).not.toMatch(/Fraunces|Caveat/);
+    expect(fontFaceAlbumCSS()).not.toMatch(/'Inter'/);
+    const css = fontFaceCSS() + fontFaceAlbumCSS();
     for (const f of FONTS) {
+      expect(css).toContain(`font-family:'${f.family}';font-style:${f.style}`);
       expect(css).toContain(`font-style:${f.style}`);
       expect(css).toContain(`src:url(${f.path}) format('woff2')`);
       expect(css).toContain(`unicode-range:${f.unicodeRange}`);
     }
     expect(css.match(/font-display:swap/g)).toHaveLength(FONTS.length);
+    expect(inter).toHaveLength(2);
   });
 
   it('o preload é da face normal, com crossorigin', () => {
     // Sem `crossorigin` o preload fica num pool diferente do da busca real
     // (fonte é sempre CORS) e o arquivo desce duas vezes.
-    const normal = FONTS.find(f => f.style === 'normal');
+    const normal = FONTS.find(f => f.family === 'Inter' && f.style === 'normal');
     expect(fontPreloadHTML()).toBe(`<link rel="preload" href="${normal?.path}" as="font" type="font/woff2" crossorigin>`);
   });
 

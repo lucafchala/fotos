@@ -25,7 +25,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, origemDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -172,7 +172,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const tituloPagina = `Fotos de ${titulo}${capitulo ? ` — ${capitulo.nome}` : ''}${dataEvento ? ` — ${dataEvento}` : ''}`;
   const caminhoBase = `/galeria/${slug}`;
   const caminhoPagina = capitulo ? `${caminhoBase}/${capitulo.slug}` : caminhoBase;
-  const urlPagina = `${SITE_URL}${caminhoPagina}`;
+  // Álbum com domínio próprio: o endereço de lá (canonical e cartão de link).
+  const urlPagina = `${origemDoAlbum(slug)}${caminhoPagina}`;
   const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
   // Autores da listagem (índice 0 = padrão) e os que de fato têm foto na
   // página (sem as ocultas, para o visitante): só com mais de um aparece a

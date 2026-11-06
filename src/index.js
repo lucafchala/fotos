@@ -30,7 +30,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
@@ -56,7 +56,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -540,7 +540,9 @@ async function handleSitemap(env) {
   // A galeria própria de cada álbum público (decisão do dono, 29/10/2026): só a
   // URL e o lastmod — as fotos (image:image) ficam no sitemap de cada galeria
   // (handleSitemapGaleria), para este aqui nunca chamar o Drive.
-  for (const e of events.filter(galeriaIndexavel)) {
+  // Álbum com domínio próprio (entrenos2026.com) fica de fora: o sitemap dele
+  // é anunciado no robots.txt do domínio, com os endereços de lá.
+  for (const e of events.filter(galeriaIndexavel).filter(x => origemDoAlbum(x.slug) === SITE_URL)) {
     const lastmod = lastmodOf(e);
     urls.push(`  <url><loc>${SITE_URL}/galeria/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`);
   }
@@ -563,7 +565,8 @@ const SITEMAP_IMAGENS_POR_URL = 1000;
  * @param {Env} env
  */
 async function handleSitemapGalerias(env) {
-  const events = (await getEvents(env)).filter(galeriaIndexavel);
+  // Sem os álbuns de domínio próprio (ver handleSitemap).
+  const events = (await getEvents(env)).filter(galeriaIndexavel).filter(x => origemDoAlbum(x.slug) === SITE_URL);
   /** @type {string[]} */
   const itens = [];
   const entrada = (/** @type {string} */ loc, /** @type {Evento} */ e) => {
@@ -638,8 +641,9 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   if (event.galeriaCapitulos && !capSlug) {
     const caps = await capitulosOuNulo(env, event);
     if (!caps) return indisponivel();
-    const urls = [`  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
-      ...caps.caps.map(c => `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
+    const origem = origemDoAlbum(event.slug);
+    const urls = [`  <url><loc>${origem}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
+      ...caps.caps.map(c => `  <url><loc>${origem}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`, {
       headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
     });
@@ -664,7 +668,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     .filter(f => !ehVideo(f))
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
-  const pagina = `${SITE_URL}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
+  const pagina = `${origemDoAlbum(event.slug)}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
   // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
   const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -677,7 +681,11 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   });
 }
 
-function handleRobots() {
+/**
+ * @param {string} [host] o domínio do robots.txt (o de um álbum, ou o principal)
+ * @param {string[]} [sitemaps] os sitemaps anunciados
+ */
+function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/sitemap.xml`, `${SITE_URL}/sitemap-galerias.xml`]) {
   // Busca e resposta de IA são bem-vindas; treino de modelo não. O Content-Signal
   // vale em cada grupo (um grupo próprio de um robô ignora o do `*`), e os robôs
   // que existem só para treinar levam Disallow. /dashboard e /api/ não são
@@ -697,14 +705,13 @@ function handleRobots() {
   const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
   const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
-    '# robots.txt — fotos.lucafchala.com\n' +
+    `# robots.txt — ${host}\n` +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
     '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
     'User-agent: *\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
-    `Sitemap: ${SITE_URL}/sitemap.xml\n` +
-    `Sitemap: ${SITE_URL}/sitemap-galerias.xml\n`;
+    sitemaps.map(u => `Sitemap: ${u}\n`).join('');
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
@@ -1275,6 +1282,9 @@ export function normalizeEventFields(body, base, cats) {
     // Busca pelo rosto (v3.2): desligada por padrão; só vale em álbum público e
     // com as chaves da AWS no Worker (ver docs/ROSTO.md).
     buscaRosto: pick('buscaRosto', v => v === true),
+    // Apresentação do álbum (v3.3): o estilo da primeira tela e o recado final.
+    galeriaEstilo: pick('galeriaEstilo', v => (GALERIA_ESTILOS.includes(v) ? v : GALERIA_ESTILOS[0])),
+    galeriaRecado: pick('galeriaRecado', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_RECADO_MAX)),
     galeriaAbertura: pick('galeriaAbertura', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_ABERTURA_MAX)),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
@@ -1675,7 +1685,8 @@ export async function handleQr(request, env, url) {
     return jsonErr('Este projeto não tem galeria por capítulos.', 404);
   }
   const caminho = !temGaleria ? `/${slug}` : capSlug ? `/galeria/${slug}/${capSlug}` : `/galeria/${slug}`;
-  const alvoUrl = SITE_URL + caminho;
+  // O QR da galeria de um álbum com domínio próprio leva ao domínio dele.
+  const alvoUrl = (temGaleria ? origemDoAlbum(slug) : SITE_URL) + caminho;
   const qr = qrLinhas(alvoUrl);
   return jsonOk({
     slug, url: alvoUrl, titulo: nomeCap ? `${titulo} · ${nomeCap}` : titulo,
@@ -3398,6 +3409,8 @@ export async function handleRosto(request, env, acao) {
     if (acao === 'sair') {
       const r = await sairDaBusca(cred, slug, body.imagem);
       if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
+      // A partir de agora toda busca deste álbum consulta quem saiu.
+      try { await env.FOTOS.put(`rosto-sair:${slug}`, '1'); } catch (e) { noteDegraded('busca pelo rosto: marca de quem saiu não gravada', String(slug), e); }
       const res = jsonOk({ ok: true, removidas: r.removidas });
       res.headers.set('Cache-Control', 'no-store');
       return res;
@@ -3405,7 +3418,11 @@ export async function handleRosto(request, env, acao) {
     // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
     const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
     if (!global.ok) return tooManyRequests(global.retryAfter);
-    const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
+    // Ninguém saiu deste álbum ainda? Uma chamada paga a menos por busca. Na
+    // dúvida (KV fora), consulta — o lado seguro é não mostrar quem saiu.
+    let temSair = true;
+    try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
+    const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
     if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
     const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [] });
     res.headers.set('Cache-Control', 'no-store');
@@ -3773,6 +3790,8 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     }
     return redirect(`/galeria/${album.slug}${url.search}`);
   }
+  // O robots.txt do domínio anuncia o sitemap do álbum, com os endereços de lá.
+  if (path === '/robots.txt') return handleRobots(dominio, [`https://${dominio}/sitemap-galeria-${album.slug}.xml`]);
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
@@ -4873,7 +4892,7 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', '
 // TypeError dentro de galleryHTML e derrubava a home inteira com 500.
 const RESTORE_TEXT_FIELDS = {
   title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
-  galeriaAbertura: GALERIA_ABERTURA_MAX,
+  galeriaAbertura: GALERIA_ABERTURA_MAX, galeriaRecado: GALERIA_RECADO_MAX,
 };
 const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
 
@@ -4967,6 +4986,7 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
+  if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;
   if (out.galeriaPeriodo !== undefined) out.galeriaPeriodo = periodoValido(out.galeriaPeriodo);

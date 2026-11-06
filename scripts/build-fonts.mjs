@@ -29,12 +29,21 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // exatamente como já acontecia com o Google Fonts.
 const LATIN = 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD';
 
+// Inter: todas as páginas. Fraunces e Caveat (v3.3, pacotes
+// `@fontsource-variable/fraunces` e `@fontsource-variable/caveat` 5.3.0, subset
+// latin, SIL OFL 1.1 em fonts/OFL-Fraunces.txt e fonts/OFL-Caveat.txt): só a
+// apresentação de um álbum (src/ui/album.js) as declara, então as outras
+// páginas não baixam nada a mais. A Fraunces normal é a "full" (eixos wght,
+// opsz, SOFT e WONK); a itálica, só wght — é a do recado, não precisa do resto.
 const FACES = [
-  { file: 'inter-latin-wght-normal.woff2', style: 'normal' },
-  { file: 'inter-latin-wght-italic.woff2', style: 'italic' },
+  { file: 'inter-latin-wght-normal.woff2', family: 'Inter', style: 'normal' },
+  { file: 'inter-latin-wght-italic.woff2', family: 'Inter', style: 'italic' },
+  { file: 'fraunces-latin-full-normal.woff2', family: 'Fraunces', style: 'normal' },
+  { file: 'fraunces-latin-wght-italic.woff2', family: 'Fraunces', style: 'italic' },
+  { file: 'caveat-latin-wght-normal.woff2', family: 'Caveat', style: 'normal' },
 ];
 
-const fonts = FACES.map(({ file, style }) => {
+const fonts = FACES.map(({ file, family, style }) => {
   const bytes = readFileSync(join(ROOT, 'fonts', file));
   // Cabeçalho mágico do WOFF2. Um arquivo trocado por HTML de erro ou por um
   // TTF não pode virar "fonte" publicada com cache de um ano.
@@ -43,6 +52,7 @@ const fonts = FACES.map(({ file, style }) => {
   }
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   return {
+    family,
     style,
     source: `fonts/${file}`,
     path: `/fonts/${file.replace(/\.woff2$/, '')}.${sha256.slice(0, 10)}.woff2`,
@@ -55,7 +65,7 @@ const fonts = FACES.map(({ file, style }) => {
 
 const out = `// ARQUIVO GERADO — não edite à mão.
 //
-// Fonte: fonts/*.woff2 (Inter, SIL OFL 1.1 — ver fonts/OFL.txt)
+// Fonte: fonts/*.woff2 (Inter, Fraunces e Caveat, SIL OFL 1.1 — ver fonts/OFL*.txt)
 // Gerar:  npm run build:fonts
 
 export const FONTS = ${JSON.stringify(fonts, null, 2)};
