@@ -30,7 +30,7 @@
     "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20261003.1",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.12",
