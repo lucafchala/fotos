@@ -1,0 +1,52 @@
+name: rosto
+
+# Indexador da busca pelo rosto (v3.2, docs/ROSTO.md). Lê as páginas públicas
+# dos álbuns em `vars.ROSTO_SLUGS` e mantém a coleção da Amazon Rekognition
+# igual ao que o visitante vê: indexa as fotos novas e apaga os rostos das que
+# saíram. Fora do Worker de propósito: indexar estoura os 10 ms de CPU e as 50
+# subrequisições do plano grátis.
+#
+# Sem `vars.ROSTO_SLUGS` (Settings → Secrets and variables → Actions →
+# Variables), o job nem começa: nada roda e nada é cobrado.
+on:
+  schedule:
+    # A cada 30 min: a foto enviada à pasta colaborativa entra na busca em até
+    # meia hora (mais o período de atualização da galeria).
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Duas execuções ao mesmo tempo indexariam a mesma foto duas vezes.
+concurrency:
+  group: rosto-indexa
+  cancel-in-progress: false
+
+jobs:
+  indexa:
+    name: Indexa os rostos
+    if: vars.ROSTO_SLUGS != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # O estado (fotos já vistas, inclusive as sem rosto) passa de uma
+      # execução para a próxima. Perdeu? O pior caso é reprocessar o álbum.
+      - uses: actions/cache@v6
+        with:
+          path: .rosto-estado.json
+          key: rosto-estado-${{ github.run_id }}
+          restore-keys: rosto-estado-
+      - name: Indexa
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ROSTO_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.ROSTO_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.ROSTO_AWS_REGION || 'sa-east-1' }}
+          ROSTO_SLUGS: ${{ vars.ROSTO_SLUGS }}
+        run: node scripts/rosto-indexa.mjs

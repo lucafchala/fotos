@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -472,4 +472,31 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.1.0';
+export const VERSAO = '3.2.0';
+
+// ---------------------------------------------------------------------------
+// Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
+// ---------------------------------------------------------------------------
+// São Paulo: a selfie e o índice ficam no Brasil. A API de coleções existe lá
+// (cota padrão de 5 buscas por segundo por conta — ver ROSTO_BUSCA_GLOBAL).
+export const ROSTO_REGIAO_PADRAO = 'sa-east-1';
+// Semelhança mínima (0–100) para uma foto entrar no resultado. 90 corta quase
+// todo falso positivo e ainda acha a pessoa de lado ou com pouca luz; abaixo
+// disso começam a aparecer irmãos e parecidos.
+export const ROSTO_LIMIAR = 90;
+// "Não quero aparecer": apaga do índice todo rosto acima deste limiar — mais
+// generoso que a busca, porque aqui errar para mais é o lado seguro.
+export const ROSTO_LIMIAR_SAIR = 85;
+// No máximo quantas fotos voltam numa busca (a pessoa mais fotografada da
+// turma não passa disso num álbum de alguns milhares).
+export const ROSTO_MAX_RESULTADOS = 400;
+// A selfie chega já reduzida pelo navegador (640 px, JPEG): ~60 KB. O teto em
+// base64 deixa folga e mantém o JSON.parse dentro dos 10 ms de CPU do plano
+// grátis.
+export const ROSTO_IMAGEM_MAX_B64 = 400_000;
+// Por IP: a turma inteira no Wi-Fi da escola é UM IP (o mesmo raciocínio do
+// DRIVE_GATE_BUCKET). Global: teto de custo — cada busca são 2 chamadas de
+// US$ 0,001; 1500 de rajada + 125/h dá no pior dia ~US$ 9.
+export const ROSTO_BUSCA_IP_BUCKET = { capacity: 300, perHour: 300 };
+export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: 1500, perHour: 125 };
+export const ROSTO_SAIR_POR_IP_DIA = 20;

@@ -18,6 +18,31 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.2.0] — ainda não publicada
+
+Função nova, **desligada até o dono ligar**: a busca pelo rosto. Nada muda no
+site sem as chaves da AWS no Worker; com elas, só nos projetos marcados. Passo a
+passo, custos e LGPD em `docs/ROSTO.md`.
+
+### Novo
+
+- **Busca pelo rosto** (fecha #273). Opção do projeto "Busca pelo rosto": o
+  índice da galeria por capítulos ganha o botão **Procurar meu rosto**. O
+  visitante marca que concorda, tira uma selfie (reduzida no aparelho para
+  640 px) e vê as fotos em que provavelmente aparece, da mais parecida para a
+  menos parecida, cada uma abrindo no capítulo dela. A comparação é feita pela
+  **Amazon Rekognition em São Paulo**; a selfie não é guardada. Só em álbum
+  público, com Turnstile, token do formulário, teto por IP e teto de custo do
+  site inteiro.
+- **"Não quero aparecer na busca".** Pelo mesmo botão, a pessoa envia uma
+  selfie e sai da busca: os rostos parecidos saem do índice, e as fotos novas
+  também não a mostram.
+- **Indexador** (`scripts/rosto-indexa.mjs`, workflow `rosto` a cada 30 min):
+  lê as páginas públicas do álbum e mantém o índice igual ao que o visitante
+  vê, sem foto oculta e sem vídeo. Só roda com a variável `ROSTO_SLUGS`.
+- **Política de privacidade** (6 de novembro de 2026): seção 3.1 "Busca pelo
+  rosto", a Amazon Web Services entre os operadores e os prazos do índice.
+
 ## [3.1.0] — 2026-11-06
 
 Função nova para o dono e para o visitante, mais **duas tabelas novas no D1**

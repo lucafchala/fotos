@@ -41,6 +41,7 @@ import {
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
+import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
 import { emBreveHTML } from './ui/em-breve.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -55,7 +56,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -317,6 +318,8 @@ const worker = {
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
+      if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
+      if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
@@ -1269,6 +1272,9 @@ export function normalizeEventFields(body, base, cats) {
     galeriaCreditos: pick('galeriaCreditos', normalizaCreditos),
     // Texto de abertura do índice da galeria por capítulos (v3.1): vazio = o
     // índice simples de sempre. Ver galeriaIndiceHTML.
+    // Busca pelo rosto (v3.2): desligada por padrão; só vale em álbum público e
+    // com as chaves da AWS no Worker (ver docs/ROSTO.md).
+    buscaRosto: pick('buscaRosto', v => v === true),
     galeriaAbertura: pick('galeriaAbertura', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_ABERTURA_MAX)),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
@@ -3330,6 +3336,87 @@ export async function handleDriveLink(request, env, ctx) {
   return res;
 }
 
+// ---------------------------------------------------------------------------
+// Busca pelo rosto (v3.2) — ver src/rosto.js e docs/ROSTO.md
+// ---------------------------------------------------------------------------
+/**
+ * A busca vale para este projeto? Ligada no painel, álbum público e as chaves
+ * da AWS no Worker. Fora disso, as rotas respondem 404 (como se não existissem).
+ * @param {Env} env
+ * @param {Evento | undefined} evento
+ */
+export function buscaRostoAtiva(env, evento) {
+  return !!evento && evento.buscaRosto === true && !isRestrictedAccess(evento) && evento.visible !== false && !!credAws(env);
+}
+
+/**
+ * POST /api/rosto/buscar e /api/rosto/sair. O mesmo portão para as duas:
+ * token do formulário, aceite explícito, limite por IP, Turnstile. A selfie
+ * vai para a AWS e não é guardada aqui (nem em log: a mensagem de erro da AWS
+ * não a contém).
+ * @param {Request} request
+ * @param {Env} env
+ * @param {'buscar' | 'sair'} acao
+ */
+export async function handleRosto(request, env, acao) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  if (honeypotTripped(body[HONEYPOT_FIELD])) return jsonOk({ ok: true, resultados: [] });
+  const formSecret = signingSecret(env);
+  if (formSecret) {
+    const t = await verifyToken(formSecret, String(body.form_token || ''), {
+      purpose: 'form', scope: 'busca-rosto', ttlSecs: FORM_TOKEN_TTL_SECS, minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+    });
+    if (!t.ok) {
+      return t.reason === 'expired'
+        ? jsonErr('A página ficou aberta tempo demais. Recarregue e tente de novo.', 410)
+        : jsonErr('Não foi possível validar o envio. Recarregue a página e tente de novo.', 403);
+    }
+  }
+  if (body.aceite !== true) return jsonErr('Marque que você concorda com o uso do seu rosto para esta busca.', 400);
+  const slug = body.slug;
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (!imagemValida(body.imagem)) return jsonErr('Não consegui ler a foto. Tente de novo com outra selfie.', 400);
+
+  if (acao === 'sair') {
+    if (!await checkRateLimit(env, ip, 'rosto-sair', ROSTO_SAIR_POR_IP_DIA, 86400)) {
+      return jsonErr('Muitos pedidos deste endereço hoje. Escreva para privacidade@lucafchala.com.', 429);
+    }
+  } else {
+    const ficha = await takeToken(env, ip, 'rosto-buscar', ROSTO_BUSCA_IP_BUCKET);
+    if (!ficha.ok) return tooManyRequests(ficha.retryAfter);
+  }
+  if (!(await verifyTurnstile(body.turnstileToken, env))) {
+    return jsonErr('Verificação de segurança falhou. Recarregue e tente de novo.', 403);
+  }
+  const evento = (await getEvents(env)).find(e => e.slug === slug);
+  if (!buscaRostoAtiva(env, evento)) return notFound();
+  const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
+
+  try {
+    if (acao === 'sair') {
+      const r = await sairDaBusca(cred, slug, body.imagem);
+      if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
+      const res = jsonOk({ ok: true, removidas: r.removidas });
+      res.headers.set('Cache-Control', 'no-store');
+      return res;
+    }
+    // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
+    const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
+    if (!global.ok) return tooManyRequests(global.retryAfter);
+    const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
+    if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
+    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [] });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  } catch (e) {
+    if (ehAcelerado(e)) return tooManyRequests(3);
+    noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
+    return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
+  }
+}
+
 // 429 com o tempo de espera: no cabeçalho padrão (Retry-After) e no corpo,
 // que é o que o script da página lê para mostrar a contagem e tentar de novo
 // sozinho — uma vez, na hora certa, em vez de martelar.
@@ -4028,7 +4115,9 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const resumo = await lerResumo(alvo.raiz.id);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce });
+  // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
+  const rosto = buscaRostoAtiva(env, event) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {
@@ -4877,6 +4966,7 @@ function sanitizeRestoredEvent(ev) {
   // opções da galeria são booleanas. Nada de tipo inesperado gravado.
   if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
+  if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;
   if (out.galeriaPeriodo !== undefined) out.galeriaPeriodo = periodoValido(out.galeriaPeriodo);

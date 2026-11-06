@@ -5,9 +5,10 @@
 // um espaço reservado e o texto "Ver fotos" (ler a lista de cada capítulo só
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
-import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
+import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { escape, jsonParaScript, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao, pastaDoDrive, parseCreditos } from '../drive.js';
-import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
+import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX, TURNSTILE_SITE_KEY } from '../config.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 
@@ -20,9 +21,10 @@ const SITE_URL = 'https://fotos.lucafchala.com';
  *   dono: boolean,
  *   indexavel: boolean,
  *   nonce?: string,
+ *   rosto?: { token: string } | null,
  * }} p
  */
-export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '' }) {
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const base = `/galeria/${slug}`;
@@ -69,7 +71,10 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const avisoTrunc = dono && caps.truncada
     ? '<p class="ix-aviso">O Drive tem mais subpastas do que o índice mostra (até 100). As demais ficam de fora; reúna eventos antigos em outra pasta.</p>'
     : '';
-  const abertura = aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito });
+  // Busca pelo rosto (v3.2): quem decide se vale é o servidor (buscaRostoAtiva).
+  const comRosto = !!rosto && !restrito && visiveis.length > 0;
+  const botaoRosto = comRosto ? '<button type="button" class="ab-btn ab-btn-2" id="rs-abrir" hidden>Procurar meu rosto</button>' : '';
+  const abertura = aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito, botaoRosto });
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
 
@@ -142,6 +147,27 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     .ab-btn-2{color:var(--accent)}
     .ab-btn:hover{filter:brightness(1.08)}
     .ab-voltar{display:inline-flex;align-items:center;min-height:44px;margin-top:.75rem;font-size:.8rem;color:var(--text-muted)}
+    .rs{margin:auto;width:min(30rem,calc(100vw - 2rem));max-height:calc(100dvh - 2rem);overflow:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.25rem 1.25rem 1rem}
+    .rs::backdrop{background:rgba(0,0,0,.6)}
+    .rs-t{font-size:1.1rem;font-weight:600;margin-bottom:.6rem}
+    .rs p,.rs li{font-size:.9rem;line-height:1.55;color:var(--text-2)}
+    .rs ul{margin:.6rem 0 .8rem 1.1rem}
+    .rs-aceite{display:flex;gap:.6rem;align-items:flex-start;font-size:.88rem;line-height:1.45;margin:.4rem 0 .8rem;cursor:pointer}
+    .rs-aceite input{margin-top:.2rem;width:1.1rem;height:1.1rem;flex:none;accent-color:var(--accent)}
+    .rs-erro{color:var(--warn-text);min-height:1.2em;margin:.4rem 0}
+    .rs-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.6rem}
+    .rs-btn{min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-size:.9rem;cursor:pointer}
+    .rs-btn-1{background:var(--accent);border-color:var(--accent);color:var(--bg-page);font-weight:600}
+    .rs-btn:disabled{opacity:.5;cursor:default}
+    .rs-link{background:none;border:0;color:var(--text-muted);font:inherit;font-size:.8rem;text-decoration:underline;cursor:pointer;min-height:44px;padding:0}
+    .rs-res{padding:1rem var(--pad) 0}
+    .rs-res h2{font-size:1.05rem;font-weight:600}
+    .rs-res p{font-size:.85rem;color:var(--text-muted);margin-top:.25rem}
+    .rs-grade{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,110px),1fr));gap:6px;margin-top:.75rem}
+    .rs-grade a{display:block;position:relative;border-radius:8px;overflow:hidden;background:var(--esqueleto)}
+    .rs-grade img{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover}
+    .rs-grade span{position:absolute;left:0;right:0;bottom:0;padding:.9rem .4rem .3rem;font-size:.7rem;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    ${HONEYPOT_CSS}
     .ab-eventos{font-size:1.05rem;font-weight:600;padding:.5rem var(--pad) 0;max-width:none;scroll-margin-top:1rem}
   </style>
 </head>
@@ -151,13 +177,17 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     <a class="ix-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span>&nbsp;Página do projeto</a>
     <h1>${escape(titulo)}</h1>
     <p class="ix-meta">${escape([dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · '))}</p>
+    ${botaoRosto ? `<div class="ab-acoes">${botaoRosto}</div>` : ''}
   </header>`}
+  ${comRosto ? rostoHTML() : ''}
   ${avisoTrunc}
   <main id="g-main" aria-label="Eventos">
     ${abertura && cartoes.length ? '<h2 class="ab-eventos" id="eventos">Os eventos</h2>' : ''}
     ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : `<p class="ix-vazio-msg">${dono && !caps.caps.length ? 'A pasta não tem subpastas: não há eventos para mostrar.' : 'As fotos estão chegando. Volte em breve.'}</p>`}
   </main>
   ${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
+  ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, ts: TURNSTILE_SITE_KEY, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])) })}</script>
+  <script nonce="${nonce}">${SCRIPT_ROSTO}</script>` : ''}
 </body>
 </html>`;
 }
@@ -205,10 +235,10 @@ const SCRIPT_NOVAS = slug => `(function () {
  * @param {{
  *   event: import('../utils.js').Evento, titulo: string, dataEvento: string,
  *   visiveis: { id: string }[], resumo: Record<string, import('../drive.js').ResumoCap>,
- *   ocultasSet: Set<string>, restrito: boolean,
+ *   ocultasSet: Set<string>, restrito: boolean, botaoRosto?: string,
  * }} p
  */
-function aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito }) {
+function aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito, botaoRosto = '' }) {
   const texto = typeof event.galeriaAbertura === 'string' ? event.galeriaAbertura.trim() : '';
   if (!texto) return '';
   const slug = String(event.slug || '');
@@ -245,6 +275,7 @@ function aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet,
   const urlPasta = pasta ? `https://drive.google.com/drive/folders/${pasta.id}${pasta.resourceKey ? `?resourcekey=${pasta.resourceKey}` : ''}` : '';
   const acoes = [
     visiveis.length ? '<a class="ab-btn ab-btn-1" href="#eventos">Ver os eventos</a>' : '',
+    botaoRosto,
     urlPasta ? `<a class="ab-btn ab-btn-2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
   ].filter(Boolean).join('');
   return `<header class="ab">
@@ -258,3 +289,163 @@ function aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet,
     </div>
   </header>`;
 }
+
+/** O diálogo da busca pelo rosto (o script liga o botão; sem JS, nada aparece). */
+function rostoHTML() {
+  return `<dialog class="rs" id="rs" aria-labelledby="rs-t">
+    <form method="dialog" id="rs-form">
+      <p class="rs-t" id="rs-t">Procurar meu rosto</p>
+      <div id="rs-txt-buscar">
+        <p>Tire uma selfie (ou escolha uma foto sua) e o site mostra as fotos do álbum em que você provavelmente aparece.</p>
+        <ul>
+          <li>A selfie vai para a Amazon Rekognition, em São Paulo, só para a comparação. Nem o site nem a Amazon a guardam.</li>
+          <li>O resultado é aproximado: pode faltar foto e pode aparecer alguém parecido.</li>
+          <li>Use só com o <strong>seu</strong> rosto.</li>
+        </ul>
+      </div>
+      <div id="rs-txt-sair" hidden>
+        <p>Envie uma selfie e o site tira o seu rosto da busca deste álbum: ninguém mais acha as suas fotos por ela, nem as que chegarem depois.</p>
+        <ul>
+          <li>Para isso, o seu rosto fica guardado (só ele, só para esse fim) até o fim do álbum. Para apagar: privacidade@lucafchala.com.</li>
+          <li>As fotos continuam no álbum. Para tirar uma foto, use "Pedir remoção" nela.</li>
+        </ul>
+      </div>
+      <label class="rs-aceite"><input type="checkbox" id="rs-aceite"><span>Concordo com o uso do meu rosto para isso, como explica a <a href="/privacidade#busca-rosto" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
+      ${honeypotFieldHTML()}
+      <div id="rs-ts"></div>
+      <p class="rs-erro" id="rs-erro" role="alert"></p>
+      <input type="file" id="rs-arquivo" accept="image/*" capture="user" hidden>
+      <div class="rs-acoes">
+        <button type="button" class="rs-btn" data-rs="fechar">Cancelar</button>
+        <button type="button" class="rs-btn rs-btn-1" id="rs-tirar" disabled>Tirar selfie</button>
+      </div>
+      <p><button type="button" class="rs-link" id="rs-modo">Não quero aparecer na busca</button></p>
+    </form>
+  </dialog>
+  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><ul class="rs-grade" id="rs-grade"></ul></section>`;
+}
+
+/**
+ * O script da busca pelo rosto: reduz a selfie no próprio aparelho (640 px,
+ * JPEG), manda com o aceite e os tokens, e desenha o resultado. A selfie só
+ * existe na memória da página: não vai para o localStorage nem fica na tela.
+ * Fora de crase, `dollar-chave` e barra invertida: é JS dentro de template literal.
+ */
+const SCRIPT_ROSTO = `(function () {
+  var el = document.getElementById('rs-dados');
+  var dlg = document.getElementById('rs');
+  var abrir = document.getElementById('rs-abrir');
+  if (!el || !dlg || !abrir || typeof dlg.showModal !== 'function' || !window.fetch || !window.createImageBitmap) return;
+  var D = JSON.parse(el.textContent || '{}');
+  var aceite = document.getElementById('rs-aceite');
+  var tirar = document.getElementById('rs-tirar');
+  var arquivo = document.getElementById('rs-arquivo');
+  var erro = document.getElementById('rs-erro');
+  var modo = document.getElementById('rs-modo');
+  var sair = false, token = '', widget = null, ocupado = false, tsEstado = 'fora';
+  abrir.hidden = false;
+  function msg(t) { erro.textContent = t || ''; }
+  function botao() { tirar.disabled = ocupado || !aceite.checked || !token; }
+  function turnstile() {
+    if (tsEstado !== 'fora') { if (widget !== null && window.turnstile) window.turnstile.reset(widget); return; }
+    tsEstado = 'carregando';
+    var sc = document.createElement('script');
+    sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    sc.async = true;
+    sc.onload = function () {
+      if (!window.turnstile) { tsEstado = 'falhou'; msg('A verificação de segurança não carregou (um bloqueador pode estar impedindo).'); return; }
+      tsEstado = 'pronto';
+      widget = window.turnstile.render('#rs-ts', {
+        sitekey: D.ts,
+        callback: function (t) { token = t; botao(); },
+        'error-callback': function () { token = ''; botao(); },
+        'expired-callback': function () { token = ''; botao(); }
+      });
+    };
+    sc.onerror = function () { tsEstado = 'falhou'; msg('A verificação de segurança não carregou (um bloqueador pode estar impedindo).'); };
+    document.head.appendChild(sc);
+  }
+  function poeModo(s) {
+    sair = s;
+    document.getElementById('rs-t').textContent = s ? 'Sair da busca pelo rosto' : 'Procurar meu rosto';
+    document.getElementById('rs-txt-buscar').hidden = s;
+    document.getElementById('rs-txt-sair').hidden = !s;
+    tirar.textContent = s ? 'Enviar selfie e sair' : 'Tirar selfie';
+    modo.textContent = s ? 'Quero procurar meu rosto' : 'Não quero aparecer na busca';
+    msg('');
+  }
+  abrir.addEventListener('click', function () { poeModo(false); aceite.checked = false; botao(); dlg.showModal(); turnstile(); });
+  modo.addEventListener('click', function () { poeModo(!sair); });
+  aceite.addEventListener('change', botao);
+  dlg.addEventListener('click', function (e) { if (e.target && e.target.getAttribute && e.target.getAttribute('data-rs') === 'fechar') dlg.close(); });
+  tirar.addEventListener('click', function () { if (!tirar.disabled) arquivo.click(); });
+  arquivo.addEventListener('change', function () {
+    var f = arquivo.files && arquivo.files[0];
+    arquivo.value = '';
+    if (!f) return;
+    ocupado = true; botao(); msg('');
+    tirar.textContent = 'Procurando…';
+    reduz(f).then(function (b64) {
+      var hp = document.getElementById('company_website');
+      return fetch(sair ? '/api/rosto/sair' : '/api/rosto/buscar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' })
+      });
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'A busca não respondeu. Tente de novo.');
+        return j;
+      });
+    }).then(function (j) {
+      dlg.close();
+      mostra(j);
+    }).catch(function (e) {
+      msg(e && e.message ? e.message : 'A busca não respondeu. Tente de novo.');
+    }).then(function () {
+      ocupado = false; token = '';
+      if (widget !== null && window.turnstile) window.turnstile.reset(widget);
+      poeModo(sair); botao();
+    });
+  });
+  function reduz(f) {
+    return createImageBitmap(f).then(function (bmp) {
+      var lado = 640, k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      if (bmp.close) bmp.close();
+      var url = c.toDataURL('image/jpeg', 0.85);
+      c.width = c.height = 0;
+      return url.slice(url.indexOf(',') + 1);
+    }, function () { throw new Error('Não consegui abrir essa foto. Tente tirar a selfie de novo.'); });
+  }
+  function mostra(j) {
+    var sec = document.getElementById('rs-res');
+    var t = document.getElementById('rs-res-t');
+    var sub = document.getElementById('rs-res-sub');
+    var grade = document.getElementById('rs-grade');
+    grade.textContent = '';
+    sec.hidden = false;
+    if (j.removidas !== undefined) {
+      t.textContent = 'Pronto: você saiu da busca';
+      sub.textContent = j.removidas ? 'Tiramos o seu rosto de ' + j.removidas + (j.removidas === 1 ? ' foto' : ' fotos') + ' do índice. As fotos novas também ficam de fora.' : 'Não havia foto sua no índice. As que chegarem depois ficam de fora.';
+    } else {
+      var lista = j.resultados || [];
+      t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você') : 'Nenhuma foto encontrada';
+      sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (lista.length ? 'Da mais parecida para a menos parecida. Toque para abrir.' : 'Tente outra selfie, de frente e com boa luz.');
+      lista.forEach(function (r) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        var img = document.createElement('img');
+        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
+        img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+        a.appendChild(img);
+        if (r.cap && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
+        li.appendChild(a); grade.appendChild(li);
+      });
+    }
+    t.focus();
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+})();`;
