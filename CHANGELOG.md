@@ -97,8 +97,9 @@ decisão do dono.
 - **Domínio próprio do álbum.** `entrenos2026.com` abre direto na galeria do
   álbum da Turma 2026 (projeto `entrenos2026`); `www.` vai para o domínio sem
   `www.`, o painel volta para `fotos.lucafchala.com` e o resto do site responde
-  igual. O domínio é ligado ao Worker no painel da Cloudflare (Custom Domain)
-  e precisa estar também no widget do Turnstile.
+  igual. Enquanto o projeto não existe (ou está oculto), a raiz mostra uma
+  página "em breve" em vez de um 404. O domínio é ligado ao Worker no painel da
+  Cloudflare (Custom Domain) e precisa estar também no widget do Turnstile.
 - **Abertura do álbum.** Campo "Texto de abertura do álbum" no projeto: o
   índice da galeria por capítulos ganha mosaico com as capas dos eventos,
   título grande, o texto, os números do álbum (eventos, fotos e autores) e os

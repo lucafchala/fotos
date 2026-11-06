@@ -42,6 +42,7 @@ import {
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
 import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
+import { emBreveHTML } from './ui/em-breve.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
@@ -253,7 +254,7 @@ const worker = {
 
     // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
     // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js.
-    const desvioDoDominio = rotaDoDominioDeAlbum(url, path);
+    const desvioDoDominio = await rotaDoDominioDeAlbum(url, path, env);
     if (desvioDoDominio) return desvioDoDominio;
 
     // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker
@@ -3745,9 +3746,10 @@ function adminHtml(content, status = 200, nonce = '', opcoes) {
  * roteamento normal (outro domínio, ou uma rota que responde igual lá).
  * @param {URL} url
  * @param {string} path
- * @returns {Response | null}
+ * @param {Env} env
+ * @returns {Promise<Response | null>}
  */
-export function rotaDoDominioDeAlbum(url, path) {
+export async function rotaDoDominioDeAlbum(url, path, env) {
   const host = url.hostname.toLowerCase();
   const dominio = host.startsWith('www.') ? host.slice(4) : host;
   if (!Object.hasOwn(DOMINIOS_DE_ALBUM, dominio)) return null;
@@ -3757,7 +3759,20 @@ export function rotaDoDominioDeAlbum(url, path) {
       headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `https://${dominio}${url.pathname}${url.search}` },
     });
   }
-  if (path === '/') return redirect(`/galeria/${DOMINIOS_DE_ALBUM[dominio]}${url.search}`);
+  const album = DOMINIOS_DE_ALBUM[dominio];
+  if (path === '/') {
+    // Projeto ainda não criado (ou oculto): "em breve", não um 404. getEvents
+    // tem cache de isolate — a raiz não paga uma leitura de KV por visita.
+    let existe;
+    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && e.visible !== false); } catch { existe = true; }
+    if (!existe) {
+      const res = new Response(emBreveHTML(album), { status: 200, headers: htmlSecurityHeaders('') });
+      res.headers.set('Cache-Control', 'public, max-age=60');
+      res.headers.set('X-Robots-Tag', 'noindex');
+      return res;
+    }
+    return redirect(`/galeria/${album.slug}${url.search}`);
+  }
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
