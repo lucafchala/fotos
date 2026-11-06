@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -48,6 +48,10 @@ export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
 // Chave = domínio sem www., valor = slug do projeto no painel.
 // ⚠️ O Turnstile só vale nos domínios cadastrados no widget: adicione o
 // domínio lá também, ou todo formulário desta origem é recusado.
+// Texto de abertura do índice da galeria por capítulos (campo do projeto
+// `galeriaAbertura`): parágrafos separados por linha em branco, sem marcação.
+export const GALERIA_ABERTURA_MAX = 2000;
+
 /** @type {Readonly<Record<string, string>>} */
 export const DOMINIOS_DE_ALBUM = Object.freeze({ 'entrenos2026.com': 'entrenos2026' });
 

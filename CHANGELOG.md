@@ -74,6 +74,11 @@ decisão do dono.
   `www.`, o painel volta para `fotos.lucafchala.com` e o resto do site responde
   igual. O domínio é ligado ao Worker no painel da Cloudflare (Custom Domain)
   e precisa estar também no widget do Turnstile.
+- **Abertura do álbum.** Campo "Texto de abertura do álbum" no projeto: o
+  índice da galeria por capítulos ganha mosaico com as capas dos eventos,
+  título grande, o texto, os números do álbum (eventos, fotos e autores) e os
+  botões **Ver os eventos** e **Mandar suas fotos** (só em álbum público).
+  Vazio, o índice continua como antes.
 
 ### Mudou
 
@@ -97,6 +102,9 @@ decisão do dono.
 - Sai o popup "Nova galeria de fotos" da página do evento.
 
 ### Corrigido
+
+- A capa do cartão de capítulo no índice da galeria esticava para 320 px de
+  altura em tela estreita; agora segue a proporção 3:2.
 
 - O teste de CPU da página de 6000 itens compara com uma carga de referência
   medida junto (razão), em vez de um teto absoluto que oscilava sob carga.

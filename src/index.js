@@ -54,7 +54,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -1266,6 +1266,9 @@ export function normalizeEventFields(body, base, cats) {
     // Créditos por pasta de autor ("pasta = Nome", uma linha por autor). Vazio
     // = só o autor padrão. Ver normalizaCreditos (drive.js).
     galeriaCreditos: pick('galeriaCreditos', normalizaCreditos),
+    // Texto de abertura do índice da galeria por capítulos (v3.1): vazio = o
+    // índice simples de sempre. Ver galeriaIndiceHTML.
+    galeriaAbertura: pick('galeriaAbertura', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_ABERTURA_MAX)),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
     // se preserva o que já existe, podado pelo subconjunto acima.
@@ -4764,6 +4767,7 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', '
 // TypeError dentro de galleryHTML e derrubava a home inteira com 500.
 const RESTORE_TEXT_FIELDS = {
   title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
+  galeriaAbertura: GALERIA_ABERTURA_MAX,
 };
 const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
 
