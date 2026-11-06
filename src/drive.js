@@ -1572,3 +1572,119 @@ export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false,
     capitulo: ach.cap, anterior: ach.anterior, proximo: ach.proximo, maxChamadas: GALERIA_MAX_CHAMADAS_CAP,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pastas de envio ("Mandar suas fotos", v3.4)
+// ---------------------------------------------------------------------------
+// Numa pasta colaborativa trancada para leitura, a turma só envia nas pastas
+// abertas — no álbum da turma, "!turma 2026 (adicione suas fotos aqui)" dentro
+// de cada evento (e de cada ano/banda). A regra: pasta de envio é a de crédito
+// cujo nome começa com "!" (o "!" também a põe no topo da lista do Drive).
+// O site acha essas pastas para levar a pessoa direto à certa.
+
+/**
+ * As chaves (chavePasta) das pastas de envio nos créditos: as que começam com "!".
+ * @param {unknown} creditos
+ * @returns {Set<string>}
+ */
+export function chavesDeEnvio(creditos) {
+  const out = new Set();
+  for (const linha of normalizaCreditos(creditos).split('\n')) {
+    const i = linha.indexOf(' = ');
+    if (i < 1) continue;
+    const k = chavePasta(linha.slice(0, i));
+    if (k.startsWith('!')) out.add(k);
+  }
+  return out;
+}
+
+/** "03 - Banda X" → "Banda X": o número de ordem no começo do nome não vai para a tela. @param {string} nome */
+function semOrdem(nome) {
+  return String(nome || '').replace(/^\s*\d{1,3}\s*[-–.)_]?\s+(?=\S)/, '').trim().slice(0, 80);
+}
+
+/**
+ * @typedef {{ evento: string, cap: string, rotulo: string, id: string, rk: string }} PastaDeEnvio
+ */
+
+/** @type {Map<string, { em: number, dados: PastaDeEnvio[] }>} */
+const memoriaEnvio = new Map();
+// 6 h: a estrutura de dentro de um evento (anos, bandas) quase nunca muda; um
+// evento NOVO muda a assinatura (ver abaixo) e é lido na hora.
+const ENVIO_TTL_S = 6 * 3600;
+/** @param {string} raiz @param {string} assinatura */
+const chaveEnvio = (raiz, assinatura) => `https://fotos.invalid/__galeria/envio/${raiz}/${assinatura}/v1`;
+
+/**
+ * As pastas de envio de um álbum por capítulos: para cada capítulo, a pasta de
+ * envio direto nele e/ou dentro de cada subpasta de primeiro nível (ano, banda).
+ * Só pastas (1 chamada por capítulo e por subpasta); guardado 6 h na memória do
+ * isolate e na Cache API — a estrutura quase nunca muda.
+ * @param {import('./utils.js').Env} env
+ * @param {CapitulosDrive} caps
+ * @param {Set<string>} chaves as de chavesDeEnvio
+ * @returns {Promise<PastaDeEnvio[]>}
+ */
+export async function pastasDeEnvio(env, caps, chaves) {
+  if (!chaves.size || !caps || !Array.isArray(caps.caps) || !caps.caps.length) return [];
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  if (!chave) return [];
+  // A chave do cache muda quando muda a lista de capítulos (evento novo entra
+  // na hora, sem esperar as 6 h) ou as chaves de envio nos créditos.
+  const assinatura = hashCreditos([...chaves].sort().join('|') + '#' + caps.caps.map(c => c.id).join(','));
+  const kMem = `${caps.pasta}:${assinatura}`;
+  const mem = memoriaEnvio.get(kMem);
+  if (mem && Date.now() - mem.em < ENVIO_TTL_S * 1000) return mem.dados;
+  const store = cacheStore();
+  if (store) {
+    try {
+      const hit = await store.match(chaveEnvio(caps.pasta, assinatura));
+      if (hit) {
+        const dados = /** @type {PastaDeEnvio[]} */ (await hit.json());
+        if (Array.isArray(dados)) { memoriaEnvio.set(kMem, { em: Date.now(), dados }); return dados; }
+      }
+    } catch (e) {
+      console.error('galeria: leitura do cache das pastas de envio falhou', e);
+    }
+  }
+  /** @param {{ id: string, rk: string }} p @returns {Promise<{ id: string, rk: string, nome: string }[]>} */
+  const filhas = async p => {
+    const pagina = await chamaDrive(chave, p, '', true);
+    return (Array.isArray(pagina.files) ? pagina.files : [])
+      .filter((/** @type {any} */ f) => f && typeof f.id === 'string' && ID_RE.test(f.id))
+      .map((/** @type {any} */ f) => ({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', nome: String(f.name || '') }));
+  };
+  /** @type {PastaDeEnvio[]} */
+  const dados = [];
+  // Em sequência, de propósito: o teto de subrequisições do plano grátis é 50,
+  // e um capítulo que falha não derruba os outros.
+  for (const c of caps.caps.slice(0, 30)) {
+    let nivel1;
+    try { nivel1 = await filhas({ id: c.id, rk: c.rk }); } catch { continue; }
+    const direto = nivel1.find(f => chaves.has(chavePasta(f.nome)));
+    if (direto) dados.push({ evento: c.nome, cap: c.slug, rotulo: '', id: direto.id, rk: direto.rk });
+    for (const sub of nivel1) {
+      if (sub === direto || dados.length >= 120) continue;
+      let nivel2;
+      try { nivel2 = await filhas(sub); } catch { continue; }
+      const achou = nivel2.find(f => chaves.has(chavePasta(f.nome)));
+      if (achou) dados.push({ evento: c.nome, cap: c.slug, rotulo: semOrdem(sub.nome), id: achou.id, rk: achou.rk });
+    }
+  }
+  memoriaEnvio.set(kMem, { em: Date.now(), dados });
+  if (store) {
+    try {
+      await store.put(chaveEnvio(caps.pasta, assinatura), new Response(JSON.stringify(dados), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ENVIO_TTL_S}` },
+      }));
+    } catch (e) {
+      console.error('galeria: escrita do cache das pastas de envio falhou', e);
+    }
+  }
+  return dados;
+}
+
+/** Só para os testes: esquece as pastas de envio guardadas no isolate. */
+export function limpaCacheEnvio() {
+  memoriaEnvio.clear();
+}
