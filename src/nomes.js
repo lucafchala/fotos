@@ -29,8 +29,21 @@ const PROIBIDOS_RE = /[\\/:*?"<>|\u0000-\u001f\u007f]/g;
  * @param {number} [max]
  */
 export function limpaParte(t, max = 0) {
-  const s = String(t == null ? '' : t).replace(PROIBIDOS_RE, ' ').replace(/\s+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '');
-  return max ? s.slice(0, max).replace(/[.\s]+$/g, '') : s;
+  const s = aparaPontas(String(t == null ? '' : t).replace(PROIBIDOS_RE, ' ').replace(/\s+/g, ' '));
+  return max ? aparaPontas(s.slice(0, max)) : s;
+}
+
+// Tira ponto e espaço das duas pontas num laço, não com `[.\s]+$`: a regex
+// ancorada no fim é quadrática num nome hostil com milhares de espaços ou
+// pontos no meio (CodeQL js/polynomial-redos), e o nome vem da pasta do Drive,
+// que qualquer pessoa com o link edita.
+/** @param {string} s */
+function aparaPontas(s) {
+  let i = 0;
+  let j = s.length;
+  while (i < j && (s[i] === '.' || s[i] === ' ')) i++;
+  while (j > i && (s[j - 1] === '.' || s[j - 1] === ' ')) j--;
+  return s.slice(i, j);
 }
 
 /**

@@ -77,7 +77,8 @@ const get = async (path, { dono = false } = {}) => {
   return res;
 };
 const meta = (h, nome) => h.match(new RegExp(`<meta (?:property|name)="${nome}" content="([^"]*)"`))?.[1];
-const decodifica = t => t.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+// `&amp;` por último: decodificado antes, `&amp;quot;` viraria `"` (duas vezes).
+const decodifica = t => t.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 
 describe('cartão do capítulo', () => {
   it('título "<Capítulo> · <Projeto>", url canônica e capa = primeira foto do capítulo em 1200x630', async () => {

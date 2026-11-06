@@ -77,6 +77,19 @@ describe('nomes.js — as peças', () => {
     expect(limpaParte(null)).toBe('');
     expect(limpaParte('x'.repeat(100), 10)).toBe('x'.repeat(10));
   });
+
+  it('limpaParte é linear num nome hostil (CodeQL js/polynomial-redos)', () => {
+    // Nome de pasta do Drive colaborativo: qualquer pessoa com o link escolhe.
+    const inicio = Date.now();
+    expect(limpaParte('a' + ' \t'.repeat(200000) + 'b')).toBe('a b');
+    // Pontos e espaços no meio, seguidos de outra letra: a regex ancorada no
+    // fim tentaria de cada posição até o fim (quadrático).
+    const meio = '. '.repeat(50000);
+    expect(limpaParte('x' + meio + 'y')).toBe('x' + meio + 'y');
+    expect(limpaParte(' .'.repeat(100000))).toBe('');
+    expect(Date.now() - inicio).toBeLessThan(1000);
+  });
+
   it('extDe: minúscula, jpeg vira jpg, sem extensão fica vazio', () => {
     expect(extDe('A.JPEG')).toBe('jpg');
     expect(extDe('a.HEIC')).toBe('heic');
