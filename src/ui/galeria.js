@@ -25,7 +25,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -173,10 +173,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const caminhoBase = `/galeria/${slug}`;
   const caminhoPagina = capitulo ? `${caminhoBase}/${capitulo.slug}` : caminhoBase;
   const urlPagina = `${SITE_URL}${caminhoPagina}`;
-  const descricao = previewDescription(
-    [dataEvento, listagem && total ? contagem : ''],
-    `Galeria de fotos de ${titulo}${capitulo ? ` (${capitulo.nome})` : ''}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
-  );
   const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
   // Autores da listagem (índice 0 = padrão) e os que de fato têm foto na
   // página (sem as ocultas, para o visitante): só com mais de um aparece a
@@ -189,10 +185,30 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
   const altItem = (/** @type {import('../drive.js').FotoDrive} */ f, /** @type {number} */ i) =>
     ehVideo(f) ? `${titulo} — vídeo ${i + 1} de ${total}` : altFoto(i);
-  // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
-  // pelo Worker — o robô do cartão não gasta cota nossa.
+  // Cartão de link (WhatsApp, Telegram, redes): o nome de quem fez o quê vem
+  // junto da contagem ("12 fotos · Fotos: Ana e Bruno"); o título de um
+  // capítulo é "<Capítulo> · <Projeto>"; a capa do capítulo é a primeira foto
+  // DELE (a listagem do visitante já vem sem as ocultas), e só sem foto cai na
+  // capa do projeto. Fora de capítulos, a capa é a do projeto e, sem ela, a
+  // primeira foto da pasta. Do lh3, sem passar pelo Worker — o robô do cartão
+  // não gasta cota nossa. Álbum família/privado só abre com o passe do portão
+  // (um robô recebe 404), e MESMO com o passe o cartão sai genérico: sem capa
+  // nem nome de capítulo.
+  const restrito = isRestrictedAccess(event);
+  const creditoDoCartao = variosAutores
+    ? linhaAutores
+    : autoresUsados.length === 1 && autores[autoresUsados[0]] && autores[autoresUsados[0]] !== AUTOR_PADRAO ? `Fotos: ${autores[autoresUsados[0]]}` : '';
+  const descricao = restrito
+    ? previewDescription([], `Galeria de fotos de ${titulo}.`)
+    : previewDescription(
+      [dataEvento, listagem && total ? contagem : '', creditoDoCartao],
+      `Galeria de fotos de ${titulo}${capitulo ? ` (${capitulo.nome})` : ''}, por Luca F. Chala. Veja em tela cheia e baixe para as redes ou no tamanho original.`,
+    );
   const primeiraFoto = todasFotos.find(f => !ehVideo(f));
-  const ogImage = ogImageFor(event.thumbnailUrl || (primeiraFoto ? urlLh3(primeiraFoto[0], 1600) : ''));
+  const capaDaFoto = primeiraFoto ? urlLh3(primeiraFoto[0], 1600) : '';
+  const capaDoCartao = restrito ? '' : capitulo ? capaDaFoto || event.thumbnailUrl || '' : event.thumbnailUrl || capaDaFoto;
+  const ogImage = ogImageFor(capaDoCartao);
+  const tituloDoCartao = restrito ? `Fotos de ${titulo}` : capitulo ? `${capitulo.nome} · ${titulo}` : tituloPagina;
   const jsonLd = todasFotos.length ? {
     '@context': 'https://schema.org',
     '@type': 'ImageGallery',
@@ -343,11 +359,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(urlPagina)}">
   ${socialMetaHTML({
-    title: tituloPagina,
+    title: tituloDoCartao,
     description: descricao,
     url: urlPagina,
     image: ogImage.url,
-    imageAlt: `Fotos de ${titulo}`,
+    imageAlt: tituloDoCartao,
     imageWidth: ogImage.width,
     imageHeight: ogImage.height,
   })}

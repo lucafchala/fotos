@@ -5,7 +5,7 @@
 // um espaço reservado e o texto "Ver fotos" (ler a lista de cada capítulo só
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
-import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription } from '../utils.js';
+import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -32,10 +32,17 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   /** @param {{ id: string }} c */
   const vazio = c => { const r = resumo[c.id]; return !!r && r.n === 0; };
   const visiveis = caps.caps.filter(c => dono || !vazio(c));
-  const descricao = previewDescription(
-    [dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''],
-    `Galeria de fotos de ${titulo}, por Luca F. Chala. Escolha o evento para ver as fotos.`,
-  );
+  // Cartão de link: a contagem vem do resumo (só dos capítulos que alguém já
+  // abriu; sem resumo nenhum, só "N eventos"). Álbum família/privado só abre
+  // com o passe do portão; mesmo com ele o cartão sai genérico (sem capa).
+  const restrito = isRestrictedAccess(event);
+  const fotosNoResumo = visiveis.reduce((n, c) => n + (resumo[c.id] ? resumo[c.id].n : 0), 0);
+  const descricao = restrito
+    ? previewDescription([], `Galeria de fotos de ${titulo}.`)
+    : previewDescription(
+      [dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : '', fotosNoResumo ? `${fotosNoResumo} ${fotosNoResumo === 1 ? 'foto' : 'fotos'}` : ''],
+      `Galeria de fotos de ${titulo}, por Luca F. Chala. Escolha o evento para ver as fotos.`,
+    );
   const ocultasSet = new Set(ocultas);
   const cartoes = visiveis.map(c => {
     const r = resumo[c.id];
@@ -51,6 +58,9 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   });
   const og = caps.caps.map(c => resumo[c.id]).find(r => r && r.capas.find(id => !ocultasSet.has(id)));
   const ogCapa = og ? og.capas.find(id => !ocultasSet.has(id)) : '';
+  // A capa do cartão: a do projeto, se o dono cadastrou; senão a do primeiro
+  // capítulo com foto.
+  const ogImage = ogImageFor(restrito ? '' : event.thumbnailUrl || (ogCapa ? urlLh3(ogCapa, 1200) : ''));
   const avisoTrunc = dono && caps.truncada
     ? '<p class="ix-aviso">O Drive tem mais subpastas do que o índice mostra (até 100). As demais ficam de fora; reúna eventos antigos em outra pasta.</p>'
     : '';
@@ -73,10 +83,10 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     title: tituloPagina,
     description: descricao,
     url: SITE_URL + base,
-    image: ogCapa ? urlLh3(ogCapa, 1200) : '',
+    image: ogImage.url,
     imageAlt: `Fotos de ${titulo}`,
-    imageWidth: 0,
-    imageHeight: 0,
+    imageWidth: ogImage.width,
+    imageHeight: ogImage.height,
   })}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
