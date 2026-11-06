@@ -259,7 +259,7 @@ non-versioned deployment". Isso pega o `deploy.yml`, que sobe a versão do
 portão por esse caminho: depois do merge de um PR com migração nova
 (`[[migrations]]` com uma tag nova no `wrangler.toml`), o deploy **falha no
 upload**, de propósito e com a mensagem explicando, e o caminho é redisparar à
-mão com `unversioned: true` (README, deploy manual). Não há atalho: migração e
+mão com `unversioned: true` (docs/REFERENCIA.md, deploy manual). Não há atalho: migração e
 código sobem juntos, não dá para aplicar só a migração antes.
 
 Até 12/10/2026 isso pegava também **todo build de PR**: o Cloudflare Workers
@@ -271,7 +271,7 @@ comentário do bot no PR não trazia link nenhum: só "Deployment successful" e,
 no check, um Version ID.
 
 Desde então os builds de PR saem por **`npx wrangler preview`** (Worker
-Previews; README, "Prévia de PR"): cada prévia tem dados próprios e um
+Previews; docs/REFERENCIA.md, "Prévia de PR"): cada prévia tem dados próprios e um
 namespace de Durable Object próprio, criado a partir das migrações do topo do
 `wrangler.toml`. Como uma migração **nova** chega a uma prévia que já existe
 ainda não foi visto — o primeiro PR com `v2` responde, e o resultado entra
@@ -463,7 +463,7 @@ há liberação gradual por porcentagem: isso foi substituído pela abertura
 direta. A página do álbum público leva primeiro à galeria ("Ver e baixar as
 fotos"); o Drive virou opção secundária. A faixa do dono (atalhos do painel,
 "Atualizar lista") só aparece para o dono logado; `?atualizar` só relê o Drive
-para o dono. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
+para o dono. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo em docs/REFERENCIA.md,
 "Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link" (**Leitor** basta para a galeria ler; a pasta **colaborativa** da v3.1 é "Editor", ver §5.20).
 
 O que já mordeu, ou morderia:
@@ -633,7 +633,7 @@ lista inteira e saiu com ela.
 
 ### 5.16. Prévia de PR: a faixa vem antes da página — e as simulações trocam o `env`, não o código
 
-A prévia de cada PR (Cloudflare Worker Previews; README, "Prévia de PR") roda
+A prévia de cada PR (Cloudflare Worker Previews; docs/REFERENCIA.md, "Prévia de PR") roda
 o código de produção com uma camada por fora do roteador, `src/previa.js`,
 ligada só por `AMBIENTE = "previa"` (que só o bloco `[previews]` do
 `wrangler.toml` declara). Quatro coisas que valem saber antes de mexer nela:
@@ -678,7 +678,7 @@ que o código, a cada push. Duas consequências:
 
 - só os cinco nomes de `SEGREDOS_DA_PREVIA` sobem, e só com o prefixo; um
   `PREVIA_*` a mais é ignorado com aviso. Segredo novo de prévia: acrescente
-  lá, e o teste exige a linha dele no README;
+  lá, e o teste exige a linha dele em docs/REFERENCIA.md;
 - o script não apaga: tirar um `PREVIA_*` do build não tira o segredo de uma
   prévia que já o recebeu (`npx wrangler preview secret delete`);
 - sem `PREVIA_SIGNING_SECRET`, o build **gera** um a cada publicação (64
@@ -1046,7 +1046,8 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | --- | --- |
 | **RETOMADA.md** (este) | Ao voltar depois de um tempo |
 | [CLAUDE.md](./CLAUDE.md) / [llms.md](./llms.md) | Sessão de agente: quais ferramentas usar (GitHub API, verificação) |
-| [README.md](./README.md) | Referência completa: rotas, dados, deploy, decisões |
+| [README.md](./README.md) | O que o site faz, em resumo, e como começar |
+| [docs/REFERENCIA.md](./docs/REFERENCIA.md) | Referência completa: rotas, dados, deploy, decisões |
 | [SECURITY.md](./SECURITY.md) | Modelo de ameaça e cada controle |
 | [TODO.md](./TODO.md) | Política, orçamento de cota, regras vivas, o que foi decidido e por quê |
 | [docs/BRANCHES.md](./docs/BRANCHES.md) | Branches, PR empilhado, Dependabot, "um merge por vez", proteção da `main` |

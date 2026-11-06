@@ -210,7 +210,7 @@ Cada evento é um card (`.evt-item`, `id="evt-<id>"`), desenhado por
 | Linha de meta | `/slug · dd/mm/aaaa · categoria · prazo dd/mm`, uma linha, com reticências (no celular, categoria e prazo podem ficar cortados). A data do evento é um dia de calendário: vira dd/mm/aaaa **por texto**, sem passar por `Date`, que a moveria de fuso. O "prazo" só aparece enquanto o evento não está entregue nem arquivado |
 | Selos | o estado, escrito (tabela abaixo) |
 | **Editar** | abre o formulário preenchido |
-| **Galeria** | link para `/galeria/<slug>`, na mesma aba — a [galeria própria](../README.md#galeria-própria), onde o dono também oculta fotos |
+| **Galeria** | link para `/galeria/<slug>`, na mesma aba — a [galeria própria](./REFERENCIA.md#galeria-própria), onde o dono também oculta fotos |
 | **⋯** | o menu "Mais ações" (§4.3) |
 | Caixa de seleção | só no modo "Selecionar vários", antes da miniatura (`aria-label="Selecionar <título>"`) |
 
@@ -1746,7 +1746,7 @@ pedido de remoção e trocar a senha.
 
 ## Documentos relacionados
 
-- [`README.md`](../README.md) — o resumo do painel, rotas, autenticação, galeria própria.
+- [`docs/REFERENCIA.md`](./REFERENCIA.md) — o resumo do painel, rotas, autenticação, galeria própria.
 - [`RETOMADA.md`](../RETOMADA.md) §5.14 — o card e o bundle; §5.1 — a CSP e o handler inline.
 - [`docs/VERIFICACAO.md`](./VERIFICACAO.md) — o harness local (§2), o navegador de verdade (§3) e `verifica:painel`.
 - [`TODO.md`](../TODO.md) — "Plano gratuito" (a cota), "Uma regra escrita duas vezes", "O que roda em produção é o bundle".

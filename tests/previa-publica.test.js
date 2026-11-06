@@ -20,7 +20,7 @@ import {
 } from '../scripts/previa-publica.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/previa-publica.mjs', import.meta.url));
-const README = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const README = readFileSync(new URL('../docs/REFERENCIA.md', import.meta.url), 'utf8');
 const PACOTE = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const FONTES = readdirSync(new URL('../src/', import.meta.url))
   .filter((f) => f.endsWith('.js'))
@@ -105,11 +105,11 @@ describe('a lista confere com o resto do repositório', () => {
     }
   });
 
-  it('o README dá o nome com o prefixo de cada um', () => {
+  it('a referência dá o nome com o prefixo de cada um', () => {
     for (const nome of SEGREDOS_DA_PREVIA) expect(README).toContain(`\`${PREFIXO}${nome}\``);
   });
 
-  it('nenhum dos que o README manda NÃO copiar está na lista', () => {
+  it('nenhum dos que a referência manda NÃO copiar está na lista', () => {
     for (const nome of ['TURNSTILE_SECRET_KEY', 'KUMA_PUSH_URL', 'CF_ANALYTICS_TOKEN']) {
       expect(SEGREDOS_DA_PREVIA).not.toContain(nome);
     }
