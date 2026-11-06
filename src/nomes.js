@@ -63,9 +63,35 @@ export function horaLegivel(h) {
  * @returns {{ pre: string[], cauda: Record<string, string> }}
  */
 export function nomesDaListagem(listagem, ctx, id) {
+  // Cálculo completo (sem `id`) é memoizado POR OBJETO de listagem: a lista de
+  // 10 min mora na memória do isolate, então um capítulo de 6000 fotos paga os
+  // ~20 ms de CPU uma vez por releitura, não a cada visita (limite do plano
+  // gratuito: 10 ms). Listagem nova (releitura) é outro objeto: cai sozinha.
+  const chaveMemo = `${ctx.titulo || ''}\u0001${ctx.capitulo || ''}`;
+  if (id === undefined) {
+    const guardado = memoNomes.get(listagem);
+    if (guardado && guardado.chave === chaveMemo) return guardado.res;
+  }
+  const res = calculaNomes(listagem, ctx, id);
+  if (id === undefined) memoNomes.set(listagem, { chave: chaveMemo, res });
+  return res;
+}
+
+/** @type {WeakMap<object, { chave: string, res: { pre: string[], cauda: Record<string, string> } }>} */
+const memoNomes = new WeakMap();
+
+/**
+ * @param {import('./drive.js').ListagemDrive} listagem
+ * @param {{ titulo?: string, capitulo?: string }} ctx
+ * @param {string} [id]
+ * @returns {{ pre: string[], cauda: Record<string, string> }}
+ */
+function calculaNomes(listagem, ctx, id) {
   const aut = Array.isArray(listagem.aut) && listagem.aut.length ? listagem.aut : [''];
   const titulo = limpaParte(ctx.titulo);
   const capitulo = limpaParte(ctx.capitulo);
+  // O autor de cada foto é um índice em poucos nomes: limpa uma vez por nome.
+  const autorLimpo = aut.map(a => limpaParte(a, NOME_AUTOR_MAX));
   const pre = listagem.secoes.map(s =>
     [titulo, capitulo, limpaParte(s.nome)].filter(Boolean).join(' - ').slice(0, NOME_PRE_MAX).replace(/[.\s]+$/g, ''));
   /** @type {Record<string, string>} */
@@ -76,7 +102,7 @@ export function nomesDaListagem(listagem, ctx, id) {
     const fotos = listagem.secoes[si].fotos;
     for (let k = 0; k < fotos.length; k++) {
       const f = fotos[k];
-      const autor = limpaParte(aut[f[5] || 0], NOME_AUTOR_MAX);
+      const autor = autorLimpo[f[5] || 0] ?? limpaParte(aut[f[5] || 0], NOME_AUTOR_MAX);
       const quando = f[6] ? horaLegivel(f[6]) : String(k + 1).padStart(3, '0');
       const meio = [autor, quando].filter(Boolean).join(' - ');
       let c = (pre[si] ? ' - ' : '') + meio;
@@ -100,7 +126,11 @@ export function nomesDaListagem(listagem, ctx, id) {
  * @returns {string | null} null se a foto não está na listagem
  */
 export function nomeAmigavel(listagem, ctx, id, nomeDoArquivo) {
-  const { pre, cauda } = nomesDaListagem(listagem, ctx, id);
+  // Com a lista completa já calculada (a página acabou de montá-la), usa-a;
+  // senão para na foto pedida.
+  const { pre, cauda } = memoNomes.get(listagem)?.chave === `${ctx.titulo || ''}\u0001${ctx.capitulo || ''}`
+    ? nomesDaListagem(listagem, ctx)
+    : nomesDaListagem(listagem, ctx, id);
   const c = cauda[id];
   if (c === undefined) return null;
   const si = listagem.secoes.findIndex(s => s.fotos.some(f => f[0] === id));

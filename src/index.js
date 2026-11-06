@@ -52,7 +52,7 @@ import {
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
-  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
+  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
@@ -2139,7 +2139,7 @@ export async function handleRevokeOtherSessions(request, env) {
 export async function handleRemovalRequest(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const allowed = await checkRateLimit(env, ip, 'removal', FORM_LIMIT_PER_HOUR, 3600);
-  if (!allowed) return jsonErr('Muitas solicitações. Tente mais tarde.', 429);
+  if (!allowed) return jsonErr('Recebemos muitas solicitações deste endereço agora. Tente de novo mais tarde ou escreva para privacidade@lucafchala.com.', 429);
 
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
@@ -2315,7 +2315,7 @@ const MSG_PEDIDO_NAO_REGISTRADO =
  * @param {Record<string, any> & { emailStatus?: string, confirmEmailStatus?: string|null }} newReq o que vai para o KV
  * @returns {Promise<'gravado' | 'so-email' | 'perdido'>}
  */
-async function registraPedidoPublico(env, req, newReq) {
+async function registraPedidoPublico(env, req, newReq, { semPainel = false } = {}) {
   // Store request (without binary file).
   //
   // A PARTIR DAQUI O PEDIDO É VÁLIDO E O TITULAR JÁ FEZ A PARTE DELE. Ele é
@@ -2337,9 +2337,14 @@ async function registraPedidoPublico(env, req, newReq) {
   let gravado = false;
   let gravadoEm = 0;
   try {
-    await gravaPedido(env, newReq);
-    gravado = true;
-    gravadoEm = Date.now();
+    // `semPainel` (item 1g): passado o teto "normal" do IP (Wi-Fi de evento com
+    // centenas de pessoas atrás de um endereço), o pedido segue SÓ por e-mail —
+    // sem escrita de KV, que é a cota escassa da conta.
+    if (!semPainel) {
+      await gravaPedido(env, newReq);
+      gravado = true;
+      gravadoEm = Date.now();
+    }
   } catch (err) {
     noteDegraded(
       'pedido de remoção não gravado no painel',
@@ -3849,6 +3854,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
     capituloNome: capitulo ? capitulo.nome : '',
+    pastaDrive: pasta,
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo) } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
@@ -3869,6 +3875,13 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
     if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   }
   for (const c of contaGaleria) res.headers.append('Set-Cookie', c);
+  // Lista sendo lida pela primeira vez por outro visitante: 503 curto, sem
+  // cache, e a própria página se recarrega (meta refresh) em poucos segundos.
+  if (erro && erro.codigo === 'carregando') {
+    res = new Response(res.body, { status: 503, headers: res.headers });
+    res.headers.set('Retry-After', '5');
+    res.headers.set('Cache-Control', 'no-store');
+  }
   return res;
 }
 
@@ -4246,9 +4259,15 @@ export async function handleGaleriaRemocao(request, env, ctx) {
 
   // Teto de PEDIDOS por IP/dia (cada um custa 2 escritas de KV). Antes do
   // Turnstile para que um robô com token válido não gaste siteverify à toa.
-  const podePedir = await checkRateLimit(env, ip, 'galeria-remocao', GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, 86400);
-  if (!podePedir) {
-    return jsonErr('Você já enviou vários pedidos hoje. Para os próximos, escreva para privacidade@lucafchala.com.', 429);
+  // Dois degraus: até GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA o pedido vai ao painel
+  // (2 escritas de KV); acima disso vai só por e-mail (0 escritas) até o teto
+  // GALERIA_REMOCAO_EMAIL_POR_IP_DIA. Só depois disso o 429, em português claro.
+  let semPainel = false;
+  if (!await checkRateLimit(env, ip, 'galeria-remocao', GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, 86400)) {
+    if (!await checkRateLimit(env, ip, 'galeria-remocao-email', GALERIA_REMOCAO_EMAIL_POR_IP_DIA, 86400)) {
+      return jsonErr('Recebemos muitos pedidos deste endereço hoje. Para os próximos, escreva para privacidade@lucafchala.com.', 429);
+    }
+    semPainel = true;
   }
   if (!(await verifyTurnstile(body.turnstileToken, env))) {
     return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);
@@ -4297,7 +4316,10 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   let ocultada = normalizaOcultas(evento.fotosOcultas).includes(foto);
   /** @type {'' | 'ip' | 'album' | 'erro'} */
   let semOcultar = '';
-  if (!ocultada) {
+  if (!ocultada && semPainel) {
+    // Esconder grava no KV: pedido que já saiu do degrau do painel não esconde.
+    semOcultar = 'ip';
+  } else if (!ocultada) {
     const agora = Date.now();
     const doDia = normalizaPendentes(evento.ocultasPendentes).filter(p => agora - new Date(p.em).getTime() < UM_DIA_MS).length;
     if (doDia >= GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA) {
@@ -4361,7 +4383,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   };
   /** @type {Record<string, any> & { emailStatus?: string, confirmEmailStatus?: string|null }} */
   const novo = { ...req };
-  const resultado = await registraPedidoPublico(env, req, novo);
+  const resultado = await registraPedidoPublico(env, req, novo, { semPainel });
   if (resultado === 'perdido') return jsonErr(MSG_PEDIDO_NAO_REGISTRADO, 503);
   // Já temos a listagem: o autor da foto é avisado sem nova ida ao Drive. Nada
   // do solicitante (e-mail, mensagem) vai junto.

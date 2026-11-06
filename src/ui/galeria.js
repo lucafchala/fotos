@@ -95,6 +95,12 @@ const CONSERTOS = {
     titulo: 'O Google limitou as consultas por um momento',
     passos: ['Espere alguns minutos e recarregue.'],
   },
+  // Primeira leitura desta pasta (ou depois de um longo intervalo) já em curso
+  // por outro visitante: nada a consertar, só esperar (a página se recarrega).
+  carregando: {
+    titulo: 'Carregando as fotos…',
+    passos: [],
+  },
   falha: {
     titulo: 'O Google Drive não respondeu',
     passos: ['Recarregue em instantes. Se continuar, veja /api/healthz e o status do Google Workspace.'],
@@ -117,6 +123,7 @@ const CONSERTOS = {
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null } | null,
+ *   pastaDrive?: { id: string, resourceKey?: string } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -132,10 +139,13 @@ const CONSERTOS = {
 // `capitulo` (galeria por capítulos): a página é a de UM capítulo, com a
 // navegação para o índice e para os vizinhos. Hrefs sempre montados aqui, de
 // slugs que o servidor validou.
+// `pastaDrive` (item 1g.4b): a pasta DESTA página (o capítulo, ou o projeto sem
+// capítulos) para o botão discreto "Baixar o evento inteiro (Google Drive)".
+// O link é montado aqui de um id validado pelo servidor; nada vem do navegador.
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, pastaDrive = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -209,6 +219,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
     : '';
 
+  // Pasta inteira no Google Drive (item 1g.4b): para quem quer o evento todo
+  // sem passar pelo Worker (o Drive junta o .zip). Só com fotos na página.
+  const urlPastaDrive = listagem && total && pastaDrive && /^[A-Za-z0-9_-]{10,200}$/.test(pastaDrive.id)
+    ? `https://drive.google.com/drive/folders/${pastaDrive.id}${pastaDrive.resourceKey && /^[A-Za-z0-9_-]{1,200}$/.test(pastaDrive.resourceKey) ? `?resourcekey=${pastaDrive.resourceKey}` : ''}`
+    : '';
+  const linkPastaDrive = urlPastaDrive
+    ? `<p class="g-pasta-drive"><a href="${urlPastaDrive}" target="_blank" rel="nofollow noopener" data-acao="pasta-drive">Baixar o evento inteiro (Google Drive)</a><span>abre no Google Drive; lá, toque ⋮ → Fazer download</span></p>`
+    : '';
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
@@ -260,7 +278,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     amigavel: nomes && listagemBruta ? listagem.secoes.map(sec => nomes.pre[listagemBruta.secoes.findIndex(b => b.caminho === sec.caminho)] || '') : null,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
-    drive: drive || '',
+    // "Pelo Google Drive" da folha "Baixar tudo": a pasta DESTA página (o
+    // capítulo) quando se sabe; senão o link do projeto.
+    drive: urlPastaDrive || drive || '',
     // Só o dono recebe a lista do que está oculto (o visitante já recebe a
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
     dono: !!dono,
@@ -287,6 +307,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
+  ${erro && erro.codigo === 'carregando' ? '<meta http-equiv="refresh" content="4">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(urlPagina)}">
   ${socialMetaHTML({
@@ -357,6 +378,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     @media (hover:hover){ .g-btn:hover,.g-chip:hover{border-color:var(--text-dim)} }
     .g-previa{margin:.9rem var(--pad) 0;font-size:.78rem;color:var(--text-muted);display:flex;gap:.5rem;align-items:center}
     .g-previa b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
+    .g-pasta-drive{margin:1.4rem var(--pad) 0;display:flex;flex-direction:column;align-items:center;gap:.15rem;font-size:.78rem;color:var(--text-muted);text-align:center}
+    .g-pasta-drive a{color:var(--text-muted);text-decoration:underline;text-underline-offset:3px;min-height:44px;display:inline-flex;align-items:center}
+    .g-pasta-drive span{font-size:.72rem}
     .g-aviso{margin:.75rem var(--pad) 0;padding:.7rem .9rem;border-radius:8px;font-size:.82rem;line-height:1.5;background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text)}
     .g-erro{max-width:40rem;margin:3rem auto;padding:1.5rem 1.6rem;border-radius:12px;background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);line-height:1.6}
     .g-erro h2{font-size:1.1rem;margin-bottom:.4rem;color:var(--text)}
@@ -545,10 +569,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   ${conserto && erro ? `<section class="g-erro" role="alert">
     <h2>${escape(conserto.titulo)}</h2>
     <p>${escape(erro.mensagem)}</p>
-    <ol>${conserto.passos.map(p => `<li>${p}</li>`).join('')}</ol>
+    ${conserto.passos.length ? `<ol>${conserto.passos.map(p => `<li>${p}</li>`).join('')}</ol>` : ''}
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
+  ${linkPastaDrive}
   ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', slug) : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
@@ -1572,21 +1597,139 @@ const SCRIPT = `
   function urlBaixar(f, v, semConta) {
     return '/galeria/' + encodeURIComponent(D.slug) + (D.cap ? '/' + encodeURIComponent(D.cap) : '') + '/baixar/' + f.id + '?v=' + v + (semConta ? '&c=0' : '');
   }
-  // 429 do limite por IP (Wi-Fi de evento = um IP só). O servidor diz quantos
-  // segundos esperar (Retry-After); até lá NENHUM pedido de download sai —
-  // nem repetição automática, nem toque em outro botão: quem toca de novo vê o
-  // tempo que falta, sem martelar o servidor.
-  let esperaAte = 0;
-  function msgEspera() {
-    const s = Math.max(1, Math.ceil((esperaAte - Date.now()) / 1000));
-    return 'Muita gente baixando agora. Tente de novo em ' + (s >= 90 ? Math.ceil(s / 60) + ' minutos' : s + ' s') + '.';
+  // ---- Fila de download (item 1g.4a) ----
+  // O Google pode recusar o arquivo quando ele é muito baixado (o servidor
+  // responde 503 "ocupado" com Retry-After; o limite por IP responde 429).
+  // Nenhum erro cru: o botão vira "Na fila…", conta os segundos e tenta de
+  // novo sozinho, com intervalo crescente, por até ~5 min. Uma tentativa por
+  // vez nesta aba (filaViva). "Cancelar" e fechar a janela encerram a fila.
+  const FILA_MAX_S = 300;
+  const FILA_PASSO_MAX_S = 120;
+  let filaViva = false;
+  let filaCancelada = false;
+  function segundosDe(r) {
+    const s = Number.parseInt(r.headers.get('Retry-After') || '', 10);
+    return s > 0 ? Math.min(s, FILA_PASSO_MAX_S) : 30;
   }
-  function emEspera() { return Date.now() < esperaAte; }
-  function anotaEspera(r) {
-    let s = Number.parseInt(r.headers.get('Retry-After') || '', 10);
-    if (!(s > 0)) s = 60;
-    esperaAte = Date.now() + Math.min(s, 3600) * 1000;
+  // Pergunta "está pronto?" sem baixar o arquivo (?p=1: o servidor pede só o
+  // primeiro byte ao Drive e responde 204). Rede fora ou resposta estranha:
+  // segue para o download direto, como antes da fila.
+  async function sondaDownload(f, v) {
+    let r;
+    try { r = await fetch(urlBaixar(f, v, true) + '&p=1', { credentials: 'same-origin' }); } catch (e) { return { ok: true }; }
+    if (r.status === 204 || r.status === 200) return { ok: true };
+    if (r.status === 429 || r.status === 503) return { espera: segundosDe(r) };
+    let msg = '';
+    try { msg = (await r.json()).error || ''; } catch (e) { msg = ''; }
+    return { erro: msg || 'Não foi possível baixar esta foto agora.' };
   }
+  function rotuloDoBotao(botao, texto) {
+    if (!botao) return;
+    const forte = botao.querySelector('strong');
+    const alvo = forte || botao;
+    if (!botao.dataset.orig) botao.dataset.orig = alvo.textContent || '';
+    alvo.textContent = texto === null ? botao.dataset.orig : texto;
+    if (texto === null) delete botao.dataset.orig;
+  }
+  // Espera s segundos mostrando a contagem no botão; a mensagem da folha (que
+  // é aria-live) muda só de 10 em 10 s, para o leitor de tela não narrar cada
+  // segundo. Devolve false se cancelaram ou fecharam a janela.
+  function esperaNaFila(s, minha, botao) {
+    return new Promise(function (resolve) {
+      let resta = Math.ceil(s);
+      const passo = function () {
+        if (minha !== geracao || filaCancelada) { resolve(false); return; }
+        if (resta <= 0) { resolve(true); return; }
+        rotuloDoBotao(botao, 'Na fila… tentando de novo em ' + resta + ' s');
+        if (folhaMsg && (resta === Math.ceil(s) || resta % 10 === 0)) folhaMsg.textContent = 'Muita gente baixando agora. Você está na fila: tentamos de novo sozinhos. Deixe esta janela aberta.';
+        resta--;
+        setTimeout(passo, 1000);
+      };
+      passo();
+    });
+  }
+  // Cada espera é a anterior x1,5 (limite FILA_PASSO_MAX_S) com ±20% de jitter.
+  function proximaEspera(anterior) {
+    const base = Math.min(FILA_PASSO_MAX_S, Math.max(anterior, anterior * 1.5));
+    return Math.max(5, Math.round(base * (0.8 + Math.random() * 0.4)));
+  }
+  function botaoCancelarFila() {
+    const c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'g-btn';
+    c.textContent = 'Cancelar';
+    c.setAttribute('data-acao', 'cancela-fila');
+    c.addEventListener('click', function () { filaCancelada = true; });
+    return c;
+  }
+  // O mesmo para quem busca o arquivo na memória (iPhone, "Salvar no Fotos"):
+  // 503/429 viram espera na fila e nova tentativa, não erro.
+  async function buscaNaFila(f, v, minha, botao) {
+    const inicio = Date.now();
+    let espera = 0;
+    filaViva = true;
+    filaCancelada = false;
+    const cancelar = botaoCancelarFila();
+    let mostrouCancelar = false;
+    try {
+      for (;;) {
+        try {
+          return await buscaArquivo(f, v);
+        } catch (e) {
+          if (!e || !e.espera) throw e;
+          if (Date.now() - inicio > FILA_MAX_S * 1000) throw new Error('Continua muito movimentado. Tente de novo daqui a alguns minutos.');
+          espera = espera ? proximaEspera(espera) : e.espera;
+          if (!mostrouCancelar && folhaOps) { folhaOps.appendChild(cancelar); mostrouCancelar = true; }
+          if (!await esperaNaFila(espera, minha, botao)) throw new Error(minha !== geracao ? 'Cancelado.' : 'Cancelado. Toque para tentar de novo.');
+        }
+      }
+    } finally {
+      filaViva = false;
+      rotuloDoBotao(botao, null);
+      if (mostrouCancelar) cancelar.remove();
+    }
+  }
+  // Baixa a lista, UM arquivo por vez: sonda; se estiver ocupado, espera na
+  // fila e sonda de novo; se estiver pronto, dispara o download direto (o mesmo
+  // <a download> de sempre). Devolve true se todos saíram.
+  async function baixaNaFila(lista, v, jaContadas, minha, botao) {
+    filaViva = true;
+    filaCancelada = false;
+    const cancelar = botaoCancelarFila();
+    let mostrouCancelar = false;
+    const inicio = Date.now();
+    let feitos = 0;
+    try {
+      for (let k = 0; k < lista.length; k++) {
+        const f = lista[k];
+        let espera = 0;
+        for (;;) {
+          if (minha !== geracao || filaCancelada) return false;
+          const s = await sondaDownload(f, v);
+          if (minha !== geracao || filaCancelada) return false;
+          if (s.erro) { if (folhaMsg) folhaMsg.textContent = s.erro; return false; }
+          if (s.ok) break;
+          if (Date.now() - inicio > FILA_MAX_S * 1000) {
+            if (folhaMsg) folhaMsg.textContent = 'Continua muito movimentado. Tente de novo daqui a alguns minutos' + (feitos ? ' (' + feitos + ' de ' + lista.length + ' já saíram).' : '.');
+            return false;
+          }
+          espera = espera ? proximaEspera(espera) : s.espera;
+          if (!mostrouCancelar && folhaOps) { folhaOps.appendChild(cancelar); mostrouCancelar = true; }
+          if (!await esperaNaFila(espera, minha, botao)) return false;
+        }
+        rotuloDoBotao(botao, null);
+        linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id)), D.amigavel ? arquivoDe(f, v).nome : '');
+        feitos++;
+        if (k + 1 < lista.length) await new Promise(function (r) { setTimeout(r, 700); });
+      }
+      return true;
+    } finally {
+      filaViva = false;
+      rotuloDoBotao(botao, null);
+      if (mostrouCancelar) cancelar.remove();
+    }
+  }
+
   // O que a versão entrega para a foto: nome e peso do arquivo (ou null).
   // Com "nomes amigáveis" o nome é o que o servidor vai pôr no
   // Content-Disposition: prefixo da seção + cauda da foto + extensão do
@@ -1627,11 +1770,12 @@ const SCRIPT = `
   // O tipo só diz à folha do sistema que é imagem (se o Drive mandou
   // octet-stream, vale a extensão) — não toca em byte nenhum.
   async function buscaArquivo(f, v, semConta) {
-    if (emEspera()) throw new Error(msgEspera());
     const r = await fetch(urlBaixar(f, v, semConta), { credentials: 'same-origin' });
-    if (r.status === 429) {
-      anotaEspera(r);
-      throw new Error(msgEspera());
+    if (r.status === 429 || r.status === 503) {
+      // Fila (item 1g): quem chamou decide se espera e tenta de novo.
+      const e = /** @type {any} */ (new Error('Muita gente baixando esta foto agora. Tente de novo em alguns minutos.'));
+      e.espera = segundosDe(r);
+      throw e;
     }
     if (!r.ok) {
       let msg = '';
@@ -1716,7 +1860,7 @@ const SCRIPT = `
   // Android e computador: um botão por versão, o toque baixa.
   function blocoComum(lista, v, titulo) {
     const b = opcao(titulo, detalheDaVersao(lista, v));
-    b.addEventListener('click', function () { baixaComum(daVersao(lista, v), v); });
+    b.addEventListener('click', function () { baixaComum(daVersao(lista, v), v, null, false, b); });
     return { raiz: b, foco: b };
   }
 
@@ -1738,7 +1882,7 @@ const SCRIPT = `
     acoes.className = 'g-ver-a';
     const alvo = daVersao(lista, v);
     const baixar = botaoAcao('Baixar arquivo', !salvaNoFotos);
-    baixar.addEventListener('click', function () { baixaComum(alvo, v); });
+    baixar.addEventListener('click', function () { baixaComum(alvo, v, null, false, baixar); });
     let foco = baixar;
     if (salvaNoFotos) {
       const rotulo = alvo.length > 1 ? 'Salvar ' + alvo.length + ' fotos no Fotos' : 'Salvar no Fotos';
@@ -1816,8 +1960,16 @@ const SCRIPT = `
   /** @type {Map<string, File>} */
   const arquivosProntos = new Map();
   const podeArquivo = aceitaArquivoDeTeste();
+  // Compartilhar não entra na fila (a pessoa está olhando a foto, não baixando
+  // um lote): se o servidor mandou esperar, diz quanto e não repete o pedido
+  // a cada toque até o prazo passar.
+  let compartilharAte = 0;
   async function compartilhaFoto(f) {
     const link = location.origin + location.pathname + '#foto=' + f.id;
+    if (Date.now() < compartilharAte) {
+      avisa('Muita gente baixando agora. Tente de novo em ' + Math.ceil((compartilharAte - Date.now()) / 1000) + ' s.');
+      return;
+    }
     try {
       if (podeArquivo && f.redes) {
         let arq = arquivosProntos.get(f.id);
@@ -1844,6 +1996,11 @@ const SCRIPT = `
       avisa('Link copiado');
     } catch (e) {
       if (e && e.name === 'AbortError') return;
+      if (e && e.espera) {
+        compartilharAte = Date.now() + e.espera * 1000;
+        avisa('Muita gente baixando agora. Tente de novo em ' + e.espera + ' s.');
+        return;
+      }
       avisa(e && e.name === 'Error' && e.message ? e.message : 'Não foi possível compartilhar. Use Baixar.');
     }
   }
@@ -1867,18 +2024,27 @@ const SCRIPT = `
   // download; esses saem com c=0 para a contagem não dobrar. manterAberta:
   // não fecha a folha sozinha (o texto que o chamador pôs nela precisa ser
   // lido — fechar em 900 ms o escondia).
-  function baixaComum(lista, v, jaContadas, manterAberta) {
+  function baixaComum(lista, v, jaContadas, manterAberta, botao) {
     if (!folhaMsg || !lista.length) return;
-    // Em espera por um 429: nada sai (um <a download> não deixa ver a resposta,
-    // então a única proteção contra martelar é não pedir enquanto se espera).
-    if (emEspera()) { folhaMsg.textContent = msgEspera(); avisa('Muita gente baixando agora'); return; }
+    // Já há uma fila andando nesta aba: uma tentativa por vez.
+    if (filaViva) { folhaMsg.textContent = 'Já há downloads na fila. Espere ou toque em Cancelar.'; return; }
     const minha = geracao;
-    lista.forEach(function (f, k) { setTimeout(function () { linkDireto(urlBaixar(f, v, !!jaContadas && jaContadas.has(f.id)), D.amigavel ? arquivoDe(f, v).nome : ''); }, k * 700); });
     folhaMsg.textContent = lista.length > 1
       ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
-      : 'Download iniciado.';
-    avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
-    if (!manterAberta) setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
+      : 'Preparando o download…';
+    baixaNaFila(lista, v, jaContadas, minha, botao).then(function (saiu) {
+      if (minha !== geracao) return;
+      if (!saiu) {
+        // Cancelou, desistiu ou deu erro: a mensagem do erro já está na folha.
+        if (filaCancelada && folhaMsg) folhaMsg.textContent = 'Cancelado.';
+        return;
+      }
+      if (folhaMsg && !manterAberta) folhaMsg.textContent = lista.length > 1
+        ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
+        : 'Download iniciado.';
+      avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
+      if (!manterAberta) setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
+    });
   }
 
   // Lotes para a folha do iOS: ela segura os arquivos todos na memória da aba
@@ -1938,7 +2104,7 @@ const SCRIPT = `
         for (let k = 0; k < lote.length; k++) {
           if (minha !== geracao) return;
           folhaMsg.textContent = 'Preparando ' + (k + 1) + ' de ' + lote.length + parte + '…';
-          arquivos.push(await buscaArquivo(lote[k], v));
+          arquivos.push(await buscaNaFila(lote[k], v, minha, botao));
         }
       } catch (e) {
         volta();
@@ -1967,7 +2133,7 @@ const SCRIPT = `
         const jaContadas = new Set(lote.map(function (f) { return f.id; }));
         // A folha fica aberta: a explicação abaixo é o que a pessoa precisa ler.
         baixaComum(restantes, v, jaContadas, true);
-        if (!emEspera()) folhaMsg.textContent = 'O iPhone não aceitou salvar direto no Fotos. Baixando como arquivo (app Arquivos).';
+        folhaMsg.textContent = 'O iPhone não aceitou salvar direto no Fotos. Baixando como arquivo (app Arquivos).';
         return;
       }
       if (i + 1 < lotes.length) botao.textContent = 'Preparando a parte ' + (i + 2) + '…';

@@ -963,6 +963,9 @@ describe('fotos ocultas', () => {
     chamadas.length = 0;
     expect((await visitante(`/galeria/formatura/baixar/${OCULTA}?v=max`)).status).toBe(404);
     expect(chamadas.some(c => c.url.includes(OCULTA))).toBe(false);
+    // A sonda "pronto?" (fila do navegador) também não confirma que a oculta existe.
+    expect((await visitante(`/galeria/formatura/baixar/${OCULTA}?v=max&p=1&c=0`)).status).toBe(404);
+    expect(chamadas.some(c => c.url.includes(OCULTA))).toBe(false);
   });
 
   it('o dono vê todas, com a lista das ocultas e o aviso na faixa, e ainda baixa a oculta', async () => {

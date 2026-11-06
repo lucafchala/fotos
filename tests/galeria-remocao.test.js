@@ -19,7 +19,7 @@ import { saveEvents } from '../src/utils.js';
 import { signToken } from '../src/security.js';
 import { dashboardHTML } from '../src/ui/dashboard.js';
 import {
-  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA,
+  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA,
   GALERIA_MAX_OCULTAS, DEFAULT_EVENT,
 } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
@@ -351,15 +351,32 @@ describe('tetos de abuso', () => {
     expect(pendentes()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA);
   });
 
-  it('pedidos por IP/dia: passado o teto, 429 e nada gravado', async () => {
+  it('pedidos por IP/dia: passado o 1º teto, o pedido segue só por e-mail (200, sem KV, sem esconder); o 2º teto dá 429', async () => {
     for (let i = 0; i < GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA; i++) {
       expect([200, 404]).toContain((await pede({ foto: FOTO_A })).status);
     }
     const antes = pedidosGravados(env.FOTOS._store).length;
+    expect(antes).toBeGreaterThan(0);
+    const escritasAntes = env.FOTOS._escritas.length;
+    const emailsAntes = emails.length;
+    // Wi-Fi de evento: o 31º pedido do mesmo IP não é erro.
     const res = await pede({ foto: FOTO_B });
-    expect(res.status).toBe(429);
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.ok).toBe(true);
+    expect(j.ocultada).toBe(false);
+    expect(j.motivoNaoOculta).toBe('ip');
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(antes);
     expect(ocultas()).not.toContain(FOTO_B);
+    // O e-mail ao dono saiu (é o único registro desse pedido).
+    expect(emails.length).toBeGreaterThan(emailsAntes);
+    expect(env.FOTOS._escritas.length).toBe(escritasAntes);
+    // Só um robô chega ao teto de verdade.
+    for (let i = 1; i < GALERIA_REMOCAO_EMAIL_POR_IP_DIA; i++) await pede({ foto: FOTO_B });
+    const fim = await pede({ foto: FOTO_B });
+    expect(fim.status).toBe(429);
+    expect((await fim.json()).error).toContain('privacidade@');
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(antes);
   });
 
   it('o teto de fotos ocultas do projeto vale: sem espaço, o pedido segue registrado e a foto não entra', async () => {

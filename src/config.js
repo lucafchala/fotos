@@ -89,6 +89,28 @@ export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
 // (jitter), e então responde "ocupado": 503 com Retry-After sugerido entre
 // MIN e MAX segundos, também com jitter. O script da página faz a fila
 // automática em cima disso (src/ui/galeria.js).
+//
+// AUDITORIA DOS LIMITES POR IP (item 1g). Regra: ver a página, ver um capítulo,
+// abrir uma foto e baixar NÃO podem barrar 300 pessoas atrás de um IP (NAT de
+// Wi-Fi de evento) em uma hora de pico. Limite por IP só onde há abuso:
+//  - ver a galeria / o capítulo / o índice / abrir foto (thumbnails vão direto
+//    ao lh3.googleusercontent.com, nem passam pelo Worker): NENHUM limite por
+//    IP. A contagem de abertura é por navegador (cookie gv_*), 1x/hora.
+//  - baixar (galeria-baixar): balde 6000 + 20000/h, abaixo; o portão do Drive
+//    (drive-gate 1500+1500/h, noscript 300+300/h) e o clique (drive-click
+//    1000+200/h, só métrica) já foram dimensionados para o mesmo caso.
+//  - pedir remoção (galeria-remocao): 30/dia por IP vão ao painel; os 200
+//    seguintes vão só por e-mail ao dono (sem KV, sem esconder); depois, 429
+//    em português com o e-mail de privacidade. Ver GALERIA_REMOCAO_*.
+//  - esconder a pedido (galeria-oculta): 5 por IP/dia e 20 por álbum/dia; o
+//    excesso NÃO é erro: o pedido segue e a resposta diz que o fotógrafo vai
+//    analisar.
+//  - formulários do site (removal, support: 20/h por IP; login 10/10 min e 60/dia;
+//    drive-code por endereço e por conta): não são caminho de visualização,
+//    ficam como estão. O 429 do formulário de privacidade passou a dizer onde
+//    escrever.
+//  - avisos por e-mail (autor-aviso 1/foto/tipo/dia + teto diário da conta,
+//    sumiram-aviso-dia): por foto e por conta, nunca por IP.
 export const DOWNLOAD_RETENTATIVA_MS = 500;
 export const DOWNLOAD_OCUPADO_MIN_S = 20;
 export const DOWNLOAD_OCUPADO_MAX_S = 60;
@@ -224,9 +246,11 @@ export const GALERIA_SNAPSHOT_MEM_S = 60;
 // lista; os outros esperam um pouco e relêem, ou mostram "Carregando as
 // fotos…" com refresh automático — nunca N listagens.
 //  - GALERIA_LEASE_S: quanto dura o direito de reler. Cobre a leitura mais
-//    longa (até ~15 s com 28 páginas) com folga e, se o ganhador morrer, o
-//    próximo tenta depois deste prazo. Uma releitura que FALHA não devolve o
-//    lease: é um freio, o Drive com problema não leva 200 tentativas.
+//    longa (até ~15 s com 26 páginas) com folga e, se o ganhador morrer no
+//    meio (isolate descartado), o próximo tenta depois deste prazo. Quem
+//    termina — bem ou mal — devolve o lease (ver GALERIA_LEASE_POS_S); o freio
+//    do Drive com problema é a lista velha que continua sendo servida e o
+//    re-pergunta só a cada GALERIA_REVERIFICA_S por isolate.
 //  - GALERIA_REVERIFICA_S: o isolate que serviu lista vencida só pergunta de
 //    novo (cache/lease) depois deste intervalo — não a cada visita.
 //  - GALERIA_VELHO_MAX_S: a lista vencida só é servida até aqui (6 h); mais
@@ -262,23 +286,28 @@ export const GALERIA_MAX_CHAMADAS = 26;
 // site. Ela é listada junto com a pasta da galeria na MESMA invocação (página e
 // download), então o teto próprio entra na conta das 50 subrequisições do plano
 // gratuito, no PIOR caso (download "para redes", as duas listas frias e
-// enormes, visitante sem sessão): 28 (galeria) + 8 (esta) + 6 do cache (match e
+// enormes, visitante sem sessão): 26 (galeria) + 6 (esta) + 6 do cache (match e
 // put de cada lista, mais o do casamento "para redes") + 2 do D1 (a foto
 // durável da lista da galeria: ler o hash e gravar; a do Instagram não tem) +
-// 5 do resto (KV do projeto, ficha do limite por IP, contador, o arquivo)
-// = 49 < 50. Está
-// medido em tests/galeria.test.js ("orçamento"): subir qualquer teto aqui, ou
-// gastar uma subrequisição a mais nesse caminho, reprova o teste.
+// 5 do resto (KV do projeto, ficha do limite por IP, contador, o arquivo) +
+// 2 do lease da lista da galeria (tomar e soltar, item 1g) = 47, e o lease da
+// lista do Instagram é o que o teste mede a mais, no pior caso. Os tetos
+// caíram em 1g (28 -> 26 e 8 -> 6) justamente para pagar o lease sem passar de
+// 50. Está medido em tests/galeria.test.js ("orçamento": 47 no download "para
+// redes" e o teto asserido é 49): subir qualquer teto aqui, ou gastar uma
+// subrequisição a mais nesse caminho, reprova o teste.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
 export const GALERIA_MAX_CHAMADAS_IG = 6;
 // Galeria por capítulos (v3.1): cada subpasta de primeiro nível da pasta do
 // projeto é uma página. O ÍNDICE custa uma página da API (só as subpastas) e
 // um match do cache; o capítulo é lido como se fosse a raiz, com teto menor
 // para a conta fechar: no pior caso (download "para redes", tudo frio) são
-// 22 (capítulo) + 8 (Instagram) + 3 (índice: API, match e put) + 2 (D1 da
+// 18 (capítulo) + 6 (Instagram) + 3 (índice: API, match e put) + 2 (D1 da
 // lista de capítulos) + 6 (cache das listas e do casamento) + 2 (D1 da lista do
-// capítulo) + 5 (KV, ficha do IP, contador, arquivo) = 48 < 50.
-// O teste "orçamento" de tests/galeria-capitulos.test.js mede isso.
+// capítulo) + 5 (KV, ficha do IP, contador, arquivo) = 42, mais os leases (item
+// 1g: tomar e soltar, da lista de capítulos e da do capítulo) e o do Instagram.
+// Medido em tests/galeria-capitulos.test.js ("orçamento"): 49 no download "para
+// redes" e 48 na página do capítulo, com teto asserido de 49 (< 50).
 export const GALERIA_MAX_CHAMADAS_CAP = 18;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
@@ -333,10 +362,19 @@ export const GALERIA_REMOCAO_OCULTA_POR_IP_DIA = 5;
 export const GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA = 20;
 // Pedidos (escondendo ou não) por IP por dia: cada pedido gasta 2 escritas de
 // KV (o registro e o carimbo dos e-mails) e a cota do KV é da conta toda
-// (1000/dia, TODO.md). 10 por IP/dia cobre o Wi-Fi de um evento com folga e
-// impede que um só endereço queime a cota; acima disso a resposta manda
-// escrever para o e-mail de privacidade.
-export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 10;
+// (1000/dia, TODO.md). Dois degraus por IP/dia (item 1g — um Wi-Fi de evento é
+// UM IPv4 para centenas de pessoas, e o pico do pedido de remoção é logo depois
+// do evento):
+//  - até 30: o pedido vai ao painel (2 escritas de KV cada; 30 por IP é o teto
+//    de 60 escritas por endereço, e a cota da conta só se aproxima disso com
+//    vários endereços fazendo o mesmo — o que é abuso e não evento);
+//  - os 200 seguintes (contados à parte): o pedido segue SÓ por e-mail ao dono (e ao autor, item 1c),
+//    sem escrita de KV, sem esconder a foto; a resposta ao visitante é a mesma
+//    de sempre ("o fotógrafo vai analisar"). Nada de erro;
+//  - depois desses 200: 429 com o e-mail de privacidade — só um robô chega aqui, e o
+//    e-mail do dono tem de ser pesado de ler.
+export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 30;
+export const GALERIA_REMOCAO_EMAIL_POR_IP_DIA = 200;
 // Motivos que o formulário da galeria aceita (valor gravado no pedido).
 export const GALERIA_REMOCAO_MOTIVOS = /** @type {const} */ (['eu', 'menor', 'outro']);
 // Escada de larguras do visualizador, do menor ao maior. O navegador escolhe a

@@ -151,7 +151,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any } }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any } }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -248,7 +248,8 @@ async function abre(o = {}) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
       estado.pedidos.push(u.pathname.split('/').pop() + u.search);
       // Limite por IP esgotado (Wi-Fi de evento): o servidor manda esperar.
-      if (o.limite429) {
+      // limite429Vezes: só os N primeiros pedidos recebem 429 (depois libera).
+      if (o.limite429 && (!o.limite429Vezes || estado.pedidos.length <= o.limite429Vezes)) {
         return route.fulfill({
           status: 429,
           headers: { 'Content-Type': 'application/json', 'Retry-After': String(o.limite429) },
@@ -256,6 +257,8 @@ async function abre(o = {}) {
         });
       }
       const nome = nomeBaixado(b[1], variante);
+      // Sonda "está pronto?" (?p=1): o servidor responde 204 sem corpo.
+      if (u.searchParams.get('p') === '1') return route.fulfill({ status: nome ? 204 : 404, body: '' });
       // Como o servidor: só devolve o que existe (foto sem par no Instagram: 404).
       if (!nome) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"x"}' });
       estado.downloads.push(`${b[1]}:${variante}`);
@@ -711,7 +714,9 @@ await cenario('iPhone recusa o Salvar no Fotos', async () => {
   await ctx.close();
 });
 
-// 429 do limite por IP: a página mostra a espera e NÃO repete sozinha nem a cada toque.
+// 429 do limite por IP: Compartilhar mostra a espera e não repete a cada toque;
+// "Salvar no Fotos" entra na fila (contagem no botão, Cancelar) e só uma
+// tentativa por vez sai desta aba.
 await cenario('Limite por IP no download (429)', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE, limite429: 30 });
   await page.locator('.g-t').first().tap();
@@ -724,19 +729,79 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.pswp__button--g-compartilhar').tap();
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
-  await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
-  await espera(page, 800);
+  const salvar = page.locator('.g-ver-a').first().locator('.g-btn').first();
+  await salvar.tap();
+  await espera(page, 1500);
   const msg = (await page.locator('#g-folha-msg').textContent()) || '';
-  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(msg), 'Limite: "Salvar no Fotos" mostra a mesma espera na folha', msg);
+  registra(/Você está na fila/.test(msg), 'Limite: "Salvar no Fotos" entra na fila e explica na folha', msg);
+  registra(/Na fila… tentando de novo em \d+ s/.test((await salvar.textContent()) || ''), 'Limite: o botão mostra a contagem "Na fila… tentando de novo em N s"', await salvar.textContent());
+  registra(await page.locator('[data-acao="cancela-fila"]').count() === 1, 'Limite: aparece o botão Cancelar (um só)', '');
   /** @type {string[]} */
   const baixados = [];
   page.on('download', d => baixados.push(urlDe(d)));
   await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
-  await espera(page, 2500);
-  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: depois do 429 nenhum outro pedido sai durante a espera (nem laço, nem toque, nem "Baixar arquivo")', { pedidos: estado.pedidos, baixados });
+  await espera(page, 1500);
+  registra(/Já há downloads na fila/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Limite: com a fila andando, "Baixar arquivo" não abre outra tentativa', await page.locator('#g-folha-msg').textContent());
+  registra(estado.pedidos.length === 2 && baixados.length === 0, 'Limite: só saíram o Compartilhar e a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
   registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
+  await page.locator('[data-acao="cancela-fila"]').tap();
+  await espera(page, 1500);
+  registra(await page.locator('[data-acao="cancela-fila"]').count() === 0, 'Limite: Cancelar encerra a fila e some', '');
+  registra(estado.pedidos.length === 2, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
+});
+
+// A fila sozinha: a sonda recebe 429 (Retry-After 2), o botão conta, depois
+// libera e o download sai sem ninguém tocar de novo.
+await cenario('Fila de download libera sozinha', async () => {
+  const { ctx, page, estado } = await abre({ limite429: 2, limite429Vezes: 1 });
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').click();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  const botao = page.locator('.g-op').first();
+  await botao.click();
+  await page.waitForFunction(() => /Na fila/.test(document.querySelector('.g-op')?.textContent || ''), null, { timeout: 5000 });
+  registra(true, 'Fila: o botão vira "Na fila…" quando a sonda recebe 429', await botao.textContent());
+  await page.waitForEvent('download', { timeout: 12000 }).catch(() => null);
+  await espera(page, 300);
+  registra(baixados.length === 1, 'Fila: depois da espera o download sai sozinho (1 arquivo)', baixados);
+  // O download do <a download> é visto pelo evento 'download' (não passa pelo
+  // route do script): os pedidos vistos são só as duas sondas, ambas leves.
+  registra(estado.pedidos.length === 2 && estado.pedidos.every(p => /[?&]p=1/.test(p)) && baixados[0] === '/galeria/formatura/baixar/RAIZFOTO_000000?v=redes',
+    'Fila: sonda 429, sonda 204 e então o download da foto (a espera usa só o endpoint leve)', { pedidos: estado.pedidos, baixados });
+  registra(!/Na fila/.test((await botao.textContent()) || ''), 'Fila: o botão volta ao texto normal', await botao.textContent());
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fila: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Botão "Baixar o evento inteiro (Google Drive)": abre a pasta do capítulo em
+// outra aba e o "Pelo Google Drive" da folha "Baixar tudo" aponta para ela.
+await cenario('Botão da pasta no Drive', async () => {
+  const ID = 'CAPITULO_PASTA_0002';
+  const comPasta = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, pastaDrive: { id: ID, resourceKey: '0-abc' }, redes: REDES });
+  const { ctx, page, estado } = await abre({ pagina: comPasta });
+  const a = page.locator('a[data-acao="pasta-drive"]');
+  registra(await a.count() === 1, 'Pasta no Drive: o botão existe uma vez', await a.count());
+  registra(await a.getAttribute('href') === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, 'Pasta no Drive: o link é o da pasta (com resourcekey)', await a.getAttribute('href'));
+  registra(await a.getAttribute('target') === '_blank' && /noopener/.test((await a.getAttribute('rel')) || ''), 'Pasta no Drive: abre em outra aba, sem opener', await a.getAttribute('rel'));
+  registra(/⋮ → Fazer download/.test((await page.locator('.g-pasta-drive').textContent()) || ''), 'Pasta no Drive: a ajuda diz onde tocar', await page.locator('.g-pasta-drive').textContent());
+  const alt = await a.boundingBox();
+  registra(!!alt && alt.height >= 44, 'Pasta no Drive: alvo de toque com 44 px', alt);
+  await page.locator('[data-acao="baixar-tudo"]').first().click().catch(() => {});
+  await espera(page, 400);
+  const href = await page.locator('#g-folha-ops a.g-op').first().getAttribute('href').catch(() => null);
+  registra(href === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, '"Baixar tudo" > "Pelo Google Drive" abre a pasta do capítulo', href);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pasta no Drive: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+  const sem = await abre({});
+  registra(await sem.page.locator('a[data-acao="pasta-drive"]').count() === 0, 'Pasta no Drive: sem pastaDrive, sem botão', '');
+  await sem.ctx.close();
 });
 
 // iPad: finge ser um Mac (UA e plataforma), mas tem toque — também é iOS.

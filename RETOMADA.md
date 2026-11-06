@@ -745,6 +745,79 @@ imprimir nada, e uma mutação "escapava" só porque o processo morria.
 
 ---
 
+### 5.19. Pico de acessos na galeria: o que cada visitante custa (item 1g)
+
+Medido por `tests/galeria-pico.test.js` (rode `MEDE_CPU=1 npx vitest run tests/galeria-pico.test.js` para ver
+os números de CPU). O plano gratuito limita **100 mil requisições/dia** ao
+Worker e **100 mil linhas escritas/dia** aos Durable Objects, e ~1000
+escritas de KV/dia na conta.
+
+**Requisições ao Worker por visitante** (as miniaturas e as fotos do
+visualizador vão direto ao `lh3.googleusercontent.com`; não passam pelo Worker):
+
+| O que o visitante faz | Requisições ao Worker |
+|---|---|
+| Abre a galeria/capítulo | 1 (HTML) + 3 de vendor (PhotoSwipe: CSS e 2 JS, imutáveis; o navegador guarda, a 2a visita gasta 0) |
+| Percorre as fotos e abre o visualizador | 0 (tudo no lh3) |
+| Baixa 1 foto | 2 (sonda `?p=1` + o download) |
+| Baixa N fotos | 2 por foto |
+| Compartilhar / "Salvar no Fotos" | 1 por foto (busca do arquivo; no iPhone, sem sonda) |
+
+Uma pessoa que só olha custa ~4 requisições na 1a vez e 1 nas seguintes. Um
+evento com 1.000 pessoas que baixam 5 fotos cada: ~1.000 x 4 + 1.000 x 5 x 2 = 14.000
+requisições, 14% da cota do dia.
+
+**Chamadas a infraestrutura por caminho** (contagem do teste, página já
+quente):
+
+| Caminho | KV (escrita) | Durable Object | D1 | Drive (listagem) | Cache API |
+|---|---|---|---|---|---|
+| Página, cookie `gv_<slug>` presente | 0 | 0 | 0 | 0 | 1 leitura |
+| Página, 1a visita do navegador na hora | 0 | 1 (contador, em `waitUntil`) | 0 | 0 | 1 leitura |
+| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo) | 0 |
+| Lista vencida | 0 | 1 (lease, só quem relê) | 0 ou 1 (snapshot) | 1 listagem no mundo todo | 1 escrita |
+
+CPU da página de capítulo com 6.000 itens, memória quente: ~3,5 ms para montar
+o HTML e ~6,4 ms na requisição inteira (meta: <= 10 ms; o teto do plano é 10 ms).
+
+**Por que a lista não "estoura" quando vence:** o site serve a lista vencida
+(memória, depois Cache API, depois snapshot no D1) e **uma única** requisição
+no mundo relê o Drive, por um lease curto no DO (`tomaLease`). Sem nenhuma
+lista guardada, só quem ganha o lease lista; os outros veem "Carregando as
+fotos…" (503, `Retry-After: 5`, atualiza sozinha em 4 s). O teste de 200
+requisições simultâneas prende: no máximo 1 listagem.
+
+**Limites por IP e Wi-Fi de evento (NAT):** ver o bloco "AUDITORIA DOS LIMITES
+POR IP" em `src/config.js`. Ver, abrir capítulo, ver foto e baixar não barram
+300 pessoas atrás de um IP; só os limites antiabuso (pedir remoção, ocultar,
+formulários, login) são por IP, e o excesso de pedidos de remoção vai para o
+fluxo "chega ao dono por e-mail" em vez de erro.
+
+**Download sob carga:** o Google recusa arquivos muito baixados. O Worker tenta
+de novo uma vez e, se continuar, responde 503 "ocupado" com `Retry-After` de
+20 a 60 s (com jitter). No navegador o botão vira "Na fila… tentando de novo em
+N s" e tenta sozinho, com espera crescente, por até ~5 min; "Cancelar" encerra;
+só uma tentativa por vez por aba. Atenção: a fila para se a pessoa fecha a
+janela (não há fila em segundo plano). Sem fila e sem Worker: o botão "Baixar o
+evento inteiro (Google Drive)" (por capítulo) abre a pasta no Drive, que
+gera o .zip por conta própria; nenhum link por e-mail.
+
+**O que acontece se a cota acabar:** passadas as 100 mil requisições/dia, o
+Workers responde com erro 1015/429 para todo mundo até 00:00 UTC (21:00 em
+Brasília). Os assets e as fotos do lh3 já em cache do navegador continuam. Se
+o limite de linhas escritas do DO (100 mil/dia; ~3 por download) estourar, os
+contadores e os limites param de responder: o site trata isso como "falha
+aberta" nos limites de leitura e segue servindo, mas as métricas ficam
+incompletas até o dia seguinte.
+
+**Como acompanhar** (painel da Cloudflare, sem custo): Workers & Pages >
+`fotos` > Metrics (requisições, erros, CPU time, subrequests); Storage &
+Databases > Durable Objects (linhas lidas/escritas); D1 > o banco do
+consentimento (linhas lidas/escritas). Antes de um evento grande, abra essas
+três abas e veja se o dia anterior ficou abaixo de 30% das cotas. Um evento
+maior que ~5.000 pessoas no mesmo dia pede o plano pago do Workers
+(US$ 5/mês, 10 milhões de requisições).
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a

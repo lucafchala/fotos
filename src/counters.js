@@ -334,10 +334,11 @@ export class RateLimiter extends DurableObject {
   }
 
   /**
-   * Quem ganhou o lease e terminou BEM encurta o que sobrou dele para uma
-   * folga curta (`ms`): a lista nova já está guardada, e um isolate retardatário
-   * não deve reler de novo na hora — mas também não deve esperar 45 s por uma
-   * leitura que já acabou. Falha NÃO chama isto: o lease inteiro é o freio.
+   * Quem ganhou o lease e TERMINOU (bem ou mal) o devolve: com `ms` <= 0 o
+   * objeto é apagado e o próximo pode ganhar; com `ms` > 0, encurta o que
+   * sobrou para essa folga. Sem isto, uma leitura que já acabou seguraria
+   * todo o prazo do lease (45 s) e a próxima troca de lista esperaria por ele.
+   * Se o isolate morre no meio, ninguém chama isto e o prazo inteiro é o freio.
    * @param {number} ms
    */
   async solta(ms) {
