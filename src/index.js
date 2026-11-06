@@ -41,6 +41,7 @@ import {
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
+import { chavePixValida } from './pix.js';
 import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
@@ -1294,6 +1295,11 @@ export function normalizeEventFields(body, base, cats) {
     // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
     // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
     destaqueMaximo: pick('destaqueMaximo', v => v === true),
+    // "Apoie o projeto" (v3.3, Pix estático): só chave aceita (sem CPF — ela
+    // aparece na página); nome e cidade do recebedor como o banco mostra.
+    pixChave: pick('pixChave', v => chavePixValida(v)),
+    pixNome: pick('pixNome', v => String(v).replace(/\p{Cc}/gu, '').trim().slice(0, 40)),
+    pixCidade: pick('pixCidade', v => String(v).replace(/\p{Cc}/gu, '').trim().slice(0, 30)),
     // Apresentação do álbum (v3.3): o estilo da primeira tela e o recado final.
     galeriaEstilo: pick('galeriaEstilo', v => (GALERIA_ESTILOS.includes(v) ? v : GALERIA_ESTILOS[0])),
     galeriaRecado: pick('galeriaRecado', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_RECADO_MAX)),
@@ -4931,7 +4937,7 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', '
 // TypeError dentro de galleryHTML e derrubava a home inteira com 500.
 const RESTORE_TEXT_FIELDS = {
   title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
-  galeriaAbertura: GALERIA_ABERTURA_MAX, galeriaRecado: GALERIA_RECADO_MAX,
+  galeriaAbertura: GALERIA_ABERTURA_MAX, galeriaRecado: GALERIA_RECADO_MAX, pixNome: 40, pixCidade: 30,
 };
 const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
 
@@ -5026,6 +5032,7 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
   if (out.destaqueMaximo !== undefined) out.destaqueMaximo = out.destaqueMaximo === true;
+  if (out.pixChave !== undefined) out.pixChave = chavePixValida(out.pixChave);
   if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;

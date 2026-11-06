@@ -70,7 +70,9 @@ Worker e a opção estar marcada no projeto.
 
    A região padrão é `sa-east-1`. Para outra, use o secret `AWS_REGION`.
 
-5. **Chaves no GitHub, para o indexador:** em Settings → Secrets and variables → Actions:
+5. **Token do indexador:** gere um valor aleatório de 64 caracteres hexadecimais e grave o mesmo como secret `ROSTO_INDEXADOR_TOKEN` no Worker e no GitHub. Com ele, o indexador lê o álbum ainda em "Em breve" (antes do lançamento), pelo header `X-Rosto-Indexador`. Sem ele, só lê álbum já lançado.
+
+5b. **Chaves no GitHub, para o indexador:** em Settings → Secrets and variables → Actions:
    - Secrets `ROSTO_AWS_ACCESS_KEY_ID` e `ROSTO_AWS_SECRET_ACCESS_KEY` (as mesmas do passo 2);
    - Variable `ROSTO_SLUGS` = `entrenos2026` (vários álbuns separados por vírgula).
 
@@ -97,7 +99,7 @@ Worker e a opção estar marcada no projeto.
   - indexa a foto de 2400 px das fotos novas (1600 px se passar de 5 MB), até 100 rostos por foto, com o filtro de qualidade LOW para não perder rosto pequeno em foto de grupo;
   - apaga os rostos das fotos que saíram do álbum;
   - guarda o estado no cache do Actions. Se o cache se perder, o pior caso é reprocessar o álbum.
-- **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público.
+- **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público. Antes do lançamento ([`ALBUM.md`](./ALBUM.md)), só o dono, logado, vê e testa.
 - **Sem as chaves no Worker:** as rotas respondem 404.
 
 ## LGPD: o que fazer antes de ligar

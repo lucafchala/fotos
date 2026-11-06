@@ -1,3 +1,4 @@
+/* global document */
 // Gera src/content/og-entrenos.js (o cartão de link JPEG 1200×630 do
 // entrenos2026.com) a partir de scripts/og/entrenos.html, com as fontes do
 // próprio site. Rodar só quando o desenho mudar (precisa do Chromium do

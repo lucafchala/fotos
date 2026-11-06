@@ -1223,6 +1223,13 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             <textarea id="f-recado" rows="3" maxlength="600" aria-describedby="dica-recado" style="width:100%"></textarea>
           </div>
           <div class="field">
+            <label for="f-pix-chave">Pix para apoio <span class="dica-rotulo">(opcional, apresentação do álbum)</span></label>
+            <div class="field-hint" id="dica-pix" style="margin-bottom:.625rem">Preenchidos os três, a página do álbum ganha a seção <em>Apoie o projeto</em>, com QR code e "Pix copia e cola", sem valor fixo e sem taxa. O dinheiro vai direto do banco de quem doa para a sua chave, e o site não fica sabendo quem doou. <strong>A chave aparece na página:</strong> use uma <strong>chave aleatória</strong> (recomendado), e-mail, telefone (+55…) ou CNPJ. CPF não é aceito. Nome e cidade são os do recebedor, como o banco mostra.</div>
+            <input type="text" id="f-pix-chave" maxlength="77" autocomplete="off" placeholder="chave aleatória, e-mail, +55… ou CNPJ" aria-describedby="dica-pix">
+            <input type="text" id="f-pix-nome" maxlength="40" placeholder="Nome do recebedor" aria-label="Nome do recebedor do Pix" style="margin-top:.5rem">
+            <input type="text" id="f-pix-cidade" maxlength="30" placeholder="Cidade do recebedor" aria-label="Cidade do recebedor do Pix" style="margin-top:.5rem">
+          </div>
+          <div class="field">
             <div class="toggle-row">
               <label class="toggle-label" for="f-busca-rosto">Busca pelo rosto (galeria por capítulos)</label>
               <label class="toggle">
@@ -1866,6 +1873,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-abertura').value = e ? (e.galeriaAbertura || '') : '';
       document.getElementById('f-estilo').value = (e && e.galeriaEstilo) || 'mosaico';
       document.getElementById('f-recado').value = e ? (e.galeriaRecado || '') : '';
+      document.getElementById('f-pix-chave').value = e ? (e.pixChave || '') : '';
+      document.getElementById('f-pix-nome').value = e ? (e.pixNome || '') : '';
+      document.getElementById('f-pix-cidade').value = e ? (e.pixCidade || '') : '';
       document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
       document.getElementById('f-busca-rosto').checked = !!(e && e.buscaRosto);
@@ -1934,7 +1944,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), estilo: val('f-estilo'), recado: val('f-recado'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), estilo: val('f-estilo'), recado: val('f-recado'), pixChave: val('f-pix-chave'), pixNome: val('f-pix-nome'), pixCidade: val('f-pix-cidade'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1989,7 +1999,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); if (f.estilo) set('f-estilo', f.estilo); set('f-recado', f.recado); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-busca-rosto', f.buscaRosto); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); if (f.estilo) set('f-estilo', f.estilo); set('f-recado', f.recado); set('f-pix-chave', f.pixChave); set('f-pix-nome', f.pixNome); set('f-pix-cidade', f.pixCidade); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-busca-rosto', f.buscaRosto); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2242,6 +2252,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         galeriaAbertura: document.getElementById('f-abertura').value,
         galeriaEstilo: document.getElementById('f-estilo').value,
         galeriaRecado: document.getElementById('f-recado').value,
+        pixChave: document.getElementById('f-pix-chave').value,
+        pixNome: document.getElementById('f-pix-nome').value,
+        pixCidade: document.getElementById('f-pix-cidade').value,
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
         buscaRosto: document.getElementById('f-busca-rosto').checked,

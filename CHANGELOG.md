@@ -69,6 +69,12 @@ capítulos; os outros seguem iguais.
   (uma linha de script em cada site) desenha a mesma faixa, isolada do CSS do
   site, com os dados de `/api/destaque` (CORS aberto). Antes do lançamento,
   não desenha nada.
+- **Apoie o projeto (Pix).** Com chave, nome e cidade no projeto, a página do
+  álbum ganha uma seção discreta no fim, com QR code e "Pix copia e cola"
+  (BR Code estático, sem valor fixo e sem taxa). O código é conferido contra o
+  exemplo do manual do Banco Central. O dinheiro vai direto do banco de quem
+  doa para o dono, e o site não fica sabendo quem doou. A chave aparece na
+  página, então CPF não é aceito; o painel recomenda a chave aleatória.
 - **Favicon e cartão de link do entrenos2026.com**: "EN" no azul da escola e um
   cartão 1200×630, sem foto de ninguém.
 - **"Em breve" com o azul e o amarelo da escola**, "Turma 2026 · Colégio

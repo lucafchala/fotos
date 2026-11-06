@@ -84,7 +84,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({
       event, titulo, caps: visiveis, resumo, ocultasSet, restrito, indexavel, origem: origemDoAlbum(slug),
-      barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', scripts,
+      barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', scripts, nonce,
     });
   }
 

@@ -20,6 +20,8 @@ import { urlLh3, pastaDoDrive, parseCreditos } from '../drive.js';
 import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS } from './indice-comum.js';
 import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM } from '../config.js';
+import { brCodePix } from '../pix.js';
+import { qrLinhas } from '../qr.js';
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
@@ -83,6 +85,7 @@ export function ordemDaLinha(caps, resumo) {
  *   botaoRosto: boolean,
  *   rostoDialog: string,
  *   scripts: string,
+ *   nonce?: string,
  * }} p
  */
 export function albumHTML(p) {
@@ -188,6 +191,11 @@ export function albumHTML(p) {
     ? `<section class="al-sec" aria-labelledby="al-quem-t"><span class="al-kick">Quem fotografou</span><h2 id="al-quem-t">As fotos são de</h2><div class="al-cred">${autores.slice(0, 8).map(([nome, n]) => `<div><b>${escape(n.toLocaleString('pt-BR'))}</b><span>${escape(nome)}</span><small>${n === 1 ? 'foto' : 'fotos'} no álbum</small></div>`).join('')}</div></section>`
     : '';
 
+  // "Apoie o projeto" (Pix estático): só com chave, nome e cidade no painel, e
+  // só em álbum público. O QR e o "copia e cola" levam o mesmo código.
+  const pix = restrito ? '' : brCodePix({ chave: event.pixChave, nome: event.pixNome, cidade: event.pixCidade });
+  const apoio = pix ? apoioHTML(pix, String(event.pixNome || '').trim()) : '';
+
   const restritoCartao = restrito;
   const capaOg = heroi[0] || dosCaps[0] || '';
   // Álbum com domínio próprio: o cartão de link especial (sem foto de ninguém).
@@ -232,6 +240,7 @@ export function albumHTML(p) {
     ${p.rostoDialog}
     ${linha}
     ${quem}
+    ${apoio}
   </main>
   <footer class="al-fim">
     ${recado ? `<p class="al-recado">${recado.split('\n').map(l => escape(l.trim())).join('<br>')}</p>` : ''}
@@ -239,9 +248,67 @@ export function albumHTML(p) {
     <div class="al-legal">${footerLegalLinksHTML()}</div>
   </footer>
   ${p.scripts}
+  ${apoio ? `<script nonce="${p.nonce || ''}">${SCRIPT_PIX}</script>` : ''}
 </body>
 </html>`;
 }
+
+/** O QR de um texto, em SVG (escuro sobre branco, com a margem de 4 módulos). @param {string} texto */
+function qrSVG(texto) {
+  let q;
+  try { q = qrLinhas(texto); } catch { return ''; }
+  const m = 4;
+  const lado = q.n + 2 * m;
+  let d = '';
+  q.linhas.forEach((linha, y) => {
+    // Um retângulo por sequência de módulos escuros na linha: SVG bem menor.
+    for (let x = 0; x < linha.length;) {
+      if (linha[x] !== '1') { x++; continue; }
+      let f = x;
+      while (f < linha.length && linha[f] === '1') f++;
+      d += `M${x + m} ${y + m}h${f - x}v1h${x - f}z`;
+      x = f;
+    }
+  });
+  return `<svg class="al-pix-qr" viewBox="0 0 ${lado} ${lado}" role="img" aria-label="QR code do Pix" shape-rendering="crispEdges"><rect width="${lado}" height="${lado}" fill="#fff"/><path d="${d}" fill="#141a33"/></svg>`;
+}
+
+/** A seção "Apoie o projeto". @param {string} pix o código copia e cola @param {string} nome o recebedor */
+function apoioHTML(pix, nome) {
+  return `<section class="al-sec al-apoio" aria-labelledby="al-apoio-t">
+      <span class="al-kick">Apoie o projeto</span>
+      <h2 id="al-apoio-t">Gostou do álbum?</h2>
+      <div class="al-pix">
+        ${qrSVG(pix)}
+        <div class="al-pix-txt">
+          <p>O álbum é gratuito e sem anúncios. Se quiser ajudar com o domínio, o servidor e a busca pelo rosto, qualquer valor é bem-vindo, pelo Pix.</p>
+          <label class="al-pix-rot" for="al-pix-cod">Pix copia e cola</label>
+          <textarea id="al-pix-cod" class="al-pix-cod" rows="4" readonly>${escape(pix)}</textarea>
+          <button type="button" class="al-btn al-b1" id="al-pix-copiar" hidden>Copiar código Pix</button>
+          <p class="al-pix-nota" id="al-pix-ok" role="status"></p>
+          <p class="al-pix-nota">${nome ? `Vai direto para ${escape(nome)}. ` : ''}O site não fica sabendo quem doou nem quanto.</p>
+        </div>
+      </div>
+    </section>`;
+}
+
+// O botão "Copiar" (sem JS, o código continua no campo para copiar à mão).
+// Fora de crase, dollar-chave e barra invertida: JS dentro de template literal.
+const SCRIPT_PIX = `(function () {
+  var b = document.getElementById('al-pix-copiar');
+  var t = document.getElementById('al-pix-cod');
+  var ok = document.getElementById('al-pix-ok');
+  if (!b || !t || !navigator.clipboard) return;
+  b.hidden = false;
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(t.value).then(function () {
+      ok.textContent = 'Código copiado. Abra o app do banco, escolha Pix copia e cola e cole.';
+      b.textContent = 'Copiado';
+      setTimeout(function () { b.textContent = 'Copiar código Pix'; }, 3000);
+    }, function () { t.select(); ok.textContent = 'Selecione o código e copie.'; });
+  });
+  t.addEventListener('focus', function () { t.select(); });
+})();`;
 
 // Paleta fixa (escura) da apresentação: as fotos dão a cor. O amarelo e o azul
 // são os do Colégio Santa Cruz (as cores `yellow` #F9DE4B e `blue` #243580 do
@@ -289,6 +356,14 @@ a{color:inherit;text-decoration:none}
 .ix-novas{display:inline-block;margin-left:.45rem;padding:.05rem .45rem;border:1px solid var(--sol);border-radius:999px;font-size:.7rem;color:var(--sol);white-space:nowrap}
 @media (min-width:760px){.al-tl{grid-template-columns:1fr 1fr;column-gap:2.5rem}.al-tl::before,.al-tl>li::before{display:none}.al-tl>li{padding-left:0}}
 .al-cred{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.8rem}
+.al-pix{display:grid;grid-template-columns:1fr;gap:1.2rem;align-items:start;background:var(--card);border:1px solid var(--borda);border-radius:16px;padding:1.2rem}
+.al-pix-qr{display:block;width:min(220px,60vw);height:auto;border-radius:10px;justify-self:center}
+.al-pix-txt p{color:var(--txt2);line-height:1.6}
+.al-pix-rot{display:block;margin-top:1rem;font-size:.8rem;color:var(--mudo)}
+.al-pix-cod{display:block;width:100%;margin-top:.3rem;padding:.6rem .7rem;border:1px solid var(--borda);border-radius:10px;background:var(--bg);color:var(--txt2);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;resize:none;word-break:break-all}
+.al-pix .al-btn{margin-top:.8rem}
+.al-pix-nota{margin-top:.6rem;font-size:.8rem;color:var(--mudo)}
+@media (min-width:760px){.al-pix{grid-template-columns:auto 1fr;padding:1.6rem}.al-pix-qr{width:220px}}
 .al-cred div{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:1.1rem 1.2rem}
 .al-cred b{display:block;font-family:'Open Sans',sans-serif;font-size:2.2rem;font-weight:600;color:var(--sol);line-height:1}
 .al-cred span{display:block;margin-top:.4rem;font-weight:600;overflow-wrap:anywhere}.al-cred small{color:var(--mudo);font-size:.8rem}
