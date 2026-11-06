@@ -21,7 +21,8 @@
 // Variáveis: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION (padrão
 // sa-east-1), ROSTO_SLUGS (ex.: "entrenos2026"), ROSTO_SITE (padrão
 // https://fotos.lucafchala.com), ROSTO_ESTADO (padrão .rosto-estado.json),
-// ROSTO_MAX_NOVAS (padrão 3000 por execução), ROSTO_SECO=1 (só mostra).
+// ROSTO_MAX_NOVAS (padrão 3000 por execução), ROSTO_SECO=1 (só mostra),
+// ROSTO_INDEXADOR_TOKEN (opcional: lê o álbum antes do lançamento).
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { rekognition, base64, ErroAws } from '../src/aws.js';
@@ -57,7 +58,10 @@ export function capitulosDoIndice(html, slug) {
 
 /** @param {string} url */
 async function pagina(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
+  // Com ROSTO_INDEXADOR_TOKEN, lê também o álbum ainda em "Em breve" (antes do
+  // lançamento, para o dono testar a busca).
+  const token = process.env.ROSTO_INDEXADOR_TOKEN || '';
+  const r = await fetch(url, { headers: { 'User-Agent': UA, ...(token ? { 'X-Rosto-Indexador': token } : {}) } });
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
   return r.text();
 }

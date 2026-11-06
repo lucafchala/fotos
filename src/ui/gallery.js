@@ -1,3 +1,4 @@
+import { albumEmDestaque, faixaDestaqueHTML, cartaoDestaqueHTML, popupDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
 import { escape, PERSON_LD, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -41,6 +42,8 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   // on e.visible and 500 the whole homepage instead of just skipping it.
   const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
   const visible = sortEvents(safe.filter(e => e.visible !== false));
+  // Destaque máximo (v3.3): só álbum lançado e marcado (src/ui/destaque.js).
+  const destaque = albumEmDestaque(safe);
   /** @type {import('../utils.js').Evento[]} */
   const pinned = [];
   /** @type {import('../utils.js').Evento[]} */
@@ -235,6 +238,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
   <style>
+    ${destaque ? DESTAQUE_CSS : ''}
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -392,12 +396,14 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   </script>
 </head>
 <body>
+  ${faixaDestaqueHTML(destaque)}
   <header>
     <div class="logo">fotos · <strong>Luca F. Chala</strong></div>
     ${agenda ? `<p class="agenda-selo">${escape(agenda)}</p>` : ''}
   </header>
   <main>
     <h1 class="sr-only">Galeria de fotos</h1>
+    ${cartaoDestaqueHTML(destaque)}
     ${controlsHTML}
     <div class="grid">${cards}</div>
     <p class="empty" id="no-results" style="display:none">Nenhum evento encontrado</p>
@@ -408,6 +414,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     ${footerLegalLinksHTML()}
   </footer>
 
+  ${popupDestaqueHTML(destaque, nonce)}
   <div class="cookie-notice" id="cookie-notice">
     <span>Usamos cookies essenciais e medição anônima de acesso. <a href="/privacidade">Saiba mais</a>.</span>
     <button id="cookie-ok" type="button">Entendi</button>

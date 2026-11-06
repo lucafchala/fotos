@@ -1,4 +1,5 @@
 import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { faixaDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 import { pastaDoDrive } from '../drive.js';
@@ -17,8 +18,9 @@ const SITE_URL = 'https://fotos.lucafchala.com';
  * @param {string} [nonce]
  * @param {string} [driveNonce]
  * @param {string} [removalFormToken]
+ * @param {import('../utils.js').Evento | null} [destaque] o álbum em destaque máximo (faixa no topo)
  */
-export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = '', removalFormToken = '') {
+export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = '', removalFormToken = '', destaque = null) {
   // Category-specific self-declaration required at the gateway, on top of the Terms
   // acceptance. Empty for 'public' (and any legacy event without accessType).
   const declaration = /** @type {Record<string, string>} */ (ACCESS_DECLARATIONS)[event.accessType] || '';
@@ -236,6 +238,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     },
   ])}</script>
   <style>
+    ${destaque ? DESTAQUE_CSS : ''}
     ${fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -528,6 +531,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </style>
 </head>
 <body>
+  ${faixaDestaqueHTML(destaque)}
   <div id="drive-turnstile"></div>
   <noscript>
     <div class="noscript-banner">

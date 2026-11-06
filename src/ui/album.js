@@ -6,7 +6,8 @@
 //   - recordacao: polaroids com o nome do evento e o título manuscrito;
 //   - linha: título e texto primeiro; os eventos contam o ano, alternando lados.
 // Em todos: o texto, a linha do tempo dos eventos (com o período de cada um,
-// pelas datas de captura), "Quem fotografou" e o recado final.
+// pelas datas de captura), "Quem fotografou" e o recado final. Fonte: Open
+// Sans, a mais parecida com a do Colégio Santa Cruz (ver scripts/build-fonts.mjs).
 //
 // Página de servidor, sem framework. O único JS é o das "N novas" e o da busca
 // pelo rosto (indice-comum.js). A troca de fotos da tela cheia é CSS puro e
@@ -189,7 +190,10 @@ export function albumHTML(p) {
 
   const restritoCartao = restrito;
   const capaOg = heroi[0] || dosCaps[0] || '';
-  const ogImage = ogImageFor(restritoCartao ? '' : event.thumbnailUrl || (capaOg ? urlLh3(capaOg, 1200) : ''));
+  // Álbum com domínio próprio: o cartão de link especial (sem foto de ninguém).
+  const ogImage = doDominio && !restritoCartao
+    ? { url: `${origem}/og-entrenos.jpg`, width: 1200, height: 630 }
+    : ogImageFor(restritoCartao ? '' : event.thumbnailUrl || (capaOg ? urlLh3(capaOg, 1200) : ''));
   const descricao = restritoCartao
     ? previewDescription([], `Galeria de fotos de ${titulo}.`)
     : previewDescription([meta], texto.split('\n')[0].slice(0, 160) || `Galeria de fotos de ${titulo}.`);
@@ -203,7 +207,7 @@ export function albumHTML(p) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0f0e0c">
-  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="icon" type="image/svg+xml" href="${doDominio ? '/icon-entrenos.svg' : '/icon.svg'}">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
@@ -250,10 +254,10 @@ const CSS_BASE = `
   --bg-page:var(--bg);--bg-card:var(--card);--border:var(--borda);--text:var(--txt);--text-2:var(--txt2);--text-muted:var(--mudo);--accent:var(--sol);--warn-text:#f0b46a;--esqueleto:#24211c;color-scheme:dark}
 html{scroll-behavior:smooth}
 @media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
-body{background:var(--bg);color:var(--txt);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh}
+body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh}
 a{color:inherit;text-decoration:none}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
-.al-tit{font-family:'Fraunces',Georgia,serif;font-optical-sizing:auto;font-variation-settings:"SOFT" 100,"WONK" 1;font-weight:700;letter-spacing:-.02em;line-height:.95;overflow-wrap:anywhere}
+.al-tit{font-family:'Open Sans',sans-serif;font-weight:800;letter-spacing:-.03em;line-height:.95;overflow-wrap:anywhere}
 .al-kick{display:inline-block;font-size:.74rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--sol)}
 .al-meta{color:var(--txt2);font-size:.95rem;margin-top:.2rem}
 .al-btns{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.6rem}
@@ -265,7 +269,7 @@ a{color:inherit;text-decoration:none}
 .al-b2{color:var(--sol);background:rgba(15,14,12,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 @media (hover:hover){.al-b2:hover{background:rgba(249,222,75,.12)}.al-b1:hover{filter:brightness(1.06)}}
 .al-sec{display:block;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}
-.al-sec h2{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.4rem);letter-spacing:-.02em;margin:.4rem 0 1.4rem}
+.al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.4rem);letter-spacing:-.02em;margin:.4rem 0 1.4rem}
 .al-intro{max-width:40rem;font-size:clamp(1.02rem,2.2vw,1.18rem);line-height:1.7;color:var(--txt2)}
 .al-intro p+p{margin-top:1rem}
 .al-vazio-msg{color:var(--mudo)}
@@ -280,19 +284,19 @@ a{color:inherit;text-decoration:none}
 @media (hover:hover){.al-card:hover{border-color:var(--sol)}}
 .al-tl img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--esqueleto)}
 .al-nm{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;padding:.75rem .9rem}
-.al-nm b{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:1.15rem;overflow-wrap:anywhere}
+.al-nm b{font-family:'Open Sans',sans-serif;font-weight:600;font-size:1.15rem;overflow-wrap:anywhere}
 .al-nm .ix-sub{font-size:.8rem;color:var(--mudo);white-space:nowrap}
 .ix-novas{display:inline-block;margin-left:.45rem;padding:.05rem .45rem;border:1px solid var(--sol);border-radius:999px;font-size:.7rem;color:var(--sol);white-space:nowrap}
 @media (min-width:760px){.al-tl{grid-template-columns:1fr 1fr;column-gap:2.5rem}.al-tl::before,.al-tl>li::before{display:none}.al-tl>li{padding-left:0}}
 .al-cred{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.8rem}
 .al-cred div{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:1.1rem 1.2rem}
-.al-cred b{display:block;font-family:'Fraunces',Georgia,serif;font-size:2.2rem;font-weight:600;color:var(--sol);line-height:1}
+.al-cred b{display:block;font-family:'Open Sans',sans-serif;font-size:2.2rem;font-weight:600;color:var(--sol);line-height:1}
 .al-cred span{display:block;margin-top:.4rem;font-weight:600;overflow-wrap:anywhere}.al-cred small{color:var(--mudo);font-size:.8rem}
 .rs-res{max-width:72rem;margin:0 auto;padding:2.5rem var(--pad) 0}
-.rs-res h2{font-family:'Fraunces',Georgia,serif;font-size:1.5rem}
+.rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem}
 .al-fim{margin:4.5rem 0 0;padding:3.5rem var(--pad) 2.5rem;text-align:center;background:linear-gradient(180deg,var(--bg) 0%,#141a33 30%,#172154 100%);border-top:1px solid #1f2a5c}
 .al-fim .al-kick{color:var(--sol)}
-.al-recado{max-width:40rem;margin:0 auto 1.4rem;font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:clamp(1.3rem,3.4vw,1.9rem);line-height:1.4;color:var(--txt2)}
+.al-recado{max-width:40rem;margin:0 auto 1.4rem;font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:clamp(1.3rem,3.4vw,1.9rem);line-height:1.4;color:var(--txt2)}
 .al-legal{margin-top:2rem;font-size:.8rem;color:var(--mudo)}
 .al-legal .footer-actions-legal{display:flex;flex-wrap:wrap;justify-content:center;gap:.2rem 1rem}
 .al-legal a{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;text-underline-offset:3px}
@@ -348,7 +352,7 @@ const CSS_RECORDACAO = `
 .al-p4{left:68%;top:2%;transform:rotate(6deg);z-index:1}.al-p5{left:36%;top:38%;transform:rotate(-1deg);z-index:4}
 @media (max-width:560px){.al-p1,.al-p4{display:none}.al-p2{left:0}.al-p3{left:44%}.al-p5{left:18%;top:42%}}
 .al-pol-txt{text-align:center;max-width:72rem;margin:0 auto;padding:1.5rem 0 0}
-.al-recordacao .al-tit{font-family:'Caveat',cursive;font-variation-settings:normal;font-weight:700;letter-spacing:0;font-size:clamp(4.2rem,16vw,9rem);line-height:.9;margin:.3rem 0 .4rem}
+.al-recordacao .al-tit{font-family:'Caveat',cursive;font-weight:700;letter-spacing:0;font-size:clamp(4.2rem,16vw,9rem);line-height:.9;margin:.3rem 0 .4rem}
 .al-pol-txt .al-btns{justify-content:center}`;
 
 const CSS_LINHA = `
@@ -359,7 +363,7 @@ const CSS_LINHA = `
 .al-big::before{content:"";position:absolute;left:9px;top:0;bottom:0;width:2px;background:linear-gradient(var(--sol),var(--azul) 75%,transparent)}
 .al-big>li{position:relative;padding:0 0 2.6rem 2.6rem}
 .al-big>li::before{content:"";position:absolute;left:0;top:.15rem;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid var(--sol)}
-.al-big .al-mes{font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:1.2rem;letter-spacing:0;text-transform:none}
+.al-big .al-mes{font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:1.2rem;letter-spacing:0;text-transform:none}
 .al-big .al-card{background:none;border:0;border-radius:0;overflow:visible;margin-top:.2rem}
 .al-big .al-nm{padding:.7rem 0 0;justify-content:flex-start}
 .al-big .al-nm b{font-size:clamp(1.5rem,3.6vw,2.3rem)}

@@ -30,7 +30,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, albumLancado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
@@ -42,7 +42,9 @@ import {
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
 import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
-import { emBreveHTML } from './ui/em-breve.js';
+import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
+import { OG_ENTRENOS } from './content/og-entrenos.js';
+import { albumEmDestaque, destaqueParaApi, DESTAQUE_EMBED_JS } from './ui/destaque.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
@@ -280,6 +282,9 @@ const worker = {
       if (path === '/icon.svg' && method === 'GET') return await handleIcon();
       if (method === 'GET' && Object.hasOwn(ICONES_PNG, path)) return handleIconePng(path);
       if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
+      // O favicon e o cartão de link do álbum com domínio próprio (v3.3).
+      if (path === '/icon-entrenos.svg' && method === 'GET') return new Response(ICONE_ALBUM_SVG, { headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
+      if (path === '/og-entrenos.jpg' && method === 'GET') return new Response(Uint8Array.from(atob(OG_ENTRENOS.b64), c => c.charCodeAt(0)), { headers: { ...dataSecurityHeaders('image/jpeg', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
       if (method === 'GET' && FONT_BY_PATH.has(path)) return await handleFont(path);
@@ -297,6 +302,10 @@ const worker = {
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
       // (outra origem, por isso o CORS aberto). Ver handleRecentes().
       if (path === '/api/recentes' && method === 'GET') return await handleRecentes(env);
+      // Aviso do lançamento nos outros sites (v3.3): os dados e o script que
+      // desenha a faixa. Ver src/ui/destaque.js.
+      if (path === '/api/destaque' && method === 'GET') return await handleDestaque(env, 'json');
+      if (path === '/destaque.js' && method === 'GET') return await handleDestaque(env, 'js');
 
       // Security contact (RFC 9116)
       if (path === '/.well-known/security.txt' && method === 'GET') return await handleSecurityTxt();
@@ -868,7 +877,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   ]);
 
   const res = html(
-    eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null, nonce, driveNonce, removalFormToken),
+    eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null, nonce, driveNonce, removalFormToken, ((d) => (d && d.slug !== event.slug ? d : null))(albumEmDestaque(events))),
     200,
     nonce
   );
@@ -1282,6 +1291,9 @@ export function normalizeEventFields(body, base, cats) {
     // Busca pelo rosto (v3.2): desligada por padrão; só vale em álbum público e
     // com as chaves da AWS no Worker (ver docs/ROSTO.md).
     buscaRosto: pick('buscaRosto', v => v === true),
+    // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
+    // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
+    destaqueMaximo: pick('destaqueMaximo', v => v === true),
     // Apresentação do álbum (v3.3): o estilo da primeira tela e o recado final.
     galeriaEstilo: pick('galeriaEstilo', v => (GALERIA_ESTILOS.includes(v) ? v : GALERIA_ESTILOS[0])),
     galeriaRecado: pick('galeriaRecado', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_RECADO_MAX)),
@@ -3351,13 +3363,15 @@ export async function handleDriveLink(request, env, ctx) {
 // Busca pelo rosto (v3.2) — ver src/rosto.js e docs/ROSTO.md
 // ---------------------------------------------------------------------------
 /**
- * A busca vale para este projeto? Ligada no painel, álbum público e as chaves
- * da AWS no Worker. Fora disso, as rotas respondem 404 (como se não existissem).
+ * A busca vale para este projeto? Ligada no painel, álbum público, lançado (ou
+ * o dono, logado, testando antes do lançamento) e as chaves da AWS no Worker.
+ * Fora disso, as rotas respondem 404 (como se não existissem).
  * @param {Env} env
  * @param {Evento | undefined} evento
+ * @param {boolean} [dono]
  */
-export function buscaRostoAtiva(env, evento) {
-  return !!evento && evento.buscaRosto === true && !isRestrictedAccess(evento) && evento.visible !== false && !!credAws(env);
+export function buscaRostoAtiva(env, evento, dono = false) {
+  return !!evento && evento.buscaRosto === true && !isRestrictedAccess(evento) && (dono || albumLancado(evento)) && !!credAws(env);
 }
 
 /**
@@ -3402,7 +3416,8 @@ export async function handleRosto(request, env, acao) {
     return jsonErr('Verificação de segurança falhou. Recarregue e tente de novo.', 403);
   }
   const evento = (await getEvents(env)).find(e => e.slug === slug);
-  if (!buscaRostoAtiva(env, evento)) return notFound();
+  // Antes do lançamento, só o dono (logado) testa.
+  if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : !!(await verifySession(env, request)))) return notFound();
   const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
 
   try {
@@ -3432,6 +3447,24 @@ export async function handleRosto(request, env, acao) {
     noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
     return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
   }
+}
+
+/**
+ * GET /api/destaque (JSON) e /destaque.js (o script do aviso). CORS aberto e
+ * recurso cross-origin: os outros sites (inclusive de outro domínio) leem.
+ * @param {Env} env
+ * @param {'json' | 'js'} tipo
+ */
+async function handleDestaque(env, tipo) {
+  const corpo = tipo === 'js' ? DESTAQUE_EMBED_JS : JSON.stringify(destaqueParaApi(albumEmDestaque(await getEvents(env))));
+  return new Response(corpo, {
+    headers: {
+      ...dataSecurityHeaders(tipo === 'js' ? 'text/javascript; charset=utf-8' : 'application/json; charset=utf-8', { store: true }),
+      'Access-Control-Allow-Origin': '*',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
 }
 
 // 429 com o tempo de espera: no cabeçalho padrão (Retry-After) e no corpo,
@@ -3781,7 +3814,7 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     // Projeto ainda não criado (ou oculto): "em breve", não um 404. getEvents
     // tem cache de isolate — a raiz não paga uma leitura de KV por visita.
     let existe;
-    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && e.visible !== false); } catch { existe = true; }
+    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && albumLancado(e)); } catch { existe = true; }
     if (!existe) {
       const res = new Response(emBreveHTML(album), { status: 200, headers: htmlSecurityHeaders('') });
       res.headers.set('Cache-Control', 'public, max-age=60');
@@ -3949,6 +3982,12 @@ function handleVendor(path) {
  */
 async function podeVerGaleria(request, env, slug) {
   if (await verifySession(env, request)) return true;
+  // O indexador da busca pelo rosto (GitHub Actions) lê as páginas do álbum
+  // ainda em "Em breve", com um token só dele (secret ROSTO_INDEXADOR_TOKEN, 32+
+  // caracteres). Só LEITURA da página pública — não é sessão de dono.
+  const tokenIdx = String(env.ROSTO_INDEXADOR_TOKEN || '');
+  const pedido = request.headers.get('X-Rosto-Indexador') || '';
+  if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event || event.comingSoon) return false;
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
@@ -4135,7 +4174,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
-  const rosto = buscaRostoAtiva(env, event) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
+  const rosto = buscaRostoAtiva(env, event, dono) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
   const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto });
   /** @type {Response} */
   let res;
@@ -4986,6 +5025,7 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
+  if (out.destaqueMaximo !== undefined) out.destaqueMaximo = out.destaqueMaximo === true;
   if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;

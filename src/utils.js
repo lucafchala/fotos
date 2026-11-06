@@ -31,6 +31,7 @@ import { FONTS } from './content/fonts.js';
  *   AWS_ACCESS_KEY_ID?: string,
  *   AWS_SECRET_ACCESS_KEY?: string,
  *   AWS_REGION?: string,
+ *   ROSTO_INDEXADOR_TOKEN?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
  *   PREVIA_EMAIL?: string,
@@ -1248,8 +1249,9 @@ export function fontFaceCSS() {
   return facesCSS(FONTS.filter(f => f.family === 'Inter'));
 }
 
-// As fontes da apresentação de um álbum (v3.3): Fraunces nos títulos e Caveat
-// no estilo "álbum de recordação". Só src/ui/album.js chama — o browser só
+// As fontes da apresentação de um álbum (v3.3): Open Sans (títulos e textos,
+// a mais parecida com a do Colégio Santa Cruz) e Caveat no estilo "álbum de
+// recordação". Só src/ui/album.js chama — o browser só
 // baixa a face que a página de fato usa.
 export function fontFaceAlbumCSS() {
   return facesCSS(FONTS.filter(f => f.family !== 'Inter'));
@@ -3134,3 +3136,13 @@ export function origemDoAlbum(slug) {
   for (const [dominio, a] of Object.entries(DOMINIOS_DE_ALBUM)) if (a.slug === slug) return `https://${dominio}`;
   return 'https://fotos.lucafchala.com';
 }
+
+// Um álbum está LANÇADO quando o público pode abri-lo: listado (visível) e fora
+// do "Em breve". Antes disso, o domínio do álbum mostra "em breve", o destaque
+// do site não aparece e só o dono (logado) vê a galeria e testa a busca pelo
+// rosto. Lançar é desmarcar "Em breve" e marcar "Visível" no painel.
+/** @param {Evento | undefined | null} e */
+export function albumLancado(e) {
+  return !!e && e.visible !== false && !e.comingSoon;
+}
+

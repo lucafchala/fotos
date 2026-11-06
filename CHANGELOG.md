@@ -41,8 +41,11 @@ capítulos; os outros seguem iguais.
   - o **Recado final**, um campo novo no projeto.
 
   O visual é escuro, com o amarelo e o azul do Colégio Santa Cruz (#F9DE4B e
-  #243580) e as fontes **Fraunces** (títulos) e **Caveat** (recordação),
-  servidas pelo próprio site e só nesta página.
+  #243580). Títulos e textos usam **Open Sans** e as legendas das polaroids
+  usam **Caveat**, servidas pelo próprio site e só nesta página. As fontes
+  oficiais do colégio (Xenois Sans Pro e Visby Round CF) são comerciais e com
+  licença da escola. A Open Sans é a fonte reserva do próprio site do colégio
+  e, medida letra por letra, a livre mais parecida com a Xenois.
 - **entrenos2026.com como endereço principal do álbum.** O canonical, o
   cartão de link e o QR code do álbum usam o domínio. O robots.txt do
   entrenos2026.com anuncia o sitemap do álbum, e os sitemaps do
@@ -51,6 +54,23 @@ capítulos; os outros seguem iguais.
 - **Dica de envio:** quando os créditos têm a pasta `outros`, a abertura diz
   "Para mandar fotos: abra o evento e a pasta outros". É o caso do álbum da
   turma, com a pasta do Drive em somente leitura e só as `outros` abertas.
+- **Pré-lançamento.** Um álbum só aparece para o público quando é
+  **lançado**: fica fora do "Em breve" e marcado como visível. Antes disso:
+  - o domínio mostra "em breve";
+  - o destaque do site não aparece;
+  - só o dono, logado, vê a galeria e testa a busca pelo rosto.
+
+  O indexador lê o álbum ainda fechado com um token só dele (secret
+  `ROSTO_INDEXADOR_TOKEN`, no Worker e no GitHub).
+- **Destaque máximo no site** (opção do projeto): a faixa azul no topo da home
+  e das páginas de projeto, o cartão grande no começo da home e o popup da
+  primeira visita. Tudo só depois do lançamento.
+- **Aviso do lançamento nos outros sites.** `fotos.lucafchala.com/destaque.js`
+  (uma linha de script em cada site) desenha a mesma faixa, isolada do CSS do
+  site, com os dados de `/api/destaque` (CORS aberto). Antes do lançamento,
+  não desenha nada.
+- **Favicon e cartão de link do entrenos2026.com**: "EN" no azul da escola e um
+  cartão 1200×630, sem foto de ninguém.
 - **"Em breve" com o azul e o amarelo da escola**, "Turma 2026 · Colégio
   Santa Cruz" e "Fotos de Luca F. Chala e Mag".
 - **Busca pelo rosto mais certeira.**

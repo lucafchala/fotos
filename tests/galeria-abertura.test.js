@@ -164,8 +164,8 @@ describe('apresentação do álbum', () => {
   });
 
   it('as fontes da apresentação só nesta página', () => {
-    expect(pagina()).toContain("font-family:'Fraunces'");
-    expect(pagina({ galeriaAbertura: '' })).not.toContain("font-family:'Fraunces'");
+    expect(pagina()).toContain("font-family:'Open Sans'");
+    expect(pagina({ galeriaAbertura: '' })).not.toContain("font-family:'Open Sans'");
   });
 });
 

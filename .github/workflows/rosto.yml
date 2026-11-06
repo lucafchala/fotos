@@ -49,4 +49,5 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.ROSTO_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ vars.ROSTO_AWS_REGION || 'sa-east-1' }}
           ROSTO_SLUGS: ${{ vars.ROSTO_SLUGS }}
+          ROSTO_INDEXADOR_TOKEN: ${{ secrets.ROSTO_INDEXADOR_TOKEN }}
         run: node scripts/rosto-indexa.mjs
