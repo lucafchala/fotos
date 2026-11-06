@@ -3,8 +3,9 @@
 //      o vê marcado "vazio"; sem resumo aparece; índice todo vazio mostra
 //      "As fotos estão chegando";
 //  (b) HEIC/HEIF entram na galeria (miniatura e visualização pelo lh3, o Drive
-//      gera a miniatura), o download tem a extensão e os bytes originais; vídeos
-//      (Live Photo .MOV) ficam fora da galeria e só são contados.
+//      gera a miniatura), o download tem a extensão e os bytes originais; o .MOV
+//      de mesmo nome (Live Photo) vira o vídeo da foto, e um vídeo avulso é um
+//      item da galeria (item 1f; os detalhes estão em galeria-midia.test.js).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index.js';
@@ -137,24 +138,27 @@ describe('(b) HEIC, HEIF e vídeos', () => {
     await saveEvents(env, [{ id: '2', slug: 'iphone', title: 'iPhone', accessType: 'public', nomesAmigaveis: true, driveUrl: `https://drive.google.com/drive/folders/${RAIZ_H}` }]);
   });
 
-  it('HEIC e HEIF entram na listagem; vídeo só é contado', async () => {
+  it('HEIC e HEIF entram na listagem; o .MOV de mesmo nome é o vídeo da foto; clip.mp4 é item', async () => {
     const l = await listaPasta(env, { id: RAIZ_H, resourceKey: '' });
     const ids = l.secoes.flatMap(s => s.fotos.map(f => f[0]));
-    expect(ids).toEqual(expect.arrayContaining(['FOTO_H1_000001', 'FOTO_H2_000001', 'FOTO_J1_000001']));
+    expect(ids).toEqual(expect.arrayContaining(['FOTO_H1_000001', 'FOTO_H2_000001', 'FOTO_J1_000001', 'VIDEO_L2_00001']));
     expect(ids).not.toContain('VIDEO_L1_00001');
-    expect(l.total).toBe(3);
-    expect(l.videos).toBe(2);
+    expect(l.total).toBe(4);
+    expect(l.videos).toBe(1);
   });
 
-  it('a página leva os ids de HEIC (miniatura e visualização saem do lh3 pelo id) e nenhum vídeo', async () => {
+  it('a página leva os ids de HEIC (miniatura e visualização saem do lh3 pelo id), o vídeo avulso e o par Live', async () => {
     const html = await (await get('/galeria/iphone')).text();
     expect(html).toContain('lh3.googleusercontent.com');
     const d = dadosDaPagina(html);
-    const ids = d.secoes.flatMap(s => s.fotos.map(f => f[0]));
+    const fotos = d.secoes.flatMap(s => s.fotos);
+    const ids = fotos.map(f => f[0]);
     expect(ids).toContain('FOTO_H1_000001');
     expect(ids).toContain('FOTO_H2_000001');
+    expect(ids).toContain('VIDEO_L2_00001');
     expect(ids).not.toContain('VIDEO_L1_00001');
-    expect(html).not.toContain('IMG_0001.MOV');
+    expect(fotos.find(f => f[0] === 'FOTO_H1_000001')[9]).toEqual(['VIDEO_L1_00001', 'IMG_0001.MOV', 9000000]);
+    expect(typeof fotos.find(f => f[0] === 'VIDEO_L2_00001')[9]).toBe('number');
   });
 
   it('download de HEIC: bytes originais, tipo original e extensão .heic no nome amigável', async () => {
@@ -173,7 +177,15 @@ describe('(b) HEIC, HEIF e vídeos', () => {
     expect(decodeURIComponent(r.headers.get('X-Nome-Arquivo'))).toBe('IMG_0001.HEIC');
   });
 
-  it('o vídeo não é baixável pela galeria (não está na listagem)', async () => {
+  it('o vídeo do par Live baixa pelo id dele, com o nome da foto e a extensão .mov', async () => {
+    const r = await get('/galeria/iphone/baixar/VIDEO_L1_00001?v=max');
+    expect(r.status).toBe(200);
+    expect(await r.text()).toBe('BYTES-VIDEO_L1_00001');
+    expect(decodeURIComponent(r.headers.get('X-Nome-Arquivo'))).toBe('iPhone - Luca F. Chala - 2026-03-14 10h22m33.mov');
+  });
+
+  it('ocultar a foto esconde também o vídeo do par Live', async () => {
+    await saveEvents(env, [{ id: '2', slug: 'iphone', title: 'iPhone', accessType: 'public', driveUrl: `https://drive.google.com/drive/folders/${RAIZ_H}`, fotosOcultas: ['FOTO_H1_000001'] }]);
     const r = await get('/galeria/iphone/baixar/VIDEO_L1_00001?v=max');
     expect(r.status).toBe(404);
   });

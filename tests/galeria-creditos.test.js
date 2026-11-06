@@ -138,7 +138,7 @@ describe('o campo "Créditos por pasta"', () => {
 describe('listaPasta com pastas de autor', () => {
   it('pasta de autor não é seção: as fotos vão para a seção de cima, com o autor', async () => {
     const d = await listaPasta(env, raiz, { creditos: CREDITOS });
-    expect(d.v).toBe(2);
+    expect(d.v).toBe(3);
     expect(d.aut).toEqual(['Luca F. Chala', 'Mag']);
     expect(d.secoes.map(s => s.nome)).toEqual(['', 'Festa', 'Nivel2']);
     const rz = d.secoes[0];
@@ -194,7 +194,7 @@ describe('listaPasta com pastas de autor', () => {
     await caches.default.put(chave, new Response(JSON.stringify({ v: 1, pasta: RAIZ, secoes: [] })));
     limpaCacheDrive();
     const d = await listaPasta(env, raiz, { creditos: CREDITOS });
-    expect(d.v).toBe(2);
+    expect(d.v).toBe(3);
     expect(d.total).toBeGreaterThan(0);
   });
 

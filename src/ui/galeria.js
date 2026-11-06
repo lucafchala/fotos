@@ -28,6 +28,7 @@
 import { escape, jsonParaScript, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO } from '../config.js';
+import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 import { nomesDaListagem } from '../nomes.js';
@@ -155,7 +156,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     : '';
 
   const dataEvento = event.date ? formatDatePT(String(event.date)) : '';
-  const contagem = total === 1 ? '1 foto' : `${total} fotos`;
+  // Fotos e vídeos (item 1f): "12 fotos e 2 vídeos". Sem vídeo, o texto de
+  // sempre ("12 fotos"). `total` conta os dois.
+  const nVideos = listagem ? listagem.secoes.reduce((n, sc) => n + sc.fotos.filter(ehVideo).length, 0) : 0;
+  const nFotos = total - nVideos;
+  const contagem = [
+    nFotos || !nVideos ? (nFotos === 1 ? '1 foto' : `${nFotos} fotos`) : '',
+    nVideos ? (nVideos === 1 ? '1 vídeo' : `${nVideos} vídeos`) : '',
+  ].filter(Boolean).join(' e ');
   const meta = listagem && total ? [dataEvento, contagem].filter(Boolean).join(' · ') : dataEvento;
 
   // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
@@ -179,9 +187,12 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const linhaAutores = variosAutores ? `Fotos: ${listaComE(autoresUsados.map(i => autores[i] || AUTOR_PADRAO))}` : '';
   // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
   const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
+  const altItem = (/** @type {import('../drive.js').FotoDrive} */ f, /** @type {number} */ i) =>
+    ehVideo(f) ? `${titulo} — vídeo ${i + 1} de ${total}` : altFoto(i);
   // Capa: a do projeto; sem ela, a primeira foto da pasta. Do lh3, sem passar
   // pelo Worker — o robô do cartão não gasta cota nossa.
-  const ogImage = ogImageFor(event.thumbnailUrl || (todasFotos[0] ? urlLh3(todasFotos[0][0], 1600) : ''));
+  const primeiraFoto = todasFotos.find(f => !ehVideo(f));
+  const ogImage = ogImageFor(event.thumbnailUrl || (primeiraFoto ? urlLh3(primeiraFoto[0], 1600) : ''));
   const jsonLd = todasFotos.length ? {
     '@context': 'https://schema.org',
     '@type': 'ImageGallery',
@@ -197,6 +208,20 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     numberOfItems: total,
     associatedMedia: todasFotos.slice(0, LD_FOTOS).map((f, i) => {
       const nomeAutor = autores[f[5] || 0] || AUTOR_PADRAO;
+      if (ehVideo(f)) {
+        // Vídeo (item 1f): a miniatura é a do Drive; o player só abre com um
+        // toque, então `embedUrl` é a página do player, não um arquivo.
+        return {
+          '@type': 'VideoObject',
+          name: altItem(f, i),
+          thumbnailUrl: urlLh3(f[0], 800),
+          embedUrl: `https://drive.google.com/file/d/${f[0]}/preview`,
+          ...(event.date ? { uploadDate: event.date } : {}),
+          ...(f[7] ? { duration: duracaoIso(/** @type {number} */ (f[7])) } : {}),
+          creator: nomeAutor === AUTOR_PADRAO ? PERSON_LD : { '@type': 'Person', name: nomeAutor },
+          creditText: nomeAutor,
+        };
+      }
       return {
         '@type': 'ImageObject',
         contentUrl: urlLh3(f[0], Math.min(f[1] || 1600, 1600)),
@@ -215,7 +240,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
   const lcp = todasFotos[0];
-  const preloadLcp = lcp && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
+  const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
     : '';
 
@@ -254,17 +279,24 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // padrão (nome igual, autor 0) não vão: a lista de 6000 fotos continua curta.
   // Com "nomes amigáveis" ligado, mais um: a cauda do nome do arquivo (ver
   // nomes.js), que a página junta ao prefixo da seção e à extensão.
+  // Item 1f: um vídeo (número = duração em segundos) ou um Live Photo (lista
+  // [id, nome, bytes] do vídeo dele) leva o `extra` no fim, o que obriga os
+  // campos do meio — só então.
   const fotoDaPagina = (/** @type {import('../drive.js').FotoDrive} */ f) => {
     const r = redes.get(f[0]);
     const autor = f[5] || 0;
+    const extra = f[7];
+    const temExtra = extra !== undefined;
     if (r) comRedes++;
     const cauda = nomes ? nomes.cauda[f[0]] || '' : '';
-    if (!r && !autor && !cauda) return f.slice(0, 5);
+    if (!r && !autor && !cauda && !temExtra) return f.slice(0, 5);
     const nomeRedes = r && r[3] !== f[3] ? r[3] : '';
+    /** @type {any[]} */
     const out = [...f.slice(0, 5), r ? r[4] : -1];
-    if (nomeRedes || autor || cauda) out.push(nomeRedes);
-    if (autor || cauda) out.push(autor);
-    if (cauda) out.push(cauda);
+    if (nomeRedes || autor || cauda || temExtra) out.push(nomeRedes);
+    if (autor || cauda || temExtra) out.push(autor);
+    if (cauda || temExtra) out.push(cauda);
+    if (temExtra) out.push(extra);
     return out;
   };
 
@@ -425,6 +457,15 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t.sel .g-ck::after{content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;border:solid var(--accent-text);border-width:0 2px 2px 0;transform:rotate(45deg)}
     .g-t.sel img{opacity:.78}
     .g-t.oculta img.ok{opacity:.3}
+    /* Item 1f: vídeo (play + duração) e Live Photo (LIVE) no canto de baixo à
+       direita; miniatura que não carregou (HEIC/RAW sem prévia, vídeo ainda
+       processando) vira um bloco com a extensão. */
+    .g-t .g-play,.g-t .g-live{position:absolute;right:6px;bottom:6px;display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .5rem;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font-size:.72rem;font-weight:600;font-variant-numeric:tabular-nums;pointer-events:none}
+    .g-t .g-live{font-size:.62rem;font-weight:700;letter-spacing:.12em}
+    .g-t .g-play::before{content:"";border-left:7px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
+    .g-t.sem-mini{background:var(--bg-card-2)}
+    .g-t.sem-mini img{display:none}
+    .g-t.sem-mini::after{content:attr(data-ext);position:absolute;inset:0;display:grid;place-items:center;color:var(--text-muted);font-size:.8rem;font-weight:600;letter-spacing:.12em}
     .g-t .g-oc{position:absolute;left:6px;top:6px;padding:.15rem .45rem;border-radius:4px;background:rgba(0,0,0,.7);color:#fff;font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:none}
     .g-t.oculta .g-oc{display:block}
     .g-barra{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem .5rem 1rem;border-radius:999px;background:var(--bg-card-2);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:.85rem;max-width:calc(100vw - 24px)}
@@ -482,6 +523,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .pswp{--pswp-bg:#000}
     .pswp__g-legenda{position:absolute;left:0;right:0;bottom:0;padding:1.6rem 1rem calc(.9rem + env(safe-area-inset-bottom));text-align:center;font:500 13px/1.4 'Inter',sans-serif;color:#e8e3dd;background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none;transition:opacity .25s}
     .pswp:not(.pswp--ui-visible) .pswp__g-legenda{opacity:0}
+    .g-vid{position:relative;background:#000;overflow:hidden}
+    .g-vid img{width:100%;height:100%;object-fit:contain;display:block}
+    .g-vid iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+    .g-vid-play{position:absolute;inset:0;margin:auto;width:76px;height:76px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;display:grid;place-items:center;padding:0}
+    .g-vid-play::before{content:"";margin-left:6px;border-left:24px solid #fff;border-top:15px solid transparent;border-bottom:15px solid transparent}
+    .g-vid-dur{position:absolute;left:10px;bottom:10px;padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums}
+    .g-vid.sem-mini{background:#161616}
+    .g-eh-video .pswp__button--zoom{display:none}
     .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
     .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
@@ -649,6 +698,16 @@ function navCapitulos(base, c, onde, slugProjeto = '') {
   return `<nav class="g-cap-nav g-cap-${onde}" aria-label="${onde === 'topo' ? 'Capítulos' : 'Mais capítulos'}">${onde === 'topo' ? '' : indice}${ant}${prox}${projeto}</nav>`;
 }
 
+/**
+ * Duração em segundos como ISO 8601 (PT1H2M3S), o formato do schema.org.
+ * @param {number} s
+ */
+function duracaoIso(s) {
+  const t = Math.max(0, Math.round(s));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), seg = t % 60;
+  return `PT${h ? `${h}H` : ''}${m ? `${m}M` : ''}${seg || (!h && !m) ? `${seg}S` : ''}`;
+}
+
 /** "A", "A e B", "A, B e C". @param {string[]} nomes */
 function listaComE(nomes) {
   if (nomes.length < 2) return nomes.join('');
@@ -669,7 +728,15 @@ const SCRIPT = `
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
   const TOTAL = D.secoes.reduce(function (n, s) { return n + s.fotos.length; }, 0);
-  const altDe = function (i) { return (D.titulo ? D.titulo + ' — ' : '') + 'foto ' + (i + 1) + ' de ' + TOTAL; };
+  const altDe = function (i, video) { return (D.titulo ? D.titulo + ' — ' : '') + (video ? 'vídeo ' : 'foto ') + (i + 1) + ' de ' + TOTAL; };
+  // Duração de vídeo: m:ss (h:mm:ss a partir de uma hora).
+  function fmtDur(s) {
+    const t = Math.max(0, Math.round(s));
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const seg = t % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(seg).padStart(2, '0');
+  }
   // Fotos que o dono ocultou do público. Só chega preenchido para o dono.
   const ocultas = new Set(D.ocultas || []);
   // Dentre elas, as escondidas A PEDIDO de um visitante e ainda sem decisão.
@@ -688,7 +755,7 @@ const SCRIPT = `
   }
 
   // ---- Dados ----
-  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, cauda: string, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string }} Foto */
+  /** @typedef {{ id: string, w: number, h: number, nome: string, bytes: number, redes: { nome: string, bytes: number } | null, autor: number, cauda: string, s: number, el: HTMLAnchorElement, img: HTMLImageElement, estimada: boolean, alt: string, video: boolean, dur: number, live: { id: string, nome: string, bytes: number } | null }} Foto */
   /** @type {Foto[]} */
   const fotos = [];
   let rw = '';
@@ -764,13 +831,19 @@ const SCRIPT = `
       const lista = [];
       sec.fotos.forEach(function (f) {
         const i = fotos.length;
+        // Item 1f: f[9] é o extra — número = vídeo (duração em segundos), lista
+        // = Live Photo (o vídeo dele).
+        const extra = f[9];
+        const ehVid = typeof extra === 'number';
+        const live = Array.isArray(extra) ? { id: extra[0], nome: extra[1], bytes: extra[2] } : null;
         const a = document.createElement('a');
-        a.className = 'g-t';
+        a.className = 'g-t' + (ehVid ? ' g-video' : '');
         a.href = '#foto=' + f[0];
         a.dataset.i = String(i);
-        a.setAttribute('aria-label', 'Foto ' + semExt(f[3]));
+        a.dataset.ext = extDoNome(f[3]).toUpperCase();
+        a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]));
         const img = document.createElement('img');
-        img.alt = altDe(i);
+        img.alt = altDe(i, ehVid);
         img.decoding = 'async';
         // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
         // cai na primeira tela (ver dimensiona).
@@ -785,6 +858,13 @@ const SCRIPT = `
         a.appendChild(img);
         a.appendChild(ck);
         a.appendChild(fv);
+        if (ehVid || live) {
+          const sel = document.createElement('span');
+          sel.className = ehVid ? 'g-play' : 'g-live';
+          sel.setAttribute('aria-hidden', 'true');
+          sel.textContent = ehVid ? (extra > 0 ? fmtDur(extra) : '') : 'LIVE';
+          a.appendChild(sel);
+        }
         if (D.dono) {
           const oc = document.createElement('span');
           oc.className = 'g-oc';
@@ -792,10 +872,10 @@ const SCRIPT = `
           a.appendChild(oc);
         }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt };
+        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live };
         if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
-        img.addEventListener('error', function () { img.classList.add('ok'); });
+        img.addEventListener('error', function () { img.classList.add('ok'); a.classList.add('sem-mini'); });
         fotos.push(foto);
         lista.push(foto);
       });
@@ -968,7 +1048,7 @@ const SCRIPT = `
     f.el.classList.toggle('fav', gosto);
     // O check e o coração são só visuais (aria-hidden): o leitor de tela ouve
     // o estado no nome.
-    f.el.setAttribute('aria-label', 'Foto ' + semExt(f.nome) + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
+    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
   }
   function atualizaBarra() {
     if (!barra || !barraN) return;
@@ -1273,7 +1353,64 @@ const SCRIPT = `
   /** @type {Promise<any> | null} */
   let carregandoLb = null;
 
+  // ---- Vídeo no visualizador (item 1f): fachada, como o vídeo do YouTube ----
+  // Nada do Google carrega antes do toque: o slide mostra a miniatura (lh3, a
+  // mesma origem das fotos) e um botão de play. SÓ o toque coloca o iframe do
+  // player do Drive (/file/d/ID/preview) no lugar, sem autoplay e com tela
+  // cheia como única permissão. Sair do slide devolve a fachada (o vídeo para).
+  const ID_DRIVE_RE = /^[A-Za-z0-9_-]{10,200}$/;
+  function mostraFachada(box, f) {
+    box.replaceChildren();
+    box.classList.remove('sem-mini');
+    const img = document.createElement('img');
+    img.alt = f.alt;
+    img.decoding = 'async';
+    img.addEventListener('error', function () { img.remove(); box.classList.add('sem-mini'); });
+    img.src = lh3(f.id, 1280);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'g-vid-play';
+    b.setAttribute('aria-label', 'Tocar o vídeo ' + semExt(f.nome));
+    b.addEventListener('click', function (ev) { ev.stopPropagation(); tocaVideo(box, f); });
+    box.appendChild(img);
+    box.appendChild(b);
+    if (f.dur > 0) {
+      const d = document.createElement('span');
+      d.className = 'g-vid-dur';
+      d.textContent = fmtDur(f.dur);
+      box.appendChild(d);
+    }
+  }
+  function tocaVideo(box, f) {
+    if (!ID_DRIVE_RE.test(f.id)) return;
+    const fr = document.createElement('iframe');
+    fr.src = 'https://drive.google.com/file/d/' + f.id + '/preview';
+    fr.title = 'Vídeo ' + semExt(f.nome);
+    fr.allow = 'fullscreen';
+    fr.allowFullscreen = true;
+    fr.referrerPolicy = 'strict-origin-when-cross-origin';
+    box.replaceChildren(fr);
+    fr.focus();
+  }
+  function montaVideo(f) {
+    const box = document.createElement('div');
+    box.className = 'pswp__content g-vid';
+    mostraFachada(box, f);
+    return box;
+  }
+
   function dadosSlide(f) {
+    if (f.video) {
+      return {
+        type: 'video',
+        width: f.w || 1280,
+        height: f.h || 720,
+        msrc: f.img.currentSrc || undefined,
+        alt: f.alt,
+        element: f.el,
+        foto: f,
+      };
+    }
     const maior = f.w || LONGO_ESTIMADO;
     const larguras = D.larguras.filter(function (x) { return x < maior; });
     larguras.push(maior);
@@ -1317,6 +1454,14 @@ const SCRIPT = `
     });
   }
 
+  // Slide de vídeo: sem zoom: a lupa some (classe na raiz do PhotoSwipe).
+  function marcaTipoDoSlide() {
+    const pswp = lightbox && lightbox.pswp;
+    if (!pswp || !pswp.element) return;
+    const f = vistas[pswp.currIndex];
+    pswp.element.classList.toggle('g-eh-video', !!(f && f.video));
+  }
+
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
@@ -1343,6 +1488,20 @@ const SCRIPT = `
       });
       lightbox.addFilter('numItems', function () { return vistas.length; });
       lightbox.addFilter('itemData', function (_d, index) { return dadosSlide(vistas[index]); });
+      // Slide de vídeo: a fachada no lugar do <img> (e, ao sair do slide, o
+      // player some e ela volta).
+      lightbox.on('contentLoad', function (e) {
+        const dados = e.content.data;
+        if (dados && dados.type === 'video' && dados.foto) {
+          e.preventDefault();
+          e.content.element = montaVideo(dados.foto);
+        }
+      });
+      lightbox.on('contentDeactivate', function (e) {
+        const dados = e.content.data;
+        const el = e.content.element;
+        if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
+      });
       lightbox.on('uiRegister', registraUi);
       // Link direto para a foto aberta (#foto=ID): copiar a barra de endereço
       // e mandar para alguém (ou abrir noutra aba) cai na mesma foto. Abrir
@@ -1354,6 +1513,7 @@ const SCRIPT = `
         document.body.classList.add('g-vendo');
         const f = vistas[lightbox.pswp.currIndex];
         if (f) history.pushState({ g: 'foto' }, '', '#foto=' + f.id);
+        marcaTipoDoSlide();
       });
       lightbox.on('destroy', function () {
         vendo = false;
@@ -1367,6 +1527,7 @@ const SCRIPT = `
       lightbox.on('change', function () {
         const f = vistas[lightbox.pswp.currIndex];
         if (f && noTopo('foto')) history.replaceState(history.state, '', '#foto=' + f.id);
+        marcaTipoDoSlide();
       });
       lightbox.on('close', function () {
         // Fechou pela interface (×, Esc, arrastar): tira a entrada que a
@@ -1518,11 +1679,18 @@ const SCRIPT = `
           if (!f) return;
           const secao = D.secoes.length > 1 ? D.secoes[f.s].nome : '';
           txt.textContent = semExt(f.nome) + (secao ? ' · ' + secao : '');
+          const tipo = f.video ? 'Vídeo' + (f.dur > 0 ? ' · ' + fmtDur(f.dur) : '') : f.live ? 'Live Photo' : '';
+          if (tipo) {
+            const t = document.createElement('span');
+            t.className = 'g-leg-a';
+            t.textContent = tipo;
+            txt.appendChild(t);
+          }
           const quem = D.autores && D.autores[f.autor];
           if (quem) {
             const l = document.createElement('span');
             l.className = 'g-leg-a';
-            l.textContent = 'Foto: ' + quem;
+            l.textContent = (f.video ? 'Vídeo: ' : 'Foto: ') + quem;
             txt.appendChild(l);
           }
         };
@@ -1765,7 +1933,11 @@ const SCRIPT = `
     a.click();
     a.remove();
   }
-  const TIPOS = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', tif: 'image/tiff', tiff: 'image/tiff' };
+  const TIPOS = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', tif: 'image/tiff', tiff: 'image/tiff', mov: 'video/quicktime', mp4: 'video/mp4', m4v: 'video/mp4' };
+  // "Salvar no Fotos" segura o arquivo INTEIRO na memória da aba do Safari:
+  // vídeo acima disto só sai como "Baixar arquivo" (o download vai direto para
+  // o disco, em fluxo).
+  const VIDEO_FOTOS_MAX = 100e6;
   // Os bytes vêm como o servidor mandou; o nome é o do Drive (X-Nome-Arquivo).
   // O tipo só diz à folha do sistema que é imagem (se o Drive mandou
   // octet-stream, vale a extensão) — não toca em byte nenhum.
@@ -1787,9 +1959,9 @@ const SCRIPT = `
     try { nome = decodeURIComponent(r.headers.get('X-Nome-Arquivo') || ''); } catch (e) { nome = ''; }
     nome = nome || arquivoDe(f, v).nome;
     let tipo = blob.type;
-    if (!tipo || tipo.indexOf('image/') !== 0) {
+    if (!tipo || (tipo.indexOf('image/') !== 0 && tipo.indexOf('video/') !== 0)) {
       const ext = (nome.match(/[.]([A-Za-z0-9]+)$/) || [])[1];
-      tipo = (ext && TIPOS[ext.toLowerCase()]) || 'image/jpeg';
+      tipo = (ext && TIPOS[ext.toLowerCase()]) || (f.video ? 'video/mp4' : 'image/jpeg');
     }
     return new File([blob], nome, { type: tipo });
   }
@@ -1822,7 +1994,7 @@ const SCRIPT = `
     if (lista.length === 1) {
       const f = lista[0];
       const a = arquivoDe(f, v);
-      const dim = v === 'max' && f.w && !f.estimada ? ' · ' + f.w + ' × ' + f.h + ' px' : '';
+      const dim = v === 'max' && f.w && !f.estimada && !f.video ? ' · ' + f.w + ' × ' + f.h + ' px' : '';
       return (v === 'redes' ? 'Da pasta do Instagram, sem alteração · ' : 'O arquivo original · ') + a.nome + dim + (a.bytes ? ' · ' + fmtBytes(a.bytes) : '');
     }
     if (v === 'redes') {
@@ -1836,8 +2008,10 @@ const SCRIPT = `
     if (!folha || !folhaT || !folhaOps || !folhaMsg || !lista.length) return;
     geracao++;
     if (folha.hidden) focoAntes = document.activeElement;
-    folhaT.textContent = lista.length === 1 ? 'Baixar ' + semExt(arquivoDe(lista[0], 'max').nome) : 'Baixar ' + lista.length + ' fotos';
-    folhaMsg.textContent = IOS && salvaNoFotos ? 'No iPhone: toque em Salvar no Fotos e, na janela que abrir, em Salvar imagem.' : '';
+    const soVideos = lista.every(function (f) { return f.video; });
+    const temVideo = lista.some(function (f) { return f.video; });
+    folhaT.textContent = lista.length === 1 ? 'Baixar ' + semExt(arquivoDe(lista[0], 'max').nome) : 'Baixar ' + lista.length + (temVideo ? ' arquivos' : ' fotos');
+    folhaMsg.textContent = IOS && salvaNoFotos ? 'No iPhone: toque em Salvar no Fotos e, na janela que abrir, em Salvar ' + (soVideos ? 'vídeo' : 'imagem') + '.' : '';
     folhaOps.replaceChildren();
     const um = lista.length === 1 ? lista[0] : null;
     // "Para redes" só entra se ao menos uma foto da lista tem a versão.
@@ -1850,6 +2024,16 @@ const SCRIPT = `
       folhaOps.appendChild(el.raiz);
       if (!primeiro) primeiro = el.foco;
     });
+    // Live Photo (item 1f): o vídeo de poucos segundos que acompanha a foto,
+    // como arquivo à parte. Mesmo caminho do download de qualquer arquivo.
+    if (um && um.live) {
+      const lv = {
+        id: um.live.id, w: 0, h: 0, nome: um.live.nome, bytes: um.live.bytes, redes: null, autor: um.autor, cauda: um.cauda,
+        s: um.s, el: um.el, img: um.img, estimada: true, alt: um.alt, video: true, dur: 0, live: null,
+      };
+      const el = IOS ? blocoIOS([lv], 'max', 'Baixar vídeo do Live Photo') : blocoComum([lv], 'max', 'Baixar vídeo do Live Photo');
+      folhaOps.appendChild(el.raiz);
+    }
     if (folhaDrive) {
       folhaDrive.hidden = !um;
       if (um) folhaDrive.href = 'https://drive.google.com/file/d/' + um.id + '/view';
@@ -1881,10 +2065,16 @@ const SCRIPT = `
     const acoes = document.createElement('div');
     acoes.className = 'g-ver-a';
     const alvo = daVersao(lista, v);
-    const baixar = botaoAcao('Baixar arquivo', !salvaNoFotos);
+    const grande = alvo.some(function (f) { return f.video && f.bytes > VIDEO_FOTOS_MAX; });
+    const baixar = botaoAcao('Baixar arquivo', !salvaNoFotos || grande);
     baixar.addEventListener('click', function () { baixaComum(alvo, v, null, false, baixar); });
     let foco = baixar;
-    if (salvaNoFotos) {
+    if (grande) {
+      const aviso = document.createElement('span');
+      aviso.textContent = 'Vídeo grande: baixe como arquivo (app Arquivos) e salve no Fotos de lá.';
+      t.appendChild(aviso);
+    }
+    if (salvaNoFotos && !grande) {
       const rotulo = alvo.length > 1 ? 'Salvar ' + alvo.length + ' fotos no Fotos' : 'Salvar no Fotos';
       const salvar = botaoAcao(rotulo, true);
       // Quando o arquivo está pronto, o próximo toque é de quem o espera (o

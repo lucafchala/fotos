@@ -53,9 +53,16 @@ function capturaLegivel(n) {
 export async function detectaSumidas(env, info, anterior, nova) {
   const slug = String(info.evento.slug || '');
   try {
-    if (!anterior || anterior.v !== 2 || !Array.isArray(anterior.secoes) || !nova || nova.truncada) return;
+    if (!anterior || (anterior.v !== 2 && anterior.v !== 3) || !Array.isArray(anterior.secoes) || !nova || nova.truncada) return;
     const presentes = new Set();
-    for (const s of nova.secoes) for (const f of s.fotos) presentes.add(f[0]);
+    for (const s of nova.secoes) {
+      for (const f of s.fotos) {
+        presentes.add(f[0]);
+        // O vídeo de um Live Photo deixa de ser item quando a foto aparece:
+        // não é um arquivo que sumiu.
+        if (Array.isArray(f[7])) presentes.add(f[7][0]);
+      }
+    }
     /** @type {{ f: import('./drive.js').FotoDrive, secao: string }[]} */
     const sumidas = [];
     for (const s of anterior.secoes) for (const f of s.fotos) if (!presentes.has(f[0])) sumidas.push({ f, secao: String(s.nome || '') });

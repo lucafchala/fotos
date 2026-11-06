@@ -29,7 +29,8 @@ const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time))';
+// `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis))';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
@@ -41,19 +42,26 @@ const TIMEOUT_MS = 8000;
 const NOME_MAX = 255;
 
 /**
- * Uma foto da listagem, em forma compacta (vai para o cache e para a página):
- * [id, largura, altura, nome, bytes, autor, hora]. Largura/altura já com a
- * rotação EXIF aplicada (o lh3 entrega a foto girada); 0 quando o Drive não
- * informou. `autor` é o índice em `ListagemDrive.aut` (0 = autor padrão) e
- * `hora` a data de captura como número AAAAMMDDHHMMSS (0 = sem data); os dois
- * últimos SÓ existem na tupla quando diferem de 0 (JSON compacto: nenhuma foto
- * de álbum comum paga bytes a mais).
- * @typedef {[string, number, number, string, number, number?, number?]} FotoDrive
+ * Um item da listagem (foto ou vídeo), em forma compacta (vai para o cache e
+ * para a página): [id, largura, altura, nome, bytes, autor, hora, extra].
+ * Largura/altura já com a rotação EXIF aplicada (o lh3 entrega a foto girada);
+ * 0 quando o Drive não informou. `autor` é o índice em `ListagemDrive.aut` (0 =
+ * autor padrão) e `hora` a data de captura como número AAAAMMDDHHMMSS (0 = sem
+ * data); estes SÓ existem na tupla quando diferem de 0 (JSON compacto: nenhuma
+ * foto de álbum comum paga bytes a mais).
+ *
+ * `extra` (item 1f) só existe quando há o que dizer, e tem duas formas:
+ *  - NÚMERO: o item é um VÍDEO e o número é a duração em segundos (0 = o Drive
+ *    não informou). Vídeo não tem hora de captura nem versão "para redes".
+ *  - LISTA [id, nome, bytes]: a foto é um Live Photo e esse é o vídeo dele (o
+ *    .MOV/.MP4 de mesmo nome na mesma pasta). O vídeo NÃO é um item à parte:
+ *    some e aparece só como "Baixar vídeo do Live Photo".
+ * @typedef {[string, number, number, string, number, number?, number?, (number | [string, string, number])?]} FotoDrive
  */
 /**
  * @typedef {{ nome: string, caminho: string, fotos: FotoDrive[] }} SecaoDrive
  * @typedef {{
- *   v: 2,
+ *   v: 2 | 3,
  *   pasta: string,
  *   em: string,
  *   truncada: boolean,
@@ -462,7 +470,8 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
           if (hit) {
             const dados = /** @type {ListagemDrive} */ (await hit.json());
             // A idade é a da própria lista: mudar o período no painel vale na hora.
-            if (dados && dados.v === 2) return { dados, fresco: Date.now() - Date.parse(dados.em) < ttlMs };
+            // v2 (antes dos vídeos, item 1f) é servida vencida: a próxima leitura refaz.
+            if (dados && (dados.v === 3 || dados.v === 2)) return { dados, fresco: dados.v === 3 && Date.now() - Date.parse(dados.em) < ttlMs };
           }
         } catch (e) {
           console.error('galeria: leitura do cache falhou', e);
@@ -478,7 +487,7 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
       if (foto) {
         try {
           const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
-          if (dados && dados.v === 2) return { dados, fresco: congelada };
+          if (dados && (dados.v === 3 || dados.v === 2)) return { dados, fresco: congelada };
         } catch (e) {
           console.error('galeria: foto da lista ilegível', e);
         }
@@ -609,13 +618,16 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
           }
           continue;
         }
-        if (mime.startsWith('image/')) {
+        // Item 1f: tudo o que o Drive vê como imagem (JPEG, HEIC/HEIF, PNG,
+        // WEBP, GIF e RAW) e todo vídeo entram na galeria.
+        const ehImg = mime.startsWith('image/');
+        const ehVid = !ehImg && mime.startsWith('video/');
+        if (ehImg || ehVid) {
           if (total >= GALERIA_MAX_FOTOS) { truncada = true; continue; }
           total++;
-          secao.fotos.push(fotoCompacta(f, atual.autor));
+          if (ehVid) videos++;
+          secao.fotos.push(ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor));
           if (typeof f.resourceKey === 'string' && f.resourceKey) rk[f.id] = f.resourceKey;
-        } else if (mime.startsWith('video/')) {
-          videos++;
         } else {
           outros++;
         }
@@ -624,6 +636,11 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     } while (pageToken);
   }
 
+  // Live Photo: o .MOV/.MP4 de mesmo nome da foto deixa de ser um item e passa
+  // a ser o "vídeo do Live Photo" dela.
+  const pareados = pareiaLive(secoes.values());
+  total -= pareados;
+  videos -= pareados;
   for (const s of secoes.values()) s.fotos.sort(ordemDaSecao(s.fotos));
   // Raiz primeiro, depois as subpastas em ordem natural; seção vazia some (uma
   // pasta só de subpastas não deixa um título solto sem foto embaixo).
@@ -631,7 +648,68 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     .filter(s => s.fotos.length > 0)
     .sort((a, b) => (a.caminho === '' ? -1 : b.caminho === '' ? 1 : ordemNatural(a.caminho, b.caminho)));
 
-  return { v: 2, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas };
+  return { v: 3, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas };
+}
+
+// Um Live Photo do iPhone é uma foto (.HEIC/.JPG) mais um vídeo de poucos
+// segundos (.MOV) com o MESMO nome. Acima disto é um vídeo de verdade que por
+// acaso tem o nome de uma foto.
+const LIVE_DURACAO_MAX_S = 10;
+
+/** @param {FotoDrive} f é um vídeo (extra numérico)? */
+export const ehVideo = f => typeof f[7] === 'number';
+
+/**
+ * O vídeo do Live Photo de uma foto, ou null.
+ * @param {FotoDrive} f
+ * @returns {{ id: string, nome: string, bytes: number } | null}
+ */
+export function liveDe(f) {
+  const l = f[7];
+  return Array.isArray(l) ? { id: l[0], nome: l[1], bytes: l[2] } : null;
+}
+
+/** A listagem tem ao menos um vídeo (item)? @param {ListagemDrive} dados */
+export function temVideo(dados) {
+  for (const s of dados.secoes) for (const f of s.fotos) if (typeof f[7] === 'number') return true;
+  return false;
+}
+
+/**
+ * Casa cada vídeo curto com a foto de mesmo nome (sem extensão, sem diferenciar
+ * maiúscula), da MESMA seção e do MESMO autor. A foto ganha o vídeo em `extra`
+ * e o vídeo sai da seção. Vídeo sem foto de mesmo nome, ou longo, fica como
+ * item. Devolve quantos vídeos foram absorvidos.
+ * @param {Iterable<SecaoDrive>} secoes
+ */
+function pareiaLive(secoes) {
+  let pareados = 0;
+  for (const secao of secoes) {
+    /** @type {Map<string, FotoDrive>} */
+    const fotos = new Map();
+    for (const f of secao.fotos) {
+      if (typeof f[7] === 'number') continue;
+      const k = `${f[5] || 0}\u0001${chaveDeNome(f[3])}`;
+      if (!fotos.has(k)) fotos.set(k, f);
+    }
+    if (!fotos.size) continue;
+    const resto = [];
+    for (const f of secao.fotos) {
+      if (typeof f[7] === 'number' && f[7] <= LIVE_DURACAO_MAX_S) {
+        const par = fotos.get(`${f[5] || 0}\u0001${chaveDeNome(f[3])}`);
+        if (par && par[7] === undefined) {
+          par[5] = par[5] || 0;
+          par[6] = par[6] || 0;
+          par[7] = [f[0], f[3], f[4]];
+          pareados++;
+          continue;
+        }
+      }
+      resto.push(f);
+    }
+    secao.fotos = resto;
+  }
+  return pareados;
 }
 
 /**
@@ -672,6 +750,25 @@ function fotoCompacta(f, autor) {
   const hora = horaDaFoto(meta.time);
   if (autor || hora) { foto[5] = autor; if (hora) foto[6] = hora; }
   return foto;
+}
+
+/**
+ * Um vídeo da pasta como item da listagem: [id, l, a, nome, bytes, autor, 0,
+ * duração em segundos]. O Drive guarda a largura/altura do vídeo SEM a rotação
+ * do aparelho (um vídeo em pé costuma vir deitado): é só a proporção da caixa
+ * até a miniatura chegar.
+ * @param {any} f arquivo como a API devolve
+ * @param {number} autor índice do autor em `aut`
+ * @returns {FotoDrive}
+ */
+function videoCompacto(f, autor) {
+  const meta = f.videoMediaMetadata && typeof f.videoMediaMetadata === 'object' ? f.videoMediaMetadata : {};
+  const w = Number.isInteger(meta.width) && meta.width > 0 ? meta.width : 0;
+  const h = Number.isInteger(meta.height) && meta.height > 0 ? meta.height : 0;
+  const ms = Number(meta.durationMillis);
+  const dur = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+  const bytes = Number.parseInt(String(f.size || '0'), 10);
+  return [f.id, w, h, String(f.name || '').slice(0, NOME_MAX), Number.isFinite(bytes) && bytes > 0 ? bytes : 0, autor, 0, dur];
 }
 
 /**
@@ -748,6 +845,25 @@ export async function erroDaApi(res) {
 export function achaFoto(dados, id) {
   for (const s of dados.secoes) {
     for (const f of s.fotos) if (f[0] === id) return f;
+  }
+  return null;
+}
+
+/**
+ * Procura um ARQUIVO para baixar: o item da listagem OU o vídeo de um Live
+ * Photo (que não é item). `foto` é sempre o item dono (é dele que valem
+ * ocultar, remoção e capítulo); `arquivo` é o que se entrega.
+ * @param {ListagemDrive} dados
+ * @param {string} id
+ * @returns {{ foto: FotoDrive, arquivo: FotoDrive, live: boolean } | null}
+ */
+export function achaArquivo(dados, id) {
+  for (const s of dados.secoes) {
+    for (const f of s.fotos) {
+      if (f[0] === id) return { foto: f, arquivo: f, live: false };
+      const l = f[7];
+      if (Array.isArray(l) && l[0] === id) return { foto: f, arquivo: [l[0], 0, 0, l[1], l[2], f[5] || 0, f[6] || 0], live: true };
+    }
   }
   return null;
 }
@@ -912,6 +1028,7 @@ function indiceDoIg(ig) {
   for (const s of ig.secoes) {
     const caminho = caminhoChave(s.caminho);
     for (const foto of s.fotos) {
+      if (typeof foto[7] === 'number') continue; // vídeo da pasta do Instagram não casa com foto
       const k = chaveDeNome(foto[3]);
       poe(indice.exato, k, { caminho, foto, prox: null });
       if (terminaComSufixo(k)) {
@@ -984,6 +1101,7 @@ export function casaRedes(galeria, ig) {
   for (const s of galeria.secoes) {
     const caminho = caminhoChave(s.caminho);
     for (const f of s.fotos) {
+      if (typeof f[7] === 'number') continue; // vídeo não tem versão "para redes"
       const k = chaveDeNome(f[3]);
       const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho);
       if (par) mapa.set(f[0], par);

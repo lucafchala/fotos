@@ -151,7 +151,7 @@ const browser = await chromium.launch({ executablePath: chromiumLocal() });
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any } }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any }, driveFrame?: boolean }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -204,6 +204,8 @@ async function abre(o = {}) {
     // Quantas vezes o script do Turnstile foi pedido, e os corpos enviados a
     // /api/galeria/remocao ("Pedir remoção").
     turnstile: 0,
+    // Pedidos ao player do Drive (item 1f): só depois do toque no play.
+    drive: /** @type {string[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
   /** @type {Set<string>} */
@@ -225,6 +227,7 @@ async function abre(o = {}) {
       if (o.turnstile === 'bloqueado') return route.abort();
       return route.fulfill({ contentType: 'text/javascript', body: TURNSTILE_FALSO });
     }
+    if (u.host === 'drive.google.com') estado.drive.push(u.pathname);
     if (u.host !== 'fotos.test') return route.fulfill({ status: 204, body: '' });
     if (u.pathname === '/api/galeria/remocao' && r.method() === 'POST') {
       const corpo = JSON.parse(r.postData() || '{}');
@@ -233,7 +236,7 @@ async function abre(o = {}) {
       return route.fulfill({ status: resp.status, contentType: 'application/json', body: JSON.stringify(resp.json) });
     }
     if (u.pathname === '/galeria/formatura' || u.pathname === '/galeria/formatura/cerimonia') {
-      return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE), body: o.pagina || PAGINA });
+      return route.fulfill({ status: 200, headers: adminHtmlSecurityHeaders(NONCE, o.driveFrame ? { driveFrame: true } : undefined), body: o.pagina || PAGINA });
     }
     if (u.pathname === '/api/galeria/ocultar' && r.method() === 'POST') {
       const corpo = JSON.parse(r.postData() || '{}');
@@ -1372,6 +1375,110 @@ for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360
     await ctx.close();
   });
 }
+
+// ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
+// O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
+// foto com selo "LIVE". No visualizador o vídeo abre como FACHADA (miniatura +
+// botão de play, nada do Google carrega); só o toque no play coloca o iframe do
+// player do Drive. O CSP libera o frame do Drive só nesta página.
+const MIDIA_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
+  ['MIDIAFOTO_000001', 4032, 3024, 'IMG_0100.HEIC', 3_000_000, 0, 20261105143000, ['MIDIALIVE_000001', 'IMG_0100.MOV', 2_000_000]],
+  ['MIDIAVIDEO_00001', 1920, 1080, 'passeio.mp4', 90_000_000, 0, 0, 75],
+  ['MIDIAFOTO_000002', 4032, 3024, 'IMG_0101.jpg', 3_000_000, 0, 20261105143100],
+]);
+for (const f of MIDIA_FOTOS) POR_ID.set(f[0], /** @type {any} */ (f));
+const LISTAGEM_MIDIA = {
+  v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
+  total: 3, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: MIDIA_FOTOS }],
+};
+const PAGINA_MIDIA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM_MIDIA, erro: null, nonce: NONCE });
+for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { width: 1440, height: 900 }, 1, false], ['iPhone 390', { width: 390, height: 844 }, 3, true]])) {
+  await cenario(`Vídeo: ${nome}`, async () => {
+    const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, viewport, dpr, toque, driveFrame: true });
+    await espera(page, 800);
+    const grade = await page.evaluate(() => ({
+      n: document.querySelectorAll('.g-t').length,
+      play: [...document.querySelectorAll('.g-t .g-play')].map(e => (e.textContent || '').trim()),
+      live: [...document.querySelectorAll('.g-t .g-live')].map(e => (e.textContent || '').trim()),
+      rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label')),
+      iframes: document.querySelectorAll('iframe').length,
+      lateral: document.scrollingElement.scrollWidth > window.innerWidth,
+    }));
+    registra(grade.n === 3 && grade.play.length === 1 && grade.play[0] === '1:15' && grade.live.length === 1 && grade.live[0] === 'LIVE',
+      `Vídeo ${nome}: a grade mostra o selo de play com a duração (1:15) e o selo LIVE na foto`, grade);
+    registra(/^Vídeo passeio/.test(grade.rotulos[1] || '') && /^Live Photo IMG_0100/.test(grade.rotulos[0] || '') && /^Foto IMG_0101/.test(grade.rotulos[2] || ''),
+      `Vídeo ${nome}: o rótulo de cada tile diz se é vídeo, Live Photo ou foto`, grade.rotulos);
+    registra(grade.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: antes do toque nenhum iframe e nenhum pedido ao Google Drive`, { iframes: grade.iframes, drive: estado.drive });
+    registra(!grade.lateral, `Vídeo ${nome}: sem rolagem lateral`);
+
+    // Abre o vídeo: fachada, ainda sem iframe nem pedido ao Drive.
+    if (toque) await page.locator('.g-t').nth(1).tap(); else await page.locator('.g-t').nth(1).click();
+    await page.waitForSelector('.pswp--open', { timeout: 5000 });
+    await espera(page, 1000);
+    const fachada = await page.evaluate(() => {
+      const box = document.querySelector('.pswp__item[aria-hidden="false"] .g-vid') || document.querySelector('.pswp .g-vid');
+      const b = box && box.querySelector('.g-vid-play');
+      const r = b ? b.getBoundingClientRect() : null;
+      return {
+        tem: !!box, botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', dur: box && box.querySelector('.g-vid-dur') ? (box.querySelector('.g-vid-dur').textContent || '') : '',
+        alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, iframes: document.querySelectorAll('iframe').length,
+        legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent,
+      };
+    });
+    registra(fachada.tem && fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo) && fachada.dur === '1:15' && fachada.alvo >= 44,
+      `Vídeo ${nome}: o visualizador abre a fachada (miniatura, botão Tocar com 44 px e duração)`, fachada);
+    registra(fachada.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: a fachada não carrega nada do Google`, { iframes: fachada.iframes, drive: estado.drive });
+    registra(/passeio/.test(fachada.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, fachada.legenda);
+
+    // O toque no play coloca o iframe do player, sem violar o CSP.
+    if (toque) await page.locator('.g-vid-play').first().tap(); else await page.locator('.g-vid-play').first().click();
+    await espera(page, 900);
+    const tocando = await page.evaluate(() => {
+      const f = document.querySelector('.pswp iframe');
+      return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow'), sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy') } : null;
+    });
+    registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen',
+      `Vídeo ${nome}: o toque no play põe o player do Drive (/preview, só tela cheia)`, tocando);
+    registra(estado.drive.some(x => x === '/file/d/MIDIAVIDEO_00001/preview'), `Vídeo ${nome}: só agora o Drive é chamado`, estado.drive);
+
+    // Sair do slide devolve a fachada (o vídeo para de tocar).
+    // (Com o foco dentro do player o teclado é do player: troca pelos botões.)
+    if (toque) {
+      // No toque o PhotoSwipe esconde as setas (a troca é o arrastar): fecha e
+      // reabre o vídeo — o player não pode voltar sozinho.
+      await page.locator('.pswp__button--close').tap();
+      await espera(page, 700);
+      await page.locator('.g-t').nth(1).tap();
+      await page.waitForSelector('.pswp--open', { timeout: 5000 });
+      await espera(page, 900);
+    } else {
+      await page.locator('.pswp__button--arrow--prev').click();
+      await espera(page, 800);
+      await page.locator('.pswp__button--arrow--next').click();
+      await espera(page, 800);
+    }
+    const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
+    registra(volta.iframes === 0 && volta.botao, `Vídeo ${nome}: sair do slide e voltar traz a fachada de novo (o vídeo parou)`, volta);
+
+    // Live Photo: o download oferece a foto E o vídeo do Live.
+    if (toque) await page.locator('.pswp__button--close').tap(); else await page.locator('.pswp__button--close').click();
+    await espera(page, 600);
+    registra(estado.erros.length === 0 && estado.csp.length === 0, `Vídeo ${nome}: sem erro de JS nem violação de CSP`, [...estado.erros, ...estado.csp]);
+    await ctx.close();
+  });
+}
+await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
+  // Prova de que a liberação do frame do Drive é mesmo o que faz o player
+  // funcionar: sem ela (página sem vídeo no servidor) o navegador bloqueia.
+  const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: false });
+  await page.locator('.g-t').nth(1).click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(page, 800);
+  await page.locator('.g-vid-play').first().click();
+  await espera(page, 800);
+  registra(estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0, 'Vídeo: sem a liberação no CSP o frame do Drive é barrado (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive });
+  await ctx.close();
+});
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {

@@ -17,7 +17,7 @@ import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
-import { pastaDoDrive, listaPasta, achaFoto, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -647,8 +647,10 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     // vez de entender que as fotos sumiram.
     return indisponivel();
   }
+  // Só fotos: o sitemap de imagens do Google não aceita vídeo (item 1f).
   const fotos = semOcultas(listagem, normalizaOcultas(event.fotosOcultas)).secoes
     .flatMap(s => s.fotos)
+    .filter(f => !ehVideo(f))
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
   const pagina = `${SITE_URL}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
@@ -3577,18 +3579,20 @@ async function readJsonBody(request) {
  * @param {string} content
  * @param {number} [status]
  * @param {string} [nonce]
+ * @param {{ driveFrame?: boolean }} [opcoes]
  */
-function html(content, status = 200, nonce = '') {
-  return new Response(content, { status, headers: htmlSecurityHeaders(nonce) });
+function html(content, status = 200, nonce = '', opcoes) {
+  return new Response(content, { status, headers: htmlSecurityHeaders(nonce, opcoes) });
 }
 
 /**
  * @param {string} content
  * @param {number} [status]
  * @param {string} [nonce]
+ * @param {{ driveFrame?: boolean }} [opcoes]
  */
-function adminHtml(content, status = 200, nonce = '') {
-  return new Response(content, { status, headers: adminHtmlSecurityHeaders(nonce) });
+function adminHtml(content, status = 200, nonce = '', opcoes) {
+  return new Response(content, { status, headers: adminHtmlSecurityHeaders(nonce, opcoes) });
 }
 
 /**
@@ -3870,6 +3874,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   // com uma galeria para mostrar: o token de formulário (3 s de idade mínima,
   // 2 h de validade) é assinado a cada abertura, sem gravar nada.
   const formToken = !dono && listagem ? await mintFormToken(env, 'galeria-remocao') : '';
+  // O player do Drive só entra na CSP (frame-src) de página que tem vídeo.
+  const opcoesCsp = listagem && temVideo(listagem) ? { driveFrame: true } : undefined;
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
     capituloNome: capitulo ? capitulo.nome : '',
@@ -3882,14 +3888,14 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   if (dono || isRestrictedAccess(event)) {
     // Dono e família/privado: o perfil do painel (no-store, noindex) — o que
     // é de passe nunca fica em cache nem vai para busca.
-    res = adminHtml(pagina, 200, nonce);
+    res = adminHtml(pagina, 200, nonce, opcoesCsp);
   } else {
     // Visitante de álbum público: o perfil de página pública. `private`: a
     // página leva o nonce da CSP, e um cache compartilhado o repetiria para
     // todos; `no-cache`: cada visita revalida, então foto oculta some em até 2 min
     // (o prazo da propagação do painel, não "na hora"; a economia de cota é a listagem de 10 min do listaPasta, não este
     // HTML). Sem `no-store`, o voltar/avançar do navegador funciona (bfcache).
-    res = html(pagina, 200, nonce);
+    res = html(pagina, 200, nonce, opcoesCsp);
     res.headers.set('Cache-Control', 'private, no-cache');
     if (!indexavel) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   }
@@ -4079,13 +4085,19 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
     if (!(e instanceof DriveError)) throw e;
     return erroDriveNoDownload(request, e);
   }
-  const foto = achaFoto(listagem, fileId);
-  if (!foto) return notFound();
-  // Foto oculta é, para o público, foto que não existe. O dono ainda baixa.
-  if (!dono && normalizaOcultas(event.fotosOcultas).includes(fileId)) return notFound();
+  // `foto` é o item da galeria (foto ou vídeo); `arquivo` é o que se entrega —
+  // o próprio item ou, no Live Photo, o vídeo dele (item 1f).
+  const achado = achaArquivo(listagem, fileId);
+  if (!achado) return notFound();
+  const foto = achado.foto;
+  // Foto oculta é, para o público, foto que não existe (e o vídeo do Live
+  // Photo some junto com a foto). O dono ainda baixa.
+  if (!dono && normalizaOcultas(event.fotosOcultas).includes(foto[0])) return notFound();
+  // O Live Photo e o vídeo não têm versão "para redes".
+  if (pastaIg && (achado.live || ehVideo(foto))) return notFound();
 
   // O arquivo a servir: o próprio (max) ou o par da pasta do Instagram (redes).
-  let alvoFoto = foto;
+  let alvoFoto = achado.arquivo;
   let origem = listagem;
   if (pastaIg) {
     try {
@@ -4162,8 +4174,9 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // Com "Nomes amigáveis nos downloads" ligado no projeto, só o NOME muda
   // (nomes.js, calculado aqui a partir da listagem, nunca do cliente); os bytes
   // são os do Drive, sem tocar em nada.
+  // (O vídeo do Live Photo leva o nome amigável da foto, com a extensão dele.)
   const nome = event.nomesAmigaveis
-    ? nomeAmigavel(listagem, { titulo: event.title, capitulo: capitulo ? capitulo.nome : '' }, fileId, alvoFoto[3]) || alvoFoto[3]
+    ? nomeAmigavel(listagem, { titulo: event.title, capitulo: capitulo ? capitulo.nome : '' }, foto[0], alvoFoto[3]) || alvoFoto[3]
     : alvoFoto[3];
   const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
   // `no-transform`: nenhum intermediário (CDN, operadora) pode recomprimir a foto.

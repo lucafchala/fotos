@@ -118,7 +118,7 @@ describe('cabeçalhos para o player', () => {
   it('a Permissions-Policy delega autoplay e tela cheia só ao player', () => {
     const pp = htmlSecurityHeaders('n')['Permissions-Policy'];
     expect(pp).toContain('autoplay=(self "https://www.youtube-nocookie.com")');
-    expect(pp).toContain('fullscreen=(self "https://www.youtube-nocookie.com")');
+    expect(pp).toContain('fullscreen=(self "https://www.youtube-nocookie.com" "https://drive.google.com")');
     expect(pp).toContain('camera=()');
   });
 });

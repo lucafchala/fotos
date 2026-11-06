@@ -51,14 +51,14 @@ const EVENTOS = [
   { id: '2', slug: 'so-arquivo', title: 'Só arquivo', accessType: 'public', driveUrl: 'https://drive.google.com/file/d/ARQUIVO_SOLTO_1/view' },
 ];
 
-// A pasta de mentira: raiz com fotos (uma girada, uma sem dimensões), um
-// vídeo, um PDF e uma subpasta com duas páginas de resultado.
+// A pasta de mentira: raiz com fotos (uma girada, uma sem dimensões), um PDF
+// e uma subpasta com duas páginas de resultado. (Vídeo e Live Photo têm a
+// pasta deles em galeria-midia.test.js: aqui a galeria é só de fotos.)
 const ARVORE = {
   [RAIZ]: [[
     { id: 'FOTO_DEZ_00010', name: '010.jpg', mimeType: 'image/jpeg', size: '18000000', imageMediaMetadata: { width: 6000, height: 4000, rotation: 0 } },
     { id: 'FOTO_DOIS_0002', name: '002.jpg', mimeType: 'image/jpeg', size: '17000000', imageMediaMetadata: { width: 6000, height: 4000, rotation: 1 } },
     { id: 'FOTO_UM_000001', name: '1.HEIC', mimeType: 'image/heic', size: '3000000', resourceKey: 'rkFoto' },
-    { id: 'VIDEO_0000001', name: 'v.mp4', mimeType: 'video/mp4' },
     { id: 'PDF_000000001', name: 'contrato.pdf', mimeType: 'application/pdf' },
     { id: SUB, name: 'Festa', mimeType: 'application/vnd.google-apps.folder', resourceKey: 'rkSub' },
   ]],
@@ -167,7 +167,7 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     expect(chamadas).toHaveLength(0);
   });
 
-  it('raiz primeiro, subpasta vira seção; ordem natural; rotação aplicada; vídeo e PDF só contados', async () => {
+  it('raiz primeiro, subpasta vira seção; ordem natural; rotação aplicada; PDF só contado', async () => {
     const d = await listaPasta(env, { id: RAIZ, resourceKey: '' });
     expect(d.secoes.map(s => s.nome)).toEqual(['', 'Festa']);
     // "1" antes de "002" antes de "010": a numeração do fotógrafo.
@@ -179,7 +179,7 @@ describe('listaPasta — a pasta lida pela Drive API', () => {
     // Duas páginas de resultado na subpasta, as duas lidas.
     expect(d.secoes[1].fotos.map(f => f[3])).toEqual(['a.jpg', 'b.jpg']);
     expect(d.total).toBe(5);
-    expect(d.videos).toBe(1);
+    expect(d.videos).toBe(0);
     expect(d.outros).toBe(1);
     expect(d.truncada).toBe(false);
     expect(d.rk).toEqual({ FOTO_UM_000001: 'rkFoto' });
@@ -298,7 +298,9 @@ describe('/galeria/<slug> — só o dono', () => {
     expect(html).toContain('Formatura 2026');
     expect(html).toContain('class="g-dono"');
     for (const v of VENDOR) expect(html).toContain(v.path);
-    expect(html).not.toMatch(/vídeo/); // aviso de vídeos removido (29/10/2026)
+    // O aviso "vídeos ficam de fora" (removido em 29/10/2026) não volta: desde o
+    // item 1f o vídeo é um item da galeria, não uma ausência a explicar.
+    expect(html).not.toMatch(/vídeos? (ficam|foram|não)/i);
   });
 
   it('logado, projeto inexistente: 404', async () => {

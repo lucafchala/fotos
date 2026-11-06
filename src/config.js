@@ -294,6 +294,10 @@ export const GALERIA_MAX_CHAMADAS = 26;
 // 50. Está medido em tests/galeria.test.js ("orçamento": 47 no download "para
 // redes" e o teto asserido é 49): subir qualquer teto aqui, ou gastar uma
 // subrequisição a mais nesse caminho, reprova o teste.
+// Vídeo e Live Photo (item 1f) não pesam nesta conta: entram na MESMA leitura
+// da pasta (só mais um campo, sem chamada extra), o player do Drive é um iframe
+// do navegador do visitante e o download de vídeo é UMA subrequisição (o
+// "máx", sem a versão "para redes"), igual à de uma foto.
 // Passou do teto, as fotos do fim da lista ficam sem versão "para redes".
 export const GALERIA_MAX_CHAMADAS_IG = 6;
 // Galeria por capítulos (v3.1): cada subpasta de primeiro nível da pasta do

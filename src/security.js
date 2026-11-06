@@ -18,6 +18,11 @@ const CSP_IMAGES = "https://*.googleusercontent.com https://drive.google.com";
 // play. Nenhum outro host do YouTube precisa entrar.
 const CSP_YT_THUMB = 'https://i.ytimg.com';
 const CSP_YT_PLAYER = 'https://www.youtube-nocookie.com';
+// Vídeo da galeria (item 1f): o player do Drive (/file/d/<id>/preview) é um
+// iframe que só entra na página quando a pessoa toca no play. A origem só vai
+// para `frame-src` das páginas de galeria COM vídeo (opção `driveFrame`); o
+// resto do site nunca a vê.
+const CSP_DRIVE_PLAYER = 'https://drive.google.com';
 
 // 2 anos (não 1) porque é o que a lista de preload do Chrome exige — mas
 // `preload` em si não está declarado de propósito: é praticamente irreversível
@@ -34,7 +39,7 @@ const PERMISSIONS_POLICY = [
   // botão de tela cheia. O `allow` do iframe não passa do que está aqui.
   'accelerometer=()', `autoplay=(self "${CSP_YT_PLAYER}")`,
   'camera=()', 'display-capture=()', `encrypted-media=(self "${CSP_YT_PLAYER}")`,
-  `fullscreen=(self "${CSP_YT_PLAYER}")`, 'gamepad=()', 'geolocation=()', 'gyroscope=()',
+  `fullscreen=(self "${CSP_YT_PLAYER}" "${CSP_DRIVE_PLAYER}")`, 'gamepad=()', 'geolocation=()', 'gyroscope=()',
   'hid=()', 'idle-detection=()', 'local-fonts=()', 'magnetometer=()',
   'microphone=()', 'midi=()', 'payment=()', `picture-in-picture=(self "${CSP_YT_PLAYER}")`,
   'publickey-credentials-get=()', 'screen-wake-lock=()', 'serial=()',
@@ -91,8 +96,9 @@ export function generateNonce() {
 // todo <style> das páginas morreria.
 /**
  * @param {string} nonce
+ * @param {{ driveFrame?: boolean }} [opcoes] `driveFrame`: a página abre o player do Drive (galeria com vídeo)
  */
-export function contentSecurityPolicy(nonce) {
+export function contentSecurityPolicy(nonce, { driveFrame = false } = {}) {
   // Sem nonce (páginas de erro, sem script) a fonte é omitida em vez de virar
   // um 'nonce-' vazio, que o browser trataria como token sintaticamente
   // inválido.
@@ -110,7 +116,7 @@ export function contentSecurityPolicy(nonce) {
     "font-src 'self'",
     `img-src 'self' data: blob: ${CSP_IMAGES} ${CSP_YT_THUMB}`,
     `connect-src 'self' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_CONNECT}`,
-    `frame-src ${CSP_TURNSTILE} ${CSP_YT_PLAYER}`,
+    `frame-src ${CSP_TURNSTILE} ${CSP_YT_PLAYER}${driveFrame ? ` ${CSP_DRIVE_PLAYER}` : ''}`,
     // Nada abaixo é usado pelo site: negar explicitamente evita que um dia um
     // <object>/<embed> injetado tenha para onde ir.
     "object-src 'none'",
@@ -135,8 +141,11 @@ export function contentSecurityPolicy(nonce) {
 // Cabeçalhos de uma página HTML pública. UM cabeçalho de CSP só: a estrita é a
 // aplicada, e um `Content-Security-Policy-Report-Only` ao lado dela repetiria
 // cada relatório e cada mensagem de console.
-/** @param {string} nonce */
-export function htmlSecurityHeaders(nonce) {
+/**
+ * @param {string} nonce
+ * @param {{ driveFrame?: boolean }} [opcoes]
+ */
+export function htmlSecurityHeaders(nonce, opcoes) {
   return {
     ...baseHeaders(),
     'Content-Type': 'text/html; charset=utf-8',
@@ -145,7 +154,7 @@ export function htmlSecurityHeaders(nonce) {
     'Cross-Origin-Resource-Policy': 'same-site',
     // Sem COEP de propósito: as fotos vêm de lh3.googleusercontent.com, que
     // não manda CORP, e `require-corp` apagaria a galeria inteira.
-    'Content-Security-Policy': contentSecurityPolicy(nonce),
+    'Content-Security-Policy': contentSecurityPolicy(nonce, opcoes),
     'Reporting-Endpoints': 'csp="/api/csp-report"',
   };
 }
@@ -153,10 +162,13 @@ export function htmlSecurityHeaders(nonce) {
 // Cabeçalhos das páginas autenticadas (painel e login). Além do que a página
 // pública leva: nada de cache em disco compartilhado, nada de indexação e
 // nenhum referrer vazando URL de painel para terceiros.
-/** @param {string} nonce */
-export function adminHtmlSecurityHeaders(nonce) {
+/**
+ * @param {string} nonce
+ * @param {{ driveFrame?: boolean }} [opcoes]
+ */
+export function adminHtmlSecurityHeaders(nonce, opcoes) {
   return {
-    ...htmlSecurityHeaders(nonce),
+    ...htmlSecurityHeaders(nonce, opcoes),
     'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
     Pragma: 'no-cache',
     Expires: '0',
