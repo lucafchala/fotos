@@ -54,7 +54,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -249,6 +249,11 @@ const worker = {
     const url = new URL(request.url);
     const path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
+
+    // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
+    // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js.
+    const desvioDoDominio = rotaDoDominioDeAlbum(url, path);
+    if (desvioDoDominio) return desvioDoDominio;
 
     // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker
     // está atendendo", e restringir a uma rota faria o monitor depender de
@@ -3643,6 +3648,28 @@ function html(content, status = 200, nonce = '', opcoes) {
  */
 function adminHtml(content, status = 200, nonce = '', opcoes) {
   return new Response(content, { status, headers: adminHtmlSecurityHeaders(nonce, opcoes) });
+}
+
+/**
+ * O desvio de um domínio de álbum, ou null quando a requisição segue o
+ * roteamento normal (outro domínio, ou uma rota que responde igual lá).
+ * @param {URL} url
+ * @param {string} path
+ * @returns {Response | null}
+ */
+export function rotaDoDominioDeAlbum(url, path) {
+  const host = url.hostname.toLowerCase();
+  const dominio = host.startsWith('www.') ? host.slice(4) : host;
+  if (!Object.hasOwn(DOMINIOS_DE_ALBUM, dominio)) return null;
+  if (host !== dominio) {
+    return new Response(null, {
+      status: 301,
+      headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `https://${dominio}${url.pathname}${url.search}` },
+    });
+  }
+  if (path === '/') return redirect(`/galeria/${DOMINIOS_DE_ALBUM[dominio]}${url.search}`);
+  if (path === '/dashboard' || path.startsWith('/dashboard/')) return redirect(`${SITE_URL}/dashboard`);
+  return null;
 }
 
 /**

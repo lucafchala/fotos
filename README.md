@@ -260,6 +260,11 @@ npm run build:icons
   mesma versão, roda o smoke em produção e reverte sozinho se o smoke reprovar.
 - **Rollback.** Actions → Deploy → Run workflow com o `version_id` da versão boa
   anterior; depois, `git revert` para `main` e produção não divergirem.
+- **Domínios.** `fotos.lucafchala.com` e `entrenos2026.com` são Custom
+  Domains do mesmo Worker, ligados no painel da Cloudflare (não no
+  `wrangler.toml`). Um domínio de álbum leva a raiz direto à galeria do
+  projeto: a lista fica em `DOMINIOS_DE_ALBUM`, em `src/config.js`. Domínio
+  novo também entra no widget do Turnstile.
 - **Detalhes.** [Deploy](./docs/REFERENCIA.md#deploy) e
   [Prévia de PR](./docs/REFERENCIA.md#prévia-de-pr-testar-antes-do-merge).
 

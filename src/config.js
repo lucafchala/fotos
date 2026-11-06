@@ -37,6 +37,20 @@ export const DEFAULT_EVENT = {
 // com a velha recusaria todo envio.
 export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
 
+// Domínio próprio de um álbum (entrenos2026.com → álbum da Turma 2026). É o
+// mesmo Worker, ligado ao domínio como Custom Domain no painel da Cloudflare
+// (igual ao fotos.lucafchala.com — nada disso vai no wrangler.toml, que
+// derrubaria o deploy enquanto a zona não existir na conta). Nesse endereço:
+//   - a raiz leva direto à galeria do álbum (302, para poder mudar depois);
+//   - www. vai para o domínio sem www. (301);
+//   - o painel volta para o domínio principal, onde mora a sessão;
+//   - o resto responde igual (mesma origem para formulários e downloads).
+// Chave = domínio sem www., valor = slug do projeto no painel.
+// ⚠️ O Turnstile só vale nos domínios cadastrados no widget: adicione o
+// domínio lá também, ou todo formulário desta origem é recusado.
+/** @type {Readonly<Record<string, string>>} */
+export const DOMINIOS_DE_ALBUM = Object.freeze({ 'entrenos2026.com': 'entrenos2026' });
+
 // Rate limit por IP do portão do Drive — balde de fichas (RateLimiter.take).
 // Dimensionado para o caso real de pico: o público de um evento abrindo o
 // link AO MESMO TEMPO, no Wi-Fi do local — e um Wi-Fi de local é UM IPv4

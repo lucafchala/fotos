@@ -69,6 +69,11 @@ decisão do dono.
 - **Aba Galeria nas métricas**: aberturas por dia, fotos baixadas (redes e
   tamanho máximo), baixadas por abertura, comparação com o período anterior,
   ranking por capítulo e CSV.
+- **Domínio próprio do álbum.** `entrenos2026.com` abre direto na galeria do
+  álbum da Turma 2026 (projeto `entrenos2026`); `www.` vai para o domínio sem
+  `www.`, o painel volta para `fotos.lucafchala.com` e o resto do site responde
+  igual. O domínio é ligado ao Worker no painel da Cloudflare (Custom Domain)
+  e precisa estar também no widget do Turnstile.
 
 ### Mudou
 
