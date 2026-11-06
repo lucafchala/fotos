@@ -830,7 +830,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     <div class="secao-cabeca">
       <div>
         <h1 id="h-pedidos">Pedidos de remoção</h1>
-        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Para tirar da galeria do site (em até 2 minutos), abra a foto na galeria do projeto e toque no olho (“Ocultar dos visitantes”); depois remova a foto no Drive e marque como resolvido — a pessoa recebe um e-mail.</p>
+        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Pedidos pela galeria não escondem a foto: ela continua no ar até você decidir. “Remover da galeria” esconde a foto (em até 2 minutos) e “Manter na galeria” a deixa visível; nos dois casos a pessoa recebe a resposta por e-mail. Depois de remover, apague também a foto no Drive. Pedidos de outros tipos: tire a foto pelo olho (“Ocultar dos visitantes”) na galeria do projeto e marque como resolvido.</p>
       </div>
     </div>
     <div id="requests-body"><p class="empty">Carregando…</p></div>
@@ -2400,7 +2400,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
 
         const methodLabel = { number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' };
         const motivoLabel = { eu: 'Sou eu na foto', menor: 'Responsável por um menor na foto', outro: 'Outro motivo' };
-        const desfechoLabel = { mantida: 'foto mantida oculta', devolvida: 'foto devolvida à galeria' };
+        const desfechoLabel = { removida: 'foto removida da galeria', mantida_na_galeria: 'foto mantida na galeria', mantida: 'foto mantida oculta', devolvida: 'foto devolvida à galeria' };
         // Miniatura (a mesma do lh3 que a galeria usa) e o link para o álbum.
         // fotoId só chega aqui com ID de Drive válido (o servidor e o restore
         // conferem), e vai por esc() do mesmo jeito.
@@ -2415,11 +2415,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           </div>\`;
         const statusGaleriaHTML = r => r.origem !== 'galeria' ? '' : \`
           \${r.prioridade ? '<span class="req-prio">Prioridade: menor de idade</span>' : ''}
-          <span class="req-mail \${r.ocultada ? 'ok' : 'falhou'}">\${r.desfecho ? esc(desfechoLabel[r.desfecho] || r.desfecho) : r.ocultada ? 'foto oculta da galeria desde o pedido' : 'foto NÃO foi ocultada (limite de pedidos): decida abaixo'}</span>\`;
+          <span class="req-mail \${r.desfecho || r.ocultada ? 'ok' : ''}">\${r.desfecho ? esc(desfechoLabel[r.desfecho] || r.desfecho) : r.ocultada ? 'a foto está oculta da galeria' : 'a foto continua na galeria até você decidir'}</span>\`;
         const botoesGaleriaHTML = r => \`
             <div class="req-acoes">
-              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="mantida" data-id="\${esc(r.id)}">\${r.ocultada ? 'Manter oculta' : 'Ocultar da galeria'}</button>
-              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="devolvida" data-id="\${esc(r.id)}">\${r.ocultada ? 'Devolver à galeria' : 'Manter na galeria'}</button>
+              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="removida" data-id="\${esc(r.id)}">Remover da galeria</button>
+              <button class="btn-resolve" data-action="decidirFoto" data-desfecho="mantida_na_galeria" data-id="\${esc(r.id)}">Manter na galeria</button>
             </div>\`;
 
         // esc() no id como em todo o resto do arquivo. Hoje ele é hexadecimal
@@ -2504,10 +2504,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       if (btn) btn.disabled = true;
       try {
         // Com desfecho (só nos pedidos da galeria), o servidor também decide a
-        // foto: 'mantida' = fica oculta, 'devolvida' = volta para a galeria.
+        // foto: 'removida' = fica oculta, 'mantida_na_galeria' = fica (ou volta) visível.
         await api('PUT', '/api/removal-requests/' + id + '/resolve', desfecho ? { desfecho: desfecho } : undefined);
         await loadRequests();
-        toast(desfecho === 'devolvida' ? 'Foto devolvida à galeria e pedido resolvido.' : desfecho === 'mantida' ? 'Foto mantida oculta e pedido resolvido.' : 'Solicitação marcada como resolvida.', 'ok');
+        toast(desfecho === 'mantida_na_galeria' ? 'Foto mantida na galeria. A pessoa foi avisada por e-mail.' : desfecho === 'removida' ? 'Foto removida da galeria. A pessoa foi avisada por e-mail.' : 'Solicitação marcada como resolvida.', 'ok');
       } catch(err) {
         toast(err.message || 'Erro.', 'err');
         if (btn) btn.disabled = false;

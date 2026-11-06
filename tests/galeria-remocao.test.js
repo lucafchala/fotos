@@ -1,16 +1,17 @@
-// "Pedir remoção desta foto" na galeria: o visitante pede, a foto sai na hora e
-// o dono decide no painel. O que estes testes prendem:
+// "Pedir remoção desta foto" na galeria é APROVAÇÃO PELO DONO (v3.1): o pedido
+// do visitante NÃO esconde nada. O que estes testes prendem:
 //
-//  1. O pedido válido ESCONDE a foto (fotosOcultas + ocultasPendentes), registra
-//     o pedido em Pedidos e manda os e-mails; "menor" é prioridade.
-//  2. Nada esconde sem as defesas: Turnstile, token do formulário, honeypot, foto
-//     que NÃO está no álbum, álbum de família sem o passe, "Em breve".
-//  3. Os tetos: por IP/dia e por álbum/dia. Passado o teto, o pedido É registrado
-//     e avisado, a foto NÃO é escondida e a resposta diz a verdade.
-//  4. O painel: "Manter oculta" e "Devolver à galeria" resolvem o pedido e
-//     acertam a foto; o restore saneia `ocultasPendentes`.
-//  5. A foto escondida some do HTML, do JSON-LD, do sitemap e do download.
-//  6. Custo: UMA escrita do evento (mais as do pedido), nunca uma por visitante.
+//  1. O pedido válido vai ao painel (Pedidos) e por e-mail ao dono na hora;
+//     "menor" é prioridade (assunto do e-mail). A foto continua na galeria, o
+//     evento não é escrito, e a confirmação a quem pediu promete só a análise.
+//  2. Sem as defesas (Turnstile, token do formulário, honeypot, foto que NÃO
+//     está no álbum, família sem o passe, "Em breve") nada é registrado.
+//  3. Só há teto por IP: 30/dia ao painel, até 200/dia só por e-mail (sem KV),
+//     depois 429 amigável. Não existem mais os tetos de "ocultar" (5/IP, 20/álbum).
+//  4. O painel: "Remover da galeria" esconde e avisa; "Manter na galeria" deixa
+//     (ou devolve) a foto e avisa; desfechos antigos e restore de backup antigo
+//     (com `ocultasPendentes`) seguem funcionando.
+//  5. O "Ocultar" do próprio dono continua imediato.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker, { sanitizeRestoredRequest, mintFormToken } from '../src/index.js';
@@ -19,7 +20,7 @@ import { saveEvents } from '../src/utils.js';
 import { signToken } from '../src/security.js';
 import { dashboardHTML } from '../src/ui/dashboard.js';
 import {
-  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA,
+  GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA,
   GALERIA_MAX_OCULTAS, DEFAULT_EVENT,
 } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
@@ -85,6 +86,7 @@ beforeEach(async () => {
     TURNSTILE_SECRET_KEY: 'ts-secret',
     RESEND_API_KEY: 'resend-key',
     SIGNING_SECRET: SEGREDO,
+    ADMIN_EMAIL: 'dono@example.com',
   });
   await saveEvents(env, [structuredClone(EVENTO)]);
   env.FOTOS._escritas.length = 0;
@@ -134,17 +136,15 @@ const dono = path => worker.fetch(new Request(SITE + path, {
 
 // ---------------------------------------------------------------------------
 describe('pedido válido', () => {
-  it('esconde a foto na hora, grava a pendência e responde que foi ocultada', async () => {
+  it('NÃO esconde a foto: nada em fotosOcultas, nenhuma escrita do evento, resposta só { ok: true }', async () => {
     const res = await pede();
     expect(res.status).toBe(200);
-    const j = await res.json();
-    expect(j.ok).toBe(true);
-    expect(j.ocultada).toBe(true);
-    expect(ocultas()).toEqual([FOTO_A]);
-    expect(pendentes()).toHaveLength(1);
-    expect(pendentes()[0].id).toBe(FOTO_A);
-    expect(pendentes()[0].pedido).toMatch(/^[a-f0-9]+$/);
-    expect(Number.isNaN(Date.parse(pendentes()[0].em))).toBe(false);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(ocultas()).toEqual([]);
+    expect(pendentes()).toEqual([]);
+    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(0);
+    // A foto continua para o visitante.
+    expect(await (await visitante('/galeria/formatura')).text()).toContain(FOTO_A);
   });
 
   it('registra o pedido em Pedidos com foto, link da galeria, motivo e e-mail; manda os dois e-mails', async () => {
@@ -153,43 +153,66 @@ describe('pedido válido', () => {
     expect(pedidos).toHaveLength(1);
     expect(pedidos[0]).toMatchObject({
       origem: 'galeria', method: 'galeria', eventSlug: 'formatura', fotoId: FOTO_A, fotoNome: 'a.jpg',
-      motivo: 'eu', ocultada: true, email: 'ana@example.com', resolved: false,
+      motivo: 'eu', ocultada: false, email: 'ana@example.com', resolved: false,
       value: `${SITE}/galeria/formatura`,
     });
     expect(pedidos[0].prioridade).toBeFalsy();
-    expect(pedidos[0].id).toBe(pendentes()[0].pedido);
-    // Um e-mail para o dono e a confirmação para quem pediu.
+    // Um e-mail para o dono (na hora) e a confirmação para quem pediu.
     expect(emails.length).toBeGreaterThanOrEqual(2);
     expect(emails.some(e => [].concat(e.to).includes('ana@example.com'))).toBe(true);
+    expect(emails.some(e => [].concat(e.to).includes('dono@example.com'))).toBe(true);
   });
 
-  it('"Sou responsável por um menor" é prioridade, e esconde do mesmo jeito', async () => {
+  it('a confirmação a quem pediu promete análise, nunca remoção imediata', async () => {
+    await pede();
+    const conf = emails.find(e => [].concat(e.to).includes('ana@example.com'));
+    expect(conf.html).toContain('Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.');
+    for (const e of emails) {
+      expect(e.html).not.toMatch(/sai na hora|até 2 minutos|foi ocultada/i);
+    }
+  });
+
+  it('"Sou responsável por um menor" é prioridade (assunto do e-mail ao dono) e também não esconde', async () => {
     const res = await pede({ motivo: 'menor' });
-    expect((await res.json()).ocultada).toBe(true);
-    expect(ocultas()).toEqual([FOTO_A]);
+    expect((await res.json()).ok).toBe(true);
+    expect(ocultas()).toEqual([]);
     const [p] = pedidosGravados(env.FOTOS._store);
     expect(p.prioridade).toBe(true);
     expect(p.motivo).toBe('menor');
-    expect(emails.some(e => /prioridade|menor/i.test(e.subject))).toBe(true);
+    const dono = emails.find(e => [].concat(e.to).includes('dono@example.com'));
+    expect(dono.subject).toMatch(/prioridade/i);
+    // Um pedido comum não leva o assunto de prioridade.
+    emails.length = 0;
+    await pede({ motivo: 'eu' }, { ip: 'novo' });
+    const comum = emails.find(e => [].concat(e.to).includes('dono@example.com'));
+    expect(comum.subject).not.toMatch(/prioridade/i);
   });
 
-  it('pedir de uma foto que já está oculta não duplica nada e não gasta ficha do IP', async () => {
+  it('pedir de uma foto que o dono já escondeu: registra com ocultada=true e não escreve o evento', async () => {
     await comEvento(e => { e.fotosOcultas = [FOTO_A]; });
     const res = await pede();
     expect(res.status).toBe(200);
-    expect((await res.json()).ocultada).toBe(true);
     expect(ocultas()).toEqual([FOTO_A]);
-    expect(pendentes()).toEqual([]);
     expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(0);
-    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(1);
+    const [p] = pedidosGravados(env.FOTOS._store);
+    expect(p.ocultada).toBe(true);
   });
 
-  it('custo de KV: UMA escrita do evento por foto escondida', async () => {
-    await pede();
-    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(1);
+  it('muitas fotos pedidas pelo mesmo IP: nenhuma é escondida (não há mais teto 5/IP nem 20/álbum)', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `FOTO_LOTE_${String(i).padStart(5, '0')}`);
+    fetch.mockImplementation(async (input, init = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      if (url.host === 'challenges.cloudflare.com') return Response.json({ success: true });
+      if (url.host === 'api.resend.com') { emails.push(JSON.parse(init.body)); return Response.json({ id: 'm' }); }
+      return Response.json({ files: ids.map((id, i) => foto(id, `${i}.jpg`)) });
+    });
+    for (const id of ids) expect((await (await pede({ foto: id })).json()).ok).toBe(true);
+    expect(ocultas()).toEqual([]);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(ids.length);
+    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(0);
   });
 
-  it('motivo ou e-mail inválido: 400 e nada escondido', async () => {
+  it('motivo ou e-mail inválido: 400 e nada registrado', async () => {
     expect((await pede({ motivo: 'qualquer' })).status).toBe(400);
     expect((await pede({ email: 'sem-arroba' })).status).toBe(400);
     expect((await pede({ foto: 'x' })).status).toBe(400);
@@ -199,57 +222,52 @@ describe('pedido válido', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('defesas: nada esconde sem elas', () => {
-  it('foto que não está no álbum: 404 e nada oculto nem registrado', async () => {
+describe('defesas: sem elas o pedido nem é registrado', () => {
+  it('foto que não está no álbum: 404 e nada registrado', async () => {
     const res = await pede({ foto: FORA });
     expect(res.status).toBe(404);
-    expect(ocultas()).toEqual([]);
-    expect(pendentes()).toEqual([]);
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
     expect(emails).toHaveLength(0);
   });
 
-  it('Turnstile recusado: 403 e nada escondido', async () => {
+  it('Turnstile recusado: 403 e nada registrado', async () => {
     turnstileOk = false;
     const res = await pede();
     expect(res.status).toBe(403);
-    expect(ocultas()).toEqual([]);
-    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
-  });
-
-  it('sem token do formulário, ou com um token de outro formulário: 403 e nada escondido', async () => {
-    expect((await pede({ form_token: undefined })).status).toBe(403);
-    const outro = await mintFormToken(env, 'remocao', { preAged: true });
-    expect((await pede({ form_token: outro })).status).toBe(403);
-    expect(ocultas()).toEqual([]);
-    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
-  });
-
-  it('token novo demais (menos de 3 s): 403 e nada escondido', async () => {
-    const novo = await mintFormToken(env, 'galeria-remocao');
-    expect((await pede({ form_token: novo })).status).toBe(403);
-    expect(ocultas()).toEqual([]);
-  });
-
-  it('honeypot preenchido: responde 200 comum, sem esconder nem registrar', async () => {
-    const res = await pede({ company_website: 'http://spam.example' });
-    expect(res.status).toBe(200);
-    expect((await res.json()).ocultada).toBe(false);
-    expect(ocultas()).toEqual([]);
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
     expect(emails).toHaveLength(0);
   });
 
-  it('álbum de família: sem o passe 404 (nada escondido); com o passe do álbum, esconde', async () => {
+  it('sem token do formulário, ou com um token de outro formulário: 403', async () => {
+    expect((await pede({ form_token: undefined })).status).toBe(403);
+    const outro = await mintFormToken(env, 'remocao', { preAged: true });
+    expect((await pede({ form_token: outro })).status).toBe(403);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
+  });
+
+  it('token novo demais (menos de 3 s): 403', async () => {
+    const novo = await mintFormToken(env, 'galeria-remocao');
+    expect((await pede({ form_token: novo })).status).toBe(403);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
+  });
+
+  it('honeypot preenchido: responde 200 comum, sem registrar nem mandar e-mail', async () => {
+    const res = await pede({ company_website: 'http://spam.example' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
+    expect(emails).toHaveLength(0);
+  });
+
+  it('álbum de família: sem o passe 404; com o passe do álbum, registra', async () => {
     await comEvento(e => { e.accessType = 'family'; });
     expect((await pede()).status).toBe(404);
-    expect(ocultas()).toEqual([]);
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
     // Passe de outro álbum não vale.
     expect((await pede({}, { cookie: `galeria=${await passeDe('outro')}` })).status).toBe(404);
     const ok = await pede({}, { cookie: `galeria=${await passeDe('formatura')}` });
     expect(ok.status).toBe(200);
-    expect(ocultas()).toEqual([FOTO_A]);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(1);
   });
 
   it('álbum privado sem passe e "Em breve": 404', async () => {
@@ -257,101 +275,18 @@ describe('defesas: nada esconde sem elas', () => {
     expect((await pede()).status).toBe(404);
     await comEvento(e => { e.accessType = 'public'; e.comingSoon = true; });
     expect((await pede()).status).toBe(404);
-    expect(ocultas()).toEqual([]);
+    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-describe('tetos de abuso', () => {
-  it('por IP: a partir da (N+1)ª foto o pedido é registrado e avisado, mas a foto não é escondida', async () => {
-    expect(GALERIA_REMOCAO_OCULTA_POR_IP_DIA).toBeLessThan(GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA);
-    const ids = [];
-    for (let i = 0; i <= GALERIA_REMOCAO_OCULTA_POR_IP_DIA; i++) ids.push(`FOTO_LOTE_${String(i).padStart(5, '0')}`);
-    // Álbum com fotos suficientes para o laço.
-    fetch.mockImplementation(async (input, init = {}) => {
-      const url = new URL(typeof input === 'string' ? input : input.url);
-      if (url.host === 'challenges.cloudflare.com') return Response.json({ success: true });
-      if (url.host === 'api.resend.com') { emails.push(JSON.parse(init.body)); return Response.json({ id: 'm' }); }
-      return Response.json({ files: ids.map((id, i) => foto(id, `${i}.jpg`)) });
-    });
-    const respostas = [];
-    for (const id of ids) respostas.push(await (await pede({ foto: id })).json());
-    expect(respostas.slice(0, GALERIA_REMOCAO_OCULTA_POR_IP_DIA).every(r => r.ocultada)).toBe(true);
-    const ultima = respostas[GALERIA_REMOCAO_OCULTA_POR_IP_DIA];
-    expect(ultima.ok).toBe(true);
-    expect(ultima.ocultada).toBe(false);
-    expect(ultima.motivoNaoOculta).toBe('ip');
-    expect(ocultas()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_IP_DIA);
-    expect(ocultas()).not.toContain(ids[GALERIA_REMOCAO_OCULTA_POR_IP_DIA]);
-    // O pedido da foto não escondida foi registrado.
-    const pedidos = pedidosGravados(env.FOTOS._store);
-    expect(pedidos).toHaveLength(ids.length);
-    expect(pedidos.find(p => p.fotoId === ids[GALERIA_REMOCAO_OCULTA_POR_IP_DIA]).ocultada).toBe(false);
-    // Outro IP continua escondendo.
-    const outro = await (await pede({ foto: ids[GALERIA_REMOCAO_OCULTA_POR_IP_DIA] }, { ip: '198.51.100.77' })).json();
-    expect(outro.ocultada).toBe(true);
+describe('tetos de abuso: só por IP', () => {
+  it('o teto antigo de "ocultar" não existe mais na configuração', () => {
+    expect(GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA).toBeGreaterThan(0);
+    expect(GALERIA_REMOCAO_EMAIL_POR_IP_DIA).toBeGreaterThan(GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA);
   });
 
-  it('por IP: "menor" não fura o teto', async () => {
-    const ids = Array.from({ length: GALERIA_REMOCAO_OCULTA_POR_IP_DIA + 1 }, (_, i) => `FOTO_MENOR_${String(i).padStart(4, '0')}`);
-    fetch.mockImplementation(async (input, init = {}) => {
-      const url = new URL(typeof input === 'string' ? input : input.url);
-      if (url.host === 'challenges.cloudflare.com') return Response.json({ success: true });
-      if (url.host === 'api.resend.com') { emails.push(JSON.parse(init.body)); return Response.json({ id: 'm' }); }
-      return Response.json({ files: ids.map((id, i) => foto(id, `${i}.jpg`)) });
-    });
-    let ultima;
-    for (const id of ids) ultima = await (await pede({ foto: id, motivo: 'menor' })).json();
-    expect(ultima.ocultada).toBe(false);
-    expect(ocultas()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_IP_DIA);
-  });
-
-  it('por álbum/dia: passado o teto o pedido é registrado e a foto não é escondida', async () => {
-    const agora = Date.now();
-    const antigas = Array.from({ length: GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA }, (_, i) => ({
-      id: `FOTO_OLD_${String(i).padStart(6, '0')}`, em: new Date(agora - 60_000).toISOString(), pedido: 'a'.repeat(8),
-    }));
-    await comEvento(e => { e.fotosOcultas = antigas.map(p => p.id); e.ocultasPendentes = antigas; });
-    const res = await pede({}, { ip: 'novo' });
-    expect(res.status).toBe(200);
-    const j = await res.json();
-    expect(j.ok).toBe(true);
-    expect(j.ocultada).toBe(false);
-    expect(j.motivoNaoOculta).toBe('album');
-    expect(ocultas()).not.toContain(FOTO_A);
-    expect(ocultas()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA);
-    const [p] = pedidosGravados(env.FOTOS._store);
-    expect(p).toMatchObject({ fotoId: FOTO_A, ocultada: false, origem: 'galeria' });
-    expect(emails.length).toBeGreaterThanOrEqual(2);
-    // O teto não gasta ficha do IP nem escreve o evento.
-    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(0);
-  });
-
-  it('por álbum/dia: pendência de mais de 24 h não conta', async () => {
-    const velha = new Date(Date.now() - 25 * 3600_000).toISOString();
-    const antigas = Array.from({ length: GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA }, (_, i) => ({
-      id: `FOTO_OLD_${String(i).padStart(6, '0')}`, em: velha, pedido: 'b'.repeat(8),
-    }));
-    await comEvento(e => { e.fotosOcultas = antigas.map(p => p.id); e.ocultasPendentes = antigas; });
-    const j = await (await pede({}, { ip: 'novo' })).json();
-    expect(j.ocultada).toBe(true);
-    expect(ocultas()).toContain(FOTO_A);
-  });
-
-  it('por álbum/dia: foto que já está oculta não conta de novo nem é recusada', async () => {
-    const agora = Date.now();
-    const antigas = Array.from({ length: GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA }, (_, i) => ({
-      id: i === 0 ? FOTO_A : `FOTO_OLD_${String(i).padStart(6, '0')}`, em: new Date(agora).toISOString(), pedido: 'c'.repeat(8),
-    }));
-    await comEvento(e => { e.fotosOcultas = antigas.map(p => p.id); e.ocultasPendentes = antigas; });
-    const j = await (await pede({}, { ip: 'novo' })).json();
-    expect(j.ocultada).toBe(true);
-    expect(j.motivoNaoOculta).toBeUndefined();
-    expect(ocultas()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA);
-    expect(pendentes()).toHaveLength(GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA);
-  });
-
-  it('pedidos por IP/dia: passado o 1º teto, o pedido segue só por e-mail (200, sem KV, sem esconder); o 2º teto dá 429', async () => {
+  it('pedidos por IP/dia: passado o 1º teto, o pedido segue só por e-mail (200, sem KV); o 2º teto dá 429 com página amigável', async () => {
     for (let i = 0; i < GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA; i++) {
       expect([200, 404]).toContain((await pede({ foto: FOTO_A })).status);
     }
@@ -362,14 +297,11 @@ describe('tetos de abuso', () => {
     // Wi-Fi de evento: o 31º pedido do mesmo IP não é erro.
     const res = await pede({ foto: FOTO_B });
     expect(res.status).toBe(200);
-    const j = await res.json();
-    expect(j.ok).toBe(true);
-    expect(j.ocultada).toBe(false);
-    expect(j.motivoNaoOculta).toBe('ip');
+    expect((await res.json()).ok).toBe(true);
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(antes);
-    expect(ocultas()).not.toContain(FOTO_B);
     // O e-mail ao dono saiu (é o único registro desse pedido).
     expect(emails.length).toBeGreaterThan(emailsAntes);
+    expect(emails.slice(emailsAntes).some(e => [].concat(e.to).includes('dono@example.com'))).toBe(true);
     expect(env.FOTOS._escritas.length).toBe(escritasAntes);
     // Só um robô chega ao teto de verdade.
     for (let i = 1; i < GALERIA_REMOCAO_EMAIL_POR_IP_DIA; i++) await pede({ foto: FOTO_B });
@@ -377,43 +309,34 @@ describe('tetos de abuso', () => {
     expect(fim.status).toBe(429);
     expect((await fim.json()).error).toContain('privacidade@');
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(antes);
-  });
-
-  it('o teto de fotos ocultas do projeto vale: sem espaço, o pedido segue registrado e a foto não entra', async () => {
-    const cheias = Array.from({ length: GALERIA_MAX_OCULTAS }, (_, i) => `FOTO_CHEIA_${String(i).padStart(5, '0')}`);
-    await comEvento(e => { e.fotosOcultas = cheias; });
-    const j = await (await pede({}, { ip: 'novo' })).json();
-    expect(j.ocultada).toBe(false);
-    expect(ocultas()).toHaveLength(GALERIA_MAX_OCULTAS);
-    expect(pedidosGravados(env.FOTOS._store)).toHaveLength(1);
+    // Outro IP segue normal.
+    expect((await pede({ foto: FOTO_C }, { ip: '198.51.100.99' })).status).toBe(200);
   });
 });
 
 // ---------------------------------------------------------------------------
-describe('a foto escondida some de tudo o que o visitante alcança', () => {
-  it('HTML, JSON-LD, sitemap de imagens e download; o dono ainda vê, marcada "oculta a pedido"', async () => {
-    const antes = await (await visitante('/galeria/formatura')).text();
-    expect(antes).toContain(FOTO_A);
+describe('o pedido não muda o que o visitante vê', () => {
+  it('HTML, JSON-LD, sitemap de imagens e download seguem com a foto; o dono não vê pendência', async () => {
     await pede();
     const html = await (await visitante('/galeria/formatura')).text();
-    expect(html).not.toContain(FOTO_A);
+    expect(html).toContain(FOTO_A);
     expect(html).toContain(FOTO_B);
-    expect(html).toContain('application/ld+json');
     const xml = await (await visitante('/sitemap-galeria-formatura.xml')).text();
-    expect(xml).not.toContain(FOTO_A);
-    expect(xml).toContain(FOTO_B);
+    expect(xml).toContain(FOTO_A);
     const baixar = await visitante(`/galeria/formatura/baixar/${FOTO_A}?v=max`);
-    expect(baixar.status).toBe(404);
+    expect(baixar.status).toBe(200);
     const meu = await (await dono('/galeria/formatura')).text();
-    expect(meu).toContain(`"ocultas":["${FOTO_A}"]`);
-    expect(meu).toContain(`"pendentes":["${FOTO_A}"]`);
+    expect(meu).toContain('"ocultas":[]');
+    expect(meu).toContain('"pendentes":[]');
   });
 
-  it('a página do visitante leva o link e o formulário; a do dono não', async () => {
+  it('a página do visitante leva o link e o formulário com o texto de análise; a do dono não', async () => {
     const v = await (await visitante('/galeria/formatura')).text();
     expect(v).toContain('"remocao":{"token":"');
     expect(v).toContain('id="g-rem"');
     expect(v).toContain('name="company_website"');
+    expect(v).toContain('O fotógrafo vai analisar');
+    expect(v).not.toMatch(/sai da galeria na hora|em até 2 min(utos)?, enquanto/i);
     const d = await (await dono('/galeria/formatura')).text();
     expect(d).not.toContain('id="g-rem"');
     expect(d).toContain('"remocao":null');
@@ -428,53 +351,91 @@ describe('painel: decidir sobre a foto do pedido', () => {
     body: corpoJson === undefined ? undefined : JSON.stringify(corpoJson),
   }), env, ctx);
   const pedidoGravado = id => JSON.parse(env.FOTOS._store.get(`removal_request:${id}`));
+  const paraPessoa = () => emails.filter(e => [].concat(e.to).includes('ana@example.com'));
 
   async function criaPedido(extra = {}) {
     await pede(extra);
     return pedidosGravados(env.FOTOS._store).find(p => p.fotoId === (extra.foto || FOTO_A));
   }
 
-  it('"Manter oculta": resolve, tira da pendência e mantém em fotosOcultas; manda o e-mail de atendido', async () => {
+  it('"Remover da galeria": esconde a foto (uma escrita do evento), resolve e avisa quem pediu', async () => {
     const p = await criaPedido();
     emails.length = 0;
-    const res = await resolve(p.id, { desfecho: 'mantida' });
+    env.FOTOS._escritas.length = 0;
+    const res = await resolve(p.id, { desfecho: 'removida' });
     expect(res.status).toBe(200);
     expect(ocultas()).toEqual([FOTO_A]);
     expect(pendentes()).toEqual([]);
-    expect(pedidoGravado(p.id)).toMatchObject({ resolved: true, desfecho: 'mantida' });
-    expect(emails.some(e => [].concat(e.to).includes('ana@example.com'))).toBe(true);
+    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(1);
+    expect(pedidoGravado(p.id)).toMatchObject({ resolved: true, desfecho: 'removida' });
+    expect(paraPessoa()).toHaveLength(1);
+    // Some de tudo o que o visitante alcança.
+    const html = await (await visitante('/galeria/formatura')).text();
+    expect(html).not.toContain(FOTO_A);
+    expect(html).toContain(FOTO_B);
+    expect((await visitante(`/galeria/formatura/baixar/${FOTO_A}?v=max`)).status).toBe(404);
+    expect(await (await visitante('/sitemap-galeria-formatura.xml')).text()).not.toContain(FOTO_A);
   });
 
-  it('"Devolver à galeria": tira de fotosOcultas e da pendência, e a foto volta ao visitante', async () => {
+  it('"Manter na galeria": resolve, a foto segue visível e quem pediu recebe o e-mail de "mantida"', async () => {
     const p = await criaPedido();
     emails.length = 0;
-    const res = await resolve(p.id, { desfecho: 'devolvida' });
+    env.FOTOS._escritas.length = 0;
+    const res = await resolve(p.id, { desfecho: 'mantida_na_galeria' });
     expect(res.status).toBe(200);
     expect(ocultas()).toEqual([]);
-    expect(pendentes()).toEqual([]);
-    expect(pedidoGravado(p.id)).toMatchObject({ resolved: true, desfecho: 'devolvida' });
-    // Não diz "foto removida" a quem a foto foi devolvida.
-    expect(emails.some(e => [].concat(e.to).includes('ana@example.com'))).toBe(false);
+    expect(env.FOTOS._escritas.filter(k => k === 'events')).toHaveLength(0);
+    expect(pedidoGravado(p.id)).toMatchObject({ resolved: true, desfecho: 'mantida_na_galeria' });
+    expect(paraPessoa()).toHaveLength(1);
+    expect(paraPessoa()[0].html).toContain('manter a foto na galeria');
+    expect(paraPessoa()[0].html).not.toMatch(/removid|atendid/i);
     expect(await (await visitante('/galeria/formatura')).text()).toContain(FOTO_A);
   });
 
-  it('pedido que o teto não escondeu: "mantida" esconde agora', async () => {
+  it('"Manter na galeria" também devolve uma foto que o dono tinha escondido', async () => {
+    await comEvento(e => { e.fotosOcultas = [FOTO_A]; });
     const p = await criaPedido();
-    await comEvento(e => { e.fotosOcultas = []; e.ocultasPendentes = []; });
-    // Simula o pedido sem esconder (limite): marca como não ocultada.
-    env.FOTOS._store.set(`removal_request:${p.id}`, JSON.stringify({ ...p, ocultada: false }));
+    expect(p.ocultada).toBe(true);
+    expect((await resolve(p.id, { desfecho: 'mantida_na_galeria' })).status).toBe(200);
+    expect(ocultas()).toEqual([]);
+  });
+
+  it('desfechos antigos continuam valendo: "mantida" esconde, "devolvida" devolve (sem e-mail de remoção)', async () => {
+    const p = await criaPedido();
     expect((await resolve(p.id, { desfecho: 'mantida' })).status).toBe(200);
     expect(ocultas()).toEqual([FOTO_A]);
-    expect(pendentes()).toEqual([]);
+    const q = await criaPedido({ foto: FOTO_B });
+    await comEvento(e => { e.fotosOcultas = [FOTO_B]; });
+    emails.length = 0;
+    expect((await resolve(q.id, { desfecho: 'devolvida' })).status).toBe(200);
+    expect(ocultas()).toEqual([]);
+    expect(paraPessoa()).toHaveLength(0);
+  });
+
+  it('"Remover" com o projeto no teto de fotos ocultas: 409 em português e o pedido segue aberto', async () => {
+    const p = await criaPedido();
+    const cheias = Array.from({ length: GALERIA_MAX_OCULTAS }, (_, i) => `FOTO_CHEIA_${String(i).padStart(5, '0')}`);
+    await comEvento(e => { e.fotosOcultas = cheias; });
+    const res = await resolve(p.id, { desfecho: 'removida' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/teto|ocultas/i);
+    expect(ocultas()).toHaveLength(GALERIA_MAX_OCULTAS);
+    expect(pedidoGravado(p.id).resolved).toBe(false);
   });
 
   it('sem corpo, o resolver de sempre: resolve e não mexe na foto', async () => {
     const p = await criaPedido();
     const res = await resolve(p.id);
     expect(res.status).toBe(200);
-    expect(ocultas()).toEqual([FOTO_A]);
-    expect(pendentes()).toHaveLength(1);
+    expect(ocultas()).toEqual([]);
     expect(pedidoGravado(p.id).resolved).toBe(true);
+    expect(pedidoGravado(p.id).desfecho).toBeUndefined();
+  });
+
+  it('desfecho desconhecido é ignorado (só resolve)', async () => {
+    const p = await criaPedido();
+    expect((await resolve(p.id, { desfecho: 'apagar' })).status).toBe(200);
+    expect(ocultas()).toEqual([]);
     expect(pedidoGravado(p.id).desfecho).toBeUndefined();
   });
 
@@ -484,12 +445,23 @@ describe('painel: decidir sobre a foto do pedido', () => {
     env.FOTOS._store.set(`removal_request:${id}`, JSON.stringify({
       id, eventSlug: 'formatura', method: 'number', value: 'IMG_1', email: 'x@example.com', resolved: false, createdAt: new Date().toISOString(), fotoId: FOTO_A,
     }));
-    expect((await resolve(id, { desfecho: 'devolvida' })).status).toBe(200);
+    expect((await resolve(id, { desfecho: 'mantida_na_galeria' })).status).toBe(200);
     expect(ocultas()).toEqual([FOTO_A]);
   });
 
-  it('devolver pelo botão do dono na galeria também encerra a pendência', async () => {
-    await pede();
+  it('o botão "Ocultar" do dono na galeria continua imediato', async () => {
+    const res = await worker.fetch(new Request(SITE + '/api/galeria/ocultar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `__Host-session=${TOKEN}` },
+      body: JSON.stringify({ slug: 'formatura', foto: FOTO_A, oculta: true }),
+    }), env, ctx);
+    expect(res.status).toBe(200);
+    expect(ocultas()).toEqual([FOTO_A]);
+    expect((await (await visitante('/galeria/formatura')).text())).not.toContain(FOTO_A);
+  });
+
+  it('devolver pelo botão do dono na galeria também encerra uma pendência antiga', async () => {
+    await comEvento(e => { e.fotosOcultas = [FOTO_A]; e.ocultasPendentes = [{ id: FOTO_A, em: new Date().toISOString(), pedido: 'ab12' }]; });
     const res = await worker.fetch(new Request(SITE + '/api/galeria/ocultar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: `__Host-session=${TOKEN}` },
@@ -500,16 +472,19 @@ describe('painel: decidir sobre a foto do pedido', () => {
     expect(pendentes()).toEqual([]);
   });
 
-  it('o painel mostra a miniatura, o álbum e as duas ações', () => {
+  it('o painel mostra a miniatura, o álbum e as duas ações novas (sem as antigas)', () => {
     const html = dashboardHTML([], [], 'NONCE');
-    for (const t of ['Manter oculta', 'Devolver à galeria', 'lh3.googleusercontent.com/d/${esc(r.fotoId)}=w160', 'decidirFoto', 'Pedido pela galeria']) {
+    for (const t of ['Remover da galeria', 'Manter na galeria', 'data-desfecho="removida"', 'data-desfecho="mantida_na_galeria"', 'lh3.googleusercontent.com/d/${esc(r.fotoId)}=w160', 'decidirFoto', 'Pedido pela galeria']) {
       expect(html, t).toContain(t);
+    }
+    for (const t of ['Manter oculta', 'Devolver à galeria', 'foto NÃO foi ocultada']) {
+      expect(html, t).not.toContain(t);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-describe('ocultasPendentes: validação e restore', () => {
+describe('ocultasPendentes (campo antigo): validação e restore de backup antigo', () => {
   it('normalizaPendentes: só IDs válidos e ocultos, datas ISO, sem repetir, com teto', () => {
     const r = normalizaPendentes([
       { id: FOTO_A, em: '2026-10-30T10:00:00.000Z', pedido: 'ab12' },

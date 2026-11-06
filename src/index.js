@@ -32,7 +32,7 @@ import {
   verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
-  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
+  sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess, nomeDeConsentimento,
   sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
@@ -52,7 +52,7 @@ import {
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
-  GALERIA_REMOCAO_OCULTA_POR_IP_DIA, GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA, GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
+  GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
@@ -2517,16 +2517,22 @@ async function handleResolveRequest(request, env, id, ctx) {
   // "Solicitação atendida" para a pessoa a cada vez.
   if (req.resolved) return jsonOk(req);
 
-  // Pedido da galeria: o corpo pode trazer o que fazer com a foto —
-  // 'mantida' (segue oculta, só sai da pendência) ou 'devolvida' (volta para a
-  // galeria). Sem corpo, resolve como sempre (o painel antigo, os testes).
+  // Pedido da galeria: o corpo traz o que fazer com a foto.
+  //  - 'removida': a foto sai da galeria (fica oculta); avisa quem pediu e o autor.
+  //  - 'mantida_na_galeria': a foto fica (ou volta) à galeria; avisa quem pediu e o autor.
+  //  - 'mantida' / 'devolvida': os nomes do fluxo antigo (o pedido escondia a
+  //    foto na hora); seguem aceitos para pedidos abertos antes de 3.1.0.
+  // Sem corpo, resolve como sempre (o painel antigo, os testes).
   const corpo = await readJsonBody(request);
-  const desfecho = req.origem === 'galeria' && corpo && ['mantida', 'devolvida'].includes(corpo.desfecho)
-    ? /** @type {'mantida' | 'devolvida'} */ (corpo.desfecho)
+  const desfecho = req.origem === 'galeria' && corpo && DESFECHOS_DA_FOTO.includes(corpo.desfecho)
+    ? /** @type {Desfecho} */ (corpo.desfecho)
     : null;
   if (desfecho) {
     try {
-      await aplicaDesfechoDaFoto(env, req, desfecho);
+      const aplicado = await aplicaDesfechoDaFoto(env, req, desfecho);
+      if (!aplicado) {
+        return jsonErr(`A foto não pôde ser ocultada: o projeto já tem ${GALERIA_MAX_OCULTAS} fotos ocultas (o teto). Devolva alguma à galeria e tente de novo.`, 409);
+      }
     } catch (e) {
       noteKvFailure('escrita', e, 'decisão sobre a foto de um pedido da galeria');
       return jsonErr('A foto não foi atualizada: o banco de dados do site não respondeu. O pedido continua aberto — tente de novo em alguns minutos.', 503);
@@ -2537,18 +2543,19 @@ async function handleResolveRequest(request, env, id, ctx) {
   // a foto foi de fato atualizada; o envio é de fundo e não pode falhar a ação).
   if (desfecho && req.fotoId) {
     const ev = (await getEvents(env)).find(e => e.slug === req.eventSlug);
-    if (ev) ctx?.waitUntil(avisaAutor(env, ev, { fotoId: req.fotoId, tipo: desfecho }));
+    if (ev) ctx?.waitUntil(avisaAutor(env, ev, { fotoId: req.fotoId, tipo: desfecho, capitulo: typeof req.capSlug === 'string' ? req.capSlug : '', capituloNome: typeof req.capitulo === 'string' ? req.capitulo : '' }));
   }
 
-  // Send "resolved" email to requester. "Devolver à galeria" não manda o
-  // "foto removida": seria falso. A pessoa já recebeu a confirmação do pedido e
-  // o dono responde por conta própria a quem pediu.
+  // E-mail a quem pediu. 'removida': o de sempre ("atendida"). 'mantida_na_galeria':
+  // o aviso de que o pedido foi analisado e a foto fica. Os nomes antigos
+  // seguem como eram: 'mantida' manda "atendida", 'devolvida' não manda nada
+  // (seria falso dizer "removida").
   let resolvedEmailStatus;
   if (desfecho === 'devolvida') {
     resolvedEmailStatus = null;
   } else {
     try {
-      const sent = await sendResolvedEmail(env, req);
+      const sent = desfecho === 'mantida_na_galeria' ? await sendMantidaEmail(env, req) : await sendResolvedEmail(env, req);
       resolvedEmailStatus = sent ? 'sent' : null;
     } catch (err) {
       resolvedEmailStatus = 'error: ' + errMessage(err).slice(0, 200);
@@ -2580,31 +2587,43 @@ async function handleResolveRequest(request, env, id, ctx) {
 }
 
 /**
+ * @typedef {'removida' | 'mantida_na_galeria' | 'mantida' | 'devolvida'} Desfecho
+ */
+const DESFECHOS_DA_FOTO = ['removida', 'mantida_na_galeria', 'mantida', 'devolvida'];
+
+/**
  * O que o dono decidiu sobre a foto de um pedido da galeria.
- *  - 'mantida':  a foto termina OCULTA. Se o pedido a escondeu, só sai da lista
- *                de pendências; se não escondeu (passou do teto), esconde agora.
- *  - 'devolvida': a foto termina VISÍVEL: sai de `fotosOcultas` e das pendências.
- * Em ambos a foto deixa `ocultasPendentes` (o que reabre a vaga do teto diário
- * do álbum). Uma escrita do evento, e só se algo mudou.
+ *  - 'removida' (e o antigo 'mantida'): a foto termina OCULTA (sai da galeria).
+ *  - 'mantida_na_galeria' (e o antigo 'devolvida'): a foto termina VISÍVEL: sai
+ *    de `fotosOcultas`.
+ * Nos dois casos a foto deixa `ocultasPendentes` (campo só de pedidos abertos
+ * antes de 3.1.0; o fluxo novo não o preenche). Uma escrita do evento, e só se
+ * algo mudou. Devolve false só quando a foto TERIA de ser ocultada e o projeto
+ * já está no teto de fotos ocultas — nesse caso nada é gravado.
  * @param {Env} env
  * @param {Pedido} req
- * @param {'mantida' | 'devolvida'} desfecho
+ * @param {Desfecho} desfecho
+ * @returns {Promise<boolean>}
  */
 async function aplicaDesfechoDaFoto(env, req, desfecho) {
   const foto = typeof req.fotoId === 'string' ? req.fotoId : '';
-  if (!foto || !idDriveValido(foto)) return;
+  if (!foto || !idDriveValido(foto)) return true;
   const events = await getEvents(env, true);
   const idx = events.findIndex(e => e.slug === req.eventSlug);
-  if (idx === -1) return;
+  if (idx === -1) return true;
   const ocultasAntes = normalizaOcultas(events[idx].fotosOcultas);
   let ocultas = ocultasAntes;
-  if (desfecho === 'devolvida') ocultas = ocultasAntes.filter(id => id !== foto);
-  else if (!ocultasAntes.includes(foto) && ocultasAntes.length < GALERIA_MAX_OCULTAS) ocultas = [...ocultasAntes, foto];
+  if (desfecho === 'devolvida' || desfecho === 'mantida_na_galeria') ocultas = ocultasAntes.filter(id => id !== foto);
+  else if (!ocultasAntes.includes(foto)) {
+    if (ocultasAntes.length >= GALERIA_MAX_OCULTAS) return false;
+    ocultas = [...ocultasAntes, foto];
+  }
   const pendentesAntes = normalizaPendentes(events[idx].ocultasPendentes);
   const pendentes = normalizaPendentes(pendentesAntes.filter(p => p.id !== foto), ocultas);
-  if (ocultas.length === ocultasAntes.length && pendentes.length === pendentesAntes.length) return;
+  if (ocultas.length === ocultasAntes.length && pendentes.length === pendentesAntes.length) return true;
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -4206,30 +4225,27 @@ async function handleOcultarFoto(request, env, ctx) {
   return jsonOk({ ocultas, pendentes: pendentes.map(p => p.id) });
 }
 
-const UM_DIA_MS = 24 * 60 * 60 * 1000;
 
 /**
- * "Pedir remoção desta foto", feito por um VISITANTE da galeria. Esconde a foto
- * na hora (até o dono decidir no painel) e registra um pedido de remoção como
- * qualquer outro — aparece em Pedidos e gera os dois e-mails.
+ * "Pedir remoção desta foto", feito por um VISITANTE da galeria. O pedido NÃO
+ * esconde a foto: só o dono esconde, depois de analisar (decisão do dono,
+ * nov/2026). Ele é registrado como qualquer outro pedido de remoção — aparece
+ * em Pedidos e gera os dois e-mails (ao dono, na hora; ao visitante, a
+ * confirmação) —, e o dono decide no painel: "Remover da galeria" ou "Manter na
+ * galeria". "Responsável por um menor" leva assunto de prioridade.
  *
  * Endpoint próprio, e não o /api/removal-request: aquele pede telefone, o
  * aceite da política e uma forma de identificar a foto (número, link ou
  * arquivo) — três campos que aqui não existem (a foto é a que o visitante tem
- * aberta) — e não tem o efeito de esconder. O miolo comum (gravar, avisar,
- * confirmar) é `registraPedidoPublico`.
+ * aberta). O miolo comum (gravar, avisar, confirmar) é `registraPedidoPublico`.
  *
  * Ordem, da mais barata à mais cara, e cada passo só roda se o anterior passou:
  * honeypot, token do formulário, limite de pedidos por IP, Turnstile, corpo,
  * acesso ao álbum (as mesmas regras da galeria: família/privado só com o passe,
- * "Em breve" é 404), a foto estar NA LISTAGEM, e só então o esconder. Custo no
- * pior caso (listagem fria): ~45 subrequisições dos 50 do plano free; no caso
- * comum, ~10. Escritas de KV: UMA do evento (só se esconder) + as do pedido
- * (registro + carimbo dos e-mails). Nunca uma escrita por visitante.
- *
- * Esconder tem teto (config.js): por IP/dia e por álbum/dia. Passado o teto, o
- * pedido é registrado e avisado do mesmo jeito; a foto NÃO é escondida e a
- * resposta diz que o fotógrafo vai analisar.
+ * "Em breve" é 404) e a foto estar NA LISTAGEM. Custo no pior caso (listagem
+ * fria): ~45 subrequisições dos 50 do plano free; no caso comum, ~10. Escritas
+ * de KV: só as do pedido (registro + carimbo dos e-mails), NENHUMA do evento —
+ * e nunca uma por visitante.
  * @param {Request} request
  * @param {Env} env
  * @param {ExecutionContext} [ctx]
@@ -4239,8 +4255,8 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
   // Honeypot: 200 comum, como no formulário do projeto — um 4xx ensinaria ao
-  // bot que existe um campo a evitar. Não esconde nada.
-  if (honeypotTripped(body[HONEYPOT_FIELD])) return jsonOk({ ok: true, ocultada: false });
+  // bot que existe um campo a evitar.
+  if (honeypotTripped(body[HONEYPOT_FIELD])) return jsonOk({ ok: true });
 
   const formSecret = signingSecret(env);
   if (formSecret) {
@@ -4311,53 +4327,10 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   const achada = achaFoto(listagem, foto);
   if (!achada) return jsonErr('Essa foto não está mais nesta galeria.', 404);
 
-  // Esconder, ou não. `ocultada` é o que ficou verdade, e vai no pedido.
+  // `ocultada` é só informação para o dono: a foto JÁ estava oculta (ele mesmo
+  // a escondeu antes). O pedido nunca esconde nada.
   const pedidoId = generateId();
-  let ocultada = normalizaOcultas(evento.fotosOcultas).includes(foto);
-  /** @type {'' | 'ip' | 'album' | 'erro'} */
-  let semOcultar = '';
-  if (!ocultada && semPainel) {
-    // Esconder grava no KV: pedido que já saiu do degrau do painel não esconde.
-    semOcultar = 'ip';
-  } else if (!ocultada) {
-    const agora = Date.now();
-    const doDia = normalizaPendentes(evento.ocultasPendentes).filter(p => agora - new Date(p.em).getTime() < UM_DIA_MS).length;
-    if (doDia >= GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA) {
-      semOcultar = 'album';
-    } else if (!await checkRateLimit(env, ip, 'galeria-oculta', GALERIA_REMOCAO_OCULTA_POR_IP_DIA, 86400)) {
-      // Só aqui o balde por IP gasta uma ficha: pedido que já foi recusado
-      // pelo teto do álbum, ou de foto já oculta, não conta contra o IP.
-      semOcultar = 'ip';
-    } else {
-      try {
-        // Releitura sem o cache do isolate: o que se grava é a lista INTEIRA
-        // de eventos, e uma cópia velha desfaria o que o dono acabou de salvar.
-        const events = await getEvents(env, true);
-        const idx = events.findIndex(e => e.slug === slug);
-        if (idx === -1) return notFound();
-        const atual = normalizaOcultas(events[idx].fotosOcultas);
-        if (atual.includes(foto)) {
-          ocultada = true; // outro visitante (ou o dono) acabou de escondê-la
-        } else if (atual.length >= GALERIA_MAX_OCULTAS) {
-          semOcultar = 'album';
-        } else {
-          const ocultas = [...atual, foto];
-          const pendentes = normalizaPendentes(
-            [...normalizaPendentes(events[idx].ocultasPendentes), { id: foto, em: new Date(agora).toISOString(), pedido: pedidoId }],
-            ocultas
-          );
-          events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date(agora).toISOString() };
-          await saveEvents(env, events);
-          ocultada = true;
-        }
-      } catch (e) {
-        // O pedido não pode se perder porque o KV recusou o esconder: segue
-        // registrado e avisado, e a resposta diz a verdade (não foi escondida).
-        noteKvFailure('escrita', e, 'foto escondida a pedido de visitante');
-        semOcultar = 'erro';
-      }
-    }
-  }
+  const ocultada = normalizaOcultas(evento.fotosOcultas).includes(foto);
 
   const req = {
     id:         pedidoId,
@@ -4365,7 +4338,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
     eventTitle: evento.title || slug,
     method:     'galeria',
     origem:     'galeria',
-    // O link da galeria: o dono, logado, vê a foto marcada "Oculta a pedido".
+    // O link da galeria: o dono, logado, abre a foto e decide.
     value:      `${new URL(request.url).origin}/galeria/${slug}${capitulo ? `/${capitulo.slug}` : ''}`,
     fotoId:     foto,
     fotoNome:   String(achada[3] || '').slice(0, 200),
@@ -4388,7 +4361,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
   // Já temos a listagem: o autor da foto é avisado sem nova ida ao Drive. Nada
   // do solicitante (e-mail, mensagem) vai junto.
   ctx?.waitUntil(avisaAutor(env, evento, { fotoId: foto, tipo: 'pedido', motivo, ocultada, listagem, capitulo: capitulo ? capitulo.slug : '', capituloNome: capitulo ? capitulo.nome : '' }));
-  return jsonOk({ ok: true, ocultada, ...(semOcultar ? { motivoNaoOculta: semOcultar } : {}) });
+  return jsonOk({ ok: true });
 }
 
 /**
@@ -4830,7 +4803,7 @@ export function sanitizeRestoredRequest(r) {
   for (const k of ['prioridade', 'ocultada']) if (r[k] === true) out[k] = true;
   if (out.fotoId !== undefined && !idDriveValido(out.fotoId)) delete out.fotoId;
   if (out.motivo !== undefined && !GALERIA_REMOCAO_MOTIVOS.includes(out.motivo)) delete out.motivo;
-  if (out.desfecho !== undefined && !['mantida', 'devolvida'].includes(out.desfecho)) delete out.desfecho;
+  if (out.desfecho !== undefined && !DESFECHOS_DA_FOTO.includes(out.desfecho)) delete out.desfecho;
   // O binário nunca é guardado (só viaja no e-mail); um backup que traga um
   // não vai reintroduzi-lo em KV.
   out.fileBase64 = null;

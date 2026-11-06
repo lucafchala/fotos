@@ -16,7 +16,7 @@ import { opcoesDaLista } from './sumiram.js';
 import { checkRateLimit, noteDegraded, errMessage, sendAutorEmail } from './utils.js';
 
 /**
- * @typedef {'pedido' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada'} TipoAviso
+ * @typedef {'pedido' | 'removida' | 'mantida_na_galeria' | 'mantida' | 'devolvida' | 'oculta' | 'restaurada'} TipoAviso
  */
 
 /**

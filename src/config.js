@@ -100,11 +100,9 @@ export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
 //    (drive-gate 1500+1500/h, noscript 300+300/h) e o clique (drive-click
 //    1000+200/h, só métrica) já foram dimensionados para o mesmo caso.
 //  - pedir remoção (galeria-remocao): 30/dia por IP vão ao painel; os 200
-//    seguintes vão só por e-mail ao dono (sem KV, sem esconder); depois, 429
-//    em português com o e-mail de privacidade. Ver GALERIA_REMOCAO_*.
-//  - esconder a pedido (galeria-oculta): 5 por IP/dia e 20 por álbum/dia; o
-//    excesso NÃO é erro: o pedido segue e a resposta diz que o fotógrafo vai
-//    analisar.
+//    seguintes vão só por e-mail ao dono (sem KV); depois, 429 em português
+//    com o e-mail de privacidade. Ver GALERIA_REMOCAO_*. O pedido não esconde
+//    a foto (só o dono decide), então não há mais limite de "esconder".
 //  - formulários do site (removal, support: 20/h por IP; login 10/10 min e 60/dia;
 //    drive-code por endereço e por conta): não são caminho de visualização,
 //    ficam como estão. O 429 do formulário de privacidade passou a dizer onde
@@ -341,26 +339,18 @@ export const GALERIA_CREDITOS_MAX_LINHAS = 20;
 export const GALERIA_CREDITOS_NOME_MAX = 80;
 export const GALERIA_CREDITOS_EMAIL_MAX = 120;
 
-// "Pedir remoção desta foto" na galeria (v3.0): o visitante pede, a foto sai
-// da galeria NA HORA e fica oculta até o dono decidir (painel → Pedidos). Como
-// qualquer visitante pode pedir, o que esconde de verdade tem teto — passado
-// dele o pedido continua sendo registrado e avisado por e-mail, só a foto NÃO
-// é escondida (o dono revisa e decide). Dimensionado para o uso real: um
-// evento rende de 0 a 3 pedidos legítimos; um Wi-Fi de local é UM IPv4 para
-// ~750 pessoas, então o teto por IP não pode ser 1, mas também não precisa
-// passar de poucos.
-//  - por IP, por dia (RateLimiter, janela fixa de 24 h): 5 fotos escondidas;
-//  - por álbum, por dia: 20 fotos escondidas por visitantes, contadas nas
-//    próprias entradas de `ocultasPendentes` das últimas 24 h (sem
-//    armazenamento extra). O dono decidir um pedido tira a foto dessa lista,
-//    o que reabre a vaga — é de propósito.
-// "Menor de idade" esconde na hora como os demais motivos e CONTA nos mesmos
-// tetos: um motivo escolhido pelo próprio visitante não pode ser a porta dos
-// fundos do limite. Fica só marcado como prioridade (assunto do e-mail e selo
-// no painel); passado o teto, o dono é avisado igual e decide sem demora.
-export const GALERIA_REMOCAO_OCULTA_POR_IP_DIA = 5;
-export const GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA = 20;
-// Pedidos (escondendo ou não) por IP por dia: cada pedido gasta 2 escritas de
+// "Pedir remoção desta foto" na galeria: o visitante pede e o pedido vai ao
+// dono (painel → Pedidos e e-mail na hora); a foto NÃO sai da galeria até o
+// dono decidir ("Remover da galeria" ou "Manter na galeria"). Decisão do dono,
+// nov/2026: antes (v3.0) o pedido escondia a foto na hora, com tetos de 5 por
+// IP e 20 por álbum por dia contra abuso — sem a ocultação automática, esses
+// tetos e o balde 'galeria-oculta' não existem mais, e nenhum visitante grava
+// o evento no KV. `ocultasPendentes` (evento) não é mais preenchido; o campo
+// segue lido e saneado só para pedidos abertos antes de 3.1.0 e para backups
+// antigos. Dimensionado para o uso real: um evento rende de 0 a 3 pedidos
+// legítimos; um Wi-Fi de local é UM IPv4 para ~750 pessoas, então o teto por IP
+// não pode ser 1.
+// Pedidos por IP por dia: cada pedido gasta 2 escritas de
 // KV (o registro e o carimbo dos e-mails) e a cota do KV é da conta toda
 // (1000/dia, TODO.md). Dois degraus por IP/dia (item 1g — um Wi-Fi de evento é
 // UM IPv4 para centenas de pessoas, e o pico do pedido de remoção é logo depois
@@ -369,7 +359,7 @@ export const GALERIA_REMOCAO_OCULTA_POR_ALBUM_DIA = 20;
 //    de 60 escritas por endereço, e a cota da conta só se aproxima disso com
 //    vários endereços fazendo o mesmo — o que é abuso e não evento);
 //  - os 200 seguintes (contados à parte): o pedido segue SÓ por e-mail ao dono (e ao autor, item 1c),
-//    sem escrita de KV, sem esconder a foto; a resposta ao visitante é a mesma
+//    sem escrita de KV; a resposta ao visitante é a mesma
 //    de sempre ("o fotógrafo vai analisar"). Nada de erro;
 //  - depois desses 200: 429 com o e-mail de privacidade — só um robô chega aqui, e o
 //    e-mail do dono tem de ser pesado de ler.

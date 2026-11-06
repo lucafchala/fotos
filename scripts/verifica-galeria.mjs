@@ -229,7 +229,7 @@ async function abre(o = {}) {
     if (u.pathname === '/api/galeria/remocao' && r.method() === 'POST') {
       const corpo = JSON.parse(r.postData() || '{}');
       estado.remocao.push(corpo);
-      const resp = (o.remocao || (() => ({ status: 200, json: { ok: true, ocultada: true } })))(corpo);
+      const resp = (o.remocao || (() => ({ status: 200, json: { ok: true } })))(corpo);
       return route.fulfill({ status: resp.status, contentType: 'application/json', body: JSON.stringify(resp.json) });
     }
     if (u.pathname === '/galeria/formatura' || u.pathname === '/galeria/formatura/cerimonia') {
@@ -1090,7 +1090,7 @@ await cenario('Pedir remoção', async () => {
   await page.locator('#g-rem-enviar').click();
   registra((await page.locator('#g-rem-erro').textContent() || '').includes('e-mail') && estado.remocao.length === 0, 'Pedir remoção: sem e-mail válido, avisa e não envia');
 
-  // Enviar. O servidor de mentira diz que escondeu a foto.
+  // Enviar. O servidor de mentira só registra: o pedido nunca esconde a foto.
   await page.fill('#g-rem-email', 'Ana@Example.com ');
   await page.fill('#g-rem-msg', 'É a minha filha.');
   await page.locator('#g-rem-enviar').click();
@@ -1104,19 +1104,20 @@ await cenario('Pedir remoção', async () => {
     texto: document.getElementById('g-rem-ok-txt')?.textContent || '',
     form: (/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
   }));
-  registra(ok.visivel && ok.form && ok.texto.includes('saiu da galeria agora') && ok.texto.includes('analisar') && ok.texto.includes('e-mail'),
-    'Pedir remoção: a confirmação diz que a foto saiu agora, que o fotógrafo vai analisar e que a resposta vai por e-mail', ok);
+  registra(ok.visivel && ok.form && ok.texto.includes('Recebemos o pedido') && ok.texto.includes('O fotógrafo vai analisar') && ok.texto.includes('e-mail')
+    && !/saiu|na hora|agora|minutos/i.test(ok.texto),
+    'Pedir remoção: a confirmação diz só que o fotógrafo vai analisar e responder por e-mail (nada de "sai na hora")', ok);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-pedir-remocao-ok.png') });
 
-  // A foto some da grade e o visualizador segue para a seguinte.
+  // A foto CONTINUA na grade e no visualizador: quem decide é o fotógrafo.
   const aposEnvio = await page.evaluate(([a, b]) => ({
     alvoNaGrade: document.querySelectorAll('.g-t[href="#foto=' + a + '"]').length,
     seguinteNaGrade: document.querySelectorAll('.g-t[href="#foto=' + b + '"]').length,
     total: document.querySelectorAll('.g-t').length,
     indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
   }), [ALVO, SEGUINTE]);
-  registra(aposEnvio.alvoNaGrade === 0 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 - 1 && aposEnvio.indices,
-    'Pedir remoção: depois do envio a foto some da grade e os índices continuam em ordem', aposEnvio);
+  registra(aposEnvio.alvoNaGrade === 1 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 && aposEnvio.indices,
+    'Pedir remoção: depois do envio a foto continua na grade (o pedido não esconde nada)', aposEnvio);
   await page.keyboard.press('Escape');
   await espera(page, 600);
   const viewer = await page.evaluate(() => ({
@@ -1124,8 +1125,8 @@ await cenario('Pedir remoção', async () => {
     contador: document.querySelector('.pswp__counter')?.textContent || '',
     src: /** @type {HTMLImageElement | null} */ (document.querySelector('.pswp__item:not([aria-hidden="true"]) img.pswp__img:not(.pswp__img--placeholder)'))?.currentSrc || '',
   }));
-  registra(viewer.pswp && viewer.contador === '1 de ' + (total0 - 1) && viewer.src.includes(SEGUINTE),
-    'Pedir remoção: ao fechar a confirmação, o visualizador já está na foto seguinte, com o contador recalculado', viewer);
+  registra(viewer.pswp && viewer.contador === '1 de ' + total0 && viewer.src.includes(ALVO),
+    'Pedir remoção: ao fechar a confirmação, o visualizador segue na mesma foto, com o contador intacto', viewer);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pedir remoção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 
@@ -1150,8 +1151,8 @@ await cenario('Pedir remoção', async () => {
   registra(rec.estado.erros.length === 0 && rec.estado.csp.length === 0, 'Pedir remoção (recusa): sem erro de JS nem CSP', [...rec.estado.erros, ...rec.estado.csp]);
   await rec.ctx.close();
 
-  // Passou do teto: o pedido foi registrado, a foto NÃO sai, e a página não finge que saiu.
-  const teto = await abre({ pagina: PAG, remocao: () => ({ status: 200, json: { ok: true, ocultada: false, motivoNaoOculta: 'ip' } }) });
+  // Acima do teto de pedidos por IP o servidor segue só por e-mail e responde o mesmo: a página não muda.
+  const teto = await abre({ pagina: PAG, remocao: () => ({ status: 200, json: { ok: true } }) });
   await teto.page.locator('.g-t').first().click();
   await teto.page.waitForSelector('.pswp--open', { timeout: 5000 });
   await teto.page.locator('.g-rem-link').click();
@@ -1162,7 +1163,7 @@ await cenario('Pedir remoção', async () => {
   await espera(teto.page, 600);
   const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: document.querySelectorAll('.g-t').length }));
   registra(semOcultar.fotos === total0 && !semOcultar.txt.includes('saiu da galeria') && semOcultar.txt.includes('analisar'),
-    'Pedir remoção: acima do teto a foto continua na galeria e o texto só diz que será analisado', semOcultar);
+    'Pedir remoção: a foto continua na galeria e o texto só diz que será analisado', semOcultar);
   await teto.ctx.close();
 
   // Bloqueador de anúncios: o Turnstile não carrega, o aviso aparece e o botão fica desligado.
@@ -1175,7 +1176,7 @@ await cenario('Pedir remoção', async () => {
   registra(bl.erro.includes('verificação de segurança') && bl.desligado, 'Pedir remoção: Turnstile bloqueado — avisa e não deixa enviar', bl);
   await bloq.ctx.close();
 
-  // Última foto da galeria: depois do pedido o visualizador fecha, sem erro.
+  // Galeria de uma foto só: depois do pedido ela continua lá e o visualizador não fecha sozinho.
   const UMA = { ...LISTAGEM, total: 1, secoes: [{ nome: '', caminho: '', fotos: [raiz[0]] }] };
   const solo = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: UMA, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' }) });
   await solo.page.locator('.g-t').first().click();
@@ -1189,8 +1190,8 @@ await cenario('Pedir remoção', async () => {
   await solo.page.keyboard.press('Escape');
   await espera(solo.page, 700);
   const vazio = await solo.page.evaluate(() => ({ pswp: !!document.querySelector('.pswp--open'), dialogo: /** @type {HTMLDialogElement} */ (document.getElementById('g-rem')).open, fotos: document.querySelectorAll('.g-t').length }));
-  registra(!vazio.pswp && !vazio.dialogo && vazio.fotos === 0, 'Pedir remoção: era a única foto — o visualizador fecha e a grade fica vazia', vazio);
-  registra(solo.estado.erros.length === 0 && solo.estado.csp.length === 0, 'Pedir remoção (última foto): sem erro de JS nem CSP', [...solo.estado.erros, ...solo.estado.csp]);
+  registra(vazio.pswp && !vazio.dialogo && vazio.fotos === 1, 'Pedir remoção: era a única foto — ela continua na grade e o visualizador segue aberto', vazio);
+  registra(solo.estado.erros.length === 0 && solo.estado.csp.length === 0, 'Pedir remoção (única foto): sem erro de JS nem CSP', [...solo.estado.erros, ...solo.estado.csp]);
   await solo.ctx.close();
 
   // No celular: o link cabe na tela e o formulário não vaza para o lado.

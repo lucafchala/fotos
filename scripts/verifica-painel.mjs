@@ -1056,29 +1056,27 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
 }
 
 // ---- Pedidos feitos pela galeria ("Pedir remoção desta foto") -----------------
-// Três pedidos de visitantes no mesmo álbum: dois cuja foto foi escondida na
-// hora (um de menor, com prioridade) e um que passou do teto (a foto NÃO foi
-// escondida). O dono vê a miniatura e o álbum, decide por botão — "Manter
-// oculta", "Devolver à galeria", "Ocultar da galeria" — e cada decisão acerta o
-// evento no KV (fotosOcultas e ocultasPendentes) e resolve o pedido.
+// O pedido NÃO esconde a foto (aprovação pelo dono). Três pedidos no mesmo
+// álbum: dois de fotos que seguem na galeria (um de menor, com prioridade) e um
+// de foto que o próprio dono já tinha escondido. O dono vê a miniatura e o
+// álbum e decide por botão — "Remover da galeria" ou "Manter na galeria" — e
+// cada decisão acerta o evento no KV (fotosOcultas) e resolve o pedido.
 const FA = 'FOTO_PEDIDO_A_01', FB = 'FOTO_PEDIDO_B_02', FC = 'FOTO_PEDIDO_C_03', FD = 'FOTO_JA_OCULTA_04';
 const pedidoGaleria = (/** @type {string} */ id, /** @type {string} */ foto, /** @type {Record<string, any>} */ o) => ({
   id, eventSlug: 'formatura-medicina-2026', eventTitle: 'Formatura Medicina 2026', method: 'galeria', origem: 'galeria',
-  value: 'https://fotos.lucafchala.com/galeria/formatura-medicina-2026', fotoId: foto, fotoNome: `${foto}.jpg`, motivo: 'eu', prioridade: false, ocultada: true,
+  value: 'https://fotos.lucafchala.com/galeria/formatura-medicina-2026', fotoId: foto, fotoNome: `${foto}.jpg`, motivo: 'eu', prioridade: false, ocultada: false,
   email: 'visitante@example.com', phone: '', message: 'Prefiro não aparecer.', fileName: null, fileBase64: null, resolved: false,
   createdAt: new Date(agora - 600e3).toISOString(), emailStatus: 'sent', confirmEmailStatus: 'sent', ...o,
 });
 const PEDIDOS_GALERIA = [
   pedidoGaleria('c'.repeat(32), FA, { motivo: 'menor', prioridade: true }),
   pedidoGaleria('d'.repeat(32), FB, { createdAt: new Date(agora - 1200e3).toISOString() }),
-  pedidoGaleria('e'.repeat(32), FC, { ocultada: false, motivo: 'outro', createdAt: new Date(agora - 1800e3).toISOString() }),
+  pedidoGaleria('e'.repeat(32), FC, { ocultada: true, motivo: 'outro', createdAt: new Date(agora - 1800e3).toISOString() }),
 ];
-const emPendente = (/** @type {string} */ foto, /** @type {string} */ pedido) => ({ id: foto, em: new Date(agora - 600e3).toISOString(), pedido });
 const SEMENTE_GALERIA = {
   events: JSON.stringify([{
     ...EVENTOS[0],
-    fotosOcultas: [FA, FB, FD],
-    ocultasPendentes: [emPendente(FA, PEDIDOS_GALERIA[0].id), emPendente(FB, PEDIDOS_GALERIA[1].id)],
+    fotosOcultas: [FC, FD],
   }, ...EVENTOS.slice(1)]),
   categories: JSON.stringify(['Formatura']),
   ...Object.fromEntries(PEDIDOS_GALERIA.map(p => [`removal_request:${p.id}`, JSON.stringify(p)])),
@@ -1106,44 +1104,46 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         `${rotulo}: mostra o álbum, o motivo e a prioridade do menor`, textos.slice(0, 300));
       const links = await page.locator('#tab-requests .req-foto a[href="/galeria/formatura-medicina-2026"]').count();
       registra(links === 3, `${rotulo}: cada pedido leva ao álbum`, links);
-      registra(textos.includes('foto NÃO foi ocultada'), `${rotulo}: o pedido que passou do teto diz que a foto não foi ocultada`);
+      registra(textos.includes('a foto continua na galeria até você decidir') && textos.includes('a foto está oculta da galeria') && !textos.includes('NÃO foi ocultada'),
+        `${rotulo}: cada pedido diz se a foto continua na galeria ou já estava oculta`);
       const rotulos = await page.locator('[data-action="decidirFoto"]').allTextContents();
-      registra(rotulos.filter(t => t === 'Manter oculta').length === 2 && rotulos.filter(t => t === 'Devolver à galeria').length === 2
-        && rotulos.includes('Ocultar da galeria') && rotulos.includes('Manter na galeria'), `${rotulo}: os botões de decisão de cada pedido`, rotulos);
+      registra(rotulos.filter(t => t === 'Remover da galeria').length === 3 && rotulos.filter(t => t === 'Manter na galeria').length === 3 && rotulos.length === 6,
+        `${rotulo}: cada pedido tem só "Remover da galeria" e "Manter na galeria"`, rotulos);
       if (toque) {
         const pequenos = await alvosPequenos(page, '#tab-requests');
         registra(pequenos.length === 0, `${rotulo}: os botões de Pedidos da galeria têm 44 px`, pequenos.slice(0, 6));
       }
 
-      // "Manter oculta" no pedido do menor: resolve, sai da pendência, segue oculta.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[0].id}"]`), toque);
+      // "Remover da galeria" no pedido do menor: esconde a foto e resolve.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="removida"][data-id="${PEDIDOS_GALERIA[0].id}"]`), toque);
       const m1 = await aviso(page);
       await espera(page, 600);
       const e1 = evento();
-      registra(e1.fotosOcultas.includes(FA) && !e1.ocultasPendentes.some((/** @type {any} */ p) => p.id === FA) && e1.ocultasPendentes.length === 1
-        && pedidoNoKv(PEDIDOS_GALERIA[0].id).resolved === true && pedidoNoKv(PEDIDOS_GALERIA[0].id).desfecho === 'mantida',
-        `${rotulo}: "Manter oculta" resolve o pedido, tira da pendência e mantém a foto oculta`, { aviso: m1, ocultas: e1.fotosOcultas, pend: e1.ocultasPendentes.map((/** @type {any} */ p) => p.id) });
+      registra(e1.fotosOcultas.includes(FA) && e1.fotosOcultas.includes(FC) && e1.fotosOcultas.includes(FD) && !e1.fotosOcultas.includes(FB)
+        && pedidoNoKv(PEDIDOS_GALERIA[0].id).resolved === true && pedidoNoKv(PEDIDOS_GALERIA[0].id).desfecho === 'removida',
+        `${rotulo}: "Remover da galeria" esconde a foto e resolve o pedido, sem mexer nas outras`, { aviso: m1, ocultas: e1.fotosOcultas });
+      registra(/removida da galeria/i.test(m1 || ''), `${rotulo}: o aviso confirma a remoção e que a pessoa foi avisada`, m1);
       await someAviso(page);
 
-      // "Devolver à galeria": sai de fotosOcultas e da pendência.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="devolvida"][data-id="${PEDIDOS_GALERIA[1].id}"]`), toque);
+      // "Manter na galeria": a foto segue visível, nada é escondido.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida_na_galeria"][data-id="${PEDIDOS_GALERIA[1].id}"]`), toque);
       await aviso(page);
       await espera(page, 600);
       const e2 = evento();
-      registra(!e2.fotosOcultas.includes(FB) && e2.fotosOcultas.includes(FA) && e2.fotosOcultas.includes(FD) && e2.ocultasPendentes.length === 0
-        && pedidoNoKv(PEDIDOS_GALERIA[1].id).desfecho === 'devolvida' && pedidoNoKv(PEDIDOS_GALERIA[1].id).resolved === true,
-        `${rotulo}: "Devolver à galeria" tira a foto das ocultas e da pendência, sem mexer nas outras`, { ocultas: e2.fotosOcultas, pend: e2.ocultasPendentes });
+      registra(!e2.fotosOcultas.includes(FB) && e2.fotosOcultas.includes(FA) && e2.fotosOcultas.includes(FD)
+        && pedidoNoKv(PEDIDOS_GALERIA[1].id).desfecho === 'mantida_na_galeria' && pedidoNoKv(PEDIDOS_GALERIA[1].id).resolved === true,
+        `${rotulo}: "Manter na galeria" resolve o pedido e deixa a foto visível`, { ocultas: e2.fotosOcultas });
       await someAviso(page);
 
-      // O pedido que o teto não escondeu: "Ocultar da galeria" esconde agora.
-      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida"][data-id="${PEDIDOS_GALERIA[2].id}"]`), toque);
+      // Foto que o dono já tinha escondido: "Manter na galeria" a devolve.
+      await aciona(page.locator(`[data-action="decidirFoto"][data-desfecho="mantida_na_galeria"][data-id="${PEDIDOS_GALERIA[2].id}"]`), toque);
       await aviso(page);
       await espera(page, 600);
       const e3 = evento();
-      registra(e3.fotosOcultas.includes(FC) && e3.ocultasPendentes.length === 0 && pedidoNoKv(PEDIDOS_GALERIA[2].id).resolved === true,
-        `${rotulo}: "Ocultar da galeria" esconde a foto que o teto deixou visível`, e3.fotosOcultas);
+      registra(!e3.fotosOcultas.includes(FC) && e3.fotosOcultas.includes(FD) && e3.fotosOcultas.includes(FA) && pedidoNoKv(PEDIDOS_GALERIA[2].id).resolved === true,
+        `${rotulo}: "Manter na galeria" devolve a foto que o dono tinha escondido`, e3.fotosOcultas);
       registra((await page.locator('#requests-badge').count()) === 0 || !(await page.locator('#requests-badge').isVisible()), `${rotulo}: sem pedidos pendentes, o selo some`);
-      // O resolvido (aviso de "foto mantida oculta") fica sob "resolvidas".
+      // Os resolvidos ficam sob "resolvidas".
       await print(page, `${id}-pedidos-galeria-resolvidos`);
       // (O e-mail de "atendido" não é conferido aqui: este worker local não tem chave do Resend; o teste unitário cobre.)
       registra(estado.erros.length === 0 && estado.csp.length === 0, `${rotulo}: Pedidos da galeria sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);

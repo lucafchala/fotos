@@ -356,17 +356,26 @@ describe('remoção e ocultar com capítulo', () => {
     return res;
   }
 
-  it('foto do capítulo: pedido registrado com o capítulo, foto oculta no projeto', async () => {
+  it('foto do capítulo: pedido registrado com o capítulo; só a decisão do dono (Remover) a oculta no projeto', async () => {
     const r = await pede({});
     expect(r.status).toBe(200);
-    expect((await r.json()).ocultada).toBe(true);
+    expect((await r.json()).ok).toBe(true);
     const ped = pedidosGravados(env.FOTOS._store);
     expect(ped).toHaveLength(1);
-    expect(ped[0]).toMatchObject({ capSlug: 'abertura', capitulo: 'Abertura', fotoId: 'FOTO_A1_000001' });
+    expect(ped[0]).toMatchObject({ capSlug: 'abertura', capitulo: 'Abertura', fotoId: 'FOTO_A1_000001', ocultada: false });
     expect(ped[0].value).toBe('https://fotos.lucafchala.com/galeria/formatura/abertura');
-    const ev = JSON.parse(env.FOTOS._store.get('events')).find(e => e.slug === 'formatura');
-    expect(ev.fotosOcultas).toEqual(['FOTO_A1_000001']);
-    // oculta no projeto: some do capítulo e do download
+    const evento = () => JSON.parse(env.FOTOS._store.get('events')).find(e => e.slug === 'formatura');
+    // O pedido não esconde nada: a foto segue no capítulo e no download.
+    expect(evento().fotosOcultas || []).toEqual([]);
+    expect((await get('/galeria/formatura/abertura/baixar/FOTO_A1_000001')).status).not.toBe(404);
+    // O dono decide "Remover da galeria": oculta no projeto, some do capítulo e do download.
+    const res = await worker.fetch(new Request(`${SITE}/api/removal-requests/${ped[0].id}/resolve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `__Host-session=${TOKEN}` },
+      body: JSON.stringify({ desfecho: 'removida' }),
+    }), env, ctx);
+    expect(res.status).toBe(200);
+    expect(evento().fotosOcultas).toEqual(['FOTO_A1_000001']);
     expect((await get('/galeria/formatura/abertura/baixar/FOTO_A1_000001')).status).toBe(404);
   });
 

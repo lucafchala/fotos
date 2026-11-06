@@ -596,7 +596,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <form id="g-rem-f" novalidate>
         <p class="g-folha-t" id="g-rem-t">Pedir remoção desta foto</p>
         <div class="g-rem-foto"><img id="g-rem-img" alt="" width="72" height="72"><span id="g-rem-nome"></span></div>
-        <p class="g-rem-aviso">Ao enviar, a foto sai da galeria agora, enquanto o fotógrafo analisa o pedido. Você recebe a resposta por e-mail.</p>
+        <p class="g-rem-aviso">Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.</p>
         <label for="g-rem-motivo">Motivo</label>
         <select id="g-rem-motivo" required>
           <option value="" disabled selected>Escolha um motivo</option>
@@ -2177,9 +2177,8 @@ const SCRIPT = `
   // ---- Pedir remoção desta foto (só o visitante) ----
   // O link "Pedir remoção" fica sob a legenda do visualizador. O formulário é
   // um <dialog> modal: o Turnstile só carrega quando ele abre, e o pedido vai
-  // para /api/galeria/remocao. Com sucesso, a foto some da grade e do
-  // visualizador na hora (o servidor já a escondeu; a página dos outros
-  // visitantes acompanha em até 2 min).
+  // para /api/galeria/remocao. O pedido só avisa o fotógrafo: a foto continua
+  // na galeria até ele decidir (a resposta chega por e-mail).
   const R = D.remocao;
   const rem = /** @type {HTMLDialogElement | null} */ (document.getElementById('g-rem'));
   const remF = /** @type {HTMLFormElement | null} */ (document.getElementById('g-rem-f'));
@@ -2197,7 +2196,6 @@ const SCRIPT = `
   /** @type {string | null} */
   let remWidget = null;
   let remEnviando = false;
-  let galeriaVazia = false;
 
   // Turnstile sob demanda: o script só entra na página quando o formulário abre.
   const TS_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
@@ -2273,43 +2271,7 @@ const SCRIPT = `
     if (!peloVoltar && noTopo('rem')) history.back();
     const volta = remFoco;
     remFoco = null;
-    if (!galeriaVazia && volta && typeof (/** @type {HTMLElement} */ (volta)).focus === 'function' && document.contains(volta)) (/** @type {HTMLElement} */ (volta)).focus();
-    // Só fecha o visualizador depois de o histórico assentar (ver o popstate).
-    if (peloVoltar) fimDaRemocao();
-  }
-  function fimDaRemocao() {
-    if (!galeriaVazia) return;
-    galeriaVazia = false;
-    if (lightbox && lightbox.pswp) lightbox.pswp.close();
-  }
-
-  // Tira a foto da página: grade, visualizador, seleção e favoritas. Os índices
-  // data-i são refeitos porque o clique na grade os usa para achar a foto.
-  function removeDaGaleria(f) {
-    const pswp = lightbox && lightbox.pswp ? lightbox.pswp : null;
-    const idx = pswp ? pswp.currIndex : -1;
-    const i = fotos.indexOf(f);
-    if (i < 0) return;
-    fotos.splice(i, 1);
-    grades.forEach(function (g) { const k = g.lista.indexOf(f); if (k >= 0) g.lista.splice(k, 1); });
-    const sf = D.secoes[f.s].fotos;
-    for (let k = 0; k < sf.length; k++) if (sf[k][0] === f.id) { sf.splice(k, 1); break; }
-    fotos.forEach(function (x, k) { x.el.dataset.i = String(k); });
-    sel.delete(f.id);
-    fav.delete(f.id);
-    if (filtroLink) filtroLink.delete(f.id);
-    salvaSel();
-    salvaFav();
-    f.el.remove();
-    recalculaVistas();
-    atualizaBarra();
-    montaChips();
-    agendaDiagrama();
-    if (!pswp) return;
-    if (!vistas.length) { galeriaVazia = true; return; }
-    // O visualizador segue para a foto seguinte (ou a anterior, se era a última).
-    if (idx >= vistas.length) pswp.goTo(vistas.length - 1);
-    for (let k = Math.max(0, idx - 1); k <= idx + 1 && k < vistas.length; k++) pswp.refreshSlideContent(k);
+    if (volta && typeof (/** @type {HTMLElement} */ (volta)).focus === 'function' && document.contains(volta)) (/** @type {HTMLElement} */ (volta)).focus();
   }
 
   function enviaRemocao() {
@@ -2352,16 +2314,13 @@ const SCRIPT = `
     }).then(function (j) {
       const txt = document.getElementById('g-rem-ok-txt');
       if (txt) {
-        txt.textContent = j.ocultada
-          ? 'Pronto: a foto saiu da galeria agora. O fotógrafo vai analisar o pedido e você recebe a resposta no e-mail ' + email + '.'
-          : 'Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta no e-mail ' + email + '.';
+        txt.textContent = 'Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta no e-mail ' + email + '.';
       }
       if (remF) remF.hidden = true;
       if (remOk) remOk.hidden = false;
       const t = document.getElementById('g-rem-ok-t');
       if (t) t.focus();
       remToken = '';
-      if (j.ocultada) removeDaGaleria(foto);
     }).catch(function (e) {
       remMostraErro(e && e.message ? e.message : 'Não foi possível enviar. Tente de novo.');
       // O token do Turnstile vale uma vez só: pede outro para a próxima tentativa.
@@ -2455,7 +2414,6 @@ const SCRIPT = `
     if (folha && !folha.hidden && !noTopo('folha')) fechaFolha(true);
     if (rem && rem.open && !noTopo('rem')) fechaRemocao(true);
     if (lightbox && lightbox.pswp && !noTopo('foto') && !noTopo('folha') && !noTopo('rem')) lightbox.pswp.close();
-    fimDaRemocao();
   });
 
   // ---- Início ----

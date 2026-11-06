@@ -146,7 +146,8 @@ describe('(a) pedido de remoção chegou', () => {
     expect(m.subject).toContain('Formatura 2026');
     expect(m.to).toEqual([EMAIL_AUTOR]);
     expect(m.html).toContain('Formatura 2026');
-    expect(m.html).toContain('ocultada da galeria agora');
+    expect(m.html).toContain('Ela continua na galeria e o pedido aguarda a decisão do Luca');
+    expect(m.html).not.toContain('ocultada da galeria agora');
     expect(m.html).toContain('a pessoa que pediu aparece na foto');
     expect(m.html).toContain(`lh3.googleusercontent.com/d/${F_MAG}=w320`);
     expect(m.html).toContain(`drive.google.com/file/d/${F_MAG}/view`);
@@ -190,35 +191,54 @@ describe('(a) pedido de remoção chegou', () => {
     expect(paraAutor()).toHaveLength(1);
   });
 
-  it('sem o teto de ocultar (já passou do limite): diz que o Luca vai analisar', async () => {
+  it('o pedido não esconde a foto: o aviso diz que ela continua na galeria até o Luca decidir', async () => {
     const ev = evento();
     const r = await avisaAutor(env, ev, { fotoId: F_MAG2, tipo: 'pedido', motivo: 'outro', ocultada: false });
     expect(r).toBe('enviado');
     const m = paraAutor().at(-1);
-    expect(m.html).toContain('Ela ainda está na galeria');
+    expect(m.html).toContain('Ela continua na galeria e o pedido aguarda a decisão do Luca');
     expect(m.html).toContain('outro motivo');
+  });
+
+  it('foto que o dono já tinha escondido: o aviso diz isso', async () => {
+    const r = await avisaAutor(env, evento(), { fotoId: F_MAG2, tipo: 'pedido', motivo: 'outro', ocultada: true });
+    expect(r).toBe('enviado');
+    expect(paraAutor().at(-1).html).toContain('Ela já estava oculta da galeria');
   });
 });
 
 describe('(b) o dono decidiu', () => {
-  it('"Manter oculta" avisa a autora uma vez, mesmo resolvendo de novo', async () => {
+  it('"Remover da galeria" avisa a autora uma vez, mesmo resolvendo de novo', async () => {
     await pede();
     const p = pedidosGravados(env.FOTOS._store)[0];
     emails.length = 0;
-    expect((await resolve(p.id, { desfecho: 'mantida' })).status).toBe(200);
+    expect((await resolve(p.id, { desfecho: 'removida' })).status).toBe(200);
     expect(paraAutor()).toHaveLength(1);
-    expect(paraAutor()[0].html).toContain('continua oculta');
+    expect(paraAutor()[0].html).toContain('decidiu remover a foto da galeria');
     expect(paraAutor()[0].html).not.toContain('ana.solicitante');
-    await resolve(p.id, { desfecho: 'mantida' });
+    await resolve(p.id, { desfecho: 'removida' });
     expect(paraAutor()).toHaveLength(1);
   });
 
-  it('"Devolver à galeria" avisa que voltou', async () => {
+  it('"Manter na galeria" avisa que a foto continua', async () => {
     await pede();
     const p = pedidosGravados(env.FOTOS._store)[0];
     emails.length = 0;
-    await resolve(p.id, { desfecho: 'devolvida' });
+    await resolve(p.id, { desfecho: 'mantida_na_galeria' });
     expect(paraAutor()).toHaveLength(1);
+    expect(paraAutor()[0].html).toContain('decidiu manter a foto na galeria');
+  });
+
+  it('pedidos antigos (desfecho "mantida" e "devolvida") seguem avisando', async () => {
+    await pede();
+    const p = pedidosGravados(env.FOTOS._store)[0];
+    emails.length = 0;
+    await resolve(p.id, { desfecho: 'mantida' });
+    expect(paraAutor()[0].html).toContain('continua oculta');
+    await pede({ foto: F_MAG2 });
+    const q = pedidosGravados(env.FOTOS._store).find(x => x.fotoId === F_MAG2);
+    emails.length = 0;
+    await resolve(q.id, { desfecho: 'devolvida' });
     expect(paraAutor()[0].html).toContain('voltou à galeria');
   });
 
@@ -285,13 +305,13 @@ describe('teto, falhas e privacidade', () => {
     falhaAutor = true;
     const res = await pede();
     expect(res.status).toBe(200);
-    expect((await res.json()).ocultada).toBe(true);
+    expect((await res.json()).ok).toBe(true);
     const saude = JSON.stringify(degradedHealth());
     expect(saude).toContain('aviso ao autor não saiu');
     expect(saude).not.toContain(EMAIL_AUTOR);
     expect(saude).not.toContain('mag.autora');
-    // a ação principal ficou: foto oculta, pedido gravado
-    expect(evento().fotosOcultas).toContain(F_MAG);
+    // a ação principal ficou: pedido gravado (a foto segue na galeria)
+    expect(evento().fotosOcultas || []).not.toContain(F_MAG);
     expect(pedidosGravados(env.FOTOS._store)).toHaveLength(1);
   });
 

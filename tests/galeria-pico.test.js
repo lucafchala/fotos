@@ -349,7 +349,49 @@ describe('caminho quente (memória aquecida)', () => {
 // Node com process.cpuUsage (CPU do processo, não relógio de parede) — como o
 // teste de `casaRedes` em tests/galeria.test.js, o teto aqui é folgado para CI
 // e o número real vai no RETOMADA. O Workers tem 10 ms de CPU no plano gratuito.
+// Medir CPU absoluta numa suíte que roda dezenas de arquivos em paralelo não
+// presta: o mesmo código que gasta 6 ms sozinho chega a gastar 45 ms com a
+// máquina cheia (hyperthreads, cache, frequência), e subir o teto só esconderia
+// regressão. Por isso cada amostra é medida CONTRA uma carga de referência
+// (montar e fatiar texto, o mesmo tipo de trabalho) rodada logo antes, sob a
+// mesma pressão: o que se compara é a RAZÃO. O teto absoluto de 10 ms do plano
+// gratuito vale quando a máquina está livre (MEDE_CPU=1 mostra os dois).
+// `process.threadCpuUsage()` (Node 22.19+) conta só a thread do teste.
+const cpuAgora = () => (typeof process.threadCpuUsage === 'function' ? process.threadCpuUsage() : process.cpuUsage());
+const cpuMs = c0 => { const c = (typeof process.threadCpuUsage === 'function' ? process.threadCpuUsage(c0) : process.cpuUsage(c0)); return (c.user + c.system) / 1000; };
+function cargaDeReferencia() {
+  let n = 0;
+  for (let r = 0; r < 20; r++) {
+    const partes = [];
+    for (let i = 0; i < 6000; i++) partes.push(`<a href="#foto=F${i}" data-i="${i}"><img src="https://x.test/${i}=w400" width="400" height="300"></a>`);
+    n += JSON.parse(JSON.stringify(partes.slice(0, 600))).length + partes.join('').length;
+  }
+  return n;
+}
+/** Menor razão (CPU de `fn` / CPU da referência) em `n` rodadas, e as medidas da melhor. */
+async function razaoDeCpu(fn, n = 15) {
+  let melhor = { razao: Infinity, ms: 0, refMs: 0 };
+  const todas = [];
+  for (let i = 0; i < n; i++) {
+    const r0 = cpuAgora();
+    cargaDeReferencia();
+    const refMs = cpuMs(r0);
+    const c0 = cpuAgora();
+    const ret = await fn();
+    const ms = cpuMs(c0);
+    if (ret && ret.depois) await ret.depois();
+    const razao = ms / Math.max(refMs, 0.01);
+    todas.push(razao);
+    if (razao < melhor.razao) melhor = { razao, ms, refMs };
+  }
+  todas.sort((a, b) => a - b);
+  return { ...melhor, mediana: todas[Math.floor(todas.length / 2)] };
+}
+
 describe('CPU: página de capítulo com 6000 itens', () => {
+  // Medido sozinho: 0,11 a 0,15 (página) e 0,14 a 0,22 (requisição). O teto dá ~2x de folga.
+  const RAZAO_MAX_PAGINA = 0.35;
+  const RAZAO_MAX_REQUISICAO = 0.5;
   const N = 6000;
   const foto = i => [`F${String(i).padStart(13, '0')}`, 6000, 4000, `IMG_${String(i).padStart(5, '0')}.JPG`, 1000, i % 4, 20261105143000 + i];
   const listagem = {
@@ -364,17 +406,10 @@ describe('CPU: página de capítulo com 6000 itens', () => {
     const evento = { slug: 'formatura', title: 'Formatura 2026', driveUrl: 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001', galeriaCapitulos: true, nomesAmigaveis: true };
     const monta = () => galeriaHTML({ event: evento, listagem, listagemBruta: listagem, capituloNome: 'Festa', capitulo, erro: null, nonce: 'NONCE', dono: false, formToken: '' });
     for (let i = 0; i < 5; i++) monta(); // esquenta o JIT
-    const amostras = [];
-    for (let i = 0; i < 15; i++) {
-      const c0 = process.cpuUsage();
-      monta();
-      const c = process.cpuUsage(c0);
-      amostras.push((c.user + c.system) / 1000);
-    }
-    amostras.sort((a, b) => a - b);
-    const mediana = amostras[Math.floor(amostras.length / 2)];
-    if (process.env.MEDE_CPU) console.log('CPU_PAGINA_6000_MEDIANA_MS', mediana.toFixed(2), 'MIN', amostras[0].toFixed(2), 'MAX', amostras[amostras.length - 1].toFixed(2));
-    expect(mediana).toBeLessThan(40);
+    const m = await razaoDeCpu(() => { monta(); });
+    if (process.env.MEDE_CPU) console.log('CPU_PAGINA_6000', 'MS', m.ms.toFixed(2), 'REF_MS', m.refMs.toFixed(2), 'RAZAO', m.razao.toFixed(2), 'MEDIANA_RAZAO', m.mediana.toFixed(2));
+    expect(m.razao).toBeLessThan(RAZAO_MAX_PAGINA);
+    if (m.refMs < 50) expect(m.ms).toBeLessThan(10); // máquina livre: cabe nos 10 ms do plano gratuito
   });
 
   it('a requisição inteira (worker.fetch, lista em memória, nomes amigáveis, 5 ocultas) também fica curta', async () => {
@@ -386,22 +421,12 @@ describe('CPU: página de capítulo com 6000 itens', () => {
     for (let i = 0; i < 5; i++) await (await pedido()).text();
     // Mede até a RESPOSTA existir (HTML montado). Ler o corpo para string
     // (`text()`) é só do teste: no Workers o corpo sai pelo envio, não pelo JS.
-    const amostras = [];
-    for (let i = 0; i < 15; i++) {
-      const c0 = process.cpuUsage();
+    const m = await razaoDeCpu(async () => {
       const r = await pedido();
-      const c = process.cpuUsage(c0);
-      const h = await r.text();
-      expect(h.length).toBeGreaterThan(N * 20);
-      amostras.push((c.user + c.system) / 1000);
-    }
-    amostras.sort((a, b) => a - b);
-    const mediana = amostras[Math.floor(amostras.length / 2)];
-    if (process.env.MEDE_CPU) console.log('CPU_REQUISICAO_6000_MEDIANA_MS', mediana.toFixed(2), 'MIN', amostras[0].toFixed(2), 'MAX', amostras[amostras.length - 1].toFixed(2));
-    // process.cpuUsage conta o processo todo: com a suíte inteira em paralelo
-    // outras threads entram na conta. O mínimo (rodada tranquila) tem o teto
-    // apertado; a mediana só pega regressão grosseira.
-    expect(amostras[0]).toBeLessThan(15);
-    expect(mediana).toBeLessThan(100);
+      return { depois: async () => { expect((await r.text()).length).toBeGreaterThan(N * 20); } };
+    });
+    if (process.env.MEDE_CPU) console.log('CPU_REQUISICAO_6000', 'MS', m.ms.toFixed(2), 'REF_MS', m.refMs.toFixed(2), 'RAZAO', m.razao.toFixed(2), 'MEDIANA_RAZAO', m.mediana.toFixed(2));
+    expect(m.razao).toBeLessThan(RAZAO_MAX_REQUISICAO);
+    if (m.refMs < 50) expect(m.ms).toBeLessThan(10);
   });
 });
