@@ -1,6 +1,6 @@
 {
   "name": "fotos",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -30,16 +30,16 @@
     "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20261003.1",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
+    "@cloudflare/workers-types": "^5.20261026.1",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.12",
     "axe-core": "^4.14.0",
-    "eslint": "^10.12.0",
-    "playwright-core": "^1.63.0",
+    "eslint": "^10.13.0",
+    "playwright-core": "^1.64.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.152.0"
   },
   "overrides": {
     "sharp": "^0.35.5",
