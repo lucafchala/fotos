@@ -21,10 +21,14 @@ Worker e a opção estar marcada no projeto.
 |---|---|---|
 | Indexar (uma vez por foto) | US$ 0,001/foto | ~US$ 3 |
 | Guardar o índice | US$ 0,00001/rosto/mês | ~10 mil rostos: US$ 0,10/mês |
-| Uma busca (2 chamadas) | US$ 0,002 | 1.000 buscas: US$ 2 |
+| Uma busca (1 a 4 chamadas) | US$ 0,001 a 0,004 | 1.000 buscas: US$ 1 a 4 |
 
 - **Conta nova:** o nível grátis cobre 1.000 imagens por mês em cada grupo de APIs durante 12 meses, e a AWS dá até US$ 200 em créditos.
-- **Teto de custo:** `ROSTO_BUSCA_GLOBAL_BUCKET` limita o site a ~4.500 buscas por dia, cerca de US$ 9 no pior dia.
+- **De onde vêm as chamadas de uma busca:**
+  - quem saiu da busca (só depois que alguém sai);
+  - o álbum;
+  - até 2 "sementes": as fotos com 98% ou mais procuram os rostos parecidos com elas, para achar a pessoa de lado ou de longe.
+- **Teto de custo:** `ROSTO_BUSCA_GLOBAL_BUCKET` limita o site a ~3.600 buscas por dia, cerca de US$ 14 no pior dia.
 - **Alerta de cobrança:** configure um alerta no painel da AWS (Billing → Budgets) de US$ 10/mês.
 
 ## Como ligar
@@ -39,7 +43,7 @@ Worker e a opção estar marcada no projeto.
      "Statement": [{
        "Effect": "Allow",
        "Action": [
-         "rekognition:SearchFacesByImage", "rekognition:IndexFaces", "rekognition:DeleteFaces",
+         "rekognition:SearchFacesByImage", "rekognition:SearchFaces", "rekognition:IndexFaces", "rekognition:DeleteFaces",
          "rekognition:ListFaces", "rekognition:CreateCollection"
        ],
        "Resource": "arn:aws:rekognition:sa-east-1:<CONTA>:collection/fotos-*"
@@ -66,31 +70,36 @@ Worker e a opção estar marcada no projeto.
 
    A região padrão é `sa-east-1`. Para outra, use o secret `AWS_REGION`.
 
-5. **Chaves no GitHub, para o indexador:** em Settings → Secrets and variables → Actions:
+5. **Token do indexador:** gere um valor aleatório de 64 caracteres hexadecimais e grave o mesmo como secret `ROSTO_INDEXADOR_TOKEN` no Worker e no GitHub. Com ele, o indexador lê o álbum ainda em "Em breve" (antes do lançamento), pelo header `X-Rosto-Indexador`. Sem ele, só lê álbum já lançado.
+
+5b. **Chaves no GitHub, para o indexador:** em Settings → Secrets and variables → Actions:
    - Secrets `ROSTO_AWS_ACCESS_KEY_ID` e `ROSTO_AWS_SECRET_ACCESS_KEY` (as mesmas do passo 2);
    - Variable `ROSTO_SLUGS` = `entrenos2026` (vários álbuns separados por vírgula).
 
-6. **Montar o índice:** Actions → rosto → Run workflow. A primeira execução indexa o álbum inteiro: cerca de 4 fotos por segundo, ou uns 15 minutos para 3.000 fotos. Depois, o workflow roda sozinho a cada 30 minutos e pega as fotos novas.
+6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
 
-7. **Ligar no projeto:** no painel, edite o projeto e marque **Busca pelo rosto**. O botão **Procurar meu rosto** aparece no índice da galeria.
+7. **Montar o índice:** Actions → rosto → Run workflow. A primeira execução indexa o álbum inteiro: cerca de 4 fotos por segundo, ou uns 15 minutos para 3.000 fotos. Depois, o workflow roda sozinho a cada 30 minutos e pega as fotos novas.
+
+8. **Ligar no projeto:** no painel, edite o projeto e marque **Busca pelo rosto**. O botão **Procurar meu rosto** aparece no índice da galeria.
 
 ## Como funciona
 
 - **Busca** (`POST /api/rosto/buscar`):
   - a selfie é reduzida no navegador (640 px, JPEG);
   - antes da AWS, o site confere o aceite, o token do formulário, o teto por IP e o Turnstile;
-  - a primeira chamada pergunta à coleção `fotos-<slug>-sair` se a pessoa saiu da busca;
+  - a primeira chamada pergunta à coleção `fotos-<slug>-sair` se a pessoa saiu da busca. Só existe depois que alguém sai (marca `rosto-sair:<slug>` no KV);
   - a segunda procura em `fotos-<slug>`, com semelhança mínima de 90%;
+  - até 2 sementes (achados com 98% ou mais, de fotos diferentes) procuram os rostos parecidos com elas (`SearchFaces`, 92%). O que acham entra com a semelhança multiplicada pela da semente, abaixo dos achados diretos;
   - o resultado sai sem as fotos ocultas.
 - **Sair** (`POST /api/rosto/sair`):
   - o rosto vai para `fotos-<slug>-sair`, guardado com o consentimento da pessoa e só para isso;
   - todo rosto com 85% de semelhança ou mais é apagado do índice do álbum.
 - **Indexador** (`scripts/rosto-indexa.mjs`):
   - lê as páginas públicas do álbum, ou seja, a mesma lista que o visitante vê;
-  - indexa a miniatura de 1600 px das fotos novas, até 30 rostos por foto;
+  - indexa a foto de 2400 px das fotos novas (1600 px se passar de 5 MB), até 100 rostos por foto, com o filtro de qualidade LOW para não perder rosto pequeno em foto de grupo;
   - apaga os rostos das fotos que saíram do álbum;
   - guarda o estado no cache do Actions. Se o cache se perder, o pior caso é reprocessar o álbum.
-- **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público.
+- **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público. Antes do lançamento ([`ALBUM.md`](./ALBUM.md)), só o dono, logado, vê e testa.
 - **Sem as chaves no Worker:** as rotas respondem 404.
 
 ## LGPD: o que fazer antes de ligar

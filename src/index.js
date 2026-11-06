@@ -30,7 +30,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, albumLancado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
@@ -41,8 +41,11 @@ import {
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
+import { chavePixValida } from './pix.js';
 import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
-import { emBreveHTML } from './ui/em-breve.js';
+import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
+import { OG_ENTRENOS } from './content/og-entrenos.js';
+import { albumEmDestaque, destaqueParaApi, DESTAQUE_EMBED_JS } from './ui/destaque.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
@@ -56,7 +59,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -280,6 +283,9 @@ const worker = {
       if (path === '/icon.svg' && method === 'GET') return await handleIcon();
       if (method === 'GET' && Object.hasOwn(ICONES_PNG, path)) return handleIconePng(path);
       if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
+      // O favicon e o cartão de link do álbum com domínio próprio (v3.3).
+      if (path === '/icon-entrenos.svg' && method === 'GET') return new Response(ICONE_ALBUM_SVG, { headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
+      if (path === '/og-entrenos.jpg' && method === 'GET') return new Response(Uint8Array.from(atob(OG_ENTRENOS.b64), c => c.charCodeAt(0)), { headers: { ...dataSecurityHeaders('image/jpeg', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
       if (method === 'GET' && FONT_BY_PATH.has(path)) return await handleFont(path);
@@ -297,6 +303,10 @@ const worker = {
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
       // (outra origem, por isso o CORS aberto). Ver handleRecentes().
       if (path === '/api/recentes' && method === 'GET') return await handleRecentes(env);
+      // Aviso do lançamento nos outros sites (v3.3): os dados e o script que
+      // desenha a faixa. Ver src/ui/destaque.js.
+      if (path === '/api/destaque' && method === 'GET') return await handleDestaque(env, 'json');
+      if (path === '/destaque.js' && method === 'GET') return await handleDestaque(env, 'js');
 
       // Security contact (RFC 9116)
       if (path === '/.well-known/security.txt' && method === 'GET') return await handleSecurityTxt();
@@ -540,7 +550,9 @@ async function handleSitemap(env) {
   // A galeria própria de cada álbum público (decisão do dono, 29/10/2026): só a
   // URL e o lastmod — as fotos (image:image) ficam no sitemap de cada galeria
   // (handleSitemapGaleria), para este aqui nunca chamar o Drive.
-  for (const e of events.filter(galeriaIndexavel)) {
+  // Álbum com domínio próprio (entrenos2026.com) fica de fora: o sitemap dele
+  // é anunciado no robots.txt do domínio, com os endereços de lá.
+  for (const e of events.filter(galeriaIndexavel).filter(x => origemDoAlbum(x.slug) === SITE_URL)) {
     const lastmod = lastmodOf(e);
     urls.push(`  <url><loc>${SITE_URL}/galeria/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`);
   }
@@ -563,7 +575,8 @@ const SITEMAP_IMAGENS_POR_URL = 1000;
  * @param {Env} env
  */
 async function handleSitemapGalerias(env) {
-  const events = (await getEvents(env)).filter(galeriaIndexavel);
+  // Sem os álbuns de domínio próprio (ver handleSitemap).
+  const events = (await getEvents(env)).filter(galeriaIndexavel).filter(x => origemDoAlbum(x.slug) === SITE_URL);
   /** @type {string[]} */
   const itens = [];
   const entrada = (/** @type {string} */ loc, /** @type {Evento} */ e) => {
@@ -638,8 +651,9 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   if (event.galeriaCapitulos && !capSlug) {
     const caps = await capitulosOuNulo(env, event);
     if (!caps) return indisponivel();
-    const urls = [`  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
-      ...caps.caps.map(c => `  <url><loc>${SITE_URL}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
+    const origem = origemDoAlbum(event.slug);
+    const urls = [`  <url><loc>${origem}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
+      ...caps.caps.map(c => `  <url><loc>${origem}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`, {
       headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
     });
@@ -664,7 +678,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     .filter(f => !ehVideo(f))
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
-  const pagina = `${SITE_URL}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
+  const pagina = `${origemDoAlbum(event.slug)}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
   // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
   const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -677,7 +691,11 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   });
 }
 
-function handleRobots() {
+/**
+ * @param {string} [host] o domínio do robots.txt (o de um álbum, ou o principal)
+ * @param {string[]} [sitemaps] os sitemaps anunciados
+ */
+function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/sitemap.xml`, `${SITE_URL}/sitemap-galerias.xml`]) {
   // Busca e resposta de IA são bem-vindas; treino de modelo não. O Content-Signal
   // vale em cada grupo (um grupo próprio de um robô ignora o do `*`), e os robôs
   // que existem só para treinar levam Disallow. /dashboard e /api/ não são
@@ -697,14 +715,13 @@ function handleRobots() {
   const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
   const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
   const body =
-    '# robots.txt — fotos.lucafchala.com\n' +
+    `# robots.txt — ${host}\n` +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
     '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
     'User-agent: *\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
-    `Sitemap: ${SITE_URL}/sitemap.xml\n` +
-    `Sitemap: ${SITE_URL}/sitemap-galerias.xml\n`;
+    sitemaps.map(u => `Sitemap: ${u}\n`).join('');
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
   });
@@ -861,7 +878,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   ]);
 
   const res = html(
-    eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null, nonce, driveNonce, removalFormToken),
+    eventHTML(event, year, env.CF_ANALYTICS_TOKEN ?? null, nonce, driveNonce, removalFormToken, ((d) => (d && d.slug !== event.slug ? d : null))(albumEmDestaque(events))),
     200,
     nonce
   );
@@ -1275,6 +1292,17 @@ export function normalizeEventFields(body, base, cats) {
     // Busca pelo rosto (v3.2): desligada por padrão; só vale em álbum público e
     // com as chaves da AWS no Worker (ver docs/ROSTO.md).
     buscaRosto: pick('buscaRosto', v => v === true),
+    // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
+    // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
+    destaqueMaximo: pick('destaqueMaximo', v => v === true),
+    // "Apoie o projeto" (v3.3, Pix estático): só chave aceita (sem CPF — ela
+    // aparece na página); nome e cidade do recebedor como o banco mostra.
+    pixChave: pick('pixChave', v => chavePixValida(v)),
+    pixNome: pick('pixNome', v => String(v).replace(/\p{Cc}/gu, '').trim().slice(0, 40)),
+    pixCidade: pick('pixCidade', v => String(v).replace(/\p{Cc}/gu, '').trim().slice(0, 30)),
+    // Apresentação do álbum (v3.3): o estilo da primeira tela e o recado final.
+    galeriaEstilo: pick('galeriaEstilo', v => (GALERIA_ESTILOS.includes(v) ? v : GALERIA_ESTILOS[0])),
+    galeriaRecado: pick('galeriaRecado', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_RECADO_MAX)),
     galeriaAbertura: pick('galeriaAbertura', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_ABERTURA_MAX)),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
@@ -1675,7 +1703,8 @@ export async function handleQr(request, env, url) {
     return jsonErr('Este projeto não tem galeria por capítulos.', 404);
   }
   const caminho = !temGaleria ? `/${slug}` : capSlug ? `/galeria/${slug}/${capSlug}` : `/galeria/${slug}`;
-  const alvoUrl = SITE_URL + caminho;
+  // O QR da galeria de um álbum com domínio próprio leva ao domínio dele.
+  const alvoUrl = (temGaleria ? origemDoAlbum(slug) : SITE_URL) + caminho;
   const qr = qrLinhas(alvoUrl);
   return jsonOk({
     slug, url: alvoUrl, titulo: nomeCap ? `${titulo} · ${nomeCap}` : titulo,
@@ -3340,13 +3369,15 @@ export async function handleDriveLink(request, env, ctx) {
 // Busca pelo rosto (v3.2) — ver src/rosto.js e docs/ROSTO.md
 // ---------------------------------------------------------------------------
 /**
- * A busca vale para este projeto? Ligada no painel, álbum público e as chaves
- * da AWS no Worker. Fora disso, as rotas respondem 404 (como se não existissem).
+ * A busca vale para este projeto? Ligada no painel, álbum público, lançado (ou
+ * o dono, logado, testando antes do lançamento) e as chaves da AWS no Worker.
+ * Fora disso, as rotas respondem 404 (como se não existissem).
  * @param {Env} env
  * @param {Evento | undefined} evento
+ * @param {boolean} [dono]
  */
-export function buscaRostoAtiva(env, evento) {
-  return !!evento && evento.buscaRosto === true && !isRestrictedAccess(evento) && evento.visible !== false && !!credAws(env);
+export function buscaRostoAtiva(env, evento, dono = false) {
+  return !!evento && evento.buscaRosto === true && !isRestrictedAccess(evento) && (dono || albumLancado(evento)) && !!credAws(env);
 }
 
 /**
@@ -3391,13 +3422,16 @@ export async function handleRosto(request, env, acao) {
     return jsonErr('Verificação de segurança falhou. Recarregue e tente de novo.', 403);
   }
   const evento = (await getEvents(env)).find(e => e.slug === slug);
-  if (!buscaRostoAtiva(env, evento)) return notFound();
+  // Antes do lançamento, só o dono (logado) testa.
+  if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : !!(await verifySession(env, request)))) return notFound();
   const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
 
   try {
     if (acao === 'sair') {
       const r = await sairDaBusca(cred, slug, body.imagem);
       if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
+      // A partir de agora toda busca deste álbum consulta quem saiu.
+      try { await env.FOTOS.put(`rosto-sair:${slug}`, '1'); } catch (e) { noteDegraded('busca pelo rosto: marca de quem saiu não gravada', String(slug), e); }
       const res = jsonOk({ ok: true, removidas: r.removidas });
       res.headers.set('Cache-Control', 'no-store');
       return res;
@@ -3405,7 +3439,11 @@ export async function handleRosto(request, env, acao) {
     // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
     const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
     if (!global.ok) return tooManyRequests(global.retryAfter);
-    const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
+    // Ninguém saiu deste álbum ainda? Uma chamada paga a menos por busca. Na
+    // dúvida (KV fora), consulta — o lado seguro é não mostrar quem saiu.
+    let temSair = true;
+    try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
+    const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
     if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
     const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [] });
     res.headers.set('Cache-Control', 'no-store');
@@ -3415,6 +3453,24 @@ export async function handleRosto(request, env, acao) {
     noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
     return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
   }
+}
+
+/**
+ * GET /api/destaque (JSON) e /destaque.js (o script do aviso). CORS aberto e
+ * recurso cross-origin: os outros sites (inclusive de outro domínio) leem.
+ * @param {Env} env
+ * @param {'json' | 'js'} tipo
+ */
+async function handleDestaque(env, tipo) {
+  const corpo = tipo === 'js' ? DESTAQUE_EMBED_JS : JSON.stringify(destaqueParaApi(albumEmDestaque(await getEvents(env))));
+  return new Response(corpo, {
+    headers: {
+      ...dataSecurityHeaders(tipo === 'js' ? 'text/javascript; charset=utf-8' : 'application/json; charset=utf-8', { store: true }),
+      'Access-Control-Allow-Origin': '*',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
 }
 
 // 429 com o tempo de espera: no cabeçalho padrão (Retry-After) e no corpo,
@@ -3764,7 +3820,7 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     // Projeto ainda não criado (ou oculto): "em breve", não um 404. getEvents
     // tem cache de isolate — a raiz não paga uma leitura de KV por visita.
     let existe;
-    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && e.visible !== false); } catch { existe = true; }
+    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && albumLancado(e)); } catch { existe = true; }
     if (!existe) {
       const res = new Response(emBreveHTML(album), { status: 200, headers: htmlSecurityHeaders('') });
       res.headers.set('Cache-Control', 'public, max-age=60');
@@ -3773,6 +3829,8 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     }
     return redirect(`/galeria/${album.slug}${url.search}`);
   }
+  // O robots.txt do domínio anuncia o sitemap do álbum, com os endereços de lá.
+  if (path === '/robots.txt') return handleRobots(dominio, [`https://${dominio}/sitemap-galeria-${album.slug}.xml`]);
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
@@ -3930,6 +3988,12 @@ function handleVendor(path) {
  */
 async function podeVerGaleria(request, env, slug) {
   if (await verifySession(env, request)) return true;
+  // O indexador da busca pelo rosto (GitHub Actions) lê as páginas do álbum
+  // ainda em "Em breve", com um token só dele (secret ROSTO_INDEXADOR_TOKEN, 32+
+  // caracteres). Só LEITURA da página pública — não é sessão de dono.
+  const tokenIdx = String(env.ROSTO_INDEXADOR_TOKEN || '');
+  const pedido = request.headers.get('X-Rosto-Indexador') || '';
+  if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event || event.comingSoon) return false;
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
@@ -4116,7 +4180,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
-  const rosto = buscaRostoAtiva(env, event) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
+  const rosto = buscaRostoAtiva(env, event, dono) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
   const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto });
   /** @type {Response} */
   let res;
@@ -4873,7 +4937,7 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', '
 // TypeError dentro de galleryHTML e derrubava a home inteira com 500.
 const RESTORE_TEXT_FIELDS = {
   title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
-  galeriaAbertura: GALERIA_ABERTURA_MAX,
+  galeriaAbertura: GALERIA_ABERTURA_MAX, galeriaRecado: GALERIA_RECADO_MAX, pixNome: 40, pixCidade: 30,
 };
 const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
 
@@ -4967,6 +5031,9 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCreditos !== undefined) out.galeriaCreditos = normalizaCreditos(out.galeriaCreditos);
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
+  if (out.destaqueMaximo !== undefined) out.destaqueMaximo = out.destaqueMaximo === true;
+  if (out.pixChave !== undefined) out.pixChave = chavePixValida(out.pixChave);
+  if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;
   if (out.galeriaPeriodo !== undefined) out.galeriaPeriodo = periodoValido(out.galeriaPeriodo);

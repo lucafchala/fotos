@@ -265,6 +265,7 @@ npm run build:icons
   `wrangler.toml`). Um domínio de álbum leva a raiz direto à galeria do
   projeto: a lista fica em `DOMINIOS_DE_ALBUM`, em `src/config.js`. Domínio
   novo também entra no widget do Turnstile.
+- **Álbum com página especial.** Apresentação, lançamento, destaque no site e nos outros sites, Pix: [docs/ALBUM.md](./docs/ALBUM.md). Busca pelo rosto: [docs/ROSTO.md](./docs/ROSTO.md).
 - **Detalhes.** [Deploy](./docs/REFERENCIA.md#deploy) e
   [Prévia de PR](./docs/REFERENCIA.md#prévia-de-pr-testar-antes-do-merge).
 

@@ -12,7 +12,7 @@
 // Ver docs/ROSTO.md (por que a Rekognition, custos, LGPD).
 
 import { rekognition, ErroAws } from './aws.js';
-import { ROSTO_REGIAO_PADRAO, ROSTO_LIMIAR, ROSTO_LIMIAR_SAIR, ROSTO_MAX_RESULTADOS, ROSTO_IMAGEM_MAX_B64 } from './config.js';
+import { ROSTO_REGIAO_PADRAO, ROSTO_LIMIAR, ROSTO_LIMIAR_SAIR, ROSTO_MAX_RESULTADOS, ROSTO_IMAGEM_MAX_B64, ROSTO_SEMENTES, ROSTO_SEMENTE_MIN, ROSTO_LIMIAR_SEMENTE } from './config.js';
 
 export { ErroAws };
 
@@ -98,14 +98,15 @@ export function ehAcelerado(e) {
  * @param {string} slug
  * @param {string} imagem base64 (já conferida por imagemValida)
  * @param {Iterable<string>} ocultas IDs do Drive que o público não vê
- * @param {{ fetch?: typeof fetch }} [opcoes]
+ * @param {{ fetch?: typeof fetch, temSair?: boolean }} [opcoes] `temSair: false`
+ *   pula a consulta a quem saiu (ninguém saiu ainda neste álbum: uma chamada a menos)
  * @returns {Promise<ResultadoBusca>}
  */
 export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
   const c = colecoes(slug);
   const Image = { Bytes: imagem };
   // 1. Quem saiu da busca não é achado — nem nas fotos novas.
-  try {
+  if (opcoes.temSair !== false) try {
     const r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.sair, Image, MaxFaces: 1, FaceMatchThreshold: ROSTO_LIMIAR }, opcoes);
     if (Array.isArray(r.FaceMatches) && r.FaceMatches.length) return { tipo: 'saiu' };
   } catch (e) {
@@ -125,14 +126,36 @@ export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
   const fora = new Set(ocultas);
   /** @type {Map<string, AchadoRosto>} */
   const porFoto = new Map();
-  for (const m of Array.isArray(r.FaceMatches) ? r.FaceMatches : []) {
+  /** @param {any[]} matches @param {number} fator semelhança da semente (1 = busca direta) */
+  const junta = (matches, fator) => {
+    for (const m of matches) {
+      const alvo = lerIdExterno(m && m.Face && m.Face.ExternalImageId);
+      if (!alvo || fora.has(alvo.id)) continue;
+      const sim = Math.round(Number(m.Similarity) * fator * 10) / 10;
+      if (!(sim >= 0)) continue;
+      const antes = porFoto.get(alvo.id);
+      if (!antes || antes.sim < sim) porFoto.set(alvo.id, { cap: alvo.cap, id: alvo.id, sim });
+    }
+  };
+  const diretos = Array.isArray(r.FaceMatches) ? r.FaceMatches : [];
+  junta(diretos, 1);
+  // 3. As sementes: rostos com semelhança altíssima, de fotos diferentes, que
+  // procuram os parecidos com eles. O que acham entra com a semelhança
+  // multiplicada pela da semente (fica abaixo dos achados diretos).
+  /** @type {{ id: string, sim: number }[]} */
+  const sementes = [];
+  const fotosSemente = new Set();
+  for (const m of diretos) {
     const alvo = lerIdExterno(m && m.Face && m.Face.ExternalImageId);
-    if (!alvo || fora.has(alvo.id)) continue;
-    const sim = Math.round(Number(m.Similarity) * 10) / 10;
-    if (!(sim >= 0)) continue;
-    const antes = porFoto.get(alvo.id);
-    if (!antes || antes.sim < sim) porFoto.set(alvo.id, { cap: alvo.cap, id: alvo.id, sim });
+    const faceId = m && m.Face && m.Face.FaceId;
+    if (!alvo || fora.has(alvo.id) || fotosSemente.has(alvo.id) || typeof faceId !== 'string' || !(Number(m.Similarity) >= ROSTO_SEMENTE_MIN)) continue;
+    fotosSemente.add(alvo.id);
+    sementes.push({ id: faceId, sim: Number(m.Similarity) });
+    if (sementes.length >= ROSTO_SEMENTES) break;
   }
+  const extras = await Promise.all(sementes.map(s => rekognition(cred, 'SearchFaces', { CollectionId: c.principal, FaceId: s.id, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR_SEMENTE }, opcoes)
+    .then(x => ({ x, fator: s.sim / 100 }), () => null)));
+  for (const e of extras) if (e && Array.isArray(e.x.FaceMatches)) junta(e.x.FaceMatches, e.fator);
   const resultados = [...porFoto.values()].sort((a, b) => b.sim - a.sim).slice(0, ROSTO_MAX_RESULTADOS);
   return { tipo: 'ok', resultados };
 }

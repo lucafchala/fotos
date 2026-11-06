@@ -1,5 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
-import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS } from './config.js';
+import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM } from './config.js';
 import { FONTS } from './content/fonts.js';
 
 /**
@@ -31,6 +31,7 @@ import { FONTS } from './content/fonts.js';
  *   AWS_ACCESS_KEY_ID?: string,
  *   AWS_SECRET_ACCESS_KEY?: string,
  *   AWS_REGION?: string,
+ *   ROSTO_INDEXADOR_TOKEN?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
  *   PREVIA_EMAIL?: string,
@@ -1245,8 +1246,21 @@ export function igCreditButtonHTML(idSuffix, label = 'Marque-me') {
 // 300 a 700 que as páginas usam. `swap`: o texto aparece na fonte do sistema
 // enquanto o arquivo chega, em vez de ficar invisível.
 export function fontFaceCSS() {
-  return FONTS.map(f =>
-    `@font-face{font-family:'Inter';font-style:${f.style};font-weight:100 900;font-display:swap;` +
+  return facesCSS(FONTS.filter(f => f.family === 'Inter'));
+}
+
+// As fontes da apresentação de um álbum (v3.3): Open Sans (títulos e textos,
+// a mais parecida com a do Colégio Santa Cruz) e Caveat no estilo "álbum de
+// recordação". Só src/ui/album.js chama — o browser só
+// baixa a face que a página de fato usa.
+export function fontFaceAlbumCSS() {
+  return facesCSS(FONTS.filter(f => f.family !== 'Inter'));
+}
+
+/** @param {typeof FONTS} faces */
+function facesCSS(faces) {
+  return faces.map(f =>
+    `@font-face{font-family:'${f.family}';font-style:${f.style};font-weight:100 900;font-display:swap;` +
     `src:url(${f.path}) format('woff2');unicode-range:${f.unicodeRange}}`,
   ).join('\n');
 }
@@ -1259,7 +1273,7 @@ export function fontFaceCSS() {
 // buscada em modo CORS, e um preload sem o atributo fica num pool separado —
 // o browser baixaria o arquivo duas vezes e ainda avisaria no console.
 export function fontPreloadHTML() {
-  const normal = FONTS.find(f => f.style === 'normal');
+  const normal = FONTS.find(f => f.family === 'Inter' && f.style === 'normal');
   return normal ? `<link rel="preload" href="${normal.path}" as="font" type="font/woff2" crossorigin>` : '';
 }
 
@@ -3110,3 +3124,25 @@ export function consoleGreetingScript(nonce = '') {
   }catch(e){}
 })();</script>`;
 }
+
+// O endereço público de um álbum que tem domínio próprio (entrenos2026.com):
+// é ele que vai no canonical, no cartão de link, no sitemap e no QR code. Os
+// outros álbuns seguem em fotos.lucafchala.com. Ver DOMINIOS_DE_ALBUM.
+/**
+ * @param {string} slug
+ * @returns {string} origem sem barra no fim
+ */
+export function origemDoAlbum(slug) {
+  for (const [dominio, a] of Object.entries(DOMINIOS_DE_ALBUM)) if (a.slug === slug) return `https://${dominio}`;
+  return 'https://fotos.lucafchala.com';
+}
+
+// Um álbum está LANÇADO quando o público pode abri-lo: listado (visível) e fora
+// do "Em breve". Antes disso, o domínio do álbum mostra "em breve", o destaque
+// do site não aparece e só o dono (logado) vê a galeria e testa a busca pelo
+// rosto. Lançar é desmarcar "Em breve" e marcar "Visível" no painel.
+/** @param {Evento | undefined | null} e */
+export function albumLancado(e) {
+  return !!e && e.visible !== false && !e.comingSoon;
+}
+
