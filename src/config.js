@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -36,6 +36,28 @@ export const DEFAULT_EVENT = {
 // Cloudflare atualizaria uma e esqueceria a outra — o formulário que ficasse
 // com a velha recusaria todo envio.
 export const TURNSTILE_SITE_KEY = '0x4AAAAAADg-tbuoPRO9s2I5';
+
+// Domínio próprio de um álbum (entrenos2026.com → álbum da Turma 2026). É o
+// mesmo Worker, ligado ao domínio como Custom Domain no painel da Cloudflare
+// (igual ao fotos.lucafchala.com — nada disso vai no wrangler.toml, que
+// derrubaria o deploy enquanto a zona não existir na conta). Nesse endereço:
+//   - a raiz leva direto à galeria do álbum (302, para poder mudar depois);
+//   - www. vai para o domínio sem www. (301);
+//   - o painel volta para o domínio principal, onde mora a sessão;
+//   - o resto responde igual (mesma origem para formulários e downloads).
+// Enquanto o projeto não existe (ou está oculto), a raiz mostra uma página
+// "em breve" com `titulo` e `linha`, em vez de levar a um 404.
+// Chave = domínio sem www.; `slug` = o do projeto no painel.
+// ⚠️ O Turnstile só vale nos domínios cadastrados no widget: adicione o
+// domínio lá também, ou todo formulário desta origem é recusado.
+// Texto de abertura do índice da galeria por capítulos (campo do projeto
+// `galeriaAbertura`): parágrafos separados por linha em branco, sem marcação.
+export const GALERIA_ABERTURA_MAX = 2000;
+
+/** @type {Readonly<Record<string, { slug: string, titulo: string, linha: string }>>} */
+export const DOMINIOS_DE_ALBUM = Object.freeze({
+  'entrenos2026.com': Object.freeze({ slug: 'entrenos2026', titulo: 'Entre Nós', linha: 'Turma 2026' }),
+});
 
 // Rate limit por IP do portão do Drive — balde de fichas (RateLimiter.take).
 // Dimensionado para o caso real de pico: o público de um evento abrindo o

@@ -41,6 +41,7 @@ import {
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
+import { emBreveHTML } from './ui/em-breve.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
   isCrossSiteRequest, signToken, verifyToken, validatePassword,
@@ -54,7 +55,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -249,6 +250,11 @@ const worker = {
     const url = new URL(request.url);
     const path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
+
+    // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
+    // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js.
+    const desvioDoDominio = await rotaDoDominioDeAlbum(url, path, env);
+    if (desvioDoDominio) return desvioDoDominio;
 
     // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker
     // está atendendo", e restringir a uma rota faria o monitor depender de
@@ -1261,6 +1267,9 @@ export function normalizeEventFields(body, base, cats) {
     // Créditos por pasta de autor ("pasta = Nome", uma linha por autor). Vazio
     // = só o autor padrão. Ver normalizaCreditos (drive.js).
     galeriaCreditos: pick('galeriaCreditos', normalizaCreditos),
+    // Texto de abertura do índice da galeria por capítulos (v3.1): vazio = o
+    // índice simples de sempre. Ver galeriaIndiceHTML.
+    galeriaAbertura: pick('galeriaAbertura', v => String(v).replace(/\r\n?/g, '\n').trim().slice(0, GALERIA_ABERTURA_MAX)),
     // Fotos escondidas A PEDIDO de um visitante e ainda sem decisão do dono.
     // O painel não as edita pelo formulário (usa os botões do pedido); aqui só
     // se preserva o que já existe, podado pelo subconjunto acima.
@@ -3646,6 +3655,44 @@ function adminHtml(content, status = 200, nonce = '', opcoes) {
 }
 
 /**
+ * O desvio de um domínio de álbum, ou null quando a requisição segue o
+ * roteamento normal (outro domínio, ou uma rota que responde igual lá).
+ * @param {URL} url
+ * @param {string} path
+ * @param {Env} env
+ * @returns {Promise<Response | null>}
+ */
+export async function rotaDoDominioDeAlbum(url, path, env) {
+  const host = url.hostname.toLowerCase();
+  const dominio = host.startsWith('www.') ? host.slice(4) : host;
+  if (!Object.hasOwn(DOMINIOS_DE_ALBUM, dominio)) return null;
+  if (host !== dominio) {
+    return new Response(null, {
+      status: 301,
+      headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `https://${dominio}${url.pathname}${url.search}` },
+    });
+  }
+  const album = DOMINIOS_DE_ALBUM[dominio];
+  if (path === '/') {
+    // Projeto ainda não criado (ou oculto): "em breve", não um 404. getEvents
+    // tem cache de isolate — a raiz não paga uma leitura de KV por visita.
+    let existe;
+    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && e.visible !== false); } catch { existe = true; }
+    if (!existe) {
+      const res = new Response(emBreveHTML(album), { status: 200, headers: htmlSecurityHeaders('') });
+      res.headers.set('Cache-Control', 'public, max-age=60');
+      res.headers.set('X-Robots-Tag', 'noindex');
+      return res;
+    }
+    return redirect(`/galeria/${album.slug}${url.search}`);
+  }
+  // O painel mora no domínio principal (é lá que o cookie da sessão vale).
+  const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
+  if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
+  return null;
+}
+
+/**
  * @param {string} location
  */
 function redirect(location) {
@@ -4737,6 +4784,7 @@ const RESTORE_URL_FIELDS = ['driveUrl', 'driveUrlInstagram', 'driveUrlVideos', '
 // TypeError dentro de galleryHTML e derrubava a home inteira com 500.
 const RESTORE_TEXT_FIELDS = {
   title: 200, longDescription: 5000, eventCredits: 200, internalNotes: 5000, category: MAX_CATEGORY_LEN,
+  galeriaAbertura: GALERIA_ABERTURA_MAX,
 };
 const RESTORE_DATE_FIELDS = ['date', 'promisedDate'];
 

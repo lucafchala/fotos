@@ -69,6 +69,17 @@ decisão do dono.
 - **Aba Galeria nas métricas**: aberturas por dia, fotos baixadas (redes e
   tamanho máximo), baixadas por abertura, comparação com o período anterior,
   ranking por capítulo e CSV.
+- **Domínio próprio do álbum.** `entrenos2026.com` abre direto na galeria do
+  álbum da Turma 2026 (projeto `entrenos2026`); `www.` vai para o domínio sem
+  `www.`, o painel volta para `fotos.lucafchala.com` e o resto do site responde
+  igual. Enquanto o projeto não existe (ou está oculto), a raiz mostra uma
+  página "em breve" em vez de um 404. O domínio é ligado ao Worker no painel da
+  Cloudflare (Custom Domain) e precisa estar também no widget do Turnstile.
+- **Abertura do álbum.** Campo "Texto de abertura do álbum" no projeto: o
+  índice da galeria por capítulos ganha mosaico com as capas dos eventos,
+  título grande, o texto, os números do álbum (eventos, fotos e autores) e os
+  botões **Ver os eventos** e **Mandar suas fotos** (só em álbum público).
+  Vazio, o índice continua como antes.
 
 ### Mudou
 
@@ -92,6 +103,9 @@ decisão do dono.
 - Sai o popup "Nova galeria de fotos" da página do evento.
 
 ### Corrigido
+
+- A capa do cartão de capítulo no índice da galeria esticava para 320 px de
+  altura em tela estreita; agora segue a proporção 3:2.
 
 - O teste de CPU da página de 6000 itens compara com uma carga de referência
   medida junto (razão), em vez de um teto absoluto que oscilava sob carga.

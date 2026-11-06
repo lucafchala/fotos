@@ -6,7 +6,7 @@
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
 import { escape, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
-import { urlLh3, descreveRenovacao } from '../drive.js';
+import { urlLh3, descreveRenovacao, pastaDoDrive, parseCreditos } from '../drive.js';
 import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
@@ -69,6 +69,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const avisoTrunc = dono && caps.truncada
     ? '<p class="ix-aviso">O Drive tem mais subpastas do que o índice mostra (até 100). As demais ficam de fora; reúna eventos antigos em outra pasta.</p>'
     : '';
+  const abertura = aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito });
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
 
@@ -114,23 +115,46 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     .ix-grade{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:12px;padding:.75rem var(--pad) 2.5rem}
     .ix-card{display:flex;flex-direction:column;height:100%;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-card);text-decoration:none}
     .ix-card:hover{border-color:var(--accent)}
-    .ix-card img,.ix-vazio{display:block;width:100%;aspect-ratio:3/2;object-fit:cover;background:var(--esqueleto)}
+    .ix-card img,.ix-vazio{display:block;width:100%;height:auto;aspect-ratio:3/2;object-fit:cover;background:var(--esqueleto)}
     .ix-nome{padding:.6rem .75rem .1rem;font-size:.92rem;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
     .ix-sub{padding:0 .75rem .75rem;font-size:.78rem;color:var(--text-muted)}
     .ix-card-vazio{opacity:.65;border-style:dashed}
     .ix-novas{display:inline-block;margin-left:.45rem;padding:.05rem .45rem;border:1px solid var(--accent);border-radius:999px;font-size:.7rem;color:var(--accent);white-space:nowrap}
     .ix-vazio-msg{padding:2rem var(--pad);color:var(--text-muted)}
+    .ab{position:relative;padding-bottom:1.5rem}
+    .ab-mosaico{position:relative;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,clamp(90px,17vw,240px));gap:3px;overflow:hidden}
+    .ab-mosaico img{display:block;width:100%;height:100%;object-fit:cover;background:var(--esqueleto);animation:ab-surge .9s ease-out both}
+    .ab-mosaico img:first-child{grid-column:span 2;grid-row:span 2}
+    .ab-mosaico img:nth-child(2){animation-delay:.08s}.ab-mosaico img:nth-child(3){animation-delay:.16s}.ab-mosaico img:nth-child(4){animation-delay:.24s}.ab-mosaico img:nth-child(5){animation-delay:.32s}
+    .ab-mosaico::after{content:"";position:absolute;inset:auto 0 0 0;height:40%;background:linear-gradient(to bottom,transparent,var(--bg-page));pointer-events:none}
+    @keyframes ab-surge{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion: reduce){.ab-mosaico img{animation:none}}
+    @media (max-width: 560px){.ab-mosaico{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,30vw)}.ab-mosaico img:nth-child(n+4){display:none}}
+    .ab-texto{position:relative;max-width:46rem;margin:-2.5rem auto 0;padding:0 var(--pad)}
+    .ab-texto-solo{margin-top:2rem}
+    .ab h1{font-size:clamp(2rem,7vw,3.6rem);font-weight:700;line-height:1.05;letter-spacing:-.025em;margin:.35rem 0 .6rem;overflow-wrap:anywhere}
+    .ab-meta{font-size:.9rem;color:var(--text-muted)}
+    .ab-intro{margin-top:1.25rem;font-size:clamp(1rem,2.2vw,1.12rem);line-height:1.65;color:var(--text-2)}
+    .ab-intro p+p{margin-top:.9rem}
+    .ab-acoes{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.5rem}
+    .ab-btn{display:inline-flex;align-items:center;min-height:44px;padding:0 1.1rem;border-radius:999px;font-size:.92rem;font-weight:600;text-decoration:none;border:1px solid var(--accent)}
+    .ab-btn-1{background:var(--accent);color:var(--bg-page)}
+    .ab-btn-2{color:var(--accent)}
+    .ab-btn:hover{filter:brightness(1.08)}
+    .ab-voltar{display:inline-flex;align-items:center;min-height:44px;margin-top:.75rem;font-size:.8rem;color:var(--text-muted)}
+    .ab-eventos{font-size:1.05rem;font-weight:600;padding:.5rem var(--pad) 0;max-width:none;scroll-margin-top:1rem}
   </style>
 </head>
 <body>
   ${barraDono}
-  <header class="ix-top">
+  ${abertura || `<header class="ix-top">
     <a class="ix-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span>&nbsp;Página do projeto</a>
     <h1>${escape(titulo)}</h1>
     <p class="ix-meta">${escape([dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · '))}</p>
-  </header>
+  </header>`}
   ${avisoTrunc}
   <main id="g-main" aria-label="Eventos">
+    ${abertura && cartoes.length ? '<h2 class="ab-eventos" id="eventos">Os eventos</h2>' : ''}
     ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : `<p class="ix-vazio-msg">${dono && !caps.caps.length ? 'A pasta não tem subpastas: não há eventos para mostrar.' : 'As fotos estão chegando. Volte em breve.'}</p>`}
   </main>
   ${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
@@ -172,3 +196,65 @@ const SCRIPT_NOVAS = slug => `(function () {
     if (sub) sub.appendChild(s);
   }
 })();`;
+
+/**
+ * A abertura do índice (v3.1, campo `galeriaAbertura`): mosaico com as capas
+ * dos capítulos, o título grande, o texto do dono, os números do álbum e os
+ * botões. Sem texto, '' — o índice segue com o cabeçalho simples. As capas e
+ * as contagens vêm do mesmo resumo dos cartões: nenhuma chamada a mais.
+ * @param {{
+ *   event: import('../utils.js').Evento, titulo: string, dataEvento: string,
+ *   visiveis: { id: string }[], resumo: Record<string, import('../drive.js').ResumoCap>,
+ *   ocultasSet: Set<string>, restrito: boolean,
+ * }} p
+ */
+function aberturaHTML({ event, titulo, dataEvento, visiveis, resumo, ocultasSet, restrito }) {
+  const texto = typeof event.galeriaAbertura === 'string' ? event.galeriaAbertura.trim() : '';
+  if (!texto) return '';
+  const slug = String(event.slug || '');
+  const paragrafos = texto.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+    .map(p => `<p>${p.split('\n').map(l => escape(l.trim())).join('<br>')}</p>`);
+  // Capas: a primeira de cada capítulo, depois a segunda de cada um, até 5 —
+  // assim o mosaico mostra eventos diferentes antes de repetir um. Álbum
+  // família/privado não ganha mosaico (o mesmo critério do cartão de link).
+  /** @type {string[]} */
+  const capas = [];
+  if (!restrito) {
+    const listas = visiveis.map(c => (resumo[c.id] ? resumo[c.id].capas.filter(id => !ocultasSet.has(id)) : []));
+    for (let i = 0; capas.length < 5 && listas.some(l => l.length > i); i++) {
+      for (const l of listas) if (l[i] && capas.length < 5 && !capas.includes(l[i])) capas.push(l[i]);
+    }
+  }
+  // 5 enchem a grade do computador (uma grande + 4); o celular mostra 3.
+  const mosaico = capas.length >= 3
+    ? `<div class="ab-mosaico" aria-hidden="true">${capas.map((id, i) => `<img src="${escape(urlLh3(id, i === 0 ? 960 : 480))}" alt="" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" referrerpolicy="no-referrer">`).join('')}</div>`
+    : '';
+  // Números: a contagem de fotos só quando todos os capítulos já têm resumo
+  // (senão seria um número menor que o real).
+  const todosComResumo = visiveis.length > 0 && visiveis.every(c => resumo[c.id]);
+  const fotos = todosComResumo ? visiveis.reduce((n, c) => n + resumo[c.id].n, 0) : 0;
+  const autores = [...new Set(parseCreditos(event.galeriaCreditos).values())].filter(Boolean);
+  const listaAutores = autores.length > 1 ? `${autores.slice(0, -1).join(', ')} e ${autores[autores.length - 1]}` : (autores[0] || '');
+  const meta = [
+    dataEvento,
+    visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : '',
+    fotos ? `${fotos.toLocaleString('pt-BR')} ${fotos === 1 ? 'foto' : 'fotos'}` : '',
+    listaAutores ? `fotos de ${listaAutores}` : '',
+  ].filter(Boolean).join(' · ');
+  const pasta = restrito ? null : pastaDoDrive(event.driveUrl);
+  const urlPasta = pasta ? `https://drive.google.com/drive/folders/${pasta.id}${pasta.resourceKey ? `?resourcekey=${pasta.resourceKey}` : ''}` : '';
+  const acoes = [
+    visiveis.length ? '<a class="ab-btn ab-btn-1" href="#eventos">Ver os eventos</a>' : '',
+    urlPasta ? `<a class="ab-btn ab-btn-2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
+  ].filter(Boolean).join('');
+  return `<header class="ab">
+    ${mosaico}
+    <div class="ab-texto${mosaico ? '' : ' ab-texto-solo'}">
+      <h1>${escape(titulo)}</h1>
+      ${meta ? `<p class="ab-meta">${escape(meta)}</p>` : ''}
+      <div class="ab-intro">${paragrafos.join('')}</div>
+      ${acoes ? `<div class="ab-acoes">${acoes}</div>` : ''}
+      <a class="ab-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span>&nbsp;Página do projeto</a>
+    </div>
+  </header>`;
+}

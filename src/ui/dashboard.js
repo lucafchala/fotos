@@ -1203,6 +1203,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             <div class="field-hint" id="dica-galeria-capitulos" style="margin-top:.5rem">Desligado, a galeria é uma página só, com uma seção por subpasta. Ligado, <code>/galeria/&lt;projeto&gt;</code> vira um índice com um cartão por <strong>subpasta de primeiro nível</strong> (nome sem o número de ordem, anos do mais novo ao mais antigo) e cada uma abre numa página própria. Boa para pasta com muitos eventos, que no modo comum passa do limite e fica com a lista parcial. Os links antigos de download deixam de valer (os da página nova valem).</div>
           </div>
           <div class="field">
+            <label for="f-abertura">Texto de abertura do álbum <span class="dica-rotulo">(opcional, galeria por capítulos)</span></label>
+            <div class="field-hint" id="dica-abertura" style="margin-bottom:.625rem">Preenchido, o índice da galeria ganha uma <strong>abertura</strong>: mosaico com as capas dos eventos, o título grande, este texto, os números do álbum e os botões <em>Ver os eventos</em> e <em>Mandar suas fotos</em> (este só em álbum público). Parágrafos separados por uma linha em branco, sem formatação. Até 2000 caracteres. Vazio = o índice simples.</div>
+            <textarea id="f-abertura" rows="5" maxlength="2000" aria-describedby="dica-abertura" style="width:100%"></textarea>
+          </div>
+          <div class="field">
             <div class="toggle-row">
               <label class="toggle-label" for="f-galeria-auto">Atualização automática da lista de fotos</label>
               <label class="toggle">
@@ -1833,6 +1838,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-drive').value = e ? (e.driveUrl || '') : '';
       document.getElementById('f-drive-ig').value = e ? (e.driveUrlInstagram || '') : '';
       document.getElementById('f-creditos').value = e ? (e.galeriaCreditos || '') : '';
+      document.getElementById('f-abertura').value = e ? (e.galeriaAbertura || '') : '';
       document.getElementById('f-nomes-amigaveis').checked = !!(e && e.nomesAmigaveis);
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
       document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
@@ -1900,7 +1906,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -1955,7 +1961,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2205,6 +2211,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         driveUrl: drive,
         driveUrlInstagram: document.getElementById('f-drive-ig').value.trim(),
         galeriaCreditos: document.getElementById('f-creditos').value,
+        galeriaAbertura: document.getElementById('f-abertura').value,
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
         galeriaAtualizacaoAuto: document.getElementById('f-galeria-auto').checked,
