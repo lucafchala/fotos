@@ -18,6 +18,41 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.4.0] — ainda não publicada
+
+"Mandar suas fotos" leva cada pessoa direto à pasta certa do Drive.
+
+### Novo
+
+- **Seletor de envio no álbum:** o botão **Mandar suas fotos** abre uma janela
+  com os eventos, na ordem da linha do tempo. Quando o evento tem mais de uma
+  pasta (por ano ou por banda), a janela pergunta qual. Cada opção abre a pasta
+  de envio daquele lugar no Google Drive, com a instrução de entrar com a
+  conta Google e tocar em **+ → Fazer upload**.
+- **Pasta de envio:** é a pasta de crédito cujo nome começa com `!`. No álbum
+  da turma, é a `!turma 2026 (adicione suas fotos aqui)`, que o `!` põe no
+  topo da lista do Drive.
+- **Rota `GET /api/galeria/envio?slug=`:** devolve evento, ano ou banda e o
+  link de cada pasta de envio. Vale só para álbum público por capítulos;
+  antes do lançamento, só para o dono.
+- **Evento novo entra sozinho:** a lista fica guardada 6 horas, mas é refeita
+  na hora quando muda a lista de eventos. O passo a passo está em
+  `docs/ALBUM.md`, "Adicionar um evento".
+
+### Mudou
+
+- **A dica embaixo dos botões:** passa a ser "Toque em Mandar suas fotos e
+  escolha o evento". A dica antiga, da pasta `outros`, continua para os álbuns
+  que ainda usam esse nome.
+- **Custo:** a busca das pastas não abre as pastas de fotógrafo (as outras
+  linhas dos créditos) e para em 40 chamadas ao Drive, abaixo do teto de 50 do
+  plano grátis da Cloudflare.
+- **CI:** o limite do job "Roteiros no navegador" subiu de 20 para 30 minutos.
+  Ele passava com quase 18 e foi cancelado por tempo uma vez.
+
+Sem JavaScript, ou se a lista não carregar, o botão continua abrindo a pasta
+do álbum.
+
 ## [3.3.1] — ainda não publicada
 
 Documentos de LGPD atualizados para a busca pelo rosto e o Pix. Nada muda no

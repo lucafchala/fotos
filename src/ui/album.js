@@ -16,7 +16,7 @@
 // cartões do índice simples: nenhuma listagem a mais.
 
 import { escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
-import { urlLh3, pastaDoDrive, parseCreditos } from '../drive.js';
+import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
 import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS } from './indice-comum.js';
 import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM } from '../config.js';
@@ -134,10 +134,16 @@ export function albumHTML(p) {
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
   // Cruz"), o mesmo da página "em breve"; senão, o ano do projeto.
   const doDominio = Object.values(DOMINIOS_DE_ALBUM).find(a => a.slug === slug);
-  // Pasta trancada para leitura, com só as "outros" abertas para envio (o caso
-  // do álbum da turma): uma dica curta embaixo dos botões.
-  const temOutros = urlPasta && parseCreditos(event.galeriaCreditos).has('outros');
-  const dicaEnvio = temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
+  // Pasta trancada para leitura, com só as pastas de envio abertas (o caso do
+  // álbum da turma): as de crédito que começam com "!" (v3.4). Com elas, o
+  // botão abre o diálogo que leva à pasta certa de cada evento; sem JS, o link
+  // continua indo para a pasta do álbum. O crédito `outros` é o jeito antigo.
+  const temEnvio = !!urlPasta && caps.length > 0 && !!event.galeriaCapitulos && chavesDeEnvio(event.galeriaCreditos).size > 0;
+  const temOutros = !temEnvio && !!urlPasta && parseCreditos(event.galeriaCreditos).has('outros');
+  const dicaEnvio = temEnvio
+    ? '<p class="al-dica">Toque em <b>Mandar suas fotos</b> e escolha o evento.</p>'
+    : temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
+  const envio = temEnvio ? envioHTML(slug, urlPasta) : '';
   const kicker = doDominio ? doDominio.linha : (event.date ? String(event.date).slice(0, 4) : '');
   const cabecalho = (/** @type {string} */ extra = '') => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${extra}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${dicaEnvio}`;
 
@@ -238,6 +244,7 @@ export function albumHTML(p) {
   <main id="g-main">
     ${estilo !== 'linha' && intro ? `<section class="al-sec" id="sobre"><div class="al-intro">${intro}</div></section>` : '<span id="sobre"></span>'}
     ${p.rostoDialog}
+    ${envio}
     ${linha}
     ${quem}
     ${apoio}
@@ -249,6 +256,7 @@ export function albumHTML(p) {
   </footer>
   ${p.scripts}
   ${apoio ? `<script nonce="${p.nonce || ''}">${SCRIPT_PIX}</script>` : ''}
+  ${envio ? `<script nonce="${p.nonce || ''}">${SCRIPT_ENVIO}</script>` : ''}
 </body>
 </html>`;
 }
@@ -310,6 +318,124 @@ const SCRIPT_PIX = `(function () {
   t.addEventListener('focus', function () { t.select(); });
 })();`;
 
+/**
+ * O diálogo "Mandar suas fotos" (v3.4): o script mostra os eventos (e o ano ou
+ * a banda, quando há mais de uma pasta no evento) e leva à pasta de envio
+ * certa no Drive. Usa o visual do diálogo da busca pelo rosto (`.rs`).
+ * @param {string} slug
+ * @param {string} urlPasta a pasta do álbum (o caminho de volta)
+ */
+function envioHTML(slug, urlPasta) {
+  return `<dialog class="rs al-env" id="al-env" aria-labelledby="al-env-t" data-slug="${escape(slug)}">
+      <p class="rs-t" id="al-env-t">Mandar suas fotos</p>
+      <p class="al-env-como">As fotos vão para a pasta do evento no Google Drive. Lá, entre com sua conta Google, toque em <b>+</b> (ou <b>Novo</b>) e escolha <b>Fazer upload</b>.</p>
+      <p class="al-env-msg" id="al-env-msg" role="status"></p>
+      <ul class="al-env-lista" id="al-env-lista"></ul>
+      <p class="al-env-raiz">Não achou o evento? <a href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener">Abrir a pasta do álbum</a></p>
+      <div class="rs-acoes"><button type="button" class="rs-btn" id="al-env-voltar" hidden>Voltar</button><button type="button" class="rs-btn" data-env="fechar">Fechar</button></div>
+    </dialog>`;
+}
+
+// O script do diálogo. Sem JS (ou sem <dialog>), o botão segue como link para a
+// pasta do álbum. Os eventos saem na ordem da linha do tempo da página. Tudo
+// por textContent: nome de pasta do Drive nunca vira HTML.
+// Fora de crase, dollar-chave e barra invertida: JS dentro de template literal.
+export const SCRIPT_ENVIO = `(function () {
+  var a = document.querySelector('[data-acao="mandar-fotos"]');
+  var d = document.getElementById('al-env');
+  if (!a || !d || typeof d.showModal !== 'function' || !window.fetch) return;
+  var lista = document.getElementById('al-env-lista');
+  var tit = document.getElementById('al-env-t');
+  var msg = document.getElementById('al-env-msg');
+  var voltar = document.getElementById('al-env-voltar');
+  var slug = d.getAttribute('data-slug') || '';
+  var pastas = null;
+  var carregando = false;
+  function limpa() { while (lista.firstChild) lista.removeChild(lista.firstChild); }
+  function opcao(el, texto, sub) {
+    el.className = 'al-env-op';
+    var s = document.createElement('span');
+    var b = document.createElement('b');
+    b.textContent = texto;
+    s.appendChild(b);
+    if (sub) { var m = document.createElement('small'); m.textContent = sub; s.appendChild(m); }
+    el.appendChild(s);
+    var li = document.createElement('li');
+    li.appendChild(el);
+    lista.appendChild(li);
+  }
+  function link(texto, url, sub) {
+    if (!/^https:[/][/]drive[.]google[.]com[/]/.test(url)) return;
+    var x = document.createElement('a');
+    x.href = url;
+    x.target = '_blank';
+    x.rel = 'nofollow noopener';
+    opcao(x, texto, sub);
+  }
+  function botao(texto, sub, fn) {
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.addEventListener('click', fn);
+    opcao(x, texto, sub);
+  }
+  function eventos() {
+    limpa();
+    voltar.hidden = true;
+    msg.textContent = '';
+    tit.textContent = 'Para qual evento?';
+    var pos = {};
+    var cards = document.querySelectorAll('.ix-card[data-cap]');
+    for (var i = 0; i < cards.length; i++) pos[cards[i].getAttribute('data-cap')] = i;
+    var ordem = [];
+    var grupos = {};
+    pastas.forEach(function (p) {
+      if (!grupos[p.cap]) { grupos[p.cap] = []; ordem.push(p.cap); }
+      grupos[p.cap].push(p);
+    });
+    ordem.sort(function (x, y) { return (x in pos ? pos[x] : 999) - (y in pos ? pos[y] : 999); });
+    ordem.forEach(function (cap) {
+      var g = grupos[cap];
+      if (g.length === 1) link(g[0].evento, g[0].url, g[0].rotulo);
+      else botao(g[0].evento, g.length + ' pastas: escolha qual', function () { subpastas(g); });
+    });
+  }
+  function subpastas(g) {
+    limpa();
+    voltar.hidden = false;
+    tit.textContent = g[0].evento;
+    g.forEach(function (p) { link(p.rotulo || 'Fotos gerais do evento', p.url, ''); });
+    var primeiro = lista.querySelector('a');
+    if (primeiro) primeiro.focus();
+  }
+  function falhou() {
+    limpa();
+    tit.textContent = 'Mandar suas fotos';
+    msg.textContent = 'Não consegui carregar a lista de eventos agora. Abra a pasta do álbum, logo abaixo, e escolha o evento por lá.';
+  }
+  a.addEventListener('click', function (e) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    d.showModal();
+    if (pastas) { eventos(); return; }
+    if (carregando) return;
+    carregando = true;
+    limpa();
+    tit.textContent = 'Mandar suas fotos';
+    msg.textContent = 'Carregando os eventos…';
+    fetch('/api/galeria/envio?slug=' + encodeURIComponent(slug), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (j) {
+        carregando = false;
+        if (!j || !Array.isArray(j.pastas) || !j.pastas.length) { falhou(); return; }
+        pastas = j.pastas;
+        if (d.open) eventos();
+      })
+      .catch(function () { carregando = false; falhou(); });
+  });
+  voltar.addEventListener('click', eventos);
+  d.querySelector('[data-env="fechar"]').addEventListener('click', function () { d.close(); });
+})();`;
+
 // Paleta fixa (escura) da apresentação: as fotos dão a cor. O amarelo e o azul
 // são os do Colégio Santa Cruz (as cores `yellow` #F9DE4B e `blue` #243580 do
 // site da escola); o azul entra pouco: a faixa do recado, o fim da linha do
@@ -329,6 +455,15 @@ a{color:inherit;text-decoration:none}
 .al-meta{color:var(--txt2);font-size:.95rem;margin-top:.2rem}
 .al-btns{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.6rem}
 .al-dica{margin-top:.7rem;font-size:.82rem;color:var(--mudo)}.al-dica b{color:var(--txt2);font-weight:600}
+.al-env-msg{min-height:1.2em;margin:.3rem 0}
+.rs .al-env-lista{list-style:none;margin:.2rem 0 0;display:grid;gap:.45rem}
+.al-env-op{display:flex;justify-content:space-between;align-items:center;gap:.8rem;width:100%;min-height:52px;padding:.55rem 1rem;border:1px solid var(--borda);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;text-align:left;cursor:pointer}
+.al-env-op span{display:flex;flex-direction:column;gap:.1rem;min-width:0}
+.al-env-op b{font-size:.95rem;font-weight:600;overflow-wrap:anywhere}
+.al-env-op small{font-size:.78rem;color:var(--mudo)}
+.al-env-op::after{content:'›';flex:none;color:var(--sol);font-size:1.4rem;line-height:1}
+@media (hover:hover){.al-env-op:hover{border-color:var(--sol)}}
+.rs .al-env-raiz{margin-top:.9rem;font-size:.82rem}.al-env-raiz a{color:var(--sol);text-decoration:underline}
 .al-pol-txt .al-dica{text-align:center}
 .al-btn{display:inline-flex;align-items:center;min-height:46px;padding:0 1.25rem;border-radius:999px;font:inherit;font-weight:600;font-size:.93rem;border:1px solid var(--sol);cursor:pointer;transition:transform .15s ease,background-color .15s ease}
 .al-btn:active{transform:scale(.97)}

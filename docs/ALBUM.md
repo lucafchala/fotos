@@ -1,6 +1,6 @@
 # Apresentação de álbum, lançamento e destaque
 
-Este guia cobre o álbum com página especial (o da Turma 2026, em `entrenos2026.com`): como funciona, como lançar e o que ainda falta. A versão é a 3.3.0; o código está em `src/ui/album.js`, `src/ui/destaque.js`, `src/ui/em-breve.js` e `src/pix.js`. A busca pelo rosto tem guia próprio, em [`ROSTO.md`](./ROSTO.md).
+Este guia cobre o álbum com página especial (o da Turma 2026, em `entrenos2026.com`): como funciona, como lançar e o que ainda falta. A versão é a 3.4.0; o código está em `src/ui/album.js`, `src/ui/destaque.js`, `src/ui/em-breve.js` e `src/pix.js`. A busca pelo rosto tem guia próprio, em [`ROSTO.md`](./ROSTO.md).
 
 ## O que o álbum tem
 
@@ -15,7 +15,8 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
 | Quem fotografou | A soma de `ResumoCap.a` (fotos por autor); só aparece quando todos os capítulos têm resumo |
 | Recado final | Campo **Recado final** |
 | Apoie o projeto | Campos **Pix para apoio** (chave, nome, cidade): QR e "copia e cola", BR Code estático |
-| Dica de envio | Aparece quando os créditos têm a pasta `outros` |
+| Mandar suas fotos | Com pasta de envio nos créditos (nome começando com `!`): a janela que leva à pasta certa (ver abaixo). Sem ela, o botão abre a pasta do álbum |
+| Dica de envio | "Toque em Mandar suas fotos e escolha o evento", com pasta de envio; a dica antiga, com a pasta `outros` |
 
 **Visual**
 - **Fundo e cores:** fundo escuro, com o amarelo `#F9DE4B` e o azul `#243580` do site do Colégio Santa Cruz.
@@ -98,24 +99,48 @@ Cada site inclui uma linha:
 ## Pasta do Drive do álbum
 
 - **Raiz:** "Qualquer pessoa com o link: **Leitor**". O dono e a Mag são editores; editores não podem mudar o compartilhamento.
-- **Em cada evento** (e em cada ano ou banda dentro dele) há quatro pastas:
+- **Em cada evento** (e em cada ano ou banda dentro dele) há cinco pastas:
 
-  | Pasta | Fotos de | Crédito |
-  |---|---|---|
-  | `chala` | Luca | `chala = Luca F. Chala` |
-  | `mag` | Mag | `mag = Mag <e-mail, só no painel>` |
-  | `santa oficial` | Fotos oficiais do colégio | `santa oficial = Colégio Santa Cruz` |
-  | `comissao` | Comissão de Festas | `comissao = Comissão de Festas` |
-  | `outros` | A turma | `outros = Turma 2026`; a pasta fica **aberta como Editor** para quem tem o link (são 20) |
+  | Pasta | Fotos de | Crédito | Acesso |
+  |---|---|---|---|
+  | `chala` | Luca | `chala = Luca F. Chala` | Leitor |
+  | `mag` | Mag | `mag = Mag <e-mail, só no painel>` | Leitor |
+  | `santa oficial` | Fotos oficiais do colégio | `santa oficial = Colégio Santa Cruz` | Leitor |
+  | `comissao` | Comissão de Festas | `comissao = Comissão de Festas` | Leitor |
+  | `!turma 2026 (adicione suas fotos aqui)` | A turma | `!turma 2026 (adicione suas fotos aqui) = Turma 2026` | **Editor** para quem tem o link (são 20) |
 
-  A foto fora dessas pastas recebe `* = Turma 2026`.
+  A foto fora dessas pastas recebe `* = Turma 2026`. A pasta da turma se chamava `outros` até 06/11/2026; o `!` a põe no topo da lista do Drive e a marca como **pasta de envio**.
 - O e-mail da Mag fica **só no painel**. Nunca vai para código, testes, documentação ou commits.
 
-## O que falta (estado em 06/11/2026)
+## Mandar suas fotos (v3.4)
 
-1. **Drive:** o Cowork travou a raiz e abriu as pastas `outros` 1 e 2. A pasta 3 ficou com "Limitar o acesso" ligado, por engano, e precisa que o dono desmarque. Depois, o Cowork abre as pastas 3 a 20.
-2. **Merges**, nesta ordem: #264 (feito, 3.1.0 no ar) → #274 → #275 → #277 → #278, todos com "Create a merge commit". Depois, conferir o deploy e rodar `~/entrenos-handoff/criar-releases.sh`, que cria as Releases v3.1.0, v3.2.0, v3.3.0 e v3.3.1 (criar Release daqui foi bloqueado pelo sistema de permissões).
-3. **Fase 4 do prompt do Cowork:** criar o projeto `entrenos2026` em "Em breve" e não visível, com os créditos de 5 linhas, o estilo Mosaico e o recado; testar com mídia real; passar o domínio para o Worker `fotos`.
+- **Pasta de envio** é a pasta de crédito cujo nome começa com `!` (`chavesDeEnvio`, em `src/drive.js`).
+- **A janela:** o botão **Mandar suas fotos** abre uma janela com os eventos, na ordem da linha do tempo. Se o evento tem mais de uma pasta de envio (uma por ano ou por banda), ela pergunta qual. A opção abre a pasta no Drive, e a janela explica: entrar com a conta Google e tocar em **+ → Fazer upload**.
+- **Sem JavaScript, ou se a lista falhar:** o botão continua um link para a pasta do álbum, e a janela mostra "Abrir a pasta do álbum".
+- **Como a lista é montada** (`pastasDeEnvio`):
+  - para cada evento, lê as subpastas (só pastas);
+  - a pasta de envio direto no evento vale para o evento inteiro;
+  - as outras subpastas que **não** são de fotógrafo (ano, banda) são abertas uma vez, à procura da pasta de envio dentro delas; o número de ordem do nome some ("03 - Banda X" vira "Banda X");
+  - as pastas de fotógrafo (as outras linhas dos créditos) nunca são abertas;
+  - no máximo 40 chamadas ao Drive por leitura (o teto do plano grátis é 50); evento que falha não derruba os outros.
+- **Cache:** 6 horas, na memória e na Cache API. A chave muda com a lista de eventos e com os créditos; por isso **evento novo aparece na hora**. Leitura incompleta (teto ou falha) fica só 10 minutos.
+- **Rota:** `GET /api/galeria/envio?slug=` devolve `{ pastas: [{ evento, cap, rotulo, url }] }`. Vale só para álbum público por capítulos, com o mesmo portão da galeria: antes do lançamento, só o dono, logado. Os links são das pastas que a pasta pública do álbum já mostra a quem tem o link.
+
+## Adicionar um evento
+
+1. **Criar a pasta do evento** dentro da raiz do álbum. O nome vira o nome do evento no site; um número no começo ("12 - Viagem") ordena e some da tela.
+2. **Criar dentro dela as cinco pastas**: `chala`, `mag`, `santa oficial`, `comissao` e `!turma 2026 (adicione suas fotos aqui)`. Se o evento tem anos ou bandas, crie uma pasta para cada um e as cinco dentro de cada. O conector do Drive desta sessão cria pastas; o compartilhamento não.
+3. **Abrir a pasta `!turma…` do evento como Editor:** Compartilhar → "Qualquer pessoa com o link: **Editor**", com "Editores podem mudar permissões" desmarcado. As outras herdam "Leitor" da raiz. Esta parte é do dono ou do Cowork.
+4. **No painel, tocar "Atualizar agora"** no projeto. O evento entra na linha do tempo, e a janela "Mandar suas fotos" já o mostra, sem esperar o cache.
+5. **Busca pelo rosto:** o indexador (workflow `rosto`, a cada 30 minutos) acha as fotos novas sozinho.
+
+Os créditos não mudam: as mesmas seis linhas valem para todos os eventos.
+
+## O que falta (estado em 06/11/2026, noite)
+
+1. **Drive:** pronto. A raiz é "Leitor"; as 20 pastas da turma estão como Editor e renomeadas para `!turma 2026 (adicione suas fotos aqui)`; as pastas `santa oficial` e `comissao` existem nos 20 lugares.
+2. **Merges**, nesta ordem, todos com "Create a merge commit": #264 e #274 (feitos, 3.1.0 no ar) → #275 → #277 → #278 → o PR da 3.4.0. Depois, conferir o deploy e rodar `~/entrenos-handoff/criar-releases.sh`, que cria as Releases (criar Release daqui foi bloqueado pelo sistema de permissões).
+3. **Fase 4 do prompt do Cowork:** criar o projeto `entrenos2026` em "Em breve" e não visível, com os créditos de 6 linhas, o estilo Mosaico e o recado; testar com mídia real (inclusive a janela "Mandar suas fotos", logado); passar o domínio para o Worker `fotos`.
 4. **Fase 5:** conta da AWS (permissão nova `rekognition:SearchFaces`), pedido de cota, `ROSTO_INDEXADOR_TOKEN` no Worker e no GitHub, e rodar o indexador.
 5. **Fase 6:** o dono testa a busca pelo rosto, logado.
 6. **Fase 7:** lançar, só com o "pode lançar" do dono.
