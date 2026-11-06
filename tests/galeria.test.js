@@ -1,7 +1,9 @@
-// Galeria própria — PRÉVIA (#235). O que estes testes prendem:
+// Galeria própria (#235). O que estes testes prendem:
 //
-//  1. SÓ o dono logado vê. Para qualquer outra pessoa, página e downloads são
-//     o mesmo 404 de uma rota inexistente — e sem gastar leitura de KV.
+//  1. Quem vê: álbum público, todos; família/privado, só com o passe do
+//     portão; "Em breve", ninguém. Para quem não pode, página e downloads são
+//     o mesmo 404 de uma rota inexistente. Foto oculta pelo dono não chega ao
+//     visitante, e o download dela é 404.
 //  2. A chave da Drive API nunca sai do servidor.
 //  3. O proxy de download só entrega arquivo que está NA PASTA do projeto —
 //     sem isso, o Worker viraria um proxy aberto para qualquer arquivo
@@ -590,5 +592,119 @@ describe('galeria para o visitante', () => {
     const r2 = await worker.fetch(new Request(SITE + '/galeria/formatura?atualizar=1', { headers: { Accept: 'text/html' } }), env, ctx);
     expect(r2.status).toBe(200);
     expect(chamadasDrive().length).toBe(antes);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ocultar uma foto (pedido de remoção, LGPD) e contar downloads por versão.
+import { semOcultas, normalizaOcultas } from '../src/drive.js';
+import { normalizeEventFields } from '../src/index.js';
+import { GALERIA_MAX_OCULTAS, DEFAULT_EVENT } from '../src/config.js';
+describe('fotos ocultas', () => {
+  const OCULTA = 'FOTO_DEZ_00010';
+  const visitante = path => worker.fetch(new Request(SITE + path, { headers: { Accept: 'text/html' } }), env, ctx);
+  const ocultar = (corpo, { logado = true } = {}) => worker.fetch(new Request(SITE + '/api/galeria/ocultar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(logado ? { Cookie: `__Host-session=${TOKEN}` } : {}) },
+    body: JSON.stringify(corpo),
+  }), env, ctx);
+  const gravadas = () => JSON.parse(env.FOTOS._store.get('events')).find(e => e.slug === 'formatura').fotosOcultas;
+
+  it('normalizaOcultas: só IDs válidos, sem repetir, com teto; outra forma vira lista vazia', () => {
+    expect(normalizaOcultas(['FOTO_DEZ_00010', 'FOTO_DEZ_00010', 'curto', 42, '../x/y/z/w', null])).toEqual(['FOTO_DEZ_00010']);
+    expect(normalizaOcultas('FOTO_DEZ_00010')).toEqual([]);
+    expect(normalizaOcultas(undefined)).toEqual([]);
+    const muitas = Array.from({ length: GALERIA_MAX_OCULTAS + 20 }, (_, i) => `FOTO_${String(i).padStart(8, '0')}`);
+    expect(normalizaOcultas(muitas)).toHaveLength(GALERIA_MAX_OCULTAS);
+    expect(DEFAULT_EVENT.fotosOcultas).toEqual([]);
+  });
+
+  it('semOcultas: tira a foto, a seção vazia sai, o total acompanha; sem ocultas, a mesma listagem', () => {
+    const dados = { v: 1, pasta: 'x', em: '', truncada: false, videos: 0, outros: 0, rk: {}, total: 3, secoes: [
+      { nome: '', caminho: '', fotos: [['AAAAAAAAAA', 1, 1, 'a', 0], ['BBBBBBBBBB', 1, 1, 'b', 0]] },
+      { nome: 'Festa', caminho: 'Festa', fotos: [['CCCCCCCCCC', 1, 1, 'c', 0]] },
+    ] };
+    const r = semOcultas(dados, ['CCCCCCCCCC', 'AAAAAAAAAA']);
+    expect(r.total).toBe(1);
+    expect(r.secoes).toHaveLength(1);
+    expect(r.secoes[0].fotos.map(f => f[0])).toEqual(['BBBBBBBBBB']);
+    expect(dados.total).toBe(3);
+    expect(semOcultas(dados, [])).toBe(dados);
+  });
+
+  it('formulário e backup só gravam IDs válidos', () => {
+    const n = normalizeEventFields({ fotosOcultas: [OCULTA, '<script>'] }, DEFAULT_EVENT, []);
+    expect(n.fotosOcultas).toEqual([OCULTA]);
+    expect(normalizeEventFields({}, { ...DEFAULT_EVENT, fotosOcultas: [OCULTA] }, []).fotosOcultas).toEqual([OCULTA]);
+  });
+
+  it('só o dono oculta: sem sessão 401; corpo errado 400; projeto inexistente 404', async () => {
+    expect((await ocultar({ slug: 'formatura', foto: OCULTA, oculta: true }, { logado: false })).status).toBe(401);
+    expect((await ocultar({ slug: 'formatura', foto: 'x', oculta: true })).status).toBe(400);
+    expect((await ocultar({ slug: 'formatura', foto: OCULTA, oculta: 'sim' })).status).toBe(400);
+    expect((await ocultar({ slug: 'nao-existe', foto: OCULTA, oculta: true })).status).toBe(404);
+    expect(gravadas()).toBeUndefined();
+  });
+
+  it('oculta, repetir não duplica, e mostrar de novo tira da lista', async () => {
+    const r = await ocultar({ slug: 'formatura', foto: OCULTA, oculta: true });
+    expect(r.status).toBe(200);
+    expect((await r.json()).ocultas).toEqual([OCULTA]);
+    await ocultar({ slug: 'formatura', foto: OCULTA, oculta: true });
+    expect(gravadas()).toEqual([OCULTA]);
+    const v = await ocultar({ slug: 'formatura', foto: OCULTA, oculta: false });
+    expect((await v.json()).ocultas).toEqual([]);
+    expect(gravadas()).toEqual([]);
+  });
+
+  it('o visitante não recebe a foto oculta (nem o ID) e o download dela é 404, sem chamar o Google', async () => {
+    await ocultar({ slug: 'formatura', foto: OCULTA, oculta: true });
+    const html = await (await visitante('/galeria/formatura')).text();
+    expect(html).not.toContain(OCULTA);
+    expect(html).toContain('FOTO_DOIS_0002');
+    expect(html).toContain('4 fotos');
+    chamadas.length = 0;
+    expect((await visitante(`/galeria/formatura/baixar/${OCULTA}?v=max`)).status).toBe(404);
+    expect(chamadas.some(c => c.url.includes(OCULTA))).toBe(false);
+  });
+
+  it('o dono vê todas, com a lista das ocultas e o aviso na faixa, e ainda baixa a oculta', async () => {
+    await ocultar({ slug: 'formatura', foto: OCULTA, oculta: true });
+    const html = await (await get('/galeria/formatura', { accept: 'text/html' })).text();
+    expect(html).toContain(`"ocultas":["${OCULTA}"]`);
+    expect(html).toContain('1 oculta para os visitantes');
+    expect((await get(`/galeria/formatura/baixar/${OCULTA}?v=redes`)).status).toBe(200);
+  });
+
+  it('a página do visitante não leva lista de ocultas nem o botão do dono', async () => {
+    const html = await (await visitante('/galeria/formatura')).text();
+    expect(html).toContain('"dono":false,"ocultas":[]');
+  });
+});
+
+describe('downloads contados por versão', () => {
+  const visitante = path => worker.fetch(new Request(SITE + path, { headers: { Accept: '*/*' } }), env, ctx);
+  async function metricas() {
+    const r = await get('/api/metrics');
+    return (await r.json()).find(m => m.slug === 'formatura');
+  }
+
+  it('cada download do visitante soma na versão certa; o do dono não conta; o painel recebe os dois', async () => {
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=redes')).status).toBe(200);
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DOIS_0002?v=redes')).status).toBe(200);
+    expect((await visitante('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).status).toBe(200);
+    expect((await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max')).status).toBe(200);
+    const m = await metricas();
+    expect(m.baixarRedes).toBe(2);
+    expect(m.baixarMax).toBe(1);
+  });
+
+  it('download recusado (foto fora da pasta) não conta, e ler os zeros não lê o KV', async () => {
+    expect((await visitante('/galeria/formatura/baixar/FORA_DA_PASTA_1?v=redes')).status).toBe(404);
+    env.FOTOS._leituras.length = 0;
+    const m = await metricas();
+    expect(m.baixarRedes).toBe(0);
+    expect(m.baixarMax).toBe(0);
+    expect(env.FOTOS._leituras.filter(k => k.startsWith('baixar_'))).toEqual([]);
   });
 });

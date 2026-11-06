@@ -45,7 +45,7 @@ URL de produção: <https://fotos.lucafchala.com>
 - [Rate limiting](#rate-limiting)
 - [Convenções e detalhes do código](#convenções-e-detalhes-do-código)
 - [Como o Drive vira foto na página](#como-o-drive-vira-foto-na-página)
-- [Galeria própria (prévia, só o dono)](#galeria-própria-prévia-só-o-dono)
+- [Galeria própria](#galeria-própria)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Pendências e roadmap](#pendências-e-roadmap)
 
@@ -193,7 +193,7 @@ Definir via `npx wrangler secret put <NAME>` (ficam criptografados no Cloudflare
 | `ADMIN_PASSWORD` | Apenas em deploy novo / KV zerado | Semeia a senha do dashboard quando `admin_password` não existe no KV. **Não há mais setup público de primeira execução** — sem KV e sem este secret, o login fica bloqueado |
 | `TURNSTILE_SECRET_KEY` | Sim (fail-closed) | Verificação Turnstile do formulário de suporte e remoção de fotos. Se ausente, esses formulários são bloqueados |
 | `SIGNING_SECRET` | **Sim, na prática** | Assina o nonce de página do `/api/drive-link`, o token dos formulários públicos e o token do código por e-mail (HMAC-SHA256, sem estado). Sem ele, o código por e-mail fica indisponível (503) — nunca aberto. Ver o aviso abaixo |
-| `GOOGLE_DRIVE_API_KEY` | Não | Chave de API do Google Cloud, **restrita à Drive API**, para a [galeria própria](#galeria-própria-prévia-só-o-dono) (prévia, só o dono): lista a pasta do projeto e busca o original no download "tamanho máximo". Sem ela, `/galeria/<slug>` mostra o passo a passo para criar, e nada mais muda. Só é usada no servidor — nunca sai na página nem no download |
+| `GOOGLE_DRIVE_API_KEY` | Não | Chave de API do Google Cloud, **restrita à Drive API**, para a [galeria própria](#galeria-própria): lista a pasta do projeto e busca o original no download "tamanho máximo". Sem ela, `/galeria/<slug>` mostra o passo a passo para criar, e nada mais muda. Só é usada no servidor — nunca sai na página nem no download |
 | `KUMA_PUSH_URL` | Não | URL de push do Uptime Kuma (`https://<host>/api/push/<token>`), para o heartbeat de disponibilidade. Sem ela o heartbeat não acontece e nada mais muda. **É uma credencial**: o token do monitor está embutido na URL, e quem o tem consegue manter um monitor verde sobre um serviço caído — por isso ela não mora no código, que é público |
 
 > ### ⚠️ `SIGNING_SECRET` falha **aberto**, não fechado
@@ -650,7 +650,7 @@ fotos/
 │   ├── scripts-embutidos.test.js ← lint e tsc dos <script> que as páginas emitem (tipos em helpers/scripts-embutidos.d.ts)
 │   ├── security.test.js    ← CSRF, CSP, tokens assinados, CSV, EXIF, sessão, markdown e páginas legais
 │   ├── fonts.test.js       ← módulo de fontes gerado × arquivos em fonts/, rota /fonts/, CSP
-│   ├── galeria.test.js     ← galeria própria: portão só do dono, Drive API, cache, proxy de download que não é aberto
+│   ├── galeria.test.js     ← galeria própria: quem vê (público, passe, em breve), ocultar, Drive API, cache, proxy de download que não é aberto
 │   ├── painel.test.js      ← o card de evento idêntico no servidor e no navegador (inclusive depois do bundle do deploy), a estrutura do painel, os selos e o formulário em blocos
 │   ├── metricas.test.js    ← série por dia no Counter (balde, poda, remove), GET /api/metrics/diario e a contagem do modo de entrada no portão
 │   ├── metricas-painel.test.js ← as contas dos gráficos de Métricas, tiradas do script da página e executadas no node
@@ -675,7 +675,7 @@ fotos/
         ├── gallery.js      ← HTML da galeria pública /
         ├── event.js        ← HTML da página de projeto /<slug>
         ├── dashboard.js    ← HTML do login e do painel admin /dashboard
-        ├── galeria.js      ← HTML + script da galeria própria /galeria/<slug> (prévia, só o dono)
+        ├── galeria.js      ← HTML + script da galeria própria /galeria/<slug> (grade, visualizador, downloads, ocultar)
         ├── support.js      ← HTML da página de suporte /suporte
         ├── privacy.js      ← HTML da Política de Privacidade /privacidade
         ├── terms.js        ← HTML dos Termos de Uso /termos
@@ -899,8 +899,9 @@ compatibilidade sem comprar segurança.
 | GET | `/api/metrics` | Lista [{slug, title, views, driveClicks}] ordenada por views desc |
 | GET | `/api/metrics/diario?dias=N` | Série por dia (v2): `{hoje, dias, primeiroDia, projetos: {<slug>: {views[], driveClicks[]}}, gate: {noscript[], turnstile[], email[]}, gateTotal}` — vetores alinhados a `dias` (N de 1 a 180, padrão 90). UMA chamada ao Durable Object |
 | GET | `/api/consent/export` | CSV do log de consentimento (D1); 503 se o D1 não estiver provisionado |
-| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria-prévia-só-o-dono) do projeto (prévia). **Sem sessão: o mesmo 404 de rota inexistente**, sem ler o KV nem chamar o Google. `?atualizar=1` relê a pasta e redireciona para o endereço limpo |
-| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Sem sessão: 404 |
+| GET | `/galeria/<slug>` | [Galeria própria](#galeria-própria) do projeto. **Álbum público: qualquer visitante**, sem login nem portão do Drive; **família/privado: só com o passe `galeria`** (cookie assinado de 12 h, preso ao caminho, emitido pelo portão do Drive); **"Em breve": o mesmo 404 de rota inexistente**. O dono logado sempre vê. `?atualizar=1` só relê o Drive para o dono e redireciona para o endereço limpo |
+| GET | `/galeria/<slug>/baixar/<id>?v=redes\|max` | Download de uma foto: `redes` = JPEG 2048 px pelo `lh3`; `max` = o original pela Drive API (chave só no servidor). O id tem de estar na pasta do projeto — senão 404 sem buscar nada (não é proxy aberto). Mesma regra de quem vê da galeria; foto oculta: 404 para o público |
+| POST | `/api/galeria/ocultar` | Oculta ou mostra uma foto da galeria (`{slug, foto, oculta}`): 401 sem sessão do painel, 400 para foto inválida ou `oculta` não booleano, 404 para projeto inexistente, 409 acima do teto de 500 (`GALERIA_MAX_OCULTAS`); devolve `{ocultas}` |
 | PUT | `/api/settings/password` | Trocar senha do admin |
 | PUT | `/api/settings/agenda` | Selo de agenda da galeria e da /sobre (`{texto}`; vazio apaga) — #211 |
 | GET | `/api/backup` | Download JSON **v2** (eventos + categorias + solicitações) |
@@ -1145,7 +1146,7 @@ Uma `<nav>` só, com quatro seções — **Eventos**, **Pedidos** (com o selo de
 
 - **Cabeçalho**: título, contagem, "Selecionar vários" e "+ Novo evento".
 - **Filtros** num bloco só: busca (título, URL ou categoria), categoria (`<select>`) e **chips de status** de um toque — Todos, Ativos (sem arquivados), Em edição, Em revisão, Entregues, Arquivados (botões com `aria-pressed`). Os três combinam, tudo no navegador sobre os eventos já carregados.
-- **Card** de cada evento: miniatura, título, uma linha `/slug · dd/mm/aaaa · categoria · prazo dd/mm` (o prazo só enquanto não entregue nem arquivado) e **selos escritos** — status, Atrasado, Destaque, Oculto, Em breve, Privado/Familiar — no lugar da cor de ícones. Dois botões com rótulo, **Editar** e **Galeria** (a [galeria própria](#galeria-própria-prévia-só-o-dono), prévia só do dono), e o menu **"⋯"**: Destacar/Remover destaque, Ocultar/Mostrar na galeria, Abrir a página do projeto, Duplicar e, separado, Excluir… (pede digitar o título). O menu é lista suspensa no computador e folha de baixo, com fundo escuro, no celular; no teclado o foco vai ao primeiro item, as setas andam e Esc fecha devolvendo o foco. *Ocultar* é "não listado": a página segue abrindo por link direto.
+- **Card** de cada evento: miniatura, título, uma linha `/slug · dd/mm/aaaa · categoria · prazo dd/mm` (o prazo só enquanto não entregue nem arquivado) e **selos escritos** — status, Atrasado, Destaque, Oculto, Em breve, Privado/Familiar — no lugar da cor de ícones. Dois botões com rótulo, **Editar** e **Galeria** (a [galeria própria](#galeria-própria) do projeto), e o menu **"⋯"**: Destacar/Remover destaque, Ocultar/Mostrar na galeria, Abrir a página do projeto, Duplicar e, separado, Excluir… (pede digitar o título). O menu é lista suspensa no computador e folha de baixo, com fundo escuro, no celular; no teclado o foco vai ao primeiro item, as setas andam e Esc fecha devolvendo o foco. *Ocultar* é "não listado": a página segue abrindo por link direto.
 - **Uma função, dois lados**: `cardProjetoPainel()` desenha o card na primeira pintura (SSR) *e* no navegador — o script da página recebe o código dela por `Function.prototype.toString()`. Por isso ela não pode usar nada de fora (tudo vem pelo parâmetro `h`) nem ter função com nome lá dentro: o esbuild do deploy, com `keepNames`, a embrulharia em `__name(...)`, que existe só no topo do bundle e não no navegador. `tests/painel.test.js` roda o texto injetado isolado e depois da mesma transformação do deploy. Os botões funcionam por delegação (`data-action`/`data-id`), então a lista redesenhada pelo JS usa o mesmo tratador da primeira pintura.
 - **Selecionar vários**: caixa de seleção em cada card; escolha uma categoria ou um tipo de acesso e aplique (`POST /api/events/bulk-category` ou `/api/events/bulk-access`) — pede **digitar a quantidade** de eventos afetados.
 
@@ -1786,18 +1787,25 @@ Isso significa que o admin só precisa colar o link compartilhado do arquivo no 
 
 ---
 
-## Galeria própria (prévia, só o dono)
+## Galeria própria
 
 As fotos da pasta do Drive **dentro do site**, com visualizador e downloads
 próprios (#234, #235). O upload continua sendo o Drive: a página lê a pasta que
 o projeto já aponta.
 
-**Prévia.** Só quem está logado no painel vê. Para qualquer outra pessoa,
-`/galeria/<slug>` e o download devolvem o mesmo 404 de uma rota inexistente —
-nem a existência da página vaza. A página pública do projeto continua levando
-ao Drive como sempre. A liberação (testadores → porcentagem → todos) vem depois
-da aprovação do dono e troca **uma função só**: `podeVerGaleria()`, em
-`src/index.js`.
+**Quem vê.** Desde 29/10/2026 (v2.1.0), nos álbuns **públicos**, qualquer
+visitante — sem login e sem o portão do Drive. Nos álbuns de **família** e
+**privados**, só com o passe `galeria`: um cookie assinado de 12 h, preso ao
+caminho `/galeria/<slug>`, que o portão do Drive emite depois da declaração de
+acesso. Álbuns **"Em breve"** continuam fechados, com o mesmo 404 de rota
+inexistente. O dono logado sempre vê. A decisão mora numa função só,
+`podeVerGaleria()` em `src/index.js`.
+
+A página pública de um álbum público leva primeiro à galeria (**"Ver e baixar
+as fotos"**); o Drive virou opção secundária. A faixa do dono (atalhos do
+painel, **"Atualizar lista"**) só aparece para o dono logado, e `?atualizar` só
+relê o Drive para ele. Não há liberação gradual por porcentagem: isso foi
+substituído pela abertura direta.
 
 ### Como ligar (uma vez)
 
@@ -1837,6 +1845,28 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
 - **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
   baixadas uma a uma — nada de zip, que no celular não abre na galeria.
 
+### Ocultar uma foto
+
+Desde a v2.2.0, o dono, logado, abre a foto no visualizador da galeria e toca no
+botão do olho (**"Ocultar dos visitantes"**). A foto some da galeria para o
+público — o visitante recebe a lista já sem ela, nem o ID chega à página — e o
+download dela vira 404 para o público. O dono continua vendo (miniatura apagada
+com o selo **"Oculta"**) e pode baixar; tocar de novo mostra a foto aos
+visitantes. A faixa do dono diz quantas estão ocultas.
+
+A lista fica no próprio evento, no campo `fotosOcultas` (IDs de arquivo do
+Drive), na chave KV `events`; teto de 500 por projeto (`GALERIA_MAX_OCULTAS` em
+`src/config.js`). A rota é `POST /api/galeria/ocultar`, com JSON
+`{ slug, foto, oculta: true|false }`: exige sessão do painel (401 sem), responde
+400 para foto inválida ou `oculta` que não seja booleano, 404 para projeto
+inexistente e 409 se passar do teto; devolve `{ ocultas: [...] }`. Custa 1
+escrita de KV por clique (só o dono), e pode levar até ~2 min para sumir para
+todos (cache de 30 s do isolate + 30 s do KV + propagação do KV). A foto
+continua no Drive: ocultar tira da galeria do site; para tirar de vez, apaga-se
+no Drive. É o caminho de um pedido de remoção (LGPD) — o texto do painel na
+seção de pedidos agora diz para ocultar na galeria e depois remover no Drive. O
+backup/restauração e o formulário do painel só gravam IDs válidos.
+
 ### Por que o download passa pelo Worker
 
 `/galeria/<slug>/baixar/<id>?v=redes|max`: o original só sai com a chave, que
@@ -1852,9 +1882,18 @@ com aviso na página, em vez de estourar o teto de 50 subrequests do plano
 gratuito (`GALERIA_MAX_FOTOS`, `GALERIA_MAX_PASTAS`, `GALERIA_MAX_CHAMADAS`).
 *Atualizar lista* relê na hora.
 
+**Downloads contados.** Cada download da galeria feito por visitante (não pelo
+dono) soma em `baixar_redes:<slug>` e `baixar_max:<slug>` no Durable Object,
+mais o balde do dia (nunca KV por visitante), e aparece na coluna
+**"Galeria ↓"** do *Total desde o início* e no CSV (`baixarRedes`,
+`baixarMax`). São ~2 linhas escritas por foto baixada (total + dia): 750 pessoas
+× 20 downloads ≈ 30 mil linhas, dentro das 100 mil/dia do plano gratuito, mas é
+o número a olhar num evento grande. Cada download continua sendo 1 requisição
+de Worker + 1 subrequest.
+
 ### Verificação
 
-`tests/galeria.test.js` (servidor: portão, Drive API, cache, proxy) e
+`tests/galeria.test.js` (servidor: quem vê, ocultar, Drive API, cache, proxy) e
 `npm run verifica:galeria` (a página num Chromium de verdade, por aparelho —
 ver `docs/VERIFICACAO.md`).
 
@@ -1862,7 +1901,7 @@ ver `docs/VERIFICACAO.md`).
 
 ## Limitações conhecidas
 
-- **Galeria própria depende do Google em dois pontos**: miniaturas e a variante *para redes* vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); o *tamanho máximo* vem da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive). Por enquanto é prévia, só o dono vê.
+- **Galeria própria depende do Google em dois pontos**: miniaturas e a variante *para redes* vêm do `lh3.googleusercontent.com` (o mesmo endpoint das capas, sem contrato público); o *tamanho máximo* vem da Drive API, que limita downloads de um arquivo muito baixado (`downloadQuotaExceeded` — a página diz para tentar mais tarde ou baixar pelo Drive).
 - **Sem CDN próprio para fotos**: thumbnails vêm direto do Google. Se o Drive ficar offline ou rate-limitado, a galeria mostra placeholders. Migrar as capas para R2 é o #137.
 - **Preview no WhatsApp depende do Google**: o cartão já vai completo (título, fatos, `og:image` recortado em 1200×630 **com as dimensões declaradas** — ver [Cartão de pré-visualização do link](#cartão-de-pré-visualização-do-link-open-graph)), mas a imagem ainda sai do `lh3.googleusercontent.com`, que o scraper do WhatsApp às vezes não consegue buscar. Quando não consegue, o cartão aparece só com texto. R2 (#137) resolveria o que sobra.
 - **Sessões têm teto absoluto de 24 h**: o `lastSeen` renova a inatividade, mas passado o teto qualquer ação no painel cai em 401 e o frontend redireciona pra login.

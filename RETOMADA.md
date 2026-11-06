@@ -55,7 +55,7 @@ npx wrangler dev
 npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wrangler dev
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
-npm run verifica:galeria     # galeria própria (prévia): grade, zoom, downloads por aparelho (não precisa do wrangler)
+npm run verifica:galeria     # galeria própria: grade, zoom, downloads por aparelho (não precisa do wrangler)
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```
@@ -80,7 +80,7 @@ src/
                   `export const` lá derruba o workerd na inicialização.
   counters.js   ← Durable Objects: Counter (todos os contadores num objeto) e RateLimiter
                   (janela fixa `check()` e balde de fichas `take()`)
-  drive.js      ← galeria própria (prévia): Drive API (lista a pasta, mapeia erros), URLs do
+  drive.js      ← galeria própria: Drive API (lista a pasta, mapeia erros), URLs do
                   lh3 e do original. A chave só existe aqui e no proxy de download.
   pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
                   que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
@@ -89,7 +89,7 @@ src/
                   "previa"; em produção nenhuma linha dela roda (§5.16)
   ui/           ← cada página é uma função que devolve HTML como template string
     markdown.js ← renderizador dos documentos legais (escapa antes de formatar)
-    galeria.js  ← galeria própria /galeria/<slug> (prévia, só o dono): grade + PhotoSwipe + downloads
+    galeria.js  ← galeria própria /galeria/<slug>: grade + PhotoSwipe + downloads
   content/
     legal-docs.js  ← GERADO. Não edite. Veja abaixo.
     fonts.js       ← GERADO de fonts/*.woff2 (npm run build:fonts). Não edite.
@@ -431,15 +431,22 @@ requisição gravava no KV e mandava e-mail. Agora há uma trava no isolate ante
 Antes de um evento grande: `npm run verifica:evento` (Chromium, sem wrangler)
 roda os formatos de tráfego de um evento — 429, VPN/e-mail, fotos por aparelho.
 
-### 5.13. Galeria própria: prévia só do dono, e o portão é UMA função
+### 5.13. Galeria própria: quem vê é decidido por UMA função
 
 Desde out/2026 existe `/galeria/<slug>` (#234, #235): as fotos da pasta do
 Drive dentro do site, com visualizador (PhotoSwipe) e downloads "para redes" e
-"tamanho máximo". **Ainda é prévia**: só quem está logado no painel vê; para
-qualquer outra pessoa, a página e o download são o 404 de rota inexistente. A
-liberação (testadores → porcentagem → todos) espera a aprovação do dono e troca
-**só** `podeVerGaleria()` em `src/index.js` — nada de espalhar `if` de acesso
-pelas rotas. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
+"tamanho máximo". Desde 29/10/2026 (v2.1.0) **não é mais prévia só do dono**.
+Quem vê é decidido por `podeVerGaleria()`, UMA função em `src/index.js` — nada
+de espalhar `if` de acesso pelas rotas: álbum **público** abre para qualquer
+visitante, sem login e sem o portão do Drive; **família e privado** só com o
+passe "galeria" (cookie assinado de 12 h, preso ao caminho `/galeria/<slug>`)
+que o portão do Drive emite depois da declaração de acesso; **"Em breve"**
+segue fechado — o mesmo 404 de rota inexistente. O dono logado sempre vê. Não
+há liberação gradual por porcentagem: isso foi substituído pela abertura
+direta. A página do álbum público leva primeiro à galeria ("Ver e baixar as
+fotos"); o Drive virou opção secundária. A faixa do dono (atalhos do painel,
+"Atualizar lista") só aparece para o dono logado; `?atualizar` só relê o Drive
+para o dono. Ligar: secret `GOOGLE_DRIVE_API_KEY` (passo a passo no README,
 "Galeria própria") e pasta compartilhada como "Qualquer pessoa com o link".
 
 O que já mordeu, ou morderia:
@@ -744,9 +751,12 @@ política, orçamento de cota e as regras vivas — ver a nota no topo dele e
 - **Painel em blocos** (#220, no PR #236): o "pronto quando" do #220 roda
   inteiro no `verifica:painel` (iPhone, Android, computador). Falta o dono
   usar no celular dele e, gostando, fechar o #220.
-- **Galeria própria** (#235): **prévia só do dono**. Falta o dono
-  configurar `GOOGLE_DRIVE_API_KEY`, olhar com fotos de verdade e aprovar;
-  depois vem a distribuição gradual, que troca só `podeVerGaleria()` (§5.13).
+- **Galeria própria** (#235): **aberta ao público** desde 29/10/2026 (quem
+  vê é decidido por `podeVerGaleria()`, §5.13); ocultar foto e downloads
+  contados já entregues. Segue pendente: registro de consentimento e
+  Turnstile na galeria dos álbuns públicos (decisão do dono, para
+  reavaliar), #134 (destino do beacon de desempenho) e #119 (autorização de
+  menores).
 - **Termos e o modelo do #146**: reescritos na v2.0 (`TERMS_VERSION`
   2026-10-18) — Familiares e Privados falam em consentimento, não senha. Falta
   só a revisão jurídica (ECA Digital, LBI) e a declaração de acessibilidade

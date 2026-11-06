@@ -971,18 +971,24 @@ export async function readCounter(env, key) {
 // duas por projeto — resolve o "Erro ao carregar métricas" a partir de ~24
 // projetos. O assentamento (seed) acontece aqui e não dentro do objeto: ler o
 // KV lá dentro gastaria a cota de subrequisição DELE, mesmo erro um nível abaixo.
+// `legado: false` é para contador que NASCEU no objeto (os downloads da
+// galeria): ausente é zero, sem ler o KV — assentar ali seria uma leitura de
+// KV por projeto e por abertura do painel, por nada.
 /**
  * @param {Env} env
  * @param {string[]} keys
+ * @param {{ legado?: boolean }} [opts]
  * @returns {Promise<Record<string, number>>}
  */
-export async function readCounters(env, keys) {
+export async function readCounters(env, keys, { legado = true } = {}) {
   if (!keys.length) return {};
   try {
     const stub = counterStub(env);
     const { counts, missing } = await stub.snapshot(keys);
 
-    if (missing.length) {
+    if (missing.length && !legado) {
+      for (const k of missing) counts[k] = 0;
+    } else if (missing.length) {
       /** @type {Record<string, unknown>} */
       const doKv = {};
       await Promise.all(missing.map(/** @param {string} k */ async k => {

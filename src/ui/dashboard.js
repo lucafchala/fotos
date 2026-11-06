@@ -811,7 +811,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     <div class="secao-cabeca">
       <div>
         <h1 id="h-pedidos">Pedidos de remoção</h1>
-        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Remova a foto no Drive e depois marque como resolvido — a pessoa recebe um e-mail.</p>
+        <p class="secao-sub">De quem pediu para tirar uma foto do ar (LGPD). Para tirar da galeria do site na hora, abra a foto na galeria do projeto e toque no olho (“Ocultar dos visitantes”); depois remova a foto no Drive e marque como resolvido — a pessoa recebe um e-mail.</p>
       </div>
     </div>
     <div id="requests-body"><p class="empty">Carregando…</p></div>
@@ -2885,7 +2885,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const key = metricsSort.key;
       const dir = metricsSort.dir === 'asc' ? 1 : -1;
       const taxa = m => (m.driveClicks || 0) / (m.views || 1);
-      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : (m.views || 0);
+      const baixou = m => (m.baixarRedes || 0) + (m.baixarMax || 0);
+      const num = (m, k) => k === 'driveClicks' ? (m.driveClicks || 0) : k === 'taxa' ? taxa(m) : k === 'baixar' ? baixou(m) : (m.views || 0);
       const rowsData = [...metricsData].sort((a, b) => (num(a, key) - num(b, key)) * dir);
       const maxViews = metricsData.reduce((mx, m) => Math.max(mx, m.views || 0), 0) || 1;
       const ind = k => k === metricsSort.key ? '<span class="sort-ind">' + (metricsSort.dir === 'asc' ? '▲' : '▼') + '</span>' : '';
@@ -2897,6 +2898,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           + '<td class="views-cell"><span class="views-bar" style="width:' + pct + '%"></span><span class="views-badge">' + fmtN(m.views) + '</span></td>'
           + '<td><span class="views-badge">' + fmtN(m.driveClicks) + '</span></td>'
           + '<td><span class="views-badge">' + ((m.views || 0) ? Math.round(taxa(m) * 100) + '%' : '—') + '</span></td>'
+          + '<td><span class="views-badge" title="Para redes / tamanho máximo">' + (baixou(m) ? fmtN(m.baixarRedes || 0) + ' / ' + fmtN(m.baixarMax || 0) : '—') + '</span></td>'
           + '</tr>';
       }).join('');
       body.innerHTML = '<table class="metrics-table"><thead><tr>'
@@ -2904,6 +2906,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="views" title="Visitantes únicos por hora"' + sortAttr('views') + '>Visitas' + ind('views') + '</th>'
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="driveClicks" title="Quantos abriram o link do Drive"' + sortAttr('driveClicks') + '>Drive' + ind('driveClicks') + '</th>'
         + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="taxa" title="Abriram o Drive ÷ visitas"' + sortAttr('taxa') + '>Taxa' + ind('taxa') + '</th>'
+        + '<th scope="col" class="sortable" data-action="sortMetrics" data-sort="baixar" title="Fotos baixadas na galeria do site: para redes / tamanho máximo"' + sortAttr('baixar') + '>Galeria ↓' + ind('baixar') + '</th>'
         + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
@@ -3084,8 +3087,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         let data = metricsData;
         if (!metricsLoaded) { data = await api('GET', '/api/metrics'); }
         if (!data || !data.length) return toast('Nenhuma métrica para exportar.', 'err');
-        const rows = data.map(m => ({ title: m.title, slug: m.slug, views: m.views || 0, driveClicks: m.driveClicks || 0 }));
-        downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks'], rows);
+        const rows = data.map(m => ({ title: m.title, slug: m.slug, views: m.views || 0, driveClicks: m.driveClicks || 0, baixarRedes: m.baixarRedes || 0, baixarMax: m.baixarMax || 0 }));
+        downloadCSV('metricas-' + csvDate() + '.csv', ['title', 'slug', 'views', 'driveClicks', 'baixarRedes', 'baixarMax'], rows);
       } catch(err) {
         toast(err.message || 'Erro ao exportar métricas.', 'err');
       }

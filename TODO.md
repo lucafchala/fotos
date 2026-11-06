@@ -103,15 +103,19 @@ acesso por e-mail do portão. O código tem teto próprio
 (`EMAIL_CODE_DAILY_CAP` = 40/dia em `src/config.js`) para nunca calar os
 outros; subir esse número é decisão de orçamento de e-mail, não de UX.
 
-**Galeria própria** (`/galeria/<slug>`, hoje prévia só do dono — #235). A
-grade e o visualizador continuam saindo do `lh3` direto para o navegador (0
-requisição de Worker por foto vista). O que muda é o **download**: cada um
-passa pelo Worker (o proxy que esconde a chave e põe o nome do arquivo) — 1
-requisição de Worker + 1 subrequest por foto, só repassando o corpo, sem
-processar imagem (a CPU não cresce com o tamanho do arquivo). Um "baixar 30
-para redes" são 30 requisições; 750 pessoas × 20 downloads = 15 mil, que cabe
-nas 100 mil/dia mas deixa de ser irrelevante — é a conta a refazer antes de a
-distribuição abrir para o público. A página custa 1 requisição + até 30
+**Galeria própria** (`/galeria/<slug>`, aberta ao público desde 29/10/2026 —
+#235). A grade e o visualizador continuam saindo do `lh3` direto para o
+navegador (0 requisição de Worker por foto vista). O que muda é o
+**download**: cada um passa pelo Worker (o proxy que esconde a chave e põe o
+nome do arquivo) — 1 requisição de Worker + 1 subrequest por foto, só
+repassando o corpo, sem processar imagem (a CPU não cresce com o tamanho do
+arquivo). Um "baixar 30 para redes" são 30 requisições; 750 pessoas × 20
+downloads = 15 mil, que cabe nas 100 mil/dia mas deixa de ser irrelevante —
+a distribuição já abriu (29/10/2026), e este é o número a olhar no dia. E
+cada download feito por visitante (não pelo dono) soma agora no Durable
+Object ~2 linhas escritas por foto (total + dia; 750 pessoas × 20 downloads
+≈ 30 mil linhas, dentro das 100 mil/dia — o outro número a olhar num evento
+grande). A página custa 1 requisição + até 30
 subrequests à Drive API a cada 10 min por pasta e data center (Cache API), e
 **nenhuma escrita de KV**. O limite que aparece primeiro num pico é o do
 Google, não o nosso: a Drive API recusa o original de um arquivo muito baixado
