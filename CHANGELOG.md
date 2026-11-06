@@ -97,6 +97,10 @@ decisão do dono.
   medida junto (razão), em vez de um teto absoluto que oscilava sob carga.
 - README e TODO sem o fluxo antigo de "ocultar na hora" e sem "nome e bytes
   exatos" para o arquivo baixado.
+- **README novo**, curto, com o que o site faz para o visitante e para o dono;
+  a referência técnica completa passa a `docs/REFERENCIA.md`.
+- Dependências de desenvolvimento: eslint 10.14.0, `@cloudflare/workers-types`
+  5.20261102.1 e wrangler 4.156.2 (Dependabot #261, #262, #263).
 
 ## [3.0.0] — 2026-11-06
 
