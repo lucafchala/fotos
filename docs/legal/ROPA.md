@@ -6,8 +6,8 @@ tratamento que realizar.
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV, Cloudflare D1 e Durable Objects (contadores e limites). Desde a v2.0 há também um **ambiente de prévia** com armazenamento próprio (seção 10).
-- **Última revisão:** 2026-10-10
-- **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `migrations/` (esquema do D1).
+- **Última revisão:** 2026-11-06
+- **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `src/snapshot.js` e `src/sumiram.js` (cópia da lista e fotos apagadas, seção 11), `migrations/` (esquema do D1).
 
 ---
 
@@ -21,7 +21,7 @@ tratamento que realizar.
 | **Finalidade** | (a) entrega do material aos contratantes/participantes; (b) divulgação do trabalho do fotógrafo (portfólio, site, redes); (c) publicação editorial, jornalística, cultural e educacional. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse) para entrega e portfólio — ver [`LIA.md`](./LIA.md). **Art. 7º, I** (consentimento) / **art. 14, §1º** (consentimento do responsável, para menores) quando há aceite dos Termos no gate do Drive. **Art. 4º, I** (fora do escopo da LGPD) para projetos estritamente familiares e não econômicos. |
 | **Categoria especial?** | **Não.** Imagem de rosto só é dado sensível (biométrico, art. 5º, II) quando tratada **para fins de identificação biométrica**. Aqui não há reconhecimento facial, indexação por face nem qualquer processamento biométrico — as fotos são armazenadas e entregues como imagem. |
-| **Armazenamento** | Google Drive (pastas por evento). O site **não hospeda** as fotos: guarda só a URL do Drive e as URLs das capas. A **galeria própria** (`/galeria/<slug>`, desde 29/10/2026 aberta a todos nos álbuns públicos, sem o portão de consentimento; família e privado exigem o passe do portão) lê a lista da pasta pela API do Drive e repassa os downloads pelo Worker **sem gravar a foto**; o que fica em cache, por 10 minutos e na Cache API da Cloudflare, é só a lista de arquivos (identificador, nome, dimensões e tamanho). Antes de abrir a galeria própria a participantes, este registro deve ser revisto: a partir daí a foto baixada passa pela Cloudflare a caminho do participante. |
+| **Armazenamento** | Google Drive (pastas por evento). O site **não hospeda** as fotos: guarda só a URL do Drive e as URLs das capas. A **galeria própria** (`/galeria/<slug>`, desde 29/10/2026 aberta a todos nos álbuns públicos, sem o portão de consentimento; família e privado exigem o passe do portão) lê a lista da pasta pela API do Drive e repassa os downloads pelo Worker **sem gravar a foto**; o que fica em cache, por 10 minutos e na Cache API da Cloudflare, é só a lista de arquivos (identificador, nome, dimensões, tamanho, **autor** — o nome da subpasta de créditos —, **data e hora de captura** lida do arquivo e, em vídeos e Live Photos, a duração e o vídeo pareado; **sem GPS e sem dados da câmera**). A pasta pode ser **colaborativa** (várias pessoas enviam fotos) e a galeria mostra fotos de mais de um autor, com terceiros e menores retratados; o canal de remoção da seção 3 e a prioridade para menores são a salvaguarda. A cópia durável da lista está na seção 11. Antes de abrir a galeria própria a participantes, este registro deve ser revisto: a partir daí a foto baixada passa pela Cloudflare a caminho do participante. |
 | **Compartilhamento** | Google (operador de hospedagem). Terceiros a quem o link do Drive for repassado pelo próprio titular. Veículos editoriais, nos casos do item (c). |
 | **Retenção** | Enquanto publicado / útil ao contratante. Removível a pedido, a qualquer tempo. Sem prazo automático. |
 | **Transferência internacional** | Sim — EUA. Ver [`transferencia-internacional.md`](./transferencia-internacional.md). |
@@ -58,14 +58,14 @@ Formulário no rodapé de cada evento. Gravado em KV, um registro por pedido
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | E-mail (obrigatório), telefone (obrigatório), identificação da foto (número, URL ou arquivo enviado), mensagem (opcional), evento, data. Pedido feito **pela galeria** (`POST /api/galeria/remocao`, `handleGaleriaRemocao()`): e-mail, motivo (`eu`, `menor` ou `outro`), mensagem (opcional), evento e a **foto aberta** (ID do Drive e nome do arquivo, que não são dado pessoal por si); **sem telefone** e sem aceite marcado (aviso informativo com o link da política). Marcas gravadas no pedido: `prioridade` (motivo `menor`) e `ocultada` (a foto saiu da galeria na hora). |
+| **Dados** | E-mail (obrigatório), telefone (obrigatório), identificação da foto (número, URL ou arquivo enviado), mensagem (opcional), evento, data. Pedido feito **pela galeria** (`POST /api/galeria/remocao`, `handleGaleriaRemocao()`): e-mail, motivo (`eu`, `menor` ou `outro`), mensagem (opcional), evento e a **foto aberta** (ID do Drive e nome do arquivo, que não são dado pessoal por si); **sem telefone** e sem aceite marcado (aviso informativo com o link da política). Marcas gravadas no pedido: `prioridade` (motivo `menor`) e `desfecho` (`removida`, `mantida_na_galeria`; pedidos antigos podem trazer `ocultada`, de quando a foto saía da galeria na hora). |
 | **Titulares** | Pessoas retratadas ou seus responsáveis legais. |
 | **Origem** | Preenchimento direto pelo titular. |
 | **Finalidade** | Localizar a foto, atender ao pedido e comunicar o resultado. E-mail e telefone servem para **confirmar identidade** e responder. |
 | **Base legal** | **Art. 7º, II** (cumprimento de obrigação legal: atender ao direito de eliminação/oposição, art. 18) e **art. 7º, I** (consentimento marcado no formulário). |
 | **Retenção** | **180 dias após a resolução** — `REMOVAL_RETENTION_DAYS`, apagado pelo cron diário (`pruneResolvedRemovalRequests` → `podaResolvidos`). Desde a v2.0 o cron é o único caminho de poda (a verificação que vinha de carona em cada nova solicitação dependia de regravar a lista inteira, e saiu com ela); se o cron parar, o `/api/healthz` acusa em até 26 h (`cron:last`). Pedidos **não resolvidos nunca são apagados** automaticamente. |
 | **Compartilhamento** | Resend (entrega do e-mail ao controlador e do aviso ao titular). |
-| **Efeito imediato (galeria)** | O pedido pela galeria **esconde a foto na hora** (`fotosOcultas` + `ocultasPendentes` do evento, até o controlador decidir no painel: "Manter oculta" ou "Devolver à galeria"). Tetos de abuso em `src/config.js`: 5 fotos escondidas por IP/dia, 20 por álbum/dia e 10 pedidos por IP/dia; o IP só alimenta o contador de limite (Durable Object, janela de 1 dia), não é gravado no pedido. Passado o teto, o pedido é registrado e avisado, mas a foto não é escondida. |
+| **Decisão (galeria)** | O pedido pela galeria **não esconde a foto**: ela fica no ar até o controlador decidir no painel (Pedidos): **"Remover da galeria"** (a foto é ocultada e sai do site em até 2 minutos) ou **"Manter na galeria"**. Quem pediu recebe a resposta por e-mail; pedidos do motivo `menor` têm prioridade (assunto do aviso). O **autor** da foto, se tem e-mail nos créditos do projeto, é avisado do pedido e da decisão **sem os dados de contato** de quem pediu. Limites por IP em `src/config.js` (contador em Durable Object, janela de 1 dia; o IP não é gravado no pedido). |
 | **Nota de minimização** | A foto enviada **não é gravada** no banco — trafega só no e-mail. E os **metadados EXIF são removidos no servidor antes disso** (`stripImageMetadata()`): quem envia uma foto pedindo remoção não está oferecendo as coordenadas de GPS de onde ela foi tirada, e não precisamos delas. Ver `politica-seguranca-informacao.md`. |
 
 ---
@@ -89,7 +89,7 @@ Formulário em `/suporte`; handler `handleSupportRequest()`.
 
 | Campo | Conteúdo |
 | --- | --- |
-| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. Desde a v2.0: a mesma contagem **por dia** (`d:<AAAA-MM-DD>:<chave>`), e quantos acessos ao Drive o portão liberou por **modo de verificação** (`gate:turnstile`, `gate:email`, `gate:noscript`, também por dia). |
+| **Dados** | `views:<slug>` e `drive_clicks:<slug>` — inteiros agregados por projeto. Desde a v2.0: a mesma contagem **por dia** (`d:<AAAA-MM-DD>:<chave>`), e quantos acessos ao Drive o portão liberou por **modo de verificação**; desde a v3.1, nos projetos com capítulos, as aberturas e os downloads também **por capítulo** (`galeria:<slug>:<capítulo>…`, o mesmo tipo de número) (`gate:turnstile`, `gate:email`, `gate:noscript`, também por dia). |
 | **Dado pessoal?** | **Não.** É contagem agregada, sem identificador, sem sessão, sem perfil. A contagem por dia e por modo continua sendo só número: não leva IP, projeto (no caso do modo), cookie nem horário — o dia é o menor recorte. |
 | **Cookie associado** | `fv_<slug>=1`, expira em 1 h, `SameSite=Lax`, escopo do próprio projeto. Serve só para não contar a mesma visita duas vezes na mesma hora. Não identifica, não persiste, não é lido por terceiro. |
 | **Base legal** | **Art. 7º, IX** (legítimo interesse — métrica própria). |
@@ -175,6 +175,24 @@ para o controlador testar a mudança antes de publicá-la. Código: `src/previa.
 
 ---
 
+## 11. Cópia da lista de fotos e fotos apagadas (galeria, v3.1)
+
+Tabelas `galeria_snapshot` e `galeria_apagadas` (D1), esquema em
+`migrations/0003_galeria_snapshot.sql` e `0004_galeria_apagadas.sql`; código em
+`src/snapshot.js` e `src/sumiram.js`.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | `galeria_snapshot`: a última lista lida de cada pasta (um registro por pasta, ou por capítulo) — identificador do arquivo, nome, dimensões, tamanho, **autor** (nome da subpasta de créditos), **data/hora de captura**. `galeria_apagadas`: identificador, nome, autor, capítulo, seção, captura e o instante em que o sumiço foi percebido. **Sem e-mail, sem GPS, sem dados da câmera e sem dado de visitante.** |
+| **Titulares** | Pessoas retratadas e autores das fotos, indiretamente (nome do arquivo e do autor; a imagem em si não é copiada). |
+| **Finalidade** | (a) manter a galeria de pé e permitir congelar a lista (moderação da pasta colaborativa); (b) perceber fotos que sumiram da pasta e avisar o controlador (e o autor, se tem e-mail nos créditos) e listar "Fotos apagadas recentemente" no painel. |
+| **Base legal** | **Art. 7º, IX** (legítimo interesse — operar e proteger o serviço e o trabalho do controlador), com o dado mínimo que a galeria já exibe. |
+| **Retenção** | `galeria_snapshot`: uma linha por pasta, **substituída** a cada mudança e apagada junto com o projeto. `galeria_apagadas`: **30 dias** (`SUMIRAM_RETENCAO_DIAS` em `src/config.js`), podada a cada gravação e a cada consulta do painel, e apagada junto com o projeto. |
+| **Compartilhamento** | Cloudflare (D1). O aviso de fotos apagadas sai por Resend, com os nomes dos arquivos, para o controlador e para o autor com e-mail nos créditos. |
+| **Armazenamento local no aparelho** | A galeria guarda no `localStorage` do visitante o instante da última visita a cada projeto/capítulo (`gal-visita:<projeto>:<capítulo>`), para destacar "fotos novas". Fica **só no aparelho**: não é cookie, não vai ao servidor. |
+
+---
+
 ## Resumo das transferências internacionais
 
 | Operador | O que recebe | Onde | Detalhe |
@@ -183,6 +201,7 @@ para o controlador testar a mudança antes de publicá-la. Código: `src/previa.
 | Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
+| Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |
 
 ---
 

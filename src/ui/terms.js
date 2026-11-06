@@ -83,7 +83,7 @@ export function termsHTML() {
     <p>O site é operado por <strong>Luca Ferriani Chala</strong>, responsável pela fotografia e pela disponibilização das imagens. Contato: <a href="mailto:suporte@lucafchala.com">suporte@lucafchala.com</a> · questões de dados: <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>.</p>
 
     <h2>2. O serviço</h2>
-    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e uma galeria própria do site, onde as fotos podem ser visualizadas e baixadas sem sair daqui, em duas versões: <strong>“para redes sociais”</strong> (a versão preparada para as redes, quando existe para a foto) e <strong>“tamanho máximo”</strong> (o arquivo original). Os arquivos são entregues exatamente como estão no Google Drive, sem alteração de nome nem de conteúdo. Além da galeria, cada projeto também oferece um link para a pasta no <strong>Google Drive</strong>, onde o material completo fica disponível para visualização e download pelas pessoas que participaram do evento.</p>
+    <p>O site funciona como uma página de entrega: cada projeto reúne a descrição do evento e uma galeria própria do site, onde as fotos podem ser visualizadas e baixadas sem sair daqui, em duas versões: <strong>“para redes sociais”</strong> (a versão preparada para as redes, quando existe para a foto) e <strong>“tamanho máximo”</strong> (o arquivo original). O conteúdo dos arquivos é entregue exatamente como está no Google Drive. Se o projeto usa <strong>nomes amigáveis</strong>, só o <strong>nome do arquivo baixado</strong> muda (por exemplo, o título do evento e um número); a imagem não é alterada. Além da galeria, cada projeto também oferece um link para a pasta no <strong>Google Drive</strong>, onde o material completo fica disponível para visualização e download pelas pessoas que participaram do evento.</p>
 
     <h2>3. Uso das imagens e Categorias de Acesso</h2>
     <div class="key">
@@ -95,7 +95,7 @@ export function termsHTML() {
       </ul>
       <p>Nos projetos públicos, as páginas e as fotos das galerias podem aparecer em buscadores (como o Google), inclusive na busca de imagens. As galerias de projetos familiares e privados ficam fora da indexação, e os downloads não são indexados em nenhum caso. O site pede aos buscadores que não usem o conteúdo para treinar inteligência artificial, mas não controla o que esses serviços fazem. Nos projetos familiares e privados, a galeria e o link do Drive continuam exigindo o aceite dos Termos e a declaração da categoria, com registro do aceite.</p>
       <p>Como parte da dinâmica do trabalho, eu realizo curadoria de imagens (exceto nas familiares) para meu portfólio profissional (site/redes sociais) e publicações editoriais, sem uso comercial/publicitário de terceiros.</p>
-      <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. A exclusão é imediata, gratuita e garantida.</p>
+      <p><strong>Direito de Oposição (Opt-out):</strong> Caso encontre alguma foto sua ou de alguém sob sua responsabilidade que não deseje ver no portfólio ou na galeria, use o botão <em>“Solicitar remoção de foto”</em> no rodapé. O pedido é gratuito e respondido em até 15 dias, com prioridade para menores (seção 7).</p>
     </div>
     <p><strong>Finalidades conforme a categoria:</strong></p>
     <ul>
@@ -107,17 +107,18 @@ export function termsHTML() {
 
     <h2>4. Uso permitido das fotos</h2>
     <p>As fotos são entregues para <strong>uso pessoal</strong> das pessoas retratadas. Você pode baixá-las, imprimi-las e publicá-las nas suas redes. Ao publicar, pedimos que <strong>marque @lucafchala</strong> — isso valoriza o trabalho e incentiva novos projetos.</p>
+    <p><strong>Autoria.</strong> Um álbum pode reunir fotos de <strong>mais de uma pessoa</strong>, e cada foto indica o seu autor. Nos álbuns <strong>colaborativos</strong> (pastas do Google Drive em que várias pessoas enviam fotos), quem envia uma foto declara que ela é sua, ou que está autorizado a enviá-la, e que as pessoas retratadas podem aparecer nela. Os direitos autorais de cada foto pertencem ao autor indicado.</p>
     <p>Não é permitido revender as imagens, usá-las para fins comerciais ou publicitários de terceiros, nem alterar substancialmente a foto de forma que descaracterize o trabalho ou prejudique a honra e a imagem das pessoas retratadas.</p>
 
     <h2>5. Direitos autorais</h2>
-    <p>Os direitos autorais das fotografias pertencem a <strong>Luca Ferriani Chala</strong> (Lei nº 9.610/1998). A autorização de uso descrita acima não transfere a titularidade dos direitos autorais — ela concede uma licença de uso nos termos aqui descritos.</p>
+    <p>Os direitos autorais de cada fotografia pertencem ao seu <strong>autor</strong> — <strong>Luca Ferriani Chala</strong> nas fotos que ele fez, e a quem a indicar nas fotos enviadas por outras pessoas (Lei nº 9.610/1998). A autorização de uso descrita acima não transfere a titularidade dos direitos autorais — ela concede uma licença de uso nos termos aqui descritos.</p>
 
     <h2>6. Privacidade e proteção de dados</h2>
     <p>O tratamento de dados pessoais (incluindo o registro do aceite e os dados de formulários) é descrito na <a href="/privacidade">Política de Privacidade</a>, em conformidade com a LGPD.</p>
 
     <h2>7. Remoção de fotos</h2>
     <p>Se você identificar uma foto sua que deseja remover, use o botão <em>“Solicitar remoção de foto”</em> no rodapé da página do evento, ou escreva para mim em <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. A remoção é <strong>gratuita</strong> e respondida em até <strong>15 dias</strong>.</p>
-    <p>Também dá para pedir a remoção <strong>na própria galeria</strong>: com a foto aberta, o link discreto <em>“Pedir remoção”</em> abre um formulário curto (e-mail, motivo e mensagem opcional). Ao enviar, a foto sai da galeria em até 2 minutos, <strong>enquanto eu analiso o pedido</strong>, e você recebe a confirmação por e-mail. Depois eu decido se ela fica fora ou volta à galeria; pedidos envolvendo menores de idade têm prioridade. Para evitar abuso, há um limite de fotos que cada pessoa pode esconder por dia; passado o limite, o pedido continua registrado e analisado do mesmo jeito, só que a foto não sai da galeria até a análise.</p>
+    <p>Também dá para pedir a remoção <strong>na própria galeria</strong>: com a foto aberta, o link discreto <em>“Pedir remoção”</em> abre um formulário curto (e-mail, motivo e mensagem opcional). O pedido <strong>chega a mim</strong> e a foto <strong>continua na galeria até eu decidir</strong>; você recebe por e-mail a confirmação do envio e, depois, a resposta com a minha decisão (a foto sai ou fica). Pedidos de quem se declara <strong>responsável por um menor</strong> na foto têm <strong>prioridade</strong>. Quem é o autor da foto é avisado do pedido e da decisão, sem receber os seus dados de contato. O pedido vale para a foto de <strong>qualquer autor</strong> do álbum, não só para as minhas.</p>
     <p>Quando o pedido é atendido (ou quando o responsável decide tirar a foto), ela sai da galeria e do mapa do site em até 2 minutos (o tempo de a alteração chegar a todo o site), e o download dela deixa de funcionar. O resultado no buscador, porém, pode levar um tempo para atualizar; quando for urgente, eu solicito a remoção diretamente ao buscador, pela ferramenta de remoção do Google Search Console. A foto original pode continuar no Drive até ser apagada lá.</p>
 
     <h2>8. Serviços de terceiros</h2>

@@ -2,7 +2,7 @@
 
 > Redigido com auxílio de IA, sem revisão jurídica — decisão do responsável (29/10/2026). Ver [`README.md`](./README.md).
 >
-> **Última revisão:** 2026-10-29
+> **Última revisão:** 2026-11-06
 
 Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · 👤 depende de ação fora do site
 
@@ -32,7 +32,8 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · 👤 depende de ação fo
 | Publicação editorial | Art. 7º, I (consentimento) | 🟡 Só quem aceitou Termos ≥ 2026-06-18 |
 | **Imagem de menor** | **Art. 14, §1º** | ❌👤 **Termo assinado ausente — crítico; pendência operacional #119** |
 | Log de consentimento | Art. 7º, II + VI | ✅ |
-| Pedidos de remoção | Art. 7º, II + I | ✅ |
+| Pedidos de remoção | Art. 7º, II + I | ✅ O pedido pela galeria não esconde a foto: o controlador decide no painel; menor tem prioridade; o autor é avisado sem os dados de contato |
+| Cópia da lista de fotos e fotos apagadas (D1) | Art. 7º, IX | ✅ [ROPA §11](./ROPA.md) — sem e-mail, GPS ou dado de visitante; apagadas por 30 dias |
 | Suporte | Art. 7º, I + V | ✅ |
 | Código de acesso por e-mail (último recurso do gate) | Art. 7º, V | ✅ [ROPA §9](./ROPA.md) — e-mail não armazenado |
 | Métricas | Art. 7º, IX | ✅ |

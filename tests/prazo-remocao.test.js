@@ -23,6 +23,15 @@ describe('prazo de saída de uma foto oculta: "em até 2 minutos", nunca "na hor
     }
   });
 
+  it('Termos e Privacidade descrevem o "Pedir remoção" por aprovação: a foto fica até o dono decidir', () => {
+    for (const [nome, html] of [['termos', termsHTML()], ['privacidade', privacyHTML()]]) {
+      const t = texto(html);
+      expect(t, nome).toMatch(/continua na galeria até eu decidir/);
+      expect(t, nome).toMatch(/responsável por um menor/);
+      expect(t, nome).not.toMatch(/sai da galeria em até 2 minutos, enquanto eu analiso|limite (diário )?de fotos que/);
+    }
+  });
+
   it('CHANGELOG e RETOMADA não prometem "na hora" para a foto oculta sair do HTML e do sitemap', () => {
     expect(arquivo('CHANGELOG.md')).not.toMatch(/sitemap\s+na hora/);
     expect(arquivo('CHANGELOG.md')).toMatch(/sitemap\s+em até 2 minutos/);
