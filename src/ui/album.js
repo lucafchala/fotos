@@ -15,7 +15,7 @@
 // As capas e as contagens vêm do RESUMO dos capítulos (drive.js), como os
 // cartões do índice simples: nenhuma listagem a mais.
 
-import { escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
+import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
 import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
 import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS, BUSCA_CSS } from './indice-comum.js';
@@ -212,8 +212,11 @@ export function albumHTML(p) {
   const descricao = restritoCartao
     ? previewDescription([], `Galeria de fotos de ${titulo}.`)
     : previewDescription([meta], texto.split('\n')[0].slice(0, 160) || `Galeria de fotos de ${titulo}.`);
-  const tituloPagina = `${titulo} — fotos`;
-  const canonico = `${origem}${base}`;
+  const marca = marcaDoAlbum(slug);
+  // Com domínio próprio, a aba diz só o nome do álbum (o fotos é a base, v3.7.1).
+  const tituloPagina = marca ? titulo : `${titulo} — fotos`;
+  // O endereço principal: a raiz do domínio próprio, quando há (v3.7.1).
+  const canonico = enderecoDoAlbum(slug);
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -222,11 +225,11 @@ export function albumHTML(p) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0f0e0c">
-  <link rel="icon" type="image/svg+xml" href="${doDominio ? '/icon-entrenos.svg' : '/icon.svg'}">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
+  <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
-  ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height })}
+  ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height , ...(marca ? { siteName: marca.siteName } : {}) })}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
   <style>
@@ -551,7 +554,7 @@ const CSS_MOSAICO = `
 .al-mos-txt{position:relative;max-width:72rem;margin:-3.5rem auto 0;padding:0 var(--pad)}
 .al-mos-txt::before{content:"";position:absolute;z-index:-1;left:-10%;top:10%;width:70%;height:90%;background:radial-gradient(closest-side,rgba(36,53,128,.45),transparent);pointer-events:none}
 .al-mos-h{position:relative;isolation:isolate}
-.al-mos-txt.al-sem-foto{margin-top:0}
+.al-mos-txt.al-sem-foto{margin-top:0;padding-top:clamp(2.5rem,9vw,5.5rem)}
 .al-mos-h .al-tit{font-size:clamp(3.2rem,12vw,7.5rem);margin:.5rem 0 .7rem}`;
 
 const CSS_RECORDACAO = `

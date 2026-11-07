@@ -8,7 +8,7 @@
 import { HONEYPOT_CSS } from '../security.js';
 import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML, SCRIPT_BUSCA, BUSCA_CSS, buscaHTML } from './indice-comum.js';
 import { albumHTML } from './album.js';
-import { escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
+import { enderecoDoAlbum, marcaDoAlbum, escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
@@ -31,7 +31,8 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const slug = String(event.slug || '');
   const base = `/galeria/${slug}`;
   const dataEvento = event.date ? formatDatePT(String(event.date)) : '';
-  const tituloPagina = `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  const marca = marcaDoAlbum(slug);
+  const tituloPagina = marca ? titulo : `Fotos de ${titulo}${dataEvento ? ` — ${dataEvento}` : ''}`;
   // Capítulo com resumo guardado dizendo 0 fotos não aparece para o visitante
   // (a pasta existe, mas ainda não chegou nada); o dono o vê marcado "vazio".
   // Sem resumo (ninguém abriu ainda) o capítulo aparece normalmente.
@@ -100,19 +101,20 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
+  <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
+  ${marca ? '' : '<link rel="manifest" href="/manifest.json">'}
   <title>${escape(tituloPagina)}</title>
-  <link rel="canonical" href="${escape(origemDoAlbum(slug) + base)}">
+  <link rel="canonical" href="${escape(enderecoDoAlbum(slug))}">
   ${socialMetaHTML({
     title: tituloPagina,
     description: descricao,
-    url: origemDoAlbum(slug) + base,
+    url: enderecoDoAlbum(slug),
     image: ogImage.url,
     imageAlt: `Fotos de ${titulo}`,
     imageWidth: ogImage.width,
     imageHeight: ogImage.height,
+    ...(marca ? { siteName: marca.siteName } : {}),
   })}
   ${fontPreloadHTML()}
   ${photoPreconnectHTML()}

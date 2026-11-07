@@ -205,3 +205,12 @@ describe('página e painel', () => {
     expect(normalizeEventFields({ buscaTexto: 'sim' }, { slug: 'x' }, []).buscaTexto).toBe(false);
   });
 });
+
+describe('atalhos prontos da busca (v3.7.1)', () => {
+  it('"jogo" e "comida" acham esporte e comida; a página traz os botões', () => {
+    const c = descreveFoto({ rotulos: { Labels: [{ Name: 'Soccer', Confidence: 95 }, { Name: 'Pizza', Confidence: 95 }] } }).coisas.split(' ');
+    expect(c).toEqual(expect.arrayContaining(['jogo', 'comida', 'futebol', 'pizza']));
+    for (const t of ['jogo', 'comida', 'palco', 'bola']) expect(buscaHTML()).toContain(`<button type="button" data-bf="${t}">${t}</button>`);
+    expect(SCRIPT_BUSCA).toContain("closest('[data-bf]')");
+  });
+});

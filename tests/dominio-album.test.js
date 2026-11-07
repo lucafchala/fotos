@@ -1,5 +1,6 @@
 // Domínio próprio de um álbum (entrenos2026.com). O que estes testes prendem:
-//  1. a raiz desse domínio leva direto à galeria do álbum, com a query junto;
+//  1. a raiz desse domínio MOSTRA a galeria do álbum (sem redirecionar: o
+//     endereço fica o domínio, v3.7.1), e o endereço antigo leva à raiz;
 //  2. www. vai para o domínio sem www., preservando caminho e query;
 //  3. o painel volta para o domínio principal (a sessão mora lá);
 //  4. o resto do site responde igual nesse domínio — e o domínio principal
@@ -33,18 +34,23 @@ describe('domínio de álbum (entrenos2026.com)', () => {
     expect(SLUG).toMatch(/^[a-z0-9][a-z0-9-]*$/);
   });
 
-  it('a raiz vai direto à galeria do álbum (302), com a query junto', async () => {
+  it('a raiz mostra a galeria do álbum ali mesmo, sem redirecionar', async () => {
+    expect(await rotaDoDominioDeAlbum(new URL('https://entrenos2026.com/?utm_source=qr'), '/', envCom())).toEqual({ servir: `/galeria/${SLUG}` });
     const res = await pede('https://entrenos2026.com/?utm_source=qr');
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(`/galeria/${SLUG}?utm_source=qr`);
-    // Mesmo um redirecionamento sai com os cabeçalhos de segurança.
-    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(res.headers.get('Location')).toBeNull();
+    expect([301, 302, 404]).not.toContain(res.status);
+    const head = await pede('https://entrenos2026.com/', { method: 'HEAD' });
+    expect(head.headers.get('Location')).toBeNull();
   });
 
-  it('HEAD na raiz também redireciona', async () => {
-    const res = await pede('https://entrenos2026.com/', { method: 'HEAD' });
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(`/galeria/${SLUG}`);
+  it('o endereço antigo da galeria leva à raiz (301), com a query junto', async () => {
+    const res = await pede(`https://entrenos2026.com/galeria/${SLUG}?utm_source=qr`);
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe('/?utm_source=qr');
+    // Mesmo um redirecionamento sai com os cabeçalhos de segurança.
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    // O capítulo continua no caminho de sempre.
+    expect((await pede(`https://entrenos2026.com/galeria/${SLUG}/piauifut`)).status).not.toBe(301);
   });
 
   it('www. vai para o domínio sem www. (301), preservando caminho e query', async () => {
@@ -54,8 +60,7 @@ describe('domínio de álbum (entrenos2026.com)', () => {
   });
 
   it('maiúsculas no host não escapam do desvio', async () => {
-    const res = await rotaDoDominioDeAlbum(new URL('https://EntreNos2026.COM/'), '/', envCom());
-    expect(res?.headers.get('Location')).toBe(`/galeria/${SLUG}`);
+    expect(await rotaDoDominioDeAlbum(new URL('https://EntreNos2026.COM/'), '/', envCom())).toEqual({ servir: `/galeria/${SLUG}` });
   });
 
   it('o painel volta para o domínio principal', async () => {
@@ -119,5 +124,29 @@ describe('domínio de álbum (entrenos2026.com)', () => {
       expect(xml).not.toContain(`galeria/${SLUG}`);
       expect(xml).not.toContain(`sitemap-galeria-${SLUG}`);
     }
+  });
+});
+
+describe('a marca do Entre Nós nas páginas do álbum (v3.7.1)', () => {
+  it('ícone, ícone da tela inicial e nome no cartão são do álbum; sem o manifest do fotos', async () => {
+    const { marcaDoAlbum } = await import('../src/utils.js');
+    expect(marcaDoAlbum(SLUG)).toEqual({ icone: '/icon-entrenos.svg', apple: '/apple-touch-entrenos.png', siteName: 'Entre Nós · Turma 2026 · Colégio Santa Cruz' });
+    expect(marcaDoAlbum('outro-projeto')).toBeNull();
+    const { galeriaHTML } = await import('../src/ui/galeria.js');
+    const listagem = { v: 3, pasta: 'RAIZ_PASTA_0001', em: new Date().toISOString(), truncada: false, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_AAAAAAAA01', 100, 100, 'a.jpg', 1]] }], total: 1, videos: 0, outros: 0, rk: {}, aut: ['Luca F. Chala'] };
+    const h = galeriaHTML(/** @type {any} */ ({ event: { slug: SLUG, title: 'Entre Nós · Turma 2026', accessType: 'public' }, listagem, erro: null, nonce: 'N', dono: false, capitulo: { slug: 'gala', nome: 'Gala', anterior: null, proximo: null } }));
+    expect(h).toContain('<link rel="icon" type="image/svg+xml" href="/icon-entrenos.svg">');
+    expect(h).toContain('<link rel="apple-touch-icon" href="/apple-touch-entrenos.png">');
+    expect(h).not.toContain('rel="manifest"');
+    expect(h).toContain('<title>Gala · Entre Nós · Turma 2026</title>');
+    expect(h).toContain('<meta property="og:site_name" content="Entre Nós · Turma 2026 · Colégio Santa Cruz">');
+    expect(h).toContain('<p class="g-autores"><span class="g-autores-k">Fotos de</span> Luca F. Chala</p>');
+  });
+
+  it('o ícone da tela inicial é um PNG de verdade', async () => {
+    const res = await pede('https://entrenos2026.com/apple-touch-entrenos.png');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
+    const b = new Uint8Array(await res.arrayBuffer());
+    expect([...b.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 });

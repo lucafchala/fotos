@@ -116,11 +116,11 @@ describe('surpresa: nada aparece antes da hora', () => {
     expect(h).toContain('data-ate="2099-11-20T23:00:00.000Z"');
   });
 
-  it('na hora, o domínio leva à galeria (sem esperar ninguém)', async () => {
+  it('na hora, o domínio mostra a galeria (sem esperar ninguém)', async () => {
     vi.useFakeTimers({ now: AGORA, toFake: ['Date'] });
     const res = await pede([{ ...ALBUM, lancarEm: DAQUI_A(-1) }], 'https://entrenos2026.com/');
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('/galeria/entrenos2026');
+    expect(res.headers.get('Location')).toBeNull();
+    expect(await res.text()).not.toContain('O álbum da turma está chegando');
   });
 });
 

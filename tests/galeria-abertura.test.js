@@ -150,9 +150,9 @@ describe('apresentação do álbum', () => {
   });
 
   it('endereço canônico: o domínio do álbum; os outros seguem no principal', () => {
-    expect(pagina()).toContain('<link rel="canonical" href="https://entrenos2026.com/galeria/entrenos2026">');
+    expect(pagina()).toContain('<link rel="canonical" href="https://entrenos2026.com/">');
     expect(pagina({ slug: 'formatura' })).toContain('<link rel="canonical" href="https://fotos.lucafchala.com/galeria/formatura">');
-    expect(pagina({ galeriaAbertura: '' })).toContain('<link rel="canonical" href="https://entrenos2026.com/galeria/entrenos2026">');
+    expect(pagina({ galeriaAbertura: '' })).toContain('<link rel="canonical" href="https://entrenos2026.com/">');
   });
 
   it('a busca pelo rosto aparece na apresentação quando vale', () => {

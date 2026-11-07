@@ -1294,7 +1294,7 @@ for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { widt
       };
     });
     registra(topo.h1 === 'Formatura 2026 · Cerimônia' && /Cerimônia/.test(topo.title), `${nome}: o título diz o evento e o capítulo`, { h1: topo.h1, title: topo.title });
-    registra(topo.autores === 'Fotos: Luca F. Chala, Ana Souza e Bruno Lima', `${nome}: a linha de créditos lista os três fotógrafos`, topo.autores);
+    registra(topo.autores === 'Fotos de Luca F. Chala, Ana Souza e Bruno Lima', `${nome}: a linha de créditos lista os três fotógrafos`, topo.autores);
     registra(topo.chipsVisiveis && topo.grupoRotulo === 'Fotógrafo' && topo.grupo.length === 4 && /^Todos/.test(topo.grupo[0]) && topo.grupo.slice(1).every((t, i) => t.startsWith(AUTORES_CAP[i])),
       `${nome}: filtro por fotógrafo (Todos + um por autor), em grupo rotulado`, topo.grupo);
     registra(topo.chipsAlturas.length > 0 && topo.chipsAlturas.every(h => h >= 44), `${nome}: todos os chips têm 44 px de alvo`, topo.chipsAlturas);

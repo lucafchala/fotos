@@ -25,7 +25,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, origemDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, origemDoAlbum, marcaDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -169,7 +169,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
   // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
   // Person (@id) do resto do site.
-  const tituloPagina = `Fotos de ${titulo}${capitulo ? ` — ${capitulo.nome}` : ''}${dataEvento ? ` — ${dataEvento}` : ''}`;
+  // Álbum com domínio próprio: a marca dele (ícone, aba, cartão), não a do fotos (v3.7.1).
+  const marca = marcaDoAlbum(slug);
+  const tituloPagina = marca
+    ? (capitulo ? `${capitulo.nome} · ${titulo}` : titulo)
+    : `Fotos de ${titulo}${capitulo ? ` — ${capitulo.nome}` : ''}${dataEvento ? ` — ${dataEvento}` : ''}`;
   const caminhoBase = `/galeria/${slug}`;
   const caminhoPagina = capitulo ? `${caminhoBase}/${capitulo.slug}` : caminhoBase;
   // Álbum com domínio próprio: o endereço de lá (canonical e cartão de link).
@@ -182,6 +186,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const autoresUsados = [...new Set(todasFotos.map(f => f[5] || 0))].sort((a, b) => a - b);
   const variosAutores = autoresUsados.length > 1;
   const linhaAutores = variosAutores ? `Fotos: ${listaComE(autoresUsados.map(i => autores[i] || AUTOR_PADRAO))}` : '';
+  // O crédito no topo da página (v3.7.1, pedido do dono: mais destaque para
+  // quem fotografou): sempre que há foto, mesmo com um fotógrafo só.
+  const nomesDosAutores = autoresUsados.map(i => autores[i] || AUTOR_PADRAO);
   // O alt de cada foto, igual ao do script da página: "<evento> — foto i de n".
   const altFoto = (/** @type {number} */ i) => `${titulo} — foto ${i + 1} de ${total}`;
   const altItem = (/** @type {import('../drive.js').FotoDrive} */ f, /** @type {number} */ i) =>
@@ -363,9 +370,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
+  <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
+  ${marca ? '' : '<link rel="manifest" href="/manifest.json">'}
   ${erro && erro.codigo === 'carregando' ? '<meta http-equiv="refresh" content="4">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(urlPagina)}">
@@ -377,6 +384,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     imageAlt: tituloDoCartao,
     imageWidth: ogImage.width,
     imageHeight: ogImage.height,
+    ...(marca ? { siteName: marca.siteName } : {}),
   })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
   ${fontPreloadHTML()}
@@ -421,6 +429,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
+    .g-autores{font-size:.95rem;font-weight:600;color:var(--text);margin-top:.45rem;line-height:1.35}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}
@@ -631,7 +641,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     : `<a class="g-voltar" href="/${escape(slug)}"><span aria-hidden="true">‹</span> Página do projeto</a>`}
         <h1 id="g-h1" tabindex="-1">${escape(capitulo ? `${titulo} · ${capitulo.nome}` : titulo)}</h1>
         ${meta ? `<p class="g-meta">${escape(meta)}</p>` : ''}
-        ${linhaAutores ? `<p class="g-meta g-autores">${escape(linhaAutores)}</p>` : ''}
+        ${nomesDosAutores.length && total ? `<p class="g-autores"><span class="g-autores-k">Fotos de</span> ${escape(listaComE(nomesDosAutores))}</p>` : ''}
       </div>
       <div class="g-acoes">
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
