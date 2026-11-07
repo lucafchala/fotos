@@ -221,7 +221,7 @@ function parseEvents(data) {
  */
 export async function getEvents(env, fresh = false) {
   const now = Date.now();
-  if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return _cache;
+  if (!fresh && _cache && now - _cacheAt < CACHE_TTL) return comLancamentos(_cache, now);
 
   let data;
   try {
@@ -240,7 +240,7 @@ export async function getEvents(env, fresh = false) {
       // Cache do isolate, mesmo vencido — velho por 30s continua certo.
       noteEventsFallback('cache do isolate');
       console.error('KV read failed; serving events from the isolate cache', e);
-      return _cache;
+      return comLancamentos(_cache, now);
     }
     // Cópia na Cache API: salva um isolate FRIO, o caso comum numa queda.
     const mirrored = await readMirroredEvents();
@@ -249,7 +249,7 @@ export async function getEvents(env, fresh = false) {
       console.error('KV read failed; serving events from the cache mirror', e);
       _cache = parseEvents(mirrored);
       _cacheAt = now;
-      return _cache;
+      return comLancamentos(_cache, now);
     }
     // Sem cópia, propaga: devolver [] viraria "site sem projeto nenhum" — 404
     // em tudo, `ok:true` no healthz. Mentir sobre não ter dado é pior.
@@ -264,7 +264,8 @@ export async function getEvents(env, fresh = false) {
   // Espelha o texto cru, não o objeto filtrado: a validação de forma precisa
   // acontecer de novo na leitura da cópia também.
   if (typeof data === 'string') await mirrorEvents(data);
-  return _cache;
+  // Lançamento marcado que já venceu: ver comLancamentos.
+  return comLancamentos(_cache, now);
 }
 
 /**
@@ -3144,5 +3145,38 @@ export function origemDoAlbum(slug) {
 /** @param {Evento | undefined | null} e */
 export function albumLancado(e) {
   return !!e && e.visible !== false && !e.comingSoon;
+}
+
+// Álbum com domínio próprio (DOMINIOS_DE_ALBUM) ainda não lançado (v3.5): é
+// surpresa. Nem a página do projeto (/<slug>) existe para o público — só o
+// dono, logado, a vê. Os outros projetos "Em breve" seguem como sempre.
+/** @param {Evento | undefined | null} e */
+export function albumSurpresa(e) {
+  return !!e && Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === e.slug) && !albumLancado(e);
+}
+
+// Lançamento marcado (v3.5): o painel grava `lancarEm` (ISO, UTC). Chegada a
+// hora, o projeto passa a valer como lançado — fora do "Em breve", visível e
+// fixado — em TODO o site ao mesmo tempo, porque a troca acontece aqui, na
+// leitura (getEvents), e não numa tarefa agendada que poderia atrasar ou
+// falhar. A próxima gravação pelo painel torna a troca permanente (o objeto
+// derivado já vem sem `lancarEm`). Sem lançamento vencido, devolve a MESMA
+// lista (nenhuma cópia por visita).
+/** @param {Evento} e @param {number} agora */
+function lancamentoVenceu(e, agora) {
+  if (!e || typeof e.lancarEm !== 'string' || !e.lancarEm) return false;
+  const t = Date.parse(e.lancarEm);
+  return Number.isFinite(t) && t <= agora;
+}
+/**
+ * @param {Evento[]} eventos
+ * @param {number} [agora]
+ * @returns {Evento[]}
+ */
+export function comLancamentos(eventos, agora = Date.now()) {
+  if (!Array.isArray(eventos) || !eventos.some(e => lancamentoVenceu(e, agora))) return eventos;
+  return eventos.map(e => (lancamentoVenceu(e, agora)
+    ? { ...e, comingSoon: false, visible: true, pinned: true, lancarEm: '', lancarContagem: false }
+    : e));
 }
 

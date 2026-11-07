@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, lancarEm: '', lancarContagem: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -514,3 +514,7 @@ export const ROSTO_LIMIAR_SEMENTE = 92;
 export const ROSTO_BUSCA_IP_BUCKET = { capacity: 300, perHour: 300 };
 export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: 1200, perHour: 100 };
 export const ROSTO_SAIR_POR_IP_DIA = 20;
+
+// Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel
+// aceita marcar. Mais que isso é engano de digitação (ano errado).
+export const LANCAMENTO_MAX_DIAS = 400;

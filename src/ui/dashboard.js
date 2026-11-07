@@ -207,6 +207,9 @@ export function cardProjetoPainel(e, h, marcado) {
   if (e.pinned) selos.push('<span class="status-badge st-destaque">Destaque</span>');
   if (!visivel) selos.push('<span class="status-badge st-oculto">Oculto</span>');
   if (e.comingSoon) selos.push('<span class="status-badge st-embreve">Em breve</span>');
+  // Lançamento marcado (v3.5): a data no horário de Brasília, só no painel.
+  const lancaEm = typeof e.lancarEm === 'string' && e.lancarEm && Date.parse(e.lancarEm) > Date.now() ? new Date(e.lancarEm) : null;
+  if (lancaEm) selos.push('<span class="status-badge st-destaque">Lança ' + h.esc(lancaEm.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) + '</span>');
   if (e.accessType === 'private' || e.accessType === 'family') {
     selos.push('<span class="status-badge st-acesso">' + (e.accessType === 'family' ? 'Familiar' : 'Privado') + '</span>');
   }
@@ -233,6 +236,7 @@ export function cardProjetoPainel(e, h, marcado) {
     + '<div class="menu" role="menu" aria-label="Ações: ' + titulo + '" hidden>'
     + itemMenu + '"pin">' + h.icones.destaque + '<span>' + (e.pinned ? 'Remover destaque' : 'Destacar na galeria') + '</span></button>'
     + itemMenu + '"vis">' + (visivel ? h.icones.ocultar : h.icones.mostrar) + '<span>' + (visivel ? 'Ocultar da galeria' : 'Mostrar na galeria') + '</span></button>'
+    + (!visivel || e.comingSoon ? itemMenu + '"lancar">' + h.icones.destaque + '<span>Lançar agora…</span></button>' : '')
     + '<a class="menu-item" role="menuitem" href="/' + slug + '" target="_blank" rel="noopener">' + h.icones.abrir + '<span>Abrir a página do projeto</span></a>'
     + itemMenu + '"qr">' + h.icones.qr + '<span>QR code da galeria…</span></button>'
     + itemMenu + '"dup">' + h.icones.duplicar + '<span>Duplicar</span></button>'
@@ -1331,6 +1335,21 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             </div>
             <div class="field-hint" style="margin-top:.5rem">Quando ativo: o card na galeria e a página do projeto ficam visíveis, mas as fotos de capa são escondidas e o botão do Drive vira "As fotos virão em breve".</div>
           </div>
+          <div class="field">
+            <label for="f-lancar-em">Lançamento marcado <span class="dica-rotulo">(opcional)</span></label>
+            <input type="datetime-local" id="f-lancar-em" aria-describedby="dica-lancar">
+            <div class="field-hint" id="dica-lancar" style="margin-top:.5rem">No dia e hora marcados (no horário deste aparelho), o projeto sai do <strong>Em breve</strong>, fica <strong>visível</strong> e <strong>destacado</strong>, sozinho, em todo o site ao mesmo tempo. Vazio: você lança à mão, pelo menu ⋯ → <strong>Lançar agora…</strong>. A busca pelo rosto e o destaque máximo seguem como estiverem marcados acima.</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
+              <label class="toggle-label" for="f-lancar-contagem">Mostrar contagem regressiva</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-lancar-contagem" aria-describedby="dica-lancar-contagem">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-lancar-contagem" style="margin-top:.5rem">Na página "em breve" do domínio do álbum (entrenos2026.com): "Chega em 20 de novembro, às 20h", com dias, horas, minutos e segundos. <strong>Revela a data</strong> a quem abrir o endereço. Desligado, a página não diz quando.</div>
+          </div>
         </details>
         <details class="bloco-form" id="bf-producao">
           <summary><span class="bf-titulo">Prazo e status</span><span class="bf-resumo" data-resumo="bf-producao"></span></summary>
@@ -1507,6 +1526,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       else if (action === 'qr') abreQr(id, abridor);
       else if (action === 'pin') togglePin(id);
       else if (action === 'vis') toggleVisible(id);
+      else if (action === 'lancar') lancarAgora(id);
     });
     // Selection checkboxes (mass-edit mode)
     document.getElementById('evt-list').addEventListener('change', function(ev) {
@@ -1908,6 +1928,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-promised').value = e ? (e.promisedDate || '') : '';
       document.getElementById('f-visible').checked = e ? (e.visible !== false) : true;
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
+      document.getElementById('f-lancar-em').value = isoParaLocal(e && e.lancarEm);
+      document.getElementById('f-lancar-contagem').checked = !!(e && e.lancarContagem === true);
       document.getElementById('f-status').value = e?.status || 'entregue';
       document.getElementById('f-access').value = e?.accessType || 'public';
       document.getElementById('f-category').value = e?.category || '';
@@ -1957,7 +1979,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
         driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), estilo: val('f-estilo'), recado: val('f-recado'), pixChave: val('f-pix-chave'), pixNome: val('f-pix-nome'), pixCidade: val('f-pix-cidade'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), destaqueMaximo: chk('f-destaque-maximo'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
-        visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), status: val('f-status'),
+        visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), lancarEm: val('f-lancar-em'), lancarContagem: chk('f-lancar-contagem'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
         alertActive: chk('f-alert-active'), alertExpires: val('f-alert-expires'), alertKind: val('f-alert-kind'),
         // Desligar e religar o aviso nesta edição reinicia o contador ao
@@ -2014,7 +2036,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
-      setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon);
+      setChk('f-visible', f.visible); setChk('f-comingsoon', f.comingSoon); set('f-lancar-em', f.lancarEm); setChk('f-lancar-contagem', f.lancarContagem);
       setChk('f-alert-active', f.alertActive);
       // Desligado e religado antes de a sessão cair: o contador ainda recomeça.
       if (f.alertWasActive === '0') document.getElementById('f-alert-active').dataset.wasActive = '0';
@@ -2249,6 +2271,17 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         if (conflict) { mostraCampo('f-slug'); return toast('Já existe um evento com essa URL.', 'err'); }
       }
 
+      // Lançamento marcado: do relógio deste aparelho para ISO (UTC). Data que
+      // já passou é engano (o servidor também recusa); para lançar já, há o
+      // "Lançar agora…" do menu, que pede confirmação.
+      const lancarLocal = document.getElementById('f-lancar-em').value;
+      const lancarEmISO = lancarLocal && !isNaN(new Date(lancarLocal).getTime()) ? new Date(lancarLocal).toISOString() : '';
+      const lancarOriginal = editingId ? ((events.find(ev => ev.id === editingId) || {}).lancarEm || '') : '';
+      if (lancarEmISO && Date.parse(lancarEmISO) <= Date.now() && lancarEmISO !== lancarOriginal) {
+        mostraCampo('f-lancar-em');
+        return toast('A data de lançamento já passou. Para lançar agora, use o menu ⋯ → Lançar agora…', 'err');
+      }
+
       const photos = collectPhotos();
       const body = {
         slug,
@@ -2281,6 +2314,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         promisedDate: document.getElementById('f-promised').value,
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
+        lancarEm: lancarEmISO,
+        lancarContagem: document.getElementById('f-lancar-contagem').checked,
         status: document.getElementById('f-status').value,
         accessType: document.getElementById('f-access').value,
         category: document.getElementById('f-category').value,
@@ -2619,6 +2654,44 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     }
 
     // ---- Toggle visible ----
+    // ---- Lançar agora (v3.5) ----
+    // Um clique (com confirmação digitada) faz o que a Fase 7 fazia em três
+    // caixinhas: tira do "Em breve", mostra e destaca. Só os campos que mudam,
+    // como o "Destacar". Não mexe na busca pelo rosto nem no destaque máximo.
+    async function lancarAgora(id) {
+      const e = events.find(ev => ev.id === id);
+      if (!e) return;
+      const ok = await confirmDialog({
+        title: 'Lançar "' + (e.title || e.slug) + '" agora?',
+        message: 'O projeto sai do "Em breve", fica visível e destacado para todo mundo, na hora. Se tiver "Destaque máximo no site", a faixa e o aviso aparecem em todos os sites. Não dá para desfazer sem que alguém já tenha visto.',
+        confirmLabel: 'Lançar agora',
+        danger: true,
+        typeToConfirm: 'LANÇAR',
+      });
+      if (!ok) return;
+      setRowBusy(id, true);
+      try {
+        const result = await api('PUT', '/api/events/' + id, { comingSoon: false, visible: true, pinned: true, lancarEm: '', lancarContagem: false });
+        events = events.map(ev => ev.id === id ? result : ev);
+        renderEventList();
+        toast('Lançado! O site mostra em até 1 min.', 'ok');
+      } catch(err) {
+        toast(err.message || 'Erro ao lançar.', 'err');
+      } finally {
+        setRowBusy(id, false);
+      }
+    }
+
+    // Valor do <input type="datetime-local"> (horário deste aparelho) a partir
+    // do ISO gravado.
+    function isoParaLocal(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
     async function toggleVisible(id) {
       const e = events.find(ev => ev.id === id);
       if (!e) return;
