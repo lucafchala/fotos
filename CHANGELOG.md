@@ -49,6 +49,9 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
   plano grátis da Cloudflare.
 - **CI:** o limite do job "Roteiros no navegador" subiu de 20 para 30 minutos.
   Ele passava com quase 18 e foi cancelado por tempo uma vez.
+- **CI:** o roteiro da seleção na galeria não exige mais que os downloads
+  cheguem em ordem. O Chromium pode avisá-los fora de ordem, e o teste falhou
+  assim no #278 sem nenhum erro no site.
 
 ### Corrigido
 
