@@ -228,6 +228,7 @@ aponte `PLAYWRIGHT_BROWSERS_PATH` para ele. Rode um roteiro de cada vez.
 
 ```bash
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:galeria
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:celular
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:evento
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:painel
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:previa
@@ -235,7 +236,10 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:navegador
 ```
 
 `verifica:galeria` cobre a galeria própria, a resolução por aparelho, o zoom,
-os downloads exatos e o "Pedir remoção". `verifica:evento` é a véspera de evento:
+os downloads exatos e o "Pedir remoção". `verifica:celular` abre a página
+principal do álbum e a de um evento em 5 telas de celular e reprova vazamento
+lateral, alvo de toque menor que 44 px, campo que faz o iPhone dar zoom e texto
+menor que 11 px. `verifica:evento` é a véspera de evento:
 portão do Drive, 429, código por e-mail e álbum restrito sem Turnstile.
 `verifica:painel` dirige o painel logado no iPhone, no Android e no computador.
 `verifica:previa` cobre a faixa e o menu "Testes" da prévia. `verifica:navegador`

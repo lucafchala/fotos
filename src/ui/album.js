@@ -471,6 +471,7 @@ a{color:inherit;text-decoration:none}
 .al-kick{display:inline-block;font-size:.74rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--sol)}
 .al-meta{color:var(--txt2);font-size:.95rem;margin-top:.2rem}
 .al-btns{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.6rem}
+@media (max-width:520px){.al-btns{flex-direction:column;align-items:stretch}.al-btns .al-btn{justify-content:center}}
 .al-dica{margin-top:.7rem;font-size:.82rem;color:var(--mudo)}.al-dica b{color:var(--txt2);font-weight:600}
 .al-env-msg{min-height:1.2em;margin:.3rem 0}
 .rs .al-env-lista{list-style:none;margin:.2rem 0 0;display:grid;gap:.45rem}

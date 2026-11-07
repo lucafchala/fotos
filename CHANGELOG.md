@@ -18,6 +18,32 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.7.4] — ainda não publicada
+
+O álbum conferido no celular, num navegador de verdade, em 5 telas (iPhone
+SE, Android, iPhone, iPhone Max e deitado).
+
+### Mudou
+
+- **Campo "Procurar nas fotos" com letra de 16 px:** o iPhone não dá mais zoom
+  ao tocar nele. O texto de exemplo ficou curto ("Ex.: 10, bolo, palco") e não
+  corta mais em tela estreita.
+- **Alvos de toque de 44 px:** as sugestões da busca ("jogo", "comida"…) e o
+  "← Todos os eventos" da página do evento (eram 36 e 32 px).
+- **Botões da abertura na largura toda no celular** ("Ver as fotos", "Procurar
+  meu rosto", "Mandar suas fotos").
+- **Página do evento:** sem o tracinho antes de "Todos os anos"; "Fotos de"
+  maior (era 10,9 px).
+
+### Novo
+
+- **`npm run verifica:celular`** (e no CI, no job do navegador): a página
+  principal do álbum, nos quatro estilos, e a de um evento com anos, em 5
+  telas. Reprova se algo vaza para os lados, se um botão tem menos de 44 px de
+  altura, se um campo faz o iPhone dar zoom ou se um texto fica menor que
+  11 px; confere que as janelas "Mandar suas fotos" e "Procurar meu rosto"
+  cabem na tela. A página "em breve" fica de fora de propósito.
+
 ## [3.7.3] — ainda não publicada
 
 Busca pelo rosto mais generosa ("na dúvida, mostrar") e o álbum aquecido
