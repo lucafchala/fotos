@@ -215,6 +215,7 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 - **No plano grátis**, cada página tem 50 leituras externas. Um evento com muitas pastas, como Festa Junina (5 anos × 5 fotógrafos = 31 pastas), sai como "Lista parcial".
 - **Com o Workers Paid (US$ 5/mês)**, o limite sobe muito. Depois de assinar, um PR de uma linha troca `WORKERS_PLANO = "gratis"` para `"pago"` no `wrangler.toml`. Os tetos `GALERIA_*_PAGO` (`src/config.js`) passam a valer: 120 leituras e 200 pastas por capítulo.
 - **Nunca troque antes de assinar:** no plano grátis, a galeria quebraria.
+- **Estado:** assinado em 07/11/2026; `"pago"` desde a 3.7.0. Com ele também sobem a pasta "para redes" (`GALERIA_MAX_CHAMADAS_IG_PAGO`, 40), as pastas de envio (`ENVIO_MAX_CHAMADAS_PAGO`, 300) e o sitemap de imagens (`SITEMAP_PROJETOS_COM_CAPITULOS_PAGO`, 40). Se um dia o plano voltar ao grátis, troque para `"gratis"` **antes** de cancelar.
 
 ## Mandar suas fotos (v3.4)
 

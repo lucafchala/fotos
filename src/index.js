@@ -18,7 +18,7 @@ import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
-import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -58,7 +58,7 @@ import {
   NOSCRIPT_SWEEP_MIN_SLUGS, NOSCRIPT_SWEEP_WINDOW_SECS, NOSCRIPT_RESTRITOS_POR_IP, HEALTHZ_CONTRATO, VERSAO,
   DRIVE_GATE_BUCKET, DRIVE_GATE_NOSCRIPT_BUCKET, DRIVE_CLICK_BUCKET, FORM_LIMIT_PER_HOUR,
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
-  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
+  EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX,
   PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
@@ -597,7 +597,7 @@ async function handleSitemapGalerias(env) {
   let abertos = 0;
   for (const e of events) {
     itens.push(entrada(`sitemap-galeria-${escape(e.slug)}.xml`, e));
-    if (!e.galeriaCapitulos || abertos >= SITEMAP_PROJETOS_COM_CAPITULOS) continue;
+    if (!e.galeriaCapitulos || abertos >= (planoPago(env) ? SITEMAP_PROJETOS_COM_CAPITULOS_PAGO : SITEMAP_PROJETOS_COM_CAPITULOS)) continue;
     abertos++;
     const caps = await capitulosOuNulo(env, e);
     for (const c of caps ? caps.caps : []) itens.push(entrada(`sitemap-galeria-${escape(e.slug)}.${escape(c.slug)}.xml`, e));
@@ -4424,7 +4424,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
       : { mensagem: 'O link da pasta do Instagram não é o de uma pasta do Drive: "para redes" fica desligado.', parcial: false };
   } else if (listagem && pastaIg) {
     try {
-      const ig = await listaPasta(env, pastaIg, { atualizar, ctx, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
+      const ig = await listaPasta(env, pastaIg, { atualizar, ctx, maxChamadas: planoPago(env) ? GALERIA_MAX_CHAMADAS_IG_PAGO : GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
       // Casa ANTES de tirar as ocultas: a listagem crua é o mesmo objeto de
       // 10 min em 10 min, e o casamento fica guardado nela.
       redes = await casaRedesCacheado(capitulo ? comPrefixoDeCapitulo(listagem, capitulo.bruto) : listagem, ig);
@@ -4680,7 +4680,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   let origem = listagem;
   if (pastaIg) {
     try {
-      origem = await listaPasta(env, pastaIg, { ctx, maxChamadas: GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
+      origem = await listaPasta(env, pastaIg, { ctx, maxChamadas: planoPago(env) ? GALERIA_MAX_CHAMADAS_IG_PAGO : GALERIA_MAX_CHAMADAS_IG, ...politicaDoInstagram(event) });
     } catch (e) {
       if (!(e instanceof DriveError)) throw e;
       return erroDriveNoDownload(request, e);

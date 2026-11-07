@@ -45,6 +45,16 @@ com senha (o easter egg) e a página do projeto levando à galeria.
   - Trocar ou tirar a senha fecha as prévias abertas.
   - As tentativas são limitadas.
 
+### Workers Paid ligado
+
+- **`WORKERS_PLANO = "pago"`** no `wrangler.toml`: o dono assinou o Workers
+  Paid em 07/11/2026.
+  - Valem os tetos da 3.6.0 (galeria: 120 leituras por capítulo, 200 pastas).
+    Festa Junina e PiauiFut deixam de sair como "Lista parcial".
+  - Sobem também a pasta "para redes" (6 → 40 leituras), a busca das pastas
+    de envio (40 → 300) e os álbuns por capítulos no sitemap de imagens (8 →
+    40 por pedido).
+
 ### Mudou
 
 - **Página do projeto de álbum com apresentação** (texto de abertura): leva à

@@ -359,6 +359,12 @@ export const GALERIA_MAX_CHAMADAS_CAP = 18;
 export const GALERIA_MAX_CHAMADAS_PAGO = 150;
 export const GALERIA_MAX_CHAMADAS_CAP_PAGO = 120;
 export const GALERIA_MAX_PASTAS_PAGO = 200;
+// Outros tetos que só existiam pelas 50 subrequisições do plano grátis (v3.7):
+// a pasta "para redes" (Instagram), a busca das pastas de envio e quantos
+// álbuns por capítulos o sitemap de imagens abre por pedido.
+export const GALERIA_MAX_CHAMADAS_IG_PAGO = 40;
+export const ENVIO_MAX_CHAMADAS_PAGO = 300;
+export const SITEMAP_PROJETOS_COM_CAPITULOS_PAGO = 40;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
 export const GALERIA_MAX_CAPITULOS = 100;

@@ -20,7 +20,7 @@ import { tomaLease, soltaLease } from './utils.js';
 import {
   GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
-  GALERIA_MAX_CHAMADAS_PAGO, GALERIA_MAX_CHAMADAS_CAP_PAGO, GALERIA_MAX_PASTAS_PAGO,
+  GALERIA_MAX_CHAMADAS_PAGO, GALERIA_MAX_CHAMADAS_CAP_PAGO, GALERIA_MAX_PASTAS_PAGO, ENVIO_MAX_CHAMADAS_PAGO,
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
   GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
@@ -1715,9 +1715,10 @@ export async function pastasDeEnvio(env, caps, creditos) {
   }
   let chamadas = 0;
   let completo = true;
+  const teto = planoPago(env) ? ENVIO_MAX_CHAMADAS_PAGO : ENVIO_MAX_CHAMADAS;
   /** @param {{ id: string, rk: string }} p @returns {Promise<{ id: string, rk: string, nome: string }[] | null>} */
   const filhas = async p => {
-    if (chamadas >= ENVIO_MAX_CHAMADAS) { completo = false; return null; }
+    if (chamadas >= teto) { completo = false; return null; }
     chamadas++;
     try {
       const pagina = await chamaDrive(chave, p, '', true);
