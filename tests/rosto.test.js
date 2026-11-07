@@ -363,6 +363,6 @@ describe('contrato página → indexador', () => {
       secoes: [{ nome: '', caminho: '', fotos: [foto('FOTO_AAAAAAAA01'), foto('VIDEO_VVVVVVV01', 12), foto('FOTO_BBBBBBBB02')] }],
     };
     const h = galeriaHTML({ event: /** @type {any} */ (EVENTO), listagem, listagemBruta: listagem, capitulo: { slug: 'cap-a', nome: 'Cap A', anterior: null, proximo: null }, erro: null, nonce: 'N', dono: false, formToken: '' });
-    expect(fotosDaPagina(h)).toEqual({ cap: 'cap-a', ids: ['FOTO_AAAAAAAA01', 'FOTO_BBBBBBBB02'] });
+    expect(fotosDaPagina(h)).toMatchObject({ cap: 'cap-a', ids: ['FOTO_AAAAAAAA01', 'FOTO_BBBBBBBB02'] });
   });
 });

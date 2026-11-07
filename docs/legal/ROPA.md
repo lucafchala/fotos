@@ -215,6 +215,25 @@ A seção mostra um "Pix copia e cola" estático, com a chave do controlador. **
 
 ---
 
+## 14. Busca nas fotos e moderação automática (v3.7)
+
+Código em `src/busca.js` e `scripts/rosto-indexa.mjs`; guia em [`docs/ROSTO.md`](../ROSTO.md), "Busca nas fotos"; riscos no RIPD, **R10**.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | Por foto pública do álbum: as **palavras** que aparecem nela (número de camisa, faixa, crachá, placa), as **"coisas" e cenas** reconhecidas (palco, bolo, bola) e os **rótulos de moderação** (por exemplo, gesto obsceno), mais o capítulo e o nome do autor da foto, como nos créditos. Nenhum rosto, nenhuma imagem guardada. A busca do visitante (as palavras digitadas) não é guardada. |
+| **Titulares** | Pessoas retratadas nas fotos do álbum, inclusive menores (um nome num crachá pode aparecer no texto lido). |
+| **Finalidade** | Achar fotos no álbum pelo que aparece nelas; esconder automaticamente, até a decisão do controlador, foto enviada pela turma que pareça imprópria. |
+| **Base legal** | Legítimo interesse (art. 7º, IX), o mesmo da publicação do álbum ([`LIA.md`](./LIA.md)): o texto lido é o que qualquer pessoa já vê na foto pública. A moderação é medida de proteção dos retratados, especialmente de menores (art. 14). |
+| **Retenção** | Enquanto a foto estiver no álbum. Foto oculta ou removida sai da busca na execução seguinte do indexador; apagar o projeto apaga a busca dele (tabela `busca_foto`, D1). |
+| **Compartilhamento** | **Amazon Web Services (Amazon Rekognition)**, região sa-east-1 (São Paulo), como operadora, com o opt-out de treino de IA ativado: DetectText, DetectLabels e DetectModerationLabels, uma vez por foto, a partir da miniatura pública. O resultado fica no D1 da Cloudflare. |
+
+## 15. Prévia do álbum com senha (v3.7)
+
+Antes do lançamento, o controlador pode cadastrar uma senha de prévia. Quem a digita na página "em breve" (o "easter egg") recebe um cookie **essencial** de 30 dias (`previa_<slug>`, HttpOnly, assinado) que abre o álbum só para ver. **Não há cadastro nem dado pessoal**: o cookie não identifica a pessoa, e a senha fica guardada só como resumo (hash com sal). As tentativas são limitadas por IP (contador sem IP em claro, como os demais limites do site).
+
+---
+
 ## Resumo das transferências internacionais
 
 | Operador | O que recebe | Onde | Detalhe |
@@ -224,7 +243,7 @@ A seção mostra um "Pix copia e cola" estático, com a chave do controlador. **
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 | Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |
-| Amazon Web Services (Rekognition) | A selfie da busca (sem guardar) e os vetores de rosto do álbum | **Brasil (sa-east-1)** — empresa dos EUA | seção 12; RIPD R9 |
+| Amazon Web Services (Rekognition) | A selfie da busca (sem guardar), os vetores de rosto do álbum e as miniaturas para ler texto, "coisas" e moderação | **Brasil (sa-east-1)** — empresa dos EUA | seções 12 e 14; RIPD R9 e R10 |
 
 ---
 
@@ -237,3 +256,5 @@ caminho alternativo em todos os casos — código de acesso por e-mail (seção 
 o caminho humano, WhatsApp e e-mail, divulgados na própria tela de erro.
 
 A busca pelo rosto (seção 12) só **sugere** fotos para a própria pessoa conferir: não identifica ninguém por nome e não toma decisão sobre ninguém.
+
+A moderação automática (seção 14) **esconde provisoriamente** uma foto enviada pela turma que a Amazon marque como imprópria, e avisa o controlador por e-mail, que decide se ela volta. É uma medida de proteção, revista por uma pessoa, e não uma decisão sobre o titular. Foto de fotógrafo credenciado só é marcada, nunca escondida automaticamente.

@@ -107,7 +107,7 @@ describe('a página "em breve"', () => {
     const res = await pede([ev], 'https://entrenos2026.com/');
     const h = await res.text();
     expect(h).toContain('<form class="pv" id="pv" data-slug="entrenos2026" hidden>');
-    const nonce = h.match(/<script nonce="([^"]+)">\(function \(\) \{\n  var f = document.getElementById\('pv'\)/)?.[1];
+    const nonce = h.match(/<script nonce="([^"]+)">\(function \(\) \{\n {2}var f = document.getElementById\('pv'\)/)?.[1];
     expect(nonce).toBeTruthy();
     expect(res.headers.get('Content-Security-Policy')).toContain(`'nonce-${nonce}'`);
     expect(h).not.toContain(/** @type {string} */ (ev.previaSenha).split('$')[1]);

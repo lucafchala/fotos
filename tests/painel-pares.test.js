@@ -127,7 +127,12 @@ describe('pares do painel: rótulos, atrasado e o formulário têm de concordar'
       restoreDraft: camposTocados(corpoDaFuncao(/function restoreDraft\(\) \{[\s\S]*?\n {4}\}/, 'restoreDraft')),
     };
 
-    // Nenhuma exceção está codificada, porque hoje os quatro conjuntos são iguais.
+    // Exceção única: a SENHA DA PRÉVIA (v3.7). O código diz, no openForm: "A senha
+    // da prévia nunca volta ao navegador: só 'definida' ou não" — e por isso ela
+    // também não vai para o rascunho do formulário (localStorage), que guardaria
+    // a senha em claro no aparelho. submitForm a envia; snapshotForm não.
+    const NUNCA_NO_RASCUNHO = new Set(['f-previa-senha', 'f-previa-remover']);
+    // Fora isso, os quatro conjuntos são iguais.
     // O slug entra no snapshotForm (`slug: val('f-slug')`, com o comentário "O slug
     // também: num evento novo, digitar só a URL e fechar não perguntava nada"), e o
     // `pinned` não é campo do formulário: não aparece em nenhuma das quatro funções.
@@ -140,7 +145,7 @@ describe('pares do painel: rótulos, atrasado e o formulário têm de concordar'
     });
 
     it('submitForm: todo campo que ele envia está em snapshotForm (senão a alteração não conta e some do rascunho)', () => {
-      const faltam = [...campos.submitForm].filter(id => !campos.snapshotForm.has(id));
+      const faltam = [...campos.submitForm].filter(id => !campos.snapshotForm.has(id) && !NUNCA_NO_RASCUNHO.has(id));
       expect(faltam, 'campos que o submitForm envia e o snapshotForm não serializa').toEqual([]);
     });
 
