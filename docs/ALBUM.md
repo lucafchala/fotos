@@ -133,6 +133,31 @@ Cada site inclui uma linha:
   A foto fora dessas pastas recebe `* = Turma 2026`. A pasta da turma se chamava `outros` até 06/11/2026; o `!` a põe no topo da lista do Drive e a marca como **pasta de envio**.
 - O e-mail da Mag fica **só no painel**. Nunca vai para código, testes, documentação ou commits.
 
+## Fotos que já moram em outra pasta: atalhos (v3.6)
+
+As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros projetos publicados usam** (Dia do Gala, FNUSC…). Mover quebraria essas galerias, e copiar duplicaria o espaço. Por isso o álbum usa **atalhos do Drive**.
+
+**Como pôr as fotos de um evento:**
+1. Na pasta de origem (por exemplo `!Escola - eventos/Amarelinhos/Amarelinhos - Fotos`), clique com o botão direito → **Organizar → Adicionar atalho**.
+2. Escolha a pasta do fotógrafo no álbum: `Entre Nós/Amarelinhos/chala`, ou `Entre Nós/Festa Junina/2025/chala` nos eventos com ano.
+3. No painel, toque em **Atualizar agora** no projeto, ou espere a atualização automática.
+
+**O que o site faz com o atalho** (`percorre`, em `src/drive.js`):
+- **Transparente:** as fotos da pasta de destino entram como se estivessem dentro de `chala`, com o crédito de Luca.
+- **Subpastas do destino** viram seções do evento, como sempre (até dois níveis).
+- **Pasta de destino sem acesso público:** é pulada, e o dono vê "Um atalho desta pasta aponta para uma pasta que o site não consegue abrir". O conserto é compartilhar o destino como "Qualquer pessoa com o link: Leitor". As pastas dos projetos publicados já estão assim.
+- **Atalho de arquivo** não entra (a listagem não traz as medidas da foto); só **atalho de pasta**.
+- **A mesma pasta nunca é lida duas vezes** (atalho repetido ou em ciclo).
+- **Download e "para redes"** funcionam igual: o arquivo é o da pasta de destino.
+
+**Qual versão usar:** o atalho pode apontar para as fotos em tamanho cheio ou para as "reduzidas". A galeria mostra as miniaturas do Drive nos dois casos; a diferença está no download, onde o tamanho cheio é o arquivo original.
+
+## Pastas grandes: Workers Paid (v3.6)
+
+- **No plano grátis**, cada página tem 50 leituras externas. Um evento com muitas pastas, como Festa Junina (5 anos × 5 fotógrafos = 31 pastas), sai como "Lista parcial".
+- **Com o Workers Paid (US$ 5/mês)**, o limite sobe muito. Depois de assinar, um PR de uma linha troca `WORKERS_PLANO = "gratis"` para `"pago"` no `wrangler.toml`. Os tetos `GALERIA_*_PAGO` (`src/config.js`) passam a valer: 120 leituras e 200 pastas por capítulo.
+- **Nunca troque antes de assinar:** no plano grátis, a galeria quebraria.
+
 ## Mandar suas fotos (v3.4)
 
 - **Pasta de envio** é a pasta de crédito cujo nome começa com `!` (`chavesDeEnvio`, em `src/drive.js`).

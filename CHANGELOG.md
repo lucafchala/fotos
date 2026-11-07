@@ -18,6 +18,30 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.6.0] — ainda não publicada
+
+Fotos de outra pasta por atalho do Drive, e pastas grandes inteiras com o
+Workers Paid.
+
+### Novo
+
+- **Atalho de pasta do Drive entra na galeria**, como se as fotos estivessem
+  onde o atalho está: mesma seção e mesmo autor da pasta do fotógrafo.
+  - É o jeito de o álbum usar fotos que já moram em outra pasta, de outros
+    projetos publicados, sem copiar nem mover nada.
+  - Atalho para pasta sem acesso público é pulado, e só o dono vê o aviso com
+    o conserto.
+  - Ciclo de atalhos e atalho repetido não leem a mesma pasta duas vezes.
+  - Atalho de arquivo (não de pasta) não entra.
+- **`WORKERS_PLANO` no `wrangler.toml`:** com `"pago"`, os tetos da galeria
+  sobem.
+  - Leituras: 18 → 120 por capítulo, 26 → 150 na galeria simples.
+  - Pastas: 25 → 200.
+  - Assim, Festa Junina (5 anos × 5 fotógrafos) e PiauiFut deixam de sair
+    como "Lista parcial".
+  - Fica `"gratis"` até a assinatura: no plano grátis, os tetos maiores
+    estourariam o limite de 50 subrequisições.
+
 ## [3.5.0] — ainda não publicada
 
 Lançar o álbum com um clique, ou com dia e hora marcados. Até lá, nada dele é

@@ -32,6 +32,7 @@ import { FONTS } from './content/fonts.js';
  *   AWS_SECRET_ACCESS_KEY?: string,
  *   AWS_REGION?: string,
  *   ROSTO_INDEXADOR_TOKEN?: string,
+ *   WORKERS_PLANO?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
  *   PREVIA_EMAIL?: string,

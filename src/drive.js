@@ -20,6 +20,7 @@ import { tomaLease, soltaLease } from './utils.js';
 import {
   GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
+  GALERIA_MAX_CHAMADAS_PAGO, GALERIA_MAX_CHAMADAS_CAP_PAGO, GALERIA_MAX_PASTAS_PAGO,
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
   GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
@@ -31,7 +32,9 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
 // `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime)';
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime,shortcutDetails(targetId,targetMimeType,targetResourceKey))';
+// Atalho do Drive (v3.6): ver percorre.
+const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
 // o da pasta raiz vem do painel e os das subpastas vêm da própria API, mas um
 // apóstrofo fecharia a string da query.
@@ -76,6 +79,7 @@ const NOME_MAX = 255;
  *   rk: Record<string, string>,
  *   aut: string[],
  *   ch?: number,
+ *   sa?: number,
  * }} ListagemDrive
  */
 
@@ -506,7 +510,7 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
 
   /** @param {boolean} forcar */
   const refaz = async forcar => {
-    const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos));
+    const dados = await percorre(chave, pasta, maxChamadas, parseCreditos(efetivos), maxChamadas > GALERIA_MAX_CHAMADAS ? GALERIA_MAX_PASTAS_PAGO : GALERIA_MAX_PASTAS);
     memoria.set(kMem, { em: Date.now(), dados });
     if (snapshot) await gravaSnapshot(env, pasta.id, ctxSnap, dados, {
       forcar: forcar || congelada, slug, antes: hashLido,
@@ -569,9 +573,19 @@ export async function consultaArquivo(env, id, rk = '') {
  * @param {{ id: string, resourceKey: string }} raiz
  * @param {number} maxChamadas
  * @param {Map<string, string>} creditos chave de pasta → autor (parseCreditos)
+ * @param {number} [maxPastas]
  * @returns {Promise<ListagemDrive>}
+ *
+ * Atalho de PASTA (v3.6) é transparente: o conteúdo da pasta de destino entra
+ * como se estivesse onde o atalho está — mesma seção, mesmo autor, sem contar
+ * profundidade. É assim que um álbum usa fotos que já moram em outra pasta
+ * (de outro projeto publicado) sem copiar nem mover nada: um atalho dentro da
+ * pasta do fotógrafo. Destino sem acesso público é pulado e contado em `sa`
+ * (o dono vê o aviso); a mesma pasta nunca é lida duas vezes (ciclos de
+ * atalho). Atalho de ARQUIVO não entra: a listagem não traz as medidas do
+ * destino.
  */
-async function percorre(chave, raiz, maxChamadas, creditos) {
+export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = GALERIA_MAX_PASTAS) {
   /** @type {string[]} */
   const aut = [creditos.get(CHAVE_AUTOR_PADRAO) || AUTOR_PADRAO];
   /** @param {string} nome */
@@ -581,8 +595,10 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     aut.push(nome);
     return aut.length - 1;
   };
-  /** @type {{ id: string, rk: string, caminho: string[], autor: number }[]} */
+  /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean }[]} */
   const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
+  const vistas = new Set([raiz.id]);
+  let semAcesso = 0;
   /** @type {Map<string, SecaoDrive>} */
   const secoes = new Map();
   /** @type {Record<string, string>} */
@@ -591,7 +607,7 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
 
   percurso:
   while (fila.length) {
-    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number }} */ (fila.shift());
+    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean }} */ (fila.shift());
     const caminho = atual.caminho.join(' / ');
     let secao = secoes.get(caminho);
     if (!secao) {
@@ -602,24 +618,50 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     do {
       if (chamadas >= maxChamadas) { truncada = true; break percurso; }
       chamadas++;
-      const pagina = await chamaDrive(chave, atual, pageToken);
+      let pagina;
+      try {
+        pagina = await chamaDrive(chave, atual, pageToken);
+      } catch (e) {
+        // Destino de atalho que o Drive não abre (pasta privada, apagada):
+        // pula ele, e não a galeria inteira.
+        if (!atual.atalho || !(e instanceof DriveError)) throw e;
+        semAcesso++;
+        continue percurso;
+      }
       for (const f of Array.isArray(pagina.files) ? pagina.files : []) {
         if (!f || typeof f.id !== 'string' || !ID_RE.test(f.id)) continue;
         const mime = typeof f.mimeType === 'string' ? f.mimeType : '';
+        if (mime === SHORTCUT_MIME) {
+          const sd = f.shortcutDetails && typeof f.shortcutDetails === 'object' ? f.shortcutDetails : null;
+          const alvo = sd && sd.targetMimeType === FOLDER_MIME && typeof sd.targetId === 'string' && ID_RE.test(sd.targetId) ? sd.targetId : '';
+          if (!alvo) { outros++; continue; }
+          if (vistas.has(alvo)) continue;
+          if (pastas < maxPastas) {
+            pastas++;
+            vistas.add(alvo);
+            const rkAlvo = typeof sd.targetResourceKey === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(sd.targetResourceKey) ? sd.targetResourceKey : '';
+            fila.push({ id: alvo, rk: rkAlvo, caminho: atual.caminho, autor: atual.autor, atalho: true });
+          } else {
+            truncada = true;
+          }
+          continue;
+        }
         if (mime === FOLDER_MIME) {
+          if (vistas.has(f.id)) continue;
+          vistas.add(f.id);
           const rkPasta = typeof f.resourceKey === 'string' ? f.resourceKey : '';
           const chaveDaPasta = chavePasta(f.name);
           const autorDaPasta = chaveDaPasta === CHAVE_AUTOR_PADRAO ? undefined : creditos.get(chaveDaPasta);
           if (autorDaPasta !== undefined) {
             // Pasta de autor: não é seção. Mesmo caminho do pai (não aumenta a
             // profundidade); as fotos dela levam o autor.
-            if (pastas < GALERIA_MAX_PASTAS) {
+            if (pastas < maxPastas) {
               pastas++;
               fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: indiceAutor(autorDaPasta) });
             } else {
               truncada = true;
             }
-          } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < GALERIA_MAX_PASTAS) {
+          } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < maxPastas) {
             pastas++;
             fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
           } else {
@@ -657,7 +699,7 @@ async function percorre(chave, raiz, maxChamadas, creditos) {
     .filter(s => s.fotos.length > 0)
     .sort((a, b) => (a.caminho === '' ? -1 : b.caminho === '' ? 1 : ordemNatural(a.caminho, b.caminho)));
 
-  return { v: 3, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas };
+  return { v: 3, pasta: raiz.id, em: new Date().toISOString(), truncada, secoes: lista, total, videos, outros, rk, aut, ch: chamadas, ...(semAcesso ? { sa: semAcesso } : {}) };
 }
 
 // Um Live Photo do iPhone é uma foto (.HEIC/.JPG) mais um vídeo de poucos
@@ -1533,6 +1575,15 @@ export function comPrefixoDeCapitulo(listagem, nomeBruto) {
 export function limpaCacheCapitulos() { memoriaCaps.clear(); memoriaResumo.clear(); }
 
 /**
+ * O Worker está no Workers Paid? (`WORKERS_PLANO = "pago"` no wrangler.toml,
+ * ligado só depois de assinar — ver GALERIA_MAX_CHAMADAS_PAGO.)
+ * @param {Record<string, any>} env
+ */
+export function planoPago(env) {
+  return !!env && String(env.WORKERS_PLANO || '').trim().toLowerCase() === 'pago';
+}
+
+/**
  * Onde ler: a pasta do projeto (galeria comum) ou a subpasta do capítulo. UMA
  * função para a página, o download, o pedido de remoção, o sitemap e o aviso ao
  * autor — nenhum deles confia num ID de pasta que veio do navegador.
@@ -1551,11 +1602,14 @@ export function limpaCacheCapitulos() { memoriaCaps.clear(); memoriaResumo.clear
  *   | { kind: 'erro', codigo: string, mensagem: string }>}
  */
 export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false, ctx = undefined) {
+  const pago = planoPago(env);
+  const tetoRaiz = pago ? GALERIA_MAX_CHAMADAS_PAGO : GALERIA_MAX_CHAMADAS;
+  const tetoCap = pago ? GALERIA_MAX_CHAMADAS_CAP_PAGO : GALERIA_MAX_CHAMADAS_CAP;
   const raiz = pastaDoDrive(event.driveUrl);
   if (!raiz) return { kind: 'erro', codigo: 'sem-pasta', mensagem: 'O link do Drive cadastrado não é o de uma pasta.' };
   if (!event.galeriaCapitulos) {
     if (capSlug) return { kind: 'nao' };
-    return { kind: 'ok', raiz, pasta: raiz, caps: null, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS };
+    return { kind: 'ok', raiz, pasta: raiz, caps: null, capitulo: null, anterior: null, proximo: null, maxChamadas: tetoRaiz };
   }
   let caps;
   try {
@@ -1564,12 +1618,12 @@ export async function alvoDaGaleria(env, event, capSlug = '', atualizar = false,
     if (!(e instanceof DriveError)) throw e;
     return { kind: 'erro', codigo: e.codigo, mensagem: e.message };
   }
-  if (!capSlug) return { kind: 'ok', raiz, pasta: null, caps, capitulo: null, anterior: null, proximo: null, maxChamadas: GALERIA_MAX_CHAMADAS_CAP };
+  if (!capSlug) return { kind: 'ok', raiz, pasta: null, caps, capitulo: null, anterior: null, proximo: null, maxChamadas: tetoCap };
   const ach = achaCapitulo(caps, capSlug);
   if (!ach) return { kind: 'nao' };
   return {
     kind: 'ok', raiz, pasta: { id: ach.cap.id, resourceKey: ach.cap.rk }, caps,
-    capitulo: ach.cap, anterior: ach.anterior, proximo: ach.proximo, maxChamadas: GALERIA_MAX_CHAMADAS_CAP,
+    capitulo: ach.cap, anterior: ach.anterior, proximo: ach.proximo, maxChamadas: tetoCap,
   };
 }
 

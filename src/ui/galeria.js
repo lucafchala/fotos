@@ -279,6 +279,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     }
   }
 
+  // Atalho cujo destino o Drive não abre (v3.6): só o dono vê, com o conserto.
+  if (dono && listagem && listagem.sa) {
+    avisos.push(`${listagem.sa === 1 ? 'Um atalho' : `${listagem.sa} atalhos`} desta pasta ${listagem.sa === 1 ? 'aponta' : 'apontam'} para uma pasta que o site não consegue abrir. No Drive, compartilhe a pasta de destino como "Qualquer pessoa com o link: Leitor".`);
+  }
   // Só o dono vê o motivo de "para redes" estar desligado ou parcial.
   if (dono && avisoRedes) avisos.push(avisoRedes.mensagem);
   // Cada foto: [id, largura, altura, nome, bytes] e, se tem versão na pasta do

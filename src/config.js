@@ -350,6 +350,15 @@ export const GALERIA_MAX_CHAMADAS_IG = 6;
 // Medido em tests/galeria-capitulos.test.js ("orçamento"): 49 no download "para
 // redes" e 48 na página do capítulo, com teto asserido de 49 (< 50).
 export const GALERIA_MAX_CHAMADAS_CAP = 18;
+// Workers Paid (v3.6): com `WORKERS_PLANO = "pago"` no wrangler.toml, o teto
+// de subrequisições sobe de 50 para 10.000 por invocação, e as listas param de
+// ser cortadas em pasta grande (Festa Junina: 5 anos × 5 fotógrafos = 31
+// pastas). Os tetos abaixo ainda deixam folga larga, e o CPU do plano pago
+// (30 s) cobre a leitura de milhares de fotos. Só ligar DEPOIS de assinar: no
+// plano grátis, estes tetos estourariam o limite de 50 e a galeria quebraria.
+export const GALERIA_MAX_CHAMADAS_PAGO = 150;
+export const GALERIA_MAX_CHAMADAS_CAP_PAGO = 120;
+export const GALERIA_MAX_PASTAS_PAGO = 200;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
 export const GALERIA_MAX_CAPITULOS = 100;
@@ -477,7 +486,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.5.0';
+export const VERSAO = '3.6.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)

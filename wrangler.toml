@@ -59,6 +59,14 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 # `wrangler deploy` / `triggers deploy`; o deploy.yml não a confere mais por API.
 preview_urls = true
 
+# Plano do Workers (v3.6): "gratis" ou "pago". Com "pago", a galeria lê
+# pastas grandes inteiras (tetos GALERIA_*_PAGO em src/config.js). Trocar para
+# "pago" SÓ DEPOIS de assinar o Workers Paid: no plano grátis, os tetos maiores
+# estourariam o limite de 50 subrequisições e a galeria quebraria. A prévia não
+# herda (fica no padrão grátis).
+[vars]
+WORKERS_PLANO = "gratis"
+
 [[kv_namespaces]]
 binding = "FOTOS"
 id = "4d2c399e77804f3a82b66e4ec0a7fa5e"
