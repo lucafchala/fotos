@@ -103,6 +103,12 @@ Worker e a opção estar marcada no projeto.
 - **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público. Antes do lançamento ([`ALBUM.md`](./ALBUM.md)), só o dono, logado, vê e testa.
 - **Sem as chaves no Worker:** as rotas respondem 404.
 
+## Na página (v3.7.5)
+
+- **Botão principal:** "Achar minhas fotos pelo rosto" é o primeiro e o de destaque na abertura do álbum.
+- **Turnstile cedo:** o script carrega o Turnstile assim que a página abre (`requestIdleCallback`) e renderiza um widget invisível (`appearance: 'interaction-only'`) fora da janela. O token chega antes do toque. Se o Turnstile pedir interação ou der erro, a janela mostra o widget visível, como antes. O token vale uma busca; depois de cada uma, o widget é reiniciado.
+- **Resultado que volta:** os IDs das fotos achadas ficam no `sessionStorage` da aba (`rs-res:<slug>`, por 3 h; a busca nas fotos usa `bf-res:<slug>`) e o endereço ganha `#minhas-fotos` (ou `#busca=termo`). Ao voltar de uma foto, a lista é redesenhada e rolada até a foto aberta. A selfie nunca é guardada; os IDs são de fotos públicas do álbum e não saem do aparelho.
+
 ## LGPD: o que fazer antes de ligar
 
 O rosto é dado **sensível** (art. 11). A busca de quem tira a selfie se apoia no

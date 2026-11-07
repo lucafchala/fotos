@@ -1517,10 +1517,13 @@ export function achaCapitulo(dados, slug) {
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
  */
 const RESUMO_MEM_MS = 6 * 3600 * 1000;
+const RESUMO_MEM_PAGO_MS = 60 * 1000;
+const RESUMO_CACHE_PAGO_S = 300;
 /** @type {Map<string, { em: number, mapa: Record<string, ResumoCap> }>} */
 const memoriaResumo = new Map();
 /** @param {string} id */
-const chaveResumo = id => `https://fotos.invalid/__galeria/resumo/${id}`;
+// `/v2` (v3.7.5): as cópias antigas, gravadas para durar 24 h, deixam de valer.
+const chaveResumo = id => `https://fotos.invalid/__galeria/resumo/${id}/v2`;
 /** @param {string} id */
 const chaveResumoKv = id => `resumo:${id}`;
 
@@ -1531,7 +1534,11 @@ const chaveResumoKv = id => `resumo:${id}`;
  */
 export async function lerResumo(raizId, env = undefined) {
   const mem = memoriaResumo.get(raizId);
-  if (mem && Date.now() - mem.em < RESUMO_MEM_MS) return mem.mapa;
+  // No Workers Paid o KV é a fonte (v3.7.5): memória e Cache API valem pouco,
+  // para um evento que voltou a ter fotos reaparecer para todos em minutos (um
+  // resumo velho dizendo "0 fotos" escondia o evento por até 6 h).
+  const pago = !!env && planoPago(env);
+  if (mem && Date.now() - mem.em < (pago ? RESUMO_MEM_PAGO_MS : RESUMO_MEM_MS)) return mem.mapa;
   const store = cacheStore();
   if (store) {
     try {
@@ -1561,7 +1568,7 @@ export async function lerResumo(raizId, env = undefined) {
         memoriaResumo.set(raizId, { em: Date.now(), mapa: j.mapa });
         if (store) {
           try {
-            await store.put(chaveResumo(raizId), new Response(bruto, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } }));
+            await store.put(chaveResumo(raizId), new Response(bruto, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${RESUMO_CACHE_PAGO_S}` } }));
           } catch { /* best-effort */ }
         }
         return j.mapa;
@@ -1624,7 +1631,7 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
   if (store) {
     try {
       await store.put(chaveResumo(raizId), new Response(corpo, {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${env && planoPago(env) ? RESUMO_CACHE_PAGO_S : 86400}` },
       }));
     } catch (e) {
       console.error('galeria: escrita do resumo dos capítulos falhou', e);

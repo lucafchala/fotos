@@ -21,6 +21,8 @@ export const ROSTO_CSS = `.rs{margin:auto;width:min(30rem,calc(100vw - 2rem));ma
 .rs-btn:disabled{opacity:.5;cursor:default}
 .rs-link{background:none;border:0;color:var(--text-muted);font:inherit;font-size:.8rem;text-decoration:underline;cursor:pointer;min-height:44px;padding:0}
 .rs-res{padding:1rem var(--pad) 0}
+.rs-de-novo{margin-top:.9rem}
+.rs-grade a.rs-ultima{outline:3px solid var(--accent);outline-offset:-3px}
 .rs-res h2{font-size:1.05rem;font-weight:600}
 .rs-res p{font-size:.85rem;color:var(--text-muted);margin-top:.25rem}
 .rs-grade{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,110px),1fr));gap:6px;margin-top:.75rem}
@@ -67,7 +69,7 @@ export const SCRIPT_NOVAS = slug => `(function () {
 export function rostoHTML() {
   return `<dialog class="rs" id="rs" aria-labelledby="rs-t">
     <form method="dialog" id="rs-form">
-      <p class="rs-t" id="rs-t">Procurar meu rosto</p>
+      <p class="rs-t" id="rs-t">Achar minhas fotos pelo rosto</p>
       <div id="rs-txt-buscar">
         <p>Tire uma selfie (ou escolha uma foto sua) e o site mostra as fotos do álbum em que você provavelmente aparece.</p>
         <ul>
@@ -95,7 +97,7 @@ export function rostoHTML() {
       <p><button type="button" class="rs-link" id="rs-modo">Não quero aparecer na busca</button></p>
     </form>
   </dialog>
-  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><ul class="rs-grade" id="rs-grade"></ul></section>`;
+  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><ul class="rs-grade" id="rs-grade"></ul><p class="rs-de-novo"><button type="button" class="rs-btn" id="rs-de-novo">Tentar com outra selfie</button></p></section>`;
 }
 
 /**
@@ -115,37 +117,89 @@ export const SCRIPT_ROSTO = `(function () {
   var arquivo = document.getElementById('rs-arquivo');
   var erro = document.getElementById('rs-erro');
   var modo = document.getElementById('rs-modo');
-  var sair = false, token = '', widget = null, ocupado = false, tsEstado = 'fora';
+  var sair = false, token = '', widget = null, pre = null, preOk = true, ocupado = false, tsEstado = 'fora', tsFila = [];
+  var CHAVE = 'rs-res:' + D.slug, ULT = 'rs-ult:' + D.slug;
   abrir.hidden = false;
   function msg(t) { erro.textContent = t || ''; }
-  function botao() { tirar.disabled = ocupado || !aceite.checked || !token; }
-  function turnstile() {
-    if (tsEstado !== 'fora') { if (widget !== null && window.turnstile) window.turnstile.reset(widget); return; }
+  function botao() {
+    tirar.disabled = ocupado || !aceite.checked || !token;
+    tirar.textContent = ocupado ? 'Procurando…' : (aceite.checked && !token ? 'Só um instante…' : (sair ? 'Enviar selfie e sair' : 'Tirar selfie'));
+  }
+  // O Turnstile (verificação anti-robô) carrega uma vez só, e cedo: v3.7.5.
+  function carregaTs(cb) {
+    if (tsEstado === 'pronto') { cb(); return; }
+    if (tsEstado === 'falhou') return;
+    tsFila.push(cb);
+    if (tsEstado === 'carregando') return;
     tsEstado = 'carregando';
     var sc = document.createElement('script');
-    sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
     sc.async = true;
     sc.onload = function () {
       if (!window.turnstile) { tsEstado = 'falhou'; msg('A verificação de segurança não carregou (um bloqueador pode estar impedindo).'); return; }
       tsEstado = 'pronto';
-      widget = window.turnstile.render('#rs-ts', {
-        sitekey: D.ts,
-        callback: function (t) { token = t; botao(); },
-        'error-callback': function () { token = ''; botao(); },
-        'expired-callback': function () { token = ''; botao(); }
-      });
+      var f = tsFila; tsFila = [];
+      f.forEach(function (x) { x(); });
     };
     sc.onerror = function () { tsEstado = 'falhou'; msg('A verificação de segurança não carregou (um bloqueador pode estar impedindo).'); };
     document.head.appendChild(sc);
   }
+  var cbs = {
+    callback: function (t) { token = t; botao(); },
+    'expired-callback': function () { token = ''; botao(); }
+  };
+  // Assim que a página abre, o Turnstile já trabalha escondido: quando a pessoa
+  // toca no botão, o token costuma estar pronto e o "Tirar selfie" já vale.
+  // Se ele pedir interação (raro), o widget visível entra na janela.
+  function prepara() {
+    carregaTs(function () {
+      var box = document.createElement('div');
+      box.id = 'rs-ts-pre';
+      box.setAttribute('aria-hidden', 'true');
+      box.style.cssText = 'position:absolute;left:-10000px;top:0;width:300px;height:70px;overflow:hidden';
+      document.body.appendChild(box);
+      try {
+        pre = window.turnstile.render(box, {
+          sitekey: D.ts, appearance: 'interaction-only', callback: cbs.callback, 'expired-callback': cbs['expired-callback'],
+          'error-callback': function () { preOk = false; token = ''; botao(); if (dlg.open) naJanela(); return true; },
+          'before-interactive-callback': function () { preOk = false; if (dlg.open) naJanela(); }
+        });
+      } catch (e) { preOk = false; }
+    });
+  }
+  function naJanela() {
+    if (widget !== null) { if (window.turnstile) window.turnstile.reset(widget); return; }
+    carregaTs(function () {
+      widget = window.turnstile.render('#rs-ts', {
+        sitekey: D.ts, callback: cbs.callback, 'expired-callback': cbs['expired-callback'],
+        'error-callback': function () { token = ''; botao(); }
+      });
+    });
+  }
+  function turnstile() {
+    if (token) return;
+    if (preOk && tsEstado !== 'falhou') {
+      // Ainda chegando: espera um pouco; se não vier, mostra o widget na janela.
+      setTimeout(function () { if (!token && dlg.open) naJanela(); }, 5000);
+      return;
+    }
+    naJanela();
+  }
+  function renova() {
+    token = '';
+    if (widget !== null && window.turnstile) window.turnstile.reset(widget);
+    else if (pre !== null && window.turnstile) window.turnstile.reset(pre);
+  }
+  if ('requestIdleCallback' in window) window.requestIdleCallback(prepara, { timeout: 2000 });
+  else setTimeout(prepara, 800);
   function poeModo(s) {
     sair = s;
-    document.getElementById('rs-t').textContent = s ? 'Sair da busca pelo rosto' : 'Procurar meu rosto';
+    document.getElementById('rs-t').textContent = s ? 'Sair da busca pelo rosto' : 'Achar minhas fotos pelo rosto';
     document.getElementById('rs-txt-buscar').hidden = s;
     document.getElementById('rs-txt-sair').hidden = !s;
-    tirar.textContent = s ? 'Enviar selfie e sair' : 'Tirar selfie';
-    modo.textContent = s ? 'Quero procurar meu rosto' : 'Não quero aparecer na busca';
+    modo.textContent = s ? 'Quero achar minhas fotos' : 'Não quero aparecer na busca';
     msg('');
+    botao();
   }
   abrir.addEventListener('click', function () { poeModo(false); aceite.checked = false; botao(); dlg.showModal(); turnstile(); });
   modo.addEventListener('click', function () { poeModo(!sair); });
@@ -157,7 +211,6 @@ export const SCRIPT_ROSTO = `(function () {
     arquivo.value = '';
     if (!f) return;
     ocupado = true; botao(); msg('');
-    tirar.textContent = 'Procurando…';
     reduz(f).then(function (b64) {
       var hp = document.getElementById('company_website');
       var corpo = JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' });
@@ -185,9 +238,13 @@ export const SCRIPT_ROSTO = `(function () {
     }).catch(function (e) {
       msg(e && e.message ? e.message : 'A busca não respondeu. Tente de novo.');
     }).then(function () {
-      ocupado = false; token = '';
-      if (widget !== null && window.turnstile) window.turnstile.reset(widget);
-      poeModo(sair); botao();
+      // O token vale uma vez: pede outro para a próxima busca. A mensagem de
+      // erro fica na tela (antes, poeModo a apagava na hora e a pessoa não via
+      // o "Não achei um rosto nessa foto").
+      ocupado = false; renova();
+      var aviso = erro.textContent;
+      poeModo(sair);
+      msg(aviso);
     });
   });
   function reduz(f) {
@@ -202,7 +259,28 @@ export const SCRIPT_ROSTO = `(function () {
       return url.slice(url.indexOf(',') + 1);
     }, function () { throw new Error('Não consegui abrir essa foto. Tente tirar a selfie de novo.'); });
   }
-  function mostra(j) {
+  // O resultado fica guardado nesta aba (sessionStorage: só os IDs das fotos,
+  // nunca a selfie) e o endereço ganha #minhas-fotos: abrir uma foto e voltar
+  // traz a lista de volta, rolada até a foto que foi aberta (v3.7.5).
+  function guarda(j) {
+    try { sessionStorage.setItem(CHAVE, JSON.stringify({ em: Date.now(), j: { resultados: j.resultados || [], semIndice: !!j.semIndice } })); } catch (e) { /* sem armazenamento: só não volta */ }
+    try { history.replaceState(history.state, '', '#minhas-fotos'); } catch (e) { /* idem */ }
+  }
+  function restaura() {
+    if (location.hash !== '#minhas-fotos') return;
+    var s = null;
+    try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
+    if (!s || !s.j || Date.now() - s.em > 3 * 3600000) return;
+    var ult = '';
+    try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }
+    mostra(s.j, ult || true);
+  }
+  document.getElementById('rs-grade').addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[data-id]') : null;
+    if (a) try { sessionStorage.setItem(ULT, a.getAttribute('data-id')); } catch (err) { /* idem */ }
+  });
+  document.getElementById('rs-de-novo').addEventListener('click', function () { abrir.click(); });
+  function mostra(j, restaurando) {
     var sec = document.getElementById('rs-res');
     var t = document.getElementById('rs-res-t');
     var sub = document.getElementById('rs-res-sub');
@@ -220,6 +298,7 @@ export const SCRIPT_ROSTO = `(function () {
         var li = document.createElement('li');
         var a = document.createElement('a');
         a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.setAttribute('data-id', r.id);
         var img = document.createElement('img');
         img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
@@ -227,10 +306,15 @@ export const SCRIPT_ROSTO = `(function () {
         if (r.cap && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
         li.appendChild(a); grade.appendChild(li);
       });
+      if (!restaurando) guarda(j);
     }
-    t.focus();
-    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('rs-de-novo').parentNode.hidden = j.removidas !== undefined;
+    var alvo = typeof restaurando === 'string' ? grade.querySelector('a[data-id="' + restaurando.replace(/[^A-Za-z0-9_-]/g, '') + '"]') : null;
+    if (alvo) { alvo.classList.add('rs-ultima'); alvo.scrollIntoView({ block: 'center' }); return; }
+    t.focus({ preventScroll: !!restaurando });
+    sec.scrollIntoView({ behavior: restaurando ? 'auto' : 'smooth', block: 'start' });
   }
+  restaura();
 })();`;
 
 
@@ -268,7 +352,14 @@ export const SCRIPT_BUSCA = `(function () {
   var D = JSON.parse(el.textContent || '{}');
   var q = document.getElementById('bf-q');
   var bt = f.querySelector('button');
+  var CHAVE = 'bf-res:' + D.slug, ULT = 'bf-ult:' + D.slug;
   f.hidden = false;
+  // Como na busca pelo rosto: o resultado fica nesta aba e volta ao voltar
+  // de uma foto (#busca=termo), rolado até a foto aberta (v3.7.5).
+  document.getElementById('bf-grade').addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[data-id]') : null;
+    if (a) try { sessionStorage.setItem(ULT, a.getAttribute('data-id')); } catch (err) { /* sem armazenamento */ }
+  });
   // Os atalhos prontos (jogo, comida...): preenchem e procuram.
   f.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('[data-bf]') : null;
@@ -290,11 +381,16 @@ export const SCRIPT_BUSCA = `(function () {
           return j;
         });
       })
-      .then(function (j) { mostra(termo, j.resultados || [], ''); })
+      .then(function (j) {
+        var lista = j.resultados || [];
+        mostra(termo, lista, '');
+        try { sessionStorage.setItem(CHAVE, JSON.stringify({ em: Date.now(), termo: termo, lista: lista })); } catch (err) { /* idem */ }
+        try { history.replaceState(history.state, '', '#busca=' + encodeURIComponent(termo)); } catch (err) { /* idem */ }
+      })
       .catch(function (err) { mostra(termo, [], (err && err.message) || 'A busca não respondeu. Tente de novo.'); })
       .then(function () { bt.disabled = false; bt.textContent = 'Procurar'; });
   });
-  function mostra(termo, lista, erro) {
+  function mostra(termo, lista, erro, restaurando) {
     var sec = document.getElementById('bf-res');
     var t = document.getElementById('bf-res-t');
     var sub = document.getElementById('bf-res-sub');
@@ -307,6 +403,7 @@ export const SCRIPT_BUSCA = `(function () {
       var li = document.createElement('li');
       var a = document.createElement('a');
       a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+      a.setAttribute('data-id', r.id);
       var img = document.createElement('img');
       img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
       img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
@@ -314,7 +411,19 @@ export const SCRIPT_BUSCA = `(function () {
       if (r.cap && D.caps && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
       li.appendChild(a); grade.appendChild(li);
     });
-    t.focus();
-    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var alvo = typeof restaurando === 'string' ? grade.querySelector('a[data-id="' + restaurando.replace(/[^A-Za-z0-9_-]/g, '') + '"]') : null;
+    if (alvo) { alvo.classList.add('rs-ultima'); alvo.scrollIntoView({ block: 'center' }); return; }
+    t.focus({ preventScroll: !!restaurando });
+    sec.scrollIntoView({ behavior: restaurando ? 'auto' : 'smooth', block: 'start' });
+  }
+  if (location.hash.indexOf('#busca=') === 0) {
+    var s = null;
+    try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
+    if (s && Array.isArray(s.lista) && Date.now() - s.em < 3 * 3600000) {
+      q.value = s.termo || '';
+      var ult = '';
+      try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }
+      mostra(s.termo || '', s.lista, '', ult || true);
+    }
   }
 })();`;

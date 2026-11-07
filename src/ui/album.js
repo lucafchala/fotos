@@ -70,6 +70,9 @@ export function ordemDaLinha(caps, resumo) {
     .sort((x, y) => x.d - y.d || x.i - y.i).map(x => x.c);
 }
 
+// Um rosto simples (traço), no botão da busca pelo rosto.
+const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="9.5" cy="10" r=".6" fill="currentColor"/><circle cx="14.5" cy="10" r=".6" fill="currentColor"/><path d="M9 15c1.6 1.3 4.4 1.3 6 0"/></svg>';
+
 /**
  * @param {{
  *   event: import('../utils.js').Evento,
@@ -123,8 +126,11 @@ export function albumHTML(p) {
   const pasta = restrito ? null : pastaDoDrive(event.driveUrl);
   const urlPasta = pasta ? `https://drive.google.com/drive/folders/${pasta.id}${pasta.resourceKey ? `?resourcekey=${pasta.resourceKey}` : ''}` : '';
   const botoes = `<div class="al-btns">${[
-    caps.length ? '<a class="al-btn al-b1" href="#eventos">Ver as fotos</a>' : '',
-    p.botaoRosto ? '<button type="button" class="al-btn al-b2" id="rs-abrir" hidden>Procurar meu rosto</button>' : '',
+    // A busca pelo rosto é o caminho principal (v3.7.5, pedido do dono): vem
+    // primeiro e em destaque. Ela só aparece com o script ligado; até lá (ou
+    // sem ela), "Ver todas as fotos" é o principal — ver .al-ver no CSS.
+    p.botaoRosto ? `<button type="button" class="al-btn al-b1 al-rosto" id="rs-abrir" hidden>${ICONE_ROSTO}Achar minhas fotos pelo rosto</button>` : '',
+    caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
     urlPasta ? `<a class="al-btn al-b2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
   ].join('')}</div>`;
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
@@ -486,6 +492,8 @@ a{color:inherit;text-decoration:none}
 .al-btn{display:inline-flex;align-items:center;min-height:46px;padding:0 1.25rem;border-radius:999px;font:inherit;font-weight:600;font-size:.93rem;border:1px solid var(--sol);cursor:pointer;transition:transform .15s ease,background-color .15s ease}
 .al-btn:active{transform:scale(.97)}
 .al-b1{background:var(--sol);color:#141a33}
+.al-rosto{gap:.55rem;justify-content:center}.al-rosto svg{width:1.25rem;height:1.25rem;flex:none}
+.al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(15,14,12,.45);color:var(--sol);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .al-b2{color:var(--sol);background:rgba(15,14,12,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 @media (hover:hover){.al-b2:hover{background:rgba(249,222,75,.12)}.al-b1:hover{filter:brightness(1.06)}}
 .al-sec{display:block;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}

@@ -319,7 +319,7 @@ describe('índice da galeria com a busca', () => {
 
   it('com a busca valendo: botão (escondido até o script ligar), diálogo, aceite e os dados', () => {
     const h = pagina({ token: 'TOK' });
-    expect(h).toContain('id="rs-abrir" hidden>Procurar meu rosto</button>');
+    expect(h).toContain('id="rs-abrir" hidden>Achar minhas fotos pelo rosto</button>');
     expect(h).toContain('<dialog class="rs" id="rs"');
     expect(h).toContain('id="rs-aceite"');
     expect(h).toContain('capture="user"');

@@ -1241,7 +1241,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <span class="toggle-track"></span>
               </label>
             </div>
-            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O índice do álbum ganha o botão <em>Procurar meu rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
+            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
           </div>
           <div class="field">
             <div class="toggle-row">
