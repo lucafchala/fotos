@@ -21,7 +21,9 @@
 // Variáveis: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION (padrão
 // sa-east-1), ROSTO_SLUGS (ex.: "entrenos2026"), ROSTO_SITE (padrão
 // https://fotos.lucafchala.com), ROSTO_ESTADO (padrão .rosto-estado.json),
-// ROSTO_MAX_NOVAS (padrão 3000 por execução), ROSTO_SECO=1 (só mostra),
+// ROSTO_MAX_NOVAS (padrão 3000 por execução), ROSTO_MAX_MINUTOS (padrão 35:
+// passou disso, para de pegar foto nova, envia o que tem e grava o estado — a
+// próxima execução continua de onde parou), ROSTO_SECO=1 (só mostra),
 // ROSTO_INDEXADOR_TOKEN (opcional: lê o álbum antes do lançamento).
 
 import { readFile, writeFile } from 'node:fs/promises';
@@ -180,6 +182,9 @@ async function principal() {
   const arqEstado = process.env.ROSTO_ESTADO || '.rosto-estado.json';
   const maxNovas = Number(process.env.ROSTO_MAX_NOVAS) || 3000;
   const seco = process.env.ROSTO_SECO === '1';
+  const inicio = Date.now();
+  const limiteMs = (Number(process.env.ROSTO_MAX_MINUTOS) || 35) * 60000;
+  const acabouOTempo = () => Date.now() - inicio > limiteMs;
   // Busca nas fotos (v3.7): texto, coisas e moderação, uma vez por foto.
   // ROSTO_DESCREVER=0 desliga (só rostos).
   const descrever = process.env.ROSTO_DESCREVER !== '0' && !!process.env.ROSTO_INDEXADOR_TOKEN;
@@ -216,12 +221,15 @@ async function principal() {
     /** @type {any[]} */
     let lote = [];
     let marcadas = 0, escondidas = 0;
-    for (const [k, id] of novas) {
+    // Até PARALELAS fotos ao mesmo tempo, começando uma a cada 250 ms: cada
+    // operação fica em no máximo 4 por segundo (a cota padrão é 5/s).
+    const PARALELAS = 4;
+    let parou = false;
+    /** @param {string} k @param {string} id */
+    const processa = async (k, id) => {
       try {
         const bytes = await miniatura(id);
         const imagem = { Bytes: base64(bytes) };
-        // Cada operação tem a sua cota (5/s por padrão): as quatro juntas,
-        // uma foto a cada 250 ms.
         const [res, texto, rotulos, moderacao] = await Promise.all([
           vistas.has(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: 'LOW', DetectionAttributes: [] }),
           descrever && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
@@ -240,11 +248,29 @@ async function principal() {
         console.warn(`[${slug}] ${k}: ${e instanceof Error ? e.message : e}`);
       }
       if (lote.length >= BUSCA_LOTE_MAX) {
-        const r = await enviaBusca(site, slug, lote, []);
-        marcadas += r.marcadas; escondidas += r.escondidas; lote = [];
+        const envio = lote; lote = [];
+        const r = await enviaBusca(site, slug, envio, []);
+        marcadas += r.marcadas; escondidas += r.escondidas;
+        // Progresso gravado a cada lote: se o job cair, o que foi feito fica.
+        estado[slug] = [...vistas];
+        if (descrever) estado[chaveBusca] = [...descritas];
+        await writeFile(arqEstado, JSON.stringify(estado));
       }
+    };
+    /** @type {Set<Promise<void>>} */
+    const emCurso = new Set();
+    let feitas = 0;
+    for (const [k, id] of novas) {
+      if (acabouOTempo()) { parou = true; break; }
+      while (emCurso.size >= PARALELAS) await Promise.race(emCurso);
+      const t = processa(k, id).finally(() => { emCurso.delete(t); });
+      emCurso.add(t);
+      feitas++;
+      if (feitas % 100 === 0) console.log(`[${slug}] ${feitas} de ${novas.length}…`);
       await espera(250);
     }
+    await Promise.all(emCurso);
+    if (parou) console.log(`[${slug}] limite de tempo: ${feitas} de ${novas.length} nesta execução; a próxima continua.`);
     // O que sobrou do lote, e as fotos que saíram do álbum (a busca as esquece).
     const remover = descrever ? [...descritas].filter(id => !idsNoAlbum.has(id)) : [];
     if (lote.length || remover.length) {
@@ -254,7 +280,7 @@ async function principal() {
     // Esquece o que saiu do álbum (se voltar, é indexado de novo).
     estado[slug] = [...vistas].filter(k => fotos.has(k));
     if (descrever) estado[chaveBusca] = [...descritas].filter(id => idsNoAlbum.has(id));
-    console.log(`[${slug}] ${novas.length} fotos processadas, ${rostos} rostos indexados, ${falhas} falhas.`);
+    console.log(`[${slug}] ${feitas} fotos processadas, ${rostos} rostos indexados, ${falhas} falhas.`);
     if (descrever) console.log(`[${slug}] busca nas fotos: ${marcadas} marcadas pela moderação, ${escondidas} escondidas (da turma).`);
   }
   await writeFile(arqEstado, JSON.stringify(estado));

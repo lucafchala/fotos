@@ -18,7 +18,52 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.7.1] — ainda não publicada
+## [3.7.2] — ainda não publicada
+
+Pedidos do dono depois de testar a prévia: menos número na abertura, filtro por
+ano, baixar tudo sem passar pelo Drive, a lista de "Mandar suas fotos" mais
+rápida e o indexador da busca que não perde o que fez.
+
+### Mudou
+
+- **Abertura do álbum só com os eventos:** "5 eventos", sem a contagem de
+  fotos e de fotógrafos. O crédito de quem fotografou continua na seção
+  "Quem fotografou" e na linha "Fotos de …" de cada evento.
+- **"Baixar tudo" baixa pelo site,** com a mesma fila do "Baixar" da seleção
+  (uma por vez, espera quando o Google segura, lotes no iPhone). Com um filtro
+  ligado (um ano, um fotógrafo), baixa só o que está na tela.
+- **Sem link para a pasta do Drive na galeria do visitante:** saíram o
+  "Baixar o evento inteiro (Google Drive)", o "Pelo Google Drive" e o "Abrir no
+  Drive" de cada foto. Com atalhos e subpastas o Drive não junta tudo, e quem
+  não é dono da pasta de destino não entra. A faixa do dono mantém o link.
+
+### Novo
+
+- **Filtro por ano:** quando todas as seções de um evento são anos (PiauiFut:
+  2026, 2025…), as etiquetas do topo filtram ("Todos os anos", "2026"…) em vez
+  de rolar até a seção.
+- **"Mandar suas fotos" mais rápido:** a lista de pastas começa a vir assim que
+  a página abre, e o servidor a guarda também no KV (vale para todos os data
+  centers, não só para o da primeira visita). Erro mostra "Tentar de novo".
+
+### Corrigido
+
+- **"Para redes" voltou em todos os projetos:** as versões da pasta do
+  Instagram são exportadas como `Zenite_lowres-07.jpg` (a marca antes do
+  número), `PiauiFut+2026_social-274.jpg` ou `Banda_Clovis-downsided-23.jpg`,
+  e o site só reconhecia `-insta`/`_ig`/`-redes` no fim do nome, então quase
+  nenhuma foto achava o par. Agora vale também o arquivo com UMA palavra a mais
+  que o original, em qualquer posição (número nunca conta como a palavra), com
+  `-`, `_`, `+`, ponto e espaço valendo o mesmo. O casamento guardado no cache ganhou versão nova
+  (`/r2`), para não servir o resultado vazio antigo.
+- **Indexador da busca (GitHub Actions):** para de pegar foto nova aos 35 min
+  (`ROSTO_MAX_MINUTOS`), processa até 4 fotos ao mesmo tempo (sem passar de
+  4 chamadas por segundo de cada operação), grava o progresso a cada lote e o
+  workflow salva o estado mesmo quando o passo falha. Roda a cada 10 min (era
+  30): a foto nova entra na busca mais cedo. Antes, o álbum de 2.364
+  fotos estourava os 45 min e o progresso se perdia.
+
+## [3.7.1] — ainda não publicada (vai no #284)
 
 Ajustes do álbum Entre Nós a pedido do dono e da Mag: endereço limpo, marca
 própria, crédito do fotógrafo em destaque, atalhos sem seções a mais, prévia

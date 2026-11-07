@@ -83,7 +83,8 @@ describe('apresentação do álbum', () => {
     const h = pagina();
     expect(h).toContain('<span class="al-kick">Turma 2026 · Colégio Santa Cruz</span><h1 class="al-tit">Entre Nós</h1>');
     expect(pagina({ slug: 'formatura' })).toContain('<span class="al-kick">2026</span><h1 class="al-tit">');
-    expect(h).toContain('3 eventos · 1.530 fotos · 3 fotógrafos');
+    expect(h).toContain('<p class="al-meta">3 eventos</p>');
+    expect(h).not.toMatch(/\d fotógrafos/);
     expect(h).not.toContain('mag@example.com');
   });
 

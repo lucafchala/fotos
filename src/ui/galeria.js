@@ -124,7 +124,6 @@ const CONSERTOS = {
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null } | null,
- *   pastaDrive?: { id: string, resourceKey?: string } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -140,13 +139,13 @@ const CONSERTOS = {
 // `capitulo` (galeria por capítulos): a página é a de UM capítulo, com a
 // navegação para o índice e para os vizinhos. Hrefs sempre montados aqui, de
 // slugs que o servidor validou.
-// `pastaDrive` (item 1g.4b): a pasta DESTA página (o capítulo, ou o projeto sem
-// capítulos) para o botão discreto "Baixar o evento inteiro (Google Drive)".
-// O link é montado aqui de um id validado pelo servidor; nada vem do navegador.
+// Sem link para a pasta no Drive (v3.7.2): com atalhos e subpastas o Drive não
+// junta tudo, e quem não é dono da pasta de destino não entra. "Baixar tudo"
+// baixa pelo próprio site. Só a faixa do dono mantém "Abrir no Drive".
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, pastaDrive = null }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -268,14 +267,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
     : '';
 
-  // Pasta inteira no Google Drive (item 1g.4b): para quem quer o evento todo
-  // sem passar pelo Worker (o Drive junta o .zip). Só com fotos na página.
-  const urlPastaDrive = listagem && total && pastaDrive && /^[A-Za-z0-9_-]{10,200}$/.test(pastaDrive.id)
-    ? `https://drive.google.com/drive/folders/${pastaDrive.id}${pastaDrive.resourceKey && /^[A-Za-z0-9_-]{1,200}$/.test(pastaDrive.resourceKey) ? `?resourcekey=${pastaDrive.resourceKey}` : ''}`
-    : '';
-  const linkPastaDrive = urlPastaDrive
-    ? `<p class="g-pasta-drive"><a href="${urlPastaDrive}" target="_blank" rel="nofollow noopener" data-acao="pasta-drive">Baixar o evento inteiro (Google Drive)</a><span>abre no Google Drive; lá, toque ⋮ → Fazer download</span></p>`
-    : '';
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
   if (listagem && listagem.truncada) {
@@ -344,9 +335,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     sessao: NOVAS_SESSAO_MIN,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
-    // "Pelo Google Drive" da folha "Baixar tudo": a pasta DESTA página (o
-    // capítulo) quando se sabe; senão o link do projeto.
-    drive: urlPastaDrive || drive || '',
     // Só o dono recebe a lista do que está oculto (o visitante já recebe a
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
     dono: !!dono,
@@ -447,9 +435,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     @media (hover:hover){ .g-btn:hover,.g-chip:hover{border-color:var(--text-dim)} }
     .g-previa{margin:.9rem var(--pad) 0;font-size:.78rem;color:var(--text-muted);display:flex;gap:.5rem;align-items:center}
     .g-previa b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
-    .g-pasta-drive{margin:1.4rem var(--pad) 0;display:flex;flex-direction:column;align-items:center;gap:.15rem;font-size:.78rem;color:var(--text-muted);text-align:center}
-    .g-pasta-drive a{color:var(--text-muted);text-decoration:underline;text-underline-offset:3px;min-height:44px;display:inline-flex;align-items:center}
-    .g-pasta-drive span{font-size:.72rem}
     .g-aviso{margin:.75rem var(--pad) 0;padding:.7rem .9rem;border-radius:8px;font-size:.82rem;line-height:1.5;background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text)}
     .g-erro{max-width:40rem;margin:3rem auto;padding:1.5rem 1.6rem;border-radius:12px;background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text);line-height:1.6}
     .g-erro h2{font-size:1.1rem;margin-bottom:.4rem;color:var(--text)}
@@ -661,7 +646,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  ${linkPastaDrive}
   ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', slug) : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
@@ -676,7 +660,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
       <div id="g-folha-ops"></div>
       <p class="g-folha-msg" id="g-folha-msg" aria-live="polite"></p>
-      <div class="g-folha-rod"><a id="g-folha-drive" href="#" target="_blank" rel="nofollow noopener" hidden>Abrir no Drive</a><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
+      <div class="g-folha-rod"><button type="button" class="g-btn" data-acao="fechar-folha">Fechar</button></div>
     </div>
   </div>
   ${dados && !dono ? `<dialog class="g-rem" id="g-rem" aria-labelledby="g-rem-t">
@@ -1091,12 +1075,17 @@ const SCRIPT = `
 
   // Filtro por fotógrafo (-1 = todos): combina com as favoritas e com o link.
   let filtroAutor = -1;
+  // Filtro por ano (v3.7.2): quando TODAS as seções da página são anos ("2026",
+  // "2025 - Final"), as etiquetas do topo filtram em vez de rolar até a seção.
+  let filtroSec = -1;
+  const secoesSaoAnos = D.secoes.length > 1 && D.secoes.every(function (sec) { return /^(19|20)[0-9][0-9](?![0-9])/.test(String(sec.nome || '').trim()); });
   function filtroAtivo() {
     const a = filtroAutor;
+    const sc = filtroSec;
     const l = filtroLink;
     const base = l ? function (f) { return l.has(f.id); } : (filtroFav || filtroNovas) ? function (f) { return (!filtroFav || fav.has(f.id)) && (!filtroNovas || f.nova); } : null;
-    if (a < 0) return base;
-    return function (f) { return f.autor === a && (!base || base(f)); };
+    if (a < 0 && sc < 0) return base;
+    return function (f) { return (a < 0 || f.autor === a) && (sc < 0 || f.s === sc) && (!base || base(f)); };
   }
   function visiveisDe(g) {
     const fn = filtroAtivo();
@@ -1257,6 +1246,20 @@ const SCRIPT = `
     }
   }
 
+  function ligaFiltroSec(k) {
+    const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-sec';
+    filtroSec = k === filtroSec ? -1 : k;
+    recalculaVistas();
+    montaChips();
+    diagramaTudo();
+    atualizaBarra();
+    window.scrollTo(0, 0);
+    if (tinhaFoco) {
+      const alvo = chips ? chips.querySelector('[data-acao="filtro-sec"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-sec"]') : null;
+      if (alvo) /** @type {HTMLElement} */ (alvo).focus({ preventScroll: true });
+    }
+  }
+
   function ligaFiltroNovas(liga) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-novas';
     filtroNovas = liga;
@@ -1346,7 +1349,25 @@ const SCRIPT = `
       medeTopo();
       return;
     }
-    if (D.secoes.length > 1 && !filtroFav && !filtroNovas) {
+    if (secoesSaoAnos) {
+      const grupo = document.createElement('span');
+      grupo.className = 'g-chips-grupo g-chips-anos';
+      grupo.setAttribute('role', 'group');
+      grupo.setAttribute('aria-label', 'Ano');
+      const todos = botaoChip('Todos os anos', fotos.length);
+      todos.dataset.acao = 'filtro-sec';
+      todos.dataset.sec = '-1';
+      todos.setAttribute('aria-pressed', String(filtroSec < 0));
+      grupo.appendChild(todos);
+      D.secoes.forEach(function (sec, k) {
+        const b = botaoChip(sec.nome, sec.fotos.length);
+        b.dataset.acao = 'filtro-sec';
+        b.dataset.sec = String(k);
+        b.setAttribute('aria-pressed', String(filtroSec === k));
+        grupo.appendChild(b);
+      });
+      chips.appendChild(grupo);
+    } else if (D.secoes.length > 1 && !filtroFav && !filtroNovas) {
       D.secoes.forEach(function (sec, k) {
         const b = botaoChip(sec.nome || 'Fotos', sec.fotos.length);
         b.dataset.acao = 'ir-sec';
@@ -1842,7 +1863,6 @@ const SCRIPT = `
   const folhaT = document.getElementById('g-folha-t');
   const folhaOps = document.getElementById('g-folha-ops');
   const folhaMsg = document.getElementById('g-folha-msg');
-  const folhaDrive = /** @type {HTMLAnchorElement | null} */ (document.getElementById('g-folha-drive'));
   /** @type {Element | null} */
   let focoAntes = null;
   let geracao = 0;
@@ -2123,10 +2143,6 @@ const SCRIPT = `
       const el = IOS ? blocoIOS([lv], 'max', 'Baixar vídeo do Live Photo') : blocoComum([lv], 'max', 'Baixar vídeo do Live Photo');
       folhaOps.appendChild(el.raiz);
     }
-    if (folhaDrive) {
-      folhaDrive.hidden = !um;
-      if (um) folhaDrive.href = 'https://drive.google.com/file/d/' + um.id + '/view';
-    }
     mostraFolha(/** @type {HTMLElement} */ (primeiro));
   }
 
@@ -2194,8 +2210,9 @@ const SCRIPT = `
     return fotos.filter(function (f) { return fav.has(f.id); });
   }
 
-  // "Baixar tudo": o Drive junta a pasta inteira num .zip, melhor do que 244
-  // downloads soltos. As favoritas (só deste aparelho) baixam foto a foto.
+  // "Baixar tudo" (v3.7.2): pelo próprio site, a mesma fila do "Baixar"
+  // da seleção (uma por vez, espera quando o Google segura, lotes no iPhone).
+  // Com filtro ligado (um ano, um fotógrafo), o que está na tela.
   function abreFolhaTudo() {
     if (!folha || !folhaT || !folhaOps || !folhaMsg) return;
     geracao++;
@@ -2205,21 +2222,14 @@ const SCRIPT = `
     folhaOps.replaceChildren();
     /** @type {HTMLElement | null} */
     let primeiro = null;
-    if (D.drive) {
-      const a = document.createElement('a');
-      a.className = 'g-op';
-      a.href = D.drive;
-      a.target = '_blank';
-      a.rel = 'nofollow noopener';
-      const t = document.createElement('strong');
-      t.textContent = 'Pelo Google Drive';
-      const d = document.createElement('span');
-      d.textContent = 'O Drive junta tudo num .zip';
-      a.appendChild(t);
-      a.appendChild(d);
-      a.addEventListener('click', function () { setTimeout(function () { fechaFolha(); }, 300); });
-      folhaOps.appendChild(a);
-      primeiro = a;
+    const naTela = vistas.length ? vistas : fotos;
+    if (naTela.length) {
+      const filtrado = naTela.length !== fotos.length;
+      const n = naTela.length;
+      const b = opcao(filtrado ? 'Baixar as ' + n + ' da tela' : 'Baixar todas (' + n + ')', filtrado ? 'Só o que o filtro mostra · você escolhe o tamanho' : 'Uma por vez, pelo site · você escolhe o tamanho');
+      b.addEventListener('click', function () { abreFolha(naTela.slice()); });
+      folhaOps.appendChild(b);
+      primeiro = b;
     }
     if (fav.size) {
       const b = opcao('Baixar as favoritas (' + fav.size + ')', 'Fica só neste aparelho · você escolhe o tamanho');
@@ -2227,8 +2237,6 @@ const SCRIPT = `
       folhaOps.appendChild(b);
       if (!primeiro) primeiro = b;
     }
-    if (!primeiro) folhaMsg.textContent = 'Sem a pasta do Drive cadastrada, não há como baixar tudo de uma vez. Selecione as fotos e baixe.';
-    if (folhaDrive) folhaDrive.hidden = true;
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
@@ -2666,6 +2674,7 @@ const SCRIPT = `
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
     else if (acao === 'filtro-novas') ligaFiltroNovas(!filtroNovas);
     else if (acao === 'filtro-autor') ligaFiltroAutor(Number(b.dataset.aut));
+    else if (acao === 'filtro-sec') ligaFiltroSec(Number(b.dataset.sec));
     else if (acao === 'compartilhar-fav') compartilhaFavoritas();
     else if (acao === 'sai-link') saiDoLink();
     else if (acao === 'guarda-link') guardaDoLink();

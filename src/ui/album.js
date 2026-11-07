@@ -107,18 +107,13 @@ export function albumHTML(p) {
 
   // Números: só quando todos os capítulos já têm resumo (senão, menores que o real).
   const todos = caps.length > 0 && caps.every(c => resumo[c.id]);
-  const fotos = todos ? caps.reduce((n, c) => n + resumo[c.id].n, 0) : 0;
   /** @type {Map<string, number>} */
   const porAutor = new Map();
   if (todos) for (const c of caps) for (const [nome, n] of Object.entries(resumo[c.id].a || {})) porAutor.set(nome, (porAutor.get(nome) || 0) + n);
   const autores = todos && porAutor.size ? [...porAutor].sort((a, b) => b[1] - a[1]) : [];
-  const nomesCreditos = [...new Set(parseCreditos(event.galeriaCreditos).values())];
-  const qtosFotografos = autores.length || nomesCreditos.length;
-  const meta = [
-    caps.length ? `${caps.length} ${caps.length === 1 ? 'evento' : 'eventos'}` : '',
-    fotos ? `${fotos.toLocaleString('pt-BR')} ${fotos === 1 ? 'foto' : 'fotos'}` : '',
-    qtosFotografos > 1 ? `${qtosFotografos} fotógrafos` : '',
-  ].filter(Boolean).join(' · ');
+  // Só os eventos (v3.7.2, pedido do dono): contagem de fotos e de fotógrafos
+  // na abertura soava como relatório.
+  const meta = caps.length ? `${caps.length} ${caps.length === 1 ? 'evento' : 'eventos'}` : '';
 
   const texto = String(event.galeriaAbertura || '').trim();
   const intro = texto.split(/\n\s*\n/).map(t => t.trim()).filter(Boolean)
@@ -416,28 +411,44 @@ export const SCRIPT_ENVIO = `(function () {
   function falhou() {
     limpa();
     tit.textContent = 'Mandar suas fotos';
-    msg.textContent = 'Não consegui carregar a lista de eventos agora. Abra a pasta do álbum, logo abaixo, e escolha o evento por lá.';
+    msg.textContent = 'Não consegui carregar a lista de eventos agora.';
+    botao('Tentar de novo', '', function () {
+      limpa();
+      msg.textContent = 'Carregando os eventos…';
+      carrega();
+    });
+  }
+  // A lista começa a vir assim que a página abre (v3.7.2): quando a pessoa
+  // toca no botão, ela já chegou. Falhou antes do toque: o toque tenta de novo.
+  var errou = false;
+  function carrega() {
+    if (pastas || carregando) return;
+    carregando = true;
+    errou = false;
+    fetch('/api/galeria/envio?slug=' + encodeURIComponent(slug), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (j) {
+        carregando = false;
+        if (!j || !Array.isArray(j.pastas) || !j.pastas.length) { errou = true; if (d.open) falhou(); return; }
+        pastas = j.pastas;
+        if (d.open) eventos();
+      })
+      .catch(function () { carregando = false; errou = true; if (d.open) falhou(); });
   }
   a.addEventListener('click', function (e) {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     d.showModal();
     if (pastas) { eventos(); return; }
-    if (carregando) return;
-    carregando = true;
     limpa();
     tit.textContent = 'Mandar suas fotos';
     msg.textContent = 'Carregando os eventos…';
-    fetch('/api/galeria/envio?slug=' + encodeURIComponent(slug), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
-      .then(function (j) {
-        carregando = false;
-        if (!j || !Array.isArray(j.pastas) || !j.pastas.length) { falhou(); return; }
-        pastas = j.pastas;
-        if (d.open) eventos();
-      })
-      .catch(function () { carregando = false; falhou(); });
+    carrega();
   });
+  a.addEventListener('pointerenter', carrega);
+  a.addEventListener('focus', carrega);
+  if ('requestIdleCallback' in window) window.requestIdleCallback(carrega, { timeout: 2500 });
+  else setTimeout(carrega, 1200);
   voltar.addEventListener('click', eventos);
   d.querySelector('[data-env="fechar"]').addEventListener('click', function () { d.close(); });
 })();`;

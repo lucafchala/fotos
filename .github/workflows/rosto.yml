@@ -10,9 +10,12 @@ name: rosto
 # Variables), o job nem começa: nada roda e nada é cobrado.
 on:
   schedule:
-    # A cada 30 min: a foto enviada à pasta colaborativa entra na busca em até
-    # meia hora (mais o período de atualização da galeria).
-    - cron: '7,37 * * * *'
+    # A cada 10 min (v3.7.2; o repositório é público, os minutos do Actions
+    # não custam): a foto nova entra na busca em até ~10 min mais o período
+    # de atualização da galeria. Sem foto nova, a execução leva ~1 min e não
+    # chama a Amazon para nada além de listar a coleção. Fora da virada da
+    # hora, quando o GitHub atrasa os agendamentos.
+    - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +31,7 @@ jobs:
     name: Indexa os rostos
     if: vars.ROSTO_SLUGS != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,7 +41,9 @@ jobs:
           node-version: '22'
       # O estado (fotos já vistas, inclusive as sem rosto) passa de uma
       # execução para a próxima. Perdeu? O pior caso é reprocessar o álbum.
-      - uses: actions/cache@v6
+      # Restaurar e salvar separados (v3.7.2): o salvar roda mesmo se o passo
+      # Indexa falhar ou o job for cancelado — o progresso não se perde.
+      - uses: actions/cache/restore@v6
         with:
           path: .rosto-estado.json
           key: rosto-estado-${{ github.run_id }}
@@ -50,4 +55,11 @@ jobs:
           AWS_REGION: ${{ vars.ROSTO_AWS_REGION || 'sa-east-1' }}
           ROSTO_SLUGS: ${{ vars.ROSTO_SLUGS }}
           ROSTO_INDEXADOR_TOKEN: ${{ secrets.ROSTO_INDEXADOR_TOKEN }}
+          # Para de pegar foto nova aos 35 min e grava; o job tem 50.
+          ROSTO_MAX_MINUTOS: '35'
         run: node scripts/rosto-indexa.mjs
+      - uses: actions/cache/save@v6
+        if: always() && hashFiles('.rosto-estado.json') != ''
+        with:
+          path: .rosto-estado.json
+          key: rosto-estado-${{ github.run_id }}

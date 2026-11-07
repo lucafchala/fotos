@@ -352,13 +352,13 @@ describe('o script do diálogo', () => {
     expect(dom['al-env'].open).toBe(false);
   });
 
-  it('se a lista não vem, explica e deixa o link da pasta do álbum', async () => {
+  it('se a lista não vem, explica e oferece "Tentar de novo" (v3.7.2)', async () => {
     for (const resposta of [async () => ({ ok: false, json: async () => ({}) }), async () => ({ ok: true, json: async () => ({ pastas: [] }) }), async () => { throw new Error('rede'); }]) {
       const dom = roda([], resposta);
       dom.botao.dispara('click', {});
       await espera(); await espera();
-      expect(dom['al-env-msg'].textContent).toContain('Abra a pasta do álbum');
-      expect(dom['al-env-lista'].children).toHaveLength(0);
+      expect(dom['al-env-msg'].textContent).toContain('Não consegui carregar a lista de eventos agora.');
+      expect(dom['al-env-lista'].children).toHaveLength(1);
     }
   });
 });

@@ -38,9 +38,13 @@ e sem etapa de build.
   "Para o Instagram". O site não redimensiona nem recodifica. O download tem
   fila automática ("Na fila… tentando de novo"), com espera crescente, uma
   tentativa por aba e "Cancelar".
-- **Baixar o evento inteiro.** O botão "Baixar o evento inteiro (Google Drive)"
-  aparece por capítulo e abre a pasta no Drive, que gera o `.zip` por conta
-  própria. Nenhum link por e-mail.
+- **Baixar tudo.** O botão "Baixar tudo" baixa as fotos do evento pelo próprio
+  site, com a mesma fila do download comum; com um filtro ligado (um ano, um
+  fotógrafo), só o que está na tela. Desde a 3.7.2 a galeria do visitante não
+  leva à pasta do Drive: com atalhos e subpastas o Drive não junta tudo, e quem
+  não é dono da pasta de destino não entra.
+- **Filtro por ano.** Evento com seções que são anos (2026, 2025…) ganha as
+  etiquetas "Todos os anos", "2026"… que filtram a página.
 - **Salvar por aparelho.** Android e computador baixam o arquivo direto. No
   iPhone e no iPad, "Salvar no Fotos" abre a folha do sistema com o arquivo
   exato, e "Baixar arquivo" salva no app Arquivos.

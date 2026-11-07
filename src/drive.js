@@ -1079,12 +1079,23 @@ export function chaveDeNome(nome) {
   return (ASCII_RE.test(base) ? base : base.normalize('NFC')).toLowerCase().trim();
 }
 
-// Sufixo que o fotógrafo costuma pôr no arquivo exportado para o Instagram
-// ("001-insta.jpg", "001_ig.jpg", "001 instagram.jpg", "001-redes.jpg"). Só vale
-// quando NÃO há arquivo de nome igual ao da galeria.
-const SUFIXO_IG = /[\s._-]+(?:insta|instagram|ig|redes)$/;
+// Marca que o fotógrafo costuma pôr no arquivo exportado para o Instagram, no
+// fim ou NO MEIO do nome (v3.7.2: o modelo de exportação do dono põe antes do
+// número, "Zenite_lowres-07.jpg" para "Zenite-07.jpg",
+// "FestaJunina-2026-lowres-12.jpg" para "FestaJunina-2026-12.jpg"): "insta",
+// "instagram", "ig", "redes", "lowres" ou "low-res", como palavra separada por
+// espaço, ponto, "_" ou "-". Só vale quando NÃO há arquivo de nome igual.
+const MARCA_IG = /[\s._-]+(?:instagram|insta|ig|redes|lowres|low[\s._-]res)(?=$|[\s._-])/g;
+/** Filtro barato antes da regex: o nome tem alguma das marcas? @param {string} k */
+const temMarca = k => k.includes('ig') || k.includes('insta') || k.includes('redes') || k.includes('low');
+// Última tentativa (v3.7.2): os modelos de exportação mudam de projeto para
+// projeto ("_social-274", "-downsided-23", "_lowres-07"). Vale o arquivo do
+// Instagram que tem UMA palavra a mais que o original (palavra = só letras, 2+;
+// número nunca sai), com "-", "_", "+", ponto e espaço valendo o mesmo.
+const SEPARADORES = /[\s._+-]+/;
+const PALAVRA = /^\p{L}{2,}$/u;
 /** @param {string} k */
-const terminaComSufixo = k => k.endsWith('insta') || k.endsWith('instagram') || k.endsWith('ig') || k.endsWith('redes');
+const semSeparadores = k => k.split(SEPARADORES).filter(Boolean).join('-');
 
 /**
  * Candidato da pasta do Instagram, em lista encadeada (na ordem da listagem):
@@ -1094,7 +1105,7 @@ const terminaComSufixo = k => k.endsWith('insta') || k.endsWith('instagram') || 
 /**
  * O índice de nomes de UMA listagem do Instagram, montado uma vez por listagem
  * (não por galeria nem por visita): chave do nome → candidatos.
- * @typedef {{ exato: Map<string, Cand>, semSufixo: Map<string, Cand> }} IndiceIg
+ * @typedef {{ exato: Map<string, Cand>, semSufixo: Map<string, Cand>, semPalavra: Map<string, Cand> }} IndiceIg
  */
 /** @type {WeakMap<ListagemDrive, IndiceIg>} */
 const indices = new WeakMap();
@@ -1121,16 +1132,26 @@ function indiceDoIg(ig) {
   const guardado = indices.get(ig);
   if (guardado) return guardado;
   /** @type {IndiceIg} */
-  const indice = { exato: new Map(), semSufixo: new Map() };
+  const indice = { exato: new Map(), semSufixo: new Map(), semPalavra: new Map() };
   for (const s of ig.secoes) {
     const caminho = caminhoChave(s.caminho);
     for (const foto of s.fotos) {
       if (typeof foto[7] === 'number') continue; // vídeo da pasta do Instagram não casa com foto
       const k = chaveDeNome(foto[3]);
       poe(indice.exato, k, { caminho, foto, prox: null });
-      if (terminaComSufixo(k)) {
-        const sem = k.replace(SUFIXO_IG, '');
-        if (sem !== k && sem) poe(indice.semSufixo, sem, { caminho, foto, prox: null });
+      if (temMarca(k)) {
+        const sem = k.replace(MARCA_IG, '');
+        if (sem !== k && sem) {
+          poe(indice.semSufixo, sem, { caminho, foto, prox: null });
+          poe(indice.semPalavra, semSeparadores(sem), { caminho, foto, prox: null });
+        }
+      }
+      const partes = k.split(SEPARADORES).filter(Boolean);
+      if (partes.length >= 3) {
+        for (let i = 0; i < partes.length; i++) {
+          if (!PALAVRA.test(partes[i])) continue;
+          poe(indice.semPalavra, [...partes.slice(0, i), ...partes.slice(i + 1)].join('-'), { caminho, foto, prox: null });
+        }
       }
     }
   }
@@ -1163,8 +1184,11 @@ const casamentos = new WeakMap();
  * Regra (documentada em RETOMADA §5.13 e no README): o arquivo do Instagram
  * casa com o da galeria pelo NOME SEM EXTENSÃO, sem diferenciar maiúscula
  * ("010.JPG" casa com "010.jpg" e com "010.heic"); na falta de um nome igual,
- * vale o nome do Instagram com um sufixo "-insta", "_ig", "-instagram" ou
- * "-redes" a mais. Com nomes repetidos em subpastas diferentes, vale o da
+ * vale o nome do Instagram com uma marca "insta", "ig", "instagram", "redes"
+ * ou "lowres" a mais, no fim ou no meio ("Zenite_lowres-07" casa com
+ * "Zenite-07", v3.7.2); por último, o com UMA palavra qualquer a mais e os
+ * separadores (-, _, +, ponto, espaço) valendo o mesmo ("PiauiFut+2026_social-274"
+ * casa com "PiauiFut+2026-274"). Com nomes repetidos em subpastas diferentes, vale o da
  * MESMA subpasta; sobrando mais de um, o primeiro em ordem natural. Foto sem
  * par fica fora do mapa — a página não oferece "para redes" para ela e o
  * download responde 404.
@@ -1184,7 +1208,7 @@ export function casaRedes(galeria, ig) {
   const guardado = casamentos.get(galeria);
   if (guardado && guardado.ig === ig) return guardado.mapa;
 
-  const { exato, semSufixo } = indiceDoIg(ig);
+  const { exato, semSufixo, semPalavra } = indiceDoIg(ig);
   /** @param {Cand | undefined} cands @param {string} caminho */
   const escolhe = (cands, caminho) => {
     if (!cands) return null;
@@ -1200,7 +1224,8 @@ export function casaRedes(galeria, ig) {
     for (const f of s.fotos) {
       if (typeof f[7] === 'number') continue; // vídeo não tem versão "para redes"
       const k = chaveDeNome(f[3]);
-      const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho);
+      const par = escolhe(exato.get(k), caminho) || escolhe(semSufixo.get(k), caminho)
+        || (semPalavra.size ? escolhe(semPalavra.get(semSeparadores(k)), caminho) : null);
       if (par) mapa.set(f[0], par);
     }
   }
@@ -1210,7 +1235,9 @@ export function casaRedes(galeria, ig) {
 
 /** @param {ListagemDrive} galeria @param {ListagemDrive} ig */
 const chaveCasamento = (galeria, ig) =>
-  `https://fotos.invalid/__galeria/redes/${galeria.pasta}/${ig.pasta}/${Date.parse(galeria.em) || 0}/${Date.parse(ig.em) || 0}`;
+  `https://fotos.invalid/__galeria/redes/${galeria.pasta}/${ig.pasta}/${Date.parse(galeria.em) || 0}/${Date.parse(ig.em) || 0}/r2`;
+// `/r2` (v3.7.2): a regra de casamento mudou (marca no meio do nome); o que foi
+// guardado com a regra antiga não vale mais.
 
 /**
  * `casaRedes` com o resultado guardado na Cache API, ao lado das listagens e
@@ -1739,6 +1766,19 @@ export async function pastasDeEnvio(env, caps, creditos) {
       console.error('galeria: leitura do cache das pastas de envio falhou', e);
     }
   }
+  // KV (v3.7.2): a Cache API é de cada data center, então a primeira pessoa de
+  // cada lugar esperava o Drive inteiro. No KV a lista vale para todos.
+  const kKv = `envio:${caps.pasta}:${assinatura}`;
+  const kv = /** @type {any} */ (env).FOTOS;
+  if (kv && typeof kv.get === 'function') {
+    try {
+      const bruto = await kv.get(kKv, { cacheTtl: 300 });
+      const dados = bruto ? /** @type {PastaDeEnvio[]} */ (JSON.parse(bruto)) : null;
+      if (Array.isArray(dados)) { memoriaEnvio.set(kMem, { ate: Date.now() + ENVIO_TTL_INCOMPLETO_S * 1000, dados }); return dados; }
+    } catch (e) {
+      console.error('galeria: leitura das pastas de envio no KV falhou', e);
+    }
+  }
   let chamadas = 0;
   let completo = true;
   const teto = planoPago(env) ? ENVIO_MAX_CHAMADAS_PAGO : ENVIO_MAX_CHAMADAS;
@@ -1783,6 +1823,9 @@ export async function pastasDeEnvio(env, caps, creditos) {
     } catch (e) {
       console.error('galeria: escrita do cache das pastas de envio falhou', e);
     }
+  }
+  if (kv && typeof kv.put === 'function') {
+    try { await kv.put(kKv, JSON.stringify(dados), { expirationTtl: Math.max(60, ttl) }); } catch (e) { console.error('galeria: escrita das pastas de envio no KV falhou', e); }
   }
   return dados;
 }

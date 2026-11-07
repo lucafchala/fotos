@@ -237,7 +237,8 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
   - as outras subpastas que **não** são de fotógrafo (ano, banda) são abertas uma vez, à procura da pasta de envio dentro delas; o número de ordem do nome some ("03 - Banda X" vira "Banda X");
   - as pastas de fotógrafo (as outras linhas dos créditos) nunca são abertas;
   - no máximo 40 chamadas ao Drive por leitura (o teto do plano grátis é 50); evento que falha não derruba os outros.
-- **Cache:** 6 horas, na memória e na Cache API. A chave muda com a lista de eventos e com os créditos; por isso **evento novo aparece na hora**. Leitura incompleta (teto ou falha) fica só 10 minutos.
+- **Cache:** 6 horas, na memória, na Cache API e no KV (v3.7.2: o KV vale para todos os data centers; antes, a primeira visita de cada lugar esperava o Drive). A chave muda com a lista de eventos e com os créditos; por isso **evento novo aparece na hora**. Leitura incompleta (teto ou falha) fica só 10 minutos.
+- **Carregamento (v3.7.2):** a página pede a lista assim que abre (e ao passar o dedo ou o mouse no botão); quando a pessoa toca, ela já chegou. Falhou: a janela mostra "Tentar de novo".
 - **Rota:** `GET /api/galeria/envio?slug=` devolve `{ pastas: [{ evento, cap, rotulo, url }] }`. Vale só para álbum público por capítulos, com o mesmo portão da galeria: antes do lançamento, só o dono, logado. Os links são das pastas que a pasta pública do álbum já mostra a quem tem o link.
 
 ## Adicionar um evento
