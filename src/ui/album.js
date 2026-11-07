@@ -18,7 +18,7 @@
 import { escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
 import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
 import { HONEYPOT_CSS } from '../security.js';
-import { ROSTO_CSS } from './indice-comum.js';
+import { ROSTO_CSS, BUSCA_CSS } from './indice-comum.js';
 import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM } from '../config.js';
 import { brCodePix } from '../pix.js';
 import { qrLinhas } from '../qr.js';
@@ -84,6 +84,7 @@ export function ordemDaLinha(caps, resumo) {
  *   avisoTrunc: string,
  *   botaoRosto: boolean,
  *   rostoDialog: string,
+ *   buscaFotos?: string,
  *   scripts: string,
  *   nonce?: string,
  * }} p
@@ -234,6 +235,7 @@ export function albumHTML(p) {
     ${CSS_BASE}
     ${cssEstilo}
     ${ROSTO_CSS}
+    ${p.buscaFotos ? BUSCA_CSS : ''}
     ${HONEYPOT_CSS}
   </style>
 </head>
@@ -244,6 +246,7 @@ export function albumHTML(p) {
   <main id="g-main">
     ${estilo !== 'linha' && intro ? `<section class="al-sec" id="sobre"><div class="al-intro">${intro}</div></section>` : '<span id="sobre"></span>'}
     ${p.rostoDialog}
+    ${p.buscaFotos ? `<section class="al-sec al-busca" aria-label="Procurar nas fotos">${p.buscaFotos}</section>` : ''}
     ${envio}
     ${linha}
     ${quem}

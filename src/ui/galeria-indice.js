@@ -6,7 +6,7 @@
 // para desenhar o índice custaria a cota do Google e o teto de subrequisições).
 
 import { HONEYPOT_CSS } from '../security.js';
-import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML } from './indice-comum.js';
+import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML, SCRIPT_BUSCA, BUSCA_CSS, buscaHTML } from './indice-comum.js';
 import { albumHTML } from './album.js';
 import { escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
@@ -23,9 +23,10 @@ import { TURNSTILE_SITE_KEY } from '../config.js';
  *   indexavel: boolean,
  *   nonce?: string,
  *   rosto?: { token: string } | null,
+ *   busca?: boolean,
  * }} p
  */
-export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null }) {
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null, busca = false }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const base = `/galeria/${slug}`;
@@ -75,16 +76,20 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   // Busca pelo rosto (v3.2): quem decide se vale é o servidor (buscaRostoAtiva).
   const comRosto = !!rosto && !restrito && visiveis.length > 0;
   const botaoRosto = comRosto ? '<button type="button" class="ab-btn ab-btn-2" id="rs-abrir" hidden>Procurar meu rosto</button>' : '';
+  // Busca nas fotos (v3.7): idem, buscaTextoAtiva no servidor.
+  const comBusca = !!busca && !restrito && visiveis.length > 0;
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
   const scripts = `${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
   ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, ts: TURNSTILE_SITE_KEY, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])) })}</script>
-  <script nonce="${nonce}">${SCRIPT_ROSTO}</script>` : ''}`;
+  <script nonce="${nonce}">${SCRIPT_ROSTO}</script>` : ''}
+  ${comBusca ? `<script type="application/json" id="bf-dados" nonce="${nonce}">${jsonParaScript({ slug, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])) })}</script>
+  <script nonce="${nonce}">${SCRIPT_BUSCA}</script>` : ''}`;
   // Com texto de abertura, o índice vira a apresentação do álbum (v3.3).
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({
       event, titulo, caps: visiveis, resumo, ocultasSet, restrito, indexavel, origem: origemDoAlbum(slug),
-      barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', scripts, nonce,
+      barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce,
     });
   }
 
@@ -142,6 +147,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     .ab-btn-2{color:var(--accent)}
     .ab-btn:hover{filter:brightness(1.08)}
     ${ROSTO_CSS}
+    ${comBusca ? BUSCA_CSS : ''}
     ${HONEYPOT_CSS}
   </style>
 </head>
@@ -152,6 +158,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     <h1>${escape(titulo)}</h1>
     <p class="ix-meta">${escape([dataEvento, visiveis.length ? `${visiveis.length} ${visiveis.length === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · '))}</p>
     ${botaoRosto ? `<div class="ab-acoes">${botaoRosto}</div>` : ''}
+    ${comBusca ? buscaHTML() : ''}
   </header>
   ${comRosto ? rostoHTML() : ''}
   ${avisoTrunc}

@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, lancarEm: '', lancarContagem: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, lancarEm: '', lancarContagem: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, buscaTexto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -527,3 +527,27 @@ export const ROSTO_SAIR_POR_IP_DIA = 20;
 // Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel
 // aceita marcar. Mais que isso é engano de digitação (ano errado).
 export const LANCAMENTO_MAX_DIAS = 400;
+
+// Busca nas fotos (v3.7): texto e "coisas" (Rekognition DetectText e
+// DetectLabels) e moderação automática (DetectModerationLabels), feitos uma
+// vez por foto pelo indexador. Ver src/busca.js e docs/ROSTO.md.
+export const BUSCA_MAX_RESULTADOS = 120;
+// Confiança mínima (0–100) para guardar uma palavra lida e uma "coisa". Texto
+// alto: número de camisa errado manda a pessoa para a foto errada.
+export const BUSCA_TEXTO_CONFIANCA_MIN = 85;
+export const BUSCA_COISA_CONFIANCA_MIN = 75;
+// Moderação: só as categorias de cima abaixo contam, e só com confiança alta.
+// Ficam de fora "Swimwear or Underwear" (piscina, praia) e "Gambling". Com
+// marca, a foto da TURMA (upload aberto ou sem pasta de fotógrafo) é escondida
+// até o dono decidir; a de fotógrafo credenciado só é marcada (o dono já
+// escolhe o que publica).
+export const BUSCA_MODERACAO_CONFIANCA_MIN = 80;
+export const BUSCA_MODERACAO_ESCONDE = Object.freeze([
+  'Explicit', 'Explicit Nudity', 'Non-Explicit Nudity of Intimate parts and Kissing', 'Non-Explicit Nudity',
+  'Violence', 'Visually Disturbing', 'Hate Symbols', 'Drugs & Tobacco', 'Drugs', 'Tobacco', 'Alcohol', 'Rude Gestures',
+]);
+// Buscas por IP (D1, sem custo na Amazon): rajada de 60 e 600 por hora.
+export const BUSCA_IP_BUCKET = { capacity: 60, perHour: 600 };
+// Itens por envio do indexador para /api/busca/indexar (o D1 aceita 100
+// parâmetros por consulta: o slug mais 90 fotos cabem).
+export const BUSCA_LOTE_MAX = 90;
