@@ -18,6 +18,7 @@ import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
+import { aqueceAlbuns } from './aquece.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -450,6 +451,9 @@ const worker = {
   async scheduled(event, env, ctx) {
     // `force` pula a trava de tempo, que serve ao tráfego, não ao cron.
     ctx.waitUntil(pushToKuma(env, { force: true }));
+    // Aquecer o álbum que vai ser lançado (v3.7.3, src/aquece.js): a cada
+    // execução, no máximo um álbum e um teto de chamadas ao Drive.
+    ctx.waitUntil(getEvents(env).then(evs => aqueceAlbuns(env, evs)).catch(e => console.error('aquece falhou', e)));
     if (!ehExecucaoDiaria(event)) return;
     // Carimbo do último disparo diário: o /api/healthz (e o painel de status)
     // detectam um agendamento morto em silêncio — um job parado não emite erro.
@@ -4424,7 +4428,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const capitulo = alvo.kind === 'ok' ? alvo.capitulo : null;
   // O resumo do índice (quantas fotos, as capas) acompanha o que a página leu.
   if (capitulo && listagem && alvo.kind === 'ok') {
-    const tarefa = registraResumo(alvo.raiz.id, capitulo.id, listagem).catch(() => {});
+    const tarefa = registraResumo(alvo.raiz.id, capitulo.id, listagem, env).catch(() => {});
     if (ctx) ctx.waitUntil(tarefa); else await tarefa;
   }
   // Pasta do Instagram: quais fotos têm versão "para redes". Falha dela NUNCA
@@ -4522,7 +4526,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const { event, slug, alvo, dono, nonce, atualizar, volta } = o;
   if (atualizar) return redirect(volta);
   const ocultas = normalizaOcultas(event.fotosOcultas);
-  const resumo = await lerResumo(alvo.raiz.id);
+  const resumo = await lerResumo(alvo.raiz.id, env);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.

@@ -492,7 +492,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.7.2';
+export const VERSAO = '3.7.3';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -500,13 +500,16 @@ export const VERSAO = '3.7.2';
 // São Paulo: a selfie e o índice ficam no Brasil. A API de coleções existe lá
 // (cota padrão de 5 buscas por segundo por conta — ver ROSTO_BUSCA_GLOBAL).
 export const ROSTO_REGIAO_PADRAO = 'sa-east-1';
-// Semelhança mínima (0–100) para uma foto entrar no resultado. 90 corta quase
-// todo falso positivo e ainda acha a pessoa de lado ou com pouca luz; abaixo
-// disso começam a aparecer irmãos e parecidos.
-export const ROSTO_LIMIAR = 90;
-// "Não quero aparecer": apaga do índice todo rosto acima deste limiar — mais
-// generoso que a busca, porque aqui errar para mais é o lado seguro.
-export const ROSTO_LIMIAR_SAIR = 85;
+// Semelhança mínima (0–100) para uma foto entrar no resultado. v3.7.3, pedido
+// do dono: na dúvida, mostrar ("evitar perder alguma foto própria"). 80 acha a
+// pessoa de lado, de longe e com pouca luz; o preço é aparecer, no fim da
+// lista, um parecido de vez em quando. Os achados vêm do mais certo para o
+// menos certo. Era 90.
+export const ROSTO_LIMIAR = 80;
+// "Não quero aparecer": apaga do índice todo rosto acima deste limiar — SEMPRE
+// abaixo de ROSTO_LIMIAR, porque aqui errar para mais é o lado seguro: o que a
+// busca acharia, a saída apaga.
+export const ROSTO_LIMIAR_SAIR = 75;
 // No máximo quantas fotos voltam numa busca (a pessoa mais fotografada da
 // turma não passa disso num álbum de alguns milhares).
 export const ROSTO_MAX_RESULTADOS = 400;
@@ -521,7 +524,7 @@ export const ROSTO_IMAGEM_MAX_B64 = 400_000;
 // chamadas a mais por busca.
 export const ROSTO_SEMENTES = 2;
 export const ROSTO_SEMENTE_MIN = 98;
-export const ROSTO_LIMIAR_SEMENTE = 92;
+export const ROSTO_LIMIAR_SEMENTE = 85;
 // Por IP: a turma inteira no Wi-Fi da escola é UM IP (o mesmo raciocínio do
 // DRIVE_GATE_BUCKET). Global: teto de custo — uma busca custa de 1 a 4
 // chamadas de US$ 0,001 (quem saiu, o álbum e até 2 sementes); 1200 de rajada

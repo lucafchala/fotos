@@ -226,6 +226,13 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 - **Nunca troque antes de assinar:** no plano grátis, a galeria quebraria.
 - **Estado:** assinado em 07/11/2026; `"pago"` desde a 3.7.0. Com ele também sobem a pasta "para redes" (`GALERIA_MAX_CHAMADAS_IG_PAGO`, 40), as pastas de envio (`ENVIO_MAX_CHAMADAS_PAGO`, 300) e o sitemap de imagens (`SITEMAP_PROJETOS_COM_CAPITULOS_PAGO`, 40). Se um dia o plano voltar ao grátis, troque para `"gratis"` **antes** de cancelar.
 
+## Aquecimento para o lançamento (v3.7.3)
+
+- **O quê:** o cron (a cada 5 min) relê, à força, a lista de eventos e as fotos de cada evento do álbum, e guarda o resumo de cada evento (capas, número de fotos, datas da linha do tempo) no KV. A lista fica no D1. Os dois são globais: o primeiro visitante de qualquer data center vê o álbum pronto.
+- **Quando:** álbum por capítulos em "Em breve", a cada 3 h; com lançamento agendado, de novo nos 30 min antes da hora. Projeto lançado ou só oculto não é aquecido.
+- **Custo:** no máximo 600 chamadas ao Drive por execução e um álbum por vez; o que faltar fica para a execução seguinte (progresso em `aquece:<slug>` no KV).
+- **Código:** `src/aquece.js`; testes em `tests/aquece.test.js`.
+
 ## Mandar suas fotos (v3.4)
 
 - **Pasta de envio** é a pasta de crédito cujo nome começa com `!` (`chavesDeEnvio`, em `src/drive.js`).

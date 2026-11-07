@@ -117,7 +117,8 @@ export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
   /** @type {any} */
   let r;
   try {
-    r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'AUTO' }, opcoes);
+    // QualityFilter NONE (v3.7.3): selfie escura ou tremida ainda procura.
+    r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'NONE' }, opcoes);
   } catch (e) {
     if (semRosto(e)) return { tipo: 'sem-rosto' };
     if (semColecao(e)) return { tipo: 'sem-indice' };

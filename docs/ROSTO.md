@@ -88,15 +88,15 @@ Worker e a opção estar marcada no projeto.
   - a selfie é reduzida no navegador (640 px, JPEG);
   - antes da AWS, o site confere o aceite, o token do formulário, o teto por IP e o Turnstile;
   - a primeira chamada pergunta à coleção `fotos-<slug>-sair` se a pessoa saiu da busca. Só existe depois que alguém sai (marca `rosto-sair:<slug>` no KV);
-  - a segunda procura em `fotos-<slug>`, com semelhança mínima de 90%;
+  - a segunda procura em `fotos-<slug>`, com semelhança mínima de 80% (era 90% até a 3.7.3; o dono prefere, na dúvida, mostrar a foto) e sem filtro de qualidade na selfie;
   - até 2 sementes (achados com 98% ou mais, de fotos diferentes) procuram os rostos parecidos com elas (`SearchFaces`, 92%). O que acham entra com a semelhança multiplicada pela da semente, abaixo dos achados diretos;
   - o resultado sai sem as fotos ocultas.
 - **Sair** (`POST /api/rosto/sair`):
   - o rosto vai para `fotos-<slug>-sair`, guardado com o consentimento da pessoa e só para isso;
-  - todo rosto com 85% de semelhança ou mais é apagado do índice do álbum.
+  - todo rosto com 75% de semelhança ou mais é apagado do índice do álbum (sempre abaixo da régua da busca: o que a busca acharia, a saída apaga).
 - **Indexador** (`scripts/rosto-indexa.mjs`):
   - lê as páginas públicas do álbum, ou seja, a mesma lista que o visitante vê;
-  - indexa a foto de 2400 px das fotos novas (1600 px se passar de 5 MB), até 100 rostos por foto, com o filtro de qualidade LOW para não perder rosto pequeno em foto de grupo;
+  - indexa a foto de 2400 px das fotos novas (1600 px se passar de 5 MB), até 100 rostos por foto, SEM filtro de qualidade (`NONE`, desde a 3.7.3; era `LOW`): entra todo rosto que a Amazon detecta, até o pequeno, de lado ou no escuro. Trocar o filtro (`QUALIDADE` no script) apaga os rostos e indexa de novo uma vez, só a parte do rosto (~US$ 1,50 para 1.200 fotos). Se o estado do Actions se perder, essa reindexação acontece de novo;
   - apaga os rostos das fotos que saíram do álbum;
   - guarda o estado no cache do Actions, gravado a cada lote de 90 fotos e salvo mesmo se o passo falhar (v3.7.2). Se o cache se perder, os rostos não se repetem (a coleção diz quais fotos já estão lá); só texto, coisas e moderação são lidos de novo.
   - processa até 4 fotos ao mesmo tempo, começando uma a cada 250 ms: cada operação fica em no máximo 4 chamadas por segundo (a cota padrão é 5).
