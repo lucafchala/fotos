@@ -4,7 +4,7 @@
 
 - **Controlador:** Luca Ferriani Chala
 - **Sistema avaliado:** `fotos.lucafchala.com`
-- **Data:** 2026-08-16
+- **Data:** 2026-08-16 · **atualizado em 2026-11-06** (busca pelo rosto, risco R9)
 - **Revisão:** anual, ou a cada mudança nas categorias de dados / operadores.
 
 ## Por que este relatório existe
@@ -124,7 +124,9 @@ prova de quando o acesso foi liberado e sob que texto exato. Ele **não
 substitui** a autorização do responsável legal exigida pelo art. 14, cuja
 formalização acontece fora do site, no momento da contratação/evento, via
 instituição contratante ou diretamente, com o modelo em
-[`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md). O art.
+[`termo-autorizacao-uso-imagem.md`](./termo-autorizacao-uso-imagem.md).
+
+A busca pelo rosto (**R9**) soma um segundo ponto do mesmo tipo: o índice guarda o vetor do rosto de quem aparece nas fotos. Ela fica desligada até o controlador avisar a turma e os responsáveis, e qualquer pessoa sai dela na hora. O art.
 14, §5º exige esforço razoável para verificar que o consentimento foi dado
 pelo responsável — por isso a autorização assinada, e não apenas a caixa
 marcada online, é o padrão adotado para imagem de menor.
@@ -244,6 +246,38 @@ enviado).
 
 ---
 
+### R9 — Busca pelo rosto (dado biométrico) · Prob. **Média** · Impacto **Alto**
+
+**O tratamento.** A busca pelo rosto (v3.2, `src/rosto.js`, [`docs/ROSTO.md`](../ROSTO.md)) existe só nos álbuns públicos em que o controlador a liga. Ela envolve duas pessoas diferentes:
+
+- **Quem busca** envia uma selfie. Ela vai à Amazon Rekognition (região de São Paulo) para a comparação e não é guardada nem pelo site nem pela Amazon.
+- **Quem aparece nas fotos** tem o rosto transformado num vetor numérico, guardado na Amazon Rekognition enquanto o álbum existir. O vetor não traz nome; só liga um rosto a uma foto.
+
+Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
+
+**Bases legais.**
+
+- **Quem busca:** **consentimento específico e destacado** (art. 11, I): caixa de aceite a cada busca, com o texto do que acontece com a selfie.
+- **O índice dos retratados:** este é o **ponto fraco**. Não há consentimento individual de cada pessoa que aparece nas fotos, e o art. 11 não tem legítimo interesse.
+
+**Mitigações**
+
+| Mitigação | Onde |
+| --- | --- |
+| Desligada por padrão; só o controlador liga, projeto a projeto | opção "Busca pelo rosto" |
+| Ligar só depois de avisar a turma e os responsáveis, com o link de saída; quando possível, colher a concordância pela comissão ou pela escola | `docs/ROSTO.md`, "LGPD: o que fazer antes de ligar" |
+| **Sair da busca**: o titular envia uma selfie e os rostos parecidos saem do índice na hora; as fotos que chegarem depois também não o mostram. O rosto de quem saiu fica guardado só para isso | `/api/rosto/sair` |
+| A busca não identifica ninguém por nome e não decide nada; o texto diz "pode ser você" | página do álbum |
+| Dados na região de **São Paulo**; opt-out de treino de IA da AWS ativado | `docs/ROSTO.md` |
+| Foto oculta ou removida sai do índice na execução seguinte do indexador | `scripts/rosto-indexa.mjs` |
+| Índice apagado ao fim do álbum ou quando a busca é desligada | `docs/ROSTO.md`, "Desligar e apagar" |
+| Antes do lançamento do álbum, só o controlador (logado) usa a busca | `buscaRostoAtiva` |
+| Limite por IP, Turnstile, token do formulário e teto de custo | `src/index.js`, `handleRosto` |
+
+**Risco residual: MÉDIO-ALTO** enquanto não houver concordância formal da turma e dos responsáveis. Cai para **MÉDIO** com o aviso prévio e a saída usada por quem pedir. O encaminhamento é o mesmo de R3: formalizar junto à escola ou à comissão, de preferência antes de ligar a busca para o público.
+
+---
+
 ## 4. Quadro-resumo
 
 | # | Risco | Residual | Salvaguarda principal |
@@ -256,6 +290,7 @@ enviado).
 | R6 | Vazamento por operador | Baixo-Médio | Escolha de fornecedor + minimização |
 | R7 | XSS na galeria | Baixo | Migração da CSP em andamento |
 | R8 | Metadados EXIF | Baixo | Remoção automática no servidor |
+| R9 | **Busca pelo rosto** (biometria) | **Médio-Alto** | Desligada por padrão, saída imediata, aviso prévio à turma, dados em São Paulo |
 
 ## 5. Conclusão
 

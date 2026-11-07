@@ -193,6 +193,28 @@ Tabelas `galeria_snapshot` e `galeria_apagadas` (D1), esquema em
 
 ---
 
+## 12. Busca pelo rosto (dado biométrico, v3.2)
+
+Código em `src/rosto.js`, `src/aws.js` e `scripts/rosto-indexa.mjs`; guia em [`docs/ROSTO.md`](../ROSTO.md); riscos no RIPD, **R9**.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | **Selfie de quem busca:** a imagem, reduzida no aparelho para 640 px, só durante a comparação; **não é guardada**. **Índice do álbum:** um vetor numérico por rosto das fotos públicas do álbum, ligado ao identificador da foto e ao capítulo; sem nome. **Quem saiu da busca:** o vetor do rosto da pessoa, enviado por ela. |
+| **Titulares** | Quem usa a busca; pessoas retratadas nas fotos do álbum, inclusive menores. |
+| **Finalidade** | Permitir que cada pessoa ache as próprias fotos no álbum, e que quem não quer ser achado saia da busca. |
+| **Base legal** | **Quem busca e quem sai:** consentimento específico e destacado (art. 11, I), com caixa de aceite a cada envio. **O índice dos retratados:** é o ponto fraco registrado no RIPD (R9). A busca só é ligada depois de aviso prévio à turma e aos responsáveis, com saída imediata para quem pedir. |
+| **Retenção** | Selfie: nenhuma. Índice e quem saiu: **até o fim do álbum** ou até a busca ser desligada. Aí as coleções `fotos-<slug>` e `fotos-<slug>-sair` são apagadas. Foto oculta ou removida sai do índice na execução seguinte do indexador (a cada 30 min). |
+| **Compartilhamento** | **Amazon Web Services (Amazon Rekognition)**, região sa-east-1 (São Paulo), como operadora, com o opt-out de treino de IA ativado. O indexador roda no GitHub Actions e baixa as miniaturas do Google (lh3). |
+| **Armazenamento local no aparelho** | Nenhum. A selfie só existe na memória da página. |
+
+---
+
+## 13. Apoie o projeto (Pix, v3.3)
+
+A seção mostra um "Pix copia e cola" estático, com a chave do controlador. **O site não trata dado de quem doa:** não registra quem clicou, quem copiou o código nem quem pagou. O pagamento acontece no banco de quem doa, fora do site. A chave publicada nunca é CPF (o painel recusa).
+
+---
+
 ## Resumo das transferências internacionais
 
 | Operador | O que recebe | Onde | Detalhe |
@@ -202,6 +224,7 @@ Tabelas `galeria_snapshot` e `galeria_apagadas` (D1), esquema em
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 | Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |
+| Amazon Web Services (Rekognition) | A selfie da busca (sem guardar) e os vetores de rosto do álbum | **Brasil (sa-east-1)** — empresa dos EUA | seção 12; RIPD R9 |
 
 ---
 
@@ -212,3 +235,5 @@ o titular de forma automatizada (art. 20). O Turnstile classifica requisições
 como humano/robô, mas o efeito é operacional (liberar um formulário) e há
 caminho alternativo em todos os casos — código de acesso por e-mail (seção 9) e
 o caminho humano, WhatsApp e e-mail, divulgados na própria tela de erro.
+
+A busca pelo rosto (seção 12) só **sugere** fotos para a própria pessoa conferir: não identifica ninguém por nome e não toma decisão sobre ninguém.

@@ -18,6 +18,20 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.3.1] — ainda não publicada
+
+Documentos de LGPD atualizados para a busca pelo rosto e o Pix. Nada muda no
+funcionamento do site.
+
+### Mudou
+
+- **RIPD:** risco **R9**, a busca pelo rosto como dado biométrico. Ele registra
+  as bases legais, as mitigações e o ponto fraco do índice dos retratados.
+  Resíduo médio-alto até haver concordância formal da turma e dos responsáveis.
+- **ROPA:** a seção 12 (busca pelo rosto, com a Amazon Rekognition em São Paulo
+  como operadora) e a seção 13 (Pix: o site não trata dado de quem doa). A
+  Amazon entra no resumo das transferências.
+
 ## [3.3.0] — ainda não publicada
 
 Função nova, sem nada para o dono fazer: a **apresentação do álbum**. Um projeto

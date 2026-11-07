@@ -82,7 +82,11 @@ Cada site inclui uma linha:
 - O script pergunta a `GET /api/destaque` (CORS aberto) e, se houver álbum lançado, desenha a faixa num shadow root fechado, sem innerHTML e sem cookie.
 - Fechar a faixa esconde por 3 dias.
 - Antes do lançamento, o script não desenha nada. Por isso a linha pode entrar nos sites antes do lançamento.
-- Os sites ficam em repositórios separados (`lucafchala/lucafchala.com`, `status.lucafchala.com`, `paste`, `url`, `dash` e outros). Incluir a linha em cada um ainda é **pendência**.
+- Os sites ficam em repositórios separados. Estado em 06/11/2026:
+  - **com PR aberto**: lucafchala/lucafchala.com#44, lucafchala/dash.lucafchala.com#37 (os geradores), lucafchala/paste.lucafchala.com#16 e lucafchala/url.lucafchala.com#16 (as páginas geradas);
+  - **fora de propósito**: `status` (o `CLAUDE.md` e os testes dele proíbem origem de fora no CSP), `proof` (script-src 'none'), o próprio `dash` (painel com login) e o `restricted` (CTF);
+  - **não avaliados**: `keys`, `pays`, `treino`, `rg` e `Edificio-maison-blanche`.
+- Ordem: mergear esses PRs depois que o #277 estiver em produção. Antes disso, `/destaque.js` dá 404 e o navegador só registra um erro no console.
 
 ## Apoie o projeto (Pix)
 
@@ -101,6 +105,7 @@ Cada site inclui uma linha:
   | `chala` | Luca | `chala = Luca F. Chala` |
   | `mag` | Mag | `mag = Mag <e-mail, só no painel>` |
   | `santa oficial` | Fotos oficiais do colégio | `santa oficial = Colégio Santa Cruz` |
+  | `comissao` | Comissão de Festas | `comissao = Comissão de Festas` |
   | `outros` | A turma | `outros = Turma 2026`; a pasta fica **aberta como Editor** para quem tem o link (são 20) |
 
   A foto fora dessas pastas recebe `* = Turma 2026`.
@@ -109,13 +114,13 @@ Cada site inclui uma linha:
 ## O que falta (estado em 06/11/2026)
 
 1. **Drive:** o Cowork travou a raiz e abriu as pastas `outros` 1 e 2. A pasta 3 ficou com "Limitar o acesso" ligado, por engano, e precisa que o dono desmarque. Depois, o Cowork abre as pastas 3 a 20.
-2. **Merges**, nesta ordem: #264 → #274 → #275 → #277, todos com "Create a merge commit". Depois, conferir o deploy e criar as Releases v3.1.0, v3.2.0 e v3.3.0.
+2. **Merges**, nesta ordem: #264 (feito, 3.1.0 no ar) → #274 → #275 → #277 → #278, todos com "Create a merge commit". Depois, conferir o deploy e rodar `~/entrenos-handoff/criar-releases.sh`, que cria as Releases v3.1.0, v3.2.0, v3.3.0 e v3.3.1 (criar Release daqui foi bloqueado pelo sistema de permissões).
 3. **Fase 4 do prompt do Cowork:** criar o projeto `entrenos2026` em "Em breve" e não visível, com os créditos de 5 linhas, o estilo Mosaico e o recado; testar com mídia real; passar o domínio para o Worker `fotos`.
 4. **Fase 5:** conta da AWS (permissão nova `rekognition:SearchFaces`), pedido de cota, `ROSTO_INDEXADOR_TOKEN` no Worker e no GitHub, e rodar o indexador.
 5. **Fase 6:** o dono testa a busca pelo rosto, logado.
 6. **Fase 7:** lançar, só com o "pode lançar" do dono.
 7. **Pendências que dependem do dono:**
-   - incluir `/destaque.js` nos outros sites;
+   - mergear os PRs do aviso nos outros sites (lucafchala.com#44, dash#37, paste#16, url#16);
    - preencher o Pix no painel;
    - autorizar o Search Console do domínio;
    - decidir sobre o Workers Paid (US$ 5/mês) para o mês do lançamento.
