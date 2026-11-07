@@ -418,7 +418,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
     .g-autores{font-size:.95rem;font-weight:600;color:var(--text);margin-top:.45rem;line-height:1.35}
-    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}
@@ -426,6 +426,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-chips{display:flex;gap:.5rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:0 var(--pad) .7rem}
     .g-chips::-webkit-scrollbar{display:none}
     .g-chips-grupo{flex:none;display:inline-flex;gap:.5rem;padding-left:.5rem;border-left:1px solid var(--border)}
+    .g-chips-grupo:first-child{padding-left:0;border-left:0}
     .g-chips[hidden]{display:none}
     .g-chip{flex:none;display:inline-flex;align-items:center;gap:.45rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.4rem .95rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text-2);cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),background-color .15s,color .15s}
     .g-chip:active{transform:scale(.97)}
@@ -507,7 +508,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       .g-btn[data-acao="compartilhar"]{padding:.5rem;min-width:44px}
       .g-btn[data-acao="compartilhar"] span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
     }
-    .g-voltar{display:inline-flex;align-items:center;gap:.25rem;min-height:32px;font-size:.85rem;color:var(--text-muted);text-decoration:none;margin-bottom:.15rem}
+    .g-voltar{display:inline-flex;align-items:center;gap:.25rem;min-height:44px;font-size:.85rem;color:var(--text-muted);text-decoration:none;margin-bottom:.15rem}
     @media (hover:hover){ .g-voltar:hover{color:var(--text)} }
     .g-barra .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     #g-barra-n{white-space:nowrap;margin-right:.25rem}

@@ -56,6 +56,7 @@ npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wra
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 npm run verifica:galeria     # galeria própria: grade, zoom, downloads por aparelho (não precisa do wrangler)
+npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```

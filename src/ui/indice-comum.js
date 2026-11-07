@@ -239,18 +239,18 @@ export const SCRIPT_ROSTO = `(function () {
 // ---------------------------------------------------------------------------
 export const BUSCA_CSS = `.bf{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem;max-width:34rem}
 .bf[hidden]{display:none}
-.bf input{flex:1 1 13rem;min-width:0;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font:inherit;font-size:.95rem}
+.bf input{flex:1 1 13rem;min-width:0;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font:inherit;font-size:16px}
 .bf input:focus-visible,.bf button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bf button{min-height:44px;padding:0 1.1rem;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:inherit;font-size:.92rem;font-weight:600;cursor:pointer}
 .bf button:disabled{opacity:.6;cursor:default}
 .bf-dica{flex-basis:100%;font-size:.78rem;color:var(--text-muted)}
 .bf-sug{flex-basis:100%;display:flex;flex-wrap:wrap;gap:.4rem}
-.bf .bf-sug button{min-height:36px;padding:0 .85rem;font-size:.82rem;font-weight:500;border-color:var(--border);color:var(--text-2)}`;
+.bf .bf-sug button{min-height:44px;padding:0 .95rem;font-size:.82rem;font-weight:500;border-color:var(--border);color:var(--text-2)}`;
 
 /** O campo da busca (o script tira o `hidden`; sem JS, nada aparece). */
 export function buscaHTML() {
   return `<form class="bf" id="bf-form" role="search" hidden>
-      <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Procurar nas fotos: 10, bolo, palco…" aria-label="Procurar nas fotos por número, palavra ou coisa">
+      <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Ex.: 10, bolo, palco" aria-label="Procurar nas fotos por número, palavra ou coisa">
       <button type="submit">Procurar</button>
       <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa. Ou toque num atalho:</span>
       <span class="bf-sug">${['jogo', 'comida', 'palco', 'bola', 'fantasia', 'bolo'].map(t => `<button type="button" data-bf="${t}">${t}</button>`).join('')}</span>

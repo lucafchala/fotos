@@ -189,7 +189,10 @@ no #178.
    Drive, as fotos da página de projeto ou um limite por IP? Rode
    `npm run verifica:evento` (não precisa do wrangler). Mudou a galeria
    própria (`/galeria/<slug>`)? Rode `npm run verifica:galeria` com
-   `VERIFICA_PRINTS` e olhe as capturas. Mudou o painel? Rode
+   `VERIFICA_PRINTS` e olhe as capturas. Mudou a página do álbum
+   (`src/ui/album.js`, `indice-comum.js`) ou o CSS da galeria? Rode também
+   `npm run verifica:celular` (5 telas de celular; capturas em `CAPTURAS`) e
+   olhe as imagens: a medida não pega tudo. Mudou o painel? Rode
    `npm run verifica:painel` (o fluxo logado inteiro, no celular e no
    computador, contra o Worker de verdade). Mudou a prévia de PR
    (`src/previa.js`, a faixa e o menu "Testes")? Rode

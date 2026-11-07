@@ -163,6 +163,14 @@ jobs:
       - name: Galeria própria (/galeria/<slug>)
         run: npm run verifica:galeria
 
+      # v3.7.4: a página principal do álbum e a de um evento em 5 telas de
+      # celular — nada vaza para os lados, alvos de 44 px, campo sem zoom no
+      # iPhone, nenhum texto menor que 11 px. Capturas em capturas-celular/.
+      - name: Álbum no celular
+        run: npm run verifica:celular
+        env:
+          CAPTURAS: ${{ runner.temp }}/capturas-celular
+
       - name: Véspera de evento (portão do Drive, fotos por aparelho)
         run: npm run verifica:evento
 
