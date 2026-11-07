@@ -83,7 +83,10 @@ describe('surpresa: nada aparece antes da hora', () => {
     const pub = await pede([marcado, OUTRO], 'https://fotos.lucafchala.com/entrenos2026');
     expect(pub.status).toBe(404);
     expect(await pub.text()).not.toContain('Entre Nós');
-    expect((await pede([marcado], 'https://fotos.lucafchala.com/entrenos2026', true)).status).toBe(200);
+    // O dono passa; e a página de álbum com apresentação leva à galeria (v3.7).
+    const doDono = await pede([marcado], 'https://fotos.lucafchala.com/entrenos2026', true);
+    expect(doDono.status).toBe(302);
+    expect(doDono.headers.get('Location')).toBe('/galeria/entrenos2026');
     expect((await pede([marcado, OUTRO], 'https://fotos.lucafchala.com/festa-x')).status).toBe(200);
     expect((await pede([marcado], 'https://fotos.lucafchala.com/galeria/entrenos2026')).status).toBe(404);
   });

@@ -60,7 +60,8 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX,
+  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -332,6 +333,7 @@ const worker = {
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
       if (path === '/api/busca' && method === 'GET') return await handleBusca(request, env, url);
+      if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
@@ -839,7 +841,14 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   if (!event) return notFound();
   // Álbum com domínio próprio antes do lançamento (v3.5): é surpresa — nem o
   // título aparece. O mesmo 404 de projeto inexistente; o dono, logado, vê.
-  if (albumSurpresa(event) && !(await verifySession(env, request))) return notFound();
+  if (albumSurpresa(event) && !(await verifySession(env, request)) && !(await temPrevia(request, env, event))) return notFound();
+  // Álbum com apresentação (v3.7, pedido do dono): a galeria é a vitrine, mais
+  // arrumada que esta página; a página do projeto leva até ela. Lançado, vai
+  // para o endereço principal do álbum (o domínio próprio, se houver); antes,
+  // fica no mesmo site, onde valem a sessão do dono e a prévia.
+  if (event.galeriaCapitulos && String(event.galeriaAbertura || '').trim() && pastaDoDrive(event.driveUrl) && !isRestrictedAccess(event)) {
+    return redirect(albumLancado(event) ? `${origemDoAlbum(slug)}/galeria/${slug}` : `/galeria/${slug}`);
+  }
 
   // "Não visível" é NÃO LISTADO, não privado: some da galeria/sitemap/
   // auditoria mas segue abrindo por link direto (mantém prévias enviadas a
@@ -1424,6 +1433,8 @@ async function handleCreateEvent(request, env) {
     createdAt: new Date().toISOString(),
   };
 
+  const erroSenha = await aplicaSenhaPrevia(body, event);
+  if (erroSenha) return jsonErr(erroSenha, 400);
   events.push(event);
   await saveEvents(env, events);
   return jsonOk(event, 201);
@@ -1471,6 +1482,8 @@ async function handleUpdateEvent(request, env, path) {
     thumbnailUrl: capa,
     updatedAt: new Date().toISOString(),
   };
+  const erroSenha = await aplicaSenhaPrevia(body, updated);
+  if (erroSenha) return jsonErr(erroSenha, 400);
 
   // Allow slug update only if no other event uses it
   if (body.slug && body.slug !== existing.slug) {
@@ -3543,6 +3556,89 @@ export async function handleGaleriaEnvio(request, env, url) {
 }
 
 // ---------------------------------------------------------------------------
+// Prévia do álbum com senha (v3.7): o easter egg da página "em breve"
+// ---------------------------------------------------------------------------
+// A senha fica só como hash (sal aleatório + SHA-256): `sal$hash`, em hex.
+const SENHA_PREVIA_RE = /^[a-f0-9]{32}\$[a-f0-9]{64}$/;
+
+/** @param {string} senha */
+async function hashSenhaPrevia(senha) {
+  const sal = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${sal}$${await sha256Hex(`${sal}:${senha}`)}`;
+}
+
+/** @param {unknown} guardada @param {string} senha */
+async function senhaPreviaConfere(guardada, senha) {
+  if (typeof guardada !== 'string' || !SENHA_PREVIA_RE.test(guardada)) return false;
+  const [sal, hash] = guardada.split('$');
+  return timingSafeEqual(await sha256Hex(`${sal}:${senha}`), hash);
+}
+
+/**
+ * O painel manda `previaSenhaNova` (texto, só quando o dono digita uma nova) e
+ * `previaRemover` (true para tirar). Nunca volta ao navegador nem vai para o
+ * rascunho do formulário. Devolve a mensagem de erro, ou ''.
+ * @param {Record<string, any>} body
+ * @param {Record<string, any>} evento modificado aqui
+ */
+export async function aplicaSenhaPrevia(body, evento) {
+  if (body.previaRemover === true) { evento.previaSenha = ''; return ''; }
+  if (typeof body.previaSenhaNova !== 'string' || !body.previaSenhaNova) return '';
+  const senha = body.previaSenhaNova.normalize('NFC').trim();
+  if (senha.length < PREVIA_SENHA_MIN || senha.length > 100) return `A senha da prévia precisa ter de ${PREVIA_SENHA_MIN} a 100 caracteres.`;
+  evento.previaSenha = await hashSenhaPrevia(senha);
+  return '';
+}
+
+/** O pedaço do hash que entra no cookie: trocar a senha derruba as prévias. @param {Evento} e */
+const marcaDaSenha = e => String(e.previaSenha || '').split('$')[1]?.slice(0, 16) || '';
+
+/**
+ * Esta visita tem a prévia (cookie do easter egg) deste projeto?
+ * @param {Request} request
+ * @param {Env} env
+ * @param {Evento} evento
+ */
+export async function temPrevia(request, env, evento) {
+  const marca = marcaDaSenha(evento);
+  const secret = signingSecret(env);
+  if (!marca || !secret) return false;
+  const nome = `previa_${String(evento.slug).replace(/[^a-z0-9-]/g, '')}`;
+  const m = (request.headers.get('Cookie') || '').match(new RegExp(`(?:^|;\\s*)${nome}=([^;]+)`));
+  if (!m) return false;
+  return (await verifyToken(secret, m[1], { purpose: 'previa', scope: `${evento.slug}:${marca}` })).ok;
+}
+
+/**
+ * POST /api/previa {slug, senha} — o campo do easter egg. Senha certa: cookie
+ * de PREVIA_COOKIE_DIAS dias e o endereço da galeria. Limites por IP e por dia
+ * (o álbum é surpresa: chute não pode virar entrada).
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handlePrevia(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const slug = body.slug;
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (!await checkRateLimit(env, ip, 'previa', PREVIA_TENTATIVAS_POR_IP_HORA, 3600)) return jsonErr('Muitas tentativas. Tente de novo mais tarde.', 429);
+  if (!await checkRateLimit(env, `global:${slug}`, 'previa-dia', PREVIA_TENTATIVAS_POR_DIA, 86400)) return jsonErr('Muitas tentativas hoje. Tente amanhã.', 429);
+  const evento = (await getEvents(env)).find(e => e.slug === slug);
+  const secret = signingSecret(env);
+  const senha = typeof body.senha === 'string' ? body.senha.normalize('NFC').trim().slice(0, 100) : '';
+  if (!evento || !secret || !evento.previaSenha || !senha || !(await senhaPreviaConfere(evento.previaSenha, senha))) {
+    return jsonErr('Senha errada.', 403);
+  }
+  const ttl = PREVIA_COOKIE_DIAS * 86400;
+  const token = await signToken(secret, { purpose: 'previa', scope: `${evento.slug}:${marcaDaSenha(evento)}`, ttlSecs: ttl });
+  const res = jsonOk({ ok: true, url: `/galeria/${evento.slug}` });
+  res.headers.set('Cache-Control', 'no-store');
+  res.headers.append('Set-Cookie', `previa_${evento.slug}=${token}; Path=/; Max-Age=${ttl}; HttpOnly; Secure; SameSite=Lax`);
+  return res;
+}
+
+// ---------------------------------------------------------------------------
 // Busca nas fotos (v3.7) — ver src/busca.js e docs/ROSTO.md
 // ---------------------------------------------------------------------------
 /**
@@ -3568,7 +3664,7 @@ export async function handleBusca(request, env, url) {
   const slug = url.searchParams.get('slug') || '';
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
   const evento = (await getEvents(env)).find(e => e.slug === slug);
-  const dono = evento && !albumLancado(evento) ? !!(await verifySession(env, request)) : false;
+  const dono = evento && !albumLancado(evento) ? (!!(await verifySession(env, request)) || await temPrevia(request, env, evento)) : false;
   if (!buscaTextoAtiva(env, evento, dono)) return jsonErr('Não encontrado.', 404);
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const ficha = await takeToken(env, ip, 'busca-fotos', BUSCA_IP_BUCKET);
@@ -4038,19 +4134,22 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     let existe;
     /** @type {string} */
     let contagem = '';
+    let previa = false;
     try {
       const ev = (await getEvents(env)).find(e => e.slug === album.slug);
       existe = albumLancado(ev);
       // A contagem regressiva só com o interruptor ligado no painel: ela
       // revela a data a quem abrir o endereço (v3.5).
       if (ev && !existe && ev.lancarContagem === true && typeof ev.lancarEm === 'string') contagem = ev.lancarEm;
+      // O easter egg da prévia (v3.7) só existe com senha cadastrada.
+      previa = !!ev && !existe && !!ev.previaSenha;
     } catch { existe = true; }
     if (!existe) {
-      const nonceEb = contagem ? generateNonce() : '';
-      const res = new Response(emBreveHTML({ ...album, contagem, nonce: nonceEb }), { status: 200, headers: htmlSecurityHeaders(nonceEb) });
+      const nonceEb = contagem || previa ? generateNonce() : '';
+      const res = new Response(emBreveHTML({ ...album, contagem, nonce: nonceEb, previa }), { status: 200, headers: htmlSecurityHeaders(nonceEb) });
       // Com contagem, sem cache: na hora do lançamento a página recarrega e
       // tem de receber o redirecionamento para a galeria, não a cópia antiga.
-      res.headers.set('Cache-Control', contagem ? 'no-cache' : 'public, max-age=60');
+      res.headers.set('Cache-Control', contagem || previa ? 'no-cache' : 'public, max-age=60');
       res.headers.set('X-Robots-Tag', 'noindex');
       return res;
     }
@@ -4222,7 +4321,9 @@ async function podeVerGaleria(request, env, slug) {
   const pedido = request.headers.get('X-Rosto-Indexador') || '';
   if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
-  if (!event || event.comingSoon) return false;
+  if (!event) return false;
+  // "Em breve": só com a prévia de senha (o easter egg, v3.7).
+  if (event.comingSoon) return temPrevia(request, env, event);
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
   if (!isRestrictedAccess(event)) return true;
   // Família/privado: só com o passe que o portão do Drive emite depois da
@@ -4408,7 +4509,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
   const rosto = buscaRostoAtiva(env, event, dono) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
-  const busca = buscaTextoAtiva(env, event, dono);
+  const busca = buscaTextoAtiva(env, event, dono || (!albumLancado(event) && await temPrevia(request, env, event)));
   const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca });
   /** @type {Response} */
   let res;
@@ -5269,6 +5370,7 @@ export function sanitizeRestoredEvent(ev) {
     out.lancarEm = Number.isFinite(t) && t > agora && t <= agora + LANCAMENTO_MAX_DIAS * 864e5 ? new Date(t).toISOString() : '';
   }
   if (out.lancarContagem !== undefined) out.lancarContagem = out.lancarContagem === true;
+  if (out.previaSenha !== undefined && !(typeof out.previaSenha === 'string' && SENHA_PREVIA_RE.test(out.previaSenha))) out.previaSenha = '';
   if (out.pixChave !== undefined) out.pixChave = chavePixValida(out.pixChave);
   if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;

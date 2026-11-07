@@ -1360,6 +1360,18 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             </div>
             <div class="field-hint" id="dica-lancar-contagem" style="margin-top:.5rem">Na página "em breve" do domínio do álbum (entrenos2026.com): "Chega em 20 de novembro, às 20h", com dias, horas, minutos e segundos. <strong>Revela a data</strong> a quem abrir o endereço. Desligado, a página não diz quando.</div>
           </div>
+          <div class="field">
+            <label for="f-previa-senha">Senha da prévia <span class="dica-rotulo">(opcional, o "easter egg")</span></label>
+            <input type="password" id="f-previa-senha" autocomplete="new-password" maxlength="100" placeholder="nenhuma" aria-describedby="dica-previa">
+            <div class="toggle-row" id="f-previa-tirar" hidden style="margin-top:.5rem">
+              <label class="toggle-label" for="f-previa-remover">Tirar a senha (fecha as prévias abertas)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-previa-remover">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-previa" style="margin-top:.5rem">Para quem você quiser mostrar o álbum antes do lançamento (a Mag, por exemplo). Na página "em breve" do domínio do álbum, <strong>5 toques no título</strong> mostram um campo de senha; com a senha certa, a pessoa vê o álbum por 30 dias, só para ver (sem painel). Mínimo de 6 caracteres. A senha não é guardada, só um resumo dela: para trocar, digite outra; trocar ou tirar fecha as prévias já abertas. Poucas tentativas por hora em cada aparelho.</div>
+          </div>
         </details>
         <details class="bloco-form" id="bf-producao">
           <summary><span class="bf-titulo">Prazo e status</span><span class="bf-resumo" data-resumo="bf-producao"></span></summary>
@@ -1941,6 +1953,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-comingsoon').checked = e ? (e.comingSoon === true) : false;
       document.getElementById('f-lancar-em').value = isoParaLocal(e && e.lancarEm);
       document.getElementById('f-lancar-contagem').checked = !!(e && e.lancarContagem === true);
+      // A senha da prévia nunca volta ao navegador: só "definida" ou não.
+      document.getElementById('f-previa-senha').value = '';
+      document.getElementById('f-previa-senha').setAttribute('placeholder', e && e.previaSenha ? 'definida (digite outra para trocar)' : 'nenhuma');
+      document.getElementById('f-previa-remover').checked = false;
+      document.getElementById('f-previa-tirar').hidden = !(e && e.previaSenha);
       document.getElementById('f-status').value = e?.status || 'entregue';
       document.getElementById('f-access').value = e?.accessType || 'public';
       document.getElementById('f-category').value = e?.category || '';
@@ -2294,6 +2311,12 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         return toast('A data de lançamento já passou. Para lançar agora, use o menu ⋯ → Lançar agora…', 'err');
       }
 
+      const senhaPrevia = document.getElementById('f-previa-senha').value.trim();
+      if (senhaPrevia && senhaPrevia.length < 6) {
+        mostraCampo('f-previa-senha');
+        return toast('A senha da prévia precisa ter pelo menos 6 caracteres.', 'err');
+      }
+
       const photos = collectPhotos();
       const body = {
         slug,
@@ -2328,6 +2351,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         visible: document.getElementById('f-visible').checked,
         comingSoon: document.getElementById('f-comingsoon').checked,
         lancarEm: lancarEmISO,
+        previaSenhaNova: document.getElementById('f-previa-senha').value,
+        previaRemover: document.getElementById('f-previa-remover').checked,
         lancarContagem: document.getElementById('f-lancar-contagem').checked,
         status: document.getElementById('f-status').value,
         accessType: document.getElementById('f-access').value,

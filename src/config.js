@@ -551,3 +551,12 @@ export const BUSCA_IP_BUCKET = { capacity: 60, perHour: 600 };
 // Itens por envio do indexador para /api/busca/indexar (o D1 aceita 100
 // parâmetros por consulta: o slug mais 90 fotos cabem).
 export const BUSCA_LOTE_MAX = 90;
+
+// Prévia do álbum com senha (v3.7): o "easter egg" da página "em breve" (5
+// toques no título → campo de senha). Quem acerta ganha um cookie de
+// PREVIA_COOKIE_DIAS dias que abre o álbum antes do lançamento (só ver, sem
+// painel). Trocar ou tirar a senha no painel derruba as prévias abertas.
+export const PREVIA_SENHA_MIN = 6;
+export const PREVIA_COOKIE_DIAS = 30;
+export const PREVIA_TENTATIVAS_POR_IP_HORA = 8;
+export const PREVIA_TENTATIVAS_POR_DIA = 200;
