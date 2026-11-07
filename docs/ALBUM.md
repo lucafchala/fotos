@@ -55,12 +55,33 @@ Um álbum está **lançado** (`albumLancado`, em `src/utils.js`) quando está **
 
 > **Cuidado:** "oculto" sozinho (`visible: false`) quer dizer só **não listado**, e quem tem o link da galeria entra. O que fecha o álbum para o público é o **"Em breve"**.
 
-**Para lançar** (Fase 7 do prompt do Cowork):
-1. Desmarque **Em breve**.
-2. Marque **Visível** e **Fixado**.
-3. Se a turma ainda não foi avisada da busca pelo rosto, desmarque **Busca pelo rosto**.
+| Página do projeto (`/entrenos2026`) | 404 para o público (`albumSurpresa`, só álbum com domínio próprio); o dono, logado, vê | Pública |
+| Data marcada | Nunca aparece em página ou API pública, a não ser com **Mostrar contagem regressiva** ligado | — |
 
-O botão de lançamento ou a contagem regressiva fica para uma versão futura, a pedido do dono.
+### Como lançar (v3.5)
+
+**O álbum é surpresa até a hora.** Antes do lançamento, nada pode revelá-lo fora do entrenos2026.com, que só mostra o "em breve" com `noindex`.
+
+**Jeito 1: na hora, com um clique.** No painel, no menu ⋯ do projeto, toque em **Lançar agora…**. O item só aparece em projeto oculto ou "Em breve".
+- A confirmação pede para digitar **LANÇAR**.
+- Num passo só, o projeto sai do "Em breve", fica visível e fixado. Só esses campos mudam (`PUT` parcial).
+
+**Jeito 2: com dia e hora marcados.** No formulário do projeto, em "Acesso e LGPD", preencha **Lançamento marcado**, no horário do aparelho, e salve. O painel mostra o selo "Lança 20/11, 20:00".
+- **Na hora, sozinho:** o projeto passa a valer como lançado em todo o site ao mesmo tempo (galeria, domínio, destaque nos outros sites, sitemap). A troca acontece na leitura (`comLancamentos`, dentro de `getEvents`), e não numa tarefa agendada que poderia atrasar ou falhar.
+- **Depois da hora:** a próxima gravação pelo painel torna a troca permanente.
+- **Data no passado:** o painel e o servidor recusam, para não lançar por engano; para lançar já, use o Jeito 1.
+- **Data longe demais:** mais de `LANCAMENTO_MAX_DIAS` (400 dias) é descartada.
+- **Backup restaurado nunca lança:** uma data vencida vira "sem lançamento marcado".
+- **Painel aberto desde antes da hora:** se alguém salvar esse formulário antigo depois do lançamento, o servidor mantém o álbum lançado, em vez de devolvê-lo ao "Em breve" (`normalizaLancamento`).
+
+**Contagem regressiva (opcional, desligada por padrão).** Com **Mostrar contagem regressiva** ligado e uma data marcada, a página "em breve" do domínio mostra "Chega em 20 de novembro, às 20h" e a contagem.
+- **Revela a data a quem abrir o endereço.** Sem o interruptor, a página não diz quando.
+- O script tem nonce, a página vai sem cache, e na hora ela recarrega e cai na galeria.
+
+**O lançamento NÃO faz sozinho**, e continua na Fase 7 do Cowork:
+- **Busca pelo rosto:** vale o que estiver marcado. Se a turma ainda não foi avisada, desmarque antes da hora.
+- **Monitoramento do domínio no status:** mergear o lucafchala/status.lucafchala.com#67, que está em rascunho.
+- **Mensagem da turma.**
 
 ## Destaque máximo no site
 

@@ -30,7 +30,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, albumLancado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, emailCanonico,
@@ -59,7 +59,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -834,6 +834,9 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return notFound();
+  // Álbum com domínio próprio antes do lançamento (v3.5): é surpresa — nem o
+  // título aparece. O mesmo 404 de projeto inexistente; o dono, logado, vê.
+  if (albumSurpresa(event) && !(await verifySession(env, request))) return notFound();
 
   // "Não visível" é NÃO LISTADO, não privado: some da galeria/sitemap/
   // auditoria mas segue abrindo por link direto (mantém prévias enviadas a
@@ -1229,6 +1232,16 @@ function normalizePhotosAlert(pa, fallback) {
  */
 export function normalizeEventFields(body, base, cats) {
   const b = withEventDefaults(base);
+  return normalizaLancamento(camposDoEvento(body, b, cats), b);
+}
+
+/**
+ * Os campos do formulário, cada um com o seu normalizador.
+ * @param {Record<string, any>} body
+ * @param {Record<string, any>} b o evento base, já com os padrões
+ * @param {string[]} cats
+ */
+function camposDoEvento(body, b, cats) {
   // `v` é `any` de propósito: vem de JSON.parse do corpo, e é justamente o que
   // cada normalizador abaixo existe para domar.
   /**
@@ -1296,6 +1309,11 @@ export function normalizeEventFields(body, base, cats) {
     // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
     // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
     destaqueMaximo: pick('destaqueMaximo', v => v === true),
+    // Lançamento marcado (v3.5): ISO em UTC, conferido em normalizaLancamento.
+    // Chegada a hora, getEvents trata o álbum como lançado (comLancamentos).
+    // A data só aparece em público se `lancarContagem` estiver ligado.
+    lancarEm: pick('lancarEm', v => (typeof v === 'string' ? v.trim().slice(0, 40) : '')),
+    lancarContagem: pick('lancarContagem', v => v === true),
     // "Apoie o projeto" (v3.3, Pix estático): só chave aceita (sem CPF — ela
     // aparece na página); nome e cidade do recebedor como o banco mostra.
     pixChave: pick('pixChave', v => chavePixValida(v)),
@@ -1310,6 +1328,39 @@ export function normalizeEventFields(body, base, cats) {
     // se preserva o que já existe, podado pelo subconjunto acima.
     ocultasPendentes: normalizaPendentes(pick('ocultasPendentes', v => v), fotosOcultas),
   };
+}
+
+/**
+ * A data de lançamento marcada (v3.5), conferida:
+ * - vazia ou inválida: nenhum lançamento marcado;
+ * - no futuro, até LANCAMENTO_MAX_DIAS: guardada em ISO (UTC);
+ * - mais longe que isso: engano de digitação (ano errado), descartada;
+ * - no passado: NÃO lança agora (seria engano, e lançar é irreversível para o
+ *   público). Se o projeto já estava lançado — o painel ficou aberto desde
+ *   antes da hora e salvou com o formulário antigo —, mantém o lançamento em
+ *   vez de devolvê-lo ao "Em breve".
+ * @param {Record<string, any>} out
+ * @param {Record<string, any>} base
+ * @param {number} [agora]
+ */
+export function normalizaLancamento(out, base, agora = Date.now()) {
+  const t = out.lancarEm ? Date.parse(out.lancarEm) : NaN;
+  if (!Number.isFinite(t) || t > agora + LANCAMENTO_MAX_DIAS * 864e5) {
+    out.lancarEm = '';
+    return out;
+  }
+  if (t > agora) {
+    out.lancarEm = new Date(t).toISOString();
+    return out;
+  }
+  out.lancarEm = '';
+  out.lancarContagem = false;
+  if (albumLancado(/** @type {any} */ (base))) {
+    out.comingSoon = base.comingSoon;
+    out.visible = base.visible;
+    out.pinned = base.pinned;
+  }
+  return out;
 }
 
 // Mensagem do painel para um slug recusado. O reservado ganha a sua: "URL
@@ -3850,10 +3901,21 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     // Projeto ainda não criado (ou oculto): "em breve", não um 404. getEvents
     // tem cache de isolate — a raiz não paga uma leitura de KV por visita.
     let existe;
-    try { existe = (await getEvents(env)).some(e => e.slug === album.slug && albumLancado(e)); } catch { existe = true; }
+    /** @type {string} */
+    let contagem = '';
+    try {
+      const ev = (await getEvents(env)).find(e => e.slug === album.slug);
+      existe = albumLancado(ev);
+      // A contagem regressiva só com o interruptor ligado no painel: ela
+      // revela a data a quem abrir o endereço (v3.5).
+      if (ev && !existe && ev.lancarContagem === true && typeof ev.lancarEm === 'string') contagem = ev.lancarEm;
+    } catch { existe = true; }
     if (!existe) {
-      const res = new Response(emBreveHTML(album), { status: 200, headers: htmlSecurityHeaders('') });
-      res.headers.set('Cache-Control', 'public, max-age=60');
+      const nonceEb = contagem ? generateNonce() : '';
+      const res = new Response(emBreveHTML({ ...album, contagem, nonce: nonceEb }), { status: 200, headers: htmlSecurityHeaders(nonceEb) });
+      // Com contagem, sem cache: na hora do lançamento a página recarrega e
+      // tem de receber o redirecionamento para a galeria, não a cópia antiga.
+      res.headers.set('Cache-Control', contagem ? 'no-cache' : 'public, max-age=60');
       res.headers.set('X-Robots-Tag', 'noindex');
       return res;
     }
@@ -5026,7 +5088,7 @@ function identidadeRestauravel(ev) {
 /**
  * @param {any} ev
  */
-function sanitizeRestoredEvent(ev) {
+export function sanitizeRestoredEvent(ev) {
   const out = { ...ev };
   for (const f of RESTORE_URL_FIELDS) {
     if (out[f] !== undefined) out[f] = toHttps(String(out[f] ?? '').slice(0, MAX_URL_LENGTH));
@@ -5062,6 +5124,14 @@ function sanitizeRestoredEvent(ev) {
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
   if (out.destaqueMaximo !== undefined) out.destaqueMaximo = out.destaqueMaximo === true;
+  // Lançamento marcado (v3.5): restaurar um backup NUNCA lança nada. Data que
+  // já passou (ou inválida, ou longe demais) vira "sem lançamento marcado".
+  if (out.lancarEm !== undefined) {
+    const t = typeof out.lancarEm === 'string' ? Date.parse(out.lancarEm) : NaN;
+    const agora = Date.now();
+    out.lancarEm = Number.isFinite(t) && t > agora && t <= agora + LANCAMENTO_MAX_DIAS * 864e5 ? new Date(t).toISOString() : '';
+  }
+  if (out.lancarContagem !== undefined) out.lancarContagem = out.lancarContagem === true;
   if (out.pixChave !== undefined) out.pixChave = chavePixValida(out.pixChave);
   if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
