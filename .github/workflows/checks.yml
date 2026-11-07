@@ -138,7 +138,9 @@ jobs:
   navegador:
     name: Roteiros no navegador (Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 e não 20: em 06/11/2026 o job passou com 17m48s numa execução e foi
+    # cancelado no limite de 20 min em outra, sem falha de teste nenhuma.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 

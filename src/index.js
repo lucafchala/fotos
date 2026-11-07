@@ -18,7 +18,7 @@ import { ICONES } from './content/icons.js';
 import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
-import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -331,6 +331,7 @@ const worker = {
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
+      if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
@@ -3453,6 +3454,35 @@ export async function handleRosto(request, env, acao) {
     noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
     return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
   }
+}
+
+/**
+ * GET /api/galeria/envio?slug= — as pastas de envio de um álbum colaborativo
+ * ("Mandar suas fotos", v3.4): evento, ano/banda e o link da pasta no Drive.
+ * Só álbum público por capítulos; antes do lançamento, só o dono (o mesmo
+ * portão da galeria). Os links são das pastas que a própria pasta pública do
+ * álbum já mostra a quem tem o link — nada novo é exposto.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleGaleriaEnvio(request, env, url) {
+  const slug = url.searchParams.get('slug') || '';
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (!await podeVerGaleria(request, env, slug)) return jsonErr('Não encontrado.', 404);
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event || isRestrictedAccess(event) || !event.galeriaCapitulos) return jsonErr('Não encontrado.', 404);
+  const alvo = await alvoDaGaleria(env, event, '');
+  if (alvo.kind !== 'ok' || !alvo.caps) return jsonErr('O Google Drive não respondeu agora. Tente de novo em instantes.', 503);
+  const pastas = (await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos)).map(p => ({
+    evento: p.evento,
+    cap: p.cap,
+    rotulo: p.rotulo,
+    url: `https://drive.google.com/drive/folders/${p.id}${p.rk ? `?resourcekey=${encodeURIComponent(p.rk)}` : ''}`,
+  }));
+  const res = jsonOk({ pastas });
+  res.headers.set('Cache-Control', 'private, max-age=600');
+  return res;
 }
 
 /**

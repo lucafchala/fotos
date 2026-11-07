@@ -5,11 +5,14 @@
 //     usa innerHTML com dado vindo da API;
 //  3. antes do lançamento, o domínio mostra "em breve", a galeria é 404 para o
 //     público e o indexador (com o token certo) lê a página;
-//  4. o favicon e o cartão de link do entrenos2026.com.
+//  4. o favicon e o cartão de link do entrenos2026.com;
+//  5. o painel tem o interruptor e grava o campo (faltou até a 3.4.0).
 import { describe, it, expect, vi } from 'vitest';
 import { albumEmDestaque, faixaDestaqueHTML, cartaoDestaqueHTML, popupDestaqueHTML, destaqueParaApi, DESTAQUE_EMBED_JS } from '../src/ui/destaque.js';
 import { albumLancado } from '../src/utils.js';
 import { OG_ENTRENOS } from '../src/content/og-entrenos.js';
+import { dashboardHTML } from '../src/ui/dashboard.js';
+import { normalizeEventFields } from '../src/index.js';
 import { withDurableObjects } from './helpers/do.js';
 
 const ALBUM = {
@@ -130,5 +133,18 @@ describe('rotas', () => {
     expect(bytes.length).toBe(OG_ENTRENOS.bytes);
     expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
     expect(bytes.length).toBeLessThan(300_000); // o WhatsApp ignora cartão pesado
+  });
+});
+
+describe('painel: o interruptor "Destaque máximo no site"', () => {
+  it('existe, é lido do projeto, vai no rascunho e é gravado', () => {
+    const h = dashboardHTML([], [], 'N');
+    expect(h).toContain('<input type="checkbox" id="f-destaque-maximo" aria-describedby="dica-destaque-maximo">');
+    expect(h).toContain("document.getElementById('f-destaque-maximo').checked = !!(e && e.destaqueMaximo);");
+    expect(h).toContain("destaqueMaximo: chk('f-destaque-maximo')");
+    expect(h).toContain("setChk('f-destaque-maximo', f.destaqueMaximo)");
+    expect(h).toContain("destaqueMaximo: document.getElementById('f-destaque-maximo').checked,");
+    expect(normalizeEventFields({ destaqueMaximo: true }, { slug: 'x' }, []).destaqueMaximo).toBe(true);
+    expect(normalizeEventFields({ destaqueMaximo: 'sim' }, { slug: 'x' }, []).destaqueMaximo).toBe(false);
   });
 });

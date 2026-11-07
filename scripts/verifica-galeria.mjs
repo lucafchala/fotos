@@ -859,14 +859,16 @@ await cenario('Seleção', async () => {
   page.on('download', d => { const u = new URL(d.url()); pedidos.push(u.pathname.split('/').pop() + u.search); });
   await page.locator('.g-op').first().click();
   await espera(page, 3200);
-  registra(pedidos.join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes',
+  // Ordenados: o Chromium pode avisar os downloads fora da ordem em que a página
+  // os pede (no #278, 06/11/2026, chegaram 0, 5, 3). O que vale é um por foto.
+  registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes',
     'Seleção: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
   await page.locator('[data-acao="baixar-sel"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
   pedidos.length = 0;
   await page.locator('.g-op').nth(1).click();
   await espera(page, 3200);
-  registra(pedidos.join(',') === 'RAIZFOTO_000000?v=max,RAIZFOTO_000003?v=max,RAIZFOTO_000005?v=max',
+  registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=max,RAIZFOTO_000003?v=max,RAIZFOTO_000005?v=max',
     'Seleção: "tamanho máximo" baixa as três, um download por foto', pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
