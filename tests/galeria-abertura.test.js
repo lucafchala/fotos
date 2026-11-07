@@ -142,7 +142,8 @@ describe('apresentação do álbum', () => {
     const h = pagina();
     const quem = /** @type {RegExpMatchArray} */ (h.match(/<div class="al-cred">.*?<\/section>/s))[0];
     expect([...quem.matchAll(/<span>([^<]+)<\/span>/g)].map(x => x[1])).toEqual(['Mag', 'Luca F. Chala', 'Turma 2026']);
-    expect(quem).toContain('<b>1.002</b>');
+    // v3.7.6: só os nomes, sem a contagem de cada um.
+    expect(quem).not.toMatch(/<b>|fotos no álbum/);
     const parcial = { ...RESUMO };
     delete parcial.CAPITULO0000003;
     const semTodos = pagina({}, parcial);

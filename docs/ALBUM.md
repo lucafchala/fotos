@@ -81,6 +81,8 @@ Para a Mag, ou quem mais você quiser, ver o álbum pronto antes do lançamento,
 
   O fotos é a base de operações; o Entre Nós é o principal.
 
+- **Páginas dos eventos (v3.7.6):** com a paleta da apresentação (fundo `#0f0e0c`, amarelo `#f9de4b`), em qualquer tema do aparelho (`TEMA_ALBUM` em `src/ui/galeria.js`). O topo não tem o ícone de "reportar problema"; no rodapé fica "Algo deu errado? Fale com a gente" (`/suporte`). A linha da data mostra o período das fotos do evento. O fim do evento não leva à "Página do projeto".
+
 ### A página do projeto leva à galeria (v3.7)
 
 Um projeto com **Texto de abertura** (a apresentação do álbum) não usa mais a página de projeto antiga: `/<slug>` redireciona para a galeria, que é mais arrumada. Depois do lançamento, vai para o endereço principal (`https://entrenos2026.com/galeria/entrenos2026`); antes, fica em `fotos.lucafchala.com`, onde valem a sua sessão e a prévia. Projetos sem texto de abertura seguem como sempre.
