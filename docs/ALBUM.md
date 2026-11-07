@@ -92,23 +92,64 @@ Com **Destaque máximo no site** marcado e o álbum lançado, aparecem (`src/ui/
 
 Se houver mais de um álbum marcado, vale o fixado.
 
-### Nos outros sites
+### Aviso nos outros sites
 
-Cada site inclui uma linha:
+O aviso aparece em **todos os sites do ecossistema**, de dois jeitos.
+
+**1. O script do fotos** (sites sem dado sensível e com CSP que aceita). Cada página inclui:
 
 ```html
 <script src="https://fotos.lucafchala.com/destaque.js" async></script>
 ```
 
-- Se o site tiver CSP, libere `https://fotos.lucafchala.com` em `script-src` e `connect-src`.
-- O script pergunta a `GET /api/destaque` (CORS aberto) e, se houver álbum lançado, desenha a faixa num shadow root fechado, sem innerHTML e sem cookie.
-- Fechar a faixa esconde por 3 dias.
-- Antes do lançamento, o script não desenha nada. Por isso a linha pode entrar nos sites antes do lançamento.
-- Os sites ficam em repositórios separados. Estado em 06/11/2026:
-  - **com PR aberto**: lucafchala/lucafchala.com#44, lucafchala/dash.lucafchala.com#37 (os geradores), lucafchala/paste.lucafchala.com#16 e lucafchala/url.lucafchala.com#16 (as páginas geradas);
-  - **fora de propósito**: `status` (o `CLAUDE.md` e os testes dele proíbem origem de fora no CSP), `proof` (script-src 'none'), o próprio `dash` (painel com login) e o `restricted` (CTF);
-  - **não avaliados**: `keys`, `pays`, `treino`, `rg` e `Edificio-maison-blanche`.
-- Ordem: mergear esses PRs depois que o #277 estiver em produção. Antes disso, `/destaque.js` dá 404 e o navegador só registra um erro no console.
+- O script pergunta a `GET /api/destaque` (CORS aberto). Se houver álbum lançado, desenha a faixa num shadow root fechado, sem `innerHTML` e sem cookie.
+- O × esconde a faixa por 3 dias (`localStorage`, chave `lfc-destaque-fechado:<slug>`).
+- Se o site tiver CSP, `https://fotos.lucafchala.com` entra em `script-src` e em `connect-src`. O `style-src` precisa de `'unsafe-inline'`, porque o estilo vai num `<style>` dentro do shadow root.
+- No próprio fotos e nos domínios de álbum, o script não faz nada (a página já tem a faixa dela).
+
+**2. Posto pelo servidor, sem script na página** (sites de CSP rígida ou com dado sensível):
+- o servidor do site pergunta ao fotos (`/api/destaque`, com cache de 5 min na borda e 1 min depois de uma falha);
+- confere a resposta: só passam título, selo e um link `https:` de álbum conhecido (`HOSTS_DE_ALBUM`), tudo escapado;
+- põe a faixa no HTML, com um `/destaque.css` da própria origem; a CSP não muda;
+- se o fotos estiver fora, a página sai intacta;
+- o × é um checkbox com CSS: esconde naquela visita, e a faixa volta na próxima;
+- a lógica é uma **cópia idêntica** em cada site (`functions/_lib/destaque-servidor.js`; no rg, colada no `_worker.js`): mudou num, mude em todos.
+
+| Site | Jeito | PR | Observação |
+|---|---|---|---|
+| fotos.lucafchala.com | Próprio (faixa, cartão e popup) | #277, no ar | `src/ui/destaque.js` |
+| lucafchala.com | Script | lucafchala/lucafchala.com#44 | `connect-src https://*.lucafchala.com` já cobre a API |
+| paste.lucafchala.com | Script | lucafchala/paste.lucafchala.com#16 | Páginas **geradas pelo dash** |
+| url.lucafchala.com | Script | lucafchala/url.lucafchala.com#16 | Páginas **geradas pelo dash** (índice e `404.html`) |
+| dash.lucafchala.com | Geradores do paste e do url | lucafchala/dash.lucafchala.com#37 | O painel em si **não** mostra o aviso: guarda o token do GitHub |
+| radio.lucafchala.com | Script, nas 7 páginas | lucafchala/portal_radio#19 | Rolagem lateral no celular, de antes do aviso: lucafchala/portal_radio#20 |
+| treino.lucafchala.com | Script | lucafchala/treino.lucafchala.com#1 | Sem CSP |
+| spectral-drift.lucafchala.com | Script | lucafchala/spectral-drift#4 | Sem CSP |
+| restricted.lucafchala.com | Script | lucafchala/restricted#9 | Fora do desafio do CTF (o README avisa) |
+| status.lucafchala.com | Servidor (`functions/api/destaque.js`) e desenho pelo `app.js` | lucafchala/status.lucafchala.com#66 | CSP `'self'` sem exceção |
+| keys.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/keys.lucafchala.com#7 | A página mostra impressões digitais de chaves |
+| pays.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/pays.lucafchala.com#6 | Assinaturas no `localStorage` |
+| proof.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/proof.lucafchala.com#10 | Continua **sem JavaScript nenhum** |
+| rg.lucafchala.com | Servidor (`_worker.js`), só na tela do PIN | lucafchala/rg.lucafchala.com#2 | Impressão e guias ficam de fora |
+
+**Fora, de propósito:**
+- `bia.lucafchala.com` é a página da Beatriz: fica de fora (decisão do dono, 07/11/2026).
+- `Edificio-maison-blanche` não está no ar em nenhum endereço conhecido.
+- Os repositórios sem site (hangman, a-calculadora, Alemanha-2026, OMG.LOL_transfer) ficam de fora.
+
+**Ordem de merge:** qualquer uma. Antes do lançamento, o fotos responde `{"ativo":false}` e nenhum site mostra nada; `/destaque.js` e `/api/destaque` já estão no ar desde o #277.
+
+**Para conferir depois do lançamento:**
+- **Sites com o script:** abrir a página; a faixa aparece no topo.
+- **Sites pelo servidor:** `curl -s https://<site>/ | grep -c lfc-dq` dá `1` (antes do lançamento, `0`). No status, `curl -s https://status.lucafchala.com/api/destaque`.
+
+**Domínio novo de álbum** (`DOMINIOS_DE_ALBUM`) precisa entrar também:
+- em `HOSTS_DE_ALBUM` nos 5 sites da versão pelo servidor (status, keys, pays, proof, rg); senão, a faixa some calada neles;
+- o `DESTAQUE_EMBED_JS` já lê a lista de domínios sozinho, então o script não precisa de mudança.
+
+**O álbum é surpresa até o lançamento.** Antes do "pode lançar", nada pode revelar o álbum fora do entrenos2026.com (que mostra só o "em breve", com `noindex`). Por isso o monitoramento do domínio no status ficou num PR à parte, em rascunho, para mergear **no dia do lançamento**: lucafchala/status.lucafchala.com#67. Com ele, aparece uma linha "Entre Nós" no status e uma bolinha na home do lucafchala.com (via `/api/resumo`).
+
+**Contrato com o status (depois do #67):** o serviço "Entre Nós" do status.lucafchala.com sonda `https://entrenos2026.com` e procura o texto **"Entre Nós"**, que tem de existir na página "em breve" e no álbum. Mudar o título do álbum ou do "em breve" sem trocar o marcador lá deixa o status amarelo.
 
 ## Apoie o projeto (Pix)
 
