@@ -232,3 +232,79 @@ export const SCRIPT_ROSTO = `(function () {
     sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 })();`;
+
+
+// ---------------------------------------------------------------------------
+// Busca nas fotos (v3.7): texto lido nas fotos e "coisas" (GET /api/busca)
+// ---------------------------------------------------------------------------
+export const BUSCA_CSS = `.bf{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem;max-width:34rem}
+.bf[hidden]{display:none}
+.bf input{flex:1 1 13rem;min-width:0;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font:inherit;font-size:.95rem}
+.bf input:focus-visible,.bf button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bf button{min-height:44px;padding:0 1.1rem;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:inherit;font-size:.92rem;font-weight:600;cursor:pointer}
+.bf button:disabled{opacity:.6;cursor:default}
+.bf-dica{flex-basis:100%;font-size:.78rem;color:var(--text-muted)}`;
+
+/** O campo da busca (o script tira o `hidden`; sem JS, nada aparece). */
+export function buscaHTML() {
+  return `<form class="bf" id="bf-form" role="search" hidden>
+      <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Procurar nas fotos: 10, bolo, palco…" aria-label="Procurar nas fotos por número, palavra ou coisa">
+      <button type="submit">Procurar</button>
+      <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola).</span>
+    </form>
+    <section class="rs-res" id="bf-res" hidden aria-live="polite"><h2 id="bf-res-t" tabindex="-1"></h2><p id="bf-res-sub"></p><ul class="rs-grade" id="bf-grade"></ul></section>`;
+}
+
+// O script da busca: pergunta ao servidor e desenha a grade, como a do rosto.
+// Tudo por textContent; a foto é a miniatura pública do lh3.
+// Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
+export const SCRIPT_BUSCA = `(function () {
+  var el = document.getElementById('bf-dados');
+  var f = document.getElementById('bf-form');
+  if (!el || !f || !window.fetch) return;
+  var D = JSON.parse(el.textContent || '{}');
+  var q = document.getElementById('bf-q');
+  var bt = f.querySelector('button');
+  f.hidden = false;
+  f.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var termo = (q.value || '').trim();
+    if (!termo || bt.disabled) { q.focus(); return; }
+    bt.disabled = true;
+    bt.textContent = 'Procurando…';
+    fetch('/api/busca?slug=' + encodeURIComponent(D.slug) + '&q=' + encodeURIComponent(termo), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.status === 429) throw new Error('Muita gente procurando agora. Tente de novo em alguns segundos.');
+          if (!r.ok) throw new Error(j.error || 'A busca não respondeu. Tente de novo.');
+          return j;
+        });
+      })
+      .then(function (j) { mostra(termo, j.resultados || [], ''); })
+      .catch(function (err) { mostra(termo, [], (err && err.message) || 'A busca não respondeu. Tente de novo.'); })
+      .then(function () { bt.disabled = false; bt.textContent = 'Procurar'; });
+  });
+  function mostra(termo, lista, erro) {
+    var sec = document.getElementById('bf-res');
+    var t = document.getElementById('bf-res-t');
+    var sub = document.getElementById('bf-res-sub');
+    var grade = document.getElementById('bf-grade');
+    grade.textContent = '';
+    sec.hidden = false;
+    t.textContent = erro ? 'Não deu para procurar' : lista.length ? (lista.length === 1 ? '1 foto com "' + termo + '"' : lista.length + ' fotos com "' + termo + '"') : 'Nenhuma foto com "' + termo + '"';
+    sub.textContent = erro || (lista.length ? 'Toque para abrir.' : 'Tente outra palavra: um número, um nome de faixa ou uma coisa (palco, bolo, bola).');
+    lista.forEach(function (r) {
+      var li = document.createElement('li');
+      var a = document.createElement('a');
+      a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+      var img = document.createElement('img');
+      img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
+      img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+      a.appendChild(img);
+      if (r.cap && D.caps && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
+      li.appendChild(a); grade.appendChild(li);
+    });
+    t.focus();
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+})();`;

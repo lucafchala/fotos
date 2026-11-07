@@ -18,6 +18,53 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.7.0] — ainda não publicada
+
+Busca nas fotos por texto e por coisas, moderação automática, prévia do álbum
+com senha (o easter egg) e a página do projeto levando à galeria.
+
+### Novo
+
+- **Procurar nas fotos:** campo no álbum para buscar pelo número da camisa, por
+  uma palavra de faixa ou por uma coisa (palco, bolo, bola).
+  - O indexador pede à Amazon Rekognition, uma vez por foto, `DetectText` e
+    `DetectLabels` (as coisas também em português).
+  - O site guarda o resultado no D1 (`busca_foto`, migração `0005`).
+  - A busca é só uma consulta ao D1: nenhuma chamada à Amazon por visita.
+  - Opção **Busca nas fotos (texto e coisas)** no projeto, desligada por
+    padrão.
+- **Moderação automática** (`DetectModerationLabels`):
+  - foto **da turma** marcada como imprópria fica escondida até o dono
+    decidir, e o dono recebe e-mail;
+  - foto de fotógrafo credenciado só é marcada;
+  - uma foto só é escondida uma vez.
+- **Prévia com senha (easter egg):** com **Senha da prévia** cadastrada, 5
+  toques no título da página "em breve" mostram um campo de senha. Quem acerta
+  vê o álbum por 30 dias antes do lançamento, só para ver.
+  - A senha fica só como hash.
+  - Trocar ou tirar a senha fecha as prévias abertas.
+  - As tentativas são limitadas.
+
+### Workers Paid ligado
+
+- **`WORKERS_PLANO = "pago"`** no `wrangler.toml`: o dono assinou o Workers
+  Paid em 07/11/2026.
+  - Valem os tetos da 3.6.0 (galeria: 120 leituras por capítulo, 200 pastas).
+    Festa Junina e PiauiFut deixam de sair como "Lista parcial".
+  - Sobem também a pasta "para redes" (6 → 40 leituras), a busca das pastas
+    de envio (40 → 300) e os álbuns por capítulos no sitemap de imagens (8 →
+    40 por pedido).
+
+### Mudou
+
+- **Página do projeto de álbum com apresentação** (texto de abertura): leva à
+  galeria. Depois do lançamento, vai para o domínio próprio.
+- **Indexador:** lê o autor de cada foto da página e faz as leituras novas
+  junto com os rostos; o estado guarda as fotos já descritas.
+- **IAM:** `rekognition:DetectText`, `DetectLabels` e `DetectModerationLabels`
+  (`docs/ROSTO.md`).
+- **LGPD:** ROPA, seções 14 e 15; RIPD, R10.
+
 ## [3.6.0] — ainda não publicada
 
 Fotos de outra pasta por atalho do Drive, e pastas grandes inteiras com o

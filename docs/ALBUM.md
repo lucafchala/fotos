@@ -58,6 +58,23 @@ Um álbum está **lançado** (`albumLancado`, em `src/utils.js`) quando está **
 | Página do projeto (`/entrenos2026`) | 404 para o público (`albumSurpresa`, só álbum com domínio próprio); o dono, logado, vê | Pública |
 | Data marcada | Nunca aparece em página ou API pública, a não ser com **Mostrar contagem regressiva** ligado | — |
 
+### Prévia para quem você escolher: a senha e o easter egg (v3.7)
+
+Para a Mag, ou quem mais você quiser, ver o álbum pronto antes do lançamento, sem acesso ao painel:
+1. No projeto, em "Acesso e LGPD", preencha **Senha da prévia** (mínimo de 6 caracteres) e salve.
+2. Passe a senha para a pessoa e diga: "abra entrenos2026.com e toque 5 vezes no título".
+3. Aparece um campo de senha. Com a senha certa, ela vê o álbum (a galeria, a busca nas fotos e o envio) por **30 dias**, nesse aparelho.
+
+- **A senha não é guardada**, só um resumo dela (sal e SHA-256). Para trocar, digite outra. **Trocar ou tirar fecha as prévias abertas.**
+- **Limites:** 8 tentativas por hora por aparelho e 200 por dia no total. Senha errada só diz "Senha errada".
+- **Sem senha cadastrada, o easter egg não existe:** a página "em breve" fica sem script nenhum.
+- **A busca pelo rosto** continua só sua (logado) antes do lançamento.
+- **Código:** `aplicaSenhaPrevia`, `temPrevia` e `handlePrevia` (`POST /api/previa`) em `src/index.js`; `SCRIPT_PREVIA` em `src/ui/em-breve.js`. LGPD: ROPA, seção 15.
+
+### A página do projeto leva à galeria (v3.7)
+
+Um projeto com **Texto de abertura** (a apresentação do álbum) não usa mais a página de projeto antiga: `/<slug>` redireciona para a galeria, que é mais arrumada. Depois do lançamento, vai para o endereço principal (`https://entrenos2026.com/galeria/entrenos2026`); antes, fica em `fotos.lucafchala.com`, onde valem a sua sessão e a prévia. Projetos sem texto de abertura seguem como sempre.
+
 ### Como lançar (v3.5)
 
 **O álbum é surpresa até a hora.** Antes do lançamento, nada pode revelá-lo fora do entrenos2026.com, que só mostra o "em breve" com `noindex`.
@@ -198,6 +215,7 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 - **No plano grátis**, cada página tem 50 leituras externas. Um evento com muitas pastas, como Festa Junina (5 anos × 5 fotógrafos = 31 pastas), sai como "Lista parcial".
 - **Com o Workers Paid (US$ 5/mês)**, o limite sobe muito. Depois de assinar, um PR de uma linha troca `WORKERS_PLANO = "gratis"` para `"pago"` no `wrangler.toml`. Os tetos `GALERIA_*_PAGO` (`src/config.js`) passam a valer: 120 leituras e 200 pastas por capítulo.
 - **Nunca troque antes de assinar:** no plano grátis, a galeria quebraria.
+- **Estado:** assinado em 07/11/2026; `"pago"` desde a 3.7.0. Com ele também sobem a pasta "para redes" (`GALERIA_MAX_CHAMADAS_IG_PAGO`, 40), as pastas de envio (`ENVIO_MAX_CHAMADAS_PAGO`, 300) e o sitemap de imagens (`SITEMAP_PROJETOS_COM_CAPITULOS_PAGO`, 40). Se um dia o plano voltar ao grátis, troque para `"gratis"` **antes** de cancelar.
 
 ## Mandar suas fotos (v3.4)
 

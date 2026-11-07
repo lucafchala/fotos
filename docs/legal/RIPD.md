@@ -276,6 +276,25 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 
 **Risco residual: MÉDIO-ALTO** enquanto não houver concordância formal da turma e dos responsáveis. Cai para **MÉDIO** com o aviso prévio e a saída usada por quem pedir. O encaminhamento é o mesmo de R3: formalizar junto à escola ou à comissão, de preferência antes de ligar a busca para o público.
 
+### R10 — Texto e objetos lidos nas fotos; moderação automática · Prob. **Média** · Impacto **Baixo**
+
+**O tratamento.** Com "Busca nas fotos" ligada (v3.7, `src/busca.js`, [`docs/ROSTO.md`](../ROSTO.md)), a Amazon Rekognition lê de cada foto pública do álbum as palavras visíveis, as "coisas" e cenas e os rótulos de moderação. O resultado fica no D1 e permite buscar "10", "bolo" ou "palco".
+
+**O risco.** Um **nome num crachá**, numa faixa ou numa camiseta vira texto buscável. Isso facilita achar a foto de uma pessoa pelo nome, inclusive de menor (R3). O texto já está visível na foto pública, mas a busca torna isso mais fácil.
+
+**Mitigações**
+
+| Mitigação | Onde |
+| --- | --- |
+| Desligada por padrão; só o controlador liga, projeto a projeto; antes do lançamento, só o controlador (e quem tem a senha de prévia) usa | opção "Busca nas fotos", `buscaTextoAtiva` |
+| Só palavras com confiança alta (85%); resultados limitados a 120 | `BUSCA_TEXTO_CONFIANCA_MIN`, `BUSCA_MAX_RESULTADOS` |
+| Foto oculta não aparece; foto removida sai da busca na execução seguinte | `buscaNasFotos`, indexador |
+| **Moderação automática** esconde foto da turma marcada como imprópria (gestos obscenos, nudez, álcool, drogas, violência) até o controlador decidir, com aviso por e-mail | `handleBuscaIndexar`, `BUSCA_MODERACAO_ESCONDE` |
+| Dados em São Paulo; opt-out de treino de IA; nada de rosto nem de imagem guardado | `docs/ROSTO.md` |
+| Remoção de foto a pedido continua valendo e tira a foto da busca | fluxo de remoção da galeria |
+
+**Risco residual: BAIXO.** A moderação **reduz** o risco R3 para fotos enviadas pela turma.
+
 ---
 
 ## 4. Quadro-resumo
@@ -291,6 +310,7 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | R7 | XSS na galeria | Baixo | Migração da CSP em andamento |
 | R8 | Metadados EXIF | Baixo | Remoção automática no servidor |
 | R9 | **Busca pelo rosto** (biometria) | **Médio-Alto** | Desligada por padrão, saída imediata, aviso prévio à turma, dados em São Paulo |
+| R10 | Texto e objetos lidos nas fotos; moderação | Baixo | Desligada por padrão, confiança alta, ocultas fora, moderação esconde foto imprópria da turma |
 
 ## 5. Conclusão
 

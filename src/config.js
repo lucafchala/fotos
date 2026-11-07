@@ -25,7 +25,7 @@ export const DEFAULT_EVENT = {
   title: '', longDescription: '',
   driveUrl: '', driveUrlInstagram: '', driveUrlVideos: '', youtubeId: '', youtubeMais: [], date: '', eventCredits: '',
   projectUrl: '', promisedDate: '', visible: true, comingSoon: false, status: 'entregue',
-  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, lancarEm: '', lancarContagem: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
+  accessType: 'public', category: '', internalNotes: '', pinned: false, galeriaCreditos: '', galeriaAbertura: '', galeriaEstilo: 'mosaico', galeriaRecado: '', destaqueMaximo: false, lancarEm: '', lancarContagem: false, pixChave: '', pixNome: '', pixCidade: '', buscaRosto: false, buscaTexto: false, galeriaCapitulos: false, nomesAmigaveis: false, galeriaAtualizacaoAuto: true, galeriaPeriodo: 600, photoAlts: [], fotosOcultas: [], ocultasPendentes: [],
   photosAlert: { active: false, addedAt: null, expiresAfterHours: 24, kind: 'fotos' },
 };
 
@@ -359,6 +359,12 @@ export const GALERIA_MAX_CHAMADAS_CAP = 18;
 export const GALERIA_MAX_CHAMADAS_PAGO = 150;
 export const GALERIA_MAX_CHAMADAS_CAP_PAGO = 120;
 export const GALERIA_MAX_PASTAS_PAGO = 200;
+// Outros tetos que só existiam pelas 50 subrequisições do plano grátis (v3.7):
+// a pasta "para redes" (Instagram), a busca das pastas de envio e quantos
+// álbuns por capítulos o sitemap de imagens abre por pedido.
+export const GALERIA_MAX_CHAMADAS_IG_PAGO = 40;
+export const ENVIO_MAX_CHAMADAS_PAGO = 300;
+export const SITEMAP_PROJETOS_COM_CAPITULOS_PAGO = 40;
 // Quantos capítulos o índice mostra (a primeira página da API traz até 1000
 // pastas; o índice corta aqui e avisa o dono).
 export const GALERIA_MAX_CAPITULOS = 100;
@@ -486,7 +492,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.6.0';
+export const VERSAO = '3.7.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -527,3 +533,36 @@ export const ROSTO_SAIR_POR_IP_DIA = 20;
 // Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel
 // aceita marcar. Mais que isso é engano de digitação (ano errado).
 export const LANCAMENTO_MAX_DIAS = 400;
+
+// Busca nas fotos (v3.7): texto e "coisas" (Rekognition DetectText e
+// DetectLabels) e moderação automática (DetectModerationLabels), feitos uma
+// vez por foto pelo indexador. Ver src/busca.js e docs/ROSTO.md.
+export const BUSCA_MAX_RESULTADOS = 120;
+// Confiança mínima (0–100) para guardar uma palavra lida e uma "coisa". Texto
+// alto: número de camisa errado manda a pessoa para a foto errada.
+export const BUSCA_TEXTO_CONFIANCA_MIN = 85;
+export const BUSCA_COISA_CONFIANCA_MIN = 75;
+// Moderação: só as categorias de cima abaixo contam, e só com confiança alta.
+// Ficam de fora "Swimwear or Underwear" (piscina, praia) e "Gambling". Com
+// marca, a foto da TURMA (upload aberto ou sem pasta de fotógrafo) é escondida
+// até o dono decidir; a de fotógrafo credenciado só é marcada (o dono já
+// escolhe o que publica).
+export const BUSCA_MODERACAO_CONFIANCA_MIN = 80;
+export const BUSCA_MODERACAO_ESCONDE = Object.freeze([
+  'Explicit', 'Explicit Nudity', 'Non-Explicit Nudity of Intimate parts and Kissing', 'Non-Explicit Nudity',
+  'Violence', 'Visually Disturbing', 'Hate Symbols', 'Drugs & Tobacco', 'Drugs', 'Tobacco', 'Alcohol', 'Rude Gestures',
+]);
+// Buscas por IP (D1, sem custo na Amazon): rajada de 60 e 600 por hora.
+export const BUSCA_IP_BUCKET = { capacity: 60, perHour: 600 };
+// Itens por envio do indexador para /api/busca/indexar (o D1 aceita 100
+// parâmetros por consulta: o slug mais 90 fotos cabem).
+export const BUSCA_LOTE_MAX = 90;
+
+// Prévia do álbum com senha (v3.7): o "easter egg" da página "em breve" (5
+// toques no título → campo de senha). Quem acerta ganha um cookie de
+// PREVIA_COOKIE_DIAS dias que abre o álbum antes do lançamento (só ver, sem
+// painel). Trocar ou tirar a senha no painel derruba as prévias abertas.
+export const PREVIA_SENHA_MIN = 6;
+export const PREVIA_COOKIE_DIAS = 30;
+export const PREVIA_TENTATIVAS_POR_IP_HORA = 8;
+export const PREVIA_TENTATIVAS_POR_DIA = 200;

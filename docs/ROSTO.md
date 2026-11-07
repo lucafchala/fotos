@@ -138,3 +138,39 @@ feito para reduzir o risco:
   ```bash
   aws rekognition delete-collection --collection-id fotos-entrenos2026-sair --region sa-east-1
   ```
+
+## Busca nas fotos e moderação (v3.7)
+
+Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três leituras da mesma miniatura:
+
+| Operação | O que vira | Uso |
+|---|---|---|
+| `DetectText` | As palavras visíveis (só as com confiança ≥ 85%), normalizadas | Buscar "10" (camisa), "terceirão" (faixa), "PiauíFut" |
+| `DetectLabels` | As "coisas" e cenas (≥ 75%), em inglês e em português (`ROTULOS_PT`); as genéricas ("person", "face") ficam de fora | Buscar "palco", "bolo", "bola", "fantasia" |
+| `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Esconder foto imprópria **da turma** |
+
+**Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras.
+
+**A busca.** Com **Busca nas fotos (texto e coisas)** marcada no projeto, o álbum ganha o campo "Procurar nas fotos" (`GET /api/busca`).
+- Acha fotos com **todos** os termos, por **palavra inteira**: "10" não acha "100".
+- Deixa as ocultas de fora.
+- Mostra até 120 fotos.
+- É **só uma consulta ao D1**: nenhuma chamada à Amazon por visita.
+- Tem o mesmo portão da busca pelo rosto: álbum público, e antes do lançamento só o dono (ou quem tem a senha de prévia).
+
+**A moderação.** Roda sempre que o indexador passa, mesmo com a busca desligada.
+- **Foto da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`) com marca **nova**: entra em `fotosOcultas` na hora, e o dono recebe um e-mail com o link de cada uma.
+- **Foto de fotógrafo credenciado** (Luca, Mag, colégio, comissão): só marcada, com aviso no e-mail. Vocês já fazem a seleção.
+- **Uma foto só é escondida uma vez.** Se o dono a mostrar de novo no visualizador, o indexador não a esconde outra vez.
+
+**Permissão nova no IAM** (já está no `~/entrenos-handoff/aws-fase5.sh`). As três operações não aceitam restrição por coleção, por isso vão num `Statement` à parte, com `"Resource": "*"`:
+
+```json
+{"Sid":"TextoCoisasModeracao","Effect":"Allow","Action":["rekognition:DetectText","rekognition:DetectLabels","rekognition:DetectModerationLabels"],"Resource":"*"}
+```
+
+**Custo.** US$ 0,001 por operação por foto, ou cerca de **US$ 9 a mais para 3.000 fotos**, uma vez só, coberto pelos créditos. As buscas dos visitantes não custam nada na Amazon.
+
+**Melhores fotos (sorriso, olhos abertos, nitidez):** ficou para depois, a pedido do dono. Vocês já fazem a seleção; talvez valha só para as fotos da turma.
+
+**LGPD:** ROPA, seção 14; RIPD, R10.

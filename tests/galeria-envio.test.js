@@ -140,6 +140,17 @@ describe('pastasDeEnvio', () => {
     }
   });
 
+  it('Workers Paid: o teto sobe e a lista sai inteira', async () => {
+    const muitos = Array.from({ length: 30 }, (_, i) => `MUITO_${String(i).padStart(4, '0')}_01`);
+    for (const id of muitos) ARVORE[id] = [pasta(`${id}_A`, 'Ano A'), pasta(`${id}_B`, 'Ano B')];
+    try {
+      await pastasDeEnvio({ ...env, WORKERS_PLANO: 'pago' }, capsDe(muitos), CREDITOS);
+      expect(chamadas.length).toBe(90);
+    } finally {
+      for (const id of muitos) delete ARVORE[id];
+    }
+  });
+
   it('cache: a segunda leitura não chama o Drive; evento novo entra na hora', async () => {
     vi.stubGlobal('caches', fakeCaches());
     await pastasDeEnvio(env, capsDe(todas.slice(0, 2)), CREDITOS);
