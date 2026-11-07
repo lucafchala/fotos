@@ -30,6 +30,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { rekognition, base64, ErroAws } from '../src/aws.js';
 import { colecoes, idExterno, lerIdExterno } from '../src/rosto.js';
 import { ROSTO_REGIAO_PADRAO, BUSCA_LOTE_MAX } from '../src/config.js';
+
+// Filtro de qualidade do IndexFaces. NONE (v3.7.3): todo rosto que a Amazon
+// detecta entra, até o pequeno, de lado, tremido ou no escuro — melhor um
+// rosto ruim no índice que uma foto da pessoa que a busca não acha. Trocar
+// este valor reindexa os rostos uma vez (ver `#qualidade` no estado).
+const QUALIDADE = 'NONE';
 import { descreveFoto } from '../src/busca.js';
 
 const UA = 'fotos-rosto-indexador/1.0 (bot; +https://github.com/lucafchala/fotos)';
@@ -203,7 +209,22 @@ async function principal() {
     try { await aws(cred, 'CreateCollection', { CollectionId: col }); console.log(`[${slug}] coleção ${col} criada.`); } catch (e) {
       if (!(e instanceof ErroAws && e.tipo === 'ResourceAlreadyExistsException')) throw e;
     }
-    const indexados = await rostosIndexados(cred, col);
+    let indexados = await rostosIndexados(cred, col);
+    // Filtro de qualidade mudou (v3.7.3: LOW → NONE, "pegar todos os rostos,
+    // mesmo na dúvida"): apaga os rostos uma vez e indexa de novo, só a parte
+    // do rosto — texto, coisas e moderação já lidos não são lidos outra vez.
+    // A marca é gravada logo depois de apagar: se a execução parar no meio, a
+    // próxima continua sem apagar de novo.
+    const chaveQualidade = `${slug}#qualidade`;
+    if (estado[chaveQualidade] !== QUALIDADE) {
+      const ids = [...indexados.values()].flat();
+      for (let i = 0; i < ids.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: ids.slice(i, i + 4096) });
+      if (ids.length) console.log(`[${slug}] filtro de qualidade novo (${QUALIDADE}): ${ids.length} rostos apagados para indexar de novo.`);
+      indexados = new Map();
+      estado[slug] = [];
+      estado[chaveQualidade] = QUALIDADE;
+      await writeFile(arqEstado, JSON.stringify(estado));
+    }
     const vistas = new Set(estado[slug] || []);
     for (const k of indexados.keys()) vistas.add(k);
 
@@ -231,7 +252,7 @@ async function principal() {
         const bytes = await miniatura(id);
         const imagem = { Bytes: base64(bytes) };
         const [res, texto, rotulos, moderacao] = await Promise.all([
-          vistas.has(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: 'LOW', DetectionAttributes: [] }),
+          vistas.has(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: QUALIDADE, DetectionAttributes: [] }),
           descrever && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
           descrever && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
           descrever && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,

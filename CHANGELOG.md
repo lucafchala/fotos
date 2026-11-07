@@ -18,7 +18,33 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.7.2] — ainda não publicada
+## [3.7.3] — ainda não publicada
+
+Busca pelo rosto mais generosa ("na dúvida, mostrar") e o álbum aquecido
+para o lançamento.
+
+### Mudou
+
+- **A Amazon indexa todo rosto que detecta** (filtro de qualidade `NONE`, era
+  `LOW`): o pequeno, de lado, tremido ou no escuro também entra. A primeira
+  execução do indexador apaga os rostos e indexa de novo, uma vez, só a parte
+  do rosto (texto e coisas já lidos não são lidos outra vez; ~US$ 1,50).
+- **A busca pelo rosto mostra mais:** semelhança mínima 80% (era 90%), sem
+  filtro de qualidade na selfie, e a segunda etapa (as "sementes") em 85% (era
+  92%). Os achados vêm do mais certo para o menos certo; no fim da lista pode
+  aparecer um parecido. A saída da busca ("não quero aparecer") passou para
+  75%, sempre abaixo da busca.
+
+### Novo
+
+- **Álbum aquecido:** enquanto o álbum está "Em breve", o cron relê a lista de
+  eventos e cada evento a cada 3 h, e de novo nos 30 min antes de um
+  lançamento agendado. A lista fica no D1 e o resumo de cada evento (capas,
+  número de fotos, datas) agora também no KV: o primeiro visitante de
+  qualquer lugar vê tudo pronto, sem esperar o Google Drive. O "Lançar agora"
+  pega o que o ciclo de 3 h deixou pronto.
+
+## [3.7.2] — 07/11/2026
 
 Pedidos do dono depois de testar a prévia: menos número na abertura, filtro por
 ano, baixar tudo sem passar pelo Drive, a lista de "Mandar suas fotos" mais
@@ -63,7 +89,7 @@ rápida e o indexador da busca que não perde o que fez.
   30): a foto nova entra na busca mais cedo. Antes, o álbum de 2.364
   fotos estourava os 45 min e o progresso se perdia.
 
-## [3.7.1] — ainda não publicada (vai no #284)
+## [3.7.1] — 07/11/2026
 
 Ajustes do álbum Entre Nós a pedido do dono e da Mag: endereço limpo, marca
 própria, crédito do fotógrafo em destaque, atalhos sem seções a mais, prévia

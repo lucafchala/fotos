@@ -1521,12 +1521,15 @@ const RESUMO_MEM_MS = 6 * 3600 * 1000;
 const memoriaResumo = new Map();
 /** @param {string} id */
 const chaveResumo = id => `https://fotos.invalid/__galeria/resumo/${id}`;
+/** @param {string} id */
+const chaveResumoKv = id => `resumo:${id}`;
 
 /**
  * @param {string} raizId
+ * @param {{ FOTOS?: any }} [env] com o KV, a reserva global (v3.7.3)
  * @returns {Promise<Record<string, ResumoCap>>}
  */
-export async function lerResumo(raizId) {
+export async function lerResumo(raizId, env = undefined) {
   const mem = memoriaResumo.get(raizId);
   if (mem && Date.now() - mem.em < RESUMO_MEM_MS) return mem.mapa;
   const store = cacheStore();
@@ -1544,6 +1547,29 @@ export async function lerResumo(raizId) {
       console.error('galeria: leitura do resumo dos capítulos falhou', e);
     }
   }
+  // KV (v3.7.3): a Cache API é de cada data center; sem isto, o primeiro
+  // visitante de cada lugar via os cartões sem capa e sem data até alguém
+  // abrir cada evento ali. Achou no KV: guarda na Cache API deste lugar. Só no
+  // Workers Paid: no grátis, a leitura e a escrita a mais estouram as 50
+  // subrequisições da página fria de um evento.
+  const kv = env && planoPago(env) && env.FOTOS;
+  if (kv && typeof kv.get === 'function') {
+    try {
+      const bruto = await kv.get(chaveResumoKv(raizId), { cacheTtl: 300 });
+      const j = bruto ? /** @type {any} */ (JSON.parse(bruto)) : null;
+      if (j && j.v === 1 && j.mapa && typeof j.mapa === 'object') {
+        memoriaResumo.set(raizId, { em: Date.now(), mapa: j.mapa });
+        if (store) {
+          try {
+            await store.put(chaveResumo(raizId), new Response(bruto, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } }));
+          } catch { /* best-effort */ }
+        }
+        return j.mapa;
+      }
+    } catch (e) {
+      console.error('galeria: leitura do resumo no KV falhou', e);
+    }
+  }
   return mem ? mem.mapa : {};
 }
 
@@ -1553,8 +1579,9 @@ export async function lerResumo(raizId) {
  * @param {string} raizId
  * @param {string} capId
  * @param {ListagemDrive} listagem a listagem CRUA do capítulo (com as ocultas)
+ * @param {{ FOTOS?: any }} [env] com o KV, guarda também lá quando muda (v3.7.3)
  */
-export async function registraResumo(raizId, capId, listagem) {
+export async function registraResumo(raizId, capId, listagem, env = undefined) {
   const capas = [];
   for (const sec of listagem.secoes) {
     for (const f of sec.fotos) { if (capas.length < 3) capas.push(f[0]); }
@@ -1587,19 +1614,26 @@ export async function registraResumo(raizId, capId, listagem) {
   }
   if (mesMin) novo.p = [mesMin, mesMax];
   if (Object.keys(porAutor).length) novo.a = porAutor;
-  const mapa = { ...(await lerResumo(raizId)) };
+  const mapa = { ...(await lerResumo(raizId, env)) };
   const velho = mapa[capId];
   if (velho && JSON.stringify(velho) === JSON.stringify(novo)) return;
   mapa[capId] = novo;
   memoriaResumo.set(raizId, { em: Date.now(), mapa });
+  const corpo = JSON.stringify({ v: 1, mapa });
   const store = cacheStore();
-  if (!store) return;
-  try {
-    await store.put(chaveResumo(raizId), new Response(JSON.stringify({ v: 1, mapa }), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' },
-    }));
-  } catch (e) {
-    console.error('galeria: escrita do resumo dos capítulos falhou', e);
+  if (store) {
+    try {
+      await store.put(chaveResumo(raizId), new Response(corpo, {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' },
+      }));
+    } catch (e) {
+      console.error('galeria: escrita do resumo dos capítulos falhou', e);
+    }
+  }
+  // Só quando mudou (raro): poucas escritas no KV. Só no Workers Paid.
+  const kv = env && planoPago(env) && env.FOTOS;
+  if (kv && typeof kv.put === 'function') {
+    try { await kv.put(chaveResumoKv(raizId), corpo); } catch (e) { console.error('galeria: escrita do resumo no KV falhou', e); }
   }
 }
 

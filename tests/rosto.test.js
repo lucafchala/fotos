@@ -366,3 +366,21 @@ describe('contrato página → indexador', () => {
     expect(fotosDaPagina(h)).toMatchObject({ cap: 'cap-a', ids: ['FOTO_AAAAAAAA01', 'FOTO_BBBBBBBB02'] });
   });
 });
+
+describe('limiares da busca pelo rosto (v3.7.3: na dúvida, mostrar)', () => {
+  it('a saída da busca apaga tudo o que a busca acharia; a busca é generosa', async () => {
+    const c = await import('../src/config.js');
+    expect(c.ROSTO_LIMIAR).toBeLessThanOrEqual(80);
+    expect(c.ROSTO_LIMIAR_SAIR).toBeLessThan(c.ROSTO_LIMIAR);
+    expect(c.ROSTO_SEMENTE_MIN).toBeGreaterThan(c.ROSTO_LIMIAR_SEMENTE);
+  });
+
+  it('a busca no álbum não descarta selfie de qualidade baixa; o indexador põe todo rosto', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const rosto = await readFile(new URL('../src/rosto.js', import.meta.url), 'utf8');
+    expect(rosto).toMatch(/CollectionId: c\.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'NONE'/);
+    const idx = await readFile(new URL('../scripts/rosto-indexa.mjs', import.meta.url), 'utf8');
+    expect(idx).toContain("const QUALIDADE = 'NONE';");
+    expect(idx).toContain('QualityFilter: QUALIDADE');
+  });
+});
