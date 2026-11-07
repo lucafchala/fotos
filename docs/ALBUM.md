@@ -112,7 +112,7 @@ O aviso aparece em **todos os sites do ecossistema**, de dois jeitos.
 | rg.lucafchala.com | Servidor (`_worker.js`), só na tela do PIN | lucafchala/rg.lucafchala.com#2 | Impressão e guias ficam de fora |
 
 **Fora, de propósito:**
-- `bia.lucafchala.com` é a página da Beatriz: fica de fora até o dono decidir.
+- `bia.lucafchala.com` é a página da Beatriz: fica de fora (decisão do dono, 07/11/2026).
 - `Edificio-maison-blanche` não está no ar em nenhum endereço conhecido.
 - Os repositórios sem site (hangman, a-calculadora, Alemanha-2026, OMG.LOL_transfer) ficam de fora.
 
