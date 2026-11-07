@@ -578,7 +578,8 @@ export async function consultaArquivo(env, id, rk = '') {
  *
  * Atalho de PASTA (v3.6) é transparente: o conteúdo da pasta de destino entra
  * como se estivesse onde o atalho está — mesma seção, mesmo autor, sem contar
- * profundidade. É assim que um álbum usa fotos que já moram em outra pasta
+ * profundidade; desde a v3.7.1, as SUBPASTAS do destino também (não viram
+ * seções). É assim que um álbum usa fotos que já moram em outra pasta
  * (de outro projeto publicado) sem copiar nem mover nada: um atalho dentro da
  * pasta do fotógrafo. Destino sem acesso público é pulado e contado em `sa`
  * (o dono vê o aviso); a mesma pasta nunca é lida duas vezes (ciclos de
@@ -599,6 +600,11 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
   const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
   const vistas = new Set([raiz.id]);
   let semAcesso = 0;
+  // Dentro de atalho (v3.7.1): a mesma foto em duas pastas do destino
+  // ("Resolução Redes Sociais" e "Resolução Total", uma seleção "!Dia 1" e o
+  // "Dia 1") vira UMA, a de mais bytes. Chave: seção + nome do arquivo.
+  /** @type {Map<string, { secao: SecaoDrive, i: number }>} */
+  const porNome = new Map();
   /** @type {Map<string, SecaoDrive>} */
   const secoes = new Map();
   /** @type {Record<string, string>} */
@@ -661,6 +667,13 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             } else {
               truncada = true;
             }
+          } else if (atual.atalho && pastas < maxPastas) {
+            // Dentro de um atalho tudo é transparente (v3.7.1, pedido do dono):
+            // as subpastas do destino não viram seções. As etiquetas do topo
+            // seguem as pastas do álbum (o ano, a banda), não as de onde as
+            // fotos moram.
+            pastas++;
+            fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: atual.autor, atalho: true });
           } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < maxPastas) {
             pastas++;
             fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
@@ -674,10 +687,23 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
         const ehImg = mime.startsWith('image/');
         const ehVid = !ehImg && mime.startsWith('video/');
         if (ehImg || ehVid) {
+          const item = ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor);
+          if (atual.atalho) {
+            const k = `${caminho}\u0000${String(f.name || '').toLowerCase()}`;
+            const ja = porNome.get(k);
+            if (ja) {
+              if ((item[4] || 0) > (ja.secao.fotos[ja.i][4] || 0)) {
+                ja.secao.fotos[ja.i] = item;
+                if (typeof f.resourceKey === 'string' && f.resourceKey) rk[f.id] = f.resourceKey;
+              }
+              continue;
+            }
+            porNome.set(k, { secao, i: secao.fotos.length });
+          }
           if (total >= GALERIA_MAX_FOTOS) { truncada = true; continue; }
           total++;
           if (ehVid) videos++;
-          secao.fotos.push(ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor));
+          secao.fotos.push(item);
           if (typeof f.resourceKey === 'string' && f.resourceKey) rk[f.id] = f.resourceKey;
         } else {
           outros++;
