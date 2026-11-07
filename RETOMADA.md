@@ -492,7 +492,7 @@ O que já mordeu, ou morderia:
   `-redes`) e não recodifica. `max` = o original da pasta do projeto; `redes` =
   o arquivo da pasta do Instagram (`driveUrlInstagram`) que casa com a foto
   (`casaRedes` em `src/drive.js`: nome sem extensão, sem maiúscula/Unicode;
-  senão o do Instagram sem sufixo `-insta`/`_ig`/` instagram`/`-redes`; mesma
+  senão o do Instagram sem a marca `insta`/`ig`/`instagram`/`redes`/`lowres`, no fim ou no meio do nome (v3.7.2: `Zenite_lowres-07` casa com `Zenite-07`); por último, o com UMA palavra qualquer a mais, separadores valendo o mesmo (`PiauiFut+2026_social-274` casa com `PiauiFut+2026-274`); mesma
   subpasta primeiro). Sem par, sem pasta ou pasta ilegível: sem "para redes" na
   UI e 404 em `v=redes`. O id da rota é SEMPRE o da foto da galeria; o id do
   arquivo do Instagram vem da listagem do servidor (nunca do pedido, nem vai à

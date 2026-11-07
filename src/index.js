@@ -4474,7 +4474,6 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
     capituloNome: capitulo ? capitulo.nome : '',
-    pastaDrive: pasta,
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo) } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });

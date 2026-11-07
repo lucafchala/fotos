@@ -615,6 +615,27 @@ describe('casaRedes — a regra de casamento com a pasta do Instagram', () => {
     expect(par(g, ig, '006.jpg')).toBe('006.jpg');
   });
 
+  it('marca no MEIO do nome (v3.7.2, o modelo de exportação do dono): "Zenite_lowres-07" casa com "Zenite-07"', () => {
+    const g = lista([['', ['Zenite-07.jpg', 'FestaJunina-2026-12.jpg', 'Show-03.jpg', 'Bigode-01.jpg', 'Night-02.jpg']]]);
+    const ig = lista([['', ['Zenite_lowres-07.jpg', 'FestaJunina-2026-lowres-12.jpg', 'Show low-res 03.jpg', 'Bigode-01-ig.jpg', 'Nightlife-02.jpg']]]);
+    expect(par(g, ig, 'Zenite-07.jpg')).toBe('Zenite_lowres-07.jpg');
+    expect(par(g, ig, 'FestaJunina-2026-12.jpg')).toBe('FestaJunina-2026-lowres-12.jpg');
+    expect(par(g, ig, 'Show-03.jpg')).toBe('Show low-res 03.jpg'); // separador não importa
+    expect(par(g, ig, 'Bigode-01.jpg')).toBe('Bigode-01-ig.jpg');
+    // "ig" dentro de outra palavra não é marca.
+    expect(par(g, ig, 'Night-02.jpg')).toBeNull();
+  });
+
+  it('UMA palavra qualquer a mais (os modelos de exportação mudam): "_social", "-downsided"; número nunca é a palavra', () => {
+    const g = lista([['', ['PiauiFut+2026-274.jpg', 'Banda_Clovis-23.jpg', 'Festa-2026-01.jpg', 'Gala-05.jpg', '07.jpg']]]);
+    const ig = lista([['', ['PiauiFut+2026_social-274.jpg', 'Banda_Clovis-downsided-23.jpg', 'Festa-2026-01-02.jpg', 'Gala-x-05.jpg', 'Outra-07.jpg']]]);
+    expect(par(g, ig, 'PiauiFut+2026-274.jpg')).toBe('PiauiFut+2026_social-274.jpg');
+    expect(par(g, ig, 'Banda_Clovis-23.jpg')).toBe('Banda_Clovis-downsided-23.jpg');
+    expect(par(g, ig, 'Festa-2026-01.jpg')).toBeNull(); // número a mais não vale
+    expect(par(g, ig, 'Gala-05.jpg')).toBeNull(); // uma letra só não é palavra
+    expect(par(g, ig, '07.jpg')).toBeNull(); // só o número sobra: não vale
+  });
+
   it('nomes repetidos em subpastas: vale a da MESMA subpasta; sem ela, a primeira', () => {
     const g = lista([['Festa', ['001.jpg']], ['Cerimônia', ['001.jpg']], ['Outra', ['001.jpg']]]);
     const ig = lista([['Cerimônia', ['001.jpg']], ['Festa', ['001.JPG']]]);
@@ -785,11 +806,11 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
     expect(html).toMatch(/\.g-topo\{[^}]*width:44px;height:44px/);
   });
 
-  it('a faixa de chips existe (a página decide se aparece) e o link do Drive vai nos dados', () => {
+  it('a faixa de chips existe (a página decide se aparece); o link do Drive NÃO vai nos dados (v3.7.2)', () => {
     const html = bruto(fotos37.slice(0, 1));
     expect(html).toContain('id="g-chips"');
     const ilha = html.match(/<script type="application\/json" id="g-dados" nonce="N">([\s\S]*?)<\/script>/);
-    expect(JSON.parse(/** @type {RegExpMatchArray} */ (ilha)[1]).drive).toBe(EVENTOS[0].driveUrl);
+    expect(JSON.parse(/** @type {RegExpMatchArray} */ (ilha)[1]).drive).toBeUndefined();
     expect(html).not.toContain(CHAVE);
   });
 });
@@ -1217,12 +1238,11 @@ describe('galeria pública no Google', () => {
 
   it('links de download e do Drive levam rel="nofollow"', async () => {
     const html = await (await visitante('/galeria/formatura')).text();
-    expect(html).toMatch(/<a id="g-folha-drive"[^>]* rel="nofollow noopener"/);
+    expect(html).not.toContain('id="g-folha-drive"');
     expect(html).toMatch(/href="https:\/\/drive\.google\.com\/[^"]*" rel="nofollow">Abrir a pasta no Drive/);
-    // O <a download> que o script cria para o download e o "Pelo Google Drive".
+    // O <a download> que o script cria para o download.
     const script = html.slice(html.indexOf('function linkDireto'));
     expect(script.slice(0, 300)).toContain("a.rel = 'nofollow';");
-    expect(html).toContain("a.rel = 'nofollow noopener';");
     expect(html).not.toMatch(/a\.rel = 'noopener';/);
   });
 });

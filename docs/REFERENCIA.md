@@ -2024,8 +2024,13 @@ conversão (`Cache-Control: private, no-transform`).
 
 **Como a foto casa com o arquivo do Instagram.** Pelo nome sem extensão,
 ignorando maiúscula/minúscula e a normalização Unicode (`001.HEIC` casa com
-`001.jpg`). Se não há nome igual, vale o do Instagram sem um sufixo trivial
-(`-insta`, `_ig`, ` instagram`, `-redes`): `b.jpg` casa com `b-insta.jpg`. Nome
+`001.jpg`). Se não há nome igual, vale o do Instagram sem uma marca
+(`insta`, `ig`, `instagram`, `redes`, `lowres`, separada por `-`, `_`, ponto ou
+espaço, no fim ou no meio do nome): `b.jpg` casa com `b-insta.jpg` e, desde a
+3.7.2, `Zenite-07.jpg` casa com `Zenite_lowres-07.jpg`. Por último, vale o
+arquivo com UMA palavra qualquer a mais (só letras; número nunca), com `-`, `_`,
+`+`, ponto e espaço valendo o mesmo: `Banda_Clovis-23.jpg` casa com
+`Banda_Clovis-downsided-23.jpg`. Nome
 igual sempre ganha de sufixo; com nomes repetidos em subpastas, vale o da mesma
 subpasta e, na falta, o primeiro em ordem natural. Sem par: sem "para redes".
 

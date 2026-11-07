@@ -78,7 +78,7 @@ Worker e a opção estar marcada no projeto.
 
 6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
 
-7. **Montar o índice:** Actions → rosto → Run workflow. A primeira execução indexa o álbum inteiro: cerca de 4 fotos por segundo, ou uns 15 minutos para 3.000 fotos. Depois, o workflow roda sozinho a cada 30 minutos e pega as fotos novas.
+7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 30 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 30 minutos e pega as fotos novas.
 
 8. **Ligar no projeto:** no painel, edite o projeto e marque **Busca pelo rosto**. O botão **Procurar meu rosto** aparece no índice da galeria.
 
@@ -98,7 +98,8 @@ Worker e a opção estar marcada no projeto.
   - lê as páginas públicas do álbum, ou seja, a mesma lista que o visitante vê;
   - indexa a foto de 2400 px das fotos novas (1600 px se passar de 5 MB), até 100 rostos por foto, com o filtro de qualidade LOW para não perder rosto pequeno em foto de grupo;
   - apaga os rostos das fotos que saíram do álbum;
-  - guarda o estado no cache do Actions. Se o cache se perder, o pior caso é reprocessar o álbum.
+  - guarda o estado no cache do Actions, gravado a cada lote de 90 fotos e salvo mesmo se o passo falhar (v3.7.2). Se o cache se perder, os rostos não se repetem (a coleção diz quais fotos já estão lá); só texto, coisas e moderação são lidos de novo.
+  - processa até 4 fotos ao mesmo tempo, começando uma a cada 250 ms: cada operação fica em no máximo 4 chamadas por segundo (a cota padrão é 5).
 - **Só nos álbuns certos:** o botão só aparece no índice da galeria por capítulos, em álbum público. Antes do lançamento ([`ALBUM.md`](./ALBUM.md)), só o dono, logado, vê e testa.
 - **Sem as chaves no Worker:** as rotas respondem 404.
 

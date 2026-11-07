@@ -71,47 +71,27 @@ describe('página do capítulo: nomes de capítulo e de autor viram texto', () =
   });
 });
 
-describe('botão "Baixar o evento inteiro (Google Drive)" (item 1g.4b)', () => {
+describe('sem link para a pasta no Drive (v3.7.2; era o item 1g.4b)', () => {
   const foto = (/** @type {string} */ id) => /** @type {import('../src/drive.js').FotoDrive} */ ([id, 6000, 4000, `${id}.jpg`, 1000, 0, 20261105143000]);
   const lista = (/** @type {number} */ n) => ({
     v: /** @type {2} */ (2), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false, total: n, videos: 0, outros: 0, rk: {},
     aut: ['Luca F. Chala'],
     secoes: [{ nome: '', caminho: '', fotos: Array.from({ length: n }, (_, i) => foto(`FOTO00000000${i}A`)) }],
   });
-  const pagina = (/** @type {any} */ pastaDrive, n = 2, capitulo = null) => {
+  const pagina = (n = 2, capitulo = null) => {
     const l = lista(n);
-    return galeriaHTML({ event: /** @type {any} */ ({ ...EVENTO, driveUrl: 'https://drive.google.com/drive/folders/PROJETO_RAIZ_0001' }), listagem: l, listagemBruta: l, capitulo, erro: null, nonce: 'NONCE', dono: false, formToken: '', pastaDrive });
+    return galeriaHTML({ event: /** @type {any} */ ({ ...EVENTO, driveUrl: 'https://drive.google.com/drive/folders/PROJETO_RAIZ_0001' }), listagem: l, listagemBruta: l, capitulo, erro: null, nonce: 'NONCE', dono: false, formToken: '' });
   };
-  const ID = 'CAPITULO_PASTA_0002';
 
-  it('abre a pasta do Drive em outra aba, com a ajuda curta', () => {
-    const h = pagina({ id: ID });
-    expect(h).toContain(`href="https://drive.google.com/drive/folders/${ID}"`);
-    expect(h).toContain('target="_blank" rel="nofollow noopener"');
-    expect(h).toContain('Baixar o evento inteiro (Google Drive)');
-    expect(h).toContain('abre no Google Drive; lá, toque ⋮ → Fazer download');
-  });
-
-  it('com resourceKey, leva o resourcekey na URL', () => {
-    expect(pagina({ id: ID, resourceKey: '0-AbCd_ef' })).toContain(`folders/${ID}?resourcekey=0-AbCd_ef"`);
-  });
-
-  it('resourceKey ou id fora do padrão não viram link', () => {
-    expect(pagina({ id: ID, resourceKey: '"><script>' })).not.toContain('resourcekey=');
-    expect(pagina({ id: 'x"onmouseover="y' })).not.toContain('data-acao="pasta-drive"');
-    expect(pagina({ id: 'curto' })).not.toContain('data-acao="pasta-drive"');
-  });
-
-  it('sem pastaDrive ou sem fotos, nenhum botão', () => {
-    expect(pagina(null)).not.toContain('data-acao="pasta-drive"');
-    expect(pagina({ id: ID }, 0)).not.toContain('data-acao="pasta-drive"');
-  });
-
-  it('o "Pelo Google Drive" da folha "Baixar tudo" abre a pasta do capítulo, não a do projeto', () => {
-    const h = pagina({ id: ID });
-    expect(h).toContain(`"drive":"https://drive.google.com/drive/folders/${ID}"`);
-    expect(h).not.toContain('"drive":"https://drive.google.com/drive/folders/PROJETO_RAIZ_0001"');
-    // Sem pastaDrive (página sem capítulos antiga): cai no link do projeto.
-    expect(pagina(null)).toContain('"drive":"https://drive.google.com/drive/folders/PROJETO_RAIZ_0001"');
+  // v3.7.2: com atalhos e subpastas o Drive não junta tudo, e quem não é dono
+  // da pasta de destino não entra. O visitante não recebe link para pasta.
+  it('o visitante não recebe link para a pasta no Drive (nem o botão, nem na folha "Baixar tudo")', () => {
+    const h = pagina();
+    expect(h).not.toContain('data-acao="pasta-drive"');
+    expect(h).not.toContain('Baixar o evento inteiro (Google Drive)');
+    expect(h).not.toContain('"drive":');
+    expect(h).not.toContain('id="g-folha-drive"');
+    expect(h).toContain('data-acao="baixar-tudo"');
+    expect(pagina(0)).not.toContain('data-acao="baixar-tudo"');
   });
 });

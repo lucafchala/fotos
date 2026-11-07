@@ -795,28 +795,41 @@ await cenario('Fila de download libera sozinha', async () => {
   await ctx.close();
 });
 
-// Botão "Baixar o evento inteiro (Google Drive)": abre a pasta do capítulo em
-// outra aba e o "Pelo Google Drive" da folha "Baixar tudo" aponta para ela.
-await cenario('Botão da pasta no Drive', async () => {
-  const ID = 'CAPITULO_PASTA_0002';
-  const comPasta = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, pastaDrive: { id: ID, resourceKey: '0-abc' }, redes: REDES });
-  const { ctx, page, estado } = await abre({ pagina: comPasta });
-  const a = page.locator('a[data-acao="pasta-drive"]');
-  registra(await a.count() === 1, 'Pasta no Drive: o botão existe uma vez', await a.count());
-  registra(await a.getAttribute('href') === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, 'Pasta no Drive: o link é o da pasta (com resourcekey)', await a.getAttribute('href'));
-  registra(await a.getAttribute('target') === '_blank' && /noopener/.test((await a.getAttribute('rel')) || ''), 'Pasta no Drive: abre em outra aba, sem opener', await a.getAttribute('rel'));
-  registra(/⋮ → Fazer download/.test((await page.locator('.g-pasta-drive').textContent()) || ''), 'Pasta no Drive: a ajuda diz onde tocar', await page.locator('.g-pasta-drive').textContent());
-  const alt = await a.boundingBox();
-  registra(!!alt && alt.height >= 44, 'Pasta no Drive: alvo de toque com 44 px', alt);
-  await page.locator('[data-acao="baixar-tudo"]').first().click().catch(() => {});
+// v3.7.2: nada de link para a pasta no Drive. "Baixar tudo" baixa pelo site
+// (a mesma folha do "Baixar" da seleção) e, com filtro ligado, só o da tela.
+// Seções que são anos ("2026", "2025") viram filtro no topo.
+await cenario('Baixar tudo pelo site e filtro por ano', async () => {
+  const { ctx, page, estado } = await abre({});
+  registra(await page.locator('a[data-acao="pasta-drive"], #g-folha-drive').count() === 0, 'Sem Drive: nenhum link para a pasta', '');
+  await page.locator('[data-acao="baixar-tudo"]').first().click();
   await espera(page, 400);
-  const href = await page.locator('#g-folha-ops a.g-op').first().getAttribute('href').catch(() => null);
-  registra(href === `https://drive.google.com/drive/folders/${ID}?resourcekey=0-abc`, '"Baixar tudo" > "Pelo Google Drive" abre a pasta do capítulo', href);
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Pasta no Drive: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  const op = page.locator('#g-folha-ops .g-op').first();
+  const t = (await op.textContent()) || '';
+  registra(new RegExp('Baixar todas \\(' + TODAS.length + '\\)').test(t), '"Baixar tudo": oferece baixar todas pelo site, com a contagem', t);
+  registra(await page.locator('#g-folha-ops a[href*="drive.google.com"]').count() === 0, '"Baixar tudo": sem "Pelo Google Drive"', '');
+  await op.click();
+  await espera(page, 400);
+  const tit = (await page.locator('#g-folha-t').textContent()) || '';
+  registra(/^Baixar \d+ (fotos|arquivos)$/.test(tit), '"Baixar tudo" leva à folha de versões de todas', tit);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Baixar tudo: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
-  const sem = await abre({});
-  registra(await sem.page.locator('a[data-acao="pasta-drive"]').count() === 0, 'Pasta no Drive: sem pastaDrive, sem botão', '');
-  await sem.ctx.close();
+
+  const anos = { ...LISTAGEM, secoes: [{ nome: '2026', caminho: '2026', fotos: raiz }, { nome: '2025', caminho: '2025', fotos: festa }] };
+  const pag = galeriaHTML({ event: EVENTO, listagem: anos, erro: null, nonce: NONCE, redes: REDES });
+  const p2 = await abre({ pagina: pag });
+  const chipsAno = p2.page.locator('[data-acao="filtro-sec"]');
+  registra(await chipsAno.count() === 3, 'Anos: "Todos os anos" + um chip por ano', await chipsAno.count());
+  await p2.page.locator('[data-acao="filtro-sec"][data-sec="1"]').click();
+  await espera(p2.page, 400);
+  const visiveis = await p2.page.locator('.g-sec:not([hidden])').count();
+  registra(visiveis === 1, 'Anos: tocar em 2025 mostra só 2025', visiveis);
+  registra(await p2.page.locator('[data-acao="filtro-sec"][data-sec="1"]').getAttribute('aria-pressed') === 'true', 'Anos: o chip fica marcado', '');
+  await p2.page.locator('[data-acao="baixar-tudo"]').first().click();
+  await espera(p2.page, 400);
+  const t2 = (await p2.page.locator('#g-folha-ops .g-op').first().textContent()) || '';
+  registra(t2.includes('Baixar as ' + festa.length + ' da tela'), 'Anos: "Baixar tudo" com filtro baixa só o ano', t2);
+  registra(p2.estado.erros.length === 0 && p2.estado.csp.length === 0, 'Anos: sem erro de JS nem CSP', [...p2.estado.erros, ...p2.estado.csp]);
+  await p2.ctx.close();
 });
 
 // iPad: finge ser um Mac (UA e plataforma), mas tem toque — também é iOS.
@@ -927,15 +940,15 @@ await cenario('Cabeçalho e favoritas', async () => {
   await espera(page, 900);
   registra(await page.locator('.g-t.fav').count() === 2, 'Favoritas: sobrevivem a recarregar a página', '');
 
-  // Fora do filtro: "Baixar tudo" oferece o Drive e as favoritas.
+  // Fora do filtro: "Baixar tudo" oferece todas (pelo site) e as favoritas.
   const filtrando = await page.locator('.g-chip[aria-pressed="true"]').count();
   if (filtrando) await page.locator('.g-chip[data-acao="filtro-fav"]').click();
   await page.locator('[data-acao="baixar-tudo"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
   const titulo = await page.locator('#g-folha-t').textContent();
   const ops = await page.locator('.g-op strong').allTextContents();
-  registra(titulo === 'Baixar tudo' && ops.some(t => /Google Drive/.test(t)) && ops.some(t => /favoritas \(2\)/.test(t)),
-    '"Baixar tudo": oferece o Drive e as favoritas', { titulo, ops });
+  registra(titulo === 'Baixar tudo' && ops.some(t => /^Baixar todas \(\d+\)$/.test(t)) && !ops.some(t => /Google Drive/.test(t)) && ops.some(t => /favoritas \(2\)/.test(t)),
+    '"Baixar tudo": oferece todas pelo site e as favoritas, sem Drive', { titulo, ops });
   await page.keyboard.press('Escape');
   await espera(page, 400);
 

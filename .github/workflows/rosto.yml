@@ -28,7 +28,7 @@ jobs:
     name: Indexa os rostos
     if: vars.ROSTO_SLUGS != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,7 +38,9 @@ jobs:
           node-version: '22'
       # O estado (fotos já vistas, inclusive as sem rosto) passa de uma
       # execução para a próxima. Perdeu? O pior caso é reprocessar o álbum.
-      - uses: actions/cache@v6
+      # Restaurar e salvar separados (v3.7.2): o salvar roda mesmo se o passo
+      # Indexa falhar ou o job for cancelado — o progresso não se perde.
+      - uses: actions/cache/restore@v6
         with:
           path: .rosto-estado.json
           key: rosto-estado-${{ github.run_id }}
@@ -50,4 +52,11 @@ jobs:
           AWS_REGION: ${{ vars.ROSTO_AWS_REGION || 'sa-east-1' }}
           ROSTO_SLUGS: ${{ vars.ROSTO_SLUGS }}
           ROSTO_INDEXADOR_TOKEN: ${{ secrets.ROSTO_INDEXADOR_TOKEN }}
+          # Para de pegar foto nova aos 35 min e grava; o job tem 50.
+          ROSTO_MAX_MINUTOS: '35'
         run: node scripts/rosto-indexa.mjs
+      - uses: actions/cache/save@v6
+        if: always() && hashFiles('.rosto-estado.json') != ''
+        with:
+          path: .rosto-estado.json
+          key: rosto-estado-${{ github.run_id }}
