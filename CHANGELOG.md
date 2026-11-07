@@ -18,6 +18,45 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.5.0] — ainda não publicada
+
+Lançar o álbum com um clique, ou com dia e hora marcados. Até lá, nada dele é
+público.
+
+### Novo
+
+- **Lançar agora…:** item no menu ⋯ de cada projeto oculto ou "Em breve".
+  Pede para digitar LANÇAR e, num passo só, tira do "Em breve", deixa visível
+  e fixa. É o que a Fase 7 fazia em três caixinhas.
+- **Lançamento marcado:** campo de dia e hora no formulário do projeto, com o
+  selo "Lança 20/11, 20:00" na lista.
+  - Na hora, o projeto passa a valer como lançado em todo o site ao mesmo
+    tempo, sozinho.
+  - A troca acontece na leitura dos projetos, sem tarefa agendada que possa
+    atrasar.
+  - A próxima gravação pelo painel torna a troca permanente.
+- **Contagem regressiva** na página "em breve" do domínio do álbum: "Chega em
+  20 de novembro, às 20h", com dias, horas, minutos e segundos. **Desligada
+  por padrão**, porque revela a data. Na hora, a página recarrega e cai na
+  galeria.
+
+### Mudou
+
+- **Álbum com domínio próprio ainda não lançado:** a página do projeto
+  (`/entrenos2026`) dá 404 para o público. Antes, quem chutasse o endereço via
+  o título "Em breve". Os outros projetos "Em breve" seguem como estavam.
+
+### Segurança
+
+- **Lançar é irreversível para o público**, então nada lança por engano:
+  - data no passado é recusada no painel e no servidor;
+  - data a mais de 400 dias é descartada;
+  - backup restaurado com data vencida não lança;
+  - salvar um formulário aberto desde antes da hora não devolve o álbum ao
+    "Em breve".
+- A data marcada não aparece em nenhuma página nem API pública, a não ser com
+  a contagem ligada.
+
 ## [3.4.0] — ainda não publicada
 
 "Mandar suas fotos" leva cada pessoa direto à pasta certa do Drive.

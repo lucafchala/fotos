@@ -2276,7 +2276,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       // "Lançar agora…" do menu, que pede confirmação.
       const lancarLocal = document.getElementById('f-lancar-em').value;
       const lancarEmISO = lancarLocal && !isNaN(new Date(lancarLocal).getTime()) ? new Date(lancarLocal).toISOString() : '';
-      const lancarOriginal = editingId ? ((events.find(ev => ev.id === editingId) || {}).lancarEm || '') : '';
+      const evEditado = /** @type {any} */ (editingId ? events.find(ev => ev.id === editingId) : null);
+      const lancarOriginal = evEditado && evEditado.lancarEm ? String(evEditado.lancarEm) : '';
       if (lancarEmISO && Date.parse(lancarEmISO) <= Date.now() && lancarEmISO !== lancarOriginal) {
         mostraCampo('f-lancar-em');
         return toast('A data de lançamento já passou. Para lançar agora, use o menu ⋯ → Lançar agora…', 'err');
