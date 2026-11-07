@@ -10,9 +10,12 @@ name: rosto
 # Variables), o job nem começa: nada roda e nada é cobrado.
 on:
   schedule:
-    # A cada 30 min: a foto enviada à pasta colaborativa entra na busca em até
-    # meia hora (mais o período de atualização da galeria).
-    - cron: '7,37 * * * *'
+    # A cada 10 min (v3.7.2; o repositório é público, os minutos do Actions
+    # não custam): a foto nova entra na busca em até ~10 min mais o período
+    # de atualização da galeria. Sem foto nova, a execução leva ~1 min e não
+    # chama a Amazon para nada além de listar a coleção. Fora da virada da
+    # hora, quando o GitHub atrasa os agendamentos.
+    - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
 
 permissions:

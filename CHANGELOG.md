@@ -59,7 +59,8 @@ rápida e o indexador da busca que não perde o que fez.
 - **Indexador da busca (GitHub Actions):** para de pegar foto nova aos 35 min
   (`ROSTO_MAX_MINUTOS`), processa até 4 fotos ao mesmo tempo (sem passar de
   4 chamadas por segundo de cada operação), grava o progresso a cada lote e o
-  workflow salva o estado mesmo quando o passo falha. Antes, o álbum de 2.364
+  workflow salva o estado mesmo quando o passo falha. Roda a cada 10 min (era
+  30): a foto nova entra na busca mais cedo. Antes, o álbum de 2.364
   fotos estourava os 45 min e o progresso se perdia.
 
 ## [3.7.1] — ainda não publicada (vai no #284)

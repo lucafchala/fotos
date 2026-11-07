@@ -78,7 +78,7 @@ Worker e a opção estar marcada no projeto.
 
 6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
 
-7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 30 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 30 minutos e pega as fotos novas.
+7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
 
 8. **Ligar no projeto:** no painel, edite o projeto e marque **Busca pelo rosto**. O botão **Procurar meu rosto** aparece no índice da galeria.
 
