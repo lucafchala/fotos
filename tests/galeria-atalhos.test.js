@@ -55,6 +55,22 @@ describe('atalhos de pasta', () => {
     expect(autor('SOLTA_FOTO_001')).toBe('Turma 2026');
   });
 
+  it('atalho no nível 2 (evento → ano → chala) com subpastas fundas no destino: tudo entra, na seção do ano (o caso do Entre Nós)', async () => {
+    ARVORE = {
+      RAIZ_PASTA_0001: [pasta('ANO_2025_PAST1', '2025')],
+      ANO_2025_PAST1: [pasta('CHALA_PASTA_01', 'chala')],
+      CHALA_PASTA_01: [atalho('ATALHO_0000001', 'PROJETO_RAIZ01')],
+      PROJETO_RAIZ01: [pasta('PROJ_DIA1_0001', 'Dia 1')],
+      PROJ_DIA1_0001: [pasta('PROJ_RESOL_001', 'Resolução Total'), foto('DIA1_FOTO_0001')],
+      PROJ_RESOL_001: [pasta('PROJ_FUNDO_001', 'extra'), foto('RESOL_FOTO_001')],
+      PROJ_FUNDO_001: [foto('FUNDO_FOTO_001')],
+    };
+    const l = await percorre('CHAVE', { id: 'RAIZ_PASTA_0001', resourceKey: '' }, 120, creditos, 200);
+    expect(l.secoes.map(s => s.caminho)).toEqual(['2025']);
+    expect(ids(l.secoes[0]).sort()).toEqual(['DIA1_FOTO_0001', 'FUNDO_FOTO_001', 'RESOL_FOTO_001']);
+    expect(l.truncada).toBe(false);
+  });
+
   it('a mesma foto em duas pastas do destino vira uma, a maior (redes sociais × resolução total)', async () => {
     const grande = { ...foto('GRANDE_FOTO_01'), name: 'IMG_0001.jpg', size: '9000000' };
     const pequena = { ...foto('PEQUENA_FOTO1'), name: 'img_0001.JPG', size: '300000' };
