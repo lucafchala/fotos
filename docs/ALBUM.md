@@ -105,7 +105,7 @@ O aviso aparece em **todos os sites do ecossistema**, de dois jeitos.
 | treino.lucafchala.com | Script | lucafchala/treino.lucafchala.com#1 | Sem CSP |
 | spectral-drift.lucafchala.com | Script | lucafchala/spectral-drift#4 | Sem CSP |
 | restricted.lucafchala.com | Script | lucafchala/restricted#9 | Fora do desafio do CTF (o README avisa) |
-| status.lucafchala.com | Servidor (`functions/api/destaque.js`) e desenho pelo `app.js` | lucafchala/status.lucafchala.com#66 | CSP `'self'` sem exceção. O mesmo PR **monitora o entrenos2026.com** |
+| status.lucafchala.com | Servidor (`functions/api/destaque.js`) e desenho pelo `app.js` | lucafchala/status.lucafchala.com#66 | CSP `'self'` sem exceção |
 | keys.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/keys.lucafchala.com#7 | A página mostra impressões digitais de chaves |
 | pays.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/pays.lucafchala.com#6 | Assinaturas no `localStorage` |
 | proof.lucafchala.com | Servidor (`functions/_middleware.js`) | lucafchala/proof.lucafchala.com#10 | Continua **sem JavaScript nenhum** |
@@ -126,7 +126,9 @@ O aviso aparece em **todos os sites do ecossistema**, de dois jeitos.
 - em `HOSTS_DE_ALBUM` nos 5 sites da versão pelo servidor (status, keys, pays, proof, rg); senão, a faixa some calada neles;
 - o `DESTAQUE_EMBED_JS` já lê a lista de domínios sozinho, então o script não precisa de mudança.
 
-**Contrato com o status:** o serviço "Entre Nós" do status.lucafchala.com sonda `https://entrenos2026.com` e procura o texto **"Entre Nós"**, que tem de existir na página "em breve" e no álbum. Mudar o título do álbum ou do "em breve" sem trocar o marcador lá deixa o status amarelo.
+**O álbum é surpresa até o lançamento.** Antes do "pode lançar", nada pode revelar o álbum fora do entrenos2026.com (que mostra só o "em breve", com `noindex`). Por isso o monitoramento do domínio no status ficou num PR à parte, em rascunho, para mergear **no dia do lançamento**: lucafchala/status.lucafchala.com#67. Com ele, aparece uma linha "Entre Nós" no status e uma bolinha na home do lucafchala.com (via `/api/resumo`).
+
+**Contrato com o status (depois do #67):** o serviço "Entre Nós" do status.lucafchala.com sonda `https://entrenos2026.com` e procura o texto **"Entre Nós"**, que tem de existir na página "em breve" e no álbum. Mudar o título do álbum ou do "em breve" sem trocar o marcador lá deixa o status amarelo.
 
 ## Apoie o projeto (Pix)
 
