@@ -110,9 +110,9 @@ describe('apresentação do álbum', () => {
     }
   });
 
-  it('botões: "Ver as fotos" leva à linha do tempo e "Mandar suas fotos" abre a pasta', () => {
+  it('botões: "Ver todas as fotos" leva à linha do tempo e "Mandar suas fotos" abre a pasta', () => {
     const h = pagina();
-    expect(h).toContain('<a class="al-btn al-b1" href="#eventos">Ver as fotos</a>');
+    expect(h).toContain('<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>');
     expect(h).toContain('id="eventos"');
     expect(h).toContain(`href="https://drive.google.com/drive/folders/${PASTA}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>`);
   });
@@ -158,10 +158,13 @@ describe('apresentação do álbum', () => {
 
   it('a busca pelo rosto aparece na apresentação quando vale', () => {
     const h = pagina({}, RESUMO, [], { token: 'TOK' });
-    expect(h).toContain('id="rs-abrir" hidden>Procurar meu rosto</button>');
+    // v3.7.5: a busca pelo rosto vem primeiro e em destaque; "Ver todas as
+    // fotos" passa a secundário só quando ela aparece (CSS :has).
+    expect(h).toMatch(/class="al-btn al-b1 al-rosto" id="rs-abrir" hidden><svg[^]*?<\/svg>Achar minhas fotos pelo rosto<\/button><a class="al-btn al-b1 al-ver"/);
+    expect(h).toContain('.al-btns:has(#rs-abrir:not([hidden])) .al-ver{');
     expect(h).toContain('<dialog class="rs" id="rs"');
     expect(h).toContain('id="rs-dados"');
-    expect(pagina()).not.toContain('rs-abrir');
+    expect(pagina()).not.toContain('id="rs-abrir"');
   });
 
   it('as fontes da apresentação só nesta página', () => {

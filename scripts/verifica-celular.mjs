@@ -163,7 +163,7 @@ for (const tela of TELAS) {
     await page.screenshot({ path: arquivo, fullPage: true });
 
     if (p.janelas) {
-      for (const [seletor, nomeJanela, dialogo] of [['[data-acao="mandar-fotos"]', 'Mandar suas fotos', '#al-env'], ['#rs-abrir', 'Procurar meu rosto', 'dialog[open]']]) {
+      for (const [seletor, nomeJanela, dialogo] of [['[data-acao="mandar-fotos"]', 'Mandar suas fotos', '#al-env'], ['#rs-abrir', 'Achar minhas fotos pelo rosto', 'dialog[open]']]) {
         const botao = page.locator(seletor).first();
         if (!(await botao.count()) || !(await botao.isVisible())) continue;
         await botao.click();
@@ -182,6 +182,80 @@ for (const tela of TELAS) {
     await ctx.close();
   }
 }
+// ---- A busca pelo rosto e a busca nas fotos no celular (v3.7.5) ----
+// O Turnstile trabalha escondido desde a abertura da página: ao abrir a janela
+// e marcar o aceite, "Tirar selfie" já vale. O resultado volta quando a pessoa
+// abre uma foto e volta, rolado até a foto aberta.
+{
+  const RES = [{ cap: 'festa-junina', id: 'FOTO_ACHADA_001', sim: 99 }, { cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }, { cap: 'gala', id: 'FOTO_ACHADA_003', sim: 82 }];
+  const html = paginas[0].html;
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  /** @type {string[]} */
+  const erros = [];
+  page.on('pageerror', e => erros.push(String(e.message || e)));
+  let tsCarregado = 0;
+  let semRosto = false;
+  await page.route('**/*', route => {
+    const u = route.request().url();
+    if (u.startsWith('https://fotos.test/galeria/')) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>foto</title><p>foto aberta</p>' });
+    if (u === 'https://fotos.test/' || u.startsWith('https://fotos.test/#')) return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    if (u.includes('challenges.cloudflare.com/turnstile')) {
+      tsCarregado++;
+      // Um Turnstile de mentira: dá o token 300 ms depois de renderizar.
+      return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.turnstile={n:0,render:function(el,o){var id=++this.n;setTimeout(function(){o.callback("tok"+id)},300);this["o"+id]=o;return id},reset:function(id){var o=this["o"+id];if(o)setTimeout(function(){o.callback("tok-novo")},300)}};' });
+    }
+    if (u.includes('/api/rosto/buscar') && semRosto) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Não achei um rosto nessa foto. Tente de frente, com boa luz.' }) });
+    if (u.includes('/api/rosto/buscar')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: RES }) });
+    if (u.includes('/api/busca?')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultados: RES.slice(0, 2) }) });
+    if (/googleusercontent\.com|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    return route.fulfill({ status: 204, body: '' });
+  });
+  await page.goto('https://fotos.test/');
+  await page.waitForTimeout(2500);
+  registra(tsCarregado === 1, 'Rosto: o Turnstile carrega sozinho ao abrir a página, antes do toque', tsCarregado);
+  const b1 = await page.locator('.al-btns .al-btn').first().getAttribute('id');
+  registra(b1 === 'rs-abrir', 'Rosto: "Achar minhas fotos pelo rosto" é o primeiro botão', b1);
+  const corVer = await page.locator('.al-ver').evaluate(el => getComputedStyle(el).backgroundColor);
+  const corRosto = await page.locator('#rs-abrir').evaluate(el => getComputedStyle(el).backgroundColor);
+  registra(corVer !== corRosto, 'Rosto: o botão do rosto em destaque, "Ver todas as fotos" secundário', { corRosto, corVer });
+  await page.locator('#rs-abrir').click();
+  await page.locator('#rs-aceite').check();
+  registra(await page.locator('#rs-tirar').isEnabled(), 'Rosto: com o aceite, "Tirar selfie" já está ativo (sem esperar o Turnstile)', await page.locator('#rs-tirar').textContent());
+  // A "selfie": uma captura de verdade (um PNG válido que o navegador decodifica).
+  const selfie = await page.screenshot({ clip: { x: 0, y: 0, width: 120, height: 120 } });
+  await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
+  await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
+  registra(await page.locator('#rs-grade a').count() === 3 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
+  await page.locator('#rs-grade a').nth(1).click();
+  await page.waitForURL(/\/galeria\//);
+  await page.goBack();
+  await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 5000 }).catch(() => {});
+  registra(await page.locator('#rs-grade a').count() === 3, 'Rosto: voltar da foto traz o resultado de volta', await page.locator('#rs-grade a').count());
+  registra(await page.locator('#rs-grade a.rs-ultima').getAttribute('data-id').catch(() => null) === 'FOTO_ACHADA_002', 'Rosto: a foto que foi aberta fica marcada e à vista', '');
+  // Busca nas fotos: o mesmo.
+  await page.locator('[data-bf="bolo"]').click();
+  await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');
+  registra(decodeURIComponent(page.url()).endsWith('#busca=bolo'), 'Busca: o endereço guarda o termo', page.url());
+  await page.locator('#bf-grade a').first().click();
+  await page.waitForURL(/\/galeria\//);
+  await page.goBack();
+  await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a', { timeout: 5000 }).catch(() => {});
+  registra(await page.locator('#bf-grade a').count() === 2 && (await page.locator('#bf-q').inputValue()) === 'bolo', 'Busca: voltar da foto traz o resultado e o termo de volta', '');
+  // Selfie sem rosto: a mensagem fica na janela (antes sumia na hora).
+  semRosto = true;
+  await page.locator('#rs-abrir').click();
+  await page.locator('#rs-aceite').check();
+  await page.waitForFunction(() => !(/** @type {any} */ (document.getElementById("rs-tirar"))).disabled, null, { timeout: 5000 }).catch(() => {});
+  await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
+  await page.waitForTimeout(1200);
+  const aviso = (await page.locator('#rs-erro').textContent()) || '';
+  registra(/Não achei um rosto/.test(aviso), 'Rosto: a mensagem de erro fica na tela', aviso);
+  registra(!erros.length, 'Buscas: sem erro de JS', erros);
+  await page.screenshot({ path: `${SAIDA}/390-busca-rosto-de-volta.png` });
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`${oks} ok, ${falhas.length} falha(s)`);
 process.exit(falhas.length ? 1 : 0);

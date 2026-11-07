@@ -76,7 +76,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     : '';
   // Busca pelo rosto (v3.2): quem decide se vale é o servidor (buscaRostoAtiva).
   const comRosto = !!rosto && !restrito && visiveis.length > 0;
-  const botaoRosto = comRosto ? '<button type="button" class="ab-btn ab-btn-2" id="rs-abrir" hidden>Procurar meu rosto</button>' : '';
+  const botaoRosto = comRosto ? '<button type="button" class="ab-btn ab-btn-2" id="rs-abrir" hidden>Achar minhas fotos pelo rosto</button>' : '';
   // Busca nas fotos (v3.7): idem, buscaTextoAtiva no servidor.
   const comBusca = !!busca && !restrito && visiveis.length > 0;
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

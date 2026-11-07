@@ -18,6 +18,36 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.7.5] — ainda não publicada
+
+A busca pelo rosto no centro do álbum, pronta ao toque e sem perder o
+resultado.
+
+### Mudou
+
+- **"Achar minhas fotos pelo rosto" é o botão principal** da abertura (o
+  primeiro, amarelo, com um ícone de rosto); "Ver todas as fotos" passa a
+  secundário. Sem a busca (desligada ou sem JavaScript), "Ver todas as fotos"
+  continua o principal.
+- **O Turnstile carrega assim que a página abre**, escondido: quando a pessoa
+  abre a janela e marca o aceite, "Tirar selfie" já está ativo. Se a
+  verificação pedir interação (raro), o widget aparece na janela, como antes.
+  Enquanto o token não chega, o botão diz "Só um instante…".
+- **O resultado da busca não some ao voltar de uma foto:** fica guardado nesta
+  aba (só os IDs das fotos, nunca a selfie) e o endereço ganha `#minhas-fotos`
+  (ou `#busca=termo`, na busca nas fotos). Voltar traz a lista, rolada até a
+  foto que foi aberta, marcada. Novo botão "Tentar com outra selfie".
+- **Eventos que voltam a ter fotos reaparecem em minutos:** no Workers Paid, o
+  resumo dos eventos vale 1 min na memória e 5 min no cache de cada data
+  center, e o KV (global) é a fonte. Antes, um evento que ficou vazio por um
+  tempo (atalhos sendo refeitos) continuava escondido para o visitante por até
+  6 h, mesmo já com fotos.
+
+### Corrigido
+
+- **A mensagem de erro da busca pelo rosto sumia na hora** ("Não achei um rosto
+  nessa foto"): a janela a apagava ao voltar ao estado inicial.
+
 ## [3.7.4] — ainda não publicada
 
 O álbum conferido no celular, num navegador de verdade, em 5 telas (iPhone
