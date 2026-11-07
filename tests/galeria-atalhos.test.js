@@ -45,15 +45,26 @@ const creditos = new Map([['chala', 'Luca F. Chala'], ['*', 'Turma 2026']]);
 const ids = (/** @type {any} */ s) => s.fotos.map((/** @type {any[]} */ f) => f[0]);
 
 describe('atalhos de pasta', () => {
-  it('o conteúdo entra onde o atalho está, com o autor da pasta; subpastas do destino viram seções', async () => {
+  it('o conteúdo entra onde o atalho está, com o autor da pasta; as subpastas do destino também (sem seção nova)', async () => {
     const l = await percorre('CHAVE', { id: 'RAIZ_PASTA_0001', resourceKey: '' }, 26, creditos);
     const raiz = l.secoes.find(s => s.caminho === '');
-    const noite = l.secoes.find(s => s.caminho === 'Noite');
-    expect(ids(raiz).sort()).toEqual(['AMAREL_FOTO_01', 'AMAREL_FOTO_02', 'SOLTA_FOTO_001']);
-    expect(ids(noite)).toEqual(['NOITE_FOTO_001']);
+    expect(l.secoes.map(s => s.caminho)).toEqual(['']);
+    expect(ids(raiz).sort()).toEqual(['AMAREL_FOTO_01', 'AMAREL_FOTO_02', 'NOITE_FOTO_001', 'SOLTA_FOTO_001']);
     const autor = (/** @type {string} */ id) => l.aut[/** @type {any} */ (raiz).fotos.find((/** @type {any[]} */ f) => f[0] === id)[5] ?? 0];
     expect(autor('AMAREL_FOTO_01')).toBe('Luca F. Chala');
     expect(autor('SOLTA_FOTO_001')).toBe('Turma 2026');
+  });
+
+  it('a mesma foto em duas pastas do destino vira uma, a maior (redes sociais × resolução total)', async () => {
+    const grande = { ...foto('GRANDE_FOTO_01'), name: 'IMG_0001.jpg', size: '9000000' };
+    const pequena = { ...foto('PEQUENA_FOTO1'), name: 'img_0001.JPG', size: '300000' };
+    ARVORE.ESCOLA_AMAREL1 = [pasta('REDES_PASTA_01', 'Resolução Redes Sociais'), pasta('TOTAL_PASTA_01', 'Resolução Total')];
+    ARVORE.REDES_PASTA_01 = [pequena, { ...foto('SO_REDES_0001'), name: 'IMG_0002.jpg' }];
+    ARVORE.TOTAL_PASTA_01 = [grande];
+    const l = await percorre('CHAVE', { id: 'RAIZ_PASTA_0001', resourceKey: '' }, 26, creditos);
+    const raiz = l.secoes.find(s => s.caminho === '');
+    expect(ids(raiz).sort()).toEqual(['GRANDE_FOTO_01', 'SOLTA_FOTO_001', 'SO_REDES_0001']);
+    expect(l.total).toBe(3);
   });
 
   it('atalho repetido e ciclo não leem duas vezes; atalho de arquivo não entra', async () => {

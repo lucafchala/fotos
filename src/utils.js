@@ -1414,12 +1414,12 @@ export function previewDescription(facts, text = '', max = 200) {
  * @param {{
  *   title: string, description: string, url: string,
  *   type?: string, image?: string, imageAlt?: string,
- *   imageWidth?: number, imageHeight?: number,
+ *   imageWidth?: number, imageHeight?: number, siteName?: string,
  * }} meta
  */
 export function socialMetaHTML({
   title, description, url, type = 'website',
-  image = '', imageAlt = '', imageWidth = 0, imageHeight = 0,
+  image = '', imageAlt = '', imageWidth = 0, imageHeight = 0, siteName = SITE_NAME,
 }) {
   if (!image) {
     image = OG_PADRAO_URL;
@@ -1441,7 +1441,7 @@ export function socialMetaHTML({
   <meta name="twitter:image:alt" content="${escape(alt)}">`
     : '';
   return `<meta name="description" content="${escape(desc)}">
-  <meta property="og:site_name" content="${escape(SITE_NAME)}">
+  <meta property="og:site_name" content="${escape(siteName)}">
   <meta property="og:locale" content="pt_BR">
   <meta property="og:type" content="${escape(type)}">
   <meta property="og:title" content="${escape(title)}">
@@ -3181,6 +3181,30 @@ export function consoleGreetingScript(nonce = '') {
 export function origemDoAlbum(slug) {
   for (const [dominio, a] of Object.entries(DOMINIOS_DE_ALBUM)) if (a.slug === slug) return `https://${dominio}`;
   return 'https://fotos.lucafchala.com';
+}
+
+/**
+ * A "marca" das páginas de um álbum com domínio próprio (v3.7.1, pedido do
+ * dono: "o principal é o entrenos; o fotos é só a base de operações"): ícone,
+ * ícone da tela inicial, nome no cartão de link. Sem domínio próprio: null (as
+ * páginas seguem com a marca do fotos e o manifest dele).
+ * @param {string} slug
+ * @returns {{ icone: string, apple: string, siteName: string } | null}
+ */
+export function marcaDoAlbum(slug) {
+  const a = Object.values(DOMINIOS_DE_ALBUM).find(x => x.slug === slug);
+  return a ? { icone: '/icon-entrenos.svg', apple: '/apple-touch-entrenos.png', siteName: `${a.titulo} · ${a.linha}` } : null;
+}
+
+/**
+ * O endereço PRINCIPAL da galeria de um álbum (v3.7.1, pedido do dono): com
+ * domínio próprio, a raiz dele ("https://entrenos2026.com/", sem
+ * /galeria/<slug>); senão, /galeria/<slug> no site.
+ * @param {string} slug
+ */
+export function enderecoDoAlbum(slug) {
+  const origem = origemDoAlbum(slug);
+  return Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug) ? `${origem}/` : `${origem}/galeria/${slug}`;
 }
 
 // Um álbum está LANÇADO quando o público pode abri-lo: listado (visível) e fora

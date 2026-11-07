@@ -30,7 +30,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -46,6 +46,7 @@ import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from '
 import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto } from './busca.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
+import { ICONE_ENTRENOS_PNG_B64 } from './content/icone-entrenos-png.js';
 import { albumEmDestaque, destaqueParaApi, DESTAQUE_EMBED_JS } from './ui/destaque.js';
 import {
   generateNonce, htmlSecurityHeaders, adminHtmlSecurityHeaders, dataSecurityHeaders,
@@ -254,13 +255,16 @@ const worker = {
       return stripBody(await worker.fetch(asGet, env, ctx, { headOnly: true }));
     }
     const url = new URL(request.url);
-    const path = stripTrailingSlashes(url.pathname) || '/';
+    let path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
 
     // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
-    // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js.
-    const desvioDoDominio = await rotaDoDominioDeAlbum(url, path, env);
-    if (desvioDoDominio) return desvioDoDominio;
+    // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js. A
+    // raiz pode SERVIR a galeria (o endereço fica "entrenos2026.com", v3.7.1):
+    // aí o roteamento segue como se o caminho fosse /galeria/<slug>.
+    const desvioDoDominio = await rotaDoDominioDeAlbum(url, path, env, request);
+    if (desvioDoDominio instanceof Response) return desvioDoDominio;
+    if (desvioDoDominio) path = desvioDoDominio.servir;
 
     // Heartbeat ao Kuma em toda rota, de propósito: o sinal é "este Worker
     // está atendendo", e restringir a uma rota faria o monitor depender de
@@ -287,6 +291,7 @@ const worker = {
       if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
       // O favicon e o cartão de link do álbum com domínio próprio (v3.3).
       if (path === '/icon-entrenos.svg' && method === 'GET') return new Response(ICONE_ALBUM_SVG, { headers: { ...dataSecurityHeaders('image/svg+xml', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
+      if (path === '/apple-touch-entrenos.png' && method === 'GET') return new Response(Uint8Array.from(atob(ICONE_ENTRENOS_PNG_B64), c => c.charCodeAt(0)), { headers: { ...dataSecurityHeaders('image/png', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
       if (path === '/og-entrenos.jpg' && method === 'GET') return new Response(Uint8Array.from(atob(OG_ENTRENOS.b64), c => c.charCodeAt(0)), { headers: { ...dataSecurityHeaders('image/jpeg', { store: true }), 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin' } });
       // Fonte da própria origem (#131). Busca exata num mapa, não prefixo:
       // só os arquivos gerados existem, qualquer outro /fonts/… cai no 404.
@@ -658,7 +663,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     const caps = await capitulosOuNulo(env, event);
     if (!caps) return indisponivel();
     const origem = origemDoAlbum(event.slug);
-    const urls = [`  <url><loc>${origem}/galeria/${escape(event.slug)}</loc>${lm}</url>`,
+    const urls = [`  <url><loc>${escape(enderecoDoAlbum(event.slug))}</loc>${lm}</url>`,
       ...caps.caps.map(c => `  <url><loc>${origem}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`, {
       headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
@@ -684,7 +689,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     .filter(f => !ehVideo(f))
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
-  const pagina = `${origemDoAlbum(event.slug)}/galeria/${escape(event.slug)}${alvo.capitulo ? `/${escape(alvo.capitulo.slug)}` : ''}`;
+  const pagina = alvo.capitulo ? `${origemDoAlbum(event.slug)}/galeria/${escape(event.slug)}/${escape(alvo.capitulo.slug)}` : escape(enderecoDoAlbum(event.slug));
   // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
   const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -847,7 +852,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
   // para o endereço principal do álbum (o domínio próprio, se houver); antes,
   // fica no mesmo site, onde valem a sessão do dono e a prévia.
   if (event.galeriaCapitulos && String(event.galeriaAbertura || '').trim() && pastaDoDrive(event.driveUrl) && !isRestrictedAccess(event)) {
-    return redirect(albumLancado(event) ? `${origemDoAlbum(slug)}/galeria/${slug}` : `/galeria/${slug}`);
+    return redirect(albumLancado(event) ? enderecoDoAlbum(slug) : `/galeria/${slug}`);
   }
 
   // "Não visível" é NÃO LISTADO, não privado: some da galeria/sitemap/
@@ -1775,7 +1780,7 @@ export async function handleQr(request, env, url) {
   }
   const caminho = !temGaleria ? `/${slug}` : capSlug ? `/galeria/${slug}/${capSlug}` : `/galeria/${slug}`;
   // O QR da galeria de um álbum com domínio próprio leva ao domínio dele.
-  const alvoUrl = (temGaleria ? origemDoAlbum(slug) : SITE_URL) + caminho;
+  const alvoUrl = temGaleria && !capSlug ? enderecoDoAlbum(slug) : (temGaleria ? origemDoAlbum(slug) : SITE_URL) + caminho;
   const qr = qrLinhas(alvoUrl);
   return jsonOk({
     slug, url: alvoUrl, titulo: nomeCap ? `${titulo} · ${nomeCap}` : titulo,
@@ -3493,8 +3498,9 @@ export async function handleRosto(request, env, acao) {
     return jsonErr('Verificação de segurança falhou. Recarregue e tente de novo.', 403);
   }
   const evento = (await getEvents(env)).find(e => e.slug === slug);
-  // Antes do lançamento, só o dono (logado) testa.
-  if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : !!(await verifySession(env, request)))) return notFound();
+  // Antes do lançamento, só o dono (logado) e quem entrou pela senha da prévia
+  // (v3.7.1: a prévia é para quem o dono escolhe testar o álbum inteiro).
+  if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : (!!(await verifySession(env, request)) || (!!evento && await temPrevia(request, env, evento))))) return notFound();
   const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
 
   try {
@@ -4115,9 +4121,11 @@ function adminHtml(content, status = 200, nonce = '', opcoes) {
  * @param {URL} url
  * @param {string} path
  * @param {Env} env
- * @returns {Promise<Response | null>}
+ * @param {Request} [request] para a prévia com senha (cookie)
+ * @returns {Promise<Response | { servir: string } | null>} `servir`: a raiz
+ *   mostra a galeria do álbum, sem redirecionar (o endereço fica o domínio)
  */
-export async function rotaDoDominioDeAlbum(url, path, env) {
+export async function rotaDoDominioDeAlbum(url, path, env, request) {
   const host = url.hostname.toLowerCase();
   const dominio = host.startsWith('www.') ? host.slice(4) : host;
   if (!Object.hasOwn(DOMINIOS_DE_ALBUM, dominio)) return null;
@@ -4135,8 +4143,10 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
     /** @type {string} */
     let contagem = '';
     let previa = false;
+    /** @type {Evento | undefined} */
+    let ev;
     try {
-      const ev = (await getEvents(env)).find(e => e.slug === album.slug);
+      ev = (await getEvents(env)).find(e => e.slug === album.slug);
       existe = albumLancado(ev);
       // A contagem regressiva só com o interruptor ligado no painel: ela
       // revela a data a quem abrir o endereço (v3.5).
@@ -4144,6 +4154,9 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
       // O easter egg da prévia (v3.7) só existe com senha cadastrada.
       previa = !!ev && !existe && !!ev.previaSenha;
     } catch { existe = true; }
+    // Quem entrou pela senha da prévia vê o álbum na raiz, como vai ser depois
+    // do lançamento.
+    if (!existe && request && ev && await temPrevia(request, env, ev)) return { servir: `/galeria/${album.slug}` };
     if (!existe) {
       const nonceEb = contagem || previa ? generateNonce() : '';
       const res = new Response(emBreveHTML({ ...album, contagem, nonce: nonceEb, previa }), { status: 200, headers: htmlSecurityHeaders(nonceEb) });
@@ -4153,7 +4166,13 @@ export async function rotaDoDominioDeAlbum(url, path, env) {
       res.headers.set('X-Robots-Tag', 'noindex');
       return res;
     }
-    return redirect(`/galeria/${album.slug}${url.search}`);
+    // Lançado: a galeria NA RAIZ, sem redirecionar (v3.7.1, pedido do dono: o
+    // endereço fica só "entrenos2026.com").
+    return { servir: `/galeria/${album.slug}` };
+  }
+  // O endereço antigo da galeria leva à raiz: um endereço só para o álbum.
+  if (path === `/galeria/${album.slug}`) {
+    return new Response(null, { status: 301, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `/${url.search}` } });
   }
   // O robots.txt do domínio anuncia o sitemap do álbum, com os endereços de lá.
   if (path === '/robots.txt') return handleRobots(dominio, [`https://${dominio}/sitemap-galeria-${album.slug}.xml`]);
@@ -4508,8 +4527,10 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
-  const rosto = buscaRostoAtiva(env, event, dono) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
-  const busca = buscaTextoAtiva(env, event, dono || (!albumLancado(event) && await temPrevia(request, env, event)));
+  // Quem entrou pela senha da prévia testa as duas buscas antes do lançamento.
+  const previa = !dono && !albumLancado(event) && await temPrevia(request, env, event);
+  const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
+  const busca = buscaTextoAtiva(env, event, dono || previa);
   const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca });
   /** @type {Response} */
   let res;

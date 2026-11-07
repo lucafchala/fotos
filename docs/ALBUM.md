@@ -68,8 +68,18 @@ Para a Mag, ou quem mais você quiser, ver o álbum pronto antes do lançamento,
 - **A senha não é guardada**, só um resumo dela (sal e SHA-256). Para trocar, digite outra. **Trocar ou tirar fecha as prévias abertas.**
 - **Limites:** 8 tentativas por hora por aparelho e 200 por dia no total. Senha errada só diz "Senha errada".
 - **Sem senha cadastrada, o easter egg não existe:** a página "em breve" fica sem script nenhum.
-- **A busca pelo rosto** continua só sua (logado) antes do lançamento.
+- **A busca pelo rosto** também vale na prévia (v3.7.1), desde que "Busca pelo rosto" esteja marcada no projeto. Para o público, continua fechada até o lançamento.
 - **Código:** `aplicaSenhaPrevia`, `temPrevia` e `handlePrevia` (`POST /api/previa`) em `src/index.js`; `SCRIPT_PREVIA` em `src/ui/em-breve.js`. LGPD: ROPA, seção 15.
+
+### Endereço e marca do álbum (v3.7.1)
+
+- **entrenos2026.com mostra o álbum na própria raiz** depois do lançamento (e, antes, para quem tem a prévia). `/galeria/entrenos2026` nesse domínio leva à raiz; os eventos continuam em `/galeria/entrenos2026/<evento>`. O endereço oficial é `https://entrenos2026.com/` (`enderecoDoAlbum`, em `src/utils.js`).
+- **As páginas do álbum usam a marca dele** (`marcaDoAlbum`):
+  - ícone "EN" e ícone de tela inicial `/apple-touch-entrenos.png` (gerado do SVG, em `src/content/icone-entrenos-png.js`);
+  - o nome do álbum na aba e no `og:site_name`;
+  - sem o manifest do fotos.
+
+  O fotos é a base de operações; o Entre Nós é o principal.
 
 ### A página do projeto leva à galeria (v3.7)
 
@@ -201,8 +211,7 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 3. No painel, toque em **Atualizar agora** no projeto, ou espere a atualização automática.
 
 **O que o site faz com o atalho** (`percorre`, em `src/drive.js`):
-- **Transparente:** as fotos da pasta de destino entram como se estivessem dentro de `chala`, com o crédito de Luca.
-- **Subpastas do destino** viram seções do evento, como sempre (até dois níveis).
+- **Transparente:** as fotos da pasta de destino entram como se estivessem dentro de `chala`, com o crédito de Luca. Desde a v3.7.1, as **subpastas do destino também** (não viram seções), e a mesma foto em duas subpastas (redes sociais × resolução total) vira uma só, a de maior resolução.
 - **Pasta de destino sem acesso público:** é pulada, e o dono vê "Um atalho desta pasta aponta para uma pasta que o site não consegue abrir". O conserto é compartilhar o destino como "Qualquer pessoa com o link: Leitor". As pastas dos projetos publicados já estão assim.
 - **Atalho de arquivo** não entra (a listagem não traz as medidas da foto); só **atalho de pasta**.
 - **A mesma pasta nunca é lida duas vezes** (atalho repetido ou em ciclo).

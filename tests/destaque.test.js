@@ -105,19 +105,19 @@ describe('rotas', () => {
     const raiz = await w.fetch(new Request('https://entrenos2026.com/'), withDurableObjects({ FOTOS: kv([ev]) }), ctx);
     expect(await raiz.text()).toContain('O álbum da turma está chegando');
     w = await frio();
-    const publico = await w.fetch(new Request('https://entrenos2026.com/galeria/entrenos2026'), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
+    const publico = await w.fetch(new Request('https://fotos.lucafchala.com/galeria/entrenos2026'), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
     expect(publico.status).toBe(404);
     w = await frio();
-    const errado = await w.fetch(new Request('https://entrenos2026.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': 'x'.repeat(40) } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
+    const errado = await w.fetch(new Request('https://fotos.lucafchala.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': 'x'.repeat(40) } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
     expect(errado.status).toBe(404);
     // Com o token certo passa do portão (a página tenta ler o Drive; sem chave
     // da API, cai no aviso de configuração — o que importa é não ser 404).
     w = await frio();
-    const certo = await w.fetch(new Request('https://entrenos2026.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': TOKEN } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
+    const certo = await w.fetch(new Request('https://fotos.lucafchala.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': TOKEN } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: TOKEN }), ctx);
     expect(certo.status).not.toBe(404);
     // Token curto demais no Worker não abre nada.
     w = await frio();
-    const curto = await w.fetch(new Request('https://entrenos2026.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': 'abc' } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: 'abc' }), ctx);
+    const curto = await w.fetch(new Request('https://fotos.lucafchala.com/galeria/entrenos2026', { headers: { 'X-Rosto-Indexador': 'abc' } }), withDurableObjects({ FOTOS: kv([ev]), ROSTO_INDEXADOR_TOKEN: 'abc' }), ctx);
     expect(curto.status).toBe(404);
   });
 

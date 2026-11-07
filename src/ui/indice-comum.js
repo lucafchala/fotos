@@ -243,14 +243,17 @@ export const BUSCA_CSS = `.bf{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1
 .bf input:focus-visible,.bf button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bf button{min-height:44px;padding:0 1.1rem;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:inherit;font-size:.92rem;font-weight:600;cursor:pointer}
 .bf button:disabled{opacity:.6;cursor:default}
-.bf-dica{flex-basis:100%;font-size:.78rem;color:var(--text-muted)}`;
+.bf-dica{flex-basis:100%;font-size:.78rem;color:var(--text-muted)}
+.bf-sug{flex-basis:100%;display:flex;flex-wrap:wrap;gap:.4rem}
+.bf .bf-sug button{min-height:36px;padding:0 .85rem;font-size:.82rem;font-weight:500;border-color:var(--border);color:var(--text-2)}`;
 
 /** O campo da busca (o script tira o `hidden`; sem JS, nada aparece). */
 export function buscaHTML() {
   return `<form class="bf" id="bf-form" role="search" hidden>
       <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Procurar nas fotos: 10, bolo, palco…" aria-label="Procurar nas fotos por número, palavra ou coisa">
       <button type="submit">Procurar</button>
-      <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola).</span>
+      <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa. Ou toque num atalho:</span>
+      <span class="bf-sug">${['jogo', 'comida', 'palco', 'bola', 'fantasia', 'bolo'].map(t => `<button type="button" data-bf="${t}">${t}</button>`).join('')}</span>
     </form>
     <section class="rs-res" id="bf-res" hidden aria-live="polite"><h2 id="bf-res-t" tabindex="-1"></h2><p id="bf-res-sub"></p><ul class="rs-grade" id="bf-grade"></ul></section>`;
 }
@@ -266,6 +269,13 @@ export const SCRIPT_BUSCA = `(function () {
   var q = document.getElementById('bf-q');
   var bt = f.querySelector('button');
   f.hidden = false;
+  // Os atalhos prontos (jogo, comida...): preenchem e procuram.
+  f.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-bf]') : null;
+    if (!b) return;
+    q.value = b.getAttribute('data-bf');
+    if (f.requestSubmit) f.requestSubmit(); else f.dispatchEvent(new Event('submit', { cancelable: true }));
+  });
   f.addEventListener('submit', function (e) {
     e.preventDefault();
     var termo = (q.value || '').trim();

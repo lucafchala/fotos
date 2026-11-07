@@ -75,8 +75,10 @@ describe('entrar pela senha', () => {
     const cookie = cookieDe(ok);
 
     // Sem cookie: nada. Com cookie: passa do portão (a página tenta o Drive).
-    expect((await pede([ev], 'https://entrenos2026.com/galeria/entrenos2026')).status).toBe(404);
-    expect((await pede([ev], 'https://entrenos2026.com/galeria/entrenos2026', { cookie })).status).not.toBe(404);
+    // Sem cookie, a raiz é o "em breve"; com ele, a raiz já mostra o álbum.
+    expect(await (await pede([ev], 'https://entrenos2026.com/')).text()).toContain('O álbum da turma está chegando');
+    expect(await (await pede([ev], 'https://entrenos2026.com/', { cookie })).text()).not.toContain('O álbum da turma está chegando');
+    expect((await pede([ev], 'https://fotos.lucafchala.com/galeria/entrenos2026')).status).toBe(404);
     expect((await pede([ev], 'https://fotos.lucafchala.com/entrenos2026')).status).toBe(404);
     const proj = await pede([ev], 'https://fotos.lucafchala.com/entrenos2026', { cookie });
     expect(proj.status).toBe(302);
@@ -87,7 +89,7 @@ describe('entrar pela senha', () => {
     const ev = await comSenha('girassol26');
     const cookie = cookieDe(await entra([ev], 'girassol26'));
     const trocado = await comSenha('outra-senha');
-    expect((await pede([trocado], 'https://entrenos2026.com/galeria/entrenos2026', { cookie })).status).toBe(404);
+    expect(await (await pede([trocado], 'https://entrenos2026.com/', { cookie })).text()).toContain('O álbum da turma está chegando');
   });
 
   it('tentativas limitadas por IP', async () => {
@@ -127,8 +129,25 @@ describe('a página do projeto leva à galeria', () => {
     const lancado = { ...BASE, comingSoon: false, visible: true };
     const r = await pede([lancado], 'https://fotos.lucafchala.com/entrenos2026');
     expect(r.status).toBe(302);
-    expect(r.headers.get('Location')).toBe('https://entrenos2026.com/galeria/entrenos2026');
+    expect(r.headers.get('Location')).toBe('https://entrenos2026.com/');
     const comum = { ...lancado, id: '2', slug: 'festa-x', galeriaAbertura: '' };
     expect((await pede([comum], 'https://fotos.lucafchala.com/festa-x')).status).toBe(200);
+  });
+});
+
+describe('a prévia testa a busca pelo rosto (v3.7.1)', () => {
+  it('com a senha, o álbum mostra "Procurar meu rosto"; sem ela, nada', async () => {
+    const ev = await comSenha('girassol26', { buscaRosto: true });
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ input) => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      if (url.pathname === '/drive/v3/files') return Response.json({ files: [{ id: 'CAPITULO_000001', name: 'Gala', mimeType: 'application/vnd.google-apps.folder' }] });
+      return new Response('nao esperado', { status: 599 });
+    }));
+    const env = () => withDurableObjects({ FOTOS: kv([ev]), SIGNING_SECRET: 's'.repeat(48), GOOGLE_DRIVE_API_KEY: 'AIzaTeste', AWS_ACCESS_KEY_ID: 'AKIATESTE', AWS_SECRET_ACCESS_KEY: 'x'.repeat(40) });
+    const cookie = cookieDe(await entra([ev], 'girassol26', '203.0.113.8', env()));
+    const comPrevia = await (await pede([ev], 'https://entrenos2026.com/', { cookie, env: env() })).text();
+    expect(comPrevia).toContain('id="rs-abrir"');
+    expect(await (await pede([ev], 'https://entrenos2026.com/', { env: env() })).text()).not.toContain('id="rs-abrir"');
+    vi.unstubAllGlobals();
   });
 });

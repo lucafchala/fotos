@@ -18,6 +18,41 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.7.1] — ainda não publicada
+
+Ajustes do álbum Entre Nós a pedido do dono e da Mag: endereço limpo, marca
+própria, crédito do fotógrafo em destaque, atalhos sem seções a mais, prévia
+com busca pelo rosto e atalhos prontos da busca.
+
+### Mudou
+
+- **entrenos2026.com mostra o álbum na raiz,** sem redirecionar: o endereço
+  fica só "entrenos2026.com". Vale depois do lançamento e, antes dele, para
+  quem entrou pela senha da prévia.
+  - O endereço antigo `/galeria/entrenos2026` nesse domínio leva à raiz (301).
+  - Endereço oficial, cartão de link, sitemap, QR e o redirecionamento da
+    página do projeto passam a usar `https://entrenos2026.com/`
+    (`enderecoDoAlbum`).
+- **A marca do álbum nas páginas dele,** e não a do fotos ("o principal é o
+  entrenos; o fotos é a base de operações", `marcaDoAlbum`):
+  - o ícone "EN" e um ícone de tela inicial próprio (`/apple-touch-entrenos.png`);
+  - o nome do álbum na aba e no cartão de link;
+  - sem o manifest do app do fotos.
+- **Crédito do fotógrafo em destaque** no topo de cada evento: "FOTOS DE Luca
+  F. Chala e Mag", maior. Aparece também quando o evento tem um fotógrafo só.
+- **Atalhos sem seções a mais:** dentro de um atalho, as subpastas do destino
+  não viram seções. As etiquetas do topo seguem as pastas do álbum (no
+  PiauiFut, só os anos).
+- **Sem fotos repetidas:** dentro de um atalho, a mesma foto em duas pastas
+  ("Resolução Redes Sociais" e "Resolução Total", "!Dia 1" e "Dia 1") vira
+  uma só, a de maior resolução.
+- **A prévia com senha também testa a busca pelo rosto,** com "Busca pelo
+  rosto" marcada. Para o público, nada muda antes do lançamento.
+- **Atalhos prontos na busca:** "jogo", "comida", "palco", "bola", "fantasia"
+  e "bolo". "Jogo" e "comida" passam a achar esporte e comida.
+- **Respiro no topo** da primeira tela do álbum quando ainda não há fotos de
+  capa.
+
 ## [3.7.0] — ainda não publicada
 
 Busca nas fotos por texto e por coisas, moderação automática, prévia do álbum
