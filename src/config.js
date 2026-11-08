@@ -511,9 +511,10 @@ export const ROSTO_LIMIAR = 80;
 // ROSTO_LIMIAR a foto entra num grupo à parte, "Talvez seja você", no fim.
 export const ROSTO_LIMIAR_BUSCA = 70;
 // "Não quero aparecer": apaga do índice todo rosto acima deste limiar — SEMPRE
-// abaixo de ROSTO_LIMIAR, porque aqui errar para mais é o lado seguro: o que a
-// busca acharia, a saída apaga.
-export const ROSTO_LIMIAR_SAIR = 75;
+// abaixo de ROSTO_LIMIAR_BUSCA (a régua mais baixa da busca, a do "Talvez"),
+// porque aqui errar para mais é o lado seguro: o que a busca acharia, a saída
+// apaga. Era 75 até a 3.8.1 (a busca ia só até 80).
+export const ROSTO_LIMIAR_SAIR = 65;
 // No máximo quantas fotos voltam numa busca (a pessoa mais fotografada da
 // turma não passa disso num álbum de alguns milhares).
 export const ROSTO_MAX_RESULTADOS = 400;

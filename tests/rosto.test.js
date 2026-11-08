@@ -372,6 +372,9 @@ describe('limiares da busca pelo rosto (v3.7.3: na dúvida, mostrar)', () => {
     const c = await import('../src/config.js');
     expect(c.ROSTO_LIMIAR).toBeLessThanOrEqual(80);
     expect(c.ROSTO_LIMIAR_SAIR).toBeLessThan(c.ROSTO_LIMIAR);
+    // v3.8.2: a busca vai até ROSTO_LIMIAR_BUSCA ("Talvez seja você"); a saída fica abaixo dela também.
+    expect(c.ROSTO_LIMIAR_SAIR).toBeLessThan(c.ROSTO_LIMIAR_BUSCA);
+    expect(c.ROSTO_LIMIAR_BUSCA).toBeLessThan(c.ROSTO_LIMIAR);
     expect(c.ROSTO_SEMENTE_MIN).toBeGreaterThan(c.ROSTO_LIMIAR_SEMENTE);
   });
 

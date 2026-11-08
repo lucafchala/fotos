@@ -36,7 +36,7 @@ Abertura do álbum mais clara, eventos fáceis de achar, busca pelo rosto mais g
 - Guia antes da selfie: oval de enquadramento e dicas (de frente, luz de frente, sem óculos escuros).
 - Botão **Escolher uma foto** (galeria ou arquivos), além de "Tirar selfie".
 - O link da política saiu de dentro do "Concordo": tocar no meio da frase marca a caixa, não abre a política.
-- Busca até 70% de semelhança (`ROSTO_LIMIAR_BUSCA`); de 70 a 80% a foto vai para **Talvez seja você**, no fim. Sementes: até 4, a partir de 95%.
+- Busca até 70% de semelhança (`ROSTO_LIMIAR_BUSCA`); de 70 a 80% a foto vai para **Talvez seja você**, no fim. Sementes: até 4, a partir de 95%. Quem sai da busca tem apagado todo rosto a partir de 65% (era 75%), sempre abaixo da régua da busca.
 
 ## [3.8.1] — ainda não publicada
 
