@@ -1302,7 +1302,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         </details>
         <details class="bloco-form" id="bf-album">
           <summary><span class="bf-titulo">Álbum Entre Nós</span><span class="bf-resumo" data-resumo="bf-album"></span></summary>
-          <p class="field-hint" style="margin:0 0 .9rem">Só para o álbum por capítulos (o Entre Nós): a apresentação, as buscas, o lançamento e quem entra antes. Passo a passo no <a href="https://github.com/lucafchala/fotos/blob/main/docs/MANUAL.md" target="_blank" rel="noopener">manual de uso</a>.</p>
+          <p class="field-hint" style="margin:0 0 .9rem">Só para o álbum por capítulos (o Entre Nós): a apresentação, as buscas, o lançamento e quem entra antes. Passo a passo no manual de uso (<code>docs/MANUAL.md</code> no repositório).</p>
           <div class="field">
             <label for="f-abertura">Texto de abertura do álbum <span class="dica-rotulo">(opcional, galeria por capítulos)</span></label>
             <div class="field-hint" id="dica-abertura" style="margin-bottom:.625rem">Preenchido, o índice da galeria ganha uma <strong>abertura</strong>: mosaico com as capas dos eventos, o título grande, este texto, os números do álbum e os botões <em>Ver os eventos</em> e <em>Mandar suas fotos</em> (este só em álbum público). Parágrafos separados por uma linha em branco, sem formatação. Até 2000 caracteres. Vazio = o índice simples.</div>
