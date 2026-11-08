@@ -33,7 +33,7 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 | **Papel** | Operador |
 | **Dados** | Todo o tráfego do site; log de consentimento (D1); pedidos de remoção, contadores e sessões (KV); sinais anti-robô (Turnstile); métrica agregada |
 | **Localização** | Rede global de borda; KV e D1 replicados internacionalmente |
-| **Fundamento (art. 33)** | **III** — cláusulas contratuais específicas no DPA da Cloudflare, que incorpora as cláusulas-padrão da UE e prevê transferência internacional |
+| **Fundamento (art. 33)** | **II, “a” e “b”** — cláusulas contratuais específicas no DPA da Cloudflare, que incorpora as cláusulas-padrão da UE e prevê transferência internacional |
 | **Salvaguardas** | ISO 27001, ISO 27701, SOC 2 Type II; DPA público com adendo de LGPD |
 | **Referência** | <https://www.cloudflare.com/trust-hub/gdpr/> · Turnstile: <https://www.cloudflare.com/turnstile-privacy-policy/> |
 
@@ -50,7 +50,7 @@ perfil de anúncios — a Cloudflare declara isso no adendo acima.
 | **Papel** | Operador |
 | **Dados** | **As fotografias dos eventos** — imagem de pessoas identificáveis, inclusive menores. É a transferência de maior impacto do sistema. |
 | **Localização** | Datacenters globais |
-| **Fundamento (art. 33)** | **III** — cláusulas contratuais nos Termos do Google Workspace / Google Drive e no Data Processing Addendum |
+| **Fundamento (art. 33)** | **II, “a” e “b”** — cláusulas contratuais nos Termos do Google Workspace / Google Drive e no Data Processing Addendum |
 | **Salvaguardas** | ISO 27001/27017/27018, SOC 2/3; DPA com cláusulas-padrão |
 | **Referência** | <https://cloud.google.com/terms/data-processing-addendum> |
 
@@ -61,7 +61,7 @@ perfil de anúncios — a Cloudflare declara isso no adendo acima.
 | **Sede** | Estados Unidos (Resend, Inc.) |
 | **Papel** | Operador |
 | **Dados** | E-mail, telefone, mensagem e **a foto anexada** nos pedidos de remoção; nome/e-mail/mensagem no suporte; o e-mail de quem pede o código de acesso ao gate do Drive; alertas ao controlador |
-| **Fundamento (art. 33)** | **III** — DPA do Resend |
+| **Fundamento (art. 33)** | **II, “a” e “b”** — DPA do Resend |
 | **Salvaguardas** | SOC 2 Type II; DPA disponível |
 | **Referência** | <https://resend.com/legal/dpa> |
 | **Minimização aplicada** | A mensagem de suporte **não é armazenada** no site. A foto de remoção **não vai para banco** e tem os **metadados EXIF removidos no servidor** antes de virar anexo. Alertas de erro nunca carregam IP, cabeçalhos ou corpo de requisição. |
@@ -91,7 +91,7 @@ renderização.
 | **Sede** | Estados Unidos (Google LLC) |
 | **Papel** | Hospeda o vídeo que o controlador publicou como *não listado* e o reproduz no player embutido |
 | **Dados** | A **miniatura** do vídeo (`i.ytimg.com`) é carregada junto com a página, e com ela vão o **IP e o navegador do visitante**. Só **depois do clique em play** o player (`www.youtube-nocookie.com`, modo de privacidade aprimorada) é carregado e passa a tratar os dados de reprodução |
-| **Fundamento (art. 33)** | **III** — Termos de Serviço e política de privacidade do Google |
+| **Fundamento (art. 33)** | **II, “a” e “b”** — Termos de Serviço e política de privacidade do Google |
 | **Minimização aplicada** | Nada do player antes do clique; domínio *nocookie*; a CSP e a Permissions-Policy liberam só esses dois hosts. Projeto sem vídeo não fala com o YouTube |
 
 ### 5.1. Google — player do Google Drive (vídeo da galeria própria)
@@ -101,7 +101,7 @@ renderização.
 | **Sede** | Estados Unidos (Google LLC) |
 | **Papel** | Reproduz, no player embutido do Drive, o vídeo que está na pasta do projeto |
 | **Dados** | Nada do player é carregado com a página: só **depois do toque** num vídeo da galeria o player (`drive.google.com`) é carregado e o Google passa a tratar **IP, navegador e dados de reprodução** |
-| **Fundamento (art. 33)** | **III** — Termos de Serviço e política de privacidade do Google |
+| **Fundamento (art. 33)** | **II, “a” e “b”** — Termos de Serviço e política de privacidade do Google |
 | **Minimização aplicada** | Nada antes do toque; a CSP libera esse host só nas páginas de galeria com vídeo |
 
 ### 6. GitHub — código-fonte
@@ -117,11 +117,11 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 
 | Operador | Dados | Impacto se vazar | Fundamento | Eliminável? |
 | --- | --- | --- | --- | --- |
-| Cloudflare | Tráfego, KV, D1, Turnstile | Alto | Art. 33, III | Não — é a plataforma |
-| Google Drive | **As fotografias** | **Alto** | Art. 33, III ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
-| Resend | E-mail, telefone, foto anexa | Alto | Art. 33, III | Não — é o canal de e-mail |
-| YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, III | Sim — basta não colocar vídeo no projeto |
-| Google (player do Drive) | IP/navegador e dados de reprodução, só depois do toque num vídeo da galeria | Baixo | Art. 33, III | Sim — basta a pasta não ter vídeo |
+| Cloudflare | Tráfego, KV, D1, Turnstile | Alto | Art. 33, II, “a” e “b” | Não — é a plataforma |
+| Google Drive | **As fotografias** | **Alto** | Art. 33, II, “a” e “b” ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
+| Resend | E-mail, telefone, foto anexa | Alto | Art. 33, II, “a” e “b” | Não — é o canal de e-mail |
+| YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, II, “a” e “b” | Sim — basta não colocar vídeo no projeto |
+| Google (player do Drive) | IP/navegador e dados de reprodução, só depois do toque num vídeo da galeria | Baixo | Art. 33, II, “a” e “b” | Sim — basta a pasta não ter vídeo |
 | Google Fonts | Nada (era o IP do visitante) | — | — | **Eliminado em 23/09/2026** — fontes servidas pela própria origem |
 
 ## Transparência ao titular

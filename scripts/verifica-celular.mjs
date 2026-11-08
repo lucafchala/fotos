@@ -227,12 +227,14 @@ for (const tela of TELAS) {
   await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
   registra(await page.locator('#rs-grade a').count() === 3 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
+  const clicada = await page.locator('#rs-grade a').nth(1).getAttribute('data-id');
   await page.locator('#rs-grade a').nth(1).click();
   await page.waitForURL(/\/galeria\//);
   await page.goBack();
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 5000 }).catch(() => {});
   registra(await page.locator('#rs-grade a').count() === 3, 'Rosto: voltar da foto traz o resultado de volta', await page.locator('#rs-grade a').count());
-  registra(await page.locator('#rs-grade a.rs-ultima').getAttribute('data-id').catch(() => null) === 'FOTO_ACHADA_002', 'Rosto: a foto que foi aberta fica marcada e à vista', '');
+  registra(await page.locator('#rs-grade a.rs-ultima').getAttribute('data-id').catch(() => null) === clicada, 'Rosto: a foto que foi aberta fica marcada e à vista', clicada);
+  registra(await page.locator('#rs-grade .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade .rs-ev h3').allTextContents());
   // Busca nas fotos: o mesmo.
   await page.locator('[data-bf="bolo"]').click();
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');

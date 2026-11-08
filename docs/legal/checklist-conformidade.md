@@ -38,7 +38,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · 👤 depende de ação fo
 | Código de acesso por e-mail (último recurso do gate) | Art. 7º, V | ✅ [ROPA §9](./ROPA.md) — e-mail não armazenado |
 | Métricas | Art. 7º, IX | ✅ |
 | Projetos familiares | Art. 4º, I (fora do escopo) | ✅ |
-| Dados sensíveis (art. 11) | — | ✅ Não há: sem tratamento biométrico (decisão do responsável) |
+| Dados sensíveis (art. 11) | — | ⚠️ Sim: a busca pelo rosto trata dado biométrico (RIPD R9). Base: consentimento específico de quem busca; o índice dos rostos de quem aparece nas fotos é o ponto em aberto (ver RIPD R9) |
 
 ## Direitos do titular (art. 18)
 
@@ -96,7 +96,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · 👤 depende de ação fo
 | Item | Estado |
 | --- | --- |
 | Mapeamento completo | ✅ |
-| Fundamento identificado por operador | ✅ Art. 33, III |
+| Fundamento identificado por operador | ✅ Art. 33, II, “a” e “b” (era citado como III, que é cooperação entre órgãos públicos; corrigido em 08/11/2026) |
 | Transparência ao titular | ✅ `/privacidade` |
 | **DPA do Google confirmado** | ❌👤 **Verificar se é Workspace ou conta pessoal — pendência operacional** |
 | Cópias arquivadas dos DPAs | ❌ Recomendado |
@@ -117,7 +117,7 @@ Legenda: ✅ pronto · 🟡 parcial · ❌ pendente · 👤 depende de ação fo
 
 2. **Confirmar o tipo de conta Google usada para o Drive.**
    Conta pessoal gratuita **não tem DPA**, o que enfraquece o fundamento do
-   art. 33, III para a transferência de maior impacto do sistema (as próprias
+   art. 33, II, “a” e “b”, para a transferência de maior impacto do sistema (as próprias
    fotografias). Se for o caso, migrar para Workspace. 👤
 
 ### 🟡 Importante

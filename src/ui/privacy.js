@@ -135,7 +135,7 @@ export function privacyHTML() {
 
     <h2>4.1. Transferência internacional de dados</h2>
     <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil.</p>
-    <p>Essa transferência se apoia no <strong>art. 33, inciso III, da LGPD</strong>: cada um desses fornecedores oferece garantias por meio de cláusulas contratuais específicas de proteção de dados (<em>Data Processing Agreements</em>), que incorporam as cláusulas-padrão internacionais e obrigam o fornecedor a um nível de proteção compatível com a lei brasileira.</p>
+    <p>Essa transferência se apoia no <strong>art. 33, inciso II, alíneas “a” e “b”, da LGPD</strong>: cada um desses fornecedores oferece garantias por meio de cláusulas contratuais específicas de proteção de dados (<em>Data Processing Agreements</em>), que incorporam as cláusulas-padrão internacionais e obrigam o fornecedor a um nível de proteção compatível com a lei brasileira.</p>
     <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
 
     <h2>4.2. Decisões automatizadas</h2>

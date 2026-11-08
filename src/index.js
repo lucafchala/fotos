@@ -19,6 +19,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
+import { ordemDaLinha } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -335,6 +336,7 @@ const worker = {
       if (path === '/api/events/bulk-access' && method === 'POST') return await handleBulkAccessType(request, env);
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
+      if (path === '/api/galeria/capa' && method === 'POST') return await handleCapaDoEvento(request, env);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
@@ -4475,10 +4477,20 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const formToken = !dono && listagem ? await mintFormToken(env, 'galeria-remocao') : '';
   // O player do Drive só entra na CSP (frame-src) de página que tem vídeo.
   const opcoesCsp = listagem && temVideo(listagem) ? { driveFrame: true } : undefined;
+  // A faixa com todos os eventos (v3.8.0): os que o índice mostra (o visitante
+  // não vê evento que o resumo diz vazio; o atual entra sempre).
+  /** @type {{ slug: string, nome: string }[]} */
+  let eventosDaFaixa = [];
+  if (alvo.kind === 'ok' && capitulo && alvo.caps) {
+    const resumoFaixa = await lerResumo(alvo.raiz.id, env);
+    eventosDaFaixa = ordemDaLinha(alvo.caps.caps, resumoFaixa)
+      .filter(c => c.id === capitulo.id || dono || !(resumoFaixa[c.id] && resumoFaixa[c.id].n === 0))
+      .map(c => ({ slug: c.slug, nome: c.nome }));
+  }
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
     capituloNome: capitulo ? capitulo.nome : '',
-    ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo) } } : {}),
+    ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
   /** @type {Response} */
@@ -4797,6 +4809,48 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // IP e todas as checagens são os mesmos. Só o valor exato "0" vale.
   if (!dono && url.searchParams.get('c') !== '0') bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
   return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * "Usar como capa do evento" (v3.8.0), no visualizador do dono: a foto vira a
+ * capa do cartão do evento na página do álbum. `foto: ''` volta à automática
+ * (a primeira do evento). Guardado em `capasEventos` { [cap]: id }.
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleCapaDoEvento(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const cap = typeof body.cap === 'string' && CAP_SLUG_RE.test(body.cap) ? body.cap : '';
+  if (!cap) return jsonErr('Evento inválido.', 400);
+  const foto = typeof body.foto === 'string' ? body.foto : '';
+  if (foto && !idDriveValido(foto)) return jsonErr('Foto inválida.', 400);
+  const events = await getEvents(env, true);
+  const idx = events.findIndex(e => e.slug === body.slug);
+  if (idx === -1) return jsonErr('Projeto não encontrado.', 404);
+  const capas = normalizaCapasEventos(events[idx].capasEventos);
+  if (foto) capas[cap] = foto; else delete capas[cap];
+  events[idx] = { ...events[idx], capasEventos: capas, updatedAt: new Date().toISOString() };
+  await saveEvents(env, events);
+  return jsonOk({ capas });
+}
+
+/**
+ * As capas escolhidas por evento, conferidas: slug de capítulo → ID do Drive,
+ * até 200.
+ * @param {unknown} v
+ * @returns {Record<string, string>}
+ */
+export function normalizaCapasEventos(v) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, id] of Object.entries(/** @type {Record<string, unknown>} */ (v)).slice(0, 200)) {
+    if (CAP_SLUG_RE.test(k) && typeof id === 'string' && idDriveValido(id)) out[k] = id;
+  }
+  return out;
 }
 
 /**

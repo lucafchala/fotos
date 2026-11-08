@@ -72,8 +72,10 @@ describe('atalhos de pasta', () => {
   });
 
   it('a mesma foto em duas pastas do destino vira uma, a maior (redes sociais × resolução total)', async () => {
-    const grande = { ...foto('GRANDE_FOTO_01'), name: 'IMG_0001.jpg', size: '9000000' };
-    const pequena = { ...foto('PEQUENA_FOTO1'), name: 'img_0001.JPG', size: '300000' };
+    // A mesma foto: mesmo nome e a mesma hora de captura (EXIF).
+    const meta = { width: 3000, height: 2000, time: '2025:06:14 20:31:07' };
+    const grande = { ...foto('GRANDE_FOTO_01'), name: 'IMG_0001.jpg', size: '9000000', imageMediaMetadata: meta };
+    const pequena = { ...foto('PEQUENA_FOTO1'), name: 'img_0001.JPG', size: '300000', imageMediaMetadata: meta };
     ARVORE.ESCOLA_AMAREL1 = [pasta('REDES_PASTA_01', 'Resolução Redes Sociais'), pasta('TOTAL_PASTA_01', 'Resolução Total')];
     ARVORE.REDES_PASTA_01 = [pequena, { ...foto('SO_REDES_0001'), name: 'IMG_0002.jpg' }];
     ARVORE.TOTAL_PASTA_01 = [grande];
@@ -81,6 +83,23 @@ describe('atalhos de pasta', () => {
     const raiz = l.secoes.find(s => s.caminho === '');
     expect(ids(raiz).sort()).toEqual(['GRANDE_FOTO_01', 'SOLTA_FOTO_001', 'SO_REDES_0001']);
     expect(l.total).toBe(3);
+  });
+
+  it('fotos DIFERENTES de nome igual não somem (v3.8.0): outro dia, outra hora, sem hora, outro fotógrafo', async () => {
+    const em = (/** @type {string} */ id, /** @type {string} */ time) => ({ ...foto(id), name: 'IMG_1234.JPG', imageMediaMetadata: { width: 3000, height: 2000, ...(time ? { time } : {}) } });
+    ARVORE.RAIZ_PASTA_0001 = [pasta('CHALA_PASTA_01', 'chala'), pasta('MAG_PASTA_001', 'mag')];
+    ARVORE.CHALA_PASTA_01 = [atalho('ATALHO_0000001', 'ESCOLA_AMAREL1')];
+    ARVORE.MAG_PASTA_001 = [atalho('ATALHO_MAG0001', 'MAG_DESTINO01')];
+    ARVORE.ESCOLA_AMAREL1 = [pasta('DIA1_PASTA_001', 'Dia 1'), pasta('DIA2_PASTA_001', 'Dia 2'), pasta('SEMH_PASTA_001', 'Extra')];
+    ARVORE.DIA1_PASTA_001 = [em('DIA1_FOTO_0001', '2025:06:14 10:00:00')];
+    ARVORE.DIA2_PASTA_001 = [em('DIA2_FOTO_0001', '2025:06:15 11:00:00')];
+    ARVORE.SEMH_PASTA_001 = [em('SEMH_FOTO_0001', ''), em('SEMH_FOTO_0002', '')];
+    // A Mag tem um IMG_1234 tirado no MESMO segundo que o do Dia 1: outro autor, outra foto.
+    ARVORE.MAG_DESTINO01 = [em('MAG_FOTO_00001', '2025:06:14 10:00:00')];
+    const mag = new Map([...creditos, ['mag', 'Mag']]);
+    const l = await percorre('CHAVE', { id: 'RAIZ_PASTA_0001', resourceKey: '' }, 26, mag);
+    expect(l.secoes.flatMap(s => ids(s)).sort()).toEqual(['DIA1_FOTO_0001', 'DIA2_FOTO_0001', 'MAG_FOTO_00001', 'SEMH_FOTO_0001', 'SEMH_FOTO_0002']);
+    expect(l.total).toBe(5);
   });
 
   it('atalho repetido e ciclo não leem duas vezes; atalho de arquivo não entra', async () => {

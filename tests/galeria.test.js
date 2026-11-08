@@ -791,7 +791,8 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
   it('as ações do convidado são "Selecionar" e "Baixar tudo"', () => {
     const html = render(fotos37);
     expect(html).toMatch(/<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar<\/button>/);
-    expect(html).toMatch(/<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo<\/button>/);
+    // v3.8.0: "Baixar tudo" é o botão de destaque (g-prim).
+    expect(html).toMatch(/<button type="button" class="g-btn g-prim" data-acao="baixar-tudo">Baixar tudo<\/button>/);
   });
 
   it('a pasta sem fotos não mostra Selecionar nem Baixar tudo', () => {
