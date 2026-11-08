@@ -567,6 +567,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     /* blocos do formulário (#220): cada um recolhível, o essencial primeiro */
     .bf-atalhos{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;margin:calc(-.25rem - 4px) -4px calc(1rem - 4px);padding:4px 4px calc(4px + .1rem)}
     .bf-atalhos::-webkit-scrollbar{display:none}
+    @media (min-width:700px){.bf-atalhos{flex-wrap:wrap;overflow:visible}}
     .bloco-form{border:1px solid var(--border);border-radius:14px;background:var(--bg2);margin-bottom:.75rem;scroll-margin-top:.5rem}
     .bloco-form>summary{display:flex;align-items:center;gap:.6rem;min-height:52px;padding:0 1rem;cursor:pointer;list-style:none;border-radius:14px}
     .bloco-form>summary::-webkit-details-marker{display:none}
