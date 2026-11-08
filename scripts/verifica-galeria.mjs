@@ -478,8 +478,9 @@ await cenario('Visualizador no desktop', async () => {
   // A legenda é o nome da foto e, abaixo, o crédito ("Foto: <autor>"; sem pasta
   // de autor, o padrão do site) — duas linhas, o nome primeiro.
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  const credito = await page.locator('.pswp__g-legenda .g-leg-a').textContent();
-  registra(legenda === '002Foto: Luca F. Chala' && credito === 'Foto: Luca F. Chala', 'Desktop: legenda mostra o número da foto e o crédito do autor padrão', legenda);
+  // v3.8.0: o crédito vem primeiro e em destaque ("Foto de …", .g-leg-autor).
+  const credito = await page.locator('.pswp__g-legenda .g-leg-autor').textContent();
+  registra(legenda === 'Foto de Luca F. Chala002' && credito === 'Foto de Luca F. Chala', 'Desktop: legenda mostra o número da foto e o crédito do autor padrão', legenda);
   const altAberta = await page.evaluate(() => [...document.querySelectorAll('.pswp__item[aria-hidden="false"] img')].map(im => /** @type {HTMLImageElement} */ (im).alt).find(Boolean) || '');
   registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
@@ -529,7 +530,7 @@ await cenario('Link direto', async () => {
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(page, 800);
   const legenda = await page.locator('.pswp__g-legenda').textContent();
-  registra(legenda === 'festa-5 · FestaFoto: Luca F. Chala', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
+  registra(legenda === 'Foto de Luca F. Chalafesta-5 · Festa', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
   await page.evaluate(() => history.back());
   await espera(page, 700);
   registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
@@ -1344,8 +1345,8 @@ for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { widt
     await page.locator('.g-t').nth(1).tap(); // foto 2: da Ana, na seção da raiz
     await page.waitForSelector('.pswp--open');
     await espera(page, 800);
-    const legenda = await page.evaluate(() => ({ txt: (document.querySelector('.g-leg-a') || {}).textContent || '', todo: (document.querySelector('.pswp__custom-caption, .g-legenda') || document.body).textContent || '' }));
-    registra(legenda.txt === 'Foto: Ana Souza', `${nome}: a legenda do visualizador credita a fotógrafa da foto`, legenda.txt);
+    const legenda = await page.evaluate(() => ({ txt: (document.querySelector('.g-leg-autor') || {}).textContent || '', todo: (document.querySelector('.pswp__custom-caption, .g-legenda') || document.body).textContent || '' }));
+    registra(legenda.txt === 'Foto de Ana Souza', `${nome}: a legenda do visualizador credita a fotógrafa da foto`, legenda.txt);
     await page.locator('.pswp__button--g-baixar').tap();
     await page.waitForSelector('#g-folha:not([hidden])');
     await page.locator('.g-op').last().tap();
