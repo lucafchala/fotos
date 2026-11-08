@@ -9,7 +9,7 @@ import { HONEYPOT_CSS } from '../security.js';
 import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML, SCRIPT_BUSCA, BUSCA_CSS, buscaHTML } from './indice-comum.js';
 import { albumHTML, ordemDaLinha } from './album.js';
 import { enderecoDoAlbum, marcaDoAlbum, escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
-import { urlLh3, descreveRenovacao } from '../drive.js';
+import { urlLh3, descreveRenovacao, capVazio } from '../drive.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 
 
@@ -37,7 +37,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   // (a pasta existe, mas ainda não chegou nada); o dono o vê marcado "vazio".
   // Sem resumo (ninguém abriu ainda) o capítulo aparece normalmente.
   /** @param {{ id: string }} c */
-  const vazio = c => { const r = resumo[c.id]; return !!r && r.n === 0; };
+  const vazio = c => capVazio(resumo[c.id]);
   const visiveis = caps.caps.filter(c => dono || !vazio(c));
   // Cartão de link: a contagem vem do resumo (só dos capítulos que alguém já
   // abriu; sem resumo nenhum, só "N eventos"). Álbum família/privado só abre

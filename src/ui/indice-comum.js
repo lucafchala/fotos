@@ -495,6 +495,11 @@ export const SCRIPT_BUSCA = `(function () {
   var bt = f.querySelector('button');
   var CHAVE = 'bf-res:' + D.slug, ULT = 'bf-ult:' + D.slug;
   f.hidden = false;
+  // O botão "Procurar nas fotos" da abertura (v3.8.2): leva ao campo, com o
+  // cursor nele (no celular, abre o teclado).
+  document.querySelectorAll('[data-acao="procurar"]').forEach(function (b) {
+    b.addEventListener('click', function (e) { e.preventDefault(); f.scrollIntoView({ block: 'center' }); q.focus({ preventScroll: true }); });
+  });
   // Como na busca pelo rosto: o resultado fica nesta aba e volta ao voltar
   // de uma foto (#busca=termo), rolado até a foto aberta (v3.7.5).
   document.getElementById('bf-grade').addEventListener('click', function (e) {

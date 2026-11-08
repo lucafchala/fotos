@@ -63,8 +63,11 @@ const paginas = [
   {
     nome: 'evento com anos',
     html: galeriaHTML({ event: /** @type {any} */ (EVENTO), listagem: /** @type {any} */ (LISTAGEM), listagemBruta: /** @type {any} */ (LISTAGEM), erro: null, nonce: NONCE, dono: false,
-      capituloNome: 'PiauiFut', capitulo: { slug: 'piauifut', nome: 'PiauiFut', anterior: { slug: 'piauifest-2025', nome: 'PiauiFest 2025' }, proximo: { slug: 'shows-no-recreio', nome: 'Shows no recreio' } } }),
+      capituloNome: 'PiauiFut', capitulo: { slug: 'piauifut', nome: 'PiauiFut', anterior: { slug: 'piauifest-2025', nome: 'PiauiFest 2025' }, proximo: { slug: 'shows-no-recreio', nome: 'Shows no recreio' },
+        // A barra entre eventos (v3.8.2): todos os eventos, com o ano.
+        eventos: caps.caps.map(c => ({ slug: c.slug, nome: c.nome, ano: String(Math.floor(resumo[c.id].p[0] / 100)) })) } }),
     janelas: false,
+    menuEventos: true,
   },
 ];
 
@@ -178,6 +181,21 @@ for (const tela of TELAS) {
         await page.keyboard.press('Escape');
         await page.waitForTimeout(200);
       }
+    }
+    if (p.menuEventos) {
+      // A lista de eventos abre inteira na tela, com o atual marcado e visível.
+      await page.locator('.g-ev-menu summary').click();
+      await page.waitForTimeout(250);
+      const lista = await page.locator('.g-ev-lista').boundingBox();
+      const atual = await page.locator('.g-ev-lista [aria-current]').boundingBox();
+      registra(!!lista && lista.x >= -1 && lista.x + lista.width <= tela.width + 1 && lista.y + lista.height <= tela.height + 1, `${rotulo}: a lista de eventos cabe na tela`, lista);
+      registra(!!lista && !!atual && atual.y >= lista.y - 1 && atual.y + atual.height <= lista.y + lista.height + 1, `${rotulo}: o evento atual aparece na lista aberta`, { lista, atual });
+      const dentro = await page.evaluate(mede);
+      registra(!dentro.pequenos.length, `${rotulo}: itens da lista com 44 px`, dentro.pequenos);
+      await page.screenshot({ path: `${SAIDA}/${tela.width}-${p.nome.replace(/[^a-z0-9]+/gi, '-')}-lista-de-eventos.png` });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      registra(!(await page.locator('.g-ev-menu[open]').count()), `${rotulo}: Esc fecha a lista de eventos`);
     }
     await ctx.close();
   }

@@ -77,6 +77,43 @@ export function ordemDaLinha(caps, resumo) {
 /** @param {string} id @param {number[]} larguras @param {string} sizes */
 const fonteLh3 = (id, larguras, sizes) => `src="${escape(`${urlLh3(id, larguras[Math.min(1, larguras.length - 1)])}-rw`)}" srcset="${escape(larguras.map(w => `${urlLh3(id, w)}-rw ${w}w`).join(', '))}" sizes="${sizes}"`;
 
+/** Acima disto, os eventos do álbum vão para a grade compacta por ano. */
+export const EVENTOS_COMPACTOS = 8;
+
+const ICONE_LUPA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>';
+
+/**
+ * A grade compacta dos eventos (v3.8.2): por ano (o do primeiro mês com foto),
+ * na ordem da linha do tempo. Evento sem data fica no grupo de quem vem antes.
+ * Os cartões levam as mesmas marcas da linha do tempo (`ix-card`, `data-cap`,
+ * `data-cr`, `.ix-sub`), que os scripts e o indexador procuram.
+ * @param {{ id: string, slug: string, nome: string }[]} caps
+ * @param {Record<string, import('../drive.js').ResumoCap>} resumo
+ * @param {(id: string) => string[]} capasDe
+ * @param {string} base
+ */
+function gradeDeEventos(caps, resumo, capasDe, base) {
+  /** @type {{ ano: string, itens: string[] }[]} */
+  const grupos = [];
+  for (const c of caps) {
+    const r = resumo[c.id];
+    const ano = r && Array.isArray(r.p) && r.p[0] > 0 ? String(Math.floor(r.p[0] / 100)) : '';
+    const atual = grupos[grupos.length - 1];
+    // Ano que já teve título (ordem sem data) fica no grupo corrente: um título por ano.
+    if (!atual || (ano && ano !== atual.ano && !grupos.some(g => g.ano === ano))) grupos.push({ ano, itens: [] });
+    const n = r ? r.n : 0;
+    const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
+    const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
+    const capa = capasDe(c.id)[0];
+    const img = capa ? `<img ${fonteLh3(capa, [320, 480, 640], '(max-width:700px) 46vw, 240px')} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '<span class="al-vazio"></span>';
+    grupos[grupos.length - 1].itens.push(`<li><a class="ix-card al-card al-mini" href="${escape(`${base}/${c.slug}`)}" data-cap="${escape(c.slug)}"${cr}>${img}<span class="al-nm"><b>${escape(c.nome)}</b><span class="ix-sub">${escape(sub)}</span></span></a></li>`);
+  }
+  const anos = grupos.filter(g => g.ano);
+  const atalhos = anos.length > 1 ? `<nav class="al-anos" aria-label="Ir para o ano">${anos.map(g => `<a href="#ano-${g.ano}">${g.ano}</a>`).join('')}</nav>` : '';
+  const corpo = grupos.map(g => `${g.ano ? `<h3 class="al-ano" id="ano-${g.ano}">${g.ano}</h3>` : ''}<ol class="al-grade">${g.itens.join('')}</ol>`).join('');
+  return `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">Os ${caps.length} eventos</h2>${atalhos}${corpo}</section>`;
+}
+
 // Um rosto simples (traço), no botão da busca pelo rosto.
 const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="9.5" cy="10" r=".6" fill="currentColor"/><circle cx="14.5" cy="10" r=".6" fill="currentColor"/><path d="M9 15c1.6 1.3 4.4 1.3 6 0"/></svg>';
 
@@ -148,6 +185,9 @@ export function albumHTML(p) {
     p.botaoRosto ? `<button type="button" class="al-btn al-b1 al-rosto" id="rs-abrir" hidden>${ICONE_ROSTO}Achar minhas fotos pelo rosto</button>` : '',
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
     urlPasta ? `<a class="al-btn al-b2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
+    // A busca nas fotos junto dos botões principais (v3.8.2): leva ao campo,
+    // já com o cursor. Só aparece quando o campo aparece (CSS, :has).
+    p.buscaFotos ? `<a class="al-btn al-b2 al-procura" href="#bf-q" data-acao="procurar">${ICONE_LUPA}Procurar nas fotos</a>` : '',
   ].join('')}</div>`;
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
   // Cruz"), o mesmo da página "em breve"; senão, o ano do projeto.
@@ -163,7 +203,9 @@ export function albumHTML(p) {
     : temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
   const envio = temEnvio ? envioHTML(slug, urlPasta) : '';
   const kicker = doDominio ? doDominio.linha : (event.date ? String(event.date).slice(0, 4) : '');
-  const cabecalho = (/** @type {string} */ extra = '') => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${extra}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${dicaEnvio}`;
+  // O texto de abertura vem ANTES dos botões, em todo estilo (v3.8.2, pedido
+  // do dono: a turma tem de ler antes de sair clicando).
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${dicaEnvio}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -172,7 +214,7 @@ export function albumHTML(p) {
   if (estilo === 'tela-cheia') {
     const n = heroi.length;
     primeiraTela = `<header class="al-hero${n ? '' : ' al-sem-foto'}">${n ? `<div class="al-slides" aria-hidden="true">${heroi.map((id, i) => `<img ${fonteLh3(id, [960, 1600, 2400], '100vw')} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
-    <div class="al-hero-txt">${cabecalho()}</div><a class="al-desce" href="#sobre" aria-label="Rolar para o texto">⌄</a></header>`;
+    <div class="al-hero-txt">${cabecalho()}</div><a class="al-desce" href="#sobre" aria-label="Rolar para baixo">⌄</a></header>`;
     cssEstilo = cssTelaCheia(n);
   } else if (estilo === 'mosaico') {
     const m = heroi.slice(0, 5);
@@ -186,7 +228,7 @@ export function albumHTML(p) {
     <div class="al-pol-txt">${cabecalho()}</div></header>`;
     cssEstilo = CSS_RECORDACAO;
   } else {
-    primeiraTela = `<header class="al-linha-h">${cabecalho(`<div class="al-intro">${intro}</div>`)}</header>`;
+    primeiraTela = `<header class="al-linha-h">${cabecalho()}</header>`;
     cssEstilo = CSS_LINHA;
   }
 
@@ -207,7 +249,10 @@ export function albumHTML(p) {
       : (cs[0] ? img(cs[0], 800) : '<span class="al-vazio"></span>');
     return `<li>${periodo ? `<span class="al-mes">${escape(periodo)}</span>` : ''}<a class="ix-card al-card" href="${escape(`${base}/${c.slug}`)}" data-cap="${escape(c.slug)}"${cr}>${fotosHtml}<span class="al-nm"><b>${escape(c.nome)}</b><span class="ix-sub">${escape(sub)}</span></span></a></li>`;
   });
-  const linha = itens.length
+  // Muitos eventos (v3.8.2): a linha do tempo vira uma grade compacta,
+  // separada por ano, com atalhos para cada ano. Poucos: o desenho do estilo.
+  const compacta = caps.length > EVENTOS_COMPACTOS;
+  const linha = compacta ? gradeDeEventos(caps, resumo, capasDe, base) : itens.length
     ? `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">${grande ? 'Evento por evento' : 'A nossa história, evento por evento'}</h2><ol class="${grande ? 'al-big' : 'al-tl'}">${itens.join('')}</ol></section>`
     : '<p class="al-sec al-vazio-msg" id="eventos">As fotos estão chegando. Volte em breve.</p>';
 
@@ -266,7 +311,7 @@ export function albumHTML(p) {
   ${primeiraTela}
   ${p.avisoTrunc}
   <main id="g-main">
-    ${estilo !== 'linha' && intro ? `<section class="al-sec" id="sobre"><div class="al-intro">${intro}</div></section>` : '<span id="sobre"></span>'}
+    <span id="sobre"></span>
     ${p.rostoDialog}
     ${p.buscaFotos ? `<section class="al-sec al-busca" aria-label="Procurar nas fotos">${p.buscaFotos}</section>` : ''}
     ${envio}
@@ -518,6 +563,20 @@ a{color:inherit;text-decoration:none}
 .al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.4rem);letter-spacing:-.02em;margin:.4rem 0 1.4rem}
 .al-intro{max-width:40rem;font-size:clamp(1.02rem,2.2vw,1.18rem);line-height:1.7;color:var(--txt2)}
 .al-intro p+p{margin-top:1rem}
+.al-tit+.al-intro{margin:0 0 1rem}
+.al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
+.al-procura{gap:.5rem;justify-content:center}.al-procura svg{width:1.15rem;height:1.15rem;flex:none}
+body:not(:has(#bf-form:not([hidden]))) .al-procura{display:none}
+.al-anos{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0 .4rem}
+.al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.88rem}
+@media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}
+.al-ano{font-family:'Open Sans',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.16em;color:var(--sol);margin:1.6rem 0 .7rem;scroll-margin-top:1rem}
+.al-grade{list-style:none;display:grid;gap:.7rem;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))}
+.al-mini{margin-top:0}
+.al-mini img,.al-mini .al-vazio{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:var(--esqueleto)}
+.al-mini .al-nm{flex-direction:column;gap:.15rem;padding:.55rem .65rem .65rem}
+.al-mini .al-nm b{font-size:.95rem;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.al-mini .al-nm .ix-sub{font-size:.75rem}
 .al-vazio-msg{color:var(--mudo)}
 .al-vazio{display:block;width:100%;aspect-ratio:16/9;background:var(--esqueleto)}
 .al-sem-foto{padding-top:clamp(3rem,10vh,6rem)}

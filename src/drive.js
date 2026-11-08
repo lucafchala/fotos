@@ -1516,7 +1516,7 @@ export function achaCapitulo(dados, slug) {
 // pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
 // um espaço reservado.
 /**
- * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], a?: Record<string, number> }} ResumoCap
+ * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], a?: Record<string, number>, z?: number }} ResumoCap
  * `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX.
  * `p` (v3.3): o primeiro e o último mês das fotos do capítulo, AAAAMM, pelas datas de captura (a linha do tempo da apresentação).
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
@@ -1585,6 +1585,21 @@ export async function lerResumo(raizId, env = undefined) {
   return mem ? mem.mapa : {};
 }
 
+/** Por quanto tempo um evento lido vazio fica escondido do visitante. */
+export const RESUMO_VAZIO_MS = 6 * 3600_000;
+
+/**
+ * O evento está vazio para o visitante? Só com leitura recente dizendo 0
+ * fotos (v3.8.2). Antes, um "0" ficava para sempre: o visitante não via o
+ * evento, ninguém o abria e o resumo nunca mais era relido (o evento só
+ * aparecia para o dono). Passadas 6 h, ele volta a aparecer; quem abrir relê.
+ * @param {ResumoCap | undefined} r
+ * @param {number} [agora]
+ */
+export function capVazio(r, agora = Date.now()) {
+  return !!r && r.n === 0 && typeof r.z === 'number' && agora - r.z < RESUMO_VAZIO_MS;
+}
+
 /**
  * Guarda o resumo de UM capítulo, se mudou. No caso comum (nada mudou, isolate
  * quente) não gasta subrequisição nenhuma.
@@ -1601,6 +1616,9 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
   }
   /** @type {ResumoCap} */
   const novo = { n: listagem.total, capas };
+  // Vazio (v3.8.2): guarda QUANDO foi lido vazio. Lista cortada pelo teto de
+  // chamadas antes de achar a primeira foto não conta como vazia.
+  if (!listagem.total && !listagem.truncada) novo.z = Date.now();
   /** @type {number[]} */
   const cr = [];
   for (const sec of listagem.secoes) for (const f of sec.fotos) if (f[8]) cr.push(f[8]);

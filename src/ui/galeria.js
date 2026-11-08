@@ -157,7 +157,7 @@ const CONSERTOS = {
  *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
- *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string }[] } | null,
+ *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string, ano?: string }[] } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -453,11 +453,22 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-tit{flex:1 1 14rem;min-width:0}
     .g-tit h1{font-size:clamp(1.05rem,2.4vw,1.5rem);font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .g-cap-nav{display:flex;flex-wrap:wrap;gap:.1rem .9rem;padding:.3rem var(--pad);font-size:.82rem;border-bottom:1px solid var(--border)}
-    .g-evs{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:.55rem var(--pad);border-bottom:1px solid var(--border);scroll-snap-type:x proximity}
-    .g-evs::-webkit-scrollbar{display:none}
-    .g-ev{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 .95rem;border-radius:999px;border:1px solid var(--border);color:var(--text-2);font-size:.86rem;white-space:nowrap;text-decoration:none;scroll-snap-align:center}
-    .g-ev[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
-    @media (hover:hover){.g-ev:not([aria-current]):hover{border-color:var(--text-muted);color:var(--text)}}
+    .g-evs{position:relative;display:flex;align-items:center;gap:.5rem;padding:.5rem var(--pad);border-bottom:1px solid var(--border)}
+    .g-ev-seta{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;border:1px solid var(--border);color:var(--text);font-size:1.5rem;line-height:1;text-decoration:none}
+    span.g-ev-seta{border-color:transparent}
+    .g-ev-menu{flex:1;min-width:0}
+    .g-ev-menu>summary{list-style:none;display:flex;align-items:center;justify-content:center;gap:.6rem;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);cursor:pointer;color:var(--text)}
+    .g-ev-menu>summary::-webkit-details-marker{display:none}
+    .g-ev-menu>summary::after{content:"";flex:none;width:.45rem;height:.45rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+    .g-ev-menu[open]>summary::after{transform:translateY(2px) rotate(-135deg)}
+    .g-ev-nome{font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+    .g-ev-n{flex:none;font-size:.78rem;color:var(--text-muted)}
+    .g-ev-lista{position:absolute;left:var(--pad);right:var(--pad);top:calc(100% - .2rem);z-index:30;max-width:32rem;margin:0 auto;max-height:min(30rem,calc(100vh - 5.5rem));max-height:min(30rem,calc(100svh - 5.5rem));overflow-y:auto;padding:.4rem;border-radius:16px;border:1px solid var(--border);background:var(--bg-card);box-shadow:0 18px 40px rgba(0,0,0,.35);display:flex;flex-direction:column}
+    .g-ev{display:flex;align-items:center;min-height:44px;padding:0 .9rem;border-radius:10px;color:var(--text-2);font-size:.92rem;text-decoration:none}
+    .g-ev[aria-current="page"]{background:var(--accent);color:var(--accent-text);font-weight:600}
+    .g-ev-todos{color:var(--text);font-weight:600;border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;margin-bottom:.2rem}
+    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.72rem;font-weight:600;letter-spacing:.14em;color:var(--text-muted)}
+    @media (hover:hover){.g-ev:not([aria-current]):hover{background:var(--border);color:var(--text)}.g-ev-seta:hover,.g-ev-menu>summary:hover{border-color:var(--text-muted)}}
     .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
     .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
     .g-cap-a:hover{color:var(--text);text-decoration:underline}
@@ -760,16 +771,32 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
 }
 
 /**
- * A faixa com todos os eventos do álbum (v3.8.0), na ordem da linha do tempo:
- * desliza de lado, o atual marcado (e centralizado pelo script).
+ * A barra entre os eventos do álbum (v3.8.2). Antes era uma faixa com TODOS os
+ * eventos lado a lado (v3.8.0); com 20+ eventos ninguém achava nada. Agora:
+ * anterior, o atual ("5 de 23") que abre a lista inteira por ano, e próximo.
+ * Sem JS, a lista abre e fecha do mesmo jeito (<details>).
  * @param {string} base
- * @param {{ slug: string, eventos?: { slug: string, nome: string }[] }} c
+ * @param {{ slug: string, nome: string, eventos?: { slug: string, nome: string, ano?: string }[] }} c
  */
 function faixaDeEventos(base, c) {
-  const itens = (c.eventos || []).map(e => e.slug === c.slug
-    ? `<a class="g-ev" aria-current="page" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`
-    : `<a class="g-ev" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`).join('');
-  return `<nav class="g-evs" id="g-evs" aria-label="Eventos do álbum">${itens}</nav>`;
+  const evs = c.eventos || [];
+  const i = evs.findIndex(e => e.slug === c.slug);
+  const ant = i > 0 ? evs[i - 1] : null;
+  const prox = i >= 0 && i < evs.length - 1 ? evs[i + 1] : null;
+  const seta = (/** @type {{ slug: string, nome: string } | null} */ e, /** @type {'prev' | 'next'} */ rel) => e
+    ? `<a class="g-ev-seta" rel="${rel}" href="${escape(`${base}/${e.slug}`)}" aria-label="${rel === 'prev' ? 'Evento anterior' : 'Próximo evento'}: ${escape(e.nome)}">${rel === 'prev' ? '‹' : '›'}</a>`
+    : '<span class="g-ev-seta" aria-hidden="true"></span>';
+  let anoAtual = '';
+  const itens = evs.map(e => {
+    const ano = e.ano && e.ano !== anoAtual ? e.ano : '';
+    if (ano) anoAtual = ano;
+    const link = e.slug === c.slug
+      ? `<a class="g-ev" aria-current="page" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`
+      : `<a class="g-ev" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`;
+    return `${ano ? `<span class="g-ev-ano">${escape(ano)}</span>` : ''}${link}`;
+  }).join('');
+  const atual = i >= 0 ? evs[i] : { nome: '' };
+  return `<nav class="g-evs" aria-label="Eventos do álbum">${seta(ant, 'prev')}<details class="g-ev-menu" id="g-ev-menu"><summary><span class="g-ev-nome">${escape(atual.nome)}</span><span class="g-ev-n">${i + 1} de ${evs.length}</span></summary><div class="g-ev-lista"><a class="g-ev g-ev-todos" href="${escape(base)}">← Todos os eventos</a>${itens}</div></details>${seta(prox, 'next')}</nav>`;
 }
 
 /**
@@ -811,10 +838,21 @@ function listaComE(nomes) {
 const SCRIPT = `
 (function () {
   'use strict';
-  // A faixa de eventos (v3.8.0): o evento atual no meio, sem rolar a página.
-  const faixa = document.getElementById('g-evs');
-  const atualEv = faixa ? faixa.querySelector('[aria-current]') : null;
-  if (faixa && atualEv) { const a = /** @type {HTMLElement} */ (atualEv); faixa.scrollLeft = Math.max(0, a.offsetLeft - (faixa.clientWidth - a.offsetWidth) / 2); }
+  // A lista de eventos (v3.8.2): fecha com toque fora ou Esc; aberta, o
+  // evento atual já aparece.
+  const menuEv = /** @type {HTMLDetailsElement | null} */ (document.getElementById('g-ev-menu'));
+  if (menuEv) {
+    menuEv.addEventListener('toggle', () => {
+      // Aberta, a barra sobe para o topo da tela: a lista ganha a altura toda.
+      const nav = menuEv.parentElement;
+      if (menuEv.open && nav && nav.getBoundingClientRect().top > 8) nav.scrollIntoView({ block: 'start' });
+      const a = /** @type {HTMLElement | null} */ (menuEv.open ? menuEv.querySelector('[aria-current]') : null);
+      const l = /** @type {HTMLElement | null} */ (menuEv.querySelector('.g-ev-lista'));
+      if (a && l) l.scrollTop = Math.max(0, a.offsetTop - (l.clientHeight - a.offsetHeight) / 2);
+    });
+    document.addEventListener('click', e => { if (menuEv.open && !menuEv.contains(/** @type {Node} */ (e.target))) menuEv.open = false; });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && menuEv.open) { menuEv.open = false; const s = menuEv.querySelector('summary'); if (s) s.focus(); } });
+  }
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
