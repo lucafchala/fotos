@@ -49,8 +49,10 @@ describe('domínio de álbum (entrenos2026.com)', () => {
     expect(res.headers.get('Location')).toBe('/?utm_source=qr');
     // Mesmo um redirecionamento sai com os cabeçalhos de segurança.
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
-    // O capítulo continua no caminho de sempre.
-    expect((await pede(`https://entrenos2026.com/galeria/${SLUG}/piauifut`)).status).not.toBe(301);
+    // O capítulo também ganhou o endereço curto (v3.8.3): o longo leva a ele.
+    const cap = await pede(`https://entrenos2026.com/galeria/${SLUG}/piauifut?a=1`);
+    expect(cap.status).toBe(301);
+    expect(cap.headers.get('Location')).toBe('/piauifut?a=1');
   });
 
   it('www. vai para o domínio sem www. (301), preservando caminho e query', async () => {

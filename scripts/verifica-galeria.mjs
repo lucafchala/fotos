@@ -227,8 +227,10 @@ async function abre(o = {}) {
   await page.route('**/*', async route => {
     const r = route.request();
     const u = new URL(r.url());
-    if (u.host === 'lh3.googleusercontent.com') {
-      const m = u.pathname.match(/^\/d\/([A-Za-z0-9_-]+)=w(\d+)(-rw)?$/);
+    // As fotos pelo próprio site (v3.8.3): /f/<id>/<largura>[j]. O "j" pede JPEG.
+    const fotoSite = u.host === 'fotos.test' ? u.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/(\d+)(j?)$/) : null;
+    if (u.host === 'lh3.googleusercontent.com' || fotoSite) {
+      const m = fotoSite ? [fotoSite[0], fotoSite[1], fotoSite[2], fotoSite[3] ? '' : '-rw'] : u.pathname.match(/^\/d\/([A-Za-z0-9_-]+)=w(\d+)(-rw)?$/);
       if (!m) return route.fulfill({ status: 404, body: '' });
       estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3] });
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
@@ -300,7 +302,7 @@ const degrau = (/** @type {number[]} */ escada, /** @type {number} */ px) => esc
 /** @param {import('playwright-core').Page} page */
 const larguraAtualDoVisualizador = page => page.evaluate(() => {
   const img = /** @type {HTMLImageElement | null} */ (document.querySelector('.pswp__item:not([aria-hidden="true"]) img.pswp__img:not(.pswp__img--placeholder)'));
-  const m = img && img.currentSrc.match(/=w(\d+)/);
+  const m = img && img.currentSrc.match(/(?:=w|\/f\/[A-Za-z0-9_-]+\/)(\d+)/);
   return { w: m ? Number(m[1]) : 0, exibida: img ? img.getBoundingClientRect().width : 0, src: img ? img.currentSrc : '' };
 });
 
@@ -364,7 +366,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
       const desvio = linhas.length ? Math.max(...linhas.map(x => Math.abs(x - util))) : -1;
       const tiles = [...document.querySelectorAll('.g-t')].slice(0, 12).map(t => {
         const img = /** @type {HTMLImageElement} */ (t.querySelector('img'));
-        const m = img.currentSrc.match(/=w(\d+)/);
+        const m = img.currentSrc.match(/(?:=w|\/f\/[A-Za-z0-9_-]+\/)(\d+)/);
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));

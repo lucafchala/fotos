@@ -1,3 +1,4 @@
+import { lerRotaFoto, respondeFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
@@ -259,6 +260,13 @@ const worker = {
     const url = new URL(request.url);
     let path = stripTrailingSlashes(url.pathname) || '/';
     const method = request.method.toUpperCase();
+
+    // As fotos pelo próprio site, com cache (v3.8.3, src/foto-rota.js). Antes
+    // de tudo: é a rota mais chamada e não precisa de mais nada.
+    if (method === 'GET' && path.startsWith('/f/')) {
+      const alvoFoto = lerRotaFoto(path);
+      return alvoFoto ? await respondeFoto(request, env, ctx, alvoFoto) : new Response('Não encontrada.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
 
     // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
     // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js. A
@@ -4287,6 +4295,15 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
+  // Links curtos (v3.8.3): o evento mora em "entrenos2026.com/piauifut". O
+  // endereço longo de antes leva ao curto (o #foto= vai junto: o navegador
+  // mantém o fragmento no redirecionamento).
+  const longo = /^\/galeria\/([a-z0-9-]+)\/([a-z0-9][a-z0-9-]*)$/.exec(path);
+  if (longo && longo[1] === album.slug && (!request || request.method === 'GET')) {
+    return new Response(null, { status: 301, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `/${longo[2]}${url.search}` } });
+  }
+  const curto = /^\/([a-z0-9][a-z0-9-]{0,80})$/.exec(path);
+  if (curto && !RESERVED_SLUGS.has(curto[1])) return { servir: `/galeria/${album.slug}/${curto[1]}` };
   return null;
 }
 
@@ -4618,7 +4635,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   }
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
-    capituloNome: capitulo ? capitulo.nome : '',
+    capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname,
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
@@ -4675,7 +4692,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const previa = !dono && !albumLancado(event) && await temPrevia(request, env, event);
   const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
   const busca = buscaTextoAtiva(env, event, dono || previa);
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca });
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {

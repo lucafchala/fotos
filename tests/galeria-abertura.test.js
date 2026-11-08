@@ -42,7 +42,8 @@ const pagina = (ev = {}, resumo = RESUMO, ocultas = [], rosto = null) =>
 /** IDs do Drive nas <img> de um trecho da página. @param {string} h @param {RegExp} trecho */
 const idsEm = (h, trecho) => {
   const m = h.match(trecho);
-  return m ? [...m[0].matchAll(/ src="https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)=w/g)].map(x => x[1]) : [];
+  // As fotos passam pelo próprio site (v3.8.3): src="/f/<id>/<largura>".
+  return m ? [...m[0].matchAll(/ src="\/f\/([A-Za-z0-9_-]+)\/[0-9]+"/g)].map(x => x[1]) : [];
 };
 const MOSAICO = /<div class="al-mos"[^>]*>.*?<\/div>/s;
 

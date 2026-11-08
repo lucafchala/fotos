@@ -36,6 +36,7 @@ import { FONTS } from './content/fonts.js';
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
  *   PREVIA_EMAIL?: string,
+ *   FOTOS_R2?: R2Bucket,
  * }} Env
  */
 
@@ -3198,6 +3199,27 @@ export function origemDoAlbum(slug) {
 export function marcaDoAlbum(slug) {
   const a = Object.values(DOMINIOS_DE_ALBUM).find(x => x.slug === slug);
   return a ? { icone: '/icon-entrenos.svg', apple: '/apple-touch-entrenos.png', siteName: `${a.titulo} · ${a.linha}` } : null;
+}
+
+/**
+ * O começo dos links da galeria NESTA página (v3.8.3): no domínio do próprio
+ * álbum, a raiz ("entrenos2026.com/piauifut"); em qualquer outro endereço,
+ * "/galeria/<slug>".
+ * @param {string} slug
+ * @param {string} [host] o host do pedido
+ */
+export function baseDaGaleria(slug, host = '') {
+  const h = String(host || '').toLowerCase().replace(/^www\./, '');
+  return Object.hasOwn(DOMINIOS_DE_ALBUM, h) && DOMINIOS_DE_ALBUM[h].slug === slug ? '' : `/galeria/${slug}`;
+}
+
+/**
+ * O endereço público de um evento do álbum (canonical, cartão de link).
+ * @param {string} slug @param {string} cap
+ */
+export function enderecoDoEvento(slug, cap) {
+  const temDominio = Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug);
+  return temDominio ? `${origemDoAlbum(slug)}/${cap}` : `${origemDoAlbum(slug)}/galeria/${slug}/${cap}`;
 }
 
 /**

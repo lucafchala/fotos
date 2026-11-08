@@ -25,12 +25,13 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, origemDoAlbum, marcaDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
+import { urlFoto } from '../foto-rota.js';
 import { nomesDaListagem } from '../nomes.js';
 import { rotuloDoPeriodo } from './album.js';
 
@@ -158,6 +159,7 @@ const CONSERTOS = {
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string, ano?: string }[] } | null,
+ *   host?: string,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -179,7 +181,7 @@ const CONSERTOS = {
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -211,10 +213,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const tituloPagina = marca
     ? (capitulo ? `${capitulo.nome} · ${titulo}` : titulo)
     : `Fotos de ${titulo}${capitulo ? ` — ${capitulo.nome}` : ''}${dataEvento ? ` — ${dataEvento}` : ''}`;
-  const caminhoBase = `/galeria/${slug}`;
-  const caminhoPagina = capitulo ? `${caminhoBase}/${capitulo.slug}` : caminhoBase;
+  // Links curtos no domínio do álbum (v3.8.3): "entrenos2026.com/piauifut".
+  const base = baseDaGaleria(slug, host);
+  const caminhoBase = base || '/';
   // Álbum com domínio próprio: o endereço de lá (canonical e cartão de link).
-  const urlPagina = `${origemDoAlbum(slug)}${caminhoPagina}`;
+  const urlPagina = capitulo ? enderecoDoEvento(slug, capitulo.slug) : enderecoDoAlbum(slug);
   const todasFotos = listagem ? listagem.secoes.flatMap(s => s.fotos) : [];
   // Autores da listagem (índice 0 = padrão) e os que de fato têm foto na
   // página (sem as ocultas, para o visitante): só com mais de um aparece a
@@ -302,7 +305,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
   const lcp = todasFotos[0];
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
-    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlLh3(lcp[0], x)}-rw ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x)} ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
     : '';
 
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
@@ -702,7 +705,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
     </div>
     ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
   </header>
-  ${capitulo && capitulo.eventos && capitulo.eventos.length > 1 ? faixaDeEventos(caminhoBase, capitulo) : capitulo ? navCapitulos(caminhoBase, capitulo, 'topo') : ''}
+  ${capitulo && capitulo.eventos && capitulo.eventos.length > 1 ? faixaDeEventos(base, capitulo) : capitulo ? navCapitulos(base, capitulo, 'topo') : ''}
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
   ${conserto && erro ? `<section class="g-erro" role="alert">
     <h2>${escape(conserto.titulo)}</h2>
@@ -711,7 +714,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', marca ? '' : slug) : ''}
+  ${capitulo && listagem ? navCapitulos(base, capitulo, 'fim', marca ? '' : slug) : ''}
   ${marca ? '<footer class="g-fim"><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>' : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
@@ -811,7 +814,7 @@ function faixaDeEventos(base, c) {
     return `${ano ? `<span class="g-ev-ano">${escape(ano)}</span>` : ''}${link}`;
   }).join('');
   const atual = i >= 0 ? evs[i] : { nome: '' };
-  return `<nav class="g-evs" aria-label="Eventos do álbum">${seta(ant, 'prev')}<details class="g-ev-menu" id="g-ev-menu"><summary><span class="g-ev-nome">${escape(atual.nome)}</span><span class="g-ev-n">${i + 1} de ${evs.length}</span></summary><div class="g-ev-lista"><a class="g-ev g-ev-todos" href="${escape(base)}">← Todos os eventos</a>${itens}</div></details>${seta(prox, 'next')}</nav>`;
+  return `<nav class="g-evs" aria-label="Eventos do álbum">${seta(ant, 'prev')}<details class="g-ev-menu" id="g-ev-menu"><summary><span class="g-ev-nome">${escape(atual.nome)}</span><span class="g-ev-n">${i + 1} de ${evs.length}</span></summary><div class="g-ev-lista"><a class="g-ev g-ev-todos" href="${escape(base || '/')}">← Todos os eventos</a>${itens}</div></details>${seta(prox, 'next')}</nav>`;
 }
 
 /**
@@ -826,7 +829,7 @@ function faixaDeEventos(base, c) {
 function navCapitulos(base, c, onde, slugProjeto = '') {
   const ant = c.anterior ? `<a class="g-cap-a" rel="prev" href="${escape(`${base}/${c.anterior.slug}`)}"><span aria-hidden="true">‹</span> <span class="g-cap-t">${escape(c.anterior.nome)}</span></a>` : '';
   const prox = c.proximo ? `<a class="g-cap-a g-cap-p" rel="next" href="${escape(`${base}/${c.proximo.slug}`)}"><span class="g-cap-t">${escape(c.proximo.nome)}</span> <span aria-hidden="true">›</span></a>` : '';
-  const indice = `<a class="g-cap-a g-cap-i" href="${escape(base)}">← Todos os eventos</a>`;
+  const indice = `<a class="g-cap-a g-cap-i" href="${escape(base || '/')}">← Todos os eventos</a>`;
   const projeto = slugProjeto ? `<a class="g-cap-a g-cap-i" href="/${escape(slugProjeto)}">Página do projeto</a>` : '';
   return `<nav class="g-cap-nav g-cap-${onde}" aria-label="${onde === 'topo' ? 'Capítulos' : 'Mais capítulos'}">${onde === 'topo' ? '' : indice}${ant}${prox}${projeto}</nav>`;
 }
@@ -928,7 +931,16 @@ const SCRIPT = `
     try { localStorage.setItem(CHAVE_VISITA, JSON.stringify({ p: p, u: agora })); } catch (e) { /* idem */ }
   })();
   let rw = '';
-  const lh3 = function (id, w) { return 'https://lh3.googleusercontent.com/d/' + id + '=w' + Math.round(w) + rw; };
+  // As fotos passam pelo próprio site (v3.8.3): /f/<id>/<largura>. O site
+  // guarda cada tamanho no cache da Cloudflare (e, com o R2, lê de lá); o
+  // Google só é chamado na primeira vez. Sem WebP, o sufixo "j" pede JPEG.
+  const lh3 = function (id, w) { return '/f/' + id + '/' + Math.round(w) + (rw ? '' : 'j'); };
+  // Link curto da foto (v3.8.3): #foto= com os 10 primeiros caracteres do ID
+  // (o ID inteiro só se dois começarem igual). O link antigo, com o ID
+  // inteiro, continua abrindo.
+  const prefixos = {};
+  D.secoes.forEach(function (s) { s.fotos.forEach(function (f) { const p = String(f[0]).slice(0, 10); prefixos[p] = (prefixos[p] || 0) + 1; }); });
+  const codigoDe = function (id) { const p = String(id).slice(0, 10); return prefixos[p] > 1 ? id : p; };
   const semExt = function (n) { return String(n || '').replace(/[.][^.]+$/, ''); };
   const LONGO_ESTIMADO = 4096;
   const reduz = function () {
@@ -1008,7 +1020,7 @@ const SCRIPT = `
         const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
         const a = document.createElement('a');
         a.className = 'g-t' + (ehVid ? ' g-video' : '') + (nova ? ' nova' : '');
-        a.href = '#foto=' + f[0];
+        a.href = '#foto=' + codigoDe(f[0]);
         a.dataset.i = String(i);
         a.dataset.ext = extDoNome(f[3]).toUpperCase();
         a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]) + (nova ? ', nova' : ''));
@@ -1761,7 +1773,7 @@ const SCRIPT = `
         vendo = true;
         document.body.classList.add('g-vendo');
         const f = vistas[lightbox.pswp.currIndex];
-        if (f) history.pushState({ g: 'foto' }, '', '#foto=' + f.id);
+        if (f) history.pushState({ g: 'foto' }, '', '#foto=' + codigoDe(f.id));
         marcaTipoDoSlide();
       });
       lightbox.on('destroy', function () {
@@ -1775,7 +1787,7 @@ const SCRIPT = `
       });
       lightbox.on('change', function () {
         const f = vistas[lightbox.pswp.currIndex];
-        if (f && noTopo('foto')) history.replaceState(history.state, '', '#foto=' + f.id);
+        if (f && noTopo('foto')) history.replaceState(history.state, '', '#foto=' + codigoDe(f.id));
         marcaTipoDoSlide();
       });
       lightbox.on('close', function () {
@@ -2439,7 +2451,7 @@ const SCRIPT = `
   // a cada toque até o prazo passar.
   let compartilharAte = 0;
   async function compartilhaFoto(f) {
-    const link = location.origin + location.pathname + '#foto=' + f.id;
+    const link = location.origin + location.pathname + '#foto=' + codigoDe(f.id);
     if (Date.now() < compartilharAte) {
       avisa('Muita gente baixando agora. Tente de novo em ' + Math.ceil((compartilharAte - Date.now()) / 1000) + ' s.');
       return;
@@ -2917,7 +2929,7 @@ const SCRIPT = `
     }
     const m = location.hash.match(/^#foto=([A-Za-z0-9_-]+)$/);
     if (m) {
-      const f = fotos.find(function (x) { return x.id === m[1]; });
+      const f = fotos.find(function (x) { return x.id === m[1]; }) || fotos.find(function (x) { return codigoDe(x.id) === m[1]; });
       if (f) {
         // A entrada de chegada vira a da grade, e a abertura empilha a da
         // foto: assim o voltar de quem chegou pelo link fecha a foto e fica

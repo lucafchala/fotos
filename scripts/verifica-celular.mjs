@@ -146,7 +146,7 @@ for (const tela of TELAS) {
     await page.route('**/*', route => {
       const u = route.request().url();
       if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: p.html });
-      if (/googleusercontent\.com|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
       if (/\/api\//.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pastas: [
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2026', url: 'https://drive.google.com/drive/folders/X1' },
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2025', url: 'https://drive.google.com/drive/folders/X2' },
@@ -232,7 +232,7 @@ for (const tela of TELAS) {
     if (u.includes('/api/rosto/buscar') && semRosto) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Não achei um rosto nessa foto. Tente de frente, com boa luz.' }) });
     if (u.includes('/api/rosto/buscar')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: RES }) });
     if (u.includes('/api/busca?')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultados: RES.slice(0, 2) }) });
-    if (/googleusercontent\.com|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     return route.fulfill({ status: 204, body: '' });
   });
   await page.goto('https://fotos.test/');

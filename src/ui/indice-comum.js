@@ -175,6 +175,9 @@ export const SCRIPT_ROSTO = `(function () {
   var abrir = document.getElementById('rs-abrir');
   if (!el || !dlg || !abrir || typeof dlg.showModal !== 'function' || !window.fetch || !window.createImageBitmap) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
+  var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).
@@ -205,10 +208,10 @@ export const SCRIPT_ROSTO = `(function () {
       g.fotos.forEach(function (r) {
         var li = document.createElement('li');
         var a = document.createElement('a');
-        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -495,6 +498,9 @@ export const SCRIPT_BUSCA = `(function () {
   var f = document.getElementById('bf-form');
   if (!el || !f || !window.fetch) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
+  var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).
@@ -525,10 +531,10 @@ export const SCRIPT_BUSCA = `(function () {
       g.fotos.forEach(function (r) {
         var li = document.createElement('li');
         var a = document.createElement('a');
-        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
