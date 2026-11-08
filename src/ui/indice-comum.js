@@ -18,8 +18,18 @@ export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;fo
 .rs-t{font-size:1.1rem;font-weight:600;margin-bottom:.6rem}
 .rs p,.rs li{font-size:.9rem;line-height:1.55;color:var(--text-2)}
 .rs ul{margin:.6rem 0 .8rem 1.1rem}
-.rs-aceite{display:flex;gap:.6rem;align-items:flex-start;font-size:.88rem;line-height:1.45;margin:.4rem 0 .8rem;cursor:pointer}
-.rs-aceite input{margin-top:.2rem;width:1.1rem;height:1.1rem;flex:none;accent-color:var(--accent)}
+.rs-aceite{display:flex;gap:.7rem;align-items:center;font-size:.9rem;line-height:1.45;margin:.6rem 0 .2rem;min-height:44px;padding:.35rem .7rem;border:1px solid var(--border);border-radius:12px;cursor:pointer}
+.rs-aceite input{width:1.3rem;height:1.3rem;flex:none;accent-color:var(--accent)}
+.rs .rs-pol{font-size:.8rem;margin:.35rem 0 .6rem;color:var(--text-muted)}
+.rs .rs-pol a{color:var(--text-2);text-decoration:underline}
+@media (max-width:520px){.rs-acoes{flex-direction:column-reverse;align-items:stretch}}
+.rs-guia{display:flex;justify-content:center;color:var(--accent);margin:.2rem 0 .1rem}
+.rs-guia svg{width:6.5rem;height:6.5rem}
+.rs .rs-dicas{list-style:none;margin:.2rem 0 .6rem;padding:0;display:grid;gap:.3rem}
+.rs .rs-dicas li{font-size:.84rem;padding-left:1.3rem;position:relative}
+.rs .rs-dicas li::before{content:"";position:absolute;left:.15rem;top:.5em;width:.45rem;height:.45rem;border-radius:50%;background:var(--accent)}
+.rs-talvez{margin-top:1.6rem;padding-top:1rem;border-top:1px dashed var(--border)}
+.rs-talvez>p{font-size:.85rem;color:var(--text-muted);margin:.2rem 0 .6rem}
 .rs-erro{color:var(--warn-text);min-height:1.2em;margin:.4rem 0}
 .rs-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.6rem}
 .rs-btn{min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text);font:inherit;font-size:.9rem;cursor:pointer}
@@ -127,13 +137,24 @@ export function rostoHTML() {
           <li>As fotos continuam no álbum. Para tirar uma foto, use "Pedir remoção" nela.</li>
         </ul>
       </div>
-      <label class="rs-aceite"><input type="checkbox" id="rs-aceite"><span>Concordo com o uso do meu rosto para isso, como explica a <a href="/privacidade#busca-rosto" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
+      <div class="rs-guia" id="rs-guia" aria-hidden="true">
+        <svg viewBox="0 0 120 120"><ellipse cx="60" cy="56" rx="30" ry="38" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="7 6"/><circle cx="49" cy="50" r="2.6" fill="currentColor"/><circle cx="71" cy="50" r="2.6" fill="currentColor"/><path d="M50 70c6 5 14 5 20 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      </div>
+      <ul class="rs-dicas" id="rs-dicas">
+        <li>Rosto inteiro dentro do oval, de frente, olhando para a câmera.</li>
+        <li>Luz de frente (janela ou lâmpada à sua frente, não atrás).</li>
+        <li>Sem óculos escuros, boné ou máscara. Só você na foto.</li>
+      </ul>
+      <label class="rs-aceite"><input type="checkbox" id="rs-aceite"><span>Concordo com o uso do meu rosto para isso.</span></label>
+      <p class="rs-pol">Como funciona: <a href="/privacidade#busca-rosto" target="_blank" rel="noopener">política de privacidade</a>.</p>
       ${honeypotFieldHTML()}
       <div id="rs-ts"></div>
       <p class="rs-erro" id="rs-erro" role="alert"></p>
       <input type="file" id="rs-arquivo" accept="image/*" capture="user" hidden>
+      <input type="file" id="rs-galeria" accept="image/*" hidden>
       <div class="rs-acoes">
         <button type="button" class="rs-btn" data-rs="fechar">Cancelar</button>
+        <button type="button" class="rs-btn" id="rs-escolher" disabled>Escolher uma foto</button>
         <button type="button" class="rs-btn rs-btn-1" id="rs-tirar" disabled>Tirar selfie</button>
       </div>
       <p><button type="button" class="rs-link" id="rs-modo">Não quero aparecer na busca</button></p>
@@ -199,6 +220,8 @@ export const SCRIPT_ROSTO = `(function () {
   var aceite = document.getElementById('rs-aceite');
   var tirar = document.getElementById('rs-tirar');
   var arquivo = document.getElementById('rs-arquivo');
+  var galeria = document.getElementById('rs-galeria');
+  var escolher = document.getElementById('rs-escolher');
   var erro = document.getElementById('rs-erro');
   var modo = document.getElementById('rs-modo');
   var sair = false, token = '', widget = null, pre = null, preOk = true, ocupado = false, tsEstado = 'fora', tsFila = [];
@@ -206,8 +229,9 @@ export const SCRIPT_ROSTO = `(function () {
   abrir.hidden = false;
   function msg(t) { erro.textContent = t || ''; }
   function botao() {
-    tirar.disabled = ocupado || !aceite.checked || !token;
+    tirar.disabled = escolher.disabled = ocupado || !aceite.checked || !token;
     tirar.textContent = ocupado ? 'Procurando…' : (aceite.checked && !token ? 'Só um instante…' : (sair ? 'Enviar selfie e sair' : 'Tirar selfie'));
+    escolher.hidden = ocupado;
   }
   // O Turnstile (verificação anti-robô) carrega uma vez só, e cedo: v3.7.5.
   function carregaTs(cb) {
@@ -290,9 +314,13 @@ export const SCRIPT_ROSTO = `(function () {
   aceite.addEventListener('change', botao);
   dlg.addEventListener('click', function (e) { if (e.target && e.target.getAttribute && e.target.getAttribute('data-rs') === 'fechar') dlg.close(); });
   tirar.addEventListener('click', function () { if (!tirar.disabled) arquivo.click(); });
-  arquivo.addEventListener('change', function () {
-    var f = arquivo.files && arquivo.files[0];
-    arquivo.value = '';
+  // "Escolher uma foto" (v3.8.2): da galeria ou dos arquivos, sem abrir a câmera.
+  escolher.addEventListener('click', function () { if (!escolher.disabled) galeria.click(); });
+  galeria.addEventListener('change', function () { processa(galeria); });
+  arquivo.addEventListener('change', function () { processa(arquivo); });
+  function processa(campo) {
+    var f = campo.files && campo.files[0];
+    campo.value = '';
     if (!f) return;
     ocupado = true; botao(); msg('');
     reduz(f).then(function (b64) {
@@ -330,7 +358,7 @@ export const SCRIPT_ROSTO = `(function () {
       poeModo(sair);
       msg(aviso);
     });
-  });
+  }
   function reduz(f) {
     return createImageBitmap(f).then(function (bmp) {
       var lado = 640, k = Math.min(1, lado / Math.max(bmp.width, bmp.height));
@@ -400,11 +428,29 @@ export const SCRIPT_ROSTO = `(function () {
       t.textContent = 'Pronto: você saiu da busca';
       sub.textContent = j.removidas ? 'Tiramos o seu rosto de ' + j.removidas + (j.removidas === 1 ? ' foto' : ' fotos') + ' do índice. As fotos novas também ficam de fora.' : 'Não havia foto sua no índice. As que chegarem depois ficam de fora.';
     } else {
-      var lista = j.resultados || [];
+      // Quase certo primeiro; abaixo de D.certo, o grupo "Talvez seja você" (v3.8.2).
+      var todas = j.resultados || [];
+      var certo = Number(D.certo) || 80;
+      var lista = todas.filter(function (r) { return !(Number(r.sim) < certo); });
+      var talvez = todas.filter(function (r) { return Number(r.sim) < certo; });
       var nEv = porEvento(lista).length;
-      t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você' + (nEv > 1 ? ', em ' + nEv + ' eventos' : '')) : 'Nenhuma foto encontrada';
-      sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (lista.length ? 'Separadas por evento, das mais parecidas para as menos. Toque para abrir.' : 'Tente outra selfie, de frente e com boa luz.');
+      t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você' + (nEv > 1 ? ', em ' + nEv + ' eventos' : '')) : (talvez.length ? 'Talvez seja você' : 'Nenhuma foto encontrada');
+      sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (todas.length ? 'Separadas por evento, das mais parecidas para as menos. Toque para abrir.' + (talvez.length && lista.length ? ' Mais ' + talvez.length + ' em "Talvez seja você", no fim.' : '') : 'Tente outra selfie, de frente e com boa luz.');
       desenhaGrupos(grade, lista);
+      if (talvez.length) {
+        var tz = document.createElement('section');
+        tz.className = 'rs-talvez';
+        if (lista.length) {
+          var th = document.createElement('h3');
+          th.textContent = 'Talvez seja você (' + talvez.length + ')';
+          tz.appendChild(th);
+        }
+        var tp = document.createElement('p');
+        tp.textContent = 'Menos parecidas: confira uma por uma. Pode ser você de lado, de longe ou com pouca luz.';
+        tz.appendChild(tp);
+        desenhaGrupos(tz, talvez);
+        grade.appendChild(tz);
+      }
       if (!restaurando) guarda(j);
     }
     document.getElementById('rs-de-novo').parentNode.hidden = j.removidas !== undefined;
@@ -495,11 +541,6 @@ export const SCRIPT_BUSCA = `(function () {
   var bt = f.querySelector('button');
   var CHAVE = 'bf-res:' + D.slug, ULT = 'bf-ult:' + D.slug;
   f.hidden = false;
-  // O botão "Procurar nas fotos" da abertura (v3.8.2): leva ao campo, com o
-  // cursor nele (no celular, abre o teclado).
-  document.querySelectorAll('[data-acao="procurar"]').forEach(function (b) {
-    b.addEventListener('click', function (e) { e.preventDefault(); f.scrollIntoView({ block: 'center' }); q.focus({ preventScroll: true }); });
-  });
   // Como na busca pelo rosto: o resultado fica nesta aba e volta ao voltar
   // de uma foto (#busca=termo), rolado até a foto aberta (v3.7.5).
   document.getElementById('bf-grade').addEventListener('click', function (e) {

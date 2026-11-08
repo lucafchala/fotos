@@ -80,8 +80,6 @@ const fonteLh3 = (id, larguras, sizes) => `src="${escape(`${urlLh3(id, larguras[
 /** Acima disto, os eventos do álbum vão para a grade compacta por ano. */
 export const EVENTOS_COMPACTOS = 8;
 
-const ICONE_LUPA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>';
-
 /**
  * A grade compacta dos eventos (v3.8.2): por ano (o do primeiro mês com foto),
  * na ordem da linha do tempo. Evento sem data fica no grupo de quem vem antes.
@@ -185,9 +183,6 @@ export function albumHTML(p) {
     p.botaoRosto ? `<button type="button" class="al-btn al-b1 al-rosto" id="rs-abrir" hidden>${ICONE_ROSTO}Achar minhas fotos pelo rosto</button>` : '',
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
     urlPasta ? `<a class="al-btn al-b2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
-    // A busca nas fotos junto dos botões principais (v3.8.2): leva ao campo,
-    // já com o cursor. Só aparece quando o campo aparece (CSS, :has).
-    p.buscaFotos ? `<a class="al-btn al-b2 al-procura" href="#bf-q" data-acao="procurar">${ICONE_LUPA}Procurar nas fotos</a>` : '',
   ].join('')}</div>`;
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
   // Cruz"), o mesmo da página "em breve"; senão, o ano do projeto.
@@ -205,7 +200,12 @@ export function albumHTML(p) {
   const kicker = doDominio ? doDominio.linha : (event.date ? String(event.date).slice(0, 4) : '');
   // O texto de abertura vem ANTES dos botões, em todo estilo (v3.8.2, pedido
   // do dono: a turma tem de ler antes de sair clicando).
-  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${dicaEnvio}`;
+  // A busca nas fotos fica junto dos botões (v3.8.2, pedido do dono): o
+  // campo vai para a abertura; os resultados, para o corpo da página.
+  const corteBusca = (p.buscaFotos || '').indexOf('<section class="rs-res" id="bf-res"');
+  const buscaTopo = p.buscaFotos && corteBusca > 0 ? p.buscaFotos.slice(0, corteBusca) : (p.buscaFotos || '');
+  const buscaRes = p.buscaFotos && corteBusca > 0 ? p.buscaFotos.slice(corteBusca) : '';
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${buscaTopo}${dicaEnvio}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -313,7 +313,7 @@ export function albumHTML(p) {
   <main id="g-main">
     <span id="sobre"></span>
     ${p.rostoDialog}
-    ${p.buscaFotos ? `<section class="al-sec al-busca" aria-label="Procurar nas fotos">${p.buscaFotos}</section>` : ''}
+    ${buscaRes ? `<section class="al-sec al-busca" aria-label="Resultado da busca nas fotos">${buscaRes}</section>` : ''}
     ${envio}
     ${linha}
     ${quem}
@@ -565,8 +565,8 @@ a{color:inherit;text-decoration:none}
 .al-intro p+p{margin-top:1rem}
 .al-tit+.al-intro{margin:0 0 1rem}
 .al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
-.al-procura{gap:.5rem;justify-content:center}.al-procura svg{width:1.15rem;height:1.15rem;flex:none}
-body:not(:has(#bf-form:not([hidden]))) .al-procura{display:none}
+.al-btns+.bf,.al-btns~.bf{margin-top:1rem;max-width:34rem}
+.al-pol-txt .bf{margin-left:auto;margin-right:auto}
 .al-anos{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0 .4rem}
 .al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.88rem}
 @media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}

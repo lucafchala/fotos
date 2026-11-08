@@ -49,9 +49,11 @@ const EVENTO = {
 
 // Um evento com anos (o PiauiFut): 3 seções, fotos deitadas e em pé.
 const foto = (/** @type {string} */ id, /** @type {number} */ i) => [id, i % 3 ? 6000 : 4000, i % 3 ? 4000 : 6000, `PiauiFut-${i}.jpg`, 9_000_000, 0, 20250610140000 + i];
-const secao = (/** @type {string} */ ano, /** @type {number} */ n) => ({ nome: ano, caminho: ano, fotos: Array.from({ length: n }, (_, i) => foto(`F${ano}${String(i).padStart(9, '0')}`, i)) });
+const secao = (/** @type {string} */ ano, /** @type {number} */ n, dia = '') => ({ nome: dia || ano, caminho: dia ? `${ano} / ${dia}` : ano,
+  fotos: Array.from({ length: n }, (_, i) => foto(`F${ano}${dia ? dia.replace(/[^0-9]/g, '') : ''}${String(i).padStart(9, '0')}`, i)) });
+// Como o PiauiFut de verdade (v3.8.2): 2025 e 2024 têm subpastas "Dia 1" e "Dia 2".
 const LISTAGEM = { v: 3, pasta: 'CAP_PIAUIFUT01', em: '2026-11-07T12:00:00.000Z', truncada: false, total: 90, videos: 0, outros: 0, rk: {},
-  aut: ['Luca F. Chala', 'Mag'], secoes: [secao('2026', 40), secao('2025', 30), secao('2024', 20)] };
+  aut: ['Luca F. Chala', 'Mag'], secoes: [secao('2026', 40), secao('2025', 18, 'Dia 1'), secao('2025', 12, 'Dia 2'), secao('2024', 20, 'Dia 1')] };
 
 const NONCE = 'nonceDoCelular123';
 const paginas = [
@@ -183,6 +185,10 @@ for (const tela of TELAS) {
       }
     }
     if (p.menuEventos) {
+      // Os anos (v3.8.2): um chip por ano, mesmo com "Dia 1" e "Dia 2" dentro.
+      const anos = await page.locator('.g-chips-anos [data-acao="filtro-sec"]').allTextContents();
+      registra(anos.length === 4 && /^2026/.test(anos[1]) && /^2025\s*30/.test(anos[2]) && /^2024/.test(anos[3]), `${rotulo}: filtro com um chip por ano (subpastas "Dia" juntas)`, anos);
+
       // A lista de eventos abre inteira na tela, com o atual marcado e visível.
       await page.locator('.g-ev-menu summary').click();
       await page.waitForTimeout(250);
@@ -205,7 +211,7 @@ for (const tela of TELAS) {
 // e marcar o aceite, "Tirar selfie" já vale. O resultado volta quando a pessoa
 // abre uma foto e volta, rolado até a foto aberta.
 {
-  const RES = [{ cap: 'festa-junina', id: 'FOTO_ACHADA_001', sim: 99 }, { cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }, { cap: 'gala', id: 'FOTO_ACHADA_003', sim: 82 }];
+  const RES = [{ cap: 'festa-junina', id: 'FOTO_ACHADA_001', sim: 99 }, { cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }, { cap: 'gala', id: 'FOTO_ACHADA_003', sim: 82 }, { cap: 'gala', id: 'FOTO_TALVEZ_004', sim: 74 }];
   const html = paginas[0].html;
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
@@ -244,15 +250,16 @@ for (const tela of TELAS) {
   const selfie = await page.screenshot({ clip: { x: 0, y: 0, width: 120, height: 120 } });
   await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
-  registra(await page.locator('#rs-grade a').count() === 3 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
+  registra(await page.locator('#rs-grade a').count() === 4 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
   const clicada = await page.locator('#rs-grade a').nth(1).getAttribute('data-id');
   await page.locator('#rs-grade a').nth(1).click();
   await page.waitForURL(/\/galeria\//);
   await page.goBack();
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 5000 }).catch(() => {});
-  registra(await page.locator('#rs-grade a').count() === 3, 'Rosto: voltar da foto traz o resultado de volta', await page.locator('#rs-grade a').count());
+  registra(await page.locator('#rs-grade a').count() === 4, 'Rosto: voltar da foto traz o resultado de volta', await page.locator('#rs-grade a').count());
   registra(await page.locator('#rs-grade a.rs-ultima').getAttribute('data-id').catch(() => null) === clicada, 'Rosto: a foto que foi aberta fica marcada e à vista', clicada);
-  registra(await page.locator('#rs-grade .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade .rs-ev h3').allTextContents());
+  registra(await page.locator('#rs-grade > .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade > .rs-ev h3').allTextContents());
+  registra((await page.locator('#rs-grade .rs-talvez > h3').textContent().catch(() => '')) === 'Talvez seja você (1)' && await page.locator('#rs-grade .rs-talvez a[data-id="FOTO_TALVEZ_004"]').count() === 1, 'Rosto: a menos parecida vai para "Talvez seja você", no fim', '');
   // Busca nas fotos: o mesmo.
   await page.locator('[data-bf="bolo"]').click();
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');

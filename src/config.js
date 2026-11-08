@@ -492,7 +492,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.1';
+export const VERSAO = '3.8.2';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -506,6 +506,10 @@ export const ROSTO_REGIAO_PADRAO = 'sa-east-1';
 // lista, um parecido de vez em quando. Os achados vêm do mais certo para o
 // menos certo. Era 90.
 export const ROSTO_LIMIAR = 80;
+// A busca no álbum vai mais longe (v3.8.2, pedido do dono: "que apareçam todas
+// as fotos em que a pessoa possa estar"). De ROSTO_LIMIAR_BUSCA até
+// ROSTO_LIMIAR a foto entra num grupo à parte, "Talvez seja você", no fim.
+export const ROSTO_LIMIAR_BUSCA = 70;
 // "Não quero aparecer": apaga do índice todo rosto acima deste limiar — SEMPRE
 // abaixo de ROSTO_LIMIAR, porque aqui errar para mais é o lado seguro: o que a
 // busca acharia, a saída apaga.
@@ -522,8 +526,8 @@ export const ROSTO_IMAGEM_MAX_B64 = 400_000;
 // rostos parecidos com ELA — acha a mesma pessoa de lado, de longe ou com
 // pouca luz, que a selfie de frente sozinha perde. Até ROSTO_SEMENTES
 // chamadas a mais por busca.
-export const ROSTO_SEMENTES = 2;
-export const ROSTO_SEMENTE_MIN = 98;
+export const ROSTO_SEMENTES = 4;
+export const ROSTO_SEMENTE_MIN = 95;
 export const ROSTO_LIMIAR_SEMENTE = 85;
 // Por IP: a turma inteira no Wi-Fi da escola é UM IP (o mesmo raciocínio do
 // DRIVE_GATE_BUCKET). Global: teto de custo — uma busca custa de 1 a 4

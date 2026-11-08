@@ -233,9 +233,14 @@ describe('abertura com muitos eventos (v3.8.2)', () => {
     }
   });
 
-  it('"Procurar nas fotos" fica nos botões principais quando a busca está ligada', () => {
-    expect(h).toMatch(/<div class="al-btns">.*data-acao="procurar">.*Procurar nas fotos<\/a><\/div>/s);
-    expect(pagina()).not.toContain('data-acao="procurar"');
+  it('o campo de procurar fica logo abaixo dos botões (um só); o resultado, no corpo', () => {
+    expect(h.match(/id="bf-form"/g)).toHaveLength(1);
+    const botoes = h.indexOf('<div class="al-btns">');
+    const campo = h.indexOf('id="bf-form"');
+    expect(campo).toBeGreaterThan(botoes);
+    expect(campo).toBeLessThan(h.indexOf('</header>'));
+    expect(h.indexOf('id="bf-res"')).toBeGreaterThan(h.indexOf('<main'));
+    expect(pagina()).not.toContain('id="bf-form"');
   });
 
   it('grade por ano, com atalho de cada ano e os mesmos links dos cartões', () => {
@@ -247,5 +252,17 @@ describe('abertura com muitos eventos (v3.8.2)', () => {
     expect(capitulosDoIndice(h, 'entrenos2026')).toHaveLength(12);
     // Poucos eventos: a linha do tempo de sempre.
     expect(pagina()).toContain('<ol class="al-tl">');
+  });
+});
+
+// v3.8.2: pasta de ano com subpastas (o PiauiFut) mantém o ano.
+describe('seções com ano no caminho (v3.8.2)', () => {
+  it('"2024 / Dia 1" vira "2024 · Dia 1", ano 2024; o "!" sai do título', async () => {
+    const { nomeDaSecao } = await import('../src/ui/galeria.js');
+    expect(nomeDaSecao({ nome: '2023', caminho: '2023' })).toEqual({ nome: '2023', ano: '2023' });
+    expect(nomeDaSecao({ nome: 'Dia 1', caminho: '2024 / Dia 1' })).toEqual({ nome: '2024 · Dia 1', ano: '2024' });
+    expect(nomeDaSecao({ nome: '!Dia 1', caminho: '2026 / !Dia 1' })).toEqual({ nome: '2026 · Dia 1', ano: '2026' });
+    expect(nomeDaSecao({ nome: 'Dia 1', caminho: 'Dia 1' })).toEqual({ nome: 'Dia 1' });
+    expect(nomeDaSecao({ nome: '', caminho: '' })).toEqual({ nome: '' });
   });
 });

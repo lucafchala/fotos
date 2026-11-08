@@ -10,7 +10,7 @@ import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML, SCRIPT_BUSCA, BUSCA_C
 import { albumHTML, ordemDaLinha } from './album.js';
 import { enderecoDoAlbum, marcaDoAlbum, escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao, capVazio } from '../drive.js';
-import { TURNSTILE_SITE_KEY } from '../config.js';
+import { TURNSTILE_SITE_KEY, ROSTO_LIMIAR } from '../config.js';
 
 
 /**
@@ -82,7 +82,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
   const scripts = `${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
-  ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, ts: TURNSTILE_SITE_KEY, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
+  ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, ts: TURNSTILE_SITE_KEY, certo: ROSTO_LIMIAR, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
   <script nonce="${nonce}">${SCRIPT_ROSTO}</script>` : ''}
   ${comBusca ? `<script type="application/json" id="bf-dados" nonce="${nonce}">${jsonParaScript({ slug, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
   <script nonce="${nonce}">${SCRIPT_BUSCA}</script>` : ''}`;

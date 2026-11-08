@@ -367,7 +367,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     // Só o dono: a capa escolhida deste evento (o botão "Usar como capa").
     capa: dono && capitulo && event.capasEventos && typeof event.capasEventos[capitulo.slug] === 'string' ? event.capasEventos[capitulo.slug] : '',
     titulo,
-    secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
+    secoes: listagem.secoes.map(s => ({ ...nomeDaSecao(s), fotos: s.fotos.map(fotoDaPagina) })),
     autores,
     // Prefixo do nome do arquivo de cada seção (na ordem de `secoes`).
     amigavel: nomes && listagemBruta ? listagem.secoes.map(sec => nomes.pre[listagemBruta.secoes.findIndex(b => b.caminho === sec.caminho)] || '') : null,
@@ -768,6 +768,21 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   <script nonce="${nonce}">${SCRIPT}</script>` : ''}
 </body>
 </html>`;
+}
+
+/**
+ * O título e o ano de uma seção (v3.8.2). Pasta de ano com subpastas (o
+ * PiauiFut: "2024 / Dia 1") antes virava só "Dia 1": o filtro por ano sumia e
+ * os títulos misturavam anos e dias. Agora a seção leva o ano do caminho e o
+ * título o caminho inteiro ("2024 · Dia 1"); o "!" de seleção sai do título.
+ * @param {{ nome: string, caminho: string }} s
+ * @returns {{ nome: string, ano?: string }}
+ */
+export function nomeDaSecao(s) {
+  const partes = String(s.caminho || '').split(' / ').map(x => x.trim()).filter(Boolean);
+  const ano = partes.map(x => /^(19|20)[0-9]{2}(?![0-9])/.exec(x)).find(Boolean);
+  if (!ano) return { nome: s.nome };
+  return { nome: partes.length > 1 ? partes.map(x => x.replace(/^!+\s*/, '')).join(' · ') : s.nome, ano: ano[0] };
 }
 
 /**
@@ -1195,14 +1210,18 @@ const SCRIPT = `
   // Filtro por ano (v3.7.2): quando TODAS as seções da página são anos ("2026",
   // "2025 - Final"), as etiquetas do topo filtram em vez de rolar até a seção.
   let filtroSec = -1;
-  const secoesSaoAnos = D.secoes.length > 1 && D.secoes.every(function (sec) { return /^(19|20)[0-9][0-9](?![0-9])/.test(String(sec.nome || '').trim()); });
+  // O ano de cada seção vem do servidor (do caminho: "2024 / Dia 1" é 2024);
+  // o filtro é por ano, juntando as seções do mesmo ano (v3.8.2).
+  const anosSec = D.secoes.map(function (sec, i) { const m = /^(19|20)[0-9][0-9](?![0-9])/.exec(String(sec.nome || '').trim()); return String(DX.secoes[i].ano || (m ? m[0] : '')); });
+  const anosLista = anosSec.filter(function (a, i) { return a && anosSec.indexOf(a) === i; });
+  const secoesSaoAnos = D.secoes.length > 1 && anosSec.every(Boolean) && anosLista.length > 1;
   function filtroAtivo() {
     const a = filtroAutor;
     const sc = filtroSec;
     const l = filtroLink;
     const base = l ? function (f) { return l.has(f.id); } : (filtroFav || filtroNovas) ? function (f) { return (!filtroFav || fav.has(f.id)) && (!filtroNovas || f.nova); } : null;
     if (a < 0 && sc < 0) return base;
-    return function (f) { return (a < 0 || f.autor === a) && (sc < 0 || f.s === sc) && (!base || base(f)); };
+    return function (f) { return (a < 0 || f.autor === a) && (sc < 0 || anosSec[f.s] === anosLista[sc]) && (!base || base(f)); };
   }
   function visiveisDe(g) {
     const fn = filtroAtivo();
@@ -1476,8 +1495,9 @@ const SCRIPT = `
       todos.dataset.sec = '-1';
       todos.setAttribute('aria-pressed', String(filtroSec < 0));
       grupo.appendChild(todos);
-      D.secoes.forEach(function (sec, k) {
-        const b = botaoChip(sec.nome, sec.fotos.length);
+      anosLista.forEach(function (ano, k) {
+        const n = D.secoes.reduce(function (t, sec, i) { return t + (anosSec[i] === ano ? sec.fotos.length : 0); }, 0);
+        const b = botaoChip(ano, n);
         b.dataset.acao = 'filtro-sec';
         b.dataset.sec = String(k);
         b.setAttribute('aria-pressed', String(filtroSec === k));

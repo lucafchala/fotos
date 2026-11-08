@@ -18,9 +18,31 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.2] — ainda não publicada
+
+Abertura do álbum mais clara, eventos fáceis de achar, busca pelo rosto mais generosa e o PiauiFut com os anos certos.
+
+### Álbum
+- O texto de abertura vem **antes** dos botões, em todo estilo.
+- O campo **Procurar nas fotos** fica logo abaixo dos botões (um só); o resultado aparece no corpo da página.
+- Mais de 8 eventos: a linha do tempo vira uma **grade compacta por ano**, com atalho para cada ano (`gradeDeEventos`, `EVENTOS_COMPACTOS`).
+- Evento lido vazio fica escondido do visitante só por 6 h (`capVazio`, `RESUMO_VAZIO_MS`). Antes, um "0" antigo escondia o evento para sempre e só o dono o via. Lista cortada pelo teto de chamadas não conta como vazia.
+
+### Páginas dos eventos
+- A faixa com todos os eventos lado a lado virou **‹ anterior · Evento (5 de 23) ▾ · próximo ›**; o ▾ abre a lista inteira, por ano, com "Todos os eventos" no topo. Fecha com toque fora ou Esc.
+- Pasta de ano com subpastas ("2024 / Dia 1", o PiauiFut): a seção leva o ano do caminho (`nomeDaSecao`), o título vira "2024 · Dia 1" e o filtro tem um chip por ano, juntando os dias.
+
+### Busca pelo rosto
+- Guia antes da selfie: oval de enquadramento e dicas (de frente, luz de frente, sem óculos escuros).
+- Botão **Escolher uma foto** (galeria ou arquivos), além de "Tirar selfie".
+- O link da política saiu de dentro do "Concordo": tocar no meio da frase marca a caixa, não abre a política.
+- Busca até 70% de semelhança (`ROSTO_LIMIAR_BUSCA`); de 70 a 80% a foto vai para **Talvez seja você**, no fim. Sementes: até 4, a partir de 95%.
+
 ## [3.8.1] — ainda não publicada
 
 A Mag com acesso próprio ao álbum, o painel mais fácil e um manual de uso.
+
+- Correções do CI: os atalhos dos blocos quebram linha no computador (o contorno de foco era cortado) e o manual de uso deixou de ser link para o GitHub.
 
 ### Novo
 
