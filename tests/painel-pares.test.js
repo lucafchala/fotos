@@ -131,7 +131,7 @@ describe('pares do painel: rótulos, atrasado e o formulário têm de concordar'
     // da prévia nunca volta ao navegador: só 'definida' ou não" — e por isso ela
     // também não vai para o rascunho do formulário (localStorage), que guardaria
     // a senha em claro no aparelho. submitForm a envia; snapshotForm não.
-    const NUNCA_NO_RASCUNHO = new Set(['f-previa-senha', 'f-previa-remover']);
+    const NUNCA_NO_RASCUNHO = new Set(['f-previa-senha', 'f-previa-remover', 'f-editora-senha', 'f-editora-remover']);
     // Fora isso, os quatro conjuntos são iguais.
     // O slug entra no snapshotForm (`slug: val('f-slug')`, com o comentário "O slug
     // também: num evento novo, digitar só a URL e fechar não perguntava nada"), e o

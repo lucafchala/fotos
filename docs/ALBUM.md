@@ -87,6 +87,13 @@ Para a Mag, ou quem mais você quiser, ver o álbum pronto antes do lançamento,
 
 Um projeto com **Texto de abertura** (a apresentação do álbum) não usa mais a página de projeto antiga: `/<slug>` redireciona para a galeria, que é mais arrumada. Depois do lançamento, vai para o endereço principal (`https://entrenos2026.com/galeria/entrenos2026`); antes, fica em `fotos.lucafchala.com`, onde valem a sua sessão e a prévia. Projetos sem texto de abertura seguem como sempre.
 
+### Editora do álbum (v3.8.1)
+
+- **Para quê:** quem ajuda a cuidar do álbum (a Mag) entra sem ter a senha do painel.
+- **Como:** painel → projeto → bloco "Álbum Entre Nós" → **Senha da editora do álbum** (8+ caracteres, diferente da senha da prévia). Ela entra em `entrenos2026.com/entrar`; `/sair` encerra.
+- **O que ela pode:** ver o álbum como dona antes do lançamento, ocultar foto, escolher a capa de um evento e "Atualizar agora". Nada do painel (`checkAuth` continua só para o dono).
+- **Mecânica:** a mesma da prévia, com finalidade própria: hash com sal no evento (`editoraSenha`), cookie assinado `editora_<slug>` por 30 dias, sem sessão guardada; trocar a senha tira quem estava dentro. Tentativas limitadas por IP e por dia. Código: `aplicaSenhaEditora`, `temEditora`, `autorizaNoAlbum`, `handleEditoraEntrar` em `src/index.js`; testes em `tests/editora.test.js`.
+
 ### Como lançar (v3.5)
 
 **O álbum é surpresa até a hora.** Antes do lançamento, nada pode revelá-lo fora do entrenos2026.com, que só mostra o "em breve" com `noindex`.
@@ -256,7 +263,7 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 2. **Criar dentro dela as cinco pastas**: `chala`, `mag`, `santa oficial`, `comissao` e `!turma 2026 (adicione suas fotos aqui)`. Se o evento tem anos ou bandas, crie uma pasta para cada um e as cinco dentro de cada. O conector do Drive desta sessão cria pastas; o compartilhamento não.
 3. **Abrir a pasta `!turma…` do evento como Editor:** Compartilhar → "Qualquer pessoa com o link: **Editor**", com "Editores podem mudar permissões" desmarcado. As outras herdam "Leitor" da raiz. Esta parte é do dono ou do Cowork.
 4. **No painel, tocar "Atualizar agora"** no projeto. O evento entra na linha do tempo, e a janela "Mandar suas fotos" já o mostra, sem esperar o cache.
-5. **Busca pelo rosto:** o indexador (workflow `rosto`, a cada 30 minutos) acha as fotos novas sozinho.
+5. **Busca pelo rosto:** o indexador (workflow `rosto`, a cada 10 minutos desde a 3.7.2) acha as fotos novas sozinho.
 
 Os créditos não mudam: as mesmas seis linhas valem para todos os eventos.
 

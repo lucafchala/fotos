@@ -18,6 +18,33 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.1] — ainda não publicada
+
+A Mag com acesso próprio ao álbum, o painel mais fácil e um manual de uso.
+
+### Novo
+
+- **Editora do álbum (para a Mag):** campo "Senha da editora do álbum" no
+  painel. Ela entra em entrenos2026.com/entrar e, por 30 dias, vê o álbum
+  como dona (mesmo antes do lançamento), oculta foto, escolhe a capa de um
+  evento e usa "Atualizar agora". Não entra no painel. A senha fica só como
+  hash, tem de ser diferente da senha da prévia, e trocar ou tirar a senha tira
+  quem estava dentro. /sair encerra.
+- **Manual de uso** (`docs/MANUAL.md`): as tarefas do dia a dia passo a passo,
+  o que é cada bloco do formulário, perguntas comuns e um glossário.
+
+### Mudou
+
+- **Painel:** as opções do álbum (apresentação, Pix, buscas, lançamento, prévia
+  e editora) estão juntas num bloco próprio, "Álbum Entre Nós", com resumo do
+  que está ligado e link para o manual. "Fotos e Drive" e "Acesso e LGPD"
+  ficaram menores.
+- **Links do rodapé no entrenos2026.com** (Sobre, Equipamento, Suporte, Legal,
+  "Algo deu errado?") abrem no fotos.lucafchala.com. Antes abriam as páginas do
+  fotos dentro do endereço do álbum, com a marca errada.
+- **Pastas com vídeo:** as miniaturas dos vídeos (que o Google demora para
+  gerar) vêm depois das fotos e não seguram a primeira tela.
+
 ## [3.8.0] — ainda não publicada
 
 Fotos que sumiam voltam, a busca pelo rosto por evento, a foto aberta com o
