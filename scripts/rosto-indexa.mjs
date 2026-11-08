@@ -104,6 +104,9 @@ async function fotosDoAlbum(site, slug) {
     const p = fotosDaPagina(await pagina(`${base}/${cap}`));
     if (!p) continue;
     for (const id of p.ids) { todas.set(idExterno(cap, id), id); info.set(id, { cap, autor: p.autores.get(id) || '' }); }
+    // Diagnóstico (v3.8.0): quantas fotos o site mostra em cada evento, para
+    // comparar com o Drive (docs/ALBUM.md, "Conferir se está tudo no site").
+    console.log(`[${slug}] evento ${cap}: ${p.ids.length} itens`);
   }
   return { todas, info };
 }

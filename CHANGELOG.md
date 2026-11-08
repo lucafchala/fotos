@@ -18,7 +18,51 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.7.6] — ainda não publicada
+## [3.8.0] — ainda não publicada
+
+Fotos que sumiam voltam, a busca pelo rosto por evento, a foto aberta com o
+"Baixar" em destaque e o site lembrando de cada pessoa.
+
+### Corrigido
+
+- **Fotos diferentes de nome igual sumiam.** Dentro dos atalhos, o site juntava
+  fotos de mesmo nome na mesma seção (para não repetir a mesma foto em duas
+  resoluções), mas juntava também fotos diferentes: o `IMG_1234` do Dia 1 e o
+  do Dia 2, ou um da Mag e um seu. Agora só junta com o mesmo atalho de
+  origem, o mesmo autor, o mesmo nome e a mesma hora de captura; sem hora, não
+  junta nunca.
+- **Documentos legais:** a transferência internacional cita o art. 33, II, "a"
+  e "b" da LGPD (era o III, que trata de cooperação entre órgãos públicos); o
+  ROPA e o checklist reconhecem o dado biométrico da busca pelo rosto (diziam
+  que não havia).
+
+### Novo
+
+- **Busca pelo rosto e busca nas fotos por evento:** um título por evento, na
+  ordem da linha do tempo, com as fotos dele; "N fotos em que pode ser você, em
+  M eventos".
+- **"Ver minhas fotos":** o resultado da busca pelo rosto fica neste aparelho
+  por 30 dias (só os IDs das fotos), com "Esquecer neste aparelho".
+- **Continuar de onde parou** na página principal (o último evento e a última
+  foto abertos) e **"visto"** nos eventos que a pessoa já abriu. Tudo só no
+  aparelho dela.
+- **Faixa com todos os eventos** no topo de cada evento, deslizável, com o
+  atual marcado e no meio.
+- **"Usar como capa do evento"** na foto aberta, para o dono: a foto vira a
+  capa do cartão do evento na página principal (`capasEventos`).
+- **Indexador:** o registro mostra quantas fotos o site exibe em cada evento
+  (para conferir com o Drive).
+
+### Mudou
+
+- **Foto aberta:** botão "Baixar" grande, na cor do destaque, no canto de
+  baixo; "Foto de [quem fotografou]" em destaque na legenda; "Pedir remoção"
+  mais discreto (sem fundo, letra menor, mesma área de toque).
+- **Topo do evento:** "Baixar tudo" é o botão de destaque; "Fotos de …" maior.
+- **"Mandar suas fotos":** a lista vale 30 min (era 6 h) e é relida no ciclo
+  de aquecimento: pasta de envio nova aparece logo.
+
+## [3.7.6] — 08/11/2026
 
 O álbum com uma cara só, do começo ao fim, e mais leve no celular.
 
@@ -38,7 +82,7 @@ O álbum com uma cara só, do começo ao fim, e mais leve no celular.
   linha do tempo e resultados das buscas): o celular baixa a menor que serve.
   Antes eram JPEG numa largura só.
 
-## [3.7.5] — ainda não publicada
+## [3.7.5] — 07/11/2026
 
 A busca pelo rosto no centro do álbum, pronta ao toque e sem perder o
 resultado.

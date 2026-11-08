@@ -157,7 +157,7 @@ const CONSERTOS = {
  *   avisoRedes?: { mensagem: string, parcial: boolean } | null,
  *   listagemBruta?: import('../drive.js').ListagemDrive | null,
  *   capituloNome?: string,
- *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null } | null,
+ *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string }[] } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -363,6 +363,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const dados = listagem ? {
     slug,
     cap: capitulo ? capitulo.slug : '',
+    capNome: capitulo ? capitulo.nome : '',
+    // Só o dono: a capa escolhida deste evento (o botão "Usar como capa").
+    capa: dono && capitulo && event.capasEventos && typeof event.capasEventos[capitulo.slug] === 'string' ? event.capasEventos[capitulo.slug] : '',
     titulo,
     secoes: listagem.secoes.map(s => ({ nome: s.nome, fotos: s.fotos.map(fotoDaPagina) })),
     autores,
@@ -450,13 +453,19 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-tit{flex:1 1 14rem;min-width:0}
     .g-tit h1{font-size:clamp(1.05rem,2.4vw,1.5rem);font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .g-cap-nav{display:flex;flex-wrap:wrap;gap:.1rem .9rem;padding:.3rem var(--pad);font-size:.82rem;border-bottom:1px solid var(--border)}
+    .g-evs{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:.55rem var(--pad);border-bottom:1px solid var(--border);scroll-snap-type:x proximity}
+    .g-evs::-webkit-scrollbar{display:none}
+    .g-ev{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 .95rem;border-radius:999px;border:1px solid var(--border);color:var(--text-2);font-size:.86rem;white-space:nowrap;text-decoration:none;scroll-snap-align:center}
+    .g-ev[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
+    @media (hover:hover){.g-ev:not([aria-current]):hover{border-color:var(--text-muted);color:var(--text)}}
     .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
     .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
     .g-cap-a:hover{color:var(--text);text-decoration:underline}
     .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
-    .g-autores{font-size:.95rem;font-weight:600;color:var(--text);margin-top:.45rem;line-height:1.35}
+    .g-autores{font-size:1.05rem;font-weight:700;color:var(--text);margin-top:.5rem;line-height:1.35}
+    .g-top .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
     .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
@@ -598,6 +607,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
     .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
+    .pswp__button--g-capa.on .pswp__icn{fill:#f9de4b}
     .pswp__counter{white-space:nowrap}
     .g-t.pendente .g-oc{background:#92400e}
     .g-t.pendente img.ok{opacity:.45}
@@ -607,7 +617,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
        área de toque tem 44 px de altura pelo min-height, com o texto de 12 px. */
     .pswp__g-legenda .g-leg-t{display:block}
     .pswp__g-legenda .g-leg-a{display:block;margin-top:.15rem;font-size:12px;color:#c9c3bb}
-    .g-rem-link{pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;margin-top:.15rem;padding:0 .9rem;border:0;border-radius:999px;background:rgba(0,0,0,.72);color:#c8c3bd;font:500 12px/1 'Inter',sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+    .pswp__g-legenda .g-leg-autor{display:block;margin-bottom:.2rem;font:700 15px/1.3 'Inter',sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+    /* v3.8.0: discreto (sem fundo, letra menor), mas com a área de toque de 44 px. */
+    .g-rem-link{pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;margin-top:.05rem;padding:0 .4rem;border:0;background:transparent;color:#bdb6ad;font:500 11px/1 'Inter',sans-serif;text-decoration:underline;text-underline-offset:3px;text-shadow:0 1px 2px rgba(0,0,0,.9);cursor:pointer;opacity:.85}
+    .pswp__button--g-baixar-grande{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));width:auto!important;height:48px!important;display:inline-flex!important;align-items:center;gap:.45rem;padding:0 1.15rem!important;border-radius:999px;background:var(--accent)!important;color:var(--accent-text)!important;font:700 15px/1 'Inter',sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.45);opacity:1!important}
+    .pswp__button--g-baixar-grande .g-bg-ic svg{width:18px;height:18px;display:block}
     .g-rem-link:hover{color:#fff}
     .g-rem-link:focus-visible{outline:2px solid #c0a060;outline-offset:2px;color:#fff}
     /* O formulário é um <dialog> modal: vai para a camada de cima do navegador
@@ -670,14 +684,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       </div>
       <div class="g-acoes">
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
-        ${listagem && total ? '<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
+        ${listagem && total ? '<button type="button" class="g-btn g-prim" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="compartilhar" aria-label="Compartilhar a página do projeto"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar</span></button>' : ''}
 ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
       </div>
     </div>
     ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
   </header>
-  ${capitulo ? navCapitulos(caminhoBase, capitulo, 'topo') : ''}
+  ${capitulo && capitulo.eventos && capitulo.eventos.length > 1 ? faixaDeEventos(caminhoBase, capitulo) : capitulo ? navCapitulos(caminhoBase, capitulo, 'topo') : ''}
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
   ${conserto && erro ? `<section class="g-erro" role="alert">
     <h2>${escape(conserto.titulo)}</h2>
@@ -746,6 +760,19 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
 }
 
 /**
+ * A faixa com todos os eventos do álbum (v3.8.0), na ordem da linha do tempo:
+ * desliza de lado, o atual marcado (e centralizado pelo script).
+ * @param {string} base
+ * @param {{ slug: string, eventos?: { slug: string, nome: string }[] }} c
+ */
+function faixaDeEventos(base, c) {
+  const itens = (c.eventos || []).map(e => e.slug === c.slug
+    ? `<a class="g-ev" aria-current="page" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`
+    : `<a class="g-ev" href="${escape(`${base}/${e.slug}`)}">${escape(e.nome)}</a>`).join('');
+  return `<nav class="g-evs" id="g-evs" aria-label="Eventos do álbum">${itens}</nav>`;
+}
+
+/**
  * A navegação entre capítulos: voltar ao índice e ir ao anterior/próximo.
  * `topo` é a faixa sob o cabeçalho; `fim` repete no fim da página, com o link
  * da página do projeto.
@@ -784,11 +811,17 @@ function listaComE(nomes) {
 const SCRIPT = `
 (function () {
   'use strict';
+  // A faixa de eventos (v3.8.0): o evento atual no meio, sem rolar a página.
+  const faixa = document.getElementById('g-evs');
+  const atualEv = faixa ? faixa.querySelector('[aria-current]') : null;
+  if (faixa && atualEv) { const a = /** @type {HTMLElement} */ (atualEv); faixa.scrollLeft = Math.max(0, a.offsetLeft - (faixa.clientWidth - a.offsetWidth) / 2); }
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
   /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
+  // Campos novos (v3.8.0) lidos por um apelido sem tipo fixo.
+  const DX = /** @type {any} */ (D);
   // Texto alternativo de cada foto: "<evento> — foto i de n" (o mesmo do
   // JSON-LD da página). Nome de arquivo não descreve a foto para ninguém.
   const TOTAL = D.secoes.reduce(function (n, s) { return n + s.fotos.length; }, 0);
@@ -1577,6 +1610,8 @@ const SCRIPT = `
   }
 
   const ICONE_BAIXAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M15 6h2v12.2l4.3-4.3 1.4 1.4-6.7 6.7-6.7-6.7 1.4-1.4 4.3 4.3zM8 24h16v2H8z"/></svg>';
+  const ICONE_CAPA = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M7 8h18v16H7zM9 10v9.6l4.5-4.6 3.5 3.5 2.5-2.5L23 19.5V10z"/><circle cx="20" cy="13" r="1.6"/></svg>';
+  const ICONE_BAIXAR_SVG = '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M15 6h2v12.2l4.3-4.3 1.4 1.4-6.7 6.7-6.7-6.7 1.4-1.4 4.3 4.3zM8 24h16v2H8z"/></svg>';
   const ICONE_CORACAO_PSWP = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 27.500 14.300 26C8.600 20.900 5 17.700 5 13.600 5 10.400 7.500 8 10.600 8c1.800 0 3.500.8 4.600 2.100l.8.9.8-.9C18 8.800 19.700 8 21.500 8 24.500 8 27 10.400 27 13.600c0 4.100-3.600 7.300-9.300 12.400z"/></svg>';
   const ICONE_COMPARTILHAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 5l6 6-1.400 1.400L17 8.800V20h-2V8.800l-3.600 3.600L10 11zM8 15h4v2h-2v9h12v-9h-2v-2h4v13H8z"/></svg>';
   const ICONE_OCULTAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 9c-5.500 0-9.300 4.400-10.500 7 1.200 2.600 5 7 10.500 7s9.300-4.400 10.500-7C25.300 13.400 21.500 9 16 9zm0 11.500a4.500 4.500 0 1 1 0-9 4.500 4.500 0 0 1 0 9zM6.400 5 5 6.400 25.600 27 27 25.600z"/></svg>';
@@ -1729,6 +1764,8 @@ const SCRIPT = `
       avisa(e && e.message ? e.message : 'Não deu para gravar. Tente de novo.');
     }).then(function () { ocultando = false; });
   }
+  /** @type {() => void} */
+  let sincronizaCapaUi = function () {};
   function registraUi() {
     const pswp = lightbox.pswp;
     pswp.ui.registerElement({
@@ -1741,6 +1778,13 @@ const SCRIPT = `
           el.setAttribute('aria-pressed', String(on));
         };
         p.on('change', sincronizaFavUi);
+        // "Continuar de onde parou" (v3.8.0): a última foto aberta, só neste
+        // aparelho; a página principal do álbum oferece voltar a ela.
+        p.on('change', function () {
+          const f = vistas[p.currIndex];
+          if (!f || !D.cap) return;
+          try { localStorage.setItem('gal-ultima:' + D.slug, JSON.stringify({ cap: D.cap, nome: DX.capNome || '', id: f.id, em: Date.now() })); } catch (e) { /* sem armazenamento */ }
+        });
         sincronizaFavUi();
       },
       onClick: function (_e, _el, p) {
@@ -1785,6 +1829,34 @@ const SCRIPT = `
         if (f) compartilhaFoto(f);
       },
     });
+    if (D.dono && D.cap) {
+      // "Usar como capa do evento" (v3.8.0): a foto vira a capa do cartão do
+      // evento na página do álbum; tocar de novo volta à automática.
+      pswp.ui.registerElement({
+        name: 'g-capa', order: 12, isButton: true, title: 'Usar como capa do evento', html: ICONE_CAPA,
+        onInit: function (el, p) {
+          const sync = function () {
+            const f = vistas[p.currIndex];
+            const on = !!f && DX.capa === f.id;
+            el.classList.toggle('on', on);
+            el.setAttribute('aria-pressed', String(on));
+            el.title = on ? 'É a capa do evento: toque para voltar à automática' : 'Usar como capa do evento';
+            el.setAttribute('aria-label', el.title);
+          };
+          p.on('change', sync);
+          sync();
+          sincronizaCapaUi = sync;
+        },
+        onClick: function (_e, el, p) {
+          const f = vistas[p.currIndex];
+          if (!f) return;
+          const nova = DX.capa === f.id ? '' : f.id;
+          fetch('/api/galeria/capa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: D.slug, cap: D.cap, foto: nova }) })
+            .then(function (r) { if (!r.ok) throw new Error('Erro ' + r.status); DX.capa = nova; sincronizaCapaUi(); avisa(nova ? 'Agora é a capa do evento' : 'Capa automática de novo'); })
+            .catch(function () { avisa('Não deu para trocar a capa. Tente de novo.'); });
+        },
+      });
+    }
     if (D.dono) {
       pswp.ui.registerElement({
         name: 'g-ocultar', order: 11, isButton: true, title: 'Ocultar dos visitantes', html: ICONE_OCULTAR,
@@ -1807,6 +1879,16 @@ const SCRIPT = `
         },
       });
     }
+    // "Baixar" grande e na cor do destaque no canto de baixo (v3.8.0): é o que
+    // a maioria quer fazer com a foto aberta. O ícone da barra continua.
+    pswp.ui.registerElement({
+      name: 'g-baixar-grande', order: 10, isButton: true, appendTo: 'root', title: 'Baixar esta foto',
+      html: '<span class="g-bg-ic" aria-hidden="true">' + ICONE_BAIXAR_SVG + '</span><span>Baixar</span>',
+      onClick: function (_e, _el, p) {
+        const f = vistas[p.currIndex];
+        if (f) abreFolha([f]);
+      },
+    });
     pswp.ui.registerElement({
       name: 'g-legenda', order: 9, isButton: false, appendTo: 'root', html: '',
       onInit: function (el, p) {
@@ -1839,10 +1921,11 @@ const SCRIPT = `
           }
           const quem = D.autores && D.autores[f.autor];
           if (quem) {
+            // O crédito em destaque (v3.8.0): quem fotografou, maior e claro.
             const l = document.createElement('span');
-            l.className = 'g-leg-a';
-            l.textContent = (f.video ? 'Vídeo: ' : 'Foto: ') + quem;
-            txt.appendChild(l);
+            l.className = 'g-leg-autor';
+            l.textContent = (f.video ? 'Vídeo de ' : 'Foto de ') + quem;
+            txt.insertBefore(l, txt.firstChild);
           }
         };
         p.on('change', sync);

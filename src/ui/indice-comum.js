@@ -7,7 +7,13 @@ import { honeypotFieldHTML } from '../security.js';
 import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
 
 /** O CSS do diálogo e do resultado da busca pelo rosto (usa as variáveis de cor da página). */
-export const ROSTO_CSS = `.rs{margin:auto;width:min(30rem,calc(100vw - 2rem));max-height:calc(100dvh - 2rem);overflow:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.25rem 1.25rem 1rem}
+export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;font-size:.7rem;opacity:.75}
+.ix-visto-m::before{content:'✓ '}
+.ix-continuar{display:flex;flex-direction:column;gap:.1rem;margin-top:.9rem;max-width:26rem;padding:.7rem 1rem;border-radius:12px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);text-decoration:none;min-height:44px}
+.ix-continuar span{font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.ix-continuar b{font-size:1rem}
+.ix-continuar b::after{content:' →';color:var(--accent)}
+.rs{margin:auto;width:min(30rem,calc(100vw - 2rem));max-height:calc(100dvh - 2rem);overflow:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);color:var(--text);padding:1.25rem 1.25rem 1rem}
 .rs::backdrop{background:rgba(0,0,0,.6)}
 .rs-t{font-size:1.1rem;font-weight:600;margin-bottom:.6rem}
 .rs p,.rs li{font-size:.9rem;line-height:1.55;color:var(--text-2)}
@@ -22,6 +28,9 @@ export const ROSTO_CSS = `.rs{margin:auto;width:min(30rem,calc(100vw - 2rem));ma
 .rs-link{background:none;border:0;color:var(--text-muted);font:inherit;font-size:.8rem;text-decoration:underline;cursor:pointer;min-height:44px;padding:0}
 .rs-res{padding:1rem var(--pad) 0}
 .rs-de-novo{margin-top:.9rem}
+.rs-ev{margin-top:1.1rem}.rs-ev h3{display:flex;align-items:baseline;gap:.5rem;font-size:.98rem;font-weight:700;color:var(--text)}
+.rs-ev h3 small{font-size:.78rem;font-weight:500;color:var(--text-muted)}
+.rs-ev .rs-grade{margin-top:.5rem}
 .rs-grade a.rs-ultima{outline:3px solid var(--accent);outline-offset:-3px}
 .rs-res h2{font-size:1.05rem;font-weight:600}
 .rs-res p{font-size:.85rem;color:var(--text-muted);margin-top:.25rem}
@@ -44,6 +53,39 @@ export const SCRIPT_NOVAS = slug => `(function () {
   var SESSAO = ${NOVAS_SESSAO_MIN} * 60000;
   var MAX = ${NOVAS_RESUMO_MAX};
   var agora = Date.now();
+  // (protegido: um navegador estranho não derruba as "N novas" abaixo)
+  try {
+    // Já visto (v3.8.0): o evento que esta pessoa já abriu neste aparelho ganha
+    // a marca "visto"; o que não abriu fica sem (fácil achar o que falta ver).
+    var todos = document.querySelectorAll('a.ix-card[data-cap]');
+    for (var t = 0; t < todos.length; t++) {
+      var visto = null;
+      try { visto = localStorage.getItem('gal-visita:' + SLUG + ':' + todos[t].getAttribute('data-cap')); } catch (e) { visto = null; }
+      if (!visto) continue;
+      todos[t].classList.add('ix-visto');
+      var vs = document.createElement('span');
+      vs.className = 'ix-visto-m';
+      vs.textContent = 'visto';
+      var sb = todos[t].querySelector('.ix-sub');
+      if (sb) sb.appendChild(vs);
+    }
+    // Continuar de onde parou (v3.8.0): a última foto aberta, por até 30 dias.
+    var ult = null;
+    try { ult = JSON.parse(localStorage.getItem('gal-ultima:' + SLUG) || 'null'); } catch (e) { ult = null; }
+    var cartaoUlt = ult && ult.cap ? document.querySelector('a.ix-card[data-cap="' + String(ult.cap).replace(/[^a-z0-9-]/g, '') + '"]') : null;
+    if (ult && cartaoUlt && typeof ult.id === 'string' && agora - ult.em < 30 * 86400000) {
+      var c = document.createElement('a');
+      c.className = 'ix-continuar';
+      c.href = cartaoUlt.getAttribute('href') + '#foto=' + encodeURIComponent(ult.id);
+      var k = document.createElement('span');
+      k.textContent = 'Continuar de onde parou';
+      var b = document.createElement('b');
+      b.textContent = ult.nome || cartaoUlt.querySelector('b').textContent;
+      c.appendChild(k); c.appendChild(b);
+      var ondeBtns = document.querySelector('.al-btns') || document.querySelector('.ix-top');
+      if (ondeBtns && ondeBtns.parentNode) ondeBtns.parentNode.insertBefore(c, ondeBtns.nextSibling);
+    }
+  } catch (e) { /* segue sem as marcas */ }
   var cartoes = document.querySelectorAll('a.ix-card[data-cr]');
   for (var i = 0; i < cartoes.length; i++) {
     var a = cartoes[i];
@@ -97,7 +139,7 @@ export function rostoHTML() {
       <p><button type="button" class="rs-link" id="rs-modo">Não quero aparecer na busca</button></p>
     </form>
   </dialog>
-  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><ul class="rs-grade" id="rs-grade"></ul><p class="rs-de-novo"><button type="button" class="rs-btn" id="rs-de-novo">Tentar com outra selfie</button></p></section>`;
+  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><div class="rs-grupos" id="rs-grade"></div><p class="rs-de-novo"><button type="button" class="rs-btn" id="rs-de-novo">Tentar com outra selfie</button> <button type="button" class="rs-link" id="rs-esquecer">Esquecer neste aparelho</button></p></section>`;
 }
 
 /**
@@ -112,6 +154,48 @@ export const SCRIPT_ROSTO = `(function () {
   var abrir = document.getElementById('rs-abrir');
   if (!el || !dlg || !abrir || typeof dlg.showModal !== 'function' || !window.fetch || !window.createImageBitmap) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
+  // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
+  // parecida para a menos).
+  function porEvento(lista) {
+    var pos = {};
+    (D.ordem || []).forEach(function (c, i) { pos[c] = i; });
+    var grupos = {}, ordem = [];
+    lista.forEach(function (r) {
+      var c = r.cap || '';
+      if (!grupos[c]) { grupos[c] = []; ordem.push(c); }
+      grupos[c].push(r);
+    });
+    ordem.sort(function (a, b) { return (a in pos ? pos[a] : 9999) - (b in pos ? pos[b] : 9999); });
+    return ordem.map(function (c) { return { cap: c, nome: (D.caps && D.caps[c]) || 'Outras fotos', fotos: grupos[c] }; });
+  }
+  function desenhaGrupos(alvo, lista) {
+    porEvento(lista).forEach(function (g) {
+      var sec = document.createElement('section');
+      sec.className = 'rs-ev';
+      var h = document.createElement('h3');
+      h.textContent = g.nome;
+      var n = document.createElement('small');
+      n.textContent = g.fotos.length === 1 ? '1 foto' : g.fotos.length + ' fotos';
+      h.appendChild(n);
+      sec.appendChild(h);
+      var ul = document.createElement('ul');
+      ul.className = 'rs-grade';
+      g.fotos.forEach(function (r) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.setAttribute('data-id', r.id);
+        var img = document.createElement('img');
+        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+        a.appendChild(img);
+        li.appendChild(a); ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+      alvo.appendChild(sec);
+    });
+  }
   var aceite = document.getElementById('rs-aceite');
   var tirar = document.getElementById('rs-tirar');
   var arquivo = document.getElementById('rs-arquivo');
@@ -263,8 +347,27 @@ export const SCRIPT_ROSTO = `(function () {
   // nunca a selfie) e o endereço ganha #minhas-fotos: abrir uma foto e voltar
   // traz a lista de volta, rolada até a foto que foi aberta (v3.7.5).
   function guarda(j) {
-    try { sessionStorage.setItem(CHAVE, JSON.stringify({ em: Date.now(), j: { resultados: j.resultados || [], semIndice: !!j.semIndice } })); } catch (e) { /* sem armazenamento: só não volta */ }
+    var dado = JSON.stringify({ em: Date.now(), j: { resultados: j.resultados || [], semIndice: !!j.semIndice } });
+    try { sessionStorage.setItem(CHAVE, dado); } catch (e) { /* sem armazenamento: só não volta */ }
+    // Guardadas por 30 dias neste aparelho (v3.8.0): "Ver minhas fotos" sem
+    // nova selfie. Só os IDs das fotos; "Esquecer" apaga.
+    try { localStorage.setItem(CHAVE, dado); } catch (e) { /* idem */ }
     try { history.replaceState(history.state, '', '#minhas-fotos'); } catch (e) { /* idem */ }
+  }
+  function salvas() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
+    return s && s.j && Array.isArray(s.j.resultados) && s.j.resultados.length && Date.now() - s.em < 30 * 86400000 ? s : null;
+  }
+  var guardadas = salvas();
+  if (guardadas) {
+    var ver = document.createElement('button');
+    ver.type = 'button';
+    ver.className = abrir.className.replace('al-b1', 'al-b2').replace('al-rosto', '');
+    ver.id = 'rs-minhas';
+    ver.textContent = 'Ver minhas fotos (' + guardadas.j.resultados.length + ')';
+    ver.addEventListener('click', function () { var g = salvas(); if (g) mostra(g.j, true); });
+    abrir.parentNode.insertBefore(ver, abrir.nextSibling);
   }
   function restaura() {
     if (location.hash !== '#minhas-fotos') return;
@@ -280,6 +383,12 @@ export const SCRIPT_ROSTO = `(function () {
     if (a) try { sessionStorage.setItem(ULT, a.getAttribute('data-id')); } catch (err) { /* idem */ }
   });
   document.getElementById('rs-de-novo').addEventListener('click', function () { abrir.click(); });
+  document.getElementById('rs-esquecer').addEventListener('click', function () {
+    try { localStorage.removeItem(CHAVE); sessionStorage.removeItem(CHAVE); localStorage.removeItem(ULT); } catch (e) { /* idem */ }
+    var m = document.getElementById('rs-minhas');
+    if (m) m.remove();
+    document.getElementById('rs-res').hidden = true;
+  });
   function mostra(j, restaurando) {
     var sec = document.getElementById('rs-res');
     var t = document.getElementById('rs-res-t');
@@ -292,20 +401,10 @@ export const SCRIPT_ROSTO = `(function () {
       sub.textContent = j.removidas ? 'Tiramos o seu rosto de ' + j.removidas + (j.removidas === 1 ? ' foto' : ' fotos') + ' do índice. As fotos novas também ficam de fora.' : 'Não havia foto sua no índice. As que chegarem depois ficam de fora.';
     } else {
       var lista = j.resultados || [];
-      t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você') : 'Nenhuma foto encontrada';
-      sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (lista.length ? 'Da mais parecida para a menos parecida. Toque para abrir.' : 'Tente outra selfie, de frente e com boa luz.');
-      lista.forEach(function (r) {
-        var li = document.createElement('li');
-        var a = document.createElement('a');
-        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
-        a.setAttribute('data-id', r.id);
-        var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
-        img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
-        a.appendChild(img);
-        if (r.cap && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
-        li.appendChild(a); grade.appendChild(li);
-      });
+      var nEv = porEvento(lista).length;
+      t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você' + (nEv > 1 ? ', em ' + nEv + ' eventos' : '')) : 'Nenhuma foto encontrada';
+      sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (lista.length ? 'Separadas por evento, das mais parecidas para as menos. Toque para abrir.' : 'Tente outra selfie, de frente e com boa luz.');
+      desenhaGrupos(grade, lista);
       if (!restaurando) guarda(j);
     }
     document.getElementById('rs-de-novo').parentNode.hidden = j.removidas !== undefined;
@@ -339,7 +438,7 @@ export function buscaHTML() {
       <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa. Ou toque num atalho:</span>
       <span class="bf-sug">${['jogo', 'comida', 'palco', 'bola', 'fantasia', 'bolo'].map(t => `<button type="button" data-bf="${t}">${t}</button>`).join('')}</span>
     </form>
-    <section class="rs-res" id="bf-res" hidden aria-live="polite"><h2 id="bf-res-t" tabindex="-1"></h2><p id="bf-res-sub"></p><ul class="rs-grade" id="bf-grade"></ul></section>`;
+    <section class="rs-res" id="bf-res" hidden aria-live="polite"><h2 id="bf-res-t" tabindex="-1"></h2><p id="bf-res-sub"></p><div class="rs-grupos" id="bf-grade"></div></section>`;
 }
 
 // O script da busca: pergunta ao servidor e desenha a grade, como a do rosto.
@@ -350,6 +449,48 @@ export const SCRIPT_BUSCA = `(function () {
   var f = document.getElementById('bf-form');
   if (!el || !f || !window.fetch) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
+  // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
+  // parecida para a menos).
+  function porEvento(lista) {
+    var pos = {};
+    (D.ordem || []).forEach(function (c, i) { pos[c] = i; });
+    var grupos = {}, ordem = [];
+    lista.forEach(function (r) {
+      var c = r.cap || '';
+      if (!grupos[c]) { grupos[c] = []; ordem.push(c); }
+      grupos[c].push(r);
+    });
+    ordem.sort(function (a, b) { return (a in pos ? pos[a] : 9999) - (b in pos ? pos[b] : 9999); });
+    return ordem.map(function (c) { return { cap: c, nome: (D.caps && D.caps[c]) || 'Outras fotos', fotos: grupos[c] }; });
+  }
+  function desenhaGrupos(alvo, lista) {
+    porEvento(lista).forEach(function (g) {
+      var sec = document.createElement('section');
+      sec.className = 'rs-ev';
+      var h = document.createElement('h3');
+      h.textContent = g.nome;
+      var n = document.createElement('small');
+      n.textContent = g.fotos.length === 1 ? '1 foto' : g.fotos.length + ' fotos';
+      h.appendChild(n);
+      sec.appendChild(h);
+      var ul = document.createElement('ul');
+      ul.className = 'rs-grade';
+      g.fotos.forEach(function (r) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.setAttribute('data-id', r.id);
+        var img = document.createElement('img');
+        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+        a.appendChild(img);
+        li.appendChild(a); ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+      alvo.appendChild(sec);
+    });
+  }
   var q = document.getElementById('bf-q');
   var bt = f.querySelector('button');
   var CHAVE = 'bf-res:' + D.slug, ULT = 'bf-ult:' + D.slug;
@@ -399,18 +540,7 @@ export const SCRIPT_BUSCA = `(function () {
     sec.hidden = false;
     t.textContent = erro ? 'Não deu para procurar' : lista.length ? (lista.length === 1 ? '1 foto com "' + termo + '"' : lista.length + ' fotos com "' + termo + '"') : 'Nenhuma foto com "' + termo + '"';
     sub.textContent = erro || (lista.length ? 'Toque para abrir.' : 'Tente outra palavra: um número, um nome de faixa ou uma coisa (palco, bolo, bola).');
-    lista.forEach(function (r) {
-      var li = document.createElement('li');
-      var a = document.createElement('a');
-      a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
-      a.setAttribute('data-id', r.id);
-      var img = document.createElement('img');
-      img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
-      img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
-      a.appendChild(img);
-      if (r.cap && D.caps && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
-      li.appendChild(a); grade.appendChild(li);
-    });
+    desenhaGrupos(grade, lista);
     var alvo = typeof restaurando === 'string' ? grade.querySelector('a[data-id="' + restaurando.replace(/[^A-Za-z0-9_-]/g, '') + '"]') : null;
     if (alvo) { alvo.classList.add('rs-ultima'); alvo.scrollIntoView({ block: 'center' }); return; }
     t.focus({ preventScroll: !!restaurando });

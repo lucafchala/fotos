@@ -105,8 +105,17 @@ export function albumHTML(p) {
   const base = `/galeria/${slug}`;
   const estilo = GALERIA_ESTILOS.includes(String(event.galeriaEstilo)) ? String(event.galeriaEstilo) : GALERIA_ESTILOS[0];
   const caps = ordemDaLinha(p.caps, resumo);
+  // A capa escolhida pelo dono no visualizador ("Usar como capa do evento",
+  // v3.8.0) vem primeiro; depois, as do resumo.
+  const escolhidas = event.capasEventos && typeof event.capasEventos === 'object' ? /** @type {Record<string, unknown>} */ (event.capasEventos) : {};
+  const slugDoId = new Map(p.caps.map(c => [c.id, c.slug]));
   /** @param {string} id */
-  const capasDe = id => (resumo[id] ? resumo[id].capas.filter(x => !ocultasSet.has(x)) : []);
+  const capasDe = id => {
+    const doResumo = resumo[id] ? resumo[id].capas : [];
+    const e = escolhidas[slugDoId.get(id) || ''];
+    const lista = typeof e === 'string' && /^[A-Za-z0-9_-]{10,200}$/.test(e) ? [e, ...doResumo.filter(x => x !== e)] : doResumo;
+    return lista.filter(x => !ocultasSet.has(x));
+  };
 
   // Fotos da abertura: primeiro as "Fotos de capa" do projeto, completadas
   // pela primeira capa de cada capítulo (o mosaico pede 5, a tela cheia até 6).

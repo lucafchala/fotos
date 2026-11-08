@@ -596,13 +596,17 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
     aut.push(nome);
     return aut.length - 1;
   };
-  /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean }[]} */
+  /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string }[]} */
   const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
   const vistas = new Set([raiz.id]);
   let semAcesso = 0;
   // Dentro de atalho (v3.7.1): a mesma foto em duas pastas do destino
   // ("Resolução Redes Sociais" e "Resolução Total", uma seleção "!Dia 1" e o
-  // "Dia 1") vira UMA, a de mais bytes. Chave: seção + nome do arquivo.
+  // "Dia 1") vira UMA, a de mais bytes. Chave (v3.8.0): o mesmo atalho de
+  // origem + mesmo autor + seção + nome + a HORA DA CAPTURA. Antes era só
+  // seção + nome, e duas fotos diferentes de nome igual (o IMG_1234 do Dia 1 e
+  // o do Dia 2, ou um da Mag e um seu) viravam uma só: sumiam fotos. Sem hora
+  // de captura, não junta nunca: não arrisca.
   /** @type {Map<string, { secao: SecaoDrive, i: number }>} */
   const porNome = new Map();
   /** @type {Map<string, SecaoDrive>} */
@@ -613,7 +617,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
 
   percurso:
   while (fila.length) {
-    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean }} */ (fila.shift());
+    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string }} */ (fila.shift());
     const caminho = atual.caminho.join(' / ');
     let secao = secoes.get(caminho);
     if (!secao) {
@@ -646,7 +650,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             pastas++;
             vistas.add(alvo);
             const rkAlvo = typeof sd.targetResourceKey === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(sd.targetResourceKey) ? sd.targetResourceKey : '';
-            fila.push({ id: alvo, rk: rkAlvo, caminho: atual.caminho, autor: atual.autor, atalho: true });
+            fila.push({ id: alvo, rk: rkAlvo, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem || alvo });
           } else {
             truncada = true;
           }
@@ -673,7 +677,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             // seguem as pastas do álbum (o ano, a banda), não as de onde as
             // fotos moram.
             pastas++;
-            fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: atual.autor, atalho: true });
+            fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem });
           } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < maxPastas) {
             pastas++;
             fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
@@ -689,7 +693,8 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
         if (ehImg || ehVid) {
           const item = ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor);
           if (atual.atalho) {
-            const k = `${caminho}\u0000${String(f.name || '').toLowerCase()}`;
+            const hora = ehVid ? 0 : Number(item[6]) || 0;
+            const k = `${atual.origem || ''}\u0000${atual.autor}\u0000${caminho}\u0000${String(f.name || '').toLowerCase()}\u0000${hora || f.id}`;
             const ja = porNome.get(k);
             if (ja) {
               if ((item[4] || 0) > (ja.secao.fotos[ja.i][4] || 0)) {
@@ -1757,9 +1762,9 @@ function semOrdem(nome) {
 
 /** @type {Map<string, { ate: number, dados: PastaDeEnvio[] }>} */
 const memoriaEnvio = new Map();
-// 6 h: a estrutura de dentro de um evento (anos, bandas) quase nunca muda; um
-// evento NOVO muda a assinatura (ver abaixo) e é lido na hora.
-const ENVIO_TTL_S = 6 * 3600;
+// 30 min (v3.8.0; era 6 h): uma pasta de envio nova dentro de um evento
+// aparece logo. Um evento NOVO muda a assinatura (ver abaixo) e é lido na hora.
+const ENVIO_TTL_S = 30 * 60;
 /** @param {string} raiz @param {string} assinatura */
 const chaveEnvio = (raiz, assinatura) => `https://fotos.invalid/__galeria/envio/${raiz}/${assinatura}/v1`;
 

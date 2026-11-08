@@ -17,7 +17,7 @@
 // no máximo AQUECE_TETO_CHAMADAS; o que faltar fica para a próxima (o
 // progresso fica no KV, `aquece:<slug>`).
 
-import { alvoDaGaleria, listaPasta, registraResumo, DriveError } from './drive.js';
+import { alvoDaGaleria, listaPasta, registraResumo, pastasDeEnvio, DriveError } from './drive.js';
 import { opcoesDaLista } from './sumiram.js';
 
 export const AQUECE_A_CADA_MS = 3 * 3600 * 1000;
@@ -79,6 +79,10 @@ export async function aqueceUm(env, evento, estado) {
     estado.feitos.push(cap.id);
   }
   const completo = caps.every(c => estado.feitos.includes(c.id));
+  // Fim do ciclo: a lista do "Mandar suas fotos" relida junto (v3.8.0).
+  if (completo) {
+    try { await pastasDeEnvio(env, alvo.caps, evento.galeriaCreditos); } catch (e) { console.error('aquece: lista de envio falhou', e); }
+  }
   return { eventos: caps.length, feitos: estado.feitos.length, chamadas, completo };
 }
 
