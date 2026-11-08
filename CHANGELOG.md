@@ -18,6 +18,26 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.7.6] — ainda não publicada
+
+O álbum com uma cara só, do começo ao fim, e mais leve no celular.
+
+### Mudou
+
+- **Os eventos do Entre Nós com a cara do álbum:** fundo escuro e o amarelo do
+  Santa, em qualquer tema do aparelho (antes, num celular em modo claro, o
+  evento abria claro e parecia outro site). Vale para álbum com domínio
+  próprio; os outros projetos do fotos seguem iguais.
+- **Sem o ícone de inseto no topo do evento:** o "reportar um problema" virou
+  "Algo deu errado? Fale com a gente", no rodapé. E o fim do evento não manda
+  mais para a "Página do projeto" (no álbum, ela é o próprio álbum).
+- **A data do evento é o período das fotos dele** ("jun – set 2025", "2024 –
+  2026"), não a data do projeto.
+- **"Quem fotografou" só com os nomes**, sem a contagem de fotos de cada um.
+- **Fotos da página principal em WebP e no tamanho de cada tela** (abertura,
+  linha do tempo e resultados das buscas): o celular baixa a menor que serve.
+  Antes eram JPEG numa largura só.
+
 ## [3.7.5] — ainda não publicada
 
 A busca pelo rosto no centro do álbum, pronta ao toque e sem perder o

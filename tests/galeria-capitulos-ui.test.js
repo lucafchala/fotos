@@ -95,3 +95,42 @@ describe('sem link para a pasta no Drive (v3.7.2; era o item 1g.4b)', () => {
     expect(pagina(0)).not.toContain('data-acao="baixar-tudo"');
   });
 });
+
+describe('evento do álbum com domínio próprio (v3.7.6)', () => {
+  const foto = (/** @type {string} */ id, /** @type {number} */ hora) => /** @type {import('../src/drive.js').FotoDrive} */ ([id, 6000, 4000, `${id}.jpg`, 1000, 0, hora]);
+  const lista = {
+    v: /** @type {3} */ (3), pasta: 'CAP_PASTA_0001', em: '2026-11-07T12:00:00.000Z', truncada: false, total: 3, videos: 0, outros: 0, rk: {}, aut: ['Luca F. Chala'],
+    secoes: [{ nome: '2024', caminho: '2024', fotos: [foto('FOTO00000000001', 20240612150000)] }, { nome: '2026', caminho: '2026', fotos: [foto('FOTO00000000002', 20260610120000), foto('FOTO00000000003', 20260615120000)] }],
+  };
+  const pagina = (/** @type {string} */ slug, capitulo = /** @type {any} */ ({ slug: 'piauifut', nome: 'PiauiFut', anterior: null, proximo: null })) => galeriaHTML({
+    event: /** @type {any} */ ({ ...EVENTO, slug, date: '2026-11-06', driveUrl: 'https://drive.google.com/drive/folders/PROJETO_RAIZ_0001' }),
+    listagem: lista, listagemBruta: lista, capitulo, capituloNome: 'PiauiFut', erro: null, nonce: 'NONCE', dono: false, formToken: '',
+  });
+
+  it('a paleta escura do álbum, em qualquer tema do aparelho; outros projetos seguem iguais', () => {
+    const h = pagina('entrenos2026');
+    expect(h).toContain(':root:root{');
+    expect(h).toContain('--accent:#f9de4b');
+    expect(h).toContain('<meta name="theme-color" content="#0f0e0c">');
+    expect(pagina('formatura')).not.toContain(':root:root{');
+  });
+
+  it('o "reportar problema" sai do topo e vira "Algo deu errado?" no rodapé; outros projetos seguem com o ícone', () => {
+    const h = pagina('entrenos2026');
+    expect(h).not.toContain('class="g-btn g-bug"');
+    expect(h).toContain('<footer class="g-fim"><a href="/suporte">Algo deu errado? Fale com a gente</a></footer>');
+    // No álbum, o fim do evento não manda para a "Página do projeto" (o álbum já é ela).
+    expect(h).not.toMatch(/g-cap-fim[^]*Página do projeto/);
+    const outro = pagina('formatura');
+    expect(outro).toContain('class="g-btn g-bug"');
+    expect(outro).not.toContain('class="g-fim"');
+  });
+
+  it('a data do evento é o período das fotos, não a data do projeto', () => {
+    const h = pagina('entrenos2026');
+    expect(h).toMatch(/2024 – 2026 · 3 fotos/);
+    expect(h).not.toContain('6 de novembro de 2026 · 3 fotos');
+    // Página sem capítulo (projeto comum): a data do projeto, como sempre.
+    expect(pagina('formatura', null)).toContain('6 de novembro de 2026');
+  });
+});

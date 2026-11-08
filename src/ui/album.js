@@ -70,6 +70,13 @@ export function ordemDaLinha(caps, resumo) {
     .sort((x, y) => x.d - y.d || x.i - y.i).map(x => x.c);
 }
 
+// Foto do lh3 em WebP (`-rw`) e no tamanho certo para cada tela (v3.7.6):
+// o celular baixa a menor que serve, o computador a maior. É o mesmo padrão
+// das páginas dos eventos (galeria.js). `larguras` em px; `sizes` diz ao
+// navegador quanto da tela a foto ocupa.
+/** @param {string} id @param {number[]} larguras @param {string} sizes */
+const fonteLh3 = (id, larguras, sizes) => `src="${escape(`${urlLh3(id, larguras[Math.min(1, larguras.length - 1)])}-rw`)}" srcset="${escape(larguras.map(w => `${urlLh3(id, w)}-rw ${w}w`).join(', '))}" sizes="${sizes}"`;
+
 // Um rosto simples (traço), no botão da busca pelo rosto.
 const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="9.5" cy="10" r=".6" fill="currentColor"/><circle cx="14.5" cy="10" r=".6" fill="currentColor"/><path d="M9 15c1.6 1.3 4.4 1.3 6 0"/></svg>';
 
@@ -155,18 +162,18 @@ export function albumHTML(p) {
   let cssEstilo;
   if (estilo === 'tela-cheia') {
     const n = heroi.length;
-    primeiraTela = `<header class="al-hero${n ? '' : ' al-sem-foto'}">${n ? `<div class="al-slides" aria-hidden="true">${heroi.map((id, i) => `<img src="${escape(urlLh3(id, 1600))}" srcset="${escape(`${urlLh3(id, 960)} 960w, ${urlLh3(id, 1600)} 1600w, ${urlLh3(id, 2400)} 2400w`)}" sizes="100vw" alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-hero${n ? '' : ' al-sem-foto'}">${n ? `<div class="al-slides" aria-hidden="true">${heroi.map((id, i) => `<img ${fonteLh3(id, [960, 1600, 2400], '100vw')} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
     <div class="al-hero-txt">${cabecalho()}</div><a class="al-desce" href="#sobre" aria-label="Rolar para o texto">⌄</a></header>`;
     cssEstilo = cssTelaCheia(n);
   } else if (estilo === 'mosaico') {
     const m = heroi.slice(0, 5);
-    primeiraTela = `<header class="al-mos-h">${m.length >= 3 ? `<div class="al-mos" aria-hidden="true">${m.map((id, i) => `<img src="${escape(urlLh3(id, i === 0 ? 1200 : 640))}" alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-mos-h">${m.length >= 3 ? `<div class="al-mos" aria-hidden="true">${m.map((id, i) => `<img ${i === 0 ? fonteLh3(id, [640, 960, 1200, 1600], '(max-width:700px) 100vw, 60vw') : fonteLh3(id, [320, 480, 640], '(max-width:700px) 50vw, 25vw')} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
     <div class="al-mos-txt${m.length >= 3 ? '' : ' al-sem-foto'}">${cabecalho()}</div></header>`;
     cssEstilo = CSS_MOSAICO;
   } else if (estilo === 'recordacao') {
     // Polaroids: um evento em cada, com o nome escrito embaixo.
     const pol = restrito ? [] : caps.map(c => ({ nome: c.nome, id: capasDe(c.id)[1] || capasDe(c.id)[0] })).filter(x => x.id).slice(0, 5);
-    primeiraTela = `<header class="al-papel">${pol.length >= 2 ? `<div class="al-mesa" aria-hidden="true">${pol.map((x, i) => `<div class="al-pol al-p${i + 1}"><img src="${escape(urlLh3(x.id, 640))}" alt="" decoding="async" referrerpolicy="no-referrer"><span>${escape(x.nome)}</span></div>`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-papel">${pol.length >= 2 ? `<div class="al-mesa" aria-hidden="true">${pol.map((x, i) => `<div class="al-pol al-p${i + 1}"><img ${fonteLh3(x.id, [320, 480, 640], '(max-width:700px) 45vw, 240px')} alt="" decoding="async" referrerpolicy="no-referrer"><span>${escape(x.nome)}</span></div>`).join('')}</div>` : ''}
     <div class="al-pol-txt">${cabecalho()}</div></header>`;
     cssEstilo = CSS_RECORDACAO;
   } else {
@@ -185,7 +192,7 @@ export function albumHTML(p) {
     const n = r ? r.n : 0;
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
-    const img = (/** @type {string} */ id, /** @type {number} */ w) => `<img src="${escape(urlLh3(id, w))}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+    const img = (/** @type {string} */ id, /** @type {number} */ w) => `<img ${fonteLh3(id, w > 600 ? [400, 640, 900, 1200] : [320, 480, 640], w > 600 ? '(max-width:700px) 92vw, 640px' : '(max-width:700px) 46vw, 320px')} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     const fotosHtml = grande
       ? `<span class="al-fx">${cs[0] ? img(cs[0], 900) : '<span class="al-vazio"></span>'}${cs[1] ? img(cs[1], 500) : ''}</span>`
       : (cs[0] ? img(cs[0], 800) : '<span class="al-vazio"></span>');
@@ -195,8 +202,10 @@ export function albumHTML(p) {
     ? `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">${grande ? 'Evento por evento' : 'A nossa história, evento por evento'}</h2><ol class="${grande ? 'al-big' : 'al-tl'}">${itens.join('')}</ol></section>`
     : '<p class="al-sec al-vazio-msg" id="eventos">As fotos estão chegando. Volte em breve.</p>';
 
+  // Só os nomes, na ordem de quem tem mais fotos (v3.7.6, pedido do dono: a
+  // contagem por pessoa soava como relatório).
   const quem = autores.length
-    ? `<section class="al-sec" aria-labelledby="al-quem-t"><span class="al-kick">Quem fotografou</span><h2 id="al-quem-t">As fotos são de</h2><div class="al-cred">${autores.slice(0, 8).map(([nome, n]) => `<div><b>${escape(n.toLocaleString('pt-BR'))}</b><span>${escape(nome)}</span><small>${n === 1 ? 'foto' : 'fotos'} no álbum</small></div>`).join('')}</div></section>`
+    ? `<section class="al-sec" aria-labelledby="al-quem-t"><span class="al-kick">Quem fotografou</span><h2 id="al-quem-t">As fotos são de</h2><div class="al-cred">${autores.slice(0, 8).map(([nome]) => `<div><span>${escape(nome)}</span></div>`).join('')}</div></section>`
     : '';
 
   // "Apoie o projeto" (Pix estático): só com chave, nome e cidade no painel, e
@@ -526,8 +535,7 @@ a{color:inherit;text-decoration:none}
 .al-pix-nota{margin-top:.6rem;font-size:.8rem;color:var(--mudo)}
 @media (min-width:760px){.al-pix{grid-template-columns:auto 1fr;padding:1.6rem}.al-pix-qr{width:220px}}
 .al-cred div{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:1.1rem 1.2rem}
-.al-cred b{display:block;font-family:'Open Sans',sans-serif;font-size:2.2rem;font-weight:600;color:var(--sol);line-height:1}
-.al-cred span{display:block;margin-top:.4rem;font-weight:600;overflow-wrap:anywhere}.al-cred small{color:var(--mudo);font-size:.8rem}
+.al-cred span{display:block;font-family:'Open Sans',sans-serif;font-size:1.35rem;font-weight:700;color:var(--sol);overflow-wrap:anywhere}
 .rs-res{max-width:72rem;margin:0 auto;padding:2.5rem var(--pad) 0}
 .rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem}
 .al-fim{margin:4.5rem 0 0;padding:3.5rem var(--pad) 2.5rem;text-align:center;background:linear-gradient(180deg,var(--bg) 0%,#141a33 30%,#172154 100%);border-top:1px solid #1f2a5c}

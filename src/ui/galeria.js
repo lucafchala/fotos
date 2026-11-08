@@ -32,6 +32,40 @@ import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 import { nomesDaListagem } from '../nomes.js';
+import { rotuloDoPeriodo } from './album.js';
+
+// Álbum com domínio próprio (Entre Nós): a página do evento usa a paleta da
+// apresentação do álbum, escura e com o amarelo do Santa, em qualquer tema do
+// aparelho (v3.7.6). `:root:root` vence o :root claro do prefers-color-scheme.
+const TEMA_ALBUM = `
+    :root:root{
+      --bg-page:#0f0e0c; --text:#f3ede3; --text-2:#cfc6b8; --text-muted:#a39a8c; --text-dim:#7d756a;
+      --bg-card:#1a1815; --bg-card-2:#22201b; --esqueleto:#24211c; --border:#2b2823; --accent:#f9de4b; --accent-text:#141a33;
+      --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#f0b46a;
+      --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
+      color-scheme:dark;
+    }
+    .g-fim{display:flex;justify-content:center;padding:2.5rem var(--pad) 3rem}
+    .g-fim a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-muted);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}`;
+
+/**
+ * O período das fotos de uma listagem, pelas datas de captura: [AAAAMM, AAAAMM]
+ * (o mesmo de `p` no resumo do capítulo), ou null.
+ * @param {import('../drive.js').ListagemDrive | null} listagem
+ * @returns {[number, number] | null}
+ */
+function periodoDaListagem(listagem) {
+  if (!listagem) return null;
+  let min = 0, max = 0;
+  for (const sec of listagem.secoes) for (const f of sec.fotos) {
+    const hora = Number(f[6]) || 0;
+    if (hora <= 19000101000000) continue;
+    const m = Math.floor(hora / 1e8);
+    if (!min || m < min) min = m;
+    if (m > max) max = m;
+  }
+  return min ? [min, max] : null;
+}
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 // Quantas fotos o JSON-LD descreve como ImageObject. Poucas: o sitemap de
@@ -154,7 +188,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ? new Date(listagem.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     : '';
 
-  const dataEvento = event.date ? formatDatePT(String(event.date)) : '';
+  // Na página de UM evento (capítulo), a data é o período das fotos dele
+  // ("jun – set 2025", "2024 – 2026"), não a data do projeto (v3.7.6).
+  const dataEvento = capitulo
+    ? rotuloDoPeriodo(periodoDaListagem(listagem) || undefined)
+    : (event.date ? formatDatePT(String(event.date)) : '');
   // Fotos e vídeos (item 1f): "12 fotos e 2 vídeos". Sem vídeo, o texto de
   // sempre ("12 fotos"). `total` conta os dois.
   const nVideos = listagem ? listagem.secoes.reduce((n, sc) => n + sc.fotos.filter(ehVideo).length, 0) : 0;
@@ -357,7 +395,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
-  <meta name="theme-color" content="#0a0a0a">
+  <meta name="theme-color" content="${marca ? '#0f0e0c' : '#0a0a0a'}">${marca ? '\n  <meta name="color-scheme" content="dark">' : ''}
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   ${marca ? '' : '<link rel="manifest" href="/manifest.json">'}
@@ -397,6 +435,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#8c1d18;
       }
     }
+    ${marca ? TEMA_ALBUM : ''}
     @media (max-width:520px){ :root{ --gap:3px } }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -633,7 +672,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="compartilhar" aria-label="Compartilhar a página do projeto"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar</span></button>' : ''}
-        <a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>
+${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
       </div>
     </div>
     ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
@@ -647,7 +686,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
-  ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', slug) : ''}
+  ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', marca ? '' : slug) : ''}
+  ${marca ? '<footer class="g-fim"><a href="/suporte">Algo deu errado? Fale com a gente</a></footer>' : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>

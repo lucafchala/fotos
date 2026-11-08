@@ -300,7 +300,7 @@ export const SCRIPT_ROSTO = `(function () {
         a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
         a.setAttribute('data-id', r.id);
         var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
+        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         if (r.cap && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
@@ -405,7 +405,7 @@ export const SCRIPT_BUSCA = `(function () {
       a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
       a.setAttribute('data-id', r.id);
       var img = document.createElement('img');
-      img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w320';
+      img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
       img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
       a.appendChild(img);
       if (r.cap && D.caps && D.caps[r.cap]) { var s = document.createElement('span'); s.textContent = D.caps[r.cap]; a.appendChild(s); }
