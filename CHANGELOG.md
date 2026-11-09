@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.6] — ainda não publicada
+
+- **Minhas fotos e a busca viram galeria:** tocar numa foto do resultado abre em tela cheia; dá para passar por todas as fotos do resultado, de todos os eventos (deslizar, setas, teclado), com "Ver no evento" e "Baixar" em cada uma. Voltar (botão do celular) fecha a foto e fica no resultado. Botão "Tela cheia" onde o navegador deixa (`SCRIPT_VISOR`, sem biblioteca, sem innerHTML).
+
 ## [3.8.5] — ainda não publicada
 
 Eventos separados por data do jeito certo e o "Não quero aparecer" à vista.

@@ -262,7 +262,28 @@ for (const tela of TELAS) {
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
   registra(await page.locator('#rs-grade a').count() === 4 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
   const clicada = await page.locator('#rs-grade a').nth(1).getAttribute('data-id');
+  // v3.8.6: tocar abre a galeria em tela cheia, com TODAS as fotos do resultado.
   await page.locator('#rs-grade a').nth(1).click();
+  await page.waitForSelector('dialog.vz[open]', { timeout: 3000 }).catch(() => {});
+  registra(await page.locator('dialog.vz[open]').count() === 1 && (await page.locator('.vz-n').textContent()) === '2 de 4', 'Visor: tocar na foto abre em tela cheia, na foto tocada ("2 de 4")', await page.locator('.vz-n').textContent().catch(() => ''));
+  const caixaImg = await page.locator('.vz-img').boundingBox();
+  registra(!!caixaImg && caixaImg.width >= 380 && caixaImg.height >= 800, 'Visor: a foto ocupa a tela inteira', caixaImg);
+  // Deslizar para a esquerda: a próxima.
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 420 }] });
+  for (const x of [250, 200, 150, 120]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 425 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(200);
+  registra((await page.locator('.vz-n').textContent()) === '3 de 4', 'Visor: deslizar para o lado passa para a próxima', await page.locator('.vz-n').textContent());
+  registra(/\/galeria\/entrenos2026\/[a-z-]+\/baixar\/FOTO_/.test((await page.locator('.vz-baixar').getAttribute('href')) || ''), 'Visor: "Baixar" leva ao original daquela foto', await page.locator('.vz-baixar').getAttribute('href'));
+  // Voltar (botão do celular) fecha o visor e fica no resultado.
+  await page.goBack();
+  await page.waitForTimeout(300);
+  registra(await page.locator('dialog.vz[open]').count() === 0 && page.url().endsWith('#minhas-fotos'), 'Visor: voltar fecha a foto e fica no resultado', page.url());
+  // "Ver no evento" ainda leva à página do evento, e voltar traz o resultado.
+  await page.locator('#rs-grade a').nth(1).click();
+  await page.waitForSelector('dialog.vz[open]', { timeout: 3000 }).catch(() => {});
+  await page.locator('.vz-base [data-vz="ver"]').click();
   await page.waitForURL(/\/galeria\//);
   await page.goBack();
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 5000 }).catch(() => {});
@@ -275,6 +296,9 @@ for (const tela of TELAS) {
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');
   registra(decodeURIComponent(page.url()).endsWith('#busca=bolo'), 'Busca: o endereço guarda o termo', page.url());
   await page.locator('#bf-grade a').first().click();
+  await page.waitForSelector('dialog.vz[open]', { timeout: 3000 }).catch(() => {});
+  registra((await page.locator('.vz-n').textContent().catch(() => '')) === '1 de 2', 'Visor: a busca por palavra também abre em tela cheia', await page.locator('.vz-n').textContent().catch(() => ''));
+  await page.locator('.vz-base [data-vz="ver"]').click();
   await page.waitForURL(/\/galeria\//);
   await page.goBack();
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a', { timeout: 5000 }).catch(() => {});
