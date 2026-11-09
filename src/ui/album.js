@@ -129,6 +129,8 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
   return `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">Os ${caps.length} eventos</h2>${atalhos}${corpo}</section>`;
 }
 
+const ICONE_ENVIAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3"/></svg>';
+
 const ICONE_SINO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
 // Um rosto simples (traço), no botão da busca pelo rosto.
@@ -202,13 +204,15 @@ export function albumHTML(p) {
     // sem ela), "Ver todas as fotos" é o principal — ver .al-ver no CSS.
     p.botaoRosto ? `<button type="button" class="al-btn al-b1 al-rosto" id="rs-abrir" hidden>${ICONE_ROSTO}Achar minhas fotos pelo rosto</button>` : '',
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
+    // "Mandar suas fotos" em destaque (v3.8.7, pedido do dono): botão, ao
+    // lado do principal.
+    urlPasta ? `<a class="al-btn al-b2 al-mandar" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">${ICONE_ENVIAR}Mandar suas fotos</a>` : '',
   ].join('')}</div>`;
   // A abertura mais limpa (v3.8.7, pedido do dono: "muitos botões"): um botão
   // principal; o resto vira uma linha de links discretos. "Ver os eventos" só
   // aparece na linha quando a busca pelo rosto ocupa o botão principal (CSS).
   const links = [
     caps.length ? '<a class="al-link al-link-ver" href="#eventos">Ver os eventos</a>' : '',
-    urlPasta ? `<a class="al-link" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
     restrito ? '' : `<span class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-link al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button></span>`,
   ].filter(Boolean).join('');
   const linhaLinks = links ? `<nav class="al-links" aria-label="Mais opções">${links}</nav>${restrito ? '' : '<p class="al-aviso-msg" id="av-msg" role="status"></p>'}` : '';
@@ -607,6 +611,7 @@ a{color:inherit;text-decoration:none}
 .al-pol-txt .al-sair-rosto{text-align:center}
 .al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--mudo);font:inherit;font-size:.85rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 @media (hover:hover){.al-sair-btn:hover{color:var(--sol)}}
+.al-mandar{gap:.5rem;justify-content:center}.al-mandar svg{width:1.15rem;height:1.15rem;flex:none}
 .al-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 1.3rem;margin-top:.5rem}
 .al-pol-txt .al-links{justify-content:center}
 .al-link{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.95rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}

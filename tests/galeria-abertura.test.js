@@ -115,7 +115,7 @@ describe('apresentação do álbum', () => {
     const h = pagina();
     expect(h).toContain('<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>');
     expect(h).toContain('id="eventos"');
-    expect(h).toContain(`href="https://drive.google.com/drive/folders/${PASTA}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>`);
+    expect(h).toContain(`href="https://drive.google.com/drive/folders/${PASTA}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos"><svg`);
   });
 
   it('com a pasta "outros" nos créditos, a dica diz onde mandar as fotos', () => {
