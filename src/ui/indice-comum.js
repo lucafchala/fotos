@@ -319,6 +319,13 @@ export const SCRIPT_ROSTO = `(function () {
     botao();
   }
   abrir.addEventListener('click', function () { poeModo(false); aceite.checked = false; botao(); dlg.showModal(); turnstile(); });
+  // "Não quero aparecer na busca", à vista na abertura (v3.8.5): abre a janela já no modo de sair.
+  var sairP = document.getElementById('rs-sair-p');
+  var sairBtn = document.getElementById('rs-sair-abrir');
+  if (sairP && sairBtn) {
+    sairP.hidden = false;
+    sairBtn.addEventListener('click', function () { poeModo(true); aceite.checked = false; botao(); dlg.showModal(); turnstile(); });
+  }
   modo.addEventListener('click', function () { poeModo(!sair); });
   aceite.addEventListener('change', botao);
   dlg.addEventListener('click', function (e) { if (e.target && e.target.getAttribute && e.target.getAttribute('data-rs') === 'fechar') dlg.close(); });

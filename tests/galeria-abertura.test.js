@@ -267,3 +267,45 @@ describe('seções com ano no caminho (v3.8.2)', () => {
     expect(nomeDaSecao({ nome: '', caminho: '' })).toEqual({ nome: '' });
   });
 });
+
+// v3.8.5: a separação por data. Um evento sem data não embaralha os outros;
+// o ano é o do mês do meio; data absurda (câmera errada) não puxa o evento.
+describe('separação por data (v3.8.5)', () => {
+  it('o resumo: período sem as pontas, mês do meio, sem data impossível', async () => {
+    const { registraResumo, lerResumo, limpaCacheCapitulos } = await import('../src/drive.js');
+    limpaCacheCapitulos();
+    const foto = (/** @type {number} */ i, /** @type {number} */ hora) => [`FOTOMES${String(i).padStart(8, '0')}`, 6000, 4000, 'x.jpg', 1, 0, hora];
+    const fotos = [
+      ...Array.from({ length: 40 }, (_, i) => foto(i, 20250610120000)),
+      ...Array.from({ length: 20 }, (_, i) => foto(100 + i, 20250815120000)),
+      foto(200, 20190101120000), // câmera com a data errada: uma foto em 60
+      foto(201, 19800101120000), // impossível
+      foto(202, 20991231120000), // no futuro
+    ];
+    await registraResumo('RAIZ_DATAS_0001', 'CAP_DATAS_0001', /** @type {any} */ ({ secoes: [{ nome: '', caminho: '', fotos }], total: fotos.length, aut: [] }));
+    const r = (await lerResumo('RAIZ_DATAS_0001')).CAP_DATAS_0001;
+    expect(r.pm).toBe(202506);
+    expect(r.p).toEqual([202506, 202508]);
+  });
+
+  it('ordem e grade: datados em ordem, o sem data no fim, em "Sem data"', () => {
+    const cps = ['A', 'B', 'C', 'D'].map((x, i) => ({ id: `CAPDATA0000000${i}`, rk: '', bruto: x, nome: `Ev ${x}`, slug: `ev-${x.toLowerCase()}` }));
+    /** @type {Record<string, any>} */
+    const res = {
+      CAPDATA00000000: { n: 1, capas: [], p: [202603, 202603], pm: 202603 },
+      CAPDATA00000001: { n: 1, capas: [] }, // sem data
+      CAPDATA00000002: { n: 1, capas: [], p: [202303, 202606], pm: 202405 }, // vários anos: vale o meio
+      CAPDATA00000003: { n: 1, capas: [], p: [202409, 202409] }, // resumo antigo, sem pm
+    };
+    expect(ordemDaLinha(cps, res).map(c => c.slug)).toEqual(['ev-c', 'ev-d', 'ev-a', 'ev-b']);
+    // 12 eventos (mais que EVENTOS_COMPACTOS): a grade por ano.
+    const muitos = { ...caps, caps: ['A', 'B', 'C'].flatMap(l => cps.map(c => ({ ...c, id: c.id.replace('CAPDATA', `CAPDAT${l}`), slug: `${c.slug}-${l.toLowerCase()}` }))) };
+    /** @type {Record<string, any>} */
+    const res2 = {};
+    for (const l of ['A', 'B', 'C']) for (const [k, v] of Object.entries(res)) res2[k.replace('CAPDATA', `CAPDAT${l}`)] = v;
+    const h = galeriaIndiceHTML({ event: /** @type {any} */ (EVENTO), caps: /** @type {any} */ ({ ...muitos, caps: ordemDaLinha(muitos.caps, res2) }), resumo: res2, ocultas: [], dono: false, indexavel: true, nonce: 'N' });
+    const titulos = [...h.matchAll(/<h3 class="al-ano" id="ano-([a-z0-9]+)">([^<]+)<\/h3>/g)].map(m => m[2]);
+    expect(titulos).toEqual(['2024', '2026', 'Sem data']);
+    expect(h).toContain('<a href="#ano-sem">Sem data</a>');
+  });
+});

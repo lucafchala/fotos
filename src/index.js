@@ -21,7 +21,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -4666,8 +4666,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
     eventosDaFaixa = ordemDaLinha(alvo.caps.caps, resumoFaixa)
       .filter(c => c.id === capitulo.id || dono || !capVazio(resumoFaixa[c.id]))
       .map(c => {
-        const r = resumoFaixa[c.id];
-        const ano = r && Array.isArray(r.p) && r.p[0] > 0 ? String(Math.floor(r.p[0] / 100)) : '';
+        const mes = mesDoEvento(resumoFaixa[c.id]);
+        const ano = mes ? String(Math.floor(mes / 100)) : 'Sem data';
         return ano ? { slug: c.slug, nome: c.nome, ano } : { slug: c.slug, nome: c.nome };
       });
   }

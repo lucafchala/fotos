@@ -18,6 +18,15 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.5] — ainda não publicada
+
+Eventos separados por data do jeito certo e o "Não quero aparecer" à vista.
+
+- **Data dos eventos:** um evento sem data (fotos sem a hora gravada, como as do WhatsApp) desligava a ordem por data de TODOS, e os anos se embaralhavam na grade. Agora os datados vão em ordem e os sem data ficam no fim, em "Sem data" (`ordemDaLinha`, `mesDoEvento`).
+- O ano do evento é o do mês do MEIO das fotos (`pm` no resumo); o período ignora 5% de cada ponta e datas impossíveis (antes de 2000 ou no futuro): câmera com o relógio errado não puxa mais o evento para outro ano.
+- **Busca pelo rosto (decisão do dono, 08/11):** a busca inclui todos os rostos do álbum; o "Não quero aparecer na busca pelo rosto" fica na abertura, logo abaixo dos botões, e abre a janela já no modo de sair.
+- Teste de CPU (`galeria-pico`): o teto absoluto de 10 ms era do plano grátis; vira 25 ms (a razão continua a régua).
+
 ## [3.8.4] — ainda não publicada
 
 Aviso de fotos novas no celular, sem serviço pago.
