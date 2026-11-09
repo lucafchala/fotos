@@ -65,10 +65,23 @@ export function idDaCapa(url) {
  * @returns {C[]}
  */
 export function ordemDaLinha(caps, resumo) {
-  const comData = caps.every(c => resumo[c.id] && Array.isArray(resumo[c.id].p));
-  if (!comData) return caps;
-  return caps.map((c, i) => ({ c, i, d: /** @type {[number, number]} */ (resumo[c.id].p)[0] }))
+  // v3.8.5: evento sem data (fotos sem a hora gravada) vai para o fim, na
+  // ordem das pastas; antes, UM evento assim desligava a ordem por data de
+  // todos, e os anos se embaralhavam.
+  if (!caps.some(c => mesDoEvento(resumo[c.id]))) return caps;
+  return caps.map((c, i) => ({ c, i, d: mesDoEvento(resumo[c.id]) || 999999 }))
     .sort((x, y) => x.d - y.d || x.i - y.i).map(x => x.c);
+}
+
+/**
+ * O mês (AAAAMM) que situa o evento na linha do tempo: o do meio das fotos
+ * (v3.8.5); resumo antigo, sem ele, o primeiro mês. 0 = sem data.
+ * @param {import('../drive.js').ResumoCap | undefined} r
+ */
+export function mesDoEvento(r) {
+  if (!r) return 0;
+  if (typeof r.pm === 'number' && r.pm > 0) return r.pm;
+  return Array.isArray(r.p) && r.p[0] > 0 ? r.p[0] : 0;
 }
 
 // Foto do lh3 em WebP (`-rw`) e no tamanho certo para cada tela (v3.7.6):
@@ -96,10 +109,11 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
   const grupos = [];
   for (const c of caps) {
     const r = resumo[c.id];
-    const ano = r && Array.isArray(r.p) && r.p[0] > 0 ? String(Math.floor(r.p[0] / 100)) : '';
+    const mes = mesDoEvento(r);
+    // Sem data: o grupo "Sem data", no fim (ordemDaLinha já os pôs lá).
+    const ano = mes ? String(Math.floor(mes / 100)) : 'sem';
     const atual = grupos[grupos.length - 1];
-    // Ano que já teve título (ordem sem data) fica no grupo corrente: um título por ano.
-    if (!atual || (ano && ano !== atual.ano && !grupos.some(g => g.ano === ano))) grupos.push({ ano, itens: [] });
+    if (!atual || ano !== atual.ano) grupos.push({ ano, itens: [] });
     const n = r ? r.n : 0;
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
@@ -107,9 +121,11 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
     const img = capa ? `<img ${fonteLh3(capa, [320, 480, 640], '(max-width:700px) 46vw, 240px')} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '<span class="al-vazio"></span>';
     grupos[grupos.length - 1].itens.push(`<li><a class="ix-card al-card al-mini" href="${escape(`${base}/${c.slug}`)}" data-cap="${escape(c.slug)}"${cr}>${img}<span class="al-nm"><b>${escape(c.nome)}</b><span class="ix-sub">${escape(sub)}</span></span></a></li>`);
   }
-  const anos = grupos.filter(g => g.ano);
-  const atalhos = anos.length > 1 ? `<nav class="al-anos" aria-label="Ir para o ano">${anos.map(g => `<a href="#ano-${g.ano}">${g.ano}</a>`).join('')}</nav>` : '';
-  const corpo = grupos.map(g => `${g.ano ? `<h3 class="al-ano" id="ano-${g.ano}">${g.ano}</h3>` : ''}<ol class="al-grade">${g.itens.join('')}</ol>`).join('');
+  const rotulo = (/** @type {string} */ a) => (a === 'sem' ? 'Sem data' : a);
+  const comTitulo = grupos.length > 1;
+  const anos = grupos.filter(g => g.ano !== 'sem');
+  const atalhos = anos.length > 1 ? `<nav class="al-anos" aria-label="Ir para o ano">${grupos.map(g => `<a href="#ano-${g.ano}">${rotulo(g.ano)}</a>`).join('')}</nav>` : '';
+  const corpo = grupos.map(g => `${comTitulo ? `<h3 class="al-ano" id="ano-${g.ano}">${rotulo(g.ano)}</h3>` : ''}<ol class="al-grade">${g.itens.join('')}</ol>`).join('');
   return `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">Os ${caps.length} eventos</h2>${atalhos}${corpo}</section>`;
 }
 
@@ -211,8 +227,12 @@ export function albumHTML(p) {
   const buscaRes = p.buscaFotos && corteBusca > 0 ? p.buscaFotos.slice(corteBusca) : '';
   // Aviso de fotos novas no celular (v3.8.4): o script mostra o botão quando
   // o navegador sabe receber aviso (no iPhone, só com o site na Tela de Início).
+  // "Não quero aparecer na busca" à vista (v3.8.5, decisão do dono: a busca
+  // inclui todos os rostos do álbum e quem não quer sai por aqui). O script do
+  // rosto o mostra junto com o botão da busca.
+  const sairRosto = p.botaoRosto ? '<p class="al-sair-rosto" id="rs-sair-p" hidden><button type="button" class="al-sair-btn" id="rs-sair-abrir">Não quero aparecer na busca pelo rosto</button></p>' : '';
   const avisoHTML = restrito ? '' : `<div class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button><p class="al-aviso-msg" id="av-msg" role="status"></p></div>`;
-  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${buscaTopo}${dicaEnvio}${avisoHTML}`;
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${sairRosto}${buscaTopo}${dicaEnvio}${avisoHTML}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -576,6 +596,10 @@ a{color:inherit;text-decoration:none}
 .al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
 .al-btns+.bf,.al-btns~.bf{margin-top:1rem;max-width:34rem}
 .al-pol-txt .bf{margin-left:auto;margin-right:auto}
+.al-sair-rosto{margin-top:.55rem}
+.al-pol-txt .al-sair-rosto{text-align:center}
+.al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+@media (hover:hover){.al-sair-btn:hover{color:var(--sol)}}
 .al-aviso{margin-top:.9rem;display:grid;gap:.35rem;justify-items:start}
 .al-pol-txt .al-aviso{justify-items:center}
 .al-aviso-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);background:transparent;color:var(--txt2);font:inherit;font-size:.9rem;cursor:pointer}

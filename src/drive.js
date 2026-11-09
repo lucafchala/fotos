@@ -1516,7 +1516,7 @@ export function achaCapitulo(dados, slug) {
 // pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
 // um espaço reservado.
 /**
- * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], a?: Record<string, number>, z?: number }} ResumoCap
+ * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], pm?: number, a?: Record<string, number>, z?: number }} ResumoCap
  * `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX.
  * `p` (v3.3): o primeiro e o último mês das fotos do capítulo, AAAAMM, pelas datas de captura (a linha do tempo da apresentação).
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
@@ -1625,24 +1625,31 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
   if (cr.length) novo.cr = cr.sort((a, b) => b - a).slice(0, NOVAS_RESUMO_MAX);
   // O período do capítulo (primeiro e último mês das datas de captura) e a
   // contagem por autor, para a apresentação do álbum (v3.3).
-  let mesMin = 0;
-  let mesMax = 0;
+  // v3.8.5: câmera com o relógio errado (uma foto em 2019 num evento de
+  // 2025) puxava o evento para o ano errado. Agora o período ignora as 5% de
+  // cada ponta e data impossível (antes de 2000 ou no futuro), e `pm` é o mês
+  // do MEIO das fotos: o que separa os eventos por ano.
+  /** @type {number[]} */
+  const meses = [];
+  const limite = Number(new Date().toISOString().slice(0, 7).replace('-', '')) + 1;
   /** @type {Record<string, number>} */
   const porAutor = {};
   const autores = Array.isArray(listagem.aut) ? listagem.aut : [];
   for (const sec of listagem.secoes) {
     for (const f of sec.fotos) {
       const hora = Number(f[6]) || 0;
-      if (hora > 19000101000000) {
-        const m = Math.floor(hora / 1e8);
-        if (!mesMin || m < mesMin) mesMin = m;
-        if (m > mesMax) mesMax = m;
-      }
+      const m = Math.floor(hora / 1e8);
+      if (m >= 200001 && m <= limite) meses.push(m);
       const nome = autores[Number(f[5]) || 0];
       if (typeof nome === 'string' && nome) porAutor[nome] = (porAutor[nome] || 0) + 1;
     }
   }
-  if (mesMin) novo.p = [mesMin, mesMax];
+  if (meses.length) {
+    meses.sort((a, b) => a - b);
+    const corte = Math.floor(meses.length * 0.05);
+    novo.p = [meses[corte], meses[meses.length - 1 - corte]];
+    novo.pm = meses[Math.floor(meses.length / 2)];
+  }
   if (Object.keys(porAutor).length) novo.a = porAutor;
   const mapa = { ...(await lerResumo(raizId, env)) };
   const velho = mapa[capId];

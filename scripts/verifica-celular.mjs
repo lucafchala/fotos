@@ -164,6 +164,8 @@ for (const tela of TELAS) {
     await page.goto('https://fotos.test/');
     await page.waitForTimeout(500);
     const rotulo = `${tela.nome} · ${p.nome}`;
+    // "Não quero aparecer na busca" à vista na abertura (v3.8.5).
+    if (p.janelas) registra(await page.locator('#rs-sair-p:not([hidden]) #rs-sair-abrir').isVisible().catch(() => false), `${rotulo}: "Não quero aparecer na busca pelo rosto" à vista`, '');
     // O botão do aviso de fotos novas (v3.8.4) aparece no álbum.
     if (p.janelas) registra(await page.locator('#av:not([hidden]) #av-btn').isVisible().catch(() => false), `${rotulo}: botão "Avisar quando chegar foto nova" à vista`, '');
     const m = await page.evaluate(mede);
@@ -286,6 +288,11 @@ for (const tela of TELAS) {
   await page.waitForTimeout(1200);
   const aviso = (await page.locator('#rs-erro').textContent()) || '';
   registra(/Não achei um rosto/.test(aviso), 'Rosto: a mensagem de erro fica na tela', aviso);
+  // O "Não quero aparecer" da abertura abre a janela já no modo de sair.
+  await page.keyboard.press('Escape');
+  await page.locator('#rs-sair-abrir').click();
+  registra((await page.locator('#rs-t').textContent()) === 'Sair da busca pelo rosto' && await page.locator('#rs-txt-sair').isVisible(), 'Rosto: "Não quero aparecer" abre a janela no modo de sair', await page.locator('#rs-t').textContent());
+  await page.keyboard.press('Escape');
   registra(!erros.length, 'Buscas: sem erro de JS', erros);
   await page.screenshot({ path: `${SAIDA}/390-busca-rosto-de-volta.png` });
   await ctx.close();
