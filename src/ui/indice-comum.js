@@ -212,6 +212,7 @@ export const SCRIPT_ROSTO = `(function () {
         var a = document.createElement('a');
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
+        a.setAttribute('data-cap', r.cap || '');
         if (r.nova) a.className = 'rs-nova';
         var img = document.createElement('img');
         img.src = '/f/' + encodeURIComponent(r.id) + '/360';
@@ -510,6 +511,155 @@ export const SCRIPT_ROSTO = `(function () {
 
 
 // ---------------------------------------------------------------------------
+// Visualizador das "minhas fotos" e da busca (v3.8.6): tocar numa foto do
+// resultado abre em tela cheia e dá para passar por TODAS as do resultado,
+// de todos os eventos (deslizar, setas do teclado, botões). "Ver no evento" e
+// "Baixar" em cada uma. Sem biblioteca: as fotos vêm de /f/<id>/<largura>.
+// ---------------------------------------------------------------------------
+export const VISOR_CSS = `
+.vz{position:fixed;inset:0;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:0;border:0;background:#000;color:#fff;overflow:hidden;touch-action:none}
+.vz::backdrop{background:#000}
+.vz-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;transition:opacity .15s ease}
+.vz-img.carregando{opacity:.35}
+.vz-topo,.vz-base{position:absolute;left:0;right:0;display:flex;align-items:center;gap:.5rem;padding:max(.6rem,env(safe-area-inset-top)) max(.75rem,env(safe-area-inset-right)) .6rem max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,.65),rgba(0,0,0,0));z-index:2}
+.vz-topo{top:0}
+.vz-base{bottom:0;padding:.6rem max(.75rem,env(safe-area-inset-right)) max(.8rem,env(safe-area-inset-bottom)) max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.7));justify-content:space-between;flex-wrap:wrap}
+.vz-n{font-size:.85rem;opacity:.85;margin-right:auto;font-variant-numeric:tabular-nums}
+.vz-ev{font-size:.95rem;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw}
+.vz-b{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 .9rem;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.35);color:#fff;font:inherit;font-size:.9rem;text-decoration:none;cursor:pointer}
+.vz-b:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.vz-baixar{background:#f9de4b;border-color:#f9de4b;color:#141a33;font-weight:700}
+.vz-seta{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:48px;height:48px;padding:0;font-size:1.6rem;line-height:1}
+.vz-ant{left:max(.5rem,env(safe-area-inset-left))}
+.vz-prox{right:max(.5rem,env(safe-area-inset-right))}
+.vz-seta[hidden]{display:none}
+@media (hover:none){.vz-seta{display:none}}
+`;
+
+// Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
+export const SCRIPT_VISOR = `(function () {
+  var dlg = null, img, nEl, evEl, verA, baixarA, antB, proxB, cheiaB, lista = [], i = 0, x0 = 0, y0 = 0, toque = false, empurrou = false;
+  var LARGURAS = [480, 800, 1200, 1600, 2400];
+  function monta() {
+    // Montado por createElement (sem innerHTML, como os outros scripts da página).
+    function el(tag, cls, attrs, texto) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+      if (texto) n.textContent = texto;
+      return n;
+    }
+    dlg = el('dialog', 'vz', { 'aria-label': 'Foto em tela cheia' });
+    img = el('img', 'vz-img', { alt: '', decoding: 'async', referrerpolicy: 'no-referrer' });
+    var topo = el('div', 'vz-topo');
+    nEl = el('span', 'vz-n', { 'aria-live': 'polite' });
+    cheiaB = el('button', 'vz-b', { type: 'button', 'data-vz': 'cheia' }, 'Tela cheia');
+    cheiaB.hidden = true;
+    var fecharB = el('button', 'vz-b', { type: 'button', 'data-vz': 'fechar', 'aria-label': 'Fechar' }, '✕');
+    topo.appendChild(nEl); topo.appendChild(cheiaB); topo.appendChild(fecharB);
+    antB = el('button', 'vz-b vz-seta vz-ant', { type: 'button', 'data-vz': 'ant', 'aria-label': 'Foto anterior' }, '‹');
+    proxB = el('button', 'vz-b vz-seta vz-prox', { type: 'button', 'data-vz': 'prox', 'aria-label': 'Próxima foto' }, '›');
+    var base = el('div', 'vz-base');
+    evEl = el('span', 'vz-ev');
+    verA = el('a', 'vz-b', { 'data-vz': 'ver' }, 'Ver no evento');
+    baixarA = el('a', 'vz-b vz-baixar', { 'data-vz': 'baixar', download: '' }, 'Baixar');
+    base.appendChild(evEl); base.appendChild(verA); base.appendChild(baixarA);
+    [img, topo, antB, proxB, base].forEach(function (n) { dlg.appendChild(n); });
+    document.body.appendChild(dlg);
+    if (document.fullscreenEnabled && dlg.requestFullscreen) cheiaB.hidden = false;
+    img.addEventListener('load', function () { img.classList.remove('carregando'); });
+    dlg.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest ? e.target.closest('[data-vz]') : null;
+      if (!a) return;
+      var o = a.getAttribute('data-vz');
+      if (o === 'fechar') fecha();
+      else if (o === 'ant') vai(i - 1);
+      else if (o === 'prox') vai(i + 1);
+      else if (o === 'cheia') { if (document.fullscreenElement) document.exitFullscreen(); else dlg.requestFullscreen().catch(function () {}); }
+    });
+    dlg.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); vai(i - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); vai(i + 1); }
+    });
+    dlg.addEventListener('cancel', function (e) { e.preventDefault(); fecha(); });
+    // Deslizar: para os lados troca a foto; para baixo fecha.
+    dlg.addEventListener('pointerdown', function (e) { if (e.target === img) { toque = true; x0 = e.clientX; y0 = e.clientY; } });
+    dlg.addEventListener('pointerup', function (e) {
+      if (!toque) return;
+      toque = false;
+      var dx = e.clientX - x0, dy = e.clientY - y0;
+      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) vai(dx < 0 ? i + 1 : i - 1);
+      else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) fecha();
+    });
+    dlg.addEventListener('pointercancel', function () { toque = false; });
+    window.addEventListener('popstate', function () { if (dlg.open && empurrou) { empurrou = false; fechaJa(); } });
+  }
+  function src(id, w) { return '/f/' + encodeURIComponent(id) + '/' + w; }
+  function vai(k) {
+    if (k < 0 || k >= lista.length) return;
+    i = k;
+    var f = lista[i];
+    img.classList.add('carregando');
+    img.srcset = LARGURAS.map(function (w) { return src(f.id, w) + ' ' + w + 'w'; }).join(', ');
+    img.sizes = '100vw';
+    img.src = src(f.id, 1600);
+    nEl.textContent = (i + 1) + ' de ' + lista.length;
+    evEl.textContent = f.ev || '';
+    verA.href = f.href;
+    baixarA.href = f.baixar;
+    antB.hidden = i === 0;
+    proxB.hidden = i === lista.length - 1;
+    // Já pede a vizinha: passar para a próxima não espera.
+    [i + 1, i - 1].forEach(function (j) { if (lista[j]) { var p = new Image(); p.src = src(lista[j].id, 1200); } });
+    if (f.aoAbrir) f.aoAbrir();
+  }
+  function fechaJa() { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); dlg.close(); img.removeAttribute('src'); img.removeAttribute('srcset'); }
+  function fecha() { if (empurrou) { empurrou = false; history.back(); } fechaJa(); }
+  window.fotosVisor = function (itens, k) {
+    if (!dlg) monta();
+    lista = itens;
+    if (!dlg.open) {
+      dlg.showModal();
+      // Voltar (botão do celular) fecha a foto, não sai da página.
+      try { history.pushState({ vz: 1 }, '', location.href); empurrou = true; } catch (e) { empurrou = false; }
+    }
+    vai(k);
+    var b = dlg.querySelector('[data-vz="fechar"]');
+    if (b) b.focus({ preventScroll: true });
+  };
+  // Liga as grades de resultado (minhas fotos e busca): toque abre o visor;
+  // com Ctrl/Cmd/meio, segue o link (nova aba).
+  function liga(id, slug, chaveUlt) {
+    var grade = document.getElementById(id);
+    if (!grade) return;
+    grade.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[data-id]') : null;
+      if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+      e.preventDefault();
+      var as = grade.querySelectorAll('a[data-id]');
+      var itens = [], k = 0;
+      for (var j = 0; j < as.length; j++) {
+        var el = as[j];
+        if (el === a) k = j;
+        var sec = el.closest('.rs-ev');
+        var h = sec ? sec.querySelector('h3') : null;
+        var cap = el.getAttribute('data-cap') || '';
+        var fid = el.getAttribute('data-id');
+        itens.push({
+          id: fid, href: el.getAttribute('href'), ev: h && h.firstChild ? h.firstChild.textContent : '',
+          baixar: '/galeria/' + encodeURIComponent(slug) + (cap ? '/' + encodeURIComponent(cap) : '') + '/baixar/' + encodeURIComponent(fid),
+          aoAbrir: (function (x) { return function () { try { sessionStorage.setItem(chaveUlt, x); } catch (er) { /* sem armazenamento */ } }; })(fid)
+        });
+      }
+      window.fotosVisor(itens, k);
+    }, true);
+  }
+  var rs = document.getElementById('rs-dados'), bf = document.getElementById('bf-dados');
+  try { if (rs) { var dr = JSON.parse(rs.textContent || '{}'); liga('rs-grade', dr.slug, 'rs-ult:' + dr.slug); } } catch (e) { /* sem visor */ }
+  try { if (bf) { var db = JSON.parse(bf.textContent || '{}'); liga('bf-grade', db.slug, 'bf-ult:' + db.slug); } } catch (e) { /* sem visor */ }
+})();`;
+
+// ---------------------------------------------------------------------------
 // Aviso de fotos novas no celular (v3.8.4) — ver src/aviso.js
 // ---------------------------------------------------------------------------
 // Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
@@ -633,6 +783,7 @@ export const SCRIPT_BUSCA = `(function () {
         var a = document.createElement('a');
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
+        a.setAttribute('data-cap', r.cap || '');
         var img = document.createElement('img');
         img.src = '/f/' + encodeURIComponent(r.id) + '/360';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
