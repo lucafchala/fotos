@@ -81,6 +81,15 @@ database_name = "fotos-consent"
 database_id = "d6bed362-4ddf-459d-a088-48b42aa11fdc"
 migrations_dir = "migrations"
 
+# Cópia das fotos no Cloudflare R2 (v3.8.3, src/foto-rota.js): a miniatura e
+# o original vão para lá na primeira vez que alguém os pede; daí em diante
+# saem de lá, sem chamar o Google. Só em produção: a prévia não tem R2 (lê do
+# Google, como antes). O bucket é criado no painel da Cloudflare ANTES deste
+# binding ir ao ar, senão o deploy falha.
+[[r2_buckets]]
+binding = "FOTOS_R2"
+bucket_name = "fotos-album"
+
 # ---------------------------------------------------------------------------
 # Contadores e rate limit (Durable Objects)
 # ---------------------------------------------------------------------------
