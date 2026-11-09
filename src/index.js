@@ -337,6 +337,7 @@ const worker = {
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/capa' && method === 'POST') return await handleCapaDoEvento(request, env);
+      if (path === '/api/editora/entrar' && method === 'POST') return await handleEditoraEntrar(request, env);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
@@ -1444,7 +1445,7 @@ async function handleCreateEvent(request, env) {
     createdAt: new Date().toISOString(),
   };
 
-  const erroSenha = await aplicaSenhaPrevia(body, event);
+  const erroSenha = await aplicaSenhaPrevia(body, event) || await aplicaSenhaEditora(body, event);
   if (erroSenha) return jsonErr(erroSenha, 400);
   events.push(event);
   await saveEvents(env, events);
@@ -1493,7 +1494,7 @@ async function handleUpdateEvent(request, env, path) {
     thumbnailUrl: capa,
     updatedAt: new Date().toISOString(),
   };
-  const erroSenha = await aplicaSenhaPrevia(body, updated);
+  const erroSenha = await aplicaSenhaPrevia(body, updated) || await aplicaSenhaEditora(body, updated);
   if (erroSenha) return jsonErr(erroSenha, 400);
 
   // Allow slug update only if no other event uses it
@@ -3653,6 +3654,94 @@ export async function handlePrevia(request, env) {
 // ---------------------------------------------------------------------------
 // Busca nas fotos (v3.7) — ver src/busca.js e docs/ROSTO.md
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Editora do álbum (v3.8.1): uma senha à parte, para a Mag. Vale SÓ para o
+// álbum dela: ver antes do lançamento como dona, ocultar foto, escolher a
+// capa de um evento e "Atualizar agora". Nada do painel. Mesma mecânica da
+// prévia (hash com sal; cookie assinado, sem sessão guardada; trocar a senha
+// derruba quem estava dentro), com finalidade e cookie próprios.
+// ---------------------------------------------------------------------------
+const EDITORA_COOKIE_DIAS = 30;
+
+/**
+ * Aplica a senha nova da editora (ou a tira) ao evento. '' = ok.
+ * @param {any} body
+ * @param {Evento} evento
+ */
+export async function aplicaSenhaEditora(body, evento) {
+  if (body.editoraRemover === true) { evento.editoraSenha = ''; return ''; }
+  if (typeof body.editoraSenhaNova !== 'string' || !body.editoraSenhaNova) return '';
+  const senha = body.editoraSenhaNova.normalize('NFC').trim();
+  if (senha.length < 8 || senha.length > 100) return 'A senha da editora precisa ter de 8 a 100 caracteres.';
+  if (evento.previaSenha && await senhaPreviaConfere(String(evento.previaSenha), senha)) return 'A senha da editora tem de ser diferente da senha da prévia.';
+  evento.editoraSenha = await hashSenhaPrevia(senha);
+  return '';
+}
+
+/** @param {Evento} e */
+const marcaDaEditora = e => String(e.editoraSenha || '').split('$')[1]?.slice(0, 16) || '';
+
+/**
+ * Esta visita é a editora (cookie da senha da editora) deste álbum?
+ * @param {Request} request
+ * @param {Env} env
+ * @param {Evento | undefined} evento
+ */
+export async function temEditora(request, env, evento) {
+  if (!evento) return false;
+  const marca = marcaDaEditora(evento);
+  const secret = signingSecret(env);
+  if (!marca || !secret) return false;
+  const nome = `editora_${String(evento.slug).replace(/[^a-z0-9-]/g, '')}`;
+  const m = (request.headers.get('Cookie') || '').match(new RegExp(`(?:^|;\\s*)${nome}=([^;]+)`));
+  if (!m) return false;
+  return (await verifyToken(secret, m[1], { purpose: 'editora', scope: `${evento.slug}:${marca}` })).ok;
+}
+
+/**
+ * Dono (sessão do painel) ou editora deste álbum? Para as ações que a editora
+ * também pode fazer (ocultar foto, capa do evento).
+ * @param {Request} request
+ * @param {Env} env
+ * @param {unknown} slug
+ * @returns {Promise<Response | null>} null = pode
+ */
+async function autorizaNoAlbum(request, env, slug) {
+  const erro = await checkAuth(request, env);
+  if (!erro) return null;
+  if (erro.status !== 401 || typeof slug !== 'string') return erro;
+  const evento = (await getEvents(env)).find(e => e.slug === slug);
+  return (await temEditora(request, env, evento)) ? null : erro;
+}
+
+/**
+ * POST /api/editora/entrar (formulário da página /entrar do domínio do
+ * álbum): senha certa = cookie de EDITORA_COOKIE_DIAS dias e volta ao álbum.
+ * Mesmos limites da prévia. Sem JS: responde com redirecionamento.
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleEditoraEntrar(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  /** @type {Record<string, string>} */
+  let corpo;
+  try { corpo = Object.fromEntries(new URLSearchParams(await request.text())); } catch { corpo = {}; }
+  const slug = corpo.slug || '';
+  const volta = (/** @type {string} */ q) => new Response(null, { status: 303, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `/entrar?${q}`, 'Cache-Control': 'no-store' } });
+  if (!validateSlug(slug)) return volta('erro=1');
+  if (!await checkRateLimit(env, ip, 'editora', PREVIA_TENTATIVAS_POR_IP_HORA, 3600)) return volta('erro=muitas');
+  if (!await checkRateLimit(env, `global:${slug}`, 'editora-dia', PREVIA_TENTATIVAS_POR_DIA, 86400)) return volta('erro=muitas');
+  const evento = (await getEvents(env)).find(e => e.slug === slug);
+  const secret = signingSecret(env);
+  const senha = typeof corpo.senha === 'string' ? corpo.senha.normalize('NFC').trim().slice(0, 100) : '';
+  if (!evento || !secret || !evento.editoraSenha || !senha || !(await senhaPreviaConfere(String(evento.editoraSenha), senha))) return volta('erro=1');
+  const ttl = EDITORA_COOKIE_DIAS * 86400;
+  const token = await signToken(secret, { purpose: 'editora', scope: `${evento.slug}:${marcaDaEditora(evento)}`, ttlSecs: ttl });
+  const res = new Response(null, { status: 303, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: '/', 'Cache-Control': 'no-store' } });
+  res.headers.append('Set-Cookie', `editora_${evento.slug}=${token}; Path=/; Max-Age=${ttl}; HttpOnly; Secure; SameSite=Lax`);
+  return res;
+}
+
 /**
  * A busca por texto e "coisas" vale para este projeto? Mesmo portão da busca
  * pelo rosto: álbum público, opção marcada, banco presente, e antes do
@@ -3676,7 +3765,7 @@ export async function handleBusca(request, env, url) {
   const slug = url.searchParams.get('slug') || '';
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
   const evento = (await getEvents(env)).find(e => e.slug === slug);
-  const dono = evento && !albumLancado(evento) ? (!!(await verifySession(env, request)) || await temPrevia(request, env, evento)) : false;
+  const dono = evento && !albumLancado(evento) ? (!!(await verifySession(env, request)) || await temPrevia(request, env, evento) || await temEditora(request, env, evento)) : false;
   if (!buscaTextoAtiva(env, evento, dono)) return jsonErr('Não encontrado.', 404);
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const ficha = await takeToken(env, ip, 'busca-fotos', BUSCA_IP_BUCKET);
@@ -4162,7 +4251,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
     } catch { existe = true; }
     // Quem entrou pela senha da prévia vê o álbum na raiz, como vai ser depois
     // do lançamento.
-    if (!existe && request && ev && await temPrevia(request, env, ev)) return { servir: `/galeria/${album.slug}` };
+    if (!existe && request && ev && (await temPrevia(request, env, ev) || await temEditora(request, env, ev))) return { servir: `/galeria/${album.slug}` };
     if (!existe) {
       const nonceEb = contagem || previa ? generateNonce() : '';
       const res = new Response(emBreveHTML({ ...album, contagem, nonce: nonceEb, previa }), { status: 200, headers: htmlSecurityHeaders(nonceEb) });
@@ -4182,10 +4271,45 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   }
   // O robots.txt do domínio anuncia o sitemap do álbum, com os endereços de lá.
   if (path === '/robots.txt') return handleRobots(dominio, [`https://${dominio}/sitemap-galeria-${album.slug}.xml`]);
+  // A editora do álbum (v3.8.1): entrar e sair, no próprio domínio.
+  if (path === '/entrar') {
+    const erro = url.searchParams.get('erro');
+    const res = new Response(paginaDaEditora(album, erro), { status: 200, headers: htmlSecurityHeaders('') });
+    res.headers.set('Cache-Control', 'no-store');
+    res.headers.set('X-Robots-Tag', 'noindex');
+    return res;
+  }
+  if (path === '/sair') {
+    const res = new Response(null, { status: 303, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: '/', 'Cache-Control': 'no-store' } });
+    res.headers.append('Set-Cookie', `editora_${album.slug}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    return res;
+  }
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
   return null;
+}
+
+/**
+ * A página /entrar do domínio do álbum: um campo de senha, sem script (o
+ * formulário vai direto para POST /api/editora/entrar).
+ * @param {{ slug: string, titulo: string }} album
+ * @param {string | null} erro
+ */
+function paginaDaEditora(album, erro) {
+  const msg = erro === 'muitas' ? 'Muitas tentativas. Espere um pouco e tente de novo.' : erro ? 'Senha errada.' : '';
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0f0e0c"><title>Entrar · ${escape(album.titulo)}</title>
+<link rel="icon" type="image/svg+xml" href="/icon-entrenos.svg">
+<style>*{box-sizing:border-box;margin:0}body{min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f0e0c;color:#f3ede3;font:16px/1.5 system-ui,sans-serif}
+form{width:min(22rem,100%);display:flex;flex-direction:column;gap:.8rem}h1{font-size:1.4rem}p{color:#cfc6b8;font-size:.92rem}
+input{min-height:48px;padding:0 1rem;border-radius:12px;border:1px solid #2b2823;background:#1a1815;color:#f3ede3;font:inherit;font-size:16px}
+button{min-height:48px;border:0;border-radius:999px;background:#f9de4b;color:#141a33;font:inherit;font-weight:700;cursor:pointer}
+.erro{color:#f0b46a}a{color:#cfc6b8;font-size:.85rem}</style></head><body>
+<form method="post" action="/api/editora/entrar"><h1>${escape(album.titulo)}</h1><p>Entrada da editora do álbum.</p>
+<input type="hidden" name="slug" value="${escape(album.slug)}">
+<label><span class="sr" style="position:absolute;left:-9999px">Senha</span><input type="password" name="senha" autocomplete="current-password" required minlength="8" maxlength="100" placeholder="Senha" aria-label="Senha"></label>
+${msg ? `<p class="erro" role="alert">${msg}</p>` : ''}<button type="submit">Entrar</button><a href="/">Voltar ao álbum</a></form></body></html>`;
 }
 
 /**
@@ -4347,8 +4471,8 @@ async function podeVerGaleria(request, env, slug) {
   if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return false;
-  // "Em breve": só com a prévia de senha (o easter egg, v3.7).
-  if (event.comingSoon) return temPrevia(request, env, event);
+  // "Em breve": só com a prévia de senha (o easter egg, v3.7) ou a editora.
+  if (event.comingSoon) return (await temPrevia(request, env, event)) || temEditora(request, env, event);
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
   if (!isRestrictedAccess(event)) return true;
   // Família/privado: só com o passe que o portão do Drive emite depois da
@@ -4405,7 +4529,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   let listagem = null;
   /** @type {{ codigo: string, mensagem: string } | null} */
   let erro = null;
-  const dono = await verifySession(env, request);
+  // A editora do álbum (v3.8.1) vê e age como dona nas páginas do álbum dela.
+  const dono = await verifySession(env, request) || await temEditora(request, env, event);
   // Só o dono força a releitura do Drive: visitante não gasta cota do Google.
   const atualizar = !!dono && url.searchParams.has('atualizar');
   // Onde ler: a pasta do projeto ou a subpasta do capítulo — decidido AQUI, no
@@ -4819,10 +4944,10 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
  * @param {Env} env
  */
 async function handleCapaDoEvento(request, env) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
+  const authErr = await autorizaNoAlbum(request, env, body.slug);
+  if (authErr) return authErr;
   const cap = typeof body.cap === 'string' && CAP_SLUG_RE.test(body.cap) ? body.cap : '';
   if (!cap) return jsonErr('Evento inválido.', 400);
   const foto = typeof body.foto === 'string' ? body.foto : '';
@@ -4863,10 +4988,10 @@ export function normalizaCapasEventos(v) {
  * @param {ExecutionContext} [ctx]
  */
 async function handleOcultarFoto(request, env, ctx) {
-  const authErr = await checkAuth(request, env);
-  if (authErr) return authErr;
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
+  const authErr = await autorizaNoAlbum(request, env, body.slug);
+  if (authErr) return authErr;
   const { slug, foto } = body;
   if (typeof foto !== 'string' || !idDriveValido(foto)) return jsonErr('Foto inválida.', 400);
   // Capítulo da foto (só para o aviso ao autor achá-la): o texto vira slug
@@ -5449,6 +5574,7 @@ export function sanitizeRestoredEvent(ev) {
   }
   if (out.lancarContagem !== undefined) out.lancarContagem = out.lancarContagem === true;
   if (out.previaSenha !== undefined && !(typeof out.previaSenha === 'string' && SENHA_PREVIA_RE.test(out.previaSenha))) out.previaSenha = '';
+  if (out.editoraSenha !== undefined && !(typeof out.editoraSenha === 'string' && SENHA_PREVIA_RE.test(out.editoraSenha))) out.editoraSenha = '';
   if (out.pixChave !== undefined) out.pixChave = chavePixValida(out.pixChave);
   if (out.galeriaEstilo !== undefined && !GALERIA_ESTILOS.includes(out.galeriaEstilo)) out.galeriaEstilo = GALERIA_ESTILOS[0];
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;

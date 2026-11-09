@@ -201,12 +201,12 @@ describe('estrutura do painel', () => {
     expect(html).toContain('<span class="tab-badge" id="requests-badge" hidden></span>');
   });
 
-  it('formulário em seis blocos recolhíveis, o essencial aberto', () => {
+  it('formulário em sete blocos recolhíveis, o essencial aberto (v3.8.1: o do álbum)', () => {
     const blocos = [...html.matchAll(/<details class="bloco-form" id="([a-z-]+)"( open)?>/g)].map(m => m[1] + (m[2] ? '*' : ''));
-    expect(blocos).toEqual(['bf-basico*', 'bf-fotos*', 'bf-video', 'bf-acesso', 'bf-producao', 'bf-pagina']);
+    expect(blocos).toEqual(['bf-basico*', 'bf-fotos*', 'bf-video', 'bf-acesso', 'bf-album', 'bf-producao', 'bf-pagina']);
     // Cada atalho aponta para um bloco que existe.
     const alvos = [...html.matchAll(/data-onclick="irParaBloco" data-alvo="([a-z-]+)"/g)].map(m => m[1]);
-    expect(alvos).toEqual(['bf-basico', 'bf-fotos', 'bf-video', 'bf-acesso', 'bf-producao', 'bf-pagina']);
+    expect(alvos).toEqual(['bf-basico', 'bf-fotos', 'bf-video', 'bf-acesso', 'bf-album', 'bf-producao', 'bf-pagina']);
   });
 
   it('todo rótulo do formulário aponta para um campo que existe', () => {

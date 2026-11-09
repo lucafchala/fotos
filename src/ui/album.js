@@ -277,7 +277,7 @@ export function albumHTML(p) {
   <footer class="al-fim">
     ${recado ? `<p class="al-recado">${recado.split('\n').map(l => escape(l.trim())).join('<br>')}</p>` : ''}
     <span class="al-kick">${escape(titulo)}</span>
-    <div class="al-legal">${footerLegalLinksHTML()}</div>
+    <div class="al-legal">${footerLegalLinksHTML(marca ? 'https://fotos.lucafchala.com' : '')}</div>
   </footer>
   ${p.scripts}
   ${apoio ? `<script nonce="${p.nonce || ''}">${SCRIPT_PIX}</script>` : ''}

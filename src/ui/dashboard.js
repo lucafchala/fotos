@@ -567,6 +567,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
     /* blocos do formulário (#220): cada um recolhível, o essencial primeiro */
     .bf-atalhos{display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;margin:calc(-.25rem - 4px) -4px calc(1rem - 4px);padding:4px 4px calc(4px + .1rem)}
     .bf-atalhos::-webkit-scrollbar{display:none}
+    @media (min-width:700px){.bf-atalhos{flex-wrap:wrap;overflow:visible}}
     .bloco-form{border:1px solid var(--border);border-radius:14px;background:var(--bg2);margin-bottom:.75rem;scroll-margin-top:.5rem}
     .bloco-form>summary{display:flex;align-items:center;gap:.6rem;min-height:52px;padding:0 1rem;cursor:pointer;list-style:none;border-radius:14px}
     .bloco-form>summary::-webkit-details-marker{display:none}
@@ -1123,6 +1124,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-fotos">Fotos e Drive</button>
           <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-video">Vídeo</button>
           <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-acesso">Acesso e LGPD</button>
+          <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-album">Álbum</button>
           <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-producao">Prazo e status</button>
           <button type="button" class="chip" data-onclick="irParaBloco" data-alvo="bf-pagina">Página</button>
         </nav>
@@ -1205,53 +1207,6 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
               </label>
             </div>
             <div class="field-hint" id="dica-galeria-capitulos" style="margin-top:.5rem">Desligado, a galeria é uma página só, com uma seção por subpasta. Ligado, <code>/galeria/&lt;projeto&gt;</code> vira um índice com um cartão por <strong>subpasta de primeiro nível</strong> (nome sem o número de ordem, anos do mais novo ao mais antigo) e cada uma abre numa página própria. Boa para pasta com muitos eventos, que no modo comum passa do limite e fica com a lista parcial. Os links antigos de download deixam de valer (os da página nova valem).</div>
-          </div>
-          <div class="field">
-            <label for="f-abertura">Texto de abertura do álbum <span class="dica-rotulo">(opcional, galeria por capítulos)</span></label>
-            <div class="field-hint" id="dica-abertura" style="margin-bottom:.625rem">Preenchido, o índice da galeria ganha uma <strong>abertura</strong>: mosaico com as capas dos eventos, o título grande, este texto, os números do álbum e os botões <em>Ver os eventos</em> e <em>Mandar suas fotos</em> (este só em álbum público). Parágrafos separados por uma linha em branco, sem formatação. Até 2000 caracteres. Vazio = o índice simples.</div>
-            <textarea id="f-abertura" rows="5" maxlength="2000" aria-describedby="dica-abertura" style="width:100%"></textarea>
-          </div>
-          <div class="field">
-            <label for="f-estilo">Estilo da abertura</label>
-            <div class="field-hint" id="dica-estilo" style="margin-bottom:.625rem">Vale quando há texto de abertura. <strong>Mosaico</strong> (padrão): colagem de 5 fotos. <strong>Foto em tela cheia</strong>: as fotos trocam sozinhas atrás do título. <strong>Álbum de recordação</strong>: polaroids com título manuscrito. <strong>Linha do tempo</strong>: título e texto primeiro, e os eventos contam o ano. As fotos da abertura são as <em>Fotos de capa</em> do projeto (sem elas, a capa de cada evento).</div>
-            <select id="f-estilo" aria-describedby="dica-estilo">
-              <option value="mosaico">Mosaico</option>
-              <option value="tela-cheia">Foto em tela cheia</option>
-              <option value="recordacao">Álbum de recordação</option>
-              <option value="linha">Linha do tempo</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="f-recado">Recado final <span class="dica-rotulo">(opcional)</span></label>
-            <div class="field-hint" id="dica-recado" style="margin-bottom:.625rem">Aparece no fim da página do álbum, em destaque (ex.: "Feito com carinho por Luca e Mag, para a Turma 2026."). Até 600 caracteres; uma quebra de linha vira quebra de linha.</div>
-            <textarea id="f-recado" rows="3" maxlength="600" aria-describedby="dica-recado" style="width:100%"></textarea>
-          </div>
-          <div class="field">
-            <label for="f-pix-chave">Pix para apoio <span class="dica-rotulo">(opcional, apresentação do álbum)</span></label>
-            <div class="field-hint" id="dica-pix" style="margin-bottom:.625rem">Preenchidos os três, a página do álbum ganha a seção <em>Apoie o projeto</em>, com QR code e "Pix copia e cola", sem valor fixo e sem taxa. O dinheiro vai direto do banco de quem doa para a sua chave, e o site não fica sabendo quem doou. <strong>A chave aparece na página:</strong> use uma <strong>chave aleatória</strong> (recomendado), e-mail, telefone (+55…) ou CNPJ. CPF não é aceito. Nome e cidade são os do recebedor, como o banco mostra.</div>
-            <input type="text" id="f-pix-chave" maxlength="77" autocomplete="off" placeholder="chave aleatória, e-mail, +55… ou CNPJ" aria-describedby="dica-pix">
-            <input type="text" id="f-pix-nome" maxlength="40" placeholder="Nome do recebedor" aria-label="Nome do recebedor do Pix" style="margin-top:.5rem">
-            <input type="text" id="f-pix-cidade" maxlength="30" placeholder="Cidade do recebedor" aria-label="Cidade do recebedor do Pix" style="margin-top:.5rem">
-          </div>
-          <div class="field">
-            <div class="toggle-row">
-              <label class="toggle-label" for="f-busca-rosto">Busca pelo rosto (galeria por capítulos)</label>
-              <label class="toggle">
-                <input type="checkbox" id="f-busca-rosto" aria-describedby="dica-busca-rosto">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
-          </div>
-          <div class="field">
-            <div class="toggle-row">
-              <label class="toggle-label" for="f-busca-texto">Busca nas fotos (texto e coisas)</label>
-              <label class="toggle">
-                <input type="checkbox" id="f-busca-texto" aria-describedby="dica-busca-texto">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="field-hint" id="dica-busca-texto" style="margin-top:.5rem">O álbum ganha o campo <em>Procurar nas fotos</em>: número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola). O indexador da Amazon lê cada foto uma vez (texto, coisas e moderação); a busca em si não custa nada por visita. Só em <strong>álbum público</strong>, e antes do lançamento só você vê. A <strong>moderação</strong> roda sempre que o indexador passa: foto da turma marcada fica escondida até você decidir, e você recebe um e-mail. Detalhes em <code>docs/ROSTO.md</code>.</div>
           </div>
           <div class="field">
             <div class="toggle-row">
@@ -1345,6 +1300,57 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
             </div>
             <div class="field-hint" style="margin-top:.5rem">Quando ativo: o card na galeria e a página do projeto ficam visíveis, mas as fotos de capa são escondidas e o botão do Drive vira "As fotos virão em breve".</div>
           </div>
+        </details>
+        <details class="bloco-form" id="bf-album">
+          <summary><span class="bf-titulo">Álbum Entre Nós</span><span class="bf-resumo" data-resumo="bf-album"></span></summary>
+          <p class="field-hint" style="margin:0 0 .9rem">Só para o álbum por capítulos (o Entre Nós): a apresentação, as buscas, o lançamento e quem entra antes. Passo a passo no manual de uso (<code>docs/MANUAL.md</code> no repositório).</p>
+          <div class="field">
+            <label for="f-abertura">Texto de abertura do álbum <span class="dica-rotulo">(opcional, galeria por capítulos)</span></label>
+            <div class="field-hint" id="dica-abertura" style="margin-bottom:.625rem">Preenchido, o índice da galeria ganha uma <strong>abertura</strong>: mosaico com as capas dos eventos, o título grande, este texto, os números do álbum e os botões <em>Ver os eventos</em> e <em>Mandar suas fotos</em> (este só em álbum público). Parágrafos separados por uma linha em branco, sem formatação. Até 2000 caracteres. Vazio = o índice simples.</div>
+            <textarea id="f-abertura" rows="5" maxlength="2000" aria-describedby="dica-abertura" style="width:100%"></textarea>
+          </div>
+          <div class="field">
+            <label for="f-estilo">Estilo da abertura</label>
+            <div class="field-hint" id="dica-estilo" style="margin-bottom:.625rem">Vale quando há texto de abertura. <strong>Mosaico</strong> (padrão): colagem de 5 fotos. <strong>Foto em tela cheia</strong>: as fotos trocam sozinhas atrás do título. <strong>Álbum de recordação</strong>: polaroids com título manuscrito. <strong>Linha do tempo</strong>: título e texto primeiro, e os eventos contam o ano. As fotos da abertura são as <em>Fotos de capa</em> do projeto (sem elas, a capa de cada evento).</div>
+            <select id="f-estilo" aria-describedby="dica-estilo">
+              <option value="mosaico">Mosaico</option>
+              <option value="tela-cheia">Foto em tela cheia</option>
+              <option value="recordacao">Álbum de recordação</option>
+              <option value="linha">Linha do tempo</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-recado">Recado final <span class="dica-rotulo">(opcional)</span></label>
+            <div class="field-hint" id="dica-recado" style="margin-bottom:.625rem">Aparece no fim da página do álbum, em destaque (ex.: "Feito com carinho por Luca e Mag, para a Turma 2026."). Até 600 caracteres; uma quebra de linha vira quebra de linha.</div>
+            <textarea id="f-recado" rows="3" maxlength="600" aria-describedby="dica-recado" style="width:100%"></textarea>
+          </div>
+          <div class="field">
+            <label for="f-pix-chave">Pix para apoio <span class="dica-rotulo">(opcional, apresentação do álbum)</span></label>
+            <div class="field-hint" id="dica-pix" style="margin-bottom:.625rem">Preenchidos os três, a página do álbum ganha a seção <em>Apoie o projeto</em>, com QR code e "Pix copia e cola", sem valor fixo e sem taxa. O dinheiro vai direto do banco de quem doa para a sua chave, e o site não fica sabendo quem doou. <strong>A chave aparece na página:</strong> use uma <strong>chave aleatória</strong> (recomendado), e-mail, telefone (+55…) ou CNPJ. CPF não é aceito. Nome e cidade são os do recebedor, como o banco mostra.</div>
+            <input type="text" id="f-pix-chave" maxlength="77" autocomplete="off" placeholder="chave aleatória, e-mail, +55… ou CNPJ" aria-describedby="dica-pix">
+            <input type="text" id="f-pix-nome" maxlength="40" placeholder="Nome do recebedor" aria-label="Nome do recebedor do Pix" style="margin-top:.5rem">
+            <input type="text" id="f-pix-cidade" maxlength="30" placeholder="Cidade do recebedor" aria-label="Cidade do recebedor do Pix" style="margin-top:.5rem">
+          </div>
+          <div class="field">
+            <div class="toggle-row">
+              <label class="toggle-label" for="f-busca-rosto">Busca pelo rosto (galeria por capítulos)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-busca-rosto" aria-describedby="dica-busca-rosto">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
+              <label class="toggle-label" for="f-busca-texto">Busca nas fotos (texto e coisas)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-busca-texto" aria-describedby="dica-busca-texto">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-busca-texto" style="margin-top:.5rem">O álbum ganha o campo <em>Procurar nas fotos</em>: número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola). O indexador da Amazon lê cada foto uma vez (texto, coisas e moderação); a busca em si não custa nada por visita. Só em <strong>álbum público</strong>, e antes do lançamento só você vê. A <strong>moderação</strong> roda sempre que o indexador passa: foto da turma marcada fica escondida até você decidir, e você recebe um e-mail. Detalhes em <code>docs/ROSTO.md</code>.</div>
+          </div>
           <div class="field">
             <label for="f-lancar-em">Lançamento marcado <span class="dica-rotulo">(opcional)</span></label>
             <input type="datetime-local" id="f-lancar-em" aria-describedby="dica-lancar">
@@ -1371,6 +1377,18 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
               </label>
             </div>
             <div class="field-hint" id="dica-previa" style="margin-top:.5rem">Para quem você quiser mostrar o álbum antes do lançamento (a Mag, por exemplo). Na página "em breve" do domínio do álbum, <strong>5 toques no título</strong> mostram um campo de senha; com a senha certa, a pessoa vê o álbum por 30 dias, só para ver (sem painel). Mínimo de 6 caracteres. A senha não é guardada, só um resumo dela: para trocar, digite outra; trocar ou tirar fecha as prévias já abertas. Poucas tentativas por hora em cada aparelho.</div>
+          </div>
+          <div class="field">
+            <label for="f-editora-senha">Senha da editora do álbum <span class="dica-rotulo">(opcional, para a Mag)</span></label>
+            <input type="password" id="f-editora-senha" autocomplete="new-password" maxlength="100" placeholder="nenhuma" aria-describedby="dica-editora">
+            <div class="toggle-row" id="f-editora-tirar" hidden style="margin-top:.5rem">
+              <label class="toggle-label" for="f-editora-remover">Tirar a senha (a editora sai na hora)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-editora-remover">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-editora" style="margin-top:.5rem">Para quem ajuda a cuidar do álbum. A pessoa entra em <strong>entrenos2026.com/entrar</strong> com esta senha e, por 30 dias, vê o álbum como dona (mesmo antes do lançamento), oculta uma foto, escolhe a capa de um evento e usa "Atualizar agora". Ela <strong>não</strong> entra neste painel. Mínimo de 8 caracteres, diferente da senha da prévia. Trocar ou tirar a senha tira quem estava dentro.</div>
           </div>
         </details>
         <details class="bloco-form" id="bf-producao">
@@ -1958,6 +1976,10 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-previa-senha').setAttribute('placeholder', e && e.previaSenha ? 'definida (digite outra para trocar)' : 'nenhuma');
       document.getElementById('f-previa-remover').checked = false;
       document.getElementById('f-previa-tirar').hidden = !(e && e.previaSenha);
+      document.getElementById('f-editora-senha').value = '';
+      document.getElementById('f-editora-senha').setAttribute('placeholder', e && e.editoraSenha ? 'definida (digite outra para trocar)' : 'nenhuma');
+      document.getElementById('f-editora-remover').checked = false;
+      document.getElementById('f-editora-tirar').hidden = !(e && e.editoraSenha);
       document.getElementById('f-status').value = e?.status || 'entregue';
       document.getElementById('f-access').value = e?.accessType || 'public';
       document.getElementById('f-category').value = e?.category || '';
@@ -2171,6 +2193,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         'bf-acesso': acesso + (chk('f-visible') ? '' : ' · oculto') + (chk('f-comingsoon') ? ' · em breve' : ''),
         'bf-producao': (STATUS_LABELS[val('f-status')] || '') + (ddmm(val('f-promised')) ? ' · prazo ' + ddmm(val('f-promised')) : ''),
         'bf-pagina': chk('f-alert-active') ? 'aviso de novidade ligado' : '',
+        // Álbum (v3.8.1): o que está ligado, num relance.
+        'bf-album': [val('f-abertura') ? 'apresentação' : '', chk('f-busca-rosto') ? 'busca pelo rosto' : '', chk('f-busca-texto') ? 'busca nas fotos' : '', val('f-lancar-em') ? 'lançamento marcado' : ''].filter(Boolean).join(' · ') || 'desligado',
       };
       document.querySelectorAll('[data-resumo]').forEach(el => { el.textContent = resumos[el.dataset.resumo] || ''; });
     }
@@ -2316,6 +2340,11 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         mostraCampo('f-previa-senha');
         return toast('A senha da prévia precisa ter pelo menos 6 caracteres.', 'err');
       }
+      const senhaEditora = document.getElementById('f-editora-senha').value.trim();
+      if (senhaEditora && senhaEditora.length < 8) {
+        mostraCampo('f-editora-senha');
+        return toast('A senha da editora precisa ter pelo menos 8 caracteres.', 'err');
+      }
 
       const photos = collectPhotos();
       const body = {
@@ -2353,6 +2382,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         lancarEm: lancarEmISO,
         previaSenhaNova: document.getElementById('f-previa-senha').value,
         previaRemover: document.getElementById('f-previa-remover').checked,
+        editoraSenhaNova: document.getElementById('f-editora-senha').value,
+        editoraRemover: document.getElementById('f-editora-remover').checked,
         lancarContagem: document.getElementById('f-lancar-contagem').checked,
         status: document.getElementById('f-status').value,
         accessType: document.getElementById('f-access').value,

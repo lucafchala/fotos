@@ -701,7 +701,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
   ${capitulo && listagem ? navCapitulos(caminhoBase, capitulo, 'fim', marca ? '' : slug) : ''}
-  ${marca ? '<footer class="g-fim"><a href="/suporte">Algo deu errado? Fale com a gente</a></footer>' : ''}
+  ${marca ? '<footer class="g-fim"><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>' : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
@@ -1078,8 +1078,13 @@ const SCRIPT = `
       // e a primeira linha — onde está a maior foto da tela, o LCP — vai na
       // frente das outras. O resto espera chegar perto (loading=lazy), sem
       // disputar a banda com o que se vê.
-      if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
-      if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
+      // Vídeo (v3.8.1): o Google demora para gerar a miniatura de vídeo
+      // grande; ela vem depois das fotos e nunca segura a primeira tela.
+      if (f.video) f.img.setAttribute('fetchpriority', 'low');
+      else {
+        if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
+        if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
+      }
       f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
       f.img.src = lh3(f.id, 400);
     }

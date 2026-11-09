@@ -1194,14 +1194,16 @@ export function jsonParaScript(v) {
 // novamente" — e saiu junto com o tour: um ponto de extensão sem ninguém que o
 // use é convite para o rodapé voltar a divergir página a página, que é
 // exatamente o que esta função existe para impedir.
-export function footerLegalLinksHTML() {
+export function footerLegalLinksHTML(base = '') {
   const year = new Date().getFullYear();
+  // `base` (v3.8.1): no domínio de um álbum (entrenos2026.com), as páginas do
+  // site abrem no próprio fotos.lucafchala.com, com a marca e a navegação dele.
   return `
     <div class="footer-actions-legal">
-      <a href="/sobre" class="legal-link">Sobre</a>
-      <a href="/equipamentos" class="legal-link">Equipamento</a>
-      <a href="/suporte" class="legal-link">Suporte</a>
-      <a href="/legal" class="legal-link">Legal</a>
+      <a href="${base}/sobre" class="legal-link">Sobre</a>
+      <a href="${base}/equipamentos" class="legal-link">Equipamento</a>
+      <a href="${base}/suporte" class="legal-link">Suporte</a>
+      <a href="${base}/legal" class="legal-link">Legal</a>
       <a href="https://github.com/lucafchala/fotos" target="_blank" rel="noopener" class="legal-link">Código-fonte</a>
     </div>
     <p class="footer-copyright">© ${year} Luca F. Chala. Todos os direitos reservados.</p>`;
@@ -1465,6 +1467,8 @@ export function socialMetaHTML({
 export const RESERVED_SLUGS = new Set([
   'dashboard', 'suporte', 'privacidade', 'termos', 'legal', 'compliance',
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
+  // Entrada e saída da editora do álbum, no domínio dele (v3.8.1).
+  'entrar', 'sair',
   // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
   // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
   // que é da estrutura do site.
