@@ -17,6 +17,7 @@ import { mkdir } from 'node:fs/promises';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 import { GALERIA_ESTILOS } from '../src/config.js';
+import { SERVICE_WORKER } from '../src/aviso.js';
 
 const SAIDA = process.env.CAPTURAS || 'capturas-celular';
 const TELAS = [
@@ -150,6 +151,7 @@ for (const tela of TELAS) {
     await page.route('**/*', route => {
       const u = route.request().url();
       if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: p.html });
+      if (u === 'https://fotos.test/sw.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: SERVICE_WORKER });
       if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
       if (/\/api\//.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pastas: [
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2026', url: 'https://drive.google.com/drive/folders/X1' },
@@ -162,6 +164,8 @@ for (const tela of TELAS) {
     await page.goto('https://fotos.test/');
     await page.waitForTimeout(500);
     const rotulo = `${tela.nome} · ${p.nome}`;
+    // O botão do aviso de fotos novas (v3.8.4) aparece no álbum.
+    if (p.janelas) registra(await page.locator('#av:not([hidden]) #av-btn').isVisible().catch(() => false), `${rotulo}: botão "Avisar quando chegar foto nova" à vista`, '');
     const m = await page.evaluate(mede);
     registra(!m.rolaDeLado && !m.vaza.length, `${rotulo}: nada vaza para os lados`, m.vaza.length ? m.vaza : `${m.larguraDoc} > ${m.W}`);
     registra(!m.pequenos.length, `${rotulo}: botões e links com 44 px de altura`, m.pequenos);

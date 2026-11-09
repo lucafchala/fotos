@@ -153,6 +153,19 @@ describe('indexador → site', () => {
     expect(emails).toHaveLength(0);
   });
 
+  it('fotos novas marcam o aviso no celular e "minhas fotos"; a mesma foto de novo não conta (v3.8.4)', async () => {
+    const db = d1Sqlite();
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'x' })));
+    const itens = [{ foto: F(1), cap: 'piauifut', texto: '', coisas: '', moderacao: '' }, { foto: F(2), cap: 'gala', texto: '', coisas: '', moderacao: '' }];
+    const { env } = await indexa(db, [ALBUM], { slug: 'entrenos2026', itens });
+    const loja = /** @type {any} */ (env.FOTOS)._store;
+    expect(JSON.parse(loja.get('aviso:pendente:entrenos2026'))).toMatchObject({ n: 2, caps: { piauifut: 1, gala: 1 } });
+    expect(Number(loja.get('rosto-novas:entrenos2026'))).toBeGreaterThan(0);
+    // A releitura das mesmas fotos não vira "fotos novas".
+    const { env: env2 } = await indexa(db, [ALBUM], { slug: 'entrenos2026', itens });
+    expect(/** @type {any} */ (env2.FOTOS)._store.get('aviso:pendente:entrenos2026')).toBeUndefined();
+  });
+
   it('foto que saiu do álbum sai da busca', async () => {
     const db = d1Sqlite();
     await indexa(db, [ALBUM], { slug: 'entrenos2026', itens: [{ foto: F(1), cap: 'a', texto: 'bolo' }, { foto: F(2), cap: 'a', texto: 'bolo' }] });

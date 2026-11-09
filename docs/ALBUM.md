@@ -50,6 +50,11 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
 - As páginas pedem `/f/<id>/<largura>`; o site busca no Google uma vez e guarda no cache da Cloudflare (uma semana).
 - **R2:** com o bucket ligado no `wrangler.toml` (binding `FOTOS_R2`), a miniatura e o original vão para o R2 na primeira vez que alguém os pede e daí em diante saem de lá. Chaves: `w/<id>/<largura>.webp|jpg` e `o/<id>`. Para ligar: criar o bucket no painel da Cloudflare e acrescentar o binding (PR pequeno).
 
+### Aviso de fotos novas no celular (v3.8.4)
+- O botão "Avisar quando chegar foto nova" fica na abertura. No Android e no computador funciona direto; no iPhone, só com o álbum adicionado à Tela de Início (o botão explica).
+- Quando o indexador manda fotos que ainda não estavam no álbum, o cron avisa quem ligou, no máximo uma vez a cada 3 h por álbum: "12 fotos novas em PiauiFut e Gala. Toque para ver."
+- Nada a configurar: a chave do site nasce sozinha. Detalhes em `src/aviso.js`.
+
 ## Lançamento: nada é público antes do OK do dono
 
 Um álbum está **lançado** (`albumLancado`, em `src/utils.js`) quando está **visível** e **fora do "Em breve"**.
