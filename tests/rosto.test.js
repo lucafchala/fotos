@@ -125,7 +125,8 @@ describe('buscaPorRosto', () => {
     const r = await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false });
     // Sementes só de fotos diferentes e de 95 para cima; quem saiu não é consultado (temSair: false).
     const buscas = chamadas.filter(x => x.op === 'SearchFaces');
-    expect(buscas.map(x => x.corpo.FaceId)).toEqual(['semente-1', 'semente-2']);
+    // As sementes procuram em paralelo: a ordem de chegada das chamadas varia.
+    expect(buscas.map(x => x.corpo.FaceId).sort()).toEqual(['semente-1', 'semente-2']);
     expect(chamadas[0].op).toBe('SearchFacesByImage');
     expect(chamadas.filter(x => x.op === 'SearchFacesByImage')).toHaveLength(1);
     expect(r.tipo === 'ok' && r.resultados.map(x => x.id)).toEqual(['FOTO_AAAAAAAA01', 'FOTO_BBBBBBBB02', 'FOTO_CCCCCCCC03', 'FOTO_DELADO0004']);
