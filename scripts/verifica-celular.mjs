@@ -292,7 +292,9 @@ for (const tela of TELAS) {
   registra(await page.locator('#rs-grade > .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade > .rs-ev h3').allTextContents());
   registra((await page.locator('#rs-grade .rs-talvez > h3').textContent().catch(() => '')) === 'Talvez seja você (1)' && await page.locator('#rs-grade .rs-talvez a[data-id="FOTO_TALVEZ_004"]').count() === 1, 'Rosto: a menos parecida vai para "Talvez seja você", no fim', '');
   // Busca nas fotos: o mesmo.
-  await page.locator('[data-bf="bolo"]').click();
+  // v3.8.7: as sugestões saíram da abertura; a pessoa digita.
+  await page.locator('#bf-q').fill('bolo');
+  await page.locator('#bf-q').press('Enter');
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');
   registra(decodeURIComponent(page.url()).endsWith('#busca=bolo'), 'Busca: o endereço guarda o termo', page.url());
   await page.locator('#bf-grade a').first().click();

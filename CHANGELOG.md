@@ -18,6 +18,11 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.7] — ainda não publicada
+
+- **Passar as fotos no celular:** em "minhas fotos" em tela cheia, o iPhone cancelava o gesto sobre a imagem e parecia que só havia uma foto. Agora o deslizar vem dos eventos de toque, a imagem não pode ser arrastada e as setas ‹ › aparecem também no celular.
+- **Abertura mais limpa** (vale para os três estilos): um botão principal ("Achar minhas fotos pelo rosto", ou "Ver todas as fotos" sem a busca), o "Não quero aparecer" logo abaixo e uma linha de links discretos: Ver os eventos · Mandar suas fotos · Avisar quando chegar foto nova. A busca por palavra fica só com o campo ("Procurar nas fotos"); as sugestões e a dica de envio saíram da abertura.
+
 ## [3.8.6] — ainda não publicada
 
 - **Minhas fotos e a busca viram galeria:** tocar numa foto do resultado abre em tela cheia; dá para passar por todas as fotos do resultado, de todos os eventos (deslizar, setas, teclado), com "Ver no evento" e "Baixar" em cada uma. Voltar (botão do celular) fecha a foto e fica no resultado. Botão "Tela cheia" onde o navegador deixa (`SCRIPT_VISOR`, sem biblioteca, sem innerHTML).
