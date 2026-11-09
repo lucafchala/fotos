@@ -521,6 +521,8 @@ export const VISOR_CSS = `
 .vz::backdrop{background:#000}
 .vz-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;transition:opacity .15s ease}
 .vz-img.carregando{opacity:.35}
+.vz-img{transform-origin:50% 50%;will-change:transform}
+.vz.vz-zoom .vz-topo,.vz.vz-zoom .vz-base,.vz.vz-zoom .vz-seta{opacity:.15;transition:opacity .2s}
 .vz-topo,.vz-base{position:absolute;left:0;right:0;display:flex;align-items:center;gap:.5rem;padding:max(.6rem,env(safe-area-inset-top)) max(.75rem,env(safe-area-inset-right)) .6rem max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,.65),rgba(0,0,0,0));z-index:2}
 .vz-topo{top:0}
 .vz-base{bottom:0;padding:.6rem max(.75rem,env(safe-area-inset-right)) max(.8rem,env(safe-area-inset-bottom)) max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.7));justify-content:space-between;flex-wrap:wrap}
@@ -538,7 +540,9 @@ export const VISOR_CSS = `
 // Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
 export const SCRIPT_VISOR = `(function () {
   var dlg = null, img, nEl, evEl, verA, baixarA, antB, proxB, cheiaB, lista = [], i = 0, x0 = 0, y0 = 0, toque = false, empurrou = false;
-  var LARGURAS = [480, 800, 1200, 1600, 2400];
+  var LARGURAS = [480, 800, 1200, 1600, 2400, 3200];
+  // Zoom (v3.8.7): pinça com dois dedos, toque duplo, clique duplo ou rodinha.
+  var escala = 1, tx = 0, ty = 0, pinca = null, ultimoToque = 0, ultimoX = 0, ultimoY = 0, arrasto = null, fimDoToque = 0;
   function monta() {
     // Montado por createElement (sem innerHTML, como os outros scripts da página).
     function el(tag, cls, attrs, texto) {
@@ -581,35 +585,95 @@ export const SCRIPT_VISOR = `(function () {
       else if (e.key === 'ArrowRight') { e.preventDefault(); vai(i + 1); }
     });
     dlg.addEventListener('cancel', function (e) { e.preventDefault(); fecha(); });
-    // Deslizar: para os lados troca a foto; para baixo fecha. No celular pelos
-    // eventos de TOQUE (v3.8.7: o iPhone cancelava o gesto do ponteiro sobre a
-    // imagem e parecia que só havia uma foto); no computador, pelo mouse.
+    // Deslizar: para os lados troca a foto; para baixo fecha (só sem zoom). No
+    // celular pelos eventos de TOQUE (v3.8.7: o iPhone cancelava o gesto do
+    // ponteiro sobre a imagem e parecia que só havia uma foto); no computador,
+    // pelo mouse.
     function gesto(dx, dy) {
+      if (escala > 1) return;
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) vai(dx < 0 ? i + 1 : i - 1);
       else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) fecha();
     }
     function controle(t) { return t && t.closest && t.closest('[data-vz]'); }
-    dlg.addEventListener('touchstart', function (e) { if (e.touches.length !== 1 || controle(e.target)) { toque = false; return; } toque = true; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
-    dlg.addEventListener('touchmove', function (e) { if (toque) e.preventDefault(); }, { passive: false });
+    function dist(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+    dlg.addEventListener('touchstart', function (e) {
+      if (controle(e.target)) { toque = false; pinca = null; return; }
+      if (e.touches.length === 2) {
+        toque = false;
+        pinca = { d: dist(e.touches[0], e.touches[1]), e: escala, mx: (e.touches[0].clientX + e.touches[1].clientX) / 2, my: (e.touches[0].clientY + e.touches[1].clientY) / 2, tx: tx, ty: ty };
+        return;
+      }
+      if (e.touches.length !== 1) return;
+      toque = true; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      arrasto = escala > 1 ? { x: x0, y: y0, tx: tx, ty: ty } : null;
+    }, { passive: true });
+    dlg.addEventListener('touchmove', function (e) {
+      if (pinca && e.touches.length === 2) {
+        e.preventDefault();
+        var nova = Math.min(4, Math.max(1, pinca.e * dist(e.touches[0], e.touches[1]) / pinca.d));
+        // Mantém parado o ponto entre os dedos.
+        var k = nova / pinca.e;
+        var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        aplica(nova, pinca.tx * k + (pinca.mx - cx) * (1 - k), pinca.ty * k + (pinca.my - cy) * (1 - k));
+        return;
+      }
+      if (toque) {
+        e.preventDefault();
+        if (arrasto) aplica(escala, arrasto.tx + e.touches[0].clientX - arrasto.x, arrasto.ty + e.touches[0].clientY - arrasto.y);
+      }
+    }, { passive: false });
     dlg.addEventListener('touchend', function (e) {
+      fimDoToque = Date.now();
+      if (pinca) { if (e.touches.length < 2) { pinca = null; if (escala < 1.05) aplica(1, 0, 0); } return; }
       if (!toque) return;
       toque = false;
       var t = e.changedTouches[0];
-      gesto(t.clientX - x0, t.clientY - y0);
+      var agora = Date.now();
+      var parado = Math.abs(t.clientX - x0) < 12 && Math.abs(t.clientY - y0) < 12;
+      // Toque duplo: amplia no ponto tocado; de novo, volta.
+      if (parado && agora - ultimoToque < 320 && Math.abs(t.clientX - ultimoX) < 30 && Math.abs(t.clientY - ultimoY) < 30) { ultimoToque = 0; alterna(t.clientX, t.clientY); return; }
+      if (parado) { ultimoToque = agora; ultimoX = t.clientX; ultimoY = t.clientY; return; }
+      if (!arrasto) gesto(t.clientX - x0, t.clientY - y0);
+      arrasto = null;
     });
-    dlg.addEventListener('touchcancel', function () { toque = false; });
+    dlg.addEventListener('touchcancel', function () { toque = false; pinca = null; arrasto = null; });
     var mouse = false;
-    dlg.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse' && !controle(e.target)) { mouse = true; x0 = e.clientX; y0 = e.clientY; } });
-    dlg.addEventListener('pointerup', function (e) { if (!mouse) return; mouse = false; gesto(e.clientX - x0, e.clientY - y0); });
+    dlg.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse' && !controle(e.target)) { mouse = true; x0 = e.clientX; y0 = e.clientY; arrasto = escala > 1 ? { x: x0, y: y0, tx: tx, ty: ty } : null; } });
+    dlg.addEventListener('pointermove', function (e) { if (mouse && arrasto) aplica(escala, arrasto.tx + e.clientX - arrasto.x, arrasto.ty + e.clientY - arrasto.y); });
+    dlg.addEventListener('pointerup', function (e) { if (!mouse) return; mouse = false; if (!arrasto) gesto(e.clientX - x0, e.clientY - y0); arrasto = null; });
+    // O celular também gera um clique duplo de mouse depois do toque duplo: ignorado.
+    img.addEventListener('dblclick', function (e) { if (Date.now() - fimDoToque > 800) alterna(e.clientX, e.clientY); });
+    dlg.addEventListener('wheel', function (e) {
+      if (controle(e.target)) return;
+      e.preventDefault();
+      var nova = Math.min(4, Math.max(1, escala * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      var k = nova / escala, cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      if (nova === 1) aplica(1, 0, 0); else aplica(nova, tx * k + (e.clientX - cx) * (1 - k), ty * k + (e.clientY - cy) * (1 - k));
+    }, { passive: false });
     img.addEventListener('dragstart', function (e) { e.preventDefault(); });
     window.addEventListener('popstate', function () { if (dlg.open && empurrou) { empurrou = false; fechaJa(); } });
   }
   function src(id, w) { return '/f/' + encodeURIComponent(id) + '/' + w; }
+  // Aplica o zoom; a foto não sai da tela. Ampliada, pede a versão maior.
+  function aplica(e, x, y) {
+    escala = e;
+    var mx = (escala - 1) * window.innerWidth / 2, my = (escala - 1) * window.innerHeight / 2;
+    tx = Math.max(-mx, Math.min(mx, x)); ty = Math.max(-my, Math.min(my, y));
+    img.style.transform = escala > 1 ? 'translate(' + tx + 'px,' + ty + 'px) scale(' + escala + ')' : '';
+    if (escala > 1.3 && img.sizes !== '300vw') img.sizes = '300vw';
+    dlg.classList.toggle('vz-zoom', escala > 1);
+  }
+  function alterna(x, y) {
+    if (escala > 1) { aplica(1, 0, 0); return; }
+    var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    aplica(2.5, (cx - x) * 1.5, (cy - y) * 1.5);
+  }
   function vai(k) {
     if (k < 0 || k >= lista.length) return;
     i = k;
     var f = lista[i];
     img.classList.add('carregando');
+    aplica(1, 0, 0);
     img.srcset = LARGURAS.map(function (w) { return src(f.id, w) + ' ' + w + 'w'; }).join(', ');
     img.sizes = '100vw';
     img.src = src(f.id, 1600);

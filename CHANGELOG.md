@@ -21,6 +21,7 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 ## [3.8.7] — ainda não publicada
 
 - **Passar as fotos no celular:** em "minhas fotos" em tela cheia, o iPhone cancelava o gesto sobre a imagem e parecia que só havia uma foto. Agora o deslizar vem dos eventos de toque, a imagem não pode ser arrastada e as setas ‹ › aparecem também no celular.
+- **Zoom nas fotos em tela cheia** ("minhas fotos" e a busca): pinça com dois dedos, toque duplo (amplia no ponto tocado e volta), arrastar a foto ampliada; no computador, clique duplo e rodinha. Ampliada, a foto carrega em resolução maior.
 - **Abertura mais limpa** (vale para os três estilos): um botão principal ("Achar minhas fotos pelo rosto", ou "Ver todas as fotos" sem a busca), o "Não quero aparecer" logo abaixo e uma linha de links discretos: Ver os eventos · Mandar suas fotos · Avisar quando chegar foto nova. A busca por palavra fica só com o campo ("Procurar nas fotos"); as sugestões e a dica de envio saíram da abertura.
 
 ## [3.8.6] — ainda não publicada
