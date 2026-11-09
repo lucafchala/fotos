@@ -275,6 +275,32 @@ for (const tela of TELAS) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(200);
   registra((await page.locator('.vz-n').textContent()) === '3 de 4', 'Visor: deslizar para o lado passa para a próxima', await page.locator('.vz-n').textContent());
+  // Zoom (v3.8.7): toque duplo amplia; ampliada, deslizar não troca a foto; toque duplo volta; pinça amplia.
+  const toqueEm = async (/** @type {number} */ x, /** @type {number} */ y) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  await toqueEm(200, 420); await page.waitForTimeout(80); await toqueEm(200, 420);
+  await page.waitForTimeout(150);
+  registra(/scale\(2\.5\)/.test((await page.locator('.vz-img').getAttribute('style')) || ''), 'Visor: toque duplo amplia a foto', await page.locator('.vz-img').getAttribute('style'));
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 420 }] });
+  for (const x of [250, 200, 150]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 420 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(150);
+  registra((await page.locator('.vz-n').textContent()) === '3 de 4', 'Visor: ampliada, arrastar move a foto (não troca)', await page.locator('.vz-n').textContent());
+  await page.waitForTimeout(400);
+  await toqueEm(200, 420); await page.waitForTimeout(80); await toqueEm(200, 420);
+  await page.waitForTimeout(150);
+  registra(!/scale/.test((await page.locator('.vz-img').getAttribute('style')) || ''), 'Visor: toque duplo de novo volta ao tamanho normal', await page.locator('.vz-img').getAttribute('style'));
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 170, y: 420, id: 1 }, { x: 220, y: 420, id: 2 }] });
+  for (const d of [40, 80, 120]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 170 - d, y: 420, id: 1 }, { x: 220 + d, y: 420, id: 2 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(150);
+  const escalaPinca = Number((/scale\(([0-9.]+)\)/.exec((await page.locator('.vz-img').getAttribute('style')) || '') || [])[1] || 1);
+  registra(escalaPinca > 2, 'Visor: pinça com dois dedos amplia', escalaPinca);
+  await page.waitForTimeout(400);
+  await toqueEm(200, 420); await page.waitForTimeout(80); await toqueEm(200, 420);
+  await page.waitForTimeout(150);
   registra(/\/galeria\/entrenos2026\/[a-z-]+\/baixar\/FOTO_/.test((await page.locator('.vz-baixar').getAttribute('href')) || ''), 'Visor: "Baixar" leva ao original daquela foto', await page.locator('.vz-baixar').getAttribute('href'));
   // Voltar (botão do celular) fecha o visor e fica no resultado.
   await page.goBack();
@@ -292,7 +318,9 @@ for (const tela of TELAS) {
   registra(await page.locator('#rs-grade > .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade > .rs-ev h3').allTextContents());
   registra((await page.locator('#rs-grade .rs-talvez > h3').textContent().catch(() => '')) === 'Talvez seja você (1)' && await page.locator('#rs-grade .rs-talvez a[data-id="FOTO_TALVEZ_004"]').count() === 1, 'Rosto: a menos parecida vai para "Talvez seja você", no fim', '');
   // Busca nas fotos: o mesmo.
-  await page.locator('[data-bf="bolo"]').click();
+  // v3.8.7: as sugestões saíram da abertura; a pessoa digita.
+  await page.locator('#bf-q').fill('bolo');
+  await page.locator('#bf-q').press('Enter');
   await page.waitForSelector('#bf-res:not([hidden]) #bf-grade a');
   registra(decodeURIComponent(page.url()).endsWith('#busca=bolo'), 'Busca: o endereço guarda o termo', page.url());
   await page.locator('#bf-grade a').first().click();

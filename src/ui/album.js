@@ -129,6 +129,8 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
   return `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">Os ${caps.length} eventos</h2>${atalhos}${corpo}</section>`;
 }
 
+const ICONE_ENVIAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3"/></svg>';
+
 const ICONE_SINO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
 // Um rosto simples (traço), no botão da busca pelo rosto.
@@ -202,8 +204,18 @@ export function albumHTML(p) {
     // sem ela), "Ver todas as fotos" é o principal — ver .al-ver no CSS.
     p.botaoRosto ? `<button type="button" class="al-btn al-b1 al-rosto" id="rs-abrir" hidden>${ICONE_ROSTO}Achar minhas fotos pelo rosto</button>` : '',
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
-    urlPasta ? `<a class="al-btn al-b2" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>` : '',
+    // "Mandar suas fotos" em destaque (v3.8.7, pedido do dono): botão, ao
+    // lado do principal.
+    urlPasta ? `<a class="al-btn al-b2 al-mandar" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">${ICONE_ENVIAR}Mandar suas fotos</a>` : '',
   ].join('')}</div>`;
+  // A abertura mais limpa (v3.8.7, pedido do dono: "muitos botões"): um botão
+  // principal; o resto vira uma linha de links discretos. "Ver os eventos" só
+  // aparece na linha quando a busca pelo rosto ocupa o botão principal (CSS).
+  const links = [
+    caps.length ? '<a class="al-link al-link-ver" href="#eventos">Ver os eventos</a>' : '',
+    restrito ? '' : `<span class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-link al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button></span>`,
+  ].filter(Boolean).join('');
+  const linhaLinks = links ? `<nav class="al-links" aria-label="Mais opções">${links}</nav>${restrito ? '' : '<p class="al-aviso-msg" id="av-msg" role="status"></p>'}` : '';
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
   // Cruz"), o mesmo da página "em breve"; senão, o ano do projeto.
   const doDominio = Object.values(DOMINIOS_DE_ALBUM).find(a => a.slug === slug);
@@ -213,9 +225,9 @@ export function albumHTML(p) {
   // continua indo para a pasta do álbum. O crédito `outros` é o jeito antigo.
   const temEnvio = !!urlPasta && caps.length > 0 && !!event.galeriaCapitulos && chavesDeEnvio(event.galeriaCreditos).size > 0;
   const temOutros = !temEnvio && !!urlPasta && parseCreditos(event.galeriaCreditos).has('outros');
-  const dicaEnvio = temEnvio
-    ? '<p class="al-dica">Toque em <b>Mandar suas fotos</b> e escolha o evento.</p>'
-    : temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
+  // Com pasta de envio, a janela de "Mandar suas fotos" explica tudo (v3.8.7:
+  // a dica saiu da abertura). Só o jeito antigo (pasta `outros`) ainda precisa dela.
+  const dicaEnvio = temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
   const envio = temEnvio ? envioHTML(slug, urlPasta) : '';
   const kicker = doDominio ? doDominio.linha : (event.date ? String(event.date).slice(0, 4) : '');
   // O texto de abertura vem ANTES dos botões, em todo estilo (v3.8.2, pedido
@@ -231,8 +243,7 @@ export function albumHTML(p) {
   // inclui todos os rostos do álbum e quem não quer sai por aqui). O script do
   // rosto o mostra junto com o botão da busca.
   const sairRosto = p.botaoRosto ? '<p class="al-sair-rosto" id="rs-sair-p" hidden><button type="button" class="al-sair-btn" id="rs-sair-abrir">Não quero aparecer na busca pelo rosto</button></p>' : '';
-  const avisoHTML = restrito ? '' : `<div class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button><p class="al-aviso-msg" id="av-msg" role="status"></p></div>`;
-  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${sairRosto}${buscaTopo}${dicaEnvio}${avisoHTML}`;
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${sairRosto}${linhaLinks}${dicaEnvio}${buscaTopo}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -596,18 +607,26 @@ a{color:inherit;text-decoration:none}
 .al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
 .al-btns+.bf,.al-btns~.bf{margin-top:1rem;max-width:34rem}
 .al-pol-txt .bf{margin-left:auto;margin-right:auto}
-.al-sair-rosto{margin-top:.55rem}
+.al-sair-rosto{margin-top:.15rem}
 .al-pol-txt .al-sair-rosto{text-align:center}
-.al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--mudo);font:inherit;font-size:.85rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 @media (hover:hover){.al-sair-btn:hover{color:var(--sol)}}
-.al-aviso{margin-top:.9rem;display:grid;gap:.35rem;justify-items:start}
-.al-pol-txt .al-aviso{justify-items:center}
-.al-aviso-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);background:transparent;color:var(--txt2);font:inherit;font-size:.9rem;cursor:pointer}
-.al-aviso-btn svg{width:1.1rem;height:1.1rem;flex:none;color:var(--sol)}
-.al-aviso-btn[aria-pressed="true"]{border-color:var(--sol);color:var(--txt)}
+.al-mandar{gap:.5rem;justify-content:center}.al-mandar svg{width:1.15rem;height:1.15rem;flex:none}
+.al-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 1.3rem;margin-top:.5rem}
+.al-pol-txt .al-links{justify-content:center}
+.al-link{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.95rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
+@media (hover:hover){.al-link:hover{color:var(--sol);text-decoration-color:currentColor}}
+.al-link svg{width:1.05rem;height:1.05rem;flex:none;color:var(--sol)}
+.al-aviso-btn[aria-pressed="true"]{color:var(--txt)}
 .al-aviso-btn:disabled{opacity:.6;cursor:default}
-.al-aviso-msg{font-size:.82rem;color:var(--mudo);max-width:34rem}
+.al-aviso-msg{font-size:.82rem;color:var(--mudo);max-width:34rem;margin-top:.2rem}
 .al-aviso-msg:empty{display:none}
+/* Com a busca pelo rosto no botão principal, "Ver todas as fotos" vira o link "Ver os eventos". */
+body:has(#rs-abrir:not([hidden])) .al-btns .al-ver{display:none}
+body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
+/* A busca da abertura: só o campo (as sugestões e a dica ficam para depois). */
+.al-btns ~ .bf .bf-dica,.al-btns ~ .bf .bf-sug{display:none}
+.al-btns ~ .bf{margin-top:.6rem}
 .al-anos{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0 .4rem}
 .al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.88rem}
 @media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}

@@ -519,8 +519,10 @@ export const SCRIPT_ROSTO = `(function () {
 export const VISOR_CSS = `
 .vz{position:fixed;inset:0;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:0;border:0;background:#000;color:#fff;overflow:hidden;touch-action:none}
 .vz::backdrop{background:#000}
-.vz-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;transition:opacity .15s ease}
+.vz-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;transition:opacity .15s ease}
 .vz-img.carregando{opacity:.35}
+.vz-img{transform-origin:50% 50%;will-change:transform}
+.vz.vz-zoom .vz-topo,.vz.vz-zoom .vz-base,.vz.vz-zoom .vz-seta{opacity:.15;transition:opacity .2s}
 .vz-topo,.vz-base{position:absolute;left:0;right:0;display:flex;align-items:center;gap:.5rem;padding:max(.6rem,env(safe-area-inset-top)) max(.75rem,env(safe-area-inset-right)) .6rem max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,.65),rgba(0,0,0,0));z-index:2}
 .vz-topo{top:0}
 .vz-base{bottom:0;padding:.6rem max(.75rem,env(safe-area-inset-right)) max(.8rem,env(safe-area-inset-bottom)) max(.75rem,env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.7));justify-content:space-between;flex-wrap:wrap}
@@ -529,17 +531,18 @@ export const VISOR_CSS = `
 .vz-b{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 .9rem;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.35);color:#fff;font:inherit;font-size:.9rem;text-decoration:none;cursor:pointer}
 .vz-b:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .vz-baixar{background:#f9de4b;border-color:#f9de4b;color:#141a33;font-weight:700}
-.vz-seta{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:48px;height:48px;padding:0;font-size:1.6rem;line-height:1}
+.vz-seta{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:48px;height:48px;padding:0;font-size:1.6rem;line-height:1;background:rgba(0,0,0,.45)}
 .vz-ant{left:max(.5rem,env(safe-area-inset-left))}
 .vz-prox{right:max(.5rem,env(safe-area-inset-right))}
 .vz-seta[hidden]{display:none}
-@media (hover:none){.vz-seta{display:none}}
 `;
 
 // Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
 export const SCRIPT_VISOR = `(function () {
   var dlg = null, img, nEl, evEl, verA, baixarA, antB, proxB, cheiaB, lista = [], i = 0, x0 = 0, y0 = 0, toque = false, empurrou = false;
-  var LARGURAS = [480, 800, 1200, 1600, 2400];
+  var LARGURAS = [480, 800, 1200, 1600, 2400, 3200];
+  // Zoom (v3.8.7): pinça com dois dedos, toque duplo, clique duplo ou rodinha.
+  var escala = 1, tx = 0, ty = 0, pinca = null, ultimoToque = 0, ultimoX = 0, ultimoY = 0, arrasto = null, fimDoToque = 0;
   function monta() {
     // Montado por createElement (sem innerHTML, como os outros scripts da página).
     function el(tag, cls, attrs, texto) {
@@ -550,7 +553,7 @@ export const SCRIPT_VISOR = `(function () {
       return n;
     }
     dlg = el('dialog', 'vz', { 'aria-label': 'Foto em tela cheia' });
-    img = el('img', 'vz-img', { alt: '', decoding: 'async', referrerpolicy: 'no-referrer' });
+    img = el('img', 'vz-img', { alt: '', decoding: 'async', referrerpolicy: 'no-referrer', draggable: 'false' });
     var topo = el('div', 'vz-topo');
     nEl = el('span', 'vz-n', { 'aria-live': 'polite' });
     cheiaB = el('button', 'vz-b', { type: 'button', 'data-vz': 'cheia' }, 'Tela cheia');
@@ -582,24 +585,95 @@ export const SCRIPT_VISOR = `(function () {
       else if (e.key === 'ArrowRight') { e.preventDefault(); vai(i + 1); }
     });
     dlg.addEventListener('cancel', function (e) { e.preventDefault(); fecha(); });
-    // Deslizar: para os lados troca a foto; para baixo fecha.
-    dlg.addEventListener('pointerdown', function (e) { if (e.target === img) { toque = true; x0 = e.clientX; y0 = e.clientY; } });
-    dlg.addEventListener('pointerup', function (e) {
+    // Deslizar: para os lados troca a foto; para baixo fecha (só sem zoom). No
+    // celular pelos eventos de TOQUE (v3.8.7: o iPhone cancelava o gesto do
+    // ponteiro sobre a imagem e parecia que só havia uma foto); no computador,
+    // pelo mouse.
+    function gesto(dx, dy) {
+      if (escala > 1) return;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) vai(dx < 0 ? i + 1 : i - 1);
+      else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) fecha();
+    }
+    function controle(t) { return t && t.closest && t.closest('[data-vz]'); }
+    function dist(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+    dlg.addEventListener('touchstart', function (e) {
+      if (controle(e.target)) { toque = false; pinca = null; return; }
+      if (e.touches.length === 2) {
+        toque = false;
+        pinca = { d: dist(e.touches[0], e.touches[1]), e: escala, mx: (e.touches[0].clientX + e.touches[1].clientX) / 2, my: (e.touches[0].clientY + e.touches[1].clientY) / 2, tx: tx, ty: ty };
+        return;
+      }
+      if (e.touches.length !== 1) return;
+      toque = true; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      arrasto = escala > 1 ? { x: x0, y: y0, tx: tx, ty: ty } : null;
+    }, { passive: true });
+    dlg.addEventListener('touchmove', function (e) {
+      if (pinca && e.touches.length === 2) {
+        e.preventDefault();
+        var nova = Math.min(4, Math.max(1, pinca.e * dist(e.touches[0], e.touches[1]) / pinca.d));
+        // Mantém parado o ponto entre os dedos.
+        var k = nova / pinca.e;
+        var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        aplica(nova, pinca.tx * k + (pinca.mx - cx) * (1 - k), pinca.ty * k + (pinca.my - cy) * (1 - k));
+        return;
+      }
+      if (toque) {
+        e.preventDefault();
+        if (arrasto) aplica(escala, arrasto.tx + e.touches[0].clientX - arrasto.x, arrasto.ty + e.touches[0].clientY - arrasto.y);
+      }
+    }, { passive: false });
+    dlg.addEventListener('touchend', function (e) {
+      fimDoToque = Date.now();
+      if (pinca) { if (e.touches.length < 2) { pinca = null; if (escala < 1.05) aplica(1, 0, 0); } return; }
       if (!toque) return;
       toque = false;
-      var dx = e.clientX - x0, dy = e.clientY - y0;
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) vai(dx < 0 ? i + 1 : i - 1);
-      else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) fecha();
+      var t = e.changedTouches[0];
+      var agora = Date.now();
+      var parado = Math.abs(t.clientX - x0) < 12 && Math.abs(t.clientY - y0) < 12;
+      // Toque duplo: amplia no ponto tocado; de novo, volta.
+      if (parado && agora - ultimoToque < 320 && Math.abs(t.clientX - ultimoX) < 30 && Math.abs(t.clientY - ultimoY) < 30) { ultimoToque = 0; alterna(t.clientX, t.clientY); return; }
+      if (parado) { ultimoToque = agora; ultimoX = t.clientX; ultimoY = t.clientY; return; }
+      if (!arrasto) gesto(t.clientX - x0, t.clientY - y0);
+      arrasto = null;
     });
-    dlg.addEventListener('pointercancel', function () { toque = false; });
+    dlg.addEventListener('touchcancel', function () { toque = false; pinca = null; arrasto = null; });
+    var mouse = false;
+    dlg.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse' && !controle(e.target)) { mouse = true; x0 = e.clientX; y0 = e.clientY; arrasto = escala > 1 ? { x: x0, y: y0, tx: tx, ty: ty } : null; } });
+    dlg.addEventListener('pointermove', function (e) { if (mouse && arrasto) aplica(escala, arrasto.tx + e.clientX - arrasto.x, arrasto.ty + e.clientY - arrasto.y); });
+    dlg.addEventListener('pointerup', function (e) { if (!mouse) return; mouse = false; if (!arrasto) gesto(e.clientX - x0, e.clientY - y0); arrasto = null; });
+    // O celular também gera um clique duplo de mouse depois do toque duplo: ignorado.
+    img.addEventListener('dblclick', function (e) { if (Date.now() - fimDoToque > 800) alterna(e.clientX, e.clientY); });
+    dlg.addEventListener('wheel', function (e) {
+      if (controle(e.target)) return;
+      e.preventDefault();
+      var nova = Math.min(4, Math.max(1, escala * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      var k = nova / escala, cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      if (nova === 1) aplica(1, 0, 0); else aplica(nova, tx * k + (e.clientX - cx) * (1 - k), ty * k + (e.clientY - cy) * (1 - k));
+    }, { passive: false });
+    img.addEventListener('dragstart', function (e) { e.preventDefault(); });
     window.addEventListener('popstate', function () { if (dlg.open && empurrou) { empurrou = false; fechaJa(); } });
   }
   function src(id, w) { return '/f/' + encodeURIComponent(id) + '/' + w; }
+  // Aplica o zoom; a foto não sai da tela. Ampliada, pede a versão maior.
+  function aplica(e, x, y) {
+    escala = e;
+    var mx = (escala - 1) * window.innerWidth / 2, my = (escala - 1) * window.innerHeight / 2;
+    tx = Math.max(-mx, Math.min(mx, x)); ty = Math.max(-my, Math.min(my, y));
+    img.style.transform = escala > 1 ? 'translate(' + tx + 'px,' + ty + 'px) scale(' + escala + ')' : '';
+    if (escala > 1.3 && img.sizes !== '300vw') img.sizes = '300vw';
+    dlg.classList.toggle('vz-zoom', escala > 1);
+  }
+  function alterna(x, y) {
+    if (escala > 1) { aplica(1, 0, 0); return; }
+    var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    aplica(2.5, (cx - x) * 1.5, (cy - y) * 1.5);
+  }
   function vai(k) {
     if (k < 0 || k >= lista.length) return;
     i = k;
     var f = lista[i];
     img.classList.add('carregando');
+    aplica(1, 0, 0);
     img.srcset = LARGURAS.map(function (w) { return src(f.id, w) + ' ' + w + 'w'; }).join(', ');
     img.sizes = '100vw';
     img.src = src(f.id, 1600);
@@ -732,7 +806,7 @@ export const BUSCA_CSS = `.bf{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1
 /** O campo da busca (o script tira o `hidden`; sem JS, nada aparece). */
 export function buscaHTML() {
   return `<form class="bf" id="bf-form" role="search" hidden>
-      <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Ex.: 10, bolo, palco" aria-label="Procurar nas fotos por número, palavra ou coisa">
+      <input type="search" id="bf-q" name="q" maxlength="120" enterkeyhint="search" autocomplete="off" placeholder="Procurar nas fotos" aria-label="Procurar nas fotos por número, palavra ou coisa">
       <button type="submit">Procurar</button>
       <span class="bf-dica">Número da camisa, palavra de uma faixa ou uma coisa. Ou toque num atalho:</span>
       <span class="bf-sug">${['jogo', 'comida', 'palco', 'bola', 'fantasia', 'bolo'].map(t => `<button type="button" data-bf="${t}">${t}</button>`).join('')}</span>

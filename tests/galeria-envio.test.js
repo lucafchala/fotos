@@ -220,10 +220,13 @@ describe('a página do álbum', () => {
 
   it('com pasta de envio: a dica nova, o diálogo e o script; o botão continua link para a pasta do álbum', () => {
     const h = pagina();
-    expect(h).toContain('<p class="al-dica">Toque em <b>Mandar suas fotos</b> e escolha o evento.</p>');
+    // v3.8.7: a dica saiu da abertura (a janela de envio explica); o link continua.
+    expect(h).not.toContain('Toque em <b>Mandar suas fotos</b>');
+    // Em destaque: botão ao lado do principal (v3.8.7).
+    expect(h).toMatch(/<div class="al-btns">.*<a class="al-btn al-b2 al-mandar" href="https:\/\/drive.google.com\/drive\/folders\/[^"]+" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos"><svg[^>]*>.*?<\/svg>Mandar suas fotos<\/a><\/div>/s);
     expect(h).toContain('<dialog class="rs al-env" id="al-env" aria-labelledby="al-env-t" data-slug="entrenos2026">');
     expect(h).toContain(`<script nonce="N">${SCRIPT_ENVIO}</script>`);
-    expect(h).toContain(`href="https://drive.google.com/drive/folders/${RAIZ}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">Mandar suas fotos</a>`);
+    expect(h).toContain(`href="https://drive.google.com/drive/folders/${RAIZ}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos"><svg`);
     expect(h).toContain('Fazer upload');
   });
 
