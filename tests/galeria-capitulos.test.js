@@ -176,7 +176,7 @@ describe('o índice', () => {
     const h = await html('/galeria/formatura');
     expect(chamadas.length).toBe(n); // a lista de capítulos também veio do cache
     expect(h).toContain('3 fotos');
-    expect(h).toContain('/d/FOTO_E1_000001=w480');
+    expect(h).toContain('/f/FOTO_E1_000001/480');
     const resumo = await lerResumo(RAIZ);
     expect(Object.values(resumo).map(r => r.n)).toEqual([3]);
   });
@@ -190,7 +190,7 @@ describe('o índice', () => {
     limpaCacheDrive();
     const h = await html('/galeria/formatura');
     expect(h).not.toContain('FOTO_E1_000001');
-    expect(h).toContain('/d/FOTO_E2_000001=w480');
+    expect(h).toContain('/f/FOTO_E2_000001/480');
   });
 
   it('visitante: sem a faixa do dono; dono vê a faixa e "Atualizar agora" relê e volta ao endereço limpo', async () => {

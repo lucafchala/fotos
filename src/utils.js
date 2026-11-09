@@ -1,5 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
-import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM } from './config.js';
+import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM, EMAIL_COTA_DIA } from './config.js';
 import { FONTS } from './content/fonts.js';
 
 /**
@@ -36,6 +36,7 @@ import { FONTS } from './content/fonts.js';
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
  *   PREVIA_EMAIL?: string,
+ *   FOTOS_R2?: R2Bucket,
  * }} Env
  */
 
@@ -1285,6 +1286,20 @@ export function fontPreloadHTML() {
 // de uma vez (contra uma só na página de projeto), então é aqui que o
 // preconnect importa mais. Sem `crossorigin`, ao contrário da fonte: <img>
 // busca em modo não-CORS.
+/**
+ * Navegação fluida nas páginas do álbum (v3.8.3): a troca de página com uma
+ * transição curta (View Transitions, sem JS) e o prefetch da página que a
+ * pessoa já está tocando ou com o mouse em cima ("moderate": hover de 200 ms
+ * ou toque). Só "prefetch" (baixa o HTML, não executa): a contagem de
+ * aberturas ignora "Sec-Purpose: prefetch" (contaAberturaDaGaleria).
+ * @param {string} nonce
+ */
+export function navegacaoFluidaHTML(nonce) {
+  const regras = { prefetch: [{ where: { and: [{ href_matches: '/*' }, { not: { href_matches: '/api/*' } }, { not: { href_matches: '/dashboard*' } }, { not: { href_matches: '*/baixar/*' } }, { not: { href_matches: '/f/*' } }, { not: { href_matches: '/sair' } }] }, eagerness: 'moderate' }] };
+  return `<style>@view-transition{navigation:auto}@media (prefers-reduced-motion:reduce){@view-transition{navigation:none}}</style>
+  ${nonce ? `<script type="speculationrules" nonce="${escape(nonce)}">${JSON.stringify(regras)}</script>` : ''}`;
+}
+
 export function photoPreconnectHTML() {
   return '<link rel="preconnect" href="https://lh3.googleusercontent.com">';
 }
@@ -2297,12 +2312,29 @@ export function corpoResend(env, dados) {
   return JSON.stringify(corpo);
 }
 /**
+ * O teto de e-mails do site inteiro por dia (v3.8.3): o Resend grátis manda
+ * até 100 por dia. Cada envio gasta uma ficha de um balde de EMAIL_COTA_DIA
+ * (que se recompõe aos poucos ao longo do dia). Sem ficha, o e-mail não sai e
+ * o caso fica no registro de degradações (o pedido de remoção continua no
+ * painel). Os alertas de login e de varredura ficam de fora: são de segurança
+ * e já têm trava própria.
+ * @param {Env} env
+ */
+export async function cotaDeEmail(env) {
+  if (!env.RATELIMIT) return true;
+  const ficha = await takeToken(env, 'global', 'email-dia', EMAIL_COTA_DIA);
+  if (!ficha.ok) noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_COTA_DIA.capacity} e-mails por dia foi atingido; o resto fica no painel`);
+  return ficha.ok;
+}
+
+/**
  * @param {Env} env
  * @param {Pedido} req
  */
 export async function sendRemovalEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
+  if (!(await cotaDeEmail(env))) return false;
 
   const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' })[req.method] || req.method;
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
@@ -2370,6 +2402,7 @@ export async function sendRemovalEmail(env, req) {
 export async function sendResolvedEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
+  if (!(await cotaDeEmail(env))) return false;
 
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
@@ -2412,6 +2445,7 @@ export async function sendResolvedEmail(env, req) {
 export async function sendMantidaEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
+  if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
   const html = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
@@ -2451,6 +2485,7 @@ export async function sendMantidaEmail(env, req) {
 export async function sendModeracaoEmail(env, d) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL || !d.fotos.length) return false;
+  if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
   const escondidas = d.fotos.filter(f => f.escondida).length;
   const linhas = d.fotos.slice(0, 50).map(f => {
@@ -2523,6 +2558,7 @@ export function textoAvisoAutor(tipo, ocultada) {
 export async function sendAutorEmail(env, d) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !d.to) return false;
+  if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
   const { assunto, frase } = textoAvisoAutor(d.tipo, !!d.ocultada);
   const motivos = /** @type {Record<string, string>} */ ({
@@ -2579,6 +2615,7 @@ export async function sendAutorEmail(env, d) {
 export async function sendSumiramEmail(env, d) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !d.to) return false;
+  if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
   const onde = [d.projeto, d.capitulo].filter(Boolean).map(esc).join(' · ');
   const n = d.itens.length;
@@ -2626,6 +2663,7 @@ export async function sendSumiramEmail(env, d) {
 export async function sendSupportEmail(env, { name, email, message }) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey) return false;
+  if (!(await cotaDeEmail(env))) return false;
 
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
 
@@ -2673,6 +2711,7 @@ export async function sendSupportEmail(env, { name, email, message }) {
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
+  if (!(await cotaDeEmail(env))) return false;
   // Trava do próprio isolate ANTES da do KV. A do KV sozinha não segura uma
   // rajada: a leitura que deu `null` fica em cache no colo por até 60 s, então
   // numa onda de 500 (o público de um evento chegando junto) cada requisição
@@ -2854,6 +2893,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
 export async function sendConfirmationEmail(env, req) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !req.email) return false;
+  if (!(await cotaDeEmail(env))) return false;
 
   const esc = escape; // canonical 5-char escaper — never reintroduce the 3-char variant
   const methodLabel = /** @type {Record<string, string>} */ ({ number: 'Número da foto', url: 'Link da foto', upload: 'Arquivo enviado', galeria: 'Pedido pela galeria' })[req.method] || req.method;
@@ -3198,6 +3238,27 @@ export function origemDoAlbum(slug) {
 export function marcaDoAlbum(slug) {
   const a = Object.values(DOMINIOS_DE_ALBUM).find(x => x.slug === slug);
   return a ? { icone: '/icon-entrenos.svg', apple: '/apple-touch-entrenos.png', siteName: `${a.titulo} · ${a.linha}` } : null;
+}
+
+/**
+ * O começo dos links da galeria NESTA página (v3.8.3): no domínio do próprio
+ * álbum, a raiz ("entrenos2026.com/piauifut"); em qualquer outro endereço,
+ * "/galeria/<slug>".
+ * @param {string} slug
+ * @param {string} [host] o host do pedido
+ */
+export function baseDaGaleria(slug, host = '') {
+  const h = String(host || '').toLowerCase().replace(/^www\./, '');
+  return Object.hasOwn(DOMINIOS_DE_ALBUM, h) && DOMINIOS_DE_ALBUM[h].slug === slug ? '' : `/galeria/${slug}`;
+}
+
+/**
+ * O endereço público de um evento do álbum (canonical, cartão de link).
+ * @param {string} slug @param {string} cap
+ */
+export function enderecoDoEvento(slug, cap) {
+  const temDominio = Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug);
+  return temDominio ? `${origemDoAlbum(slug)}/${cap}` : `${origemDoAlbum(slug)}/galeria/${slug}/${cap}`;
 }
 
 /**

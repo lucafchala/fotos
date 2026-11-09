@@ -88,7 +88,7 @@ export function ehAcelerado(e) {
 
 /**
  * @typedef {{ cap: string, id: string, sim: number }} AchadoRosto
- * @typedef {{ tipo: 'ok', resultados: AchadoRosto[] } | { tipo: 'sem-rosto' } | { tipo: 'saiu' } | { tipo: 'sem-indice' }} ResultadoBusca
+ * @typedef {{ tipo: 'ok', resultados: AchadoRosto[], faces?: string[] } | { tipo: 'sem-rosto' } | { tipo: 'saiu' } | { tipo: 'sem-indice' }} ResultadoBusca
  */
 
 /**
@@ -159,7 +159,46 @@ export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
     .then(x => ({ x, fator: s.sim / 100 }), () => null)));
   for (const e of extras) if (e && Array.isArray(e.x.FaceMatches)) junta(e.x.FaceMatches, e.fator);
   const resultados = [...porFoto.values()].sort((a, b) => b.sim - a.sim).slice(0, ROSTO_MAX_RESULTADOS);
-  return { tipo: 'ok', resultados };
+  // As sementes voltam ao aparelho (v3.8.3): são rostos do ÍNDICE DO ÁLBUM
+  // (nunca a selfie) e servem para atualizar "minhas fotos" quando chegam
+  // fotos novas, sem outra selfie (atualizaPorFaces).
+  return { tipo: 'ok', resultados, faces: sementes.map(s => s.id) };
+}
+
+/** O formato do FaceId da Rekognition (UUID). */
+const FACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * "Minhas fotos" atualizada sem selfie nova (v3.8.3): cada rosto guardado no
+ * aparelho (até ROSTO_SEMENTES, vindos de uma busca anterior) procura os
+ * parecidos no índice do álbum. Quem saiu da busca teve esses rostos apagados
+ * do índice: a Rekognition não os acha e nada volta.
+ * @param {import('./aws.js').CredAws} cred
+ * @param {string} slug
+ * @param {unknown} faces
+ * @param {Iterable<string>} ocultas
+ * @param {{ fetch?: typeof fetch }} [opcoes]
+ * @returns {Promise<{ tipo: 'ok', resultados: AchadoRosto[] }>}
+ */
+export async function atualizaPorFaces(cred, slug, faces, ocultas, opcoes = {}) {
+  const c = colecoes(slug);
+  const ids = [...new Set((Array.isArray(faces) ? faces : []).filter(x => typeof x === 'string' && FACE_ID.test(x)))].slice(0, ROSTO_SEMENTES);
+  const fora = new Set(ocultas);
+  /** @type {Map<string, AchadoRosto>} */
+  const porFoto = new Map();
+  const respostas = await Promise.all(ids.map(FaceId => rekognition(cred, 'SearchFaces', { CollectionId: c.principal, FaceId, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR }, opcoes)
+    .catch(e => { if (ehAcelerado(e)) throw e; return null; })));
+  for (const r of respostas) {
+    for (const m of (r && Array.isArray(r.FaceMatches) ? r.FaceMatches : [])) {
+      const alvo = lerIdExterno(m && m.Face && m.Face.ExternalImageId);
+      if (!alvo || fora.has(alvo.id)) continue;
+      const sim = Math.round(Number(m.Similarity) * 10) / 10;
+      if (!(sim >= 0)) continue;
+      const antes = porFoto.get(alvo.id);
+      if (!antes || antes.sim < sim) porFoto.set(alvo.id, { cap: alvo.cap, id: alvo.id, sim });
+    }
+  }
+  return { tipo: 'ok', resultados: [...porFoto.values()].sort((a, b) => b.sim - a.sim).slice(0, ROSTO_MAX_RESULTADOS) };
 }
 
 /**

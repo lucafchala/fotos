@@ -28,6 +28,8 @@ export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;fo
 .rs .rs-dicas{list-style:none;margin:.2rem 0 .6rem;padding:0;display:grid;gap:.3rem}
 .rs .rs-dicas li{font-size:.84rem;padding-left:1.3rem;position:relative}
 .rs .rs-dicas li::before{content:"";position:absolute;left:.15rem;top:.5em;width:.45rem;height:.45rem;border-radius:50%;background:var(--accent)}
+.rs-nova{position:relative;outline:2px solid var(--accent);outline-offset:-2px}
+.rs-nova::after{content:"nova";position:absolute;left:.35rem;top:.35rem;padding:.1rem .45rem;border-radius:999px;background:var(--accent);color:var(--bg-page);font-size:.7rem;font-weight:700}
 .rs-talvez{margin-top:1.6rem;padding-top:1rem;border-top:1px dashed var(--border)}
 .rs-talvez>p{font-size:.85rem;color:var(--text-muted);margin:.2rem 0 .6rem}
 .rs-erro{color:var(--warn-text);min-height:1.2em;margin:.4rem 0}
@@ -175,6 +177,9 @@ export const SCRIPT_ROSTO = `(function () {
   var abrir = document.getElementById('rs-abrir');
   if (!el || !dlg || !abrir || typeof dlg.showModal !== 'function' || !window.fetch || !window.createImageBitmap) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
+  var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).
@@ -205,10 +210,11 @@ export const SCRIPT_ROSTO = `(function () {
       g.fotos.forEach(function (r) {
         var li = document.createElement('li');
         var a = document.createElement('a');
-        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
+        if (r.nova) a.className = 'rs-nova';
         var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -252,8 +258,11 @@ export const SCRIPT_ROSTO = `(function () {
     sc.onerror = function () { tsEstado = 'falhou'; msg('A verificação de segurança não carregou (um bloqueador pode estar impedindo).'); };
     document.head.appendChild(sc);
   }
+  // Quem espera o token (a atualização de "minhas fotos", v3.8.3).
+  var tsEspera = [];
+  function quandoToken(cb) { if (token) cb(); else tsEspera.push(cb); }
   var cbs = {
-    callback: function (t) { token = t; botao(); },
+    callback: function (t) { token = t; botao(); var f = tsEspera; tsEspera = []; f.forEach(function (x) { x(); }); },
     'expired-callback': function () { token = ''; botao(); }
   };
   // Assim que a página abre, o Turnstile já trabalha escondido: quando a pessoa
@@ -375,7 +384,9 @@ export const SCRIPT_ROSTO = `(function () {
   // nunca a selfie) e o endereço ganha #minhas-fotos: abrir uma foto e voltar
   // traz a lista de volta, rolada até a foto que foi aberta (v3.7.5).
   function guarda(j) {
-    var dado = JSON.stringify({ em: Date.now(), j: { resultados: j.resultados || [], semIndice: !!j.semIndice } });
+    // faces: rostos do ÍNDICE do álbum (nunca a selfie), para atualizar a lista
+    // quando chegarem fotos novas sem pedir outra selfie (v3.8.3).
+    var dado = JSON.stringify({ em: Date.now(), j: { resultados: j.resultados || [], semIndice: !!j.semIndice, faces: (j.faces || []).slice(0, 4) } });
     try { sessionStorage.setItem(CHAVE, dado); } catch (e) { /* sem armazenamento: só não volta */ }
     // Guardadas por 30 dias neste aparelho (v3.8.0): "Ver minhas fotos" sem
     // nova selfie. Só os IDs das fotos; "Esquecer" apaga.
@@ -394,8 +405,36 @@ export const SCRIPT_ROSTO = `(function () {
     ver.className = abrir.className.replace('al-b1', 'al-b2').replace('al-rosto', '');
     ver.id = 'rs-minhas';
     ver.textContent = 'Ver minhas fotos (' + guardadas.j.resultados.length + ')';
-    ver.addEventListener('click', function () { var g = salvas(); if (g) mostra(g.j, true); });
+    ver.addEventListener('click', function () {
+      var g = salvas();
+      if (!g) return;
+      mostra(g.j, true);
+      if (g.j.faces && g.j.faces.length && Number(D.idx) > g.em) quandoToken(function () { atualiza(g); });
+    });
     abrir.parentNode.insertBefore(ver, abrir.nextSibling);
+  }
+  // Chegaram fotos ao álbum depois da última busca: procura com os rostos
+  // guardados e junta as novas, marcadas (v3.8.3). Em erro, fica a lista salva.
+  function atualiza(g) {
+    var sub = document.getElementById('rs-res-sub');
+    var antes = sub.textContent;
+    sub.textContent = 'Procurando fotos novas suas…';
+    var hp = document.getElementById('company_website');
+    fetch('/api/rosto/atualizar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: D.slug, faces: g.j.faces, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
+      renova();
+      if (!a || !Array.isArray(a.resultados)) { sub.textContent = antes; return; }
+      var tem = {};
+      g.j.resultados.forEach(function (r) { tem[r.id] = true; });
+      var novas = a.resultados.filter(function (r) { return !tem[r.id]; }).map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, nova: true }; });
+      var j = { resultados: novas.concat(g.j.resultados.map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim }; })), semIndice: false, faces: g.j.faces };
+      mostra(j);
+      document.getElementById('rs-res-sub').textContent = novas.length ? (novas.length === 1 ? '1 foto nova sua desde a última vez, marcada.' : novas.length + ' fotos novas suas desde a última vez, marcadas.') : 'Nenhuma foto nova sua desde a última vez.';
+      var b = document.getElementById('rs-minhas');
+      if (b) b.textContent = 'Ver minhas fotos (' + j.resultados.length + ')';
+    }).catch(function () { sub.textContent = antes; renova(); });
   }
   function restaura() {
     if (location.hash !== '#minhas-fotos') return;
@@ -495,6 +534,9 @@ export const SCRIPT_BUSCA = `(function () {
   var f = document.getElementById('bf-form');
   if (!el || !f || !window.fetch) return;
   var D = JSON.parse(el.textContent || '{}');
+  // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
+  var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).
@@ -525,10 +567,10 @@ export const SCRIPT_BUSCA = `(function () {
       g.fotos.forEach(function (r) {
         var li = document.createElement('li');
         var a = document.createElement('a');
-        a.href = '/galeria/' + encodeURIComponent(D.slug) + (r.cap ? '/' + encodeURIComponent(r.cap) : '') + '#foto=' + encodeURIComponent(r.id);
+        a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         var img = document.createElement('img');
-        img.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(r.id) + '=w360-rw';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);

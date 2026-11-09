@@ -56,6 +56,10 @@ const LISTAGEM = { v: 3, pasta: 'CAP_PIAUIFUT01', em: '2026-11-07T12:00:00.000Z'
   aut: ['Luca F. Chala', 'Mag'], secoes: [secao('2026', 40), secao('2025', 18, 'Dia 1'), secao('2025', 12, 'Dia 2'), secao('2024', 20, 'Dia 1')] };
 
 const NONCE = 'nonceDoCelular123';
+// A transição entre páginas (v3.8.3) é cancelada quando o destino não a tem
+// (aqui, a página vazia do teste; no site, a política de privacidade): o
+// Chrome avisa como erro, sem efeito na tela.
+const TRANSICAO_CANCELADA = /^Transition was aborted because of invalid state/;
 const paginas = [
   ...GALERIA_ESTILOS.map(estilo => ({
     nome: `álbum (${estilo})`,
@@ -142,11 +146,11 @@ for (const tela of TELAS) {
     const page = await ctx.newPage();
     /** @type {string[]} */
     const erros = [];
-    page.on('pageerror', e => erros.push(String(e.message || e)));
+    page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
     await page.route('**/*', route => {
       const u = route.request().url();
       if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: p.html });
-      if (/googleusercontent\.com|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
       if (/\/api\//.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pastas: [
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2026', url: 'https://drive.google.com/drive/folders/X1' },
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2025', url: 'https://drive.google.com/drive/folders/X2' },
@@ -217,7 +221,7 @@ for (const tela of TELAS) {
   const page = await ctx.newPage();
   /** @type {string[]} */
   const erros = [];
-  page.on('pageerror', e => erros.push(String(e.message || e)));
+  page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
   let tsCarregado = 0;
   let semRosto = false;
   await page.route('**/*', route => {
@@ -232,7 +236,7 @@ for (const tela of TELAS) {
     if (u.includes('/api/rosto/buscar') && semRosto) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Não achei um rosto nessa foto. Tente de frente, com boa luz.' }) });
     if (u.includes('/api/rosto/buscar')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: RES }) });
     if (u.includes('/api/busca?')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultados: RES.slice(0, 2) }) });
-    if (/googleusercontent\.com|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     return route.fulfill({ status: 204, body: '' });
   });
   await page.goto('https://fotos.test/');
@@ -280,6 +284,40 @@ for (const tela of TELAS) {
   registra(/Não achei um rosto/.test(aviso), 'Rosto: a mensagem de erro fica na tela', aviso);
   registra(!erros.length, 'Buscas: sem erro de JS', erros);
   await page.screenshot({ path: `${SAIDA}/390-busca-rosto-de-volta.png` });
+  await ctx.close();
+}
+
+// ---- "Minhas fotos" que se atualiza sozinho (v3.8.3) ----
+// A busca salva é de antes das fotos novas (idx mais novo): "Ver minhas fotos"
+// mostra a lista salva na hora e depois junta as novas, marcadas.
+{
+  const html = galeriaIndiceHTML({ event: /** @type {any} */ (EVENTO), caps, resumo, ocultas: [], dono: false, indexavel: false, nonce: NONCE, rosto: { token: 'tok', idx: Date.now() }, busca: true });
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  /** @type {string[]} */
+  const erros = [];
+  page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
+  const salva = { em: Date.now() - 86400000, j: { resultados: [{ cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }], semIndice: false, faces: ['11111111-2222-3333-4444-555555555555'] } };
+  await page.addInitScript(v => { try { globalThis.localStorage.setItem('rs-res:entrenos2026', v); } catch { /* sem armazenamento */ } }, JSON.stringify(salva));
+  /** @type {any} */
+  let pedido = null;
+  await page.route('**/*', route => {
+    const u = route.request().url();
+    if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    if (u.startsWith('https://challenges.cloudflare.com/')) return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.turnstile={n:0,render:function(el,o){var id=++this.n;setTimeout(function(){o.callback("tok"+id)},300);this["o"+id]=o;return id},reset:function(id){}};' });
+    if (u.includes('/api/rosto/atualizar')) { pedido = JSON.parse(route.request().postData() || '{}'); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: [{ cap: 'gala', id: 'FOTO_ACHADA_002', sim: 92 }, { cap: 'festa-junina', id: 'FOTO_NOVA_00005', sim: 88 }] }) }); }
+    if (/\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    return route.fulfill({ status: 204, body: '' });
+  });
+  await page.goto('https://fotos.test/');
+  await page.waitForTimeout(1500);
+  registra(await page.locator('#rs-minhas').count() === 1, 'Minhas fotos: o botão "Ver minhas fotos" aparece com a busca salva', '');
+  await page.locator('#rs-minhas').click();
+  await page.waitForSelector('#rs-grade a.rs-nova', { timeout: 6000 }).catch(() => {});
+  registra(await page.locator('#rs-grade a').count() === 2 && await page.locator('#rs-grade a.rs-nova[data-id="FOTO_NOVA_00005"]').count() === 1, 'Minhas fotos: a foto nova entra, marcada como nova', await page.locator('#rs-grade a').count());
+  registra(!!pedido && Array.isArray(pedido.faces) && pedido.faces.length === 1 && !('imagem' in pedido), 'Minhas fotos: atualiza só com os rostos guardados, sem selfie', pedido);
+  registra(/1 foto nova sua/.test((await page.locator('#rs-res-sub').textContent()) || ''), 'Minhas fotos: diz quantas fotos novas', await page.locator('#rs-res-sub').textContent());
+  registra(!erros.length, 'Minhas fotos: sem erro de JS', erros);
   await ctx.close();
 }
 

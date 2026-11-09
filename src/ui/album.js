@@ -15,8 +15,9 @@
 // As capas e as contagens vêm do RESUMO dos capítulos (drive.js), como os
 // cartões do índice simples: nenhuma listagem a mais.
 
-import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
+import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
 import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
+import { urlFoto } from '../foto-rota.js';
 import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS, BUSCA_CSS } from './indice-comum.js';
 import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM } from '../config.js';
@@ -75,7 +76,7 @@ export function ordemDaLinha(caps, resumo) {
 // das páginas dos eventos (galeria.js). `larguras` em px; `sizes` diz ao
 // navegador quanto da tela a foto ocupa.
 /** @param {string} id @param {number[]} larguras @param {string} sizes */
-const fonteLh3 = (id, larguras, sizes) => `src="${escape(`${urlLh3(id, larguras[Math.min(1, larguras.length - 1)])}-rw`)}" srcset="${escape(larguras.map(w => `${urlLh3(id, w)}-rw ${w}w`).join(', '))}" sizes="${sizes}"`;
+const fonteLh3 = (id, larguras, sizes) => `src="${escape(urlFoto(id, larguras[Math.min(1, larguras.length - 1)]))}" srcset="${escape(larguras.map(w => `${urlFoto(id, w)} ${w}w`).join(', '))}" sizes="${sizes}"`;
 
 /** Acima disto, os eventos do álbum vão para a grade compacta por ano. */
 export const EVENTOS_COMPACTOS = 8;
@@ -125,6 +126,7 @@ const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
  *   restrito: boolean,
  *   indexavel: boolean,
  *   origem: string,
+ *   base?: string,
  *   barraDono: string,
  *   avisoTrunc: string,
  *   botaoRosto: boolean,
@@ -137,7 +139,7 @@ const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 export function albumHTML(p) {
   const { event, titulo, resumo, ocultasSet, restrito, indexavel, origem } = p;
   const slug = String(event.slug || '');
-  const base = `/galeria/${slug}`;
+  const base = typeof p.base === 'string' ? p.base : `/galeria/${slug}`;
   const estilo = GALERIA_ESTILOS.includes(String(event.galeriaEstilo)) ? String(event.galeriaEstilo) : GALERIA_ESTILOS[0];
   const caps = ordemDaLinha(p.caps, resumo);
   // A capa escolhida pelo dono no visualizador ("Usar como capa do evento",
@@ -305,6 +307,7 @@ export function albumHTML(p) {
     ${p.buscaFotos ? BUSCA_CSS : ''}
     ${HONEYPOT_CSS}
   </style>
+  ${navegacaoFluidaHTML(p.nonce || '')}
 </head>
 <body class="al al-${estilo}">
   ${p.barraDono}

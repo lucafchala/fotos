@@ -91,6 +91,10 @@ Worker e a opção estar marcada no projeto.
   - a segunda procura em `fotos-<slug>`, com semelhança mínima de 70% (`ROSTO_LIMIAR_BUSCA`, v3.8.2; era 80% e, até a 3.7.3, 90%: o dono prefere, na dúvida, mostrar a foto) e sem filtro de qualidade na selfie. De 70% a 80% a foto aparece à parte, em "Talvez seja você";
   - até 4 sementes (achados com 95% ou mais, de fotos diferentes) procuram os rostos parecidos com elas (`SearchFaces`, 85%). O que acham entra com a semelhança multiplicada pela da semente, abaixo dos achados diretos;
   - o resultado sai sem as fotos ocultas.
+- **Atualizar "minhas fotos"** (`POST /api/rosto/atualizar`, v3.8.3):
+  - o aparelho guarda, junto com a lista, até 4 rostos **do índice do álbum** que a busca achou (as sementes, nunca a selfie);
+  - quando o índice recebeu fotos depois da busca (`rosto-novas:<slug>` no KV, gravado pelo `/api/busca/indexar`), "Ver minhas fotos" manda esses rostos; cada um faz uma `SearchFaces` (80%) e as fotos novas voltam marcadas;
+  - mesmo portão da busca (token do formulário, aceite, limite por IP, Turnstile); quem saiu teve esses rostos apagados do índice, então nada volta.
 - **Sair** (`POST /api/rosto/sair`):
   - o rosto vai para `fotos-<slug>-sair`, guardado com o consentimento da pessoa e só para isso;
   - todo rosto com 65% de semelhança ou mais é apagado do índice do álbum (sempre abaixo da régua mais baixa da busca, 70%: o que a busca acharia, a saída apaga).
