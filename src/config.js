@@ -421,6 +421,9 @@ export const GALERIA_CREDITOS_EMAIL_MAX = 120;
 //    de sempre ("o fotógrafo vai analisar"). Nada de erro;
 //  - depois desses 200: 429 com o e-mail de privacidade — só um robô chega aqui, e o
 //    e-mail do dono tem de ser pesado de ler.
+// Teto de e-mails do site por dia (v3.8.3, sem plano pago no Resend: o grátis
+// manda até 100 por dia). Margem de 10 para o envio manual do dono.
+export const EMAIL_COTA_DIA = { capacity: 90, perHour: 90 / 24 };
 export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 30;
 export const GALERIA_REMOCAO_EMAIL_POR_IP_DIA = 200;
 // Motivos que o formulário da galeria aceita (valor gravado no pedido).
@@ -492,7 +495,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.2';
+export const VERSAO = '3.8.3';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)

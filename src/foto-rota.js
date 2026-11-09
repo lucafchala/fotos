@@ -106,5 +106,59 @@ export async function respondeFoto(request, env, ctx, alvo, deps = {}) {
   }
   const res = new Response(r.body, { headers: cabecalhos(tipo, 'google') });
   if (cache) ctx.waitUntil(cache.put(chave, res.clone()).catch(() => {}));
+  // Com o R2: a primeira vez de cada tamanho também vai para lá (a miniatura
+  // é pequena; a cópia em memória não pesa). Daí em diante o Google não é
+  // mais chamado para ela, nem em outro data center.
+  if (env.FOTOS_R2) {
+    const copia = res.clone();
+    ctx.waitUntil(copia.arrayBuffer()
+      .then(b => env.FOTOS_R2.put(`w/${alvo.id}/${alvo.w}.${alvo.jpeg ? 'jpg' : 'webp'}`, b, { httpMetadata: { contentType: tipo } }))
+      .catch((/** @type {unknown} */ e) => console.error('foto: cópia no R2 falhou', e)));
+  }
   return res;
+}
+
+/** Original maior que isto (vídeo longo) não vai para o R2: fica no Drive. */
+export const R2_ORIGINAL_MAX = 512 * 1024 * 1024;
+
+/**
+ * O ORIGINAL guardado no R2 (o "Baixar" da galeria), se existir.
+ * @param {{ FOTOS_R2?: any }} env @param {string} id
+ * @returns {Promise<{ body: ReadableStream | null, size: number, tipo: string } | null>}
+ */
+export async function originalDoR2(env, id) {
+  if (!env.FOTOS_R2) return null;
+  try {
+    const o = await env.FOTOS_R2.get(`o/${id}`);
+    return o ? { body: o.body, size: Number(o.size) || 0, tipo: (o.httpMetadata && o.httpMetadata.contentType) || 'application/octet-stream' } : null;
+  } catch (e) {
+    console.error('baixar: R2 falhou, vai ao Drive', e);
+    return null;
+  }
+}
+
+/**
+ * Copia o original do Drive para o R2, depois de entregar o primeiro download
+ * (v3.8.3). Uma segunda leitura do Drive, direto para o R2: o site não segura
+ * o arquivo na memória (dividir o mesmo corpo entre o visitante e o R2 faria
+ * isso quando o celular é mais lento que o R2).
+ * @param {{ FOTOS_R2?: any }} env
+ * @param {string} id
+ * @param {string} url o endereço do original no Drive (com a chave)
+ * @param {Record<string, string>} headers
+ * @param {number} tamanho Content-Length do Drive
+ * @param {string} tipo
+ * @param {typeof fetch} [f]
+ */
+export async function copiaOriginalParaR2(env, id, url, headers, tamanho, tipo, f = fetch) {
+  if (!env.FOTOS_R2 || !(tamanho > 0) || tamanho > R2_ORIGINAL_MAX) return false;
+  try {
+    const r = await f(url, { headers });
+    if (!r.ok || !r.body) return false;
+    await env.FOTOS_R2.put(`o/${id}`, r.body, { httpMetadata: { contentType: tipo } });
+    return true;
+  } catch (e) {
+    console.error('baixar: cópia do original no R2 falhou', e);
+    return false;
+  }
 }

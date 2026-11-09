@@ -18,6 +18,29 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.3] — ainda não publicada
+
+Site mais rápido e fluido, links curtos, "minhas fotos" que se atualiza sozinho, e-mail dentro do plano grátis e o R2 pronto para ligar.
+
+### Velocidade
+- As fotos passam pelo próprio site: `/f/<id>/<largura>` (`src/foto-rota.js`). A primeira vez de cada tamanho vem do Google; as seguintes saem do cache da Cloudflare (uma semana). Antes, cada miniatura levava de 0,7 a 2 s no Google, e mil pessoas pediam o mesmo arquivo a ele.
+- Larguras numa lista fechada (`FOTO_LARGURAS`): o pedido sobe para a próxima; erro do Google não vira cache nem repassa a página de lá.
+- Transição suave entre as páginas do álbum (View Transitions) e o HTML do evento baixado quando a pessoa encosta no link (speculation rules, "prefetch"; a contagem de aberturas já ignora `Sec-Purpose: prefetch`).
+
+### Links
+- No domínio do álbum, o evento mora em `entrenos2026.com/<evento>`; o endereço longo leva ao curto (301). Canonical e cartão de link também (`baseDaGaleria`, `enderecoDoEvento`).
+- Link de foto curto: `#foto=` com os 10 primeiros caracteres do ID (o ID inteiro só se dois começarem igual). O link antigo continua abrindo.
+
+### Lembrar a pessoa
+- O ano escolhido no filtro fica lembrado por evento, neste aparelho.
+- "Ver minhas fotos": se chegaram fotos ao álbum depois da última busca, procura de novo só com os rostos do índice que a busca anterior achou (nunca a selfie) e marca as novas (`POST /api/rosto/atualizar`, `atualizaPorFaces`). O indexador marca `rosto-novas:<slug>` ao mandar fotos novas.
+
+### E-mail
+- Teto de 90 e-mails por dia no site inteiro (`EMAIL_COTA_DIA`, `cotaDeEmail`), para caber no plano grátis do Resend. Os alertas de login e de varredura ficam de fora. No plano pago do Workers, o pedido de remoção sempre vai ao painel, mesmo quando o e-mail do dia acabou.
+
+### R2 (pronto, desligado até o bucket existir)
+- Com o binding `FOTOS_R2`: a miniatura e o original vão para o R2 na primeira vez que alguém os pede, e daí em diante saem de lá, sem chamar o Google. Original acima de 512 MB (vídeo longo) fica no Drive. Sem o binding, nada muda.
+
 ## [3.8.2] — ainda não publicada
 
 Abertura do álbum mais clara, eventos fáceis de achar, busca pelo rosto mais generosa e o PiauiFut com os anos certos.

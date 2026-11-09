@@ -831,6 +831,11 @@ await cenario('Baixar tudo pelo site e filtro por ano', async () => {
   await espera(p2.page, 400);
   const t2 = (await p2.page.locator('#g-folha-ops .g-op').first().textContent()) || '';
   registra(t2.includes('Baixar as ' + festa.length + ' da tela'), 'Anos: "Baixar tudo" com filtro baixa só o ano', t2);
+  // v3.8.3: o ano escolhido fica lembrado ao voltar ao evento.
+  await p2.page.keyboard.press('Escape');
+  await p2.page.reload();
+  await espera(p2.page, 600);
+  registra(await p2.page.locator('[data-acao="filtro-sec"][data-sec="1"]').getAttribute('aria-pressed') === 'true' && await p2.page.locator('.g-sec:not([hidden])').count() === 1, 'Anos: voltar ao evento reabre no ano escolhido', '');
   registra(p2.estado.erros.length === 0 && p2.estado.csp.length === 0, 'Anos: sem erro de JS nem CSP', [...p2.estado.erros, ...p2.estado.csp]);
   await p2.ctx.close();
 });

@@ -25,7 +25,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -673,6 +673,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
       @starting-style{ .g-folha-c{transform:none} }
     }
   </style>
+  ${navegacaoFluidaHTML(nonce)}
 </head>
 <body>
   ${dono ? `<div class="g-dono">
@@ -1227,6 +1228,12 @@ const SCRIPT = `
   const anosSec = D.secoes.map(function (sec, i) { const m = /^(19|20)[0-9][0-9](?![0-9])/.exec(String(sec.nome || '').trim()); return String(DX.secoes[i].ano || (m ? m[0] : '')); });
   const anosLista = anosSec.filter(function (a, i) { return a && anosSec.indexOf(a) === i; });
   const secoesSaoAnos = D.secoes.length > 1 && anosSec.every(Boolean) && anosLista.length > 1;
+  // O ano escolhido fica lembrado neste aparelho (v3.8.3): voltar ao evento
+  // reabre no mesmo ano. Quem chega por link de foto (#foto=) vê tudo.
+  const CHAVE_ANO = 'gal-ano:' + D.slug + ':' + D.cap;
+  if (secoesSaoAnos && !/^#foto=/.test(location.hash)) {
+    try { const a = localStorage.getItem(CHAVE_ANO); const k = a ? anosLista.indexOf(a) : -1; if (k >= 0) filtroSec = k; } catch (e) { /* sem armazenamento */ }
+  }
   function filtroAtivo() {
     const a = filtroAutor;
     const sc = filtroSec;
@@ -1397,6 +1404,7 @@ const SCRIPT = `
   function ligaFiltroSec(k) {
     const tinhaFoco = !!document.activeElement && /** @type {HTMLElement} */ (document.activeElement).dataset.acao === 'filtro-sec';
     filtroSec = k === filtroSec ? -1 : k;
+    try { if (filtroSec >= 0) localStorage.setItem(CHAVE_ANO, anosLista[filtroSec]); else localStorage.removeItem(CHAVE_ANO); } catch (e) { /* idem */ }
     recalculaVistas();
     montaChips();
     diagramaTudo();
@@ -2911,6 +2919,7 @@ const SCRIPT = `
     sel.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) sel.delete(id); });
     fav.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) fav.delete(id); });
     const doLink = leSelecaoDoLink();
+    if (filtroSec >= 0) recalculaVistas();
     atualizaBarra();
     montaChips();
     diagramaTudo();

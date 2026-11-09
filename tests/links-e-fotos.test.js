@@ -118,3 +118,45 @@ describe('fotos pelo próprio site (/f/)', () => {
     expect(await r2.text()).not.toContain('<html>');
   });
 });
+
+describe('R2 (v3.8.3): cópia na primeira vez, leitura depois', () => {
+  it('miniatura que veio do Google também vai para o R2', async () => {
+    const put = vi.fn(async () => ({}));
+    /** @type {Promise<any>[]} */
+    const pendentes = [];
+    const ctx = { waitUntil(/** @type {Promise<any>} */ p) { pendentes.push(p); } };
+    const f = vi.fn(async () => new Response('IMG', { headers: { 'Content-Type': 'image/webp' } }));
+    const alvo = /** @type {any} */ (lerRotaFoto(`/f/${ID}/480`));
+    const r = await respondeFoto(new Request(`https://x.test/f/${ID}/480`), { FOTOS_R2: { get: async () => null, put } }, ctx, alvo, { fetch: /** @type {any} */ (f), cache: null });
+    expect(await r.text()).toBe('IMG');
+    await Promise.all(pendentes);
+    expect(put).toHaveBeenCalledWith(`w/${ID}/480.webp`, expect.any(ArrayBuffer), { httpMetadata: { contentType: 'image/webp' } });
+  });
+
+  it('original: lê do R2 se houver; copia do Drive direto para o R2 (sem passar pela memória); vídeo enorme fica no Drive', async () => {
+    const { originalDoR2, copiaOriginalParaR2, R2_ORIGINAL_MAX } = await import('../src/foto-rota.js');
+    expect(await originalDoR2({}, ID)).toBeNull();
+    const env = { FOTOS_R2: { get: vi.fn(async (/** @type {string} */ k) => (k === `o/${ID}` ? { body: 'B', size: 5, httpMetadata: { contentType: 'image/jpeg' } } : null)), put: vi.fn(async () => ({})) } };
+    expect(await originalDoR2(env, ID)).toEqual({ body: 'B', size: 5, tipo: 'image/jpeg' });
+    const corpo = new Response('ORIGINAL').body;
+    const f = vi.fn(async () => new Response(corpo, { headers: { 'Content-Length': '8' } }));
+    expect(await copiaOriginalParaR2(env, ID, 'https://drive/x', { A: '1' }, 8, 'image/jpeg', /** @type {any} */ (f))).toBe(true);
+    expect(f).toHaveBeenCalledWith('https://drive/x', { headers: { A: '1' } });
+    expect(env.FOTOS_R2.put).toHaveBeenCalledWith(`o/${ID}`, expect.anything(), { httpMetadata: { contentType: 'image/jpeg' } });
+    expect(await copiaOriginalParaR2(env, ID, 'https://drive/x', {}, R2_ORIGINAL_MAX + 1, 'video/mp4', /** @type {any} */ (f))).toBe(false);
+    expect(await copiaOriginalParaR2(env, ID, 'https://drive/x', {}, 0, 'image/jpeg', /** @type {any} */ (f))).toBe(false);
+  });
+});
+
+describe('teto de e-mails do dia (v3.8.3)', () => {
+  it('90 por dia no site inteiro; depois, não sai', async () => {
+    const { withDurableObjects } = await import('./helpers/do.js');
+    const { cotaDeEmail } = await import('../src/utils.js');
+    const { EMAIL_COTA_DIA } = await import('../src/config.js');
+    const env = withDurableObjects({});
+    let sim = 0;
+    for (let i = 0; i < EMAIL_COTA_DIA.capacity + 5; i++) if (await cotaDeEmail(/** @type {any} */ (env))) sim++;
+    expect(sim).toBe(EMAIL_COTA_DIA.capacity);
+    expect(EMAIL_COTA_DIA.capacity).toBeLessThan(100);
+  });
+});

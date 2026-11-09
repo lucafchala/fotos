@@ -1,4 +1,4 @@
-import { lerRotaFoto, respondeFoto } from './foto-rota.js';
+import { lerRotaFoto, respondeFoto, originalDoR2, copiaOriginalParaR2 } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
@@ -45,7 +45,7 @@ import {
   youtubeIdFrom, youtubeMaisFrom,
 } from './utils.js';
 import { chavePixValida } from './pix.js';
-import { credAws, imagemValida, buscaPorRosto, sairDaBusca, ehAcelerado } from './rosto.js';
+import { credAws, imagemValida, buscaPorRosto, atualizaPorFaces, sairDaBusca, ehAcelerado } from './rosto.js';
 import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto } from './busca.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
@@ -348,6 +348,7 @@ const worker = {
       if (path === '/api/editora/entrar' && method === 'POST') return await handleEditoraEntrar(request, env);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
+      if (path === '/api/rosto/atualizar' && method === 'POST') return await handleRosto(request, env, 'atualizar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
       if (path === '/api/busca' && method === 'GET') return await handleBusca(request, env, url);
       if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
@@ -3478,7 +3479,8 @@ export function buscaRostoAtiva(env, evento, dono = false) {
  * não a contém).
  * @param {Request} request
  * @param {Env} env
- * @param {'buscar' | 'sair'} acao
+ * @param {'buscar' | 'sair' | 'atualizar'} acao `atualizar` (v3.8.3): sem selfie;
+ *   os rostos do índice que a busca anterior devolveu ("minhas fotos" com as novas)
  */
 export async function handleRosto(request, env, acao) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -3499,7 +3501,8 @@ export async function handleRosto(request, env, acao) {
   if (body.aceite !== true) return jsonErr('Marque que você concorda com o uso do seu rosto para esta busca.', 400);
   const slug = body.slug;
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
-  if (!imagemValida(body.imagem)) return jsonErr('Não consegui ler a foto. Tente de novo com outra selfie.', 400);
+  if (acao !== 'atualizar' && !imagemValida(body.imagem)) return jsonErr('Não consegui ler a foto. Tente de novo com outra selfie.', 400);
+  if (acao === 'atualizar' && !(Array.isArray(body.faces) && body.faces.length)) return jsonErr('Nada para atualizar.', 400);
 
   if (acao === 'sair') {
     if (!await checkRateLimit(env, ip, 'rosto-sair', ROSTO_SAIR_POR_IP_DIA, 86400)) {
@@ -3531,13 +3534,19 @@ export async function handleRosto(request, env, acao) {
     // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
     const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
     if (!global.ok) return tooManyRequests(global.retryAfter);
+    if (acao === 'atualizar') {
+      const a = await atualizaPorFaces(cred, slug, body.faces, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
+      const res = jsonOk({ ok: true, resultados: a.resultados });
+      res.headers.set('Cache-Control', 'no-store');
+      return res;
+    }
     // Ninguém saiu deste álbum ainda? Uma chamada paga a menos por busca. Na
     // dúvida (KV fora), consulta — o lado seguro é não mostrar quem saiu.
     let temSair = true;
     try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
     const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
     if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
-    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [] });
+    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [], faces: r.tipo === 'ok' ? r.faces || [] : [] });
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (e) {
@@ -3834,6 +3843,11 @@ export async function handleBuscaIndexar(request, env, ctx) {
   if (!evento) return jsonErr('Projeto não encontrado.', 404);
   const itens = (Array.isArray(body.itens) ? body.itens : []).slice(0, BUSCA_LOTE_MAX).map(itemDaBusca).filter(x => x !== null);
   const remover = [...new Set((Array.isArray(body.remover) ? body.remover : []).filter((/** @type {unknown} */ x) => typeof x === 'string' && /^[A-Za-z0-9_-]{10,200}$/.test(x)))].slice(0, BUSCA_LOTE_MAX);
+  // Chegaram fotos novas ao índice (v3.8.3): a marca que faz "minhas fotos"
+  // se atualizar nos aparelhos de quem já buscou.
+  if (itens.length) {
+    try { await env.FOTOS.put(`rosto-novas:${slug}`, String(Date.now())); } catch (e) { noteDegraded('busca pelo rosto: marca de fotos novas não gravada', String(slug), e); }
+  }
 
   // Quais destas já foram marcadas antes (não esconde de novo).
   /** @type {Set<string>} */
@@ -4690,7 +4704,11 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
   // Quem entrou pela senha da prévia testa as duas buscas antes do lançamento.
   const previa = !dono && !albumLancado(event) && await temPrevia(request, env, event);
-  const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto') } : null;
+  // `idx` (v3.8.3): quando o indexador mandou fotos novas pela última vez. O
+  // aparelho com "minhas fotos" mais antigas que isso atualiza a lista.
+  let idxRosto = 0;
+  if (buscaRostoAtiva(env, event, dono || previa)) { try { idxRosto = Number(await env.FOTOS.get(`rosto-novas:${slug}`, { cacheTtl: 60 })) || 0; } catch { idxRosto = 0; } }
+  const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto'), idx: idxRosto } : null;
   const busca = buscaTextoAtiva(env, event, dono || previa);
   const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname });
   /** @type {Response} */
@@ -4887,6 +4905,9 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // para a fila automática não puxar o arquivo duas vezes. Pede só o primeiro
   // byte (Range) e responde 204; as checagens e o limite por IP são os mesmos.
   const sonda = url.searchParams.get('p') === '1';
+  // Com o R2 (v3.8.3): o original que já foi baixado uma vez sai de lá. O
+  // Google nem é chamado (é ele que trava com muita gente baixando).
+  const doR2 = sonda ? null : await originalDoR2(env, alvoFoto[0]);
   const buscaArquivo = async () => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -4896,8 +4917,11 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
       clearTimeout(timer);
     }
   };
+  /** @type {Response} */
   let up;
-  try {
+  if (doR2) {
+    up = new Response(doR2.body, { headers: { 'Content-Type': doR2.tipo, ...(doR2.size ? { 'Content-Length': String(doR2.size) } : {}) } });
+  } else try {
     up = await buscaArquivo();
   } catch {
     return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
@@ -4954,6 +4978,8 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // já contou). A marca só desliga a contagem: o arquivo servido, o limite por
   // IP e todas as checagens são os mesmos. Só o valor exato "0" vale.
   if (!dono && url.searchParams.get('c') !== '0') bumpCounter(env, ctx || null, `${variante === 'max' ? 'baixar_max' : 'baixar_redes'}:${slug}`);
+  // Primeiro download deste arquivo com o R2 ligado: a cópia vai para lá.
+  if (!doR2 && env.FOTOS_R2 && ctx) ctx.waitUntil(copiaOriginalParaR2(env, alvoFoto[0], alvo, headers, Number(tamanho) || 0, tipo));
   return new Response(up.body, { status: 200, headers: h });
 }
 
@@ -5099,7 +5125,9 @@ export async function handleGaleriaRemocao(request, env, ctx) {
     if (!await checkRateLimit(env, ip, 'galeria-remocao-email', GALERIA_REMOCAO_EMAIL_POR_IP_DIA, 86400)) {
       return jsonErr('Recebemos muitos pedidos deste endereço hoje. Para os próximos, escreva para privacidade@lucafchala.com.', 429);
     }
-    semPainel = true;
+    // No plano pago do Workers (v3.8.3) o KV sobra: o pedido vai ao painel
+    // também, porque o e-mail pode estar no teto do dia (EMAIL_COTA_DIA).
+    semPainel = !planoPago(env);
   }
   if (!(await verifyTurnstile(body.turnstileToken, env))) {
     return jsonErr('Verificação de segurança falhou. Recarregue e tente novamente.', 403);

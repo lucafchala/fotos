@@ -104,7 +104,7 @@ describe('buscaPorRosto', () => {
       ] },
     });
     const r = await buscaPorRosto(CRED, 'album', SELFIE, ['FOTO_OCULTA00003'], { fetch: f });
-    expect(r).toEqual({ tipo: 'ok', resultados: [
+    expect(r).toMatchObject({ tipo: 'ok', resultados: [
       { cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 99.5 }, { cap: 'cap-b', id: 'FOTO_BBBBBBBB02', sim: 95 }, { cap: '', id: 'FOTO_SEMCAP0004', sim: 92 },
     ] });
     // As fotos de 99,5 e 95 viram sementes (a oculta de 99,9 não): duas SearchFaces a mais.
@@ -138,7 +138,7 @@ describe('buscaPorRosto', () => {
       [`SearchFacesByImage ${c.principal}`]: { FaceMatches: [FACE('a:FOTO_AAAAAAAA01', 99.9)] },
       SearchFaces: new Error('ThrottlingException'),
     });
-    expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false })).toEqual({ tipo: 'ok', resultados: [{ cap: 'a', id: 'FOTO_AAAAAAAA01', sim: 99.9 }] });
+    expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false })).toMatchObject({ tipo: 'ok', resultados: [{ cap: 'a', id: 'FOTO_AAAAAAAA01', sim: 99.9 }] });
   });
 
   it('quem saiu da busca não é achado', async () => {
@@ -149,7 +149,7 @@ describe('buscaPorRosto', () => {
 
   it('sem coleção de quem saiu, segue; sem índice do álbum, avisa; sem rosto, avisa', async () => {
     const semSair = awsFalsa({ [`SearchFacesByImage ${c.sair}`]: new Error('ResourceNotFoundException'), [`SearchFacesByImage ${c.principal}`]: { FaceMatches: [] } });
-    expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: semSair.f })).toEqual({ tipo: 'ok', resultados: [] });
+    expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: semSair.f })).toMatchObject({ tipo: 'ok', resultados: [] });
     const semIndice = awsFalsa({ [`SearchFacesByImage ${c.sair}`]: new Error('ResourceNotFoundException'), [`SearchFacesByImage ${c.principal}`]: new Error('ResourceNotFoundException') });
     expect(await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: semIndice.f })).toEqual({ tipo: 'sem-indice' });
     const semRosto = awsFalsa({ SearchFacesByImage: new Error('InvalidParameterException') });
@@ -232,9 +232,25 @@ describe('/api/rosto/buscar e /api/rosto/sair', () => {
     const res = await busca();
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
-    expect(await res.json()).toEqual({ ok: true, saiu: false, semIndice: false, resultados: [{ cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 98 }] });
+    // faces (v3.8.3): o rosto DO ÍNDICE que achou a pessoa (98% vira semente), para atualizar depois sem selfie.
+    expect(await res.json()).toEqual({ ok: true, saiu: false, semIndice: false, resultados: [{ cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 98 }], faces: ['11111111-2222-3333-4444-555555555555'] });
     // Ninguém saiu deste álbum: a coleção de quem saiu nem é consultada.
     expect(awsChamadas.map(c => `${c.op} ${c.corpo.CollectionId}`)).toEqual(['SearchFacesByImage fotos-album', 'SearchFaces fotos-album']);
+  });
+
+  it('atualizar (v3.8.3): sem selfie, só os rostos guardados procuram no índice; sem rosto válido, 400; Turnstile antes da AWS', async () => {
+    await saveEvents(env, [structuredClone(EVENTO)]);
+    const face = '11111111-2222-3333-4444-555555555555';
+    const res = await busca({ imagem: undefined, faces: [face, 'nao-e-uuid', face] }, '/api/rosto/atualizar');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(awsChamadas.map(c => `${c.op} ${c.corpo.FaceId || ''}`)).toEqual([`SearchFaces ${face}`]);
+    expect(awsChamadas[0].corpo.FaceMatchThreshold).toBe(80);
+    expect((await busca({ imagem: undefined, faces: [] }, '/api/rosto/atualizar')).status).toBe(400);
+    awsChamadas = [];
+    turnstileOk = false;
+    expect((await busca({ imagem: undefined, faces: [face] }, '/api/rosto/atualizar')).status).toBe(403);
+    expect(awsChamadas).toEqual([]);
   });
 
   it('depois que alguém sai, toda busca consulta quem saiu', async () => {

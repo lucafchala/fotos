@@ -41,6 +41,15 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
   - `/og-entrenos.jpg`, o cartão de link de 1200×630, sem foto de ninguém. Ele é gerado por `node scripts/og/gera-og-entrenos.mjs` a partir de `scripts/og/entrenos.html`.
 - **Página temporária:** antes do merge, o domínio aponta para o Worker temporário `entrenos-em-breve`, com a mesma página "em breve" colada à mão pelo Cowork. Depois do merge, o Custom Domain passa para o Worker `fotos` (Fase 4 do prompt do Cowork), e o Worker temporário pode ser apagado.
 
+### Links curtos (v3.8.3)
+- O evento mora em `entrenos2026.com/<evento>`; `entrenos2026.com/galeria/entrenos2026/<evento>` leva a ele (301), com a query e o `#foto=` junto.
+- Uma palavra só no caminho que não seja rota do site (`RESERVED_SLUGS`) vira evento; se não existir, a galeria responde 404 como antes.
+- No fotos.lucafchala.com nada muda: `/galeria/entrenos2026/<evento>`.
+
+### Fotos pelo próprio site e o R2 (v3.8.3)
+- As páginas pedem `/f/<id>/<largura>`; o site busca no Google uma vez e guarda no cache da Cloudflare (uma semana).
+- **R2:** com o bucket ligado no `wrangler.toml` (binding `FOTOS_R2`), a miniatura e o original vão para o R2 na primeira vez que alguém os pede e daí em diante saem de lá. Chaves: `w/<id>/<largura>.webp|jpg` e `o/<id>`. Para ligar: criar o bucket no painel da Cloudflare e acrescentar o binding (PR pequeno).
+
 ## Lançamento: nada é público antes do OK do dono
 
 Um álbum está **lançado** (`albumLancado`, em `src/utils.js`) quando está **visível** e **fora do "Em breve"**.

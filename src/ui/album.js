@@ -15,7 +15,7 @@
 // As capas e as contagens vêm do RESUMO dos capítulos (drive.js), como os
 // cartões do índice simples: nenhuma listagem a mais.
 
-import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
+import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
 import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
 import { HONEYPOT_CSS } from '../security.js';
@@ -307,6 +307,7 @@ export function albumHTML(p) {
     ${p.buscaFotos ? BUSCA_CSS : ''}
     ${HONEYPOT_CSS}
   </style>
+  ${navegacaoFluidaHTML(p.nonce || '')}
 </head>
 <body class="al al-${estilo}">
   ${p.barraDono}
