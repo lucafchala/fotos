@@ -232,6 +232,19 @@ Código em `src/busca.js` e `scripts/rosto-indexa.mjs`; guia em [`docs/ROSTO.md`
 
 Antes do lançamento, o controlador pode cadastrar uma senha de prévia. Quem a digita na página "em breve" (o "easter egg") recebe um cookie **essencial** de 30 dias (`previa_<slug>`, HttpOnly, assinado) que abre o álbum só para ver. **Não há cadastro nem dado pessoal**: o cookie não identifica a pessoa, e a senha fica guardada só como resumo (hash com sal). As tentativas são limitadas por IP (contador sem IP em claro, como os demais limites do site).
 
+## 16. Aviso de fotos novas no celular (v3.8.4)
+
+Código em `src/aviso.js`. Só para quem toca em "Avisar quando chegar foto nova" e aceita o pedido de permissão do navegador.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | O endereço de entrega que o navegador cria para o aviso (um link do serviço de notificação) e as duas chaves públicas do navegador que cifram o texto. Sem nome, e-mail ou telefone. Fica no KV da Cloudflare (`aviso:sub:<slug>:<hash>`). |
+| **Titulares** | Quem liga o aviso no álbum. |
+| **Finalidade** | Avisar que chegaram fotos novas no álbum (no máximo um aviso a cada 3 h por álbum). |
+| **Base legal** | Consentimento (art. 7º, I): o aviso só existe depois do toque no botão e da permissão do navegador. |
+| **Retenção** | Até a pessoa desligar (botão ou configuração do navegador), até o serviço de notificação recusar o endereço (apagado no envio seguinte) e, em qualquer caso, até 90 dias depois do fim do álbum. |
+| **Compartilhamento** | O serviço de notificação do navegador da pessoa (Google, Apple, Mozilla ou Microsoft) recebe o aviso **cifrado** (RFC 8291) e o entrega; não lê o texto. |
+
 ---
 
 ## Resumo das transferências internacionais
@@ -243,6 +256,7 @@ Antes do lançamento, o controlador pode cadastrar uma senha de prévia. Quem a 
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 | Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |
+| Serviço de notificação do navegador (Google, Apple, Mozilla, Microsoft) | O aviso de fotos novas, cifrado, para quem ligou | EUA / global | seção 16 |
 | Amazon Web Services (Rekognition) | A selfie da busca (sem guardar), os vetores de rosto do álbum e as miniaturas para ler texto, "coisas" e moderação | **Brasil (sa-east-1)** — empresa dos EUA | seções 12 e 14; RIPD R9 e R10 |
 
 ---

@@ -113,6 +113,8 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
   return `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">Os ${caps.length} eventos</h2>${atalhos}${corpo}</section>`;
 }
 
+const ICONE_SINO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
+
 // Um rosto simples (traço), no botão da busca pelo rosto.
 const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="9.5" cy="10" r=".6" fill="currentColor"/><circle cx="14.5" cy="10" r=".6" fill="currentColor"/><path d="M9 15c1.6 1.3 4.4 1.3 6 0"/></svg>';
 
@@ -207,7 +209,10 @@ export function albumHTML(p) {
   const corteBusca = (p.buscaFotos || '').indexOf('<section class="rs-res" id="bf-res"');
   const buscaTopo = p.buscaFotos && corteBusca > 0 ? p.buscaFotos.slice(0, corteBusca) : (p.buscaFotos || '');
   const buscaRes = p.buscaFotos && corteBusca > 0 ? p.buscaFotos.slice(corteBusca) : '';
-  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${buscaTopo}${dicaEnvio}`;
+  // Aviso de fotos novas no celular (v3.8.4): o script mostra o botão quando
+  // o navegador sabe receber aviso (no iPhone, só com o site na Tela de Início).
+  const avisoHTML = restrito ? '' : `<div class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button><p class="al-aviso-msg" id="av-msg" role="status"></p></div>`;
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${buscaTopo}${dicaEnvio}${avisoHTML}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -293,6 +298,7 @@ export function albumHTML(p) {
   <meta name="theme-color" content="#0f0e0c">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
+  ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
   ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height , ...(marca ? { siteName: marca.siteName } : {}) })}
@@ -570,6 +576,14 @@ a{color:inherit;text-decoration:none}
 .al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
 .al-btns+.bf,.al-btns~.bf{margin-top:1rem;max-width:34rem}
 .al-pol-txt .bf{margin-left:auto;margin-right:auto}
+.al-aviso{margin-top:.9rem;display:grid;gap:.35rem;justify-items:start}
+.al-pol-txt .al-aviso{justify-items:center}
+.al-aviso-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);background:transparent;color:var(--txt2);font:inherit;font-size:.9rem;cursor:pointer}
+.al-aviso-btn svg{width:1.1rem;height:1.1rem;flex:none;color:var(--sol)}
+.al-aviso-btn[aria-pressed="true"]{border-color:var(--sol);color:var(--txt)}
+.al-aviso-btn:disabled{opacity:.6;cursor:default}
+.al-aviso-msg{font-size:.82rem;color:var(--mudo);max-width:34rem}
+.al-aviso-msg:empty{display:none}
 .al-anos{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0 .4rem}
 .al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.88rem}
 @media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}

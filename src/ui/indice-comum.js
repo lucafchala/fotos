@@ -503,6 +503,63 @@ export const SCRIPT_ROSTO = `(function () {
 
 
 // ---------------------------------------------------------------------------
+// Aviso de fotos novas no celular (v3.8.4) — ver src/aviso.js
+// ---------------------------------------------------------------------------
+// Fora de crase, dollar-chave e barra invertida: é JS dentro de template literal.
+export const SCRIPT_AVISO = `(function () {
+  var el = document.getElementById('av');
+  if (!el) return;
+  var btn = document.getElementById('av-btn');
+  var txt = document.getElementById('av-txt');
+  var msg = document.getElementById('av-msg');
+  var slug = el.getAttribute('data-slug');
+  var ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var instalado = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  var temPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (!temPush) {
+    // iPhone fora da Tela de Início: o Safari só manda aviso para o site instalado.
+    if (ios && !instalado) { el.hidden = false; btn.hidden = true; msg.textContent = 'Quer aviso de foto nova no iPhone? Toque em Compartilhar, depois em "Adicionar à Tela de Início", e abra o álbum pelo ícone.'; }
+    return;
+  }
+  el.hidden = false;
+  var reg = null;
+  function estado(on) { txt.textContent = on ? 'Avisos de foto nova ligados · Desligar' : 'Avisar quando chegar foto nova'; btn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  function chave(b64) {
+    var s = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+    var u = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+    return u;
+  }
+  function post(rota, corpo) { return fetch(rota, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }); }
+  function registra() { return reg ? Promise.resolve(reg) : navigator.serviceWorker.register('/sw.js').then(function (r) { reg = r; return r; }); }
+  // O botão já aparece; o estado (ligado ou não) chega quando o registro sai.
+  registra().then(function (r) { return r.pushManager.getSubscription(); }).then(function (s) { estado(!!s); }).catch(function () { /* tenta de novo no toque */ });
+  btn.addEventListener('click', function () {
+    btn.disabled = true; msg.textContent = '';
+    registra().then(function () { return reg.pushManager.getSubscription(); }).then(function (s) {
+      if (s) {
+        return post('/api/aviso/sair', { slug: slug, endpoint: s.endpoint }).then(function () { return s.unsubscribe(); })
+          .then(function () { estado(false); msg.textContent = 'Avisos desligados.'; });
+      }
+      return Notification.requestPermission().then(function (p) {
+        if (p !== 'granted') { msg.textContent = 'O navegador não deixou mandar avisos. Dá para liberar nas configurações do site.'; return null; }
+        return fetch('/api/aviso/chave').then(function (r) { return r.json(); })
+          .then(function (j) { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave(j.chave) }); })
+          .then(function (sub) {
+            var j = sub.toJSON();
+            return post('/api/aviso/inscrever', { slug: slug, sub: { endpoint: j.endpoint, keys: j.keys } }).then(function (r) {
+              if (!r.ok) throw new Error('inscrição');
+              estado(true);
+              msg.textContent = 'Pronto: você recebe um aviso quando chegarem fotos novas.';
+            });
+          });
+      });
+    }).catch(function () { msg.textContent = 'Não deu para ligar os avisos agora. Tente de novo.'; })
+      .then(function () { btn.disabled = false; });
+  });
+})();`;
+
+// ---------------------------------------------------------------------------
 // Busca nas fotos (v3.7): texto lido nas fotos e "coisas" (GET /api/busca)
 // ---------------------------------------------------------------------------
 export const BUSCA_CSS = `.bf{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem;max-width:34rem}

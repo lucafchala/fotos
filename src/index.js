@@ -1,3 +1,4 @@
+import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, SERVICE_WORKER } from './aviso.js';
 import { lerRotaFoto, respondeFoto, originalDoR2, copiaOriginalParaR2 } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
@@ -33,7 +34,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -64,7 +65,7 @@ import {
   EMAIL_CODE_TTL_SECS, EMAIL_CODE_SEND_BUCKET, EMAIL_CODE_PER_ADDRESS_PER_HOUR, EMAIL_CODE_DAILY_CAP,
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
-  DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX,
+  DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
   PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
@@ -296,6 +297,17 @@ const worker = {
       const nonce = generateNonce();
       // PWA assets
       if (path === '/manifest.json' && method === 'GET') return await handleManifest();
+      // Aviso de fotos novas (v3.8.4, src/aviso.js).
+      if (path === '/manifest-album.json' && method === 'GET') return handleManifestDoAlbum(url);
+      if (path === '/sw.js' && method === 'GET') {
+        return new Response(SERVICE_WORKER, { headers: { ...dataSecurityHeaders('text/javascript; charset=utf-8'), 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } });
+      }
+      if (path === '/api/aviso/chave' && method === 'GET') {
+        const res = jsonOk({ chave: (await chaveVapid(env)).publica });
+        res.headers.set('Cache-Control', 'public, max-age=3600');
+        return res;
+      }
+      if ((path === '/api/aviso/inscrever' || path === '/api/aviso/sair') && method === 'POST') return await handleAviso(request, env, path.endsWith('/sair'));
       if (path === '/icon.svg' && method === 'GET') return await handleIcon();
       if (method === 'GET' && Object.hasOwn(ICONES_PNG, path)) return handleIconePng(path);
       if (path === '/og-coming-soon.png' && method === 'GET') return await handleComingSoonOgImage();
@@ -466,6 +478,8 @@ const worker = {
     // Aquecer o álbum que vai ser lançado (v3.7.3, src/aquece.js): a cada
     // execução, no máximo um álbum e um teto de chamadas ao Drive.
     ctx.waitUntil(getEvents(env).then(evs => aqueceAlbuns(env, evs)).catch(e => console.error('aquece falhou', e)));
+    // Aviso de fotos novas no celular (v3.8.4): o que estiver pendente, em lotes.
+    ctx.waitUntil(avisosDoCron(env).catch(e => console.error('aviso falhou', e)));
     if (!ehExecucaoDiaria(event)) return;
     // Carimbo do último disparo diário: o /api/healthz (e o painel de status)
     // detectam um agendamento morto em silêncio — um job parado não emite erro.
@@ -3843,10 +3857,20 @@ export async function handleBuscaIndexar(request, env, ctx) {
   if (!evento) return jsonErr('Projeto não encontrado.', 404);
   const itens = (Array.isArray(body.itens) ? body.itens : []).slice(0, BUSCA_LOTE_MAX).map(itemDaBusca).filter(x => x !== null);
   const remover = [...new Set((Array.isArray(body.remover) ? body.remover : []).filter((/** @type {unknown} */ x) => typeof x === 'string' && /^[A-Za-z0-9_-]{10,200}$/.test(x)))].slice(0, BUSCA_LOTE_MAX);
-  // Chegaram fotos novas ao índice (v3.8.3): a marca que faz "minhas fotos"
-  // se atualizar nos aparelhos de quem já buscou.
+  // Chegaram fotos novas ao índice: a marca que faz "minhas fotos" se
+  // atualizar nos aparelhos de quem já buscou (v3.8.3) e o aviso no celular de
+  // quem pediu (v3.8.4). "Nova" = ainda não estava na busca (uma releitura do
+  // álbum inteiro não vira "3.500 fotos novas").
   if (itens.length) {
-    try { await env.FOTOS.put(`rosto-novas:${slug}`, String(Date.now())); } catch (e) { noteDegraded('busca pelo rosto: marca de fotos novas não gravada', String(slug), e); }
+    try {
+      const ja = await db.prepare(`SELECT foto FROM busca_foto WHERE slug = ? AND foto IN (${itens.map(() => '?').join(',')})`).bind(slug, ...itens.map(i => i.foto)).all();
+      const existentes = new Set((/** @type {any[]} */ (ja.results || [])).map(r => String(r.foto)));
+      const chegaram = itens.filter(i => !existentes.has(i.foto));
+      if (chegaram.length) {
+        await env.FOTOS.put(`rosto-novas:${slug}`, String(Date.now()));
+        await marcaFotosNovas(env, slug, chegaram.map(i => i.cap));
+      }
+    } catch (e) { noteDegraded('fotos novas: marca não gravada', String(slug), e); }
   }
 
   // Quais destas já foram marcadas antes (não esconde de novo).
@@ -5849,4 +5873,88 @@ function notFound() {
 
 function serverError() {
   return errorPage('500', 'Algo deu errado. Tente novamente em instantes.', 500);
+}
+
+// ---------------------------------------------------------------------------
+// Aviso de fotos novas no celular (v3.8.4) — ver src/aviso.js
+// ---------------------------------------------------------------------------
+/**
+ * POST /api/aviso/inscrever { slug, sub: { endpoint, keys: { p256dh, auth } } }
+ * e /api/aviso/sair { slug, endpoint }. Só quem pode ver o álbum se inscreve;
+ * só serviços de entrega conhecidos; teto por IP.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {boolean} sair
+ */
+async function handleAviso(request, env, sair) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const ficha = await takeToken(env, ip, 'aviso', AVISO_INSCRICAO_IP_BUCKET);
+  if (!ficha.ok) return tooManyRequests(ficha.retryAfter);
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const slug = body.slug;
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (sair) {
+    if (!endpointValido(body.endpoint)) return jsonErr('Inscrição inválida.', 400);
+    await desinscreve(env, slug, body.endpoint);
+    return jsonOk({ ok: true });
+  }
+  if (!await podeVerGaleria(request, env, slug)) return jsonErr('Não encontrado.', 404);
+  const evento = (await getEvents(env)).find(e => e.slug === slug);
+  if (!evento || isRestrictedAccess(evento) || !evento.galeriaCapitulos) return jsonErr('Não encontrado.', 404);
+  const sub = body.sub;
+  const chaves = sub && sub.keys;
+  if (!sub || !endpointValido(sub.endpoint) || !chaves || typeof chaves.p256dh !== 'string' || typeof chaves.auth !== 'string'
+    || !/^[A-Za-z0-9_-]{80,100}$/.test(chaves.p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(chaves.auth)) {
+    return jsonErr('Inscrição inválida.', 400);
+  }
+  await inscreve(env, slug, { endpoint: sub.endpoint, keys: { p256dh: chaves.p256dh, auth: chaves.auth } });
+  const res = jsonOk({ ok: true });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/**
+ * O cron dos avisos: só os álbuns com algo pendente leem a lista de eventos.
+ * @param {Env} env
+ */
+async function avisosDoCron(env) {
+  const evs = (await getEvents(env)).filter(e => e.galeriaCapitulos && !isRestrictedAccess(e));
+  const albuns = [];
+  for (const ev of evs) {
+    const tem = (await env.FOTOS.get(`aviso:pendente:${ev.slug}`)) || (await env.FOTOS.get(`aviso:envio:${ev.slug}`));
+    if (!tem) continue;
+    /** @type {Record<string, string>} */
+    let nomes = {};
+    try {
+      const a = await alvoDaGaleria(env, ev, '');
+      if (a.kind === 'ok' && a.caps) nomes = Object.fromEntries(a.caps.caps.map(c => [c.slug, c.nome]));
+    } catch { nomes = {}; }
+    albuns.push({ slug: ev.slug, titulo: String(ev.title || ev.slug), nomes, link: (/** @type {string} */ cap) => (cap ? enderecoDoEvento(ev.slug, cap) : enderecoDoAlbum(ev.slug)) });
+  }
+  return albuns.length ? enviaPendentes(env, albuns) : [];
+}
+
+/**
+ * O manifesto do álbum com domínio próprio (v3.8.4): o iPhone só manda aviso
+ * para o site adicionado à Tela de Início, e isso pede um manifesto.
+ * @param {URL} url
+ */
+function handleManifestDoAlbum(url) {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const a = Object.hasOwn(DOMINIOS_DE_ALBUM, host) ? DOMINIOS_DE_ALBUM[host] : null;
+  const manifest = {
+    name: a ? `${a.titulo} · ${a.linha}` : 'fotos · Luca F. Chala',
+    short_name: a ? a.titulo : 'fotos',
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#0f0e0c',
+    theme_color: '#0f0e0c',
+    icons: [
+      { src: '/apple-touch-entrenos.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
+      { src: '/icon-entrenos.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+    ],
+  };
+  return new Response(JSON.stringify(manifest), { headers: { ...dataSecurityHeaders('application/manifest+json', { store: true }), 'Cache-Control': 'public, max-age=86400' } });
 }

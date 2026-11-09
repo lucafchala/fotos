@@ -18,6 +18,16 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.4] — ainda não publicada
+
+Aviso de fotos novas no celular, sem serviço pago.
+
+- Botão **Avisar quando chegar foto nova** na abertura do álbum. No iPhone, o Safari só manda aviso para o site adicionado à Tela de Início: o botão vira uma explicação de como fazer.
+- Web Push padrão (`src/aviso.js`): a chave do site (VAPID) nasce sozinha no KV; o texto vai cifrado (RFC 8291); só serviços de entrega conhecidos (`AVISO_HOSTS`).
+- Disparo: o indexador manda fotos que ainda não estavam na busca → `aviso:pendente:<slug>` junta por evento; o cron manda no máximo um aviso por álbum a cada 3 h (`AVISO_INTERVALO_MS`), em lotes de 400 (`AVISO_LOTE`), e apaga a inscrição que o serviço recusa (404/410).
+- Rotas: `/sw.js` (só mostra o aviso e abre o link; não intercepta nada), `/manifest-album.json`, `GET /api/aviso/chave`, `POST /api/aviso/inscrever` e `/api/aviso/sair`.
+- Política de privacidade (seção 3.2) e registro de operações (seção 16): consentimento, sem nome nem e-mail, retenção até desligar.
+
 ## [3.8.3] — ainda não publicada
 
 Site mais rápido e fluido, links curtos, "minhas fotos" que se atualiza sozinho, e-mail dentro do plano grátis e o R2 pronto para ligar.
