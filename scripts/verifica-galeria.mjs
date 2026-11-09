@@ -1375,7 +1375,7 @@ const CAPS_IDX = {
     { id: 'CAPVAZIO0000001', rk: '', bruto: 'Ainda sem fotos', nome: 'Ainda sem fotos', slug: 'ainda-sem-fotos' },
   ],
 };
-const RESUMO_IDX = { CAPABERTURA0001: { n: 1, capas: [raiz[0][0]] }, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]] }, CAPGALA00000001: { n: 120, capas: [raiz[2][0]] }, CAPVAZIO0000001: { n: 0, capas: [] } };
+const RESUMO_IDX = { CAPABERTURA0001: { n: 1, capas: [raiz[0][0]] }, CAPCERIMONIA001: { n: 12, capas: [raiz[1][0]] }, CAPGALA00000001: { n: 120, capas: [raiz[2][0]] }, CAPVAZIO0000001: { n: 0, capas: [], z: Date.now() } };
 for (const [nome, viewport, dpr, dono] of /** @type {const} */ ([['visitante 360', { width: 360, height: 780 }, 2, false], ['visitante 390', { width: 390, height: 844 }, 3, false], ['dono 360', { width: 360, height: 780 }, 2, true]])) {
   await cenario(`Índice: ${nome}`, async () => {
     const pagina = galeriaIndiceHTML({ event: /** @type {any} */ ({ ...EVENTO, galeriaCapitulos: true }), caps: CAPS_IDX, resumo: RESUMO_IDX, ocultas: [], dono, indexavel: true, nonce: NONCE });

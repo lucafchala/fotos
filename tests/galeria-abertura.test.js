@@ -211,3 +211,58 @@ describe('campos da apresentação no painel', () => {
     expect(normalizeEventFields({ galeriaRecado: 'x'.repeat(GALERIA_RECADO_MAX + 9) }, base, []).galeriaRecado).toHaveLength(GALERIA_RECADO_MAX);
   });
 });
+
+// v3.8.2: texto antes dos botões; busca junto deles; muitos eventos em grade
+// compacta por ano (com os mesmos links que o indexador lê).
+describe('abertura com muitos eventos (v3.8.2)', () => {
+  const muitos = {
+    ...caps,
+    caps: Array.from({ length: 12 }, (_, i) => ({ id: `CAPMUITOS00000${String(i).padStart(2, '0')}`, rk: '', bruto: `Ev ${i}`, nome: `Ev ${i}`, slug: `ev-${i}` })),
+  };
+  /** @type {Record<string, any>} */
+  const resumo = {};
+  muitos.caps.forEach((c, i) => { resumo[c.id] = { n: i + 1, capas: [`FOTO_M${String(i).padStart(2, '0')}_00000`], p: i < 6 ? [202503, 202503] : [202604, 202604] }; });
+  const h = galeriaIndiceHTML({ event: /** @type {any} */ (EVENTO), caps: muitos, resumo, ocultas: [], dono: false, indexavel: true, nonce: 'N', busca: true });
+
+  it('o texto vem antes dos botões, em todo estilo', () => {
+    for (const galeriaEstilo of GALERIA_ESTILOS) {
+      const p = pagina({ galeriaEstilo, galeriaAbertura: 'Leia isto.' });
+      expect(p.indexOf('<div class="al-intro"><p>Leia isto.</p></div>')).toBeGreaterThan(0);
+      expect(p.indexOf('<div class="al-intro">')).toBeLessThan(p.indexOf('<div class="al-btns">'));
+      expect(p.match(/<div class="al-intro">/g)).toHaveLength(1);
+    }
+  });
+
+  it('o campo de procurar fica logo abaixo dos botões (um só); o resultado, no corpo', () => {
+    expect(h.match(/id="bf-form"/g)).toHaveLength(1);
+    const botoes = h.indexOf('<div class="al-btns">');
+    const campo = h.indexOf('id="bf-form"');
+    expect(campo).toBeGreaterThan(botoes);
+    expect(campo).toBeLessThan(h.indexOf('</header>'));
+    expect(h.indexOf('id="bf-res"')).toBeGreaterThan(h.indexOf('<main'));
+    expect(pagina()).not.toContain('id="bf-form"');
+  });
+
+  it('grade por ano, com atalho de cada ano e os mesmos links dos cartões', () => {
+    expect(h).toContain('<nav class="al-anos" aria-label="Ir para o ano"><a href="#ano-2025">2025</a><a href="#ano-2026">2026</a></nav>');
+    expect(h).toContain('<h3 class="al-ano" id="ano-2025">2025</h3><ol class="al-grade">');
+    expect(h.match(/class="ix-card al-card al-mini"/g)).toHaveLength(12);
+    expect(h).toContain('<a class="ix-card al-card al-mini" href="/galeria/entrenos2026/ev-0" data-cap="ev-0">');
+    expect(h).not.toContain('class="al-tl"');
+    expect(capitulosDoIndice(h, 'entrenos2026')).toHaveLength(12);
+    // Poucos eventos: a linha do tempo de sempre.
+    expect(pagina()).toContain('<ol class="al-tl">');
+  });
+});
+
+// v3.8.2: pasta de ano com subpastas (o PiauiFut) mantém o ano.
+describe('seções com ano no caminho (v3.8.2)', () => {
+  it('"2024 / Dia 1" vira "2024 · Dia 1", ano 2024; o "!" sai do título', async () => {
+    const { nomeDaSecao } = await import('../src/ui/galeria.js');
+    expect(nomeDaSecao({ nome: '2023', caminho: '2023' })).toEqual({ nome: '2023', ano: '2023' });
+    expect(nomeDaSecao({ nome: 'Dia 1', caminho: '2024 / Dia 1' })).toEqual({ nome: '2024 · Dia 1', ano: '2024' });
+    expect(nomeDaSecao({ nome: '!Dia 1', caminho: '2026 / !Dia 1' })).toEqual({ nome: '2026 · Dia 1', ano: '2026' });
+    expect(nomeDaSecao({ nome: 'Dia 1', caminho: 'Dia 1' })).toEqual({ nome: 'Dia 1' });
+    expect(nomeDaSecao({ nome: '', caminho: '' })).toEqual({ nome: '' });
+  });
+});

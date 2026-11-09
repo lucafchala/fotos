@@ -20,7 +20,7 @@ import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
 import { ordemDaLinha } from './ui/album.js';
-import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -4604,13 +4604,17 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const opcoesCsp = listagem && temVideo(listagem) ? { driveFrame: true } : undefined;
   // A faixa com todos os eventos (v3.8.0): os que o índice mostra (o visitante
   // não vê evento que o resumo diz vazio; o atual entra sempre).
-  /** @type {{ slug: string, nome: string }[]} */
+  /** @type {{ slug: string, nome: string, ano?: string }[]} */
   let eventosDaFaixa = [];
   if (alvo.kind === 'ok' && capitulo && alvo.caps) {
     const resumoFaixa = await lerResumo(alvo.raiz.id, env);
     eventosDaFaixa = ordemDaLinha(alvo.caps.caps, resumoFaixa)
-      .filter(c => c.id === capitulo.id || dono || !(resumoFaixa[c.id] && resumoFaixa[c.id].n === 0))
-      .map(c => ({ slug: c.slug, nome: c.nome }));
+      .filter(c => c.id === capitulo.id || dono || !capVazio(resumoFaixa[c.id]))
+      .map(c => {
+        const r = resumoFaixa[c.id];
+        const ano = r && Array.isArray(r.p) && r.p[0] > 0 ? String(Math.floor(r.p[0] / 100)) : '';
+        return ano ? { slug: c.slug, nome: c.nome, ano } : { slug: c.slug, nome: c.nome };
+      });
   }
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,

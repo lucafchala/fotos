@@ -107,8 +107,8 @@ describe('buscaPorRosto', () => {
     expect(r).toEqual({ tipo: 'ok', resultados: [
       { cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 99.5 }, { cap: 'cap-b', id: 'FOTO_BBBBBBBB02', sim: 95 }, { cap: '', id: 'FOTO_SEMCAP0004', sim: 92 },
     ] });
-    // A foto de 99,5 vira semente (a oculta de 99,9 não): uma SearchFaces a mais.
-    expect(chamadas.map(x => `${x.op} ${x.corpo.CollectionId}`)).toEqual([`SearchFacesByImage ${c.sair}`, `SearchFacesByImage ${c.principal}`, `SearchFaces ${c.principal}`]);
+    // As fotos de 99,5 e 95 viram sementes (a oculta de 99,9 não): duas SearchFaces a mais.
+    expect(chamadas.map(x => `${x.op} ${x.corpo.CollectionId}`)).toEqual([`SearchFacesByImage ${c.sair}`, `SearchFacesByImage ${c.principal}`, `SearchFaces ${c.principal}`, `SearchFaces ${c.principal}`]);
     expect(chamadas[1].corpo.Image.Bytes).toBe(SELFIE);
   });
 
@@ -118,12 +118,12 @@ describe('buscaPorRosto', () => {
         { Similarity: 99.2, Face: { FaceId: 'semente-1', ExternalImageId: 'a:FOTO_AAAAAAAA01' } },
         { Similarity: 98.5, Face: { FaceId: 'semente-1b', ExternalImageId: 'a:FOTO_AAAAAAAA01' } },
         { Similarity: 98.1, Face: { FaceId: 'semente-2', ExternalImageId: 'b:FOTO_BBBBBBBB02' } },
-        { Similarity: 98.0, Face: { FaceId: 'nao-vira', ExternalImageId: 'c:FOTO_CCCCCCCC03' } },
+        { Similarity: 94.9, Face: { FaceId: 'nao-vira', ExternalImageId: 'c:FOTO_CCCCCCCC03' } },
       ] },
       SearchFaces: { FaceMatches: [FACE('d:FOTO_DELADO0004', 95), FACE('a:FOTO_AAAAAAAA01', 99)] },
     });
     const r = await buscaPorRosto(CRED, 'album', SELFIE, [], { fetch: f, temSair: false });
-    // Só 2 sementes, de fotos diferentes; quem saiu não é consultado (temSair: false).
+    // Sementes só de fotos diferentes e de 95 para cima; quem saiu não é consultado (temSair: false).
     const buscas = chamadas.filter(x => x.op === 'SearchFaces');
     expect(buscas.map(x => x.corpo.FaceId)).toEqual(['semente-1', 'semente-2']);
     expect(chamadas[0].op).toBe('SearchFacesByImage');
@@ -372,13 +372,16 @@ describe('limiares da busca pelo rosto (v3.7.3: na dúvida, mostrar)', () => {
     const c = await import('../src/config.js');
     expect(c.ROSTO_LIMIAR).toBeLessThanOrEqual(80);
     expect(c.ROSTO_LIMIAR_SAIR).toBeLessThan(c.ROSTO_LIMIAR);
+    // v3.8.2: a busca vai até ROSTO_LIMIAR_BUSCA ("Talvez seja você"); a saída fica abaixo dela também.
+    expect(c.ROSTO_LIMIAR_SAIR).toBeLessThan(c.ROSTO_LIMIAR_BUSCA);
+    expect(c.ROSTO_LIMIAR_BUSCA).toBeLessThan(c.ROSTO_LIMIAR);
     expect(c.ROSTO_SEMENTE_MIN).toBeGreaterThan(c.ROSTO_LIMIAR_SEMENTE);
   });
 
   it('a busca no álbum não descarta selfie de qualidade baixa; o indexador põe todo rosto', async () => {
     const { readFile } = await import('node:fs/promises');
     const rosto = await readFile(new URL('../src/rosto.js', import.meta.url), 'utf8');
-    expect(rosto).toMatch(/CollectionId: c\.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'NONE'/);
+    expect(rosto).toMatch(/CollectionId: c\.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR_BUSCA, QualityFilter: 'NONE'/);
     const idx = await readFile(new URL('../scripts/rosto-indexa.mjs', import.meta.url), 'utf8');
     expect(idx).toContain("const QUALIDADE = 'NONE';");
     expect(idx).toContain('QualityFilter: QUALIDADE');

@@ -12,7 +12,7 @@
 // Ver docs/ROSTO.md (por que a Rekognition, custos, LGPD).
 
 import { rekognition, ErroAws } from './aws.js';
-import { ROSTO_REGIAO_PADRAO, ROSTO_LIMIAR, ROSTO_LIMIAR_SAIR, ROSTO_MAX_RESULTADOS, ROSTO_IMAGEM_MAX_B64, ROSTO_SEMENTES, ROSTO_SEMENTE_MIN, ROSTO_LIMIAR_SEMENTE } from './config.js';
+import { ROSTO_REGIAO_PADRAO, ROSTO_LIMIAR, ROSTO_LIMIAR_BUSCA, ROSTO_LIMIAR_SAIR, ROSTO_MAX_RESULTADOS, ROSTO_IMAGEM_MAX_B64, ROSTO_SEMENTES, ROSTO_SEMENTE_MIN, ROSTO_LIMIAR_SEMENTE } from './config.js';
 
 export { ErroAws };
 
@@ -118,7 +118,8 @@ export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
   let r;
   try {
     // QualityFilter NONE (v3.7.3): selfie escura ou tremida ainda procura.
-    r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'NONE' }, opcoes);
+    // Limiar mais baixo (v3.8.2): o que fica abaixo de ROSTO_LIMIAR vira "Talvez".
+    r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR_BUSCA, QualityFilter: 'NONE' }, opcoes);
   } catch (e) {
     if (semRosto(e)) return { tipo: 'sem-rosto' };
     if (semColecao(e)) return { tipo: 'sem-indice' };
