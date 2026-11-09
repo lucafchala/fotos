@@ -3217,11 +3217,17 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       else if (xPx + 12 + dw <= larg) esq = xPx + 12;
       else {
         esq = Math.max(0, Math.min(larg - dw, xPx - dw / 2));
-        const ys = [r.views[i], r.drive[i]].filter(v => v !== null).map(v => geoY(g, v) * escala);
-        const alto = ys.length ? Math.min(...ys) : 0, baixo = ys.length ? Math.max(...ys) : 0;
+        // Os TRÊS pontos da cruz (a galeria ficava de fora e a dica podia cobri-la).
+        const ys = [r.views[i], r.drive[i], r.galeria[i]].filter(v => v !== null && v !== undefined).map(v => geoY(g, v) * escala);
+        ys.sort((p, q) => p - q);
+        const alto = ys.length ? ys[0] : 0, baixo = ys.length ? ys[ys.length - 1] : 0;
+        // O vão entre dois pontos VIZINHOS (com três pontos, o vão entre o mais
+        // alto e o mais baixo podia ter o do meio dentro).
+        let vao = -1;
+        for (let k = 0; k + 1 < ys.length; k++) if (ys[k + 1] - ys[k] >= dh + 20) { vao = ys[k] + 10; break; }
         if (alto - dh - 10 >= 0) topo = alto - dh - 10;
         else if (baixo + 10 + dh <= alt) topo = baixo + 10;
-        else if (baixo - alto >= dh + 20) topo = alto + 10;
+        else if (vao >= 0) topo = vao;
         else topo = -dh - 8;
       }
       dica.style.transform = 'translate(' + Math.round(esq) + 'px,' + Math.round(topo) + 'px)';

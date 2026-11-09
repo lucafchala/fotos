@@ -27,6 +27,7 @@ Aviso de fotos novas no celular, sem serviço pago.
 - Disparo: o indexador manda fotos que ainda não estavam na busca → `aviso:pendente:<slug>` junta por evento; o cron manda no máximo um aviso por álbum a cada 3 h (`AVISO_INTERVALO_MS`), em lotes de 400 (`AVISO_LOTE`), e apaga a inscrição que o serviço recusa (404/410).
 - Rotas: `/sw.js` (só mostra o aviso e abre o link; não intercepta nada), `/manifest-album.json`, `GET /api/aviso/chave`, `POST /api/aviso/inscrever` e `/api/aviso/sair`.
 - Política de privacidade (seção 3.2) e registro de operações (seção 16): consentimento, sem nome nem e-mail, retenção até desligar.
+- Painel, gráfico de acessos: no celular, a dica podia cobrir o ponto da galeria (a conta de onde pô-la só via visitas e Drive, e o "vão" entre o ponto mais alto e o mais baixo podia ter o do meio dentro). Aparecia só em alguns dias, conforme os números.
 
 ## [3.8.3] — ainda não publicada
 
