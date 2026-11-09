@@ -302,7 +302,7 @@ for (const tela of TELAS) {
   const erros = [];
   page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
   const salva = { em: Date.now() - 86400000, j: { resultados: [{ cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }], semIndice: false, faces: ['11111111-2222-3333-4444-555555555555'] } };
-  await page.addInitScript(v => { try { localStorage.setItem('rs-res:entrenos2026', v); } catch (e) { /* */ } }, JSON.stringify(salva));
+  await page.addInitScript(v => { try { globalThis.localStorage.setItem('rs-res:entrenos2026', v); } catch { /* sem armazenamento */ } }, JSON.stringify(salva));
   /** @type {any} */
   let pedido = null;
   await page.route('**/*', route => {
