@@ -24,6 +24,7 @@ import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
 import { nomeAmigavel } from '../src/nomes.js';
 import { VENDOR } from '../src/content/vendor.js';
 import { adminHtmlSecurityHeaders } from '../src/security.js';
+import { assinadorDeFotos } from '../src/foto-rota.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, EPOCA_CRIADA_MS } from '../src/config.js';
@@ -90,7 +91,16 @@ raiz.forEach((f, i) => {
   REDES.set(f[0], [`IG${f[0]}`, 1080, 1350, i % 2 === 0 ? `${base}.JPG` : f[3], 6_000_000 + i * 100]);
 });
 const NONCE = 'nonceDeTeste123';
-const PAGINA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, redes: REDES });
+// A página como o servidor a monta (v3.8.8): com a assinatura do site no
+// endereço de cada foto (`as` nos dados; src/foto-rota.js). O roteiro confere
+// que TODO pedido de foto sai do navegador com o `k`.
+const SEGREDO_DE_TESTE = 'x'.repeat(40);
+/** @param {Parameters<typeof galeriaHTML>[0]} o */
+async function paginaAssinada(o) {
+  const ids = o.listagem ? o.listagem.secoes.flatMap(sec => sec.fotos.map(f => f[0])) : [];
+  return galeriaHTML({ ...o, assina: await assinadorDeFotos(SEGREDO_DE_TESTE, String(o.event.slug), ids) });
+}
+const PAGINA = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, redes: REDES });
 const PAGINA_ERRO = galeriaHTML({ event: EVENTO, listagem: null, erro: { codigo: 'chave-ausente', mensagem: 'Falta a chave da Drive API (GOOGLE_DRIVE_API_KEY).' }, nonce: NONCE });
 
 // ---- Arquivos de download --------------------------------------------------
@@ -206,7 +216,7 @@ async function abre(o = {}) {
     }, [!!o.semCanShare, !!o.recusaShare]);
   }
   const estado = {
-    lh3: /** @type {{ id: string, w: number, webp: boolean }[]} */ ([]),
+    lh3: /** @type {{ id: string, w: number, webp: boolean, site: boolean, k: string }[]} */ ([]),
     downloads: /** @type {string[]} */ ([]),
     // Todo pedido a /baixar/ (caminho + query), inclusive os recusados com 429.
     pedidos: /** @type {string[]} */ ([]),
@@ -232,7 +242,7 @@ async function abre(o = {}) {
     if (u.host === 'lh3.googleusercontent.com' || fotoSite) {
       const m = fotoSite ? [fotoSite[0], fotoSite[1], fotoSite[2], fotoSite[3] ? '' : '-rw'] : u.pathname.match(/^\/d\/([A-Za-z0-9_-]+)=w(\d+)(-rw)?$/);
       if (!m) return route.fulfill({ status: 404, body: '' });
-      estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3] });
+      estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3], site: !!fotoSite, k: u.searchParams.get('k') || '' });
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
@@ -413,6 +423,9 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   const pedidas = new Set(estado.lh3.map(x => x.id)).size;
   registra(pedidas < TODAS.length, `${nome}: carga preguiçosa (pediu ${pedidas} de ${TODAS.length} miniaturas)`, pedidas);
   registra(estado.lh3.every(x => x.webp), `${nome}: WebP (o navegador decodifica)`, estado.lh3.slice(0, 2));
+  // v3.8.8: a foto vem pelo site, com a assinatura no endereço (sem ela, 404).
+  const semK = estado.lh3.filter(x => !x.site || !/^formatura\.[\w-]{8}$/.test(x.k));
+  registra(estado.lh3.length > 0 && semK.length === 0, `${nome}: todo pedido de foto vai pelo site com a assinatura (k)`, semK.slice(0, 3));
   // Acessibilidade automática (axe) da grade, em dois aparelhos: nome das fotos, contraste, alvos.
   if (/^(Desktop|iPhone)/.test(nome)) await verificaAxe(page, registra, `${nome}: grade (tema claro)`);
   registra(estado.erros.length === 0 && estado.csp.length === 0, `${nome}: sem erro de JS nem mensagem de CSP`, [...estado.erros, ...estado.csp]);
@@ -818,7 +831,7 @@ await cenario('Baixar tudo pelo site e filtro por ano', async () => {
   await ctx.close();
 
   const anos = { ...LISTAGEM, secoes: [{ nome: '2026', caminho: '2026', fotos: raiz }, { nome: '2025', caminho: '2025', fotos: festa }] };
-  const pag = galeriaHTML({ event: EVENTO, listagem: anos, erro: null, nonce: NONCE, redes: REDES });
+  const pag = await paginaAssinada({ event: EVENTO, listagem: anos, erro: null, nonce: NONCE, redes: REDES });
   const p2 = await abre({ pagina: pag });
   const chipsAno = p2.page.locator('[data-acao="filtro-sec"]');
   registra(await chipsAno.count() === 3, 'Anos: "Todos os anos" + um chip por ano', await chipsAno.count());
@@ -992,7 +1005,7 @@ await cenario('Centenas de fotos', async () => {
   });
   for (const f of muitas) POR_ID.set(f[0], f);
   const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
-  const pagina = galeriaHTML({ event: EVENTO, listagem, erro: null, nonce: NONCE });
+  const pagina = await paginaAssinada({ event: EVENTO, listagem, erro: null, nonce: NONCE });
   const { ctx, page, estado } = await abre({ pagina, viewport: { width: 1440, height: 900 } });
   const miniaturas = await page.locator('.g-t').count();
   registra(miniaturas === N, `${N} fotos: todas as miniaturas existem na grade`, miniaturas);
@@ -1017,7 +1030,7 @@ await cenario('Centenas de fotos', async () => {
 await cenario('Ocultar', async () => {
   const JA = pid('RAIZFOTO', 1);
   const ALVO = pid('RAIZFOTO', 0);
-  const pagina = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA], redes: REDES });
+  const pagina = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA], redes: REDES });
   const { ctx, page, estado } = await abre({ pagina, ocultas: [JA] });
   const marcada = await page.evaluate(id => {
     const a = document.querySelector('.g-t[href="#foto=' + id + '"]');
@@ -1060,7 +1073,7 @@ await cenario('Ocultar', async () => {
   if (PRINTS) await cel.page.screenshot({ path: join(PRINTS, 'galeria-ocultar-celular.png') });
   await cel.ctx.close();
 
-  const visit = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES }) });
+  const visit = await abre({ pagina: await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES }) });
   await visit.page.locator('.g-t').first().click();
   await visit.page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(visit.page, 400);
@@ -1071,7 +1084,7 @@ await cenario('Ocultar', async () => {
 
 // ---- 6e. Pedir remoção desta foto (só o visitante) --------------------------
 await cenario('Pedir remoção', async () => {
-  const PAG = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' });
+  const PAG = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' });
   const { ctx, page, estado } = await abre({ pagina: PAG });
   const total0 = await page.locator('.g-t').count();
   const ALVO = raiz[0][0];
@@ -1216,7 +1229,7 @@ await cenario('Pedir remoção', async () => {
 
   // Galeria de uma foto só: depois do pedido ela continua lá e o visualizador não fecha sozinho.
   const UMA = { ...LISTAGEM, total: 1, secoes: [{ nome: '', caminho: '', fotos: [raiz[0]] }] };
-  const solo = await abre({ pagina: galeriaHTML({ event: EVENTO, listagem: UMA, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' }) });
+  const solo = await abre({ pagina: await paginaAssinada({ event: EVENTO, listagem: UMA, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' }) });
   await solo.page.locator('.g-t').first().click();
   await solo.page.waitForSelector('.pswp--open', { timeout: 5000 });
   await solo.page.locator('.g-rem-link').click();
@@ -1262,7 +1275,7 @@ await cenario('Pedir remoção', async () => {
   await esc.ctx.close();
 
   // O dono não tem o link nem o formulário (ele tem o "Ocultar").
-  const donoPag = galeriaHTML({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [], redes: REDES });
+  const donoPag = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [], redes: REDES });
   const d = await abre({ pagina: donoPag });
   await d.page.locator('.g-t').first().click();
   await d.page.waitForSelector('.pswp--open', { timeout: 5000 });
@@ -1288,7 +1301,7 @@ const LISTAGEM_CAP = {
 };
 const EVENTO_CAP = { ...EVENTO, nomesAmigaveis: true, galeriaCapitulos: true };
 const CAP_ATUAL = { slug: 'cerimonia', nome: 'Cerimônia', anterior: { slug: 'abertura', nome: 'Abertura' }, proximo: { slug: 'festa-de-gala', nome: NOME_LONGO } };
-const PAGINA_CAP = galeriaHTML({ event: /** @type {any} */ (EVENTO_CAP), listagem: LISTAGEM_CAP, listagemBruta: LISTAGEM_CAP, capituloNome: 'Cerimônia', capitulo: CAP_ATUAL, erro: null, nonce: NONCE, dono: false, formToken: '' });
+const PAGINA_CAP = await paginaAssinada({ event: /** @type {any} */ (EVENTO_CAP), listagem: LISTAGEM_CAP, listagemBruta: LISTAGEM_CAP, capituloNome: 'Cerimônia', capitulo: CAP_ATUAL, erro: null, nonce: NONCE, dono: false, formToken: '' });
 for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { width: 390, height: 844 }, 3], ['Android 360', { width: 360, height: 780 }, 2]])) {
   await cenario(`Capítulo: ${nome}`, async () => {
     const { ctx, page, estado } = await abre({ pagina: PAGINA_CAP, url: 'https://fotos.test/galeria/formatura/cerimonia', viewport, dpr, toque: true });
@@ -1442,7 +1455,7 @@ const LISTAGEM_MIDIA = {
   v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false,
   total: 3, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: MIDIA_FOTOS }],
 };
-const PAGINA_MIDIA = galeriaHTML({ event: EVENTO, listagem: LISTAGEM_MIDIA, erro: null, nonce: NONCE });
+const PAGINA_MIDIA = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM_MIDIA, erro: null, nonce: NONCE });
 for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { width: 1440, height: 900 }, 1, false], ['iPhone 390', { width: 390, height: 844 }, 3, true]])) {
   await cenario(`Vídeo: ${nome}`, async () => {
     const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, viewport, dpr, toque, driveFrame: true });
@@ -1546,7 +1559,7 @@ await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
     ['NOVASVIDEO_00001', 1920, 1080, 'filme.mp4', 9_000_000, 0, 0, 20, cr(HORA / 2)],
   ]);
   for (const f of NOVAS_FOTOS) POR_ID.set(f[0], /** @type {any} */ (f));
-  const PAGINA_NOVAS = galeriaHTML({
+  const PAGINA_NOVAS = await paginaAssinada({
     event: EVENTO, nonce: NONCE, erro: null,
     listagem: { v: /** @type {3} */ (3), pasta: 'RAIZ_PASTA_0001', em: '2026-10-10T12:00:00.000Z', truncada: false, total: 4, videos: 1, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: NOVAS_FOTOS }] },
   });

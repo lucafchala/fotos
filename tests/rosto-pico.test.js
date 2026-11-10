@@ -42,7 +42,7 @@ beforeEach(async () => {
     const url = new URL(typeof input === 'string' ? input : input.url);
     if (url.host === 'challenges.cloudflare.com') {
       // Como o Turnstile de verdade: cada token vale UMA conferência.
-      const token = String(new URLSearchParams(String(init.body)).get('response') || (init.body instanceof FormData ? init.body.get('response') : ''));
+      const token = String(new URLSearchParams(String(init.body)).get('response') || '');
       const repetido = tokensConferidos.includes(token);
       tokensConferidos.push(token);
       return Response.json(repetido ? { success: false, 'error-codes': ['timeout-or-duplicate'] } : { success: true });

@@ -47,7 +47,9 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
 - No fotos.lucafchala.com nada muda: `/galeria/entrenos2026/<evento>`.
 
 ### Fotos pelo próprio site e o R2 (v3.8.3)
-- As páginas pedem `/f/<id>/<largura>`; o site busca no Google uma vez e guarda no cache da Cloudflare (uma semana).
+- As páginas pedem `/f/<id>/<largura>?k=<álbum>.<assinatura>`; o site busca no Google uma vez e guarda no cache da Cloudflare e no navegador por 4 horas (`FOTO_CACHE_S`; era uma semana até a 3.8.7).
+- **Só fotos de álbum do site (v3.8.8).** O `k` é a assinatura do site para aquela foto naquele álbum (`assinadorDeFotos`, em `src/foto-rota.js`); só as páginas a emitem. Antes de buscar qualquer coisa, a rota confere a assinatura, se o público pode ver o álbum (a regra única, abaixo) e se a foto não está oculta. Fora disso responde 404. Endereço antigo, sem `k`, não funciona mais.
+- **Foto oculta ou removida:** ocultar, "Remover da galeria" e apagar no Drive apagam as cópias da foto no R2. Quem já tinha a foto aberta deixa de vê-la em até 4 horas.
 - **R2:** com o bucket ligado no `wrangler.toml` (binding `FOTOS_R2`), a miniatura e o original vão para o R2 na primeira vez que alguém os pede e daí em diante saem de lá. Chaves: `w/<id>/<largura>.webp|jpg` e `o/<id>`. Para ligar: criar o bucket no painel da Cloudflare e acrescentar o binding (PR pequeno).
 
 ### Aviso de fotos novas no celular (v3.8.4)
@@ -59,15 +61,18 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
 
 Um álbum está **lançado** (`albumLancado`, em `src/utils.js`) quando está **visível** e **fora do "Em breve"**.
 
+Desde a 3.8.8 há **uma regra só** para "o público pode ver este álbum?" (`albumAbertoAoPublico`, em `src/utils.js`), usada pela galeria, pela raiz do domínio, pela home, pelo `/api/recentes`, pelos sitemaps, pelo portão do Drive e pelas fotos (`/f/`). Para o álbum com domínio próprio, **qualquer um dos dois** interruptores fecha: "Em breve" marcado, ou "Visível" desmarcado.
+
 | | Antes do lançamento | Depois |
 |---|---|---|
 | entrenos2026.com | Página "em breve" | A galeria |
 | `/galeria/entrenos2026` | 404 para o público; o dono, logado, vê tudo | Pública |
-| Busca pelo rosto | Só o dono, logado, testa (`buscaRostoAtiva(env, ev, dono)`) | Para todos, se a opção estiver marcada |
+| As fotos (`/f/…`) | 404 para o público, mesmo com o endereço completo; o dono, a editora e quem tem a senha da prévia veem | Públicas |
+| Busca pelo rosto | Só o dono, logado, e quem tem a senha da prévia testam (`buscaRostoAtiva(env, ev, dono)`) | Para todos, se a opção estiver marcada |
 | Destaque no site (faixa, cartão, popup, outros sites) | Nada | Aparece, se **Destaque máximo no site** estiver marcado |
 | Indexador da Amazon | Lê o álbum fechado com `ROSTO_INDEXADOR_TOKEN` | Igual |
 
-> **Cuidado:** "oculto" sozinho (`visible: false`) quer dizer só **não listado**, e quem tem o link da galeria entra. O que fecha o álbum para o público é o **"Em breve"**.
+> **Projeto comum (sem domínio próprio):** "oculto" sozinho (`visible: false`) quer dizer só **não listado**, e quem tem o link da galeria entra; o que fecha as fotos é o **"Em breve"**. Para o álbum com domínio próprio isso mudou na 3.8.8: oculto também fecha (até a 3.8.7, oculto e com "Em breve" desmarcado, ele abria inteiro em `/galeria/<slug>` enquanto a raiz do domínio dizia "em breve").
 
 | Página do projeto (`/entrenos2026`) | 404 para o público (`albumSurpresa`, só álbum com domínio próprio); o dono, logado, vê | Pública |
 | Data marcada | Nunca aparece em página ou API pública, a não ser com **Mostrar contagem regressiva** ligado | — |

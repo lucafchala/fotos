@@ -18,6 +18,17 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.8] — ainda não publicada
+
+Os bloqueios do lançamento, da revisão completa de novembro de 2026.
+
+- **As fotos pelo site só saem para álbum do site.** O endereço `/f/<foto>/<largura>` servia qualquer imagem pública do Google Drive, com o domínio do álbum na frente e uma cópia para sempre no R2, e continuava servindo uma foto oculta ou removida. Agora o endereço leva uma assinatura do site (`k=<álbum>.<assinatura>`), e a rota confere, antes de buscar qualquer coisa: a assinatura, se o público pode ver o álbum e se a foto não está oculta. Fora disso, 404, sem chamar o Google e sem gravar no R2. Os endereços antigos, sem assinatura, param de funcionar (as páginas já saem com os novos).
+- **Foto oculta ou removida sai de verdade.** Ocultar (no visualizador, no painel ou pela moderação), "Remover da galeria" num pedido de remoção e apagar a foto no Drive apagam as cópias dela do R2 (miniaturas e original). O navegador e o cache da Cloudflare guardam a foto por 4 horas, e não mais por 7 dias.
+- **Busca pelo rosto no pico.** Quando há muita gente buscando, a página tenta de novo sozinha; a nova tentativa reenviava a mesma verificação anti-robô, que só vale uma vez, e falhava sempre. Agora cada tentativa pede uma nova. A busca que a Amazon recusa por excesso não gasta mais o teto do dia, e o teto cabe 1.500 pessoas com 3 buscas cada (eram 1.200 buscas). A cota da Amazon (a de hoje e o aumento pedido) fica num lugar só, `ROSTO_AWS_TPS`.
+- **"O público pode ver este álbum?" tem uma resposta só.** A raiz do domínio do álbum, a galeria, a home, o `/api/recentes`, os sitemaps, o portão do Drive e as fotos usavam regras diferentes. Um álbum com domínio próprio marcado como oculto, mas com "Em breve" desmarcado, abria inteiro pelo endereço da galeria; visível e "Em breve", tinha o título na home. Agora, antes do lançamento, ele fica fechado nos dois casos. Projeto comum segue igual: "oculto" é não listado e abre por link direto.
+- **O indexador da busca não expõe mais o álbum.** O repositório é público, e os logs do GitHub Actions também: o indexador imprimia o nome de cada evento e, nas falhas, o identificador da foto. Agora só imprime contagens. O estado dele (a lista de fotos já processadas) saiu do cache do Actions e mora no site, protegido pelo token do indexador.
+- **Uma falha passageira do Google não apaga mais o índice de rostos.** Se uma página do álbum viesse sem a lista de fotos, o indexador entendia que as fotos tinham saído: apagava os rostos e, na execução seguinte, pagava para indexar tudo de novo. Agora uma leitura incompleta não apaga nada.
+
 ## [3.8.7] — ainda não publicada
 
 - **Passar as fotos no celular:** em "minhas fotos" em tela cheia, o iPhone cancelava o gesto sobre a imagem e parecia que só havia uma foto. Agora o deslizar vem dos eventos de toque, a imagem não pode ser arrastada e as setas ‹ › aparecem também no celular.
