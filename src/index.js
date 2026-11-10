@@ -491,6 +491,8 @@ const worker = {
       console.error('consent prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneOldConsent' }).catch(() => {});
     }));
+    // A faxina das cópias de fotos ocultas no R2 (v3.8.8): ver a função.
+    ctx.waitUntil(faxinaDasOcultasNoR2(env).catch(e => noteDegraded('faxina das fotos ocultas no R2 falhou', '', e)));
   },
 };
 
@@ -584,6 +586,28 @@ export async function handleFoto(request, env, ctx, url, path) {
     noteKvFailure('leitura', e, 'conferência de uma foto (/f/)');
     return new Response('Foto indisponível agora.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '10' } });
   }
+}
+
+/**
+ * Uma vez por dia (o cron das 03:00 UTC): apaga do R2 as cópias de TODA foto
+ * que está oculta, em todos os projetos. É a rede de segurança de
+ * `apagaCopiasDasOcultadas`, que roda na hora de ocultar e pode falhar (o R2
+ * fora por um instante), e é o que limpa as cópias de fotos ocultadas antes
+ * da v3.8.8, quando nada as apagava. A foto oculta já não sai pelo site (a
+ * rota confere a lista a cada pedido); isto é para a cópia não ficar guardada.
+ * Custa uma listagem por foto oculta e, quase sempre, nenhuma exclusão.
+ * @param {Env} env
+ * @returns {Promise<number>} quantos objetos foram apagados
+ */
+export async function faxinaDasOcultasNoR2(env) {
+  if (!env.FOTOS_R2) return 0;
+  /** @type {Set<string>} */
+  const ocultas = new Set();
+  for (const e of await getEvents(env)) for (const id of normalizaOcultas(e.fotosOcultas)) ocultas.add(id);
+  if (!ocultas.size) return 0;
+  // `apagaCopiasDaFoto` conta também a chave do original, exista ou não: o
+  // que interessa aqui é só se sobrou miniatura (o que a rota servia).
+  return apagaCopiasDaFoto(env, ocultas);
 }
 
 /**

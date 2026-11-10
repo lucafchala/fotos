@@ -139,7 +139,9 @@ function mede() {
   return { rolaDeLado: document.documentElement.scrollWidth > W + 1, larguraDoc: document.documentElement.scrollWidth, W, vaza: [...new Set(vaza)].slice(0, 12), pequenos: [...new Set(pequenos)].slice(0, 15), zoom, miudo: [...new Set(miudo)].slice(0, 12) };
 }
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH, como nos outros roteiros: onde o Chromium instalado não é o
+// da revisão que este playwright-core espera (as sessões na nuvem, por exemplo).
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 await mkdir(SAIDA, { recursive: true });
 for (const tela of TELAS) {
   for (const p of paginas) {

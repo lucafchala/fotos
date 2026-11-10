@@ -211,6 +211,20 @@ describe('3. foto oculta', () => {
     expect([...r2.objetos.keys()].sort()).toEqual([`o/${F2}`, `w/${F2}/480.webp`]);
   });
 
+  it('a faxina diária apaga as cópias de foto que já estava oculta (ocultada antes desta versão, ou com o R2 fora na hora)', async () => {
+    await saveEvents(env, [{ ...structuredClone(EVENTO), fotosOcultas: [F1] }, { ...structuredClone(EVENTO), id: '2', slug: 'outro', fotosOcultas: [F3] }]);
+    for (const k of [`w/${F1}/480.webp`, `o/${F1}`, `w/${F2}/480.webp`, `w/${F3}/800.jpg`]) await r2.put(k, 'x');
+    const { faxinaDasOcultasNoR2 } = await import('../src/index.js');
+    await faxinaDasOcultasNoR2(env);
+    expect([...r2.objetos.keys()]).toEqual([`w/${F2}/480.webp`]);
+    // Sem foto oculta, nem toca no bucket; sem bucket, nada.
+    await saveEvents(env, [structuredClone(EVENTO)]);
+    r2.apagadas.length = 0;
+    expect(await faxinaDasOcultasNoR2(env)).toBe(0);
+    expect(r2.apagadas).toEqual([]);
+    expect(await faxinaDasOcultasNoR2({ ...env, FOTOS_R2: undefined })).toBe(0);
+  });
+
   it('a rota para de servir a foto oculta, mesmo com a assinatura certa e a cópia no R2', async () => {
     const u = await endereco(F1);
     expect((await pede(u)).status).toBe(200);

@@ -914,7 +914,10 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   (`w/<id>/…`, `o/<id>`); os quatro caminhos que escondem foto passam por
   `apagaCopiasDasOcultadas()` (`src/index.js`), e foto apagada no Drive passa
   por `src/sumiram.js`. O dono vendo uma foto oculta NÃO recria a cópia
-  (`privado: 'nunca'`). O navegador guarda por 4 h (`FOTO_CACHE_S`).
+  (`privado: 'nunca'`). O navegador guarda por 4 h (`FOTO_CACHE_S`). O cron
+  diário repete a limpeza para toda foto oculta (`faxinaDasOcultasNoR2`): é a
+  rede de segurança de quando o R2 falha na hora, e o que limpou as cópias de
+  antes da v3.8.8.
 - **O log do Actions é público.** `scripts/rosto-indexa.mjs` só imprime
   contagens; uma falha entra pelo tipo (`tipoDoErro`), nunca com a mensagem
   crua. O estado dele mora no KV (`rosto-estado:<slug>`, `/api/busca/estado`,
