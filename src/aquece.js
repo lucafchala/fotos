@@ -19,6 +19,7 @@
 
 import { alvoDaGaleria, listaPasta, registraResumo, pastasDeEnvio, DriveError } from './drive.js';
 import { opcoesDaLista } from './sumiram.js';
+import { albumAbertoAoPublico } from './utils.js';
 
 export const AQUECE_A_CADA_MS = 3 * 3600 * 1000;
 export const AQUECE_ANTES_MS = 30 * 60 * 1000;
@@ -35,9 +36,10 @@ export function precisaAquecer(evento, estado, agora) {
   if (!evento || !evento.galeriaCapitulos || !evento.driveUrl) return null;
   const t = typeof evento.lancarEm === 'string' && evento.lancarEm ? Date.parse(evento.lancarEm) : NaN;
   if (Number.isFinite(t) && t > agora && t - agora <= AQUECE_ANTES_MS && (!estado || estado.lancar !== evento.lancarEm)) return 'lancamento';
-  // O ciclo de 3 h é só para o álbum "Em breve" (o que vai ser lançado);
-  // projeto lançado ou apenas oculto não é aquecido.
-  if (evento.comingSoon !== true) return null;
+  // O ciclo de 3 h é só para o álbum ainda fechado ao público (o que vai ser
+  // lançado; a regra é a do site inteiro, utils.js): projeto aberto não é
+  // aquecido.
+  if (albumAbertoAoPublico(evento)) return null;
   if (!estado || !estado.inicio || agora - estado.inicio >= AQUECE_A_CADA_MS) return 'periodico';
   return null;
 }

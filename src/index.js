@@ -34,7 +34,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -568,7 +568,7 @@ async function handleSitemap(env) {
   // X-Robots-Tag na própria página (handleEventPage) — a página continua
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
-  const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
+  const visible = events.filter(e => albumLancado(e) && !isRestrictedAccess(e));
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
@@ -830,7 +830,7 @@ const RECENTES_MAX = 5;
  */
 async function handleRecentes(env) {
   const events = await getEvents(env);
-  const visible = sortEvents(events.filter(e => e.visible !== false && !isRestrictedAccess(e)));
+  const visible = sortEvents(events.filter(e => albumListado(e) && !isRestrictedAccess(e)));
   const galerias = visible
     .filter(e => typeof e.slug === 'string' && e.slug && typeof e.title === 'string' && e.title)
     .slice(0, RECENTES_MAX)
@@ -843,7 +843,7 @@ async function handleRecentes(env) {
       data: typeof e.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : null,
       url: `${SITE_URL}/${encodeURIComponent(e.slug)}`,
       destaque: e.pinned === true,
-      emBreve: e.comingSoon === true,
+      emBreve: !albumAbertoAoPublico(e),
     }));
   return new Response(JSON.stringify({ galerias }), {
     headers: {
@@ -933,7 +933,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted || restricted || event.comingSoon) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (unlisted || restricted || !albumAbertoAoPublico(event)) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
@@ -1923,7 +1923,7 @@ export async function handleTrackDrive(request, env, ctx) {
     noteKvFailure('leitura', e, 'contagem de clique no Drive');
     return jsonOk({ ok: true });
   }
-  if (!event || event.comingSoon) return jsonOk({ ok: true });
+  if (!event || !albumAbertoAoPublico(event)) return jsonOk({ ok: true });
 
   // Sem este limite, um flood sustentado inflaria a métrica à vontade e
   // gastaria a franquia de escrita do Durable Object com um clique falso por
@@ -3321,7 +3321,7 @@ export async function handleDriveLink(request, env, ctx) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return jsonErr('Projeto não encontrado.', 404);
-  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+  if (!albumAbertoAoPublico(event)) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
   // Turnstile prova que existe um browser, mas não PARA QUAL slug o token foi
   // emitido — sem o nonce (assinado no render de /<slug>) um script podia
@@ -3991,7 +3991,7 @@ export async function handleDriveCode(request, env, ctx) {
 
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return jsonErr('Projeto não encontrado.', 404);
-  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+  if (!albumAbertoAoPublico(event)) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
   // Do mais barato ao mais caro de gastar: IP, endereço, teto do dia.
   const porIp = await takeToken(env, ip, 'drive-code', EMAIL_CODE_SEND_BUCKET);
@@ -4288,7 +4288,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
     let ev;
     try {
       ev = (await getEvents(env)).find(e => e.slug === album.slug);
-      existe = albumLancado(ev);
+      existe = albumAbertoAoPublico(ev);
       // A contagem regressiva só com o interruptor ligado no painel: ela
       // revela a data a quem abrir o endereço (v3.5).
       if (ev && !existe && ev.lancarContagem === true && typeof ev.lancarEm === 'string') contagem = ev.lancarEm;
@@ -4526,8 +4526,10 @@ async function podeVerGaleria(request, env, slug) {
   if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return false;
-  // "Em breve": só com a prévia de senha (o easter egg, v3.7) ou a editora.
-  if (event.comingSoon) return (await temPrevia(request, env, event)) || temEditora(request, env, event);
+  // Fechado ao público ("Em breve", ou o álbum com domínio próprio antes do
+  // lançamento — utils.js, albumAbertoAoPublico): só com a prévia de senha (o
+  // easter egg, v3.7) ou a editora.
+  if (!albumAbertoAoPublico(event)) return (await temPrevia(request, env, event)) || temEditora(request, env, event);
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
   if (!isRestrictedAccess(event)) return true;
   // Família/privado: só com o passe que o portão do Drive emite depois da
@@ -4550,7 +4552,7 @@ async function podeVerGaleria(request, env, slug) {
  * @param {Evento} event
  */
 export function galeriaIndexavel(event) {
-  return event.visible !== false && !event.comingSoon && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
+  return albumLancado(event) && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
 }
 
 /**

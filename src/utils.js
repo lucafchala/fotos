@@ -3272,13 +3272,45 @@ export function enderecoDoAlbum(slug) {
   return Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug) ? `${origem}/` : `${origem}/galeria/${slug}`;
 }
 
-// Um álbum está LANÇADO quando o público pode abri-lo: listado (visível) e fora
-// do "Em breve". Antes disso, o domínio do álbum mostra "em breve", o destaque
-// do site não aparece e só o dono (logado) vê a galeria e testa a busca pelo
-// rosto. Lançar é desmarcar "Em breve" e marcar "Visível" no painel.
+// ---------------------------------------------------------------------------
+// "O público pode ver este álbum?" — UMA definição para o site inteiro (v3.8.8)
+// ---------------------------------------------------------------------------
+// Era uma regra escrita em vários lugares, e eles discordavam: a raiz do
+// domínio do álbum olhava "visível E fora do Em breve"; a galeria, só o "Em
+// breve"; a home e o /api/recentes, só o "visível". Um álbum com domínio
+// próprio marcado como oculto, mas com "Em breve" desmarcado, mostrava "em
+// breve" na raiz e abria inteiro em /galeria/<slug>; visível e "Em breve",
+// tinha o título na home. Agora as quatro perguntas abaixo saem daqui, e
+// nenhuma rota decide acesso lendo `comingSoon` ou `visible` por conta própria:
+//
+//   albumAbertoAoPublico  as FOTOS abrem para quem não é dono nem tem a prévia?
+//   albumListado          o álbum aparece nas listas (home, /api/recentes)?
+//   albumLancado          aberto E listado (sitemaps, destaque, busca)
+//   albumSurpresa         domínio próprio ainda fechado: nem o título aparece
+//
+// Projeto comum: "Em breve" fecha as fotos, e "oculto" só tira das listas —
+// segue abrindo por link direto (é o que mantém a prévia enviada a um cliente).
+// Álbum com domínio próprio (DOMINIOS_DE_ALBUM): oculto TAMBÉM é fechado. Ele
+// não tem "prévia por link"; antes do lançamento é surpresa, e quem o vê é o
+// dono, a editora e quem tem a senha da prévia.
+/** @param {string | undefined} slug */
+function temDominioProprio(slug) {
+  return Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug);
+}
+
+/** @param {Evento | undefined | null} e */
+export function albumAbertoAoPublico(e) {
+  if (!e || e.comingSoon) return false;
+  return e.visible !== false || !temDominioProprio(e.slug);
+}
+
+// Um álbum está LANÇADO quando o público pode abri-lo E ele está nas listas:
+// visível e fora do "Em breve". Antes disso, o domínio do álbum mostra "em
+// breve", o destaque do site não aparece e só o dono (logado) vê a galeria e
+// testa a busca pelo rosto. Lançar é desmarcar "Em breve" e marcar "Visível".
 /** @param {Evento | undefined | null} e */
 export function albumLancado(e) {
-  return !!e && e.visible !== false && !e.comingSoon;
+  return albumAbertoAoPublico(e) && /** @type {Evento} */ (e).visible !== false;
 }
 
 // Álbum com domínio próprio (DOMINIOS_DE_ALBUM) ainda não lançado (v3.5): é
@@ -3286,7 +3318,15 @@ export function albumLancado(e) {
 // dono, logado, a vê. Os outros projetos "Em breve" seguem como sempre.
 /** @param {Evento | undefined | null} e */
 export function albumSurpresa(e) {
-  return !!e && Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === e.slug) && !albumLancado(e);
+  return !!e && temDominioProprio(e.slug) && !albumAbertoAoPublico(e);
+}
+
+// Aparece nas listas públicas (a home e o /api/recentes)? Visível e não é
+// surpresa. Um projeto comum em "Em breve" segue listado: o cartão "Em breve"
+// é o aviso de que as fotos estão chegando.
+/** @param {Evento | undefined | null} e */
+export function albumListado(e) {
+  return !!e && e.visible !== false && !albumSurpresa(e);
 }
 
 // Lançamento marcado (v3.5): o painel grava `lancarEm` (ISO, UTC). Chegada a

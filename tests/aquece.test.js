@@ -62,10 +62,17 @@ describe('quando aquecer', () => {
     expect(precisaAquecer(longe, { inicio: AGORA - 60_000 }, AGORA)).toBeNull();
   });
 
-  it('nunca: projeto lançado, só oculto ou sem capítulos', () => {
+  it('nunca: projeto lançado, projeto comum só oculto ou sem capítulos', () => {
     expect(precisaAquecer({ ...ALBUM, comingSoon: false, visible: true }, null, AGORA)).toBeNull();
-    expect(precisaAquecer({ ...ALBUM, comingSoon: false, visible: false }, null, AGORA)).toBeNull();
+    // Projeto comum oculto segue ABERTO por link direto: não é "a lançar".
+    expect(precisaAquecer({ ...ALBUM, slug: 'formatura', comingSoon: false, visible: false }, null, AGORA)).toBeNull();
     expect(precisaAquecer({ ...ALBUM, galeriaCapitulos: false }, null, AGORA)).toBeNull();
+  });
+
+  it('v3.8.8: álbum com domínio próprio só oculto está fechado ao público, e é aquecido como o "Em breve"', () => {
+    // A mesma regra do site inteiro (albumAbertoAoPublico): oculto, com domínio
+    // próprio, é o álbum antes do lançamento.
+    expect(precisaAquecer({ ...ALBUM, comingSoon: false, visible: false }, null, AGORA)).toBe('periodico');
   });
 });
 
