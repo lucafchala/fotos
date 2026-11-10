@@ -154,7 +154,7 @@ for (const tela of TELAS) {
       const u = route.request().url();
       if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: p.html });
       if (u === 'https://fotos.test/sw.js') return route.fulfill({ status: 200, contentType: 'text/javascript', body: SERVICE_WORKER });
-      if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?(\?k=[\w.-]+)?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
       if (/\/api\//.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pastas: [
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2026', url: 'https://drive.google.com/drive/folders/X1' },
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2025', url: 'https://drive.google.com/drive/folders/X2' },
@@ -224,6 +224,9 @@ for (const tela of TELAS) {
 // abre uma foto e volta, rolado até a foto aberta.
 {
   const RES = [{ cap: 'festa-junina', id: 'FOTO_ACHADA_001', sim: 99 }, { cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }, { cap: 'gala', id: 'FOTO_ACHADA_003', sim: 82 }, { cap: 'gala', id: 'FOTO_TALVEZ_004', sim: 74 }];
+  // Desde a v3.8.8 o servidor manda, com cada achado, o `k` do endereço da foto
+  // (o álbum e a assinatura): sem ele a miniatura dá 404 e a lista guardada não vale.
+  for (const r of RES) Object.assign(r, { k: `${EVENTO.slug}.AbCdEf12` });
   const html = paginas[0].html;
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
@@ -244,7 +247,7 @@ for (const tela of TELAS) {
     if (u.includes('/api/rosto/buscar') && semRosto) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'Não achei um rosto nessa foto. Tente de frente, com boa luz.' }) });
     if (u.includes('/api/rosto/buscar')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: RES }) });
     if (u.includes('/api/busca?')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultados: RES.slice(0, 2) }) });
-    if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    if (/googleusercontent\.com|\/f\/[A-Za-z0-9_-]+\/[0-9]+j?(\?k=[\w.-]+)?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     return route.fulfill({ status: 204, body: '' });
   });
   await page.goto('https://fotos.test/');
@@ -263,6 +266,9 @@ for (const tela of TELAS) {
   await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
   registra(await page.locator('#rs-grade a').count() === 4 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
+  // v3.8.8: a miniatura de cada achado sai com o `k` (sem ele a rota das fotos responde 404).
+  const semK = await page.locator('#rs-grade a img').evaluateAll(imgs => imgs.map(i => i.getAttribute('src') || '').filter(u => !/\?k=[\w.-]+$/.test(u)));
+  registra(semK.length === 0, 'Rosto: as miniaturas do resultado levam a assinatura (k)', semK.slice(0, 2));
   const clicada = await page.locator('#rs-grade a').nth(1).getAttribute('data-id');
   // v3.8.6: tocar abre a galeria em tela cheia, com TODAS as fotos do resultado.
   await page.locator('#rs-grade a').nth(1).click();
@@ -363,6 +369,7 @@ for (const tela of TELAS) {
   const erros = [];
   page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
   const salva = { em: Date.now() - 86400000, j: { resultados: [{ cap: 'gala', id: 'FOTO_ACHADA_002', sim: 91 }], semIndice: false, faces: ['11111111-2222-3333-4444-555555555555'] } };
+  for (const r of salva.j.resultados) Object.assign(r, { k: `${EVENTO.slug}.AbCdEf12` });
   await page.addInitScript(v => { try { globalThis.localStorage.setItem('rs-res:entrenos2026', v); } catch { /* sem armazenamento */ } }, JSON.stringify(salva));
   /** @type {any} */
   let pedido = null;
@@ -371,7 +378,7 @@ for (const tela of TELAS) {
     if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
     if (u.startsWith('https://challenges.cloudflare.com/')) return route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.turnstile={n:0,render:function(el,o){var id=++this.n;setTimeout(function(){o.callback("tok"+id)},300);this["o"+id]=o;return id},reset:function(id){}};' });
     if (u.includes('/api/rosto/atualizar')) { pedido = JSON.parse(route.request().postData() || '{}'); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, resultados: [{ cap: 'gala', id: 'FOTO_ACHADA_002', sim: 92 }, { cap: 'festa-junina', id: 'FOTO_NOVA_00005', sim: 88 }] }) }); }
-    if (/\/f\/[A-Za-z0-9_-]+\/[0-9]+j?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    if (/\/f\/[A-Za-z0-9_-]+\/[0-9]+j?(\?k=[\w.-]+)?$|\.(png|jpe?g|webp|svg)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     return route.fulfill({ status: 204, body: '' });
   });
   await page.goto('https://fotos.test/');
