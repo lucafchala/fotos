@@ -1,5 +1,5 @@
 import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, SERVICE_WORKER } from './aviso.js';
-import { lerRotaFoto, respondeFoto, originalDoR2, copiaOriginalParaR2 } from './foto-rota.js';
+import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
@@ -21,7 +21,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha, mesDoEvento } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -263,11 +263,9 @@ const worker = {
     const method = request.method.toUpperCase();
 
     // As fotos pelo próprio site, com cache (v3.8.3, src/foto-rota.js). Antes
-    // de tudo: é a rota mais chamada e não precisa de mais nada.
-    if (method === 'GET' && path.startsWith('/f/')) {
-      const alvoFoto = lerRotaFoto(path);
-      return alvoFoto ? await respondeFoto(request, env, ctx, alvoFoto) : new Response('Não encontrada.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-    }
+    // de tudo: é a rota mais chamada. Desde a v3.8.8 só serve foto de álbum do
+    // site, com o endereço assinado (handleFoto).
+    if (method === 'GET' && path.startsWith('/f/')) return await handleFoto(request, env, ctx, url, path);
 
     // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
     // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js. A
@@ -535,6 +533,94 @@ export default {
     return worker.scheduled(event, env, ctx);
   },
 };
+
+// ---------------------------------------------------------------------------
+// As fotos pelo próprio site: /f/<id>/<largura>?k=<álbum>.<assinatura>
+// ---------------------------------------------------------------------------
+// A conferência que prende a rota aos álbuns do site (v3.8.8; o porquê está no
+// topo de src/foto-rota.js). Tudo aqui acontece ANTES de qualquer leitura do
+// cache, do R2 ou do Google: quem não passa leva o 404 de rota inexistente,
+// e nada é buscado nem gravado.
+/** O 404 da rota das fotos: texto curto, nunca guardado. */
+function fotoNaoEncontrada() {
+  return new Response('Não encontrada.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {URL} url
+ * @param {string} path
+ */
+export async function handleFoto(request, env, ctx, url, path) {
+  const alvo = lerRotaFoto(path);
+  const chave = lerChaveFoto(url.searchParams.get('k'));
+  if (!alvo || !chave) return fotoNaoEncontrada();
+  // 1. A assinatura: só as páginas do site a emitem, para as fotos que listam.
+  // Sem o segredo no Worker ela fica desligada (como o nonce do Drive: o
+  // /api/healthz acusa); o álbum e a foto oculta continuam conferidos.
+  const secret = signingSecret(env);
+  if (secret && !(await assinaturaDaFotoConfere(secret, chave.slug, alvo.id, chave.assinatura))) return fotoNaoEncontrada();
+  try {
+    // 2. O álbum. A lista de projetos vem da memória do isolate (30 s).
+    const evento = (await getEvents(env)).find(e => e.slug === chave.slug);
+    if (!evento) return fotoNaoEncontrada();
+    const oculta = normalizaOcultas(evento.fotosOcultas).includes(alvo.id);
+    const aberto = albumAbertoAoPublico(evento);
+    if (!oculta && aberto) return await respondeFoto(request, env, ctx, alvo);
+    // 3. Foto oculta: só o dono e a editora (o visualizador deles mostra as
+    // ocultas, marcadas). Álbum ainda fechado: também quem tem a prévia —
+    // os mesmos que a galeria deixa entrar (podeVerGaleria).
+    const donoOuEditora = !!(await verifySession(env, request)) || await temEditora(request, env, evento);
+    if (oculta) return donoOuEditora ? await respondeFoto(request, env, ctx, alvo, { privado: 'nunca' }) : fotoNaoEncontrada();
+    if (donoOuEditora || await temPrevia(request, env, evento)) return await respondeFoto(request, env, ctx, alvo, { privado: 'navegador' });
+    return fotoNaoEncontrada();
+  } catch (e) {
+    // KV fora e sem cópia da lista: não dá para saber se a foto pode sair.
+    // Falha FECHADA, com 503 curto (a rota fica fora do try do roteador: uma
+    // miniatura não dispara e-mail de "erro no site").
+    noteKvFailure('leitura', e, 'conferência de uma foto (/f/)');
+    return new Response('Foto indisponível agora.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '10' } });
+  }
+}
+
+/**
+ * Os achados de uma busca (pelo rosto ou por texto) com o `k` de cada foto: o
+ * álbum e a assinatura que o endereço /f/ exige (v3.8.8). A página monta a
+ * miniatura e a foto em tela cheia com ele.
+ * @template {{ id: string }} T
+ * @param {Env} env
+ * @param {string} slug
+ * @param {T[]} achados
+ * @returns {Promise<(T & { k: string })[]>}
+ */
+async function comChaveDaFoto(env, slug, achados) {
+  const assina = await assinadorDeFotos(signingSecret(env), slug, achados.map(a => a.id));
+  return achados.map(a => ({ ...a, k: assina(a.id) }));
+}
+
+/**
+ * As cópias no R2 das fotos que ACABARAM de ser ocultadas (as que estão em
+ * `depois` e não estavam em `antes`): miniaturas e original. Um lugar só para
+ * os quatro caminhos que escondem foto (o olho do visualizador, o desfecho de
+ * um pedido de remoção, a moderação do indexador e o formulário do painel).
+ * Nunca lança: a foto já saiu do site (a rota confere `fotosOcultas` a cada
+ * pedido); o que falhou aqui fica no /api/healthz.
+ * @param {Env} env
+ * @param {unknown} antes
+ * @param {unknown} depois
+ */
+async function apagaCopiasDasOcultadas(env, antes, depois) {
+  const ja = new Set(normalizaOcultas(antes));
+  const novas = normalizaOcultas(depois).filter(id => !ja.has(id));
+  if (!novas.length) return;
+  try {
+    await apagaCopiasDaFoto(env, novas);
+  } catch (e) {
+    noteDegraded('cópia de foto oculta não apagada do R2', `${novas.length} foto(s): a foto já não sai pelo site, mas o arquivo segue no bucket`, e);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Gallery
@@ -1529,6 +1615,8 @@ async function handleUpdateEvent(request, env, path) {
 
   events[idx] = updated;
   await saveEvents(env, events);
+  // Foto ocultada pelo formulário do painel: as cópias dela saem do R2.
+  await apagaCopiasDasOcultadas(env, existing.fotosOcultas, updated.fotosOcultas);
   return jsonOk(updated);
 }
 
@@ -2825,6 +2913,8 @@ async function aplicaDesfechoDaFoto(env, req, desfecho) {
   if (ocultas.length === ocultasAntes.length && pendentes.length === pendentesAntes.length) return true;
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  // "Remover da galeria": além de sair das páginas, as cópias da foto saem do R2.
+  await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
   return true;
 }
 
@@ -3550,7 +3640,7 @@ export async function handleRosto(request, env, acao) {
     if (!global.ok) return tooManyRequests(global.retryAfter);
     if (acao === 'atualizar') {
       const a = await atualizaPorFaces(cred, slug, body.faces, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
-      const res = jsonOk({ ok: true, resultados: a.resultados });
+      const res = jsonOk({ ok: true, resultados: await comChaveDaFoto(env, slug, a.resultados) });
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
@@ -3560,7 +3650,7 @@ export async function handleRosto(request, env, acao) {
     try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
     const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
     if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
-    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [], faces: r.tipo === 'ok' ? r.faces || [] : [] });
+    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? await comChaveDaFoto(env, slug, r.resultados) : [], faces: r.tipo === 'ok' ? r.faces || [] : [] });
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (e) {
@@ -3810,7 +3900,7 @@ export async function handleBusca(request, env, url) {
     noteDegraded('busca nas fotos falhou', String(slug), e);
     return jsonErr('A busca não respondeu agora. Tente de novo em instantes.', 503);
   }
-  const res = jsonOk({ termos, resultados });
+  const res = jsonOk({ termos, resultados: await comChaveDaFoto(env, slug, resultados) });
   res.headers.set('Cache-Control', 'private, max-age=60');
   return res;
 }
@@ -3902,9 +3992,11 @@ export async function handleBuscaIndexar(request, env, ctx) {
     const events = await getEvents(env, true);
     const idx = events.findIndex(e => e.slug === slug);
     if (idx >= 0) {
+      const ocultasAntes = events[idx].fotosOcultas;
       const ocultas = normalizaOcultas([...(Array.isArray(events[idx].fotosOcultas) ? events[idx].fotosOcultas : []), ...esconder]);
       events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: normalizaPendentes(events[idx].ocultasPendentes, ocultas), updatedAt: agora };
       await saveEvents(env, events);
+      await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
     }
   }
   if (novas.length) {
@@ -4673,8 +4765,14 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
         return ano ? { slug: c.slug, nome: c.nome, ano } : { slug: c.slug, nome: c.nome };
       });
   }
+  // O endereço de cada foto leva a assinatura do site (v3.8.8, foto-rota.js):
+  // só as fotos DESTA lista (a do visitante já vem sem as ocultas).
+  /** @type {string[]} */
+  const idsDaPagina = [];
+  if (listagem) for (const sec of listagem.secoes) for (const f of sec.fotos) idsDaPagina.push(f[0]);
+  const assina = await assinadorDeFotos(signingSecret(env), slug, idsDaPagina);
   const pagina = galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
+    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta, assina,
     capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname,
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
@@ -4736,7 +4834,9 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   if (buscaRostoAtiva(env, event, dono || previa)) { try { idxRosto = Number(await env.FOTOS.get(`rosto-novas:${slug}`, { cacheTtl: 60 })) || 0; } catch { idxRosto = 0; } }
   const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto'), idx: idxRosto } : null;
   const busca = buscaTextoAtiva(env, event, dono || previa);
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname });
+  // As capas levam a assinatura do site no endereço (v3.8.8, foto-rota.js).
+  const assina = await assinadorDeFotos(signingSecret(env), slug, idsDeFotoDoIndice(event, resumo));
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname, assina });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {
@@ -5087,6 +5187,9 @@ async function handleOcultarFoto(request, env, ctx) {
   const pendentes = normalizaPendentes(events[idx].ocultasPendentes, ocultas);
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  // Ocultar tira a foto das páginas, do download e de /f/ (a rota confere a
+  // lista a cada pedido); as cópias no R2 são apagadas aqui (v3.8.8).
+  await apagaCopiasDasOcultadas(env, atual, ocultas);
   // O autor da foto (se tem e-mail nos créditos) é avisado; sem esperar e sem
   // poder falhar a ação.
   ctx?.waitUntil(avisaAutor(env, events[idx], { fotoId: foto, tipo: body.oculta ? 'oculta' : 'restaurada', capitulo: capOcultar }));

@@ -1,34 +1,130 @@
-// As fotos pelo próprio site (v3.8.3): GET /f/<id>/<largura>[j].
+// As fotos pelo próprio site (v3.8.3): GET /f/<id>/<largura>[j]?k=<álbum>.<assinatura>
 //
 // Por quê: a miniatura do lh3.googleusercontent.com leva de 0,7 a 2 s (o
 // Google redimensiona na hora) e, com mil pessoas abrindo o álbum no mesmo
 // dia, cada uma pediria o mesmo arquivo ao Google. Aqui o primeiro pedido de
 // cada tamanho vai ao Google; os seguintes saem do cache da Cloudflare, no
-// data center de quem pede.
+// data center de quem pede, e do R2 (binding FOTOS_R2), na chave
+// `w/<id>/<largura>.<webp|jpg>`. Sem o objeto (ou sem o binding), segue para o
+// Google.
 //
-// Pronto para o R2 (quando existir, binding FOTOS_R2): a rota lê primeiro de
-// lá, na chave `w/<id>/<largura>.<webp|jpg>`; sem o objeto (ou sem o binding),
-// segue para o Google como hoje. Nada mais muda nas páginas.
+// PRESA AOS ÁLBUNS DO SITE (v3.8.8). Até a 3.8.7 a rota servia QUALQUER ID do
+// Drive: era um proxy aberto (qualquer imagem pública do Google, com o nosso
+// domínio na frente e uma cópia eterna no R2), e uma foto oculta ou removida
+// continuava saindo daqui. Agora o endereço leva `k=<slug>.<assinatura>`, e
+// quem chama (handleFoto, em index.js) confere, NESTA ordem e antes de
+// qualquer leitura de cache, do R2 ou do Google:
+//   1. a assinatura: HMAC de (álbum, foto) com o segredo do site, emitida só
+//      pelas páginas que montam o endereço (`assinadorDeFotos`);
+//   2. o álbum: existe e o público pode vê-lo (a regra única do site,
+//      albumAbertoAoPublico) — fechado, só quem a galeria também deixaria ver;
+//   3. a foto não está em `fotosOcultas` (oculta, só o dono e a editora).
+// Sem isso: 404, sem buscar no Google e sem gravar no R2. A assinatura não tem
+// prazo (o endereço precisa ser estável para o cache do navegador), por isso
+// os itens 2 e 3 são conferidos a cada pedido.
 //
 // Sem limite por IP de propósito (ver a auditoria em config.js: ver fotos não
-// pode barrar 300 pessoas atrás do mesmo Wi-Fi). O que limita o abuso: só ID
-// do Drive válido, só larguras de uma lista fechada (cache finito por foto) e
-// só imagem como resposta.
+// pode barrar 300 pessoas atrás do mesmo Wi-Fi). O que limita o abuso: a
+// assinatura, só larguras de uma lista fechada (cache finito por foto) e só
+// imagem como resposta.
 import { idDriveValido } from './drive.js';
+import { assinaCurta, confereCurta } from './security.js';
 
 /** As larguras servidas; o pedido sobe para a próxima da lista. */
 export const FOTO_LARGURAS = [160, 200, 240, 300, 320, 360, 400, 480, 500, 600, 640, 700, 800, 900, 960, 1000, 1200, 1280, 1600, 2048, 2400, 2560, 3200, 4096, 5120, 6400];
-/** Uma semana no cache da Cloudflare e no navegador; a foto do Drive não muda. */
-export const FOTO_CACHE_S = 7 * 86400;
+/**
+ * Quanto a foto fica no navegador e no cache da Cloudflare: 4 h (v3.8.8). Eram
+ * 7 dias com `immutable`, e uma foto removida continuava aparecendo por uma
+ * semana em quem já a tinha visto. Com 4 h, a remoção vale "em horas": quem
+ * volta no mesmo dia ainda usa o que já baixou, e depois disso o navegador pede
+ * de novo — e o pedido passa de novo pela conferência (álbum aberto, foto não
+ * oculta). O preço é baixar a miniatura outra vez depois de 4 h, do cache da
+ * Cloudflare ou do R2, sem chamar o Google. A cópia que dura é a do R2, e ela
+ * é apagada quando a foto é ocultada ou removida (apagaCopiasDaFoto).
+ */
+export const FOTO_CACHE_S = 4 * 3600;
 
 const ROTA = /^\/f\/([A-Za-z0-9_-]{10,200})\/([0-9]{1,5})(j?)$/;
 
+const SLUG_DA_CHAVE = /^[a-z0-9][a-z0-9-]{0,99}$/;
+
 /**
- * O endereço de uma foto no próprio site (WebP), para as páginas.
+ * O endereço de uma foto no próprio site (WebP), para as páginas. `assina` vem
+ * de `assinadorDeFotos`; sem ele o endereço sai sem `k` e a rota responde 404.
  * @param {string} id @param {number} w
+ * @param {(id: string) => string} [assina]
  */
-export function urlFoto(id, w) {
-  return `/f/${id}/${larguraServida(Math.round(w))}`;
+export function urlFoto(id, w, assina) {
+  const k = assina ? assina(id) : '';
+  return `/f/${id}/${larguraServida(Math.round(w))}${k ? `?k=${k}` : ''}`;
+}
+
+/**
+ * O parâmetro `k` de um endereço: `<slug>.<assinatura>`, ou só `<slug>` (sem
+ * o segredo de assinatura no Worker).
+ * @param {unknown} k
+ * @returns {{ slug: string, assinatura: string } | null}
+ */
+export function lerChaveFoto(k) {
+  if (typeof k !== 'string' || !k || k.length > 200) return null;
+  const ponto = k.indexOf('.');
+  const slug = ponto < 0 ? k : k.slice(0, ponto);
+  if (!SLUG_DA_CHAVE.test(slug)) return null;
+  return { slug, assinatura: ponto < 0 ? '' : k.slice(ponto + 1) };
+}
+
+// As assinaturas já calculadas neste isolate: a página de um evento pede até
+// 6 mil de uma vez, e a seguinte pede as mesmas. Trocou o segredo, esvazia.
+/** @type {Map<string, string>} */
+const assinaturas = new Map();
+let segredoDasAssinaturas = '';
+const ASSINATURAS_MAX = 60_000;
+const ASSINATURAS_LOTE = 500;
+
+/**
+ * Assina as fotos de um álbum e devolve a função (síncrona, para os modelos
+ * de página) que dá o `k` de cada uma: `<slug>.<assinatura>`. ID que não foi
+ * pedido aqui sai '' (a página não pode assinar o que não listou). Sem o
+ * segredo, o `k` é só o slug: a assinatura fica desligada, como o nonce do
+ * Drive e os tokens de formulário (o /api/healthz acusa), e o resto da
+ * conferência da rota continua valendo.
+ * @param {string | null} secret
+ * @param {string} slug
+ * @param {Iterable<string>} ids
+ * @returns {Promise<(id: string) => string>}
+ */
+export async function assinadorDeFotos(secret, slug, ids) {
+  if (!SLUG_DA_CHAVE.test(slug)) return () => '';
+  if (!secret) return () => slug;
+  if (secret !== segredoDasAssinaturas || assinaturas.size > ASSINATURAS_MAX) {
+    assinaturas.clear();
+    segredoDasAssinaturas = secret;
+  }
+  /** @type {Map<string, string>} */
+  const desta = new Map();
+  /** @type {string[]} */
+  const faltam = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || desta.has(id) || !idDriveValido(id)) continue;
+    const pronta = assinaturas.get(`${slug}|${id}`);
+    desta.set(id, pronta || '');
+    if (!pronta) faltam.push(id);
+  }
+  // Em lotes: milhares de promessas pendentes de uma vez só gastam memória.
+  for (let i = 0; i < faltam.length; i += ASSINATURAS_LOTE) {
+    const lote = faltam.slice(i, i + ASSINATURAS_LOTE);
+    const feitas = await Promise.all(lote.map(id => assinaCurta(secret, 'foto', `${slug}|${id}`)));
+    lote.forEach((id, j) => { desta.set(id, feitas[j]); assinaturas.set(`${slug}|${id}`, feitas[j]); });
+  }
+  return id => { const a = desta.get(id); return a ? `${slug}.${a}` : ''; };
+}
+
+/**
+ * A assinatura do endereço confere com (álbum, foto)?
+ * @param {string} secret @param {string} slug @param {string} id @param {string} assinatura
+ */
+export function assinaturaDaFotoConfere(secret, slug, id, assinatura) {
+  return confereCurta(secret, assinatura, 'foto', `${slug}|${id}`);
 }
 
 /** @param {number} w */
@@ -48,13 +144,18 @@ export function lerRotaFoto(path) {
   return { id: m[1], w: larguraServida(pedida), jpeg: m[3] === 'j' };
 }
 
-/** @param {string} tipo @param {string} [origem] */
-function cabecalhos(tipo, origem = '') {
+/**
+ * @param {string} tipo @param {string} [origem]
+ * @param {'navegador' | 'nunca'} [privado] ver respondeFoto
+ */
+function cabecalhos(tipo, origem = '', privado = undefined) {
   return {
     'Content-Type': tipo,
-    'Cache-Control': `public, max-age=${FOTO_CACHE_S}, immutable`,
+    // Sem `immutable`: passado o prazo, o navegador pede de novo (ver FOTO_CACHE_S).
+    'Cache-Control': privado === 'nunca' ? 'private, no-store' : `${privado ? 'private' : 'public'}, max-age=${FOTO_CACHE_S}`,
     'X-Content-Type-Options': 'nosniff',
     'Cross-Origin-Resource-Policy': 'same-site',
+    ...(privado ? { 'X-Robots-Tag': 'noindex' } : {}),
     ...(origem ? { 'X-Foto-Origem': origem } : {}),
   };
 }
@@ -64,27 +165,42 @@ function cabecalhos(tipo, origem = '') {
  * @param {{ FOTOS_R2?: any }} env
  * @param {{ waitUntil(p: Promise<any>): void }} ctx
  * @param {{ id: string, w: number, jpeg: boolean }} alvo
- * @param {{ fetch?: typeof fetch, cache?: any }} [deps] para os testes
+ * @param {{ fetch?: typeof fetch, cache?: any, privado?: 'navegador' | 'nunca' }} [deps]
+ *   `fetch` e `cache`: para os testes. `privado`: quem chama já conferiu o
+ *   acesso (handleFoto) e esta resposta não é do público:
+ *    - 'navegador' (álbum ainda fechado, visto pela prévia, pela editora ou
+ *      pelo dono): só o navegador de quem pediu guarda;
+ *    - 'nunca' (foto OCULTA, vista pelo dono ou pela editora): ninguém guarda,
+ *      e nada é gravado no cache da Cloudflare nem no R2 — ocultar apagou as
+ *      cópias de lá, e ver a foto no painel não pode trazê-las de volta.
  * @returns {Promise<Response>}
  */
 export async function respondeFoto(request, env, ctx, alvo, deps = {}) {
   const f = deps.fetch || fetch;
   const cache = deps.cache !== undefined ? deps.cache : (typeof caches !== 'undefined' ? /** @type {any} */ (caches).default : null);
-  // A chave do cache é a da largura servida: /f/X/350 e /f/X/360 viram uma só.
+  const privado = deps.privado;
+  const guarda = privado !== 'nunca';
+  // A chave do cache é a da largura servida: /f/X/350 e /f/X/360 viram uma só
+  // (e o `k` não entra: a conferência já foi feita, o arquivo é o mesmo).
   const u = new URL(request.url);
   const chave = new Request(`${u.origin}/f/${alvo.id}/${alvo.w}${alvo.jpeg ? 'j' : ''}`, { method: 'GET' });
   if (cache) {
     const guardada = await cache.match(chave).catch(() => null);
-    if (guardada) return guardada;
+    // Os cabeçalhos são os DESTE pedido: a cópia foi guardada como pública.
+    if (guardada) return new Response(guardada.body, { headers: cabecalhos(guardada.headers.get('Content-Type') || (alvo.jpeg ? 'image/jpeg' : 'image/webp'), 'cache', privado) });
   }
   // 1. R2, quando existir.
   if (env.FOTOS_R2) {
     try {
       const obj = await env.FOTOS_R2.get(`w/${alvo.id}/${alvo.w}.${alvo.jpeg ? 'jpg' : 'webp'}`);
       if (obj) {
-        const res = new Response(obj.body, { headers: cabecalhos(alvo.jpeg ? 'image/jpeg' : 'image/webp', 'r2') });
-        if (cache) ctx.waitUntil(cache.put(chave, res.clone()).catch(() => {}));
-        return res;
+        const tipoR2 = alvo.jpeg ? 'image/jpeg' : 'image/webp';
+        if (cache && guarda) {
+          const [paraQuemPediu, paraOCache] = obj.body.tee();
+          ctx.waitUntil(cache.put(chave, new Response(paraOCache, { headers: cabecalhos(tipoR2, 'r2') })).catch(() => {}));
+          return new Response(paraQuemPediu, { headers: cabecalhos(tipoR2, 'r2', privado) });
+        }
+        return new Response(obj.body, { headers: cabecalhos(tipoR2, 'r2', privado) });
       }
     } catch (e) {
       console.error('foto: R2 falhou, vai ao Google', e);
@@ -94,7 +210,7 @@ export async function respondeFoto(request, env, ctx, alvo, deps = {}) {
   const origem = `https://lh3.googleusercontent.com/d/${alvo.id}=w${alvo.w}${alvo.jpeg ? '' : '-rw'}`;
   let r;
   try {
-    r = await f(origem, { cf: { cacheEverything: true, cacheTtl: FOTO_CACHE_S } });
+    r = await f(origem, guarda ? { cf: { cacheEverything: true, cacheTtl: FOTO_CACHE_S } } : {});
   } catch {
     return new Response('Foto indisponível agora.', { status: 502, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   }
@@ -104,13 +220,17 @@ export async function respondeFoto(request, env, ctx, alvo, deps = {}) {
     // cache e não repassa o corpo de lá.
     return new Response('Foto indisponível.', { status: r.status === 404 || r.status === 403 ? 404 : 502, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   }
-  const res = new Response(r.body, { headers: cabecalhos(tipo, 'google') });
-  if (cache) ctx.waitUntil(cache.put(chave, res.clone()).catch(() => {}));
+  if (!guarda) return new Response(r.body, { headers: cabecalhos(tipo, 'google', privado) });
+  // A cópia que vai para o cache e para o R2 leva os cabeçalhos PÚBLICOS; a
+  // resposta de quem pediu, os dele.
+  const publica = new Response(r.body, { headers: cabecalhos(tipo, 'google') });
+  const res = privado ? new Response(publica.clone().body, { headers: cabecalhos(tipo, 'google', privado) }) : publica;
+  if (cache) ctx.waitUntil(cache.put(chave, publica.clone()).catch(() => {}));
   // Com o R2: a primeira vez de cada tamanho também vai para lá (a miniatura
   // é pequena; a cópia em memória não pesa). Daí em diante o Google não é
   // mais chamado para ela, nem em outro data center.
   if (env.FOTOS_R2) {
-    const copia = res.clone();
+    const copia = publica.clone();
     ctx.waitUntil(copia.arrayBuffer()
       .then(b => env.FOTOS_R2.put(`w/${alvo.id}/${alvo.w}.${alvo.jpeg ? 'jpg' : 'webp'}`, b, { httpMetadata: { contentType: tipo } }))
       .catch((/** @type {unknown} */ e) => console.error('foto: cópia no R2 falhou', e)));
@@ -161,4 +281,37 @@ export async function copiaOriginalParaR2(env, id, url, headers, tamanho, tipo, 
     console.error('baixar: cópia do original no R2 falhou', e);
     return false;
   }
+}
+
+/**
+ * Apaga do R2 as cópias de fotos que saíram do site (v3.8.8): as miniaturas
+ * (`w/<id>/…`, todas as larguras e os dois formatos — listadas pelo prefixo,
+ * para não depender da lista de larguras de hoje) e o original (`o/<id>`).
+ * Chamado quando a foto é ocultada, removida por um pedido ou some do Drive.
+ * Sem isso a cópia ficava para sempre, mesmo com o arquivo apagado no Google.
+ * LANÇA se o R2 recusar: quem chama registra (uma remoção que não apagou a
+ * cópia não pode passar calada).
+ * @param {{ FOTOS_R2?: any }} env
+ * @param {Iterable<string>} ids
+ * @returns {Promise<number>} quantos objetos foram apagados
+ */
+export async function apagaCopiasDaFoto(env, ids) {
+  if (!env || !env.FOTOS_R2) return 0;
+  const lista = [...new Set(ids)].filter(id => typeof id === 'string' && idDriveValido(id));
+  let apagados = 0;
+  for (const id of lista) {
+    /** @type {string[]} */
+    const chaves = [`o/${id}`];
+    /** @type {string | undefined} */
+    let cursor;
+    do {
+      const pagina = await env.FOTOS_R2.list({ prefix: `w/${id}/`, ...(cursor ? { cursor } : {}) });
+      for (const o of pagina.objects || []) chaves.push(o.key);
+      cursor = pagina.truncated ? pagina.cursor : undefined;
+    } while (cursor);
+    // O R2 apaga até 1000 chaves por chamada.
+    for (let i = 0; i < chaves.length; i += 1000) await env.FOTOS_R2.delete(chaves.slice(i, i + 1000));
+    apagados += chaves.length;
+  }
+  return apagados;
 }

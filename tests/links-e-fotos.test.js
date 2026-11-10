@@ -85,7 +85,8 @@ describe('fotos pelo próprio site (/f/)', () => {
     const r1 = await respondeFoto(pede(`/f/${ID}/350`), {}, c.ctx, alvo, { fetch: /** @type {any} */ (c.f), cache: c.cache });
     expect(r1.status).toBe(200);
     expect(r1.headers.get('Content-Type')).toBe('image/webp');
-    expect(r1.headers.get('Cache-Control')).toMatch(/public, max-age=604800/);
+    // v3.8.8: 4 h, sem `immutable` (eram 7 dias) — a remoção de uma foto vale em horas.
+    expect(r1.headers.get('Cache-Control')).toBe('public, max-age=14400');
     expect(await r1.text()).toBe('IMG');
     expect(c.f).toHaveBeenCalledWith(`https://lh3.googleusercontent.com/d/${ID}=w360-rw`, expect.anything());
     await Promise.all(c.pendentes);
@@ -97,7 +98,7 @@ describe('fotos pelo próprio site (/f/)', () => {
 
   it('com o R2, lê de lá primeiro (e não chama o Google)', async () => {
     const c = cenario({});
-    const r2 = { get: vi.fn(async (/** @type {string} */ k) => (k === `w/${ID}/480.webp` ? { body: 'DO-R2' } : null)) };
+    const r2 = { get: vi.fn(async (/** @type {string} */ k) => (k === `w/${ID}/480.webp` ? { body: new Response('DO-R2').body } : null)) };
     const alvo = /** @type {any} */ (lerRotaFoto(`/f/${ID}/480`));
     const r = await respondeFoto(pede(`/f/${ID}/480`), { FOTOS_R2: r2 }, c.ctx, alvo, { fetch: /** @type {any} */ (c.f), cache: c.cache });
     expect(await r.text()).toBe('DO-R2');

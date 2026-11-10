@@ -29,7 +29,7 @@ import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, 
 import { VENDOR } from '../content/vendor.js';
 import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
-import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
+import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
 import { nomesDaListagem } from '../nomes.js';
@@ -144,6 +144,17 @@ const CONSERTOS = {
 };
 
 /**
+ * As assinaturas das fotos de uma seção, juntas (ver `as` nos dados da página).
+ * @param {import('../drive.js').FotoDrive[]} fotos
+ * @param {(id: string) => string} assina dá `<slug>.<assinatura>`, ou só o slug
+ */
+function assinaturasDaSecao(fotos, assina) {
+  const partes = fotos.map(f => { const k = assina(f[0]); const p = k.indexOf('.'); return p < 0 ? '' : k.slice(p + 1); });
+  if (!partes.some(Boolean)) return '';
+  return partes.map(a => (a.length === ASSINATURA_CURTA_LEN ? a : ' '.repeat(ASSINATURA_CURTA_LEN))).join('');
+}
+
+/**
  * @param {{
  *   event: import('../utils.js').Evento,
  *   listagem: import('../drive.js').ListagemDrive | null,
@@ -160,6 +171,7 @@ const CONSERTOS = {
  *   capituloNome?: string,
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string, ano?: string }[] } | null,
  *   host?: string,
+ *   assina?: (id: string) => string,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -181,7 +193,7 @@ const CONSERTOS = {
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '' }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '', assina = () => '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -305,7 +317,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
   const lcp = todasFotos[0];
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
-    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x)} ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
     : '';
 
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
@@ -370,7 +382,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     // Só o dono: a capa escolhida deste evento (o botão "Usar como capa").
     capa: dono && capitulo && event.capasEventos && typeof event.capasEventos[capitulo.slug] === 'string' ? event.capasEventos[capitulo.slug] : '',
     titulo,
-    secoes: listagem.secoes.map(s => ({ ...nomeDaSecao(s), fotos: s.fotos.map(fotoDaPagina) })),
+    // `as` (v3.8.8): a assinatura do endereço de cada foto (/f/, foto-rota.js),
+    // todas juntas e na ordem de `fotos`, ASSINATURA_CURTA_LEN caracteres cada
+    // (6 mil fotos = 48 KB; num campo por foto seriam 66 KB). Foto sem
+    // assinatura leva espaços; sem o segredo no Worker, '' (nenhuma).
+    secoes: listagem.secoes.map(s => ({ ...nomeDaSecao(s), fotos: s.fotos.map(fotoDaPagina), as: assinaturasDaSecao(s.fotos, assina) })),
     autores,
     // Prefixo do nome do arquivo de cada seção (na ordem de `secoes`).
     amigavel: nomes && listagemBruta ? listagem.secoes.map(sec => nomes.pre[listagemBruta.secoes.findIndex(b => b.caminho === sec.caminho)] || '') : null,
@@ -875,7 +891,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][] }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][], as?: string }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Campos novos (v3.8.0) lidos por um apelido sem tipo fixo.
   const DX = /** @type {any} */ (D);
@@ -935,7 +951,18 @@ const SCRIPT = `
   // As fotos passam pelo próprio site (v3.8.3): /f/<id>/<largura>. O site
   // guarda cada tamanho no cache da Cloudflare (e, com o R2, lê de lá); o
   // Google só é chamado na primeira vez. Sem WebP, o sufixo "j" pede JPEG.
-  const lh3 = function (id, w) { return '/f/' + id + '/' + Math.round(w) + (rw ? '' : 'j'); };
+  // Desde a v3.8.8 o endereço leva "k" = o álbum e a assinatura da foto, que
+  // vem nos dados (as): sem ela a rota responde 404.
+  const K = {};
+  D.secoes.forEach(function (s) {
+    const juntas = typeof s.as === 'string' ? s.as : '';
+    const n = s.fotos.length ? juntas.length / s.fotos.length : 0;
+    s.fotos.forEach(function (f, i) {
+      const a = n >= 1 && n === Math.floor(n) ? juntas.slice(i * n, i * n + n).trim() : '';
+      K[f[0]] = D.slug + (a ? '.' + a : '');
+    });
+  });
+  const lh3 = function (id, w) { return '/f/' + id + '/' + Math.round(w) + (rw ? '' : 'j') + '?k=' + (K[id] || D.slug); };
   // Link curto da foto (v3.8.3): #foto= com os 10 primeiros caracteres do ID
   // (o ID inteiro só se dois começarem igual). O link antigo, com o ID
   // inteiro, continua abrindo.

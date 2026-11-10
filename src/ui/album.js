@@ -57,6 +57,27 @@ export function idDaCapa(url) {
 }
 
 /**
+ * Todo ID de foto que a página do álbum (e o índice simples) PODE mostrar: as
+ * capas do resumo de cada evento, a capa escolhida por evento e as "Fotos de
+ * capa" do projeto. É a lista que o servidor assina antes de montar a página
+ * (v3.8.8, foto-rota.js): o que não está aqui sai sem assinatura, e a rota das
+ * fotos responde 404 — tests/foto-assinada.test.js confere que nenhum endereço
+ * da página renderizada fica de fora.
+ * @param {import('../utils.js').Evento} event
+ * @param {Record<string, import('../drive.js').ResumoCap>} resumo
+ * @returns {string[]}
+ */
+export function idsDeFotoDoIndice(event, resumo) {
+  /** @type {Set<string>} */
+  const ids = new Set();
+  for (const r of Object.values(resumo || {})) for (const id of (r && Array.isArray(r.capas) ? r.capas : [])) if (typeof id === 'string') ids.add(id);
+  const escolhidas = event.capasEventos && typeof event.capasEventos === 'object' ? Object.values(event.capasEventos) : [];
+  for (const e of escolhidas) if (typeof e === 'string') ids.add(e);
+  for (const u of (Array.isArray(event.photos) ? event.photos : [])) { const id = idDaCapa(u); if (id) ids.add(id); }
+  return [...ids];
+}
+
+/**
  * Os capítulos na ordem da linha do tempo: por data de início quando TODOS
  * têm data (senão, a ordem das pastas, que o dono controla pelo nome).
  * @template {{ id: string }} C
@@ -88,8 +109,9 @@ export function mesDoEvento(r) {
 // o celular baixa a menor que serve, o computador a maior. É o mesmo padrão
 // das páginas dos eventos (galeria.js). `larguras` em px; `sizes` diz ao
 // navegador quanto da tela a foto ocupa.
-/** @param {string} id @param {number[]} larguras @param {string} sizes */
-const fonteLh3 = (id, larguras, sizes) => `src="${escape(urlFoto(id, larguras[Math.min(1, larguras.length - 1)]))}" srcset="${escape(larguras.map(w => `${urlFoto(id, w)} ${w}w`).join(', '))}" sizes="${sizes}"`;
+// `assina` (v3.8.8): a assinatura do endereço de cada foto (foto-rota.js).
+/** @param {string} id @param {number[]} larguras @param {string} sizes @param {(id: string) => string} assina */
+const fonteLh3 = (id, larguras, sizes, assina) => `src="${escape(urlFoto(id, larguras[Math.min(1, larguras.length - 1)], assina))}" srcset="${escape(larguras.map(w => `${urlFoto(id, w, assina)} ${w}w`).join(', '))}" sizes="${sizes}"`;
 
 /** Acima disto, os eventos do álbum vão para a grade compacta por ano. */
 export const EVENTOS_COMPACTOS = 8;
@@ -103,8 +125,9 @@ export const EVENTOS_COMPACTOS = 8;
  * @param {Record<string, import('../drive.js').ResumoCap>} resumo
  * @param {(id: string) => string[]} capasDe
  * @param {string} base
+ * @param {(id: string) => string} assina
  */
-function gradeDeEventos(caps, resumo, capasDe, base) {
+function gradeDeEventos(caps, resumo, capasDe, base, assina) {
   /** @type {{ ano: string, itens: string[] }[]} */
   const grupos = [];
   for (const c of caps) {
@@ -118,7 +141,7 @@ function gradeDeEventos(caps, resumo, capasDe, base) {
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
     const capa = capasDe(c.id)[0];
-    const img = capa ? `<img ${fonteLh3(capa, [320, 480, 640], '(max-width:700px) 46vw, 240px')} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '<span class="al-vazio"></span>';
+    const img = capa ? `<img ${fonteLh3(capa, [320, 480, 640], '(max-width:700px) 46vw, 240px', assina)} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '<span class="al-vazio"></span>';
     grupos[grupos.length - 1].itens.push(`<li><a class="ix-card al-card al-mini" href="${escape(`${base}/${c.slug}`)}" data-cap="${escape(c.slug)}"${cr}>${img}<span class="al-nm"><b>${escape(c.nome)}</b><span class="ix-sub">${escape(sub)}</span></span></a></li>`);
   }
   const rotulo = (/** @type {string} */ a) => (a === 'sem' ? 'Sem data' : a);
@@ -154,10 +177,12 @@ const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
  *   buscaFotos?: string,
  *   scripts: string,
  *   nonce?: string,
+ *   assina?: (id: string) => string,
  * }} p
  */
 export function albumHTML(p) {
   const { event, titulo, resumo, ocultasSet, restrito, indexavel, origem } = p;
+  const assina = typeof p.assina === 'function' ? p.assina : () => '';
   const slug = String(event.slug || '');
   const base = typeof p.base === 'string' ? p.base : `/galeria/${slug}`;
   const estilo = GALERIA_ESTILOS.includes(String(event.galeriaEstilo)) ? String(event.galeriaEstilo) : GALERIA_ESTILOS[0];
@@ -251,18 +276,18 @@ export function albumHTML(p) {
   let cssEstilo;
   if (estilo === 'tela-cheia') {
     const n = heroi.length;
-    primeiraTela = `<header class="al-hero${n ? '' : ' al-sem-foto'}">${n ? `<div class="al-slides" aria-hidden="true">${heroi.map((id, i) => `<img ${fonteLh3(id, [960, 1600, 2400], '100vw')} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-hero${n ? '' : ' al-sem-foto'}">${n ? `<div class="al-slides" aria-hidden="true">${heroi.map((id, i) => `<img ${fonteLh3(id, [960, 1600, 2400], '100vw', assina)} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
     <div class="al-hero-txt">${cabecalho()}</div><a class="al-desce" href="#sobre" aria-label="Rolar para baixo">⌄</a></header>`;
     cssEstilo = cssTelaCheia(n);
   } else if (estilo === 'mosaico') {
     const m = heroi.slice(0, 5);
-    primeiraTela = `<header class="al-mos-h">${m.length >= 3 ? `<div class="al-mos" aria-hidden="true">${m.map((id, i) => `<img ${i === 0 ? fonteLh3(id, [640, 960, 1200, 1600], '(max-width:700px) 100vw, 60vw') : fonteLh3(id, [320, 480, 640], '(max-width:700px) 50vw, 25vw')} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-mos-h">${m.length >= 3 ? `<div class="al-mos" aria-hidden="true">${m.map((id, i) => `<img ${i === 0 ? fonteLh3(id, [640, 960, 1200, 1600], '(max-width:700px) 100vw, 60vw', assina) : fonteLh3(id, [320, 480, 640], '(max-width:700px) 50vw, 25vw', assina)} alt="" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''} referrerpolicy="no-referrer">`).join('')}</div>` : ''}
     <div class="al-mos-txt${m.length >= 3 ? '' : ' al-sem-foto'}">${cabecalho()}</div></header>`;
     cssEstilo = CSS_MOSAICO;
   } else if (estilo === 'recordacao') {
     // Polaroids: um evento em cada, com o nome escrito embaixo.
     const pol = restrito ? [] : caps.map(c => ({ nome: c.nome, id: capasDe(c.id)[1] || capasDe(c.id)[0] })).filter(x => x.id).slice(0, 5);
-    primeiraTela = `<header class="al-papel">${pol.length >= 2 ? `<div class="al-mesa" aria-hidden="true">${pol.map((x, i) => `<div class="al-pol al-p${i + 1}"><img ${fonteLh3(x.id, [320, 480, 640], '(max-width:700px) 45vw, 240px')} alt="" decoding="async" referrerpolicy="no-referrer"><span>${escape(x.nome)}</span></div>`).join('')}</div>` : ''}
+    primeiraTela = `<header class="al-papel">${pol.length >= 2 ? `<div class="al-mesa" aria-hidden="true">${pol.map((x, i) => `<div class="al-pol al-p${i + 1}"><img ${fonteLh3(x.id, [320, 480, 640], '(max-width:700px) 45vw, 240px', assina)} alt="" decoding="async" referrerpolicy="no-referrer"><span>${escape(x.nome)}</span></div>`).join('')}</div>` : ''}
     <div class="al-pol-txt">${cabecalho()}</div></header>`;
     cssEstilo = CSS_RECORDACAO;
   } else {
@@ -281,7 +306,7 @@ export function albumHTML(p) {
     const n = r ? r.n : 0;
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
-    const img = (/** @type {string} */ id, /** @type {number} */ w) => `<img ${fonteLh3(id, w > 600 ? [400, 640, 900, 1200] : [320, 480, 640], w > 600 ? '(max-width:700px) 92vw, 640px' : '(max-width:700px) 46vw, 320px')} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+    const img = (/** @type {string} */ id, /** @type {number} */ w) => `<img ${fonteLh3(id, w > 600 ? [400, 640, 900, 1200] : [320, 480, 640], w > 600 ? '(max-width:700px) 92vw, 640px' : '(max-width:700px) 46vw, 320px', assina)} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     const fotosHtml = grande
       ? `<span class="al-fx">${cs[0] ? img(cs[0], 900) : '<span class="al-vazio"></span>'}${cs[1] ? img(cs[1], 500) : ''}</span>`
       : (cs[0] ? img(cs[0], 800) : '<span class="al-vazio"></span>');
@@ -290,7 +315,7 @@ export function albumHTML(p) {
   // Muitos eventos (v3.8.2): a linha do tempo vira uma grade compacta,
   // separada por ano, com atalhos para cada ano. Poucos: o desenho do estilo.
   const compacta = caps.length > EVENTOS_COMPACTOS;
-  const linha = compacta ? gradeDeEventos(caps, resumo, capasDe, base) : itens.length
+  const linha = compacta ? gradeDeEventos(caps, resumo, capasDe, base, assina) : itens.length
     ? `<section class="al-sec" id="eventos" aria-labelledby="al-eventos-t"><span class="al-kick">Linha do tempo</span><h2 id="al-eventos-t">${grande ? 'Evento por evento' : 'A nossa história, evento por evento'}</h2><ol class="${grande ? 'al-big' : 'al-tl'}">${itens.join('')}</ol></section>`
     : '<p class="al-sec al-vazio-msg" id="eventos">As fotos estão chegando. Volte em breve.</p>';
 

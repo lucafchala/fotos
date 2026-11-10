@@ -22,6 +22,7 @@ import {
 } from './config.js';
 import { consultaArquivo, emailDoAutor, opcoesBasicasDaLista } from './drive.js';
 import { checkRateLimit, dataHoraBR, errMessage, noteDegraded, sendSumiramEmail } from './utils.js';
+import { apagaCopiasDaFoto } from './foto-rota.js';
 
 /**
  * As opções de `listaPasta` para a galeria de um projeto, já com a detecção de
@@ -96,6 +97,17 @@ export async function detectaSumidas(env, info, anterior, nova) {
     const itens = apagadas.map(x => ({
       id: x.f[0], nome: x.f[3], autor: aut[x.f[5] || 0] || AUTOR_PADRAO, secao: x.secao, captura: capturaLegivel(x.f[6]),
     }));
+
+    // Apagada no Drive (conferida uma a uma, acima): as cópias que o site
+    // guardou no R2 saem também (v3.8.8). Sem isso o site seguia servindo, para
+    // sempre, uma foto que o dono ou o autor apagou na origem.
+    if (itens.length) {
+      try {
+        await apagaCopiasDaFoto(env, itens.map(i => i.id));
+      } catch (e) {
+        noteDegraded('cópia de foto apagada no Drive não saiu do R2', `${slug} — ${itens.length} foto(s)`, e);
+      }
+    }
 
     // Quais são NOVAS (não registradas antes): é o que impede o aviso repetido.
     let novas = itens;

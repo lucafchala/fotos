@@ -14,6 +14,7 @@
 //  5. O "Ocultar" do próprio dono continua imediato.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { r2Falso } from './helpers/r2.js';
 import worker, { sanitizeRestoredRequest, mintFormToken } from '../src/index.js';
 import { limpaCacheDrive, normalizaPendentes } from '../src/drive.js';
 import { saveEvents } from '../src/utils.js';
@@ -375,6 +376,14 @@ describe('painel: decidir sobre a foto do pedido', () => {
     expect(html).toContain(FOTO_B);
     expect((await visitante(`/galeria/formatura/baixar/${FOTO_A}?v=max`)).status).toBe(404);
     expect(await (await visitante('/sitemap-galeria-formatura.xml')).text()).not.toContain(FOTO_A);
+  });
+
+  it('v3.8.8: "Remover da galeria" apaga do R2 as cópias da foto (miniaturas e original), e só as dela', async () => {
+    const r2 = r2Falso({ [`w/${FOTO_A}/480.webp`]: 'x', [`w/${FOTO_A}/1600.jpg`]: 'x', [`o/${FOTO_A}`]: 'x', [`w/${FOTO_B}/480.webp`]: 'x' });
+    env.FOTOS_R2 = r2;
+    const p = await criaPedido();
+    expect((await resolve(p.id, { desfecho: 'removida' })).status).toBe(200);
+    expect([...r2.objetos.keys()]).toEqual([`w/${FOTO_B}/480.webp`]);
   });
 
   it('"Manter na galeria": resolve, a foto segue visível e quem pediu recebe o e-mail de "mantida"', async () => {

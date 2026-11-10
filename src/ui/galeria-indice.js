@@ -26,9 +26,10 @@ import { TURNSTILE_SITE_KEY, ROSTO_LIMIAR } from '../config.js';
  *   rosto?: { token: string, idx?: number } | null,
  *   busca?: boolean,
  *   host?: string,
+ *   assina?: (id: string) => string,
  * }} p
  */
-export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null, busca = false, host = '' }) {
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null, busca = false, host = '', assina = () => '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   // Links curtos no domínio do álbum (v3.8.3).
@@ -61,7 +62,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     const n = r ? r.n : 0;
     const href = `${base}/${c.slug}`;
     const img = capa
-      ? `<img src="${escape(urlFoto(capa, 480))}" alt=""" width="480" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+      ? `<img src="${escape(urlFoto(capa, 480, assina))}" alt="" width="480" height="320" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
       : '<span class="ix-vazio" aria-hidden="true"></span>';
     const sub = r ? (n === 0 ? 'vazio' : n === 1 ? '1 foto' : `${n} fotos`) : 'Ver fotos';
     // Fotos novas (#250): os instantes recentes vão no cartão; quem decide o
@@ -95,7 +96,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({
       event, titulo, caps: visiveis, resumo, ocultasSet, restrito, indexavel, origem: origemDoAlbum(slug),
-      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce,
+      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce, assina,
     });
   }
 

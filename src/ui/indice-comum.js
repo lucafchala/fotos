@@ -213,9 +213,12 @@ export const SCRIPT_ROSTO = `(function () {
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         a.setAttribute('data-cap', r.cap || '');
+        // k: o álbum e a assinatura da foto, que o servidor manda com o achado
+        // (v3.8.8); sem ele a rota das fotos responde 404.
+        a.setAttribute('data-k', r.k || '');
         if (r.nova) a.className = 'rs-nova';
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -404,7 +407,13 @@ export const SCRIPT_ROSTO = `(function () {
   function salvas() {
     var s = null;
     try { s = JSON.parse(localStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    return s && s.j && Array.isArray(s.j.resultados) && s.j.resultados.length && Date.now() - s.em < 30 * 86400000 ? s : null;
+    return s && s.j && Array.isArray(s.j.resultados) && s.j.resultados.length && comChave(s.j.resultados) && Date.now() - s.em < 30 * 86400000 ? s : null;
+  }
+  // Lista guardada antes da v3.8.8 não tem o "k" de cada foto (o endereço
+  // assinado): as miniaturas viriam quebradas. Vale como não guardada.
+  function comChave(lista) {
+    for (var i = 0; i < lista.length; i++) if (!lista[i] || !lista[i].k) return false;
+    return true;
   }
   var guardadas = salvas();
   if (guardadas) {
@@ -436,8 +445,8 @@ export const SCRIPT_ROSTO = `(function () {
       if (!a || !Array.isArray(a.resultados)) { sub.textContent = antes; return; }
       var tem = {};
       g.j.resultados.forEach(function (r) { tem[r.id] = true; });
-      var novas = a.resultados.filter(function (r) { return !tem[r.id]; }).map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, nova: true }; });
-      var j = { resultados: novas.concat(g.j.resultados.map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim }; })), semIndice: false, faces: g.j.faces };
+      var novas = a.resultados.filter(function (r) { return !tem[r.id]; }).map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, k: r.k, nova: true }; });
+      var j = { resultados: novas.concat(g.j.resultados.map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, k: r.k }; })), semIndice: false, faces: g.j.faces };
       mostra(j);
       document.getElementById('rs-res-sub').textContent = novas.length ? (novas.length === 1 ? '1 foto nova sua desde a última vez, marcada.' : novas.length + ' fotos novas suas desde a última vez, marcadas.') : 'Nenhuma foto nova sua desde a última vez.';
       var b = document.getElementById('rs-minhas');
@@ -448,7 +457,7 @@ export const SCRIPT_ROSTO = `(function () {
     if (location.hash !== '#minhas-fotos') return;
     var s = null;
     try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    if (!s || !s.j || Date.now() - s.em > 3 * 3600000) return;
+    if (!s || !s.j || !Array.isArray(s.j.resultados) || !comChave(s.j.resultados) || Date.now() - s.em > 3 * 3600000) return;
     var ult = '';
     try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }
     mostra(s.j, ult || true);
@@ -653,7 +662,8 @@ export const SCRIPT_VISOR = `(function () {
     img.addEventListener('dragstart', function (e) { e.preventDefault(); });
     window.addEventListener('popstate', function () { if (dlg.open && empurrou) { empurrou = false; fechaJa(); } });
   }
-  function src(id, w) { return '/f/' + encodeURIComponent(id) + '/' + w; }
+  // f.k: o álbum e a assinatura da foto (v3.8.8), lidos do link da grade.
+  function src(f, w) { return '/f/' + encodeURIComponent(f.id) + '/' + w + (f.k ? '?k=' + encodeURIComponent(f.k) : ''); }
   // Aplica o zoom; a foto não sai da tela. Ampliada, pede a versão maior.
   function aplica(e, x, y) {
     escala = e;
@@ -674,9 +684,9 @@ export const SCRIPT_VISOR = `(function () {
     var f = lista[i];
     img.classList.add('carregando');
     aplica(1, 0, 0);
-    img.srcset = LARGURAS.map(function (w) { return src(f.id, w) + ' ' + w + 'w'; }).join(', ');
+    img.srcset = LARGURAS.map(function (w) { return src(f, w) + ' ' + w + 'w'; }).join(', ');
     img.sizes = '100vw';
-    img.src = src(f.id, 1600);
+    img.src = src(f, 1600);
     nEl.textContent = (i + 1) + ' de ' + lista.length;
     evEl.textContent = f.ev || '';
     verA.href = f.href;
@@ -684,7 +694,7 @@ export const SCRIPT_VISOR = `(function () {
     antB.hidden = i === 0;
     proxB.hidden = i === lista.length - 1;
     // Já pede a vizinha: passar para a próxima não espera.
-    [i + 1, i - 1].forEach(function (j) { if (lista[j]) { var p = new Image(); p.src = src(lista[j].id, 1200); } });
+    [i + 1, i - 1].forEach(function (j) { if (lista[j]) { var p = new Image(); p.src = src(lista[j], 1200); } });
     if (f.aoAbrir) f.aoAbrir();
   }
   function fechaJa() { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); dlg.close(); img.removeAttribute('src'); img.removeAttribute('srcset'); }
@@ -720,7 +730,7 @@ export const SCRIPT_VISOR = `(function () {
         var cap = el.getAttribute('data-cap') || '';
         var fid = el.getAttribute('data-id');
         itens.push({
-          id: fid, href: el.getAttribute('href'), ev: h && h.firstChild ? h.firstChild.textContent : '',
+          id: fid, k: el.getAttribute('data-k') || '', href: el.getAttribute('href'), ev: h && h.firstChild ? h.firstChild.textContent : '',
           baixar: '/galeria/' + encodeURIComponent(slug) + (cap ? '/' + encodeURIComponent(cap) : '') + '/baixar/' + encodeURIComponent(fid),
           aoAbrir: (function (x) { return function () { try { sessionStorage.setItem(chaveUlt, x); } catch (er) { /* sem armazenamento */ } }; })(fid)
         });
@@ -858,8 +868,9 @@ export const SCRIPT_BUSCA = `(function () {
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         a.setAttribute('data-cap', r.cap || '');
+        a.setAttribute('data-k', r.k || '');
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -926,7 +937,7 @@ export const SCRIPT_BUSCA = `(function () {
   if (location.hash.indexOf('#busca=') === 0) {
     var s = null;
     try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    if (s && Array.isArray(s.lista) && Date.now() - s.em < 3 * 3600000) {
+    if (s && Array.isArray(s.lista) && s.lista.every(function (r) { return r && r.k; }) && Date.now() - s.em < 3 * 3600000) {
       q.value = s.termo || '';
       var ult = '';
       try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }
