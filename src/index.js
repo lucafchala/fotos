@@ -47,7 +47,7 @@ import {
 } from './utils.js';
 import { chavePixValida } from './pix.js';
 import { credAws, imagemValida, buscaPorRosto, atualizaPorFaces, sairDaBusca, ehAcelerado } from './rosto.js';
-import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto } from './busca.js';
+import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto, leEstadoDoIndexador, gravaEstadoDoIndexador, apagaEstadoDoIndexador } from './busca.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
 import { ICONE_ENTRENOS_PNG_B64 } from './content/icone-entrenos-png.js';
@@ -363,6 +363,7 @@ const worker = {
       if (path === '/api/busca' && method === 'GET') return await handleBusca(request, env, url);
       if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
+      if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
@@ -1647,6 +1648,7 @@ async function handleDeleteEvent(request, env, path) {
   await apagaSnapshotsDoProjeto(env, removed.slug);
   await apagaApagadasDoProjeto(env, removed.slug);
   await apagaBuscaDoProjeto(env, removed.slug);
+  await apagaEstadoDoIndexador(env, removed.slug);
   return jsonOk({ deleted: true });
 }
 
@@ -3943,6 +3945,43 @@ export function autoresDaTurma(evento) {
 }
 
 /**
+ * Este pedido é do indexador? O token dele (secret ROSTO_INDEXADOR_TOKEN, 32+
+ * caracteres) no cabeçalho X-Rosto-Indexador. UM lugar para as três rotas que
+ * o aceitam: ler as páginas do álbum (podeVerGaleria), mandar o que leu das
+ * fotos (/api/busca/indexar) e guardar o próprio estado (/api/busca/estado).
+ * @param {Request} request
+ * @param {Env} env
+ */
+function indexadorAutorizado(request, env) {
+  const token = String(env.ROSTO_INDEXADOR_TOKEN || '');
+  const pedido = request.headers.get('X-Rosto-Indexador') || '';
+  return token.length >= 32 && !!pedido && timingSafeEqual(pedido, token);
+}
+
+/**
+ * GET /api/busca/estado?slug= e POST /api/busca/estado { slug, vistas,
+ * descritas, qualidade } — a memória do indexador entre execuções (v3.8.8,
+ * src/busca.js). Só com o token dele; sem o token, o 404 de rota inexistente.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleBuscaEstado(request, env, url) {
+  if (!indexadorAutorizado(request, env)) return notFound();
+  const grava = request.method === 'POST';
+  const body = grava ? await readJsonBody(request) : null;
+  if (grava && !body) return jsonErr('JSON inválido.', 400);
+  const slug = grava ? /** @type {Record<string, any>} */ (body).slug : url.searchParams.get('slug') || '';
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (!(await getEvents(env)).some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
+  if (grava) {
+    const gravado = await gravaEstadoDoIndexador(env, slug, body);
+    return jsonOk({ ok: true, vistas: gravado.vistas.length, descritas: gravado.descritas.length });
+  }
+  return jsonOk(await leEstadoDoIndexador(env, slug));
+}
+
+/**
  * POST /api/busca/indexar — o indexador (GitHub Actions, com o token dele)
  * manda o que a Rekognition leu de um lote de fotos e as que saíram do álbum.
  * Grava no D1; foto da turma com marca de moderação NOVA é escondida
@@ -3953,9 +3992,7 @@ export function autoresDaTurma(evento) {
  * @param {ExecutionContext} ctx
  */
 export async function handleBuscaIndexar(request, env, ctx) {
-  const token = String(env.ROSTO_INDEXADOR_TOKEN || '');
-  const pedido = request.headers.get('X-Rosto-Indexador') || '';
-  if (token.length < 32 || !pedido || !timingSafeEqual(pedido, token)) return notFound();
+  if (!indexadorAutorizado(request, env)) return notFound();
   const db = env.CONSENT_DB;
   if (!db) return jsonErr('Banco indisponível.', 503);
   const body = await readJsonBody(request);
@@ -4630,11 +4667,9 @@ function handleVendor(path) {
 async function podeVerGaleria(request, env, slug) {
   if (await verifySession(env, request)) return true;
   // O indexador da busca pelo rosto (GitHub Actions) lê as páginas do álbum
-  // ainda em "Em breve", com um token só dele (secret ROSTO_INDEXADOR_TOKEN, 32+
-  // caracteres). Só LEITURA da página pública — não é sessão de dono.
-  const tokenIdx = String(env.ROSTO_INDEXADOR_TOKEN || '');
-  const pedido = request.headers.get('X-Rosto-Indexador') || '';
-  if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
+  // ainda em "Em breve", com um token só dele. Só LEITURA da página pública —
+  // não é sessão de dono.
+  if (indexadorAutorizado(request, env)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return false;
   // Fechado ao público ("Em breve", ou o álbum com domínio próprio antes do
