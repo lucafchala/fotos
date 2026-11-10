@@ -372,6 +372,25 @@ export class RateLimiter extends DurableObject {
     await this.ctx.storage.setAlarm(novo + 1000);
   }
 
+  /**
+   * Guarda um valor UMA vez e devolve sempre o primeiro (v3.8.9): duas
+   * chamadas ao mesmo tempo, de isolates diferentes, recebem o mesmo valor. É
+   * o que o KV não dá (lá, a última gravação vence, e quem leu antes fica com
+   * outro valor). Usado para a chave do aviso de fotos novas (src/aviso.js),
+   * que precisa ser a mesma para sempre: quem se inscreveu com uma chave não
+   * recebe aviso assinado por outra. Sem alarme: o objeto não é recolhido.
+   * Atômico como `check()`: nenhum `await` entre a leitura e a gravação.
+   * @param {string} valor
+   * @returns {Promise<string>}
+   */
+  async guardaUmaVez(valor) {
+    /** @type {string | undefined} */
+    const guardado = await this.ctx.storage.get('u');
+    if (typeof guardado === 'string' && guardado) return guardado;
+    await this.ctx.storage.put('u', String(valor));
+    return String(valor);
+  }
+
   // Zera o objeto: janela, balde e alarme. Só a PRÉVIA chama (a ação "Zerar
   // os limites deste aparelho", src/previa.js), e cada prévia tem os Durable
   // Objects dela — em produção nenhuma rota chega aqui. Objeto vazio é

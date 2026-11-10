@@ -1,4 +1,5 @@
-import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, SERVICE_WORKER } from './aviso.js';
+import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, apagaInscricoes, SERVICE_WORKER } from './aviso.js';
+import { registraSaida, listaSaidas, desfazUmaSaida, geracaoDoIndice, marcaIndiceParaApagar, cancelaApagarIndice, indiceSeraApagadoEm, apagaIndiceDoAlbum, apagaIndicesVencidos } from './saidas.js';
 import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
@@ -40,7 +41,7 @@ import {
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
   TERMS_VERSION, CONSENT_LABEL, ACCESS_TYPES, ACCESS_DECLARATIONS, isRestrictedAccess, nomeDeConsentimento,
-  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert,
+  sendErrorAlert, sendLoginAlert, sendNoscriptSweepAlert, sendSaidasAlert, cotaDeEmail,
   limparMensagemErro, PERF_ERR_MAX,
   SESSION_TTL_SECS, sessionCookie, sessionRecord, sessionTokenFromRequest,
   youtubeIdFrom, youtubeMaisFrom,
@@ -66,7 +67,7 @@ import {
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
-  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, ROSTO_SAIR_POR_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -360,6 +361,8 @@ const worker = {
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
       if (path === '/api/rosto/atualizar' && method === 'POST') return await handleRosto(request, env, 'atualizar');
       if (path === '/api/rosto/sair' && method === 'POST') return await handleRosto(request, env, 'sair');
+      if (path === '/api/rosto/saidas' && method === 'GET') return await handleRostoSaidas(request, env, url);
+      if (path === '/api/rosto/desfazer' && method === 'POST') return await handleRostoDesfazer(request, env);
       if (path === '/api/busca' && method === 'GET') return await handleBusca(request, env, url);
       if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
@@ -490,6 +493,11 @@ const worker = {
     ctx.waitUntil(pruneOldConsent(env).catch(e => {
       console.error('consent prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneOldConsent' }).catch(() => {});
+    }));
+    // Índices de rostos marcados para apagar (v3.8.9): projeto excluído cuja
+    // exclusão na AWS falhou na hora, e busca desligada há mais que o prazo.
+    ctx.waitUntil(apagaIndicesVencidos(env, credAws(env)).then(r => {
+      if (r.falhas || r.semChave) noteDegraded('índice de rostos por apagar', `${r.falhas} com falha na AWS, ${r.semChave} sem as chaves da AWS no Worker; a próxima passada diária tenta de novo`);
     }));
     // A faxina das cópias de fotos ocultas no R2 (v3.8.8): ver a função.
     ctx.waitUntil(faxinaDasOcultasNoR2(env).catch(e => noteDegraded('faxina das fotos ocultas no R2 falhou', '', e)));
@@ -1642,7 +1650,53 @@ async function handleUpdateEvent(request, env, path) {
   await saveEvents(env, events);
   // Foto ocultada pelo formulário do painel: as cópias dela saem do R2.
   await apagaCopiasDasOcultadas(env, existing.fotosOcultas, updated.fotosOcultas);
+  await acertaOFimDoIndice(env, existing, updated);
   return jsonOk(updated);
+}
+
+/**
+ * O índice de rostos acompanha o interruptor do painel (v3.8.9). Busca
+ * desligada (ou slug trocado: a coleção leva o slug no nome): o índice daquele
+ * slug fica marcado para ser apagado depois do prazo. Busca ligada: a marca do
+ * slug atual sai. Nunca lança: o evento já foi salvo; o que falhar aqui fica
+ * registrado, e o dono resolve salvando de novo.
+ * @param {Env} env
+ * @param {Record<string, any>} antes
+ * @param {Record<string, any>} depois
+ */
+async function acertaOFimDoIndice(env, antes, depois) {
+  const tinha = antes.buscaRosto === true, tem = depois.buscaRosto === true;
+  const trocouSlug = antes.slug !== depois.slug;
+  try {
+    if (tinha && (!tem || trocouSlug)) await marcaIndiceParaApagar(env, antes.slug, 'desligado');
+    if (tem && (!tinha || trocouSlug)) await cancelaApagarIndice(env, depois.slug);
+  } catch (e) {
+    noteDegraded('índice de rostos: marca de apagar não gravada', 'salve o projeto de novo para repetir', e);
+  }
+}
+
+/**
+ * Projeto excluído: o índice de rostos (as duas coleções na Rekognition) e as
+ * inscrições de aviso vão junto, NA HORA (v3.8.9). Até a 3.8.8 nada disso era
+ * apagado: os rostos de um álbum excluído ficavam na AWS sem prazo. A marca é
+ * gravada antes: se a AWS falhar agora, o cron diário repete.
+ * @param {Env} env
+ * @param {Record<string, any>} removido
+ */
+async function apagaRostosEAvisosDoProjeto(env, removido) {
+  const slug = removido.slug;
+  const cred = credAws(env);
+  try {
+    if (cred || removido.buscaRosto === true) await marcaIndiceParaApagar(env, slug, 'excluido');
+    if (cred) await apagaIndiceDoAlbum(env, cred, slug);
+  } catch (e) {
+    noteDegraded('índice de rostos do projeto excluído não foi apagado', 'o cron diário tenta de novo', e);
+  }
+  try {
+    await apagaInscricoes(env, slug);
+  } catch (e) {
+    noteDegraded('inscrições de aviso do projeto excluído não foram apagadas', 'elas vencem sozinhas (AVISO_INSCRICAO_TTL_S)', e);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1673,6 +1727,7 @@ async function handleDeleteEvent(request, env, path) {
   await apagaApagadasDoProjeto(env, removed.slug);
   await apagaBuscaDoProjeto(env, removed.slug);
   await apagaEstadoDoIndexador(env, removed.slug);
+  await apagaRostosEAvisosDoProjeto(env, removed);
   return jsonOk({ deleted: true });
 }
 
@@ -3662,10 +3717,21 @@ export async function handleRosto(request, env, acao) {
 
   try {
     if (acao === 'sair') {
+      // O teto do dia do site inteiro (ROSTO_SAIR_POR_DIA), depois do
+      // Turnstile para um robô não o gastar. Estourou: recusa, e o dono é
+      // avisado uma vez por dia para conferir a lista no painel.
+      if (!await checkRateLimit(env, 'global', 'rosto-sair-dia', ROSTO_SAIR_POR_DIA, 86400)) {
+        noteDegraded('saídas da busca pelo rosto: teto do dia atingido', `${ROSTO_SAIR_POR_DIA} por dia; confira a lista no painel do projeto`);
+        if (await checkRateLimit(env, 'global', 'rosto-sair-alerta', 1, 86400)) {
+          await sendSaidasAlert(env, { titulo: String(/** @type {any} */ (evento).title || slug), teto: ROSTO_SAIR_POR_DIA }).catch(() => false);
+        }
+        return jsonErr('Muitos pedidos de saída hoje. Escreva para privacidade@lucafchala.com que eu tiro você da busca.', 429);
+      }
       const r = await sairDaBusca(cred, slug, body.imagem);
       if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
-      // A partir de agora toda busca deste álbum consulta quem saiu.
-      try { await env.FOTOS.put(`rosto-sair:${slug}`, '1'); } catch (e) { noteDegraded('busca pelo rosto: marca de quem saiu não gravada', String(slug), e); }
+      // A anotação que o painel lista (a data e a contagem; nunca as fotos).
+      // A saída já vale sem ela: a marca está no índice.
+      try { await registraSaida(env, slug, r.marca, r.removidas); } catch (e) { noteDegraded('busca pelo rosto: saída não anotada para o painel', 'a saída vale; só não aparece na lista', e); }
       const res = jsonOk({ ok: true, removidas: r.removidas });
       res.headers.set('Cache-Control', 'no-store');
       return res;
@@ -3683,8 +3749,9 @@ export async function handleRosto(request, env, acao) {
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
-    // Ninguém saiu deste álbum ainda? Uma chamada paga a menos por busca. Na
-    // dúvida (KV fora), consulta — o lado seguro é não mostrar quem saiu.
+    // A coleção ANTIGA de quem saiu (até a 3.8.8) só é consultada se alguém
+    // saiu por ela. Na dúvida (KV fora), consulta — o lado seguro é não
+    // mostrar quem saiu. Quem saiu desde a 3.8.9 é marca no próprio índice.
     let temSair = true;
     try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
     const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
@@ -3997,12 +4064,63 @@ export async function handleBuscaEstado(request, env, url) {
   if (grava && !body) return jsonErr('JSON inválido.', 400);
   const slug = grava ? /** @type {Record<string, any>} */ (body).slug : url.searchParams.get('slug') || '';
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
-  if (!(await getEvents(env)).some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
+  const eventos = await getEvents(env);
+  if (!eventos.some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
   if (grava) {
     const gravado = await gravaEstadoDoIndexador(env, slug, body);
     return jsonOk({ ok: true, vistas: gravado.vistas.length, descritas: gravado.descritas.length });
   }
-  return jsonOk(await leEstadoDoIndexador(env, slug));
+  // Além do estado: se a busca pelo rosto está LIGADA neste projeto (desligada,
+  // o indexador não indexa rosto nenhum, e o índice é apagado: v3.8.9) e
+  // quantas vezes o dono pediu para refazer o índice.
+  const evento = /** @type {any} */ (eventos.find(e => e.slug === slug));
+  const pedida = await geracaoDoIndice(env, slug);
+  const estado = await leEstadoDoIndexador(env, slug);
+  // Estado perdido adota o pedido de hoje, como o filtro de qualidade: perder
+  // o estado não pode custar o índice inteiro.
+  return jsonOk({ ...estado, geracao: estado.origem === 'guardado' ? estado.geracao : pedida, geracaoPedida: pedida, rosto: evento.buscaRosto === true });
+}
+
+/**
+ * GET /api/rosto/saidas?slug= — só o dono: quem saiu da busca pelo rosto deste
+ * álbum (a data e quantos rostos a saída apagou; nenhuma foto, nenhum nome) e,
+ * se a busca está desligada, quando o índice será apagado.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleRostoSaidas(request, env, url) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const slug = url.searchParams.get('slug') || '';
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  const res = jsonOk({ saidas: await listaSaidas(env, slug), apagaEm: await indiceSeraApagadoEm(env, slug), tetoDoDia: ROSTO_SAIR_POR_DIA });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/**
+ * POST /api/rosto/desfazer { slug, id } — só o dono: desfaz UMA saída (alguém
+ * tirou outra pessoa da busca). A marca sai do índice e o indexador refaz o
+ * índice do álbum na próxima execução (custa uma indexação por foto).
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleRostoDesfazer(request, env) {
+  const authErr = await checkAuth(request, env);
+  if (authErr) return authErr;
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  if (!validateSlug(body.slug)) return jsonErr('Projeto inválido.', 400);
+  const cred = credAws(env);
+  if (!cred) return jsonErr('As chaves da AWS não estão no Worker.', 503);
+  try {
+    if (!await desfazUmaSaida(env, cred, body.slug, String(body.id || ''))) return jsonErr('Saída não encontrada.', 404);
+  } catch (e) {
+    noteDegraded('desfazer saída da busca falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
+    return jsonErr('A AWS não respondeu agora. Tente de novo em alguns minutos.', 503);
+  }
+  return jsonOk({ ok: true });
 }
 
 /**
@@ -4173,6 +4291,11 @@ export async function handleDriveCode(request, env, ctx) {
   }
   if (!await checkRateLimit(env, 'conta', 'drive-code-dia', EMAIL_CODE_DAILY_CAP, 86400)) {
     noteDegraded('código por e-mail esgotado hoje', `teto de ${EMAIL_CODE_DAILY_CAP}/dia atingido — volta na virada UTC`);
+    return jsonErr('A verificação por e-mail atingiu o limite de hoje. Me chame no WhatsApp que eu libero.', 503);
+  }
+  // E o teto do dia do site inteiro (v3.8.9): o código por e-mail ficava fora
+  // dele, e somado aos outros passava da franquia do Resend.
+  if (!await cotaDeEmail(env)) {
     return jsonErr('A verificação por e-mail atingiu o limite de hoje. Me chame no WhatsApp que eu libero.', 503);
   }
 
@@ -5333,7 +5456,7 @@ export async function handleGaleriaRemocao(request, env, ctx) {
       return jsonErr('Recebemos muitos pedidos deste endereço hoje. Para os próximos, escreva para privacidade@lucafchala.com.', 429);
     }
     // No plano pago do Workers (v3.8.3) o KV sobra: o pedido vai ao painel
-    // também, porque o e-mail pode estar no teto do dia (EMAIL_COTA_DIA).
+    // também, porque o e-mail pode estar no teto do dia (EMAIL_TETO_DIA).
     semPainel = !planoPago(env);
   }
   if (!(await verifyTurnstile(body.turnstileToken, env))) {
@@ -6071,26 +6194,27 @@ function serverError() {
  */
 async function handleAviso(request, env, sair) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const ficha = await takeToken(env, ip, 'aviso', AVISO_INSCRICAO_IP_BUCKET);
-  if (!ficha.ok) return tooManyRequests(ficha.retryAfter);
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
   const slug = body.slug;
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  // A forma do pedido ANTES da ficha (v3.8.9): pedido malformado não gasta o
+  // limite do IP, que uma escola inteira divide.
+  const sub = body.sub;
+  const chaves = sub && sub.keys;
+  if (sair ? !endpointValido(body.endpoint) : (!sub || !endpointValido(sub.endpoint) || !chaves || typeof chaves.p256dh !== 'string' || typeof chaves.auth !== 'string'
+    || !/^[A-Za-z0-9_-]{80,100}$/.test(chaves.p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(chaves.auth))) {
+    return jsonErr('Inscrição inválida.', 400);
+  }
+  const ficha = await takeToken(env, ip, 'aviso', AVISO_INSCRICAO_IP_BUCKET);
+  if (!ficha.ok) return tooManyRequests(ficha.retryAfter);
   if (sair) {
-    if (!endpointValido(body.endpoint)) return jsonErr('Inscrição inválida.', 400);
     await desinscreve(env, slug, body.endpoint);
     return jsonOk({ ok: true });
   }
   if (!await podeVerGaleria(request, env, slug)) return jsonErr('Não encontrado.', 404);
   const evento = (await getEvents(env)).find(e => e.slug === slug);
   if (!evento || isRestrictedAccess(evento) || !evento.galeriaCapitulos) return jsonErr('Não encontrado.', 404);
-  const sub = body.sub;
-  const chaves = sub && sub.keys;
-  if (!sub || !endpointValido(sub.endpoint) || !chaves || typeof chaves.p256dh !== 'string' || typeof chaves.auth !== 'string'
-    || !/^[A-Za-z0-9_-]{80,100}$/.test(chaves.p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(chaves.auth)) {
-    return jsonErr('Inscrição inválida.', 400);
-  }
   await inscreve(env, slug, { endpoint: sub.endpoint, keys: { p256dh: chaves.p256dh, auth: chaves.auth } });
   const res = jsonOk({ ok: true });
   res.headers.set('Cache-Control', 'no-store');
@@ -6115,7 +6239,14 @@ async function avisosDoCron(env) {
     } catch { nomes = {}; }
     albuns.push({ slug: ev.slug, titulo: String(ev.title || ev.slug), nomes, link: (/** @type {string} */ cap) => (cap ? enderecoDoEvento(ev.slug, cap) : enderecoDoAlbum(ev.slug)) });
   }
-  return albuns.length ? enviaPendentes(env, albuns) : [];
+  if (!albuns.length) return [];
+  const feitos = await enviaPendentes(env, albuns);
+  // 403 do serviço de entrega: a inscrição não aceita a chave deste site. Em
+  // poucas, é a inscrição (ela sai sozinha depois de AVISO_RECUSAS_MAX). Em
+  // muitas de uma vez, é a chave ou a assinatura: o dono precisa saber.
+  const recusados = feitos.reduce((n, f) => n + f.recusados, 0);
+  if (recusados) noteDegraded('aviso de fotos novas recusado pelo serviço de entrega (403)', `${recusados} inscrições nesta execução`);
+  return feitos;
 }
 
 /**

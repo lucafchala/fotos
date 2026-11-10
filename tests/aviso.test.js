@@ -124,7 +124,7 @@ describe('o envio', () => {
     });
     const agora = Date.parse('2026-11-20T15:00:00Z');
     const r = await enviaPendentes(env, [album], agora, /** @type {any} */ (f));
-    expect(r).toEqual([{ slug: 'entrenos2026', enviados: 2, removidos: 1 }]);
+    expect(r).toEqual([{ slug: 'entrenos2026', enviados: 2, removidos: 1, recusados: 0 }]);
     expect(pedidos.every(p => p.cab['Content-Encoding'] === 'aes128gcm' && /^vapid t=/.test(p.cab.Authorization) && p.cab.TTL === '86400')).toBe(true);
     // O aviso que chega ao navegador A.
     const a = /** @type {any} */ (pedidos.find(p => p.url.endsWith('/A')));

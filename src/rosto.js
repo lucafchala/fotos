@@ -4,10 +4,23 @@
 // coleção é o indexador (scripts/rosto-indexa.mjs, no GitHub Actions); o
 // Worker só BUSCA e APAGA — a selfie nunca é guardada.
 //
-// "Não quero aparecer na busca": o rosto da pessoa vai para uma segunda
-// coleção (`fotos-<slug>-sair`), com o consentimento dela e só para isso. Toda
-// busca consulta essa coleção antes: se a selfie é de quem saiu, nada volta —
-// nem as fotos novas que o indexador acrescentar depois.
+// "Não quero aparecer na busca" (v3.8.9): o rosto da pessoa fica como uma
+// MARCA dentro do próprio índice do álbum (ExternalImageId `saiu`, que não é
+// foto nenhuma), com o consentimento dela e só para isso. A marca faz duas
+// coisas:
+//   - toda busca que a encontra entre os parecidos responde "você saiu", sem
+//     mostrar nada (confereSaida), na régua mais baixa da busca;
+//   - o indexador, depois de indexar fotos novas, procura os parecidos com cada
+//     marca e os apaga (limpaRostosDeQuemSaiu). É o que faz a saída valer para
+//     as fotos que chegam DEPOIS.
+// Por que no mesmo índice: a Rekognition só compara um rosto já indexado com
+// outros da MESMA coleção (SearchFaces), e a busca por imagem numa foto de
+// grupo só olha o maior rosto. Com a marca numa coleção à parte (até a 3.8.8,
+// `fotos-<slug>-sair`), não havia como perguntar "algum rosto desta foto nova
+// é de quem saiu?", e a foto nova de quem saiu entrava no índice.
+// A coleção antiga ainda é consultada enquanto existir a marca dela no KV
+// (`rosto-sair:<slug>`): quem saiu antes desta versão continua fora da busca
+// com a própria selfie.
 //
 // Ver docs/ROSTO.md (por que a Rekognition, custos, LGPD).
 
@@ -36,6 +49,25 @@ export function credAws(env) {
 /** Os nomes das duas coleções de um álbum. @param {string} slug */
 export function colecoes(slug) {
   return { principal: `fotos-${slug}`, sair: `fotos-${slug}-sair` };
+}
+
+/** O ExternalImageId da marca de quem saiu da busca (não é foto: não tem ":"). */
+export const MARCA_SAIU = 'saiu';
+
+/** Este rosto do índice é a marca de alguém que saiu? @param {any} face */
+export function ehMarcaDeSaida(face) {
+  return !!face && face.ExternalImageId === MARCA_SAIU;
+}
+
+/**
+ * Entre os parecidos que a Rekognition devolveu há a marca de alguém que saiu,
+ * na régua mais baixa da busca? Uma regra só, para a busca pela selfie e para
+ * a atualização de "minhas fotos": o que a busca mostraria (até o "Talvez"), a
+ * saída esconde.
+ * @param {unknown} matches
+ */
+export function confereSaida(matches) {
+  return (Array.isArray(matches) ? matches : []).some(m => m && ehMarcaDeSaida(m.Face) && Number(m.Similarity) >= ROSTO_LIMIAR_BUSCA);
 }
 
 /** O ExternalImageId de uma foto. @param {string} cap @param {string} id */
@@ -99,15 +131,16 @@ export function ehAcelerado(e) {
  * @param {string} imagem base64 (já conferida por imagemValida)
  * @param {Iterable<string>} ocultas IDs do Drive que o público não vê
  * @param {{ fetch?: typeof fetch, temSair?: boolean }} [opcoes] `temSair: false`
- *   pula a consulta a quem saiu (ninguém saiu ainda neste álbum: uma chamada a menos)
+ *   pula a consulta à coleção ANTIGA de quem saiu (até a 3.8.8); a marca de
+ *   quem saiu desde a 3.8.9 vem na própria busca, sem chamada a mais
  * @returns {Promise<ResultadoBusca>}
  */
 export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
   const c = colecoes(slug);
   const Image = { Bytes: imagem };
-  // 1. Quem saiu da busca não é achado — nem nas fotos novas.
+  // 1. Quem saiu ANTES da 3.8.9 (coleção antiga), na régua mais baixa da busca.
   if (opcoes.temSair !== false) try {
-    const r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.sair, Image, MaxFaces: 1, FaceMatchThreshold: ROSTO_LIMIAR }, opcoes);
+    const r = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.sair, Image, MaxFaces: 1, FaceMatchThreshold: ROSTO_LIMIAR_BUSCA }, opcoes);
     if (Array.isArray(r.FaceMatches) && r.FaceMatches.length) return { tipo: 'saiu' };
   } catch (e) {
     if (semRosto(e)) return { tipo: 'sem-rosto' };
@@ -140,6 +173,9 @@ export async function buscaPorRosto(cred, slug, imagem, ocultas, opcoes = {}) {
     }
   };
   const diretos = Array.isArray(r.FaceMatches) ? r.FaceMatches : [];
+  // Quem saiu (a marca está entre os parecidos): nada volta — nem as fotos
+  // novas que o indexador ainda não limpou.
+  if (confereSaida(diretos)) return { tipo: 'saiu' };
   junta(diretos, 1);
   // 3. As sementes: rostos com semelhança altíssima, de fotos diferentes, que
   // procuram os parecidos com eles. O que acham entra com a semelhança
@@ -189,6 +225,8 @@ export async function atualizaPorFaces(cred, slug, faces, ocultas, opcoes = {}) 
   const respostas = await Promise.all(ids.map(FaceId => rekognition(cred, 'SearchFaces', { CollectionId: c.principal, FaceId, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR }, opcoes)
     .catch(e => { if (ehAcelerado(e)) throw e; return null; })));
   for (const r of respostas) {
+    // O rosto guardado parece com o de alguém que saiu: ele não acha nada.
+    if (r && confereSaida(r.FaceMatches)) continue;
     for (const m of (r && Array.isArray(r.FaceMatches) ? r.FaceMatches : [])) {
       const alvo = lerIdExterno(m && m.Face && m.Face.ExternalImageId);
       if (!alvo || fora.has(alvo.id)) continue;
@@ -202,42 +240,122 @@ export async function atualizaPorFaces(cred, slug, faces, ocultas, opcoes = {}) 
 }
 
 /**
- * "Não quero aparecer na busca": guarda o rosto na coleção de quem saiu e
- * apaga do índice do álbum todo rosto parecido.
+ * Apaga do índice os rostos parecidos com uma marca de quem saiu (nunca outra
+ * marca). A régua é ROSTO_LIMIAR_SAIR, abaixo da mais baixa da busca: o que a
+ * busca acharia, a saída apaga. Usada na hora da saída e pelo indexador,
+ * depois de cada leva de fotos novas.
+ * @param {(op: string, corpo: Record<string, unknown>) => Promise<any>} chama
+ * @param {string} colecao
+ * @param {string} marca FaceId da marca
+ * @returns {Promise<number>} quantos rostos saíram
+ */
+export async function apagaParecidosComAMarca(chama, colecao, marca) {
+  const r = await chama('SearchFaces', { CollectionId: colecao, FaceId: marca, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR_SAIR });
+  const ids = [...new Set((Array.isArray(r.FaceMatches) ? r.FaceMatches : [])
+    .filter((/** @type {any} */ m) => m && m.Face && !ehMarcaDeSaida(m.Face))
+    .map((/** @type {any} */ m) => m.Face.FaceId)
+    .filter((/** @type {unknown} */ id) => typeof id === 'string' && FACE_ID.test(id)))];
+  for (let i = 0; i < ids.length; i += 4096) await chama('DeleteFaces', { CollectionId: colecao, FaceIds: ids.slice(i, i + 4096) });
+  return ids.length;
+}
+
+/**
+ * O indexador chama depois de indexar fotos novas: para cada marca de quem
+ * saiu, apaga os rostos parecidos que acabaram de entrar. Uma chamada paga
+ * por marca.
+ * @param {(op: string, corpo: Record<string, unknown>) => Promise<any>} chama
+ * @param {string} colecao
+ * @param {string[]} marcas FaceIds
+ * @returns {Promise<number>}
+ */
+export async function limpaRostosDeQuemSaiu(chama, colecao, marcas) {
+  let n = 0;
+  for (const m of marcas) n += await apagaParecidosComAMarca(chama, colecao, m);
+  return n;
+}
+
+/**
+ * "Não quero aparecer na busca": guarda o rosto como MARCA no índice do álbum
+ * e apaga dele todo rosto parecido.
  * @param {import('./aws.js').CredAws} cred
  * @param {string} slug
  * @param {string} imagem base64
  * @param {{ fetch?: typeof fetch }} [opcoes]
- * @returns {Promise<{ tipo: 'ok', removidas: number } | { tipo: 'sem-rosto' }>}
+ * @returns {Promise<{ tipo: 'ok', removidas: number, marca: string, repetida: boolean } | { tipo: 'sem-rosto' }>}
  */
 export async function sairDaBusca(cred, slug, imagem, opcoes = {}) {
   const c = colecoes(slug);
   const Image = { Bytes: imagem };
+  /** @param {string} op @param {Record<string, unknown>} corpo */
+  const chama = (op, corpo) => rekognition(cred, op, corpo, opcoes);
   try {
-    await rekognition(cred, 'CreateCollection', { CollectionId: c.sair }, opcoes);
+    await chama('CreateCollection', { CollectionId: c.principal });
   } catch (e) {
     if (!(e instanceof ErroAws && e.tipo === 'ResourceAlreadyExistsException')) throw e;
   }
-  let guardado;
+  // A mesma pessoa pedindo de novo não vira uma segunda marca: a que já existe
+  // é reaproveitada (e os parecidos são limpos outra vez).
+  /** @type {any} */
+  let antes;
   try {
-    guardado = await rekognition(cred, 'IndexFaces', { CollectionId: c.sair, Image, ExternalImageId: 'saiu', MaxFaces: 1, QualityFilter: 'AUTO', DetectionAttributes: [] }, opcoes);
+    antes = await chama('SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR, QualityFilter: 'NONE' });
   } catch (e) {
     if (semRosto(e)) return { tipo: 'sem-rosto' };
     throw e;
   }
-  if (!Array.isArray(guardado.FaceRecords) || !guardado.FaceRecords.length) return { tipo: 'sem-rosto' };
-  /** @type {any} */
-  let achados;
-  try {
-    achados = await rekognition(cred, 'SearchFacesByImage', { CollectionId: c.principal, Image, MaxFaces: 4096, FaceMatchThreshold: ROSTO_LIMIAR_SAIR, QualityFilter: 'NONE' }, opcoes);
-  } catch (e) {
-    if (semColecao(e) || semRosto(e)) return { tipo: 'ok', removidas: 0 };
-    throw e;
+  const jaTem = (Array.isArray(antes.FaceMatches) ? antes.FaceMatches : []).find((/** @type {any} */ m) => m && ehMarcaDeSaida(m.Face) && typeof m.Face.FaceId === 'string');
+  let marca = jaTem ? String(jaTem.Face.FaceId) : '';
+  if (!marca) {
+    let guardado;
+    try {
+      // QualityFilter NONE: se há um rosto, ele vira marca (selfie escura também).
+      guardado = await chama('IndexFaces', { CollectionId: c.principal, Image, ExternalImageId: MARCA_SAIU, MaxFaces: 1, QualityFilter: 'NONE', DetectionAttributes: [] });
+    } catch (e) {
+      if (semRosto(e)) return { tipo: 'sem-rosto' };
+      throw e;
+    }
+    const face = Array.isArray(guardado.FaceRecords) && guardado.FaceRecords[0] && guardado.FaceRecords[0].Face;
+    if (!face || typeof face.FaceId !== 'string') return { tipo: 'sem-rosto' };
+    marca = face.FaceId;
   }
-  const ids = [...new Set((Array.isArray(achados.FaceMatches) ? achados.FaceMatches : [])
-    .map((/** @type {any} */ m) => m && m.Face && m.Face.FaceId)
-    .filter((/** @type {unknown} */ id) => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id)))];
-  if (!ids.length) return { tipo: 'ok', removidas: 0 };
-  const apagou = await rekognition(cred, 'DeleteFaces', { CollectionId: c.principal, FaceIds: ids }, opcoes);
-  return { tipo: 'ok', removidas: Array.isArray(apagou.DeletedFaces) ? apagou.DeletedFaces.length : ids.length };
+  const removidas = await apagaParecidosComAMarca(chama, c.principal, marca);
+  return { tipo: 'ok', removidas, marca, repetida: !!jaTem };
+}
+
+/**
+ * O dono desfaz uma saída (alguém tirou outra pessoa da busca): apaga a marca.
+ * Os rostos que a saída apagou voltam quando o indexador refizer o índice
+ * (quem chama pede isso: ver `pedeReindexacao`).
+ * @param {import('./aws.js').CredAws} cred
+ * @param {string} slug
+ * @param {string} marca FaceId
+ * @param {{ fetch?: typeof fetch }} [opcoes]
+ */
+export async function desfazSaida(cred, slug, marca, opcoes = {}) {
+  if (!FACE_ID.test(marca)) return false;
+  try {
+    await rekognition(cred, 'DeleteFaces', { CollectionId: colecoes(slug).principal, FaceIds: [marca] }, opcoes);
+  } catch (e) {
+    if (!semColecao(e)) throw e;
+  }
+  return true;
+}
+
+/**
+ * Apaga as duas coleções de um álbum (o índice de rostos e a de quem saiu):
+ * projeto excluído, ou busca pelo rosto desligada. Coleção que não existe é
+ * sucesso. Lança em qualquer outra falha (quem chama tenta de novo depois).
+ * @param {import('./aws.js').CredAws} cred
+ * @param {string} slug
+ * @param {{ fetch?: typeof fetch }} [opcoes]
+ */
+export async function apagaColecoes(cred, slug, opcoes = {}) {
+  const c = colecoes(slug);
+  for (const CollectionId of [c.principal, c.sair]) {
+    try {
+      await rekognition(cred, 'DeleteCollection', { CollectionId }, opcoes);
+    } catch (e) {
+      if (!semColecao(e)) throw e;
+    }
+  }
 }

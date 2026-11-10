@@ -175,8 +175,14 @@ const QUALIDADE_RE = /^[A-Z]{2,12}$/;
 const chaveDoEstado = slug => `rosto-estado:${slug}`;
 
 /**
- * @typedef {{ vistas: string[], descritas: string[], qualidade: string }} EstadoDoIndexador
+ * @typedef {{ vistas: string[], descritas: string[], qualidade: string, geracao: number, limpar: boolean }} EstadoDoIndexador
+ *   `geracao`: o último pedido do dono para refazer o índice que o
+ *   indexador já atendeu; `limpar`: indexou rostos e ainda não limpou os de quem saiu
+ *   (v3.8.9, ver src/rosto.js)
  */
+
+/** @param {unknown} v */
+const inteiro = v => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(Math.floor(v), 1e9) : 0);
 
 /**
  * Só o que tem a forma esperada, sem repetição e até o teto.
@@ -191,6 +197,8 @@ export function estadoDoIndexadorLimpo(v) {
     vistas: limpa(o.vistas, VISTA_RE),
     descritas: limpa(o.descritas, ID_RE),
     qualidade: typeof o.qualidade === 'string' && QUALIDADE_RE.test(o.qualidade) ? o.qualidade : '',
+    geracao: inteiro(o.geracao),
+    limpar: o.limpar === true,
   };
 }
 
@@ -212,7 +220,7 @@ export async function leEstadoDoIndexador(env, slug) {
       return { ...estadoDoIndexadorLimpo({ vistas: linhas.map(l => `${l.cap || ''}:${l.foto}`), descritas: linhas.map(l => String(l.foto)) }), origem: 'banco' };
     }
   }
-  return { vistas: [], descritas: [], qualidade: '', origem: 'vazio' };
+  return { vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, origem: 'vazio' };
 }
 
 /**

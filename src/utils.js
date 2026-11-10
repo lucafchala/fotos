@@ -1,5 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
-import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM, EMAIL_COTA_DIA } from './config.js';
+import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM, EMAIL_TETO_DIA, EMAIL_RESERVA_ALERTAS } from './config.js';
 import { FONTS } from './content/fonts.js';
 
 /**
@@ -2330,19 +2330,25 @@ export function corpoResend(env, dados) {
   return JSON.stringify(corpo);
 }
 /**
- * O teto de e-mails do site inteiro por dia (v3.8.3): o Resend grátis manda
- * até 100 por dia. Cada envio gasta uma ficha de um balde de EMAIL_COTA_DIA
- * (que se recompõe aos poucos ao longo do dia). Sem ficha, o e-mail não sai e
- * o caso fica no registro de degradações (o pedido de remoção continua no
- * painel). Os alertas de login e de varredura ficam de fora: são de segurança
- * e já têm trava própria.
+ * O teto de e-mails do site inteiro por dia: UMA janela fixa (vira à meia-noite
+ * UTC) para todo envio — ver EMAIL_TETO_DIA. Sem vaga, o e-mail não sai e o
+ * caso fica no registro de degradações (o pedido de remoção continua no
+ * painel).
  * @param {Env} env
+ * @param {'comum' | 'alerta'} [classe] `alerta`: aviso ao dono de que algo está
+ *   errado; tem EMAIL_RESERVA_ALERTAS vagas que o resto do site não gasta
  */
-export async function cotaDeEmail(env) {
+export async function cotaDeEmail(env, classe = 'comum') {
   if (!env.RATELIMIT) return true;
-  const ficha = await takeToken(env, 'global', 'email-dia', EMAIL_COTA_DIA);
-  if (!ficha.ok) noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_COTA_DIA.capacity} e-mails por dia foi atingido; o resto fica no painel`);
-  return ficha.ok;
+  if (classe !== 'alerta' && !await checkRateLimit(env, 'global', 'email-dia-comum', EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS, 86400)) {
+    noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS} e-mails por dia foi atingido (volta à meia-noite UTC); o resto fica no painel`);
+    return false;
+  }
+  if (!await checkRateLimit(env, 'global', 'email-dia', EMAIL_TETO_DIA, 86400)) {
+    noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_TETO_DIA} e-mails por dia foi atingido (volta à meia-noite UTC)`);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -2729,7 +2735,6 @@ export async function sendSupportEmail(env, { name, email, message }) {
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
-  if (!(await cotaDeEmail(env))) return false;
   // Trava do próprio isolate ANTES da do KV. A do KV sozinha não segura uma
   // rajada: a leitura que deu `null` fica em cache no colo por até 60 s, então
   // numa onda de 500 (o público de um evento chegando junto) cada requisição
@@ -2746,6 +2751,9 @@ export async function sendErrorAlert(env, err, context = {}) {
     if (await env.FOTOS.get(cooldownKey)) return false;
     await env.FOTOS.put(cooldownKey, '1', { expirationTtl: ERROR_ALERT_COOLDOWN_SECS });
   } catch { /* KV hiccup shouldn't block the alert or the response */ }
+  // A vaga do dia só DEPOIS das travas (v3.8.9): pedida antes, cada erro de
+  // uma onda gastava uma vaga sem mandar e-mail nenhum.
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   // `catch` entrega `unknown`; um narrow explícito é o que deixa ler .stack
@@ -2785,6 +2793,41 @@ export async function sendErrorAlert(env, err, context = {}) {
   }
 }
 
+// Alerta de saídas da busca pelo rosto em excesso (v3.8.9): o teto do dia
+// (ROSTO_SAIR_POR_DIA) foi atingido. Pode ser a turma, pode ser alguém tirando
+// os outros da busca; quem decide é o dono, olhando a lista no painel. Um por
+// dia (quem chama trava). Mesmo contrato dos outros alertas: nunca lança, e
+// não leva dado de visitante — só a contagem.
+/**
+ * @param {Env} env
+ * @param {{ titulo: string, teto: number }} d
+ */
+export async function sendSaidasAlert(env, { titulo, teto }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">Muitas saídas da busca pelo rosto hoje</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — ${esc(titulo)}</p>
+  <p style="font-size:14px;line-height:1.6">O limite de <strong>${esc(teto)}</strong> pedidos de "não quero aparecer na busca" por dia foi atingido. Os próximos de hoje são recusados, com o e-mail de privacidade.</p>
+  <p style="font-size:14px;line-height:1.6">Qualquer foto de rosto serve para pedir a saída, então pode ser alguém tirando outras pessoas da busca. Confira em <strong>/dashboard → editar o projeto → Quem saiu da busca</strong>: cada saída tem a data e pode ser desfeita.</p>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">${dataHoraBR()} · um alerta deste tipo por dia.</p>
+</div>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: corpoResend(env, { from: 'Fotos <noreply@lucafchala.com>', to: [env.ADMIN_EMAIL], subject: 'Muitas saídas da busca pelo rosto hoje', html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Alerta de tentativas de login falhas — sem isso, um ataque de força bruta a
 // /dashboard/login é silencioso: o rate limit segura o volume, mas ninguém
 // fica sabendo que houve tentativa.
@@ -2806,6 +2849,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
     if (await env.FOTOS.get(cooldownKey)) return false;
     await env.FOTOS.put(cooldownKey, '1', { expirationTtl: LOGIN_ALERT_COOLDOWN_SECS });
   } catch { /* falha de KV não pode engolir o alerta nem quebrar o login */ }
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   const html = `
@@ -2870,6 +2914,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
     noteKvFailure('escrita', e, 'cooldown do alerta de varredura noscript');
   }
   ultimoAlertaVarredura = Date.now();
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   const html = `
