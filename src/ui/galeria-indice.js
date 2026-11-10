@@ -11,7 +11,7 @@ import { albumHTML, ordemDaLinha } from './album.js';
 import { enderecoDoAlbum, baseDaGaleria, marcaDoAlbum, escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao, capVazio } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
-import { TURNSTILE_SITE_KEY, ROSTO_LIMIAR } from '../config.js';
+import { TURNSTILE_SITE_KEY, ROSTO_LIMIAR, ROSTO_TENTATIVAS_NO_PICO } from '../config.js';
 
 
 /**
@@ -86,7 +86,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   const quandoCaps = new Date(caps.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const barraDono = dono ? `<div class="ix-dono"><b>Painel</b><span>Só você (logado) vê esta faixa.</span><a href="/dashboard">← Painel</a><a href="/${escape(slug)}">Página do projeto</a><a href="?atualizar=1" title="Relê as subpastas no Drive agora (${escape(descreveRenovacao(event))})">Atualizar agora</a><span>Atualizada em ${escape(quandoCaps)}</span></div>` : '';
   const scripts = `${cartoes.length ? `<script nonce="${nonce}">${SCRIPT_NOVAS(slug)}</script>` : ''}
-  ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, idx: /** @type {{ idx?: number }} */ (rosto).idx || 0, ts: TURNSTILE_SITE_KEY, certo: ROSTO_LIMIAR, base, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
+  ${comRosto ? `<script type="application/json" id="rs-dados" nonce="${nonce}">${jsonParaScript({ slug, token: /** @type {{ token: string }} */ (rosto).token, idx: /** @type {{ idx?: number }} */ (rosto).idx || 0, ts: TURNSTILE_SITE_KEY, certo: ROSTO_LIMIAR, tentativas: ROSTO_TENTATIVAS_NO_PICO, base, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
   <script nonce="${nonce}">${SCRIPT_ROSTO}</script>` : ''}
   ${comBusca ? `<script type="application/json" id="bf-dados" nonce="${nonce}">${jsonParaScript({ slug, base, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
   <script nonce="${nonce}">${SCRIPT_BUSCA}</script>` : ''}

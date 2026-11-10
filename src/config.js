@@ -543,11 +543,52 @@ export const ROSTO_SEMENTES = 4;
 export const ROSTO_SEMENTE_MIN = 95;
 export const ROSTO_LIMIAR_SEMENTE = 85;
 // Por IP: a turma inteira no Wi-Fi da escola é UM IP (o mesmo raciocínio do
-// DRIVE_GATE_BUCKET). Global: teto de custo — uma busca custa de 1 a 4
-// chamadas de US$ 0,001 (quem saiu, o álbum e até 2 sementes); 1200 de rajada
-// + 100/h dá no pior dia ~3.600 buscas, uns US$ 14.
+// DRIVE_GATE_BUCKET).
 export const ROSTO_BUSCA_IP_BUCKET = { capacity: 300, perHour: 300 };
-export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: 1200, perHour: 100 };
+// Global: o teto de CUSTO do site inteiro. Dimensionado para o dia do
+// lançamento (v3.8.8): ROSTO_PUBLICO_DO_DIA pessoas com ROSTO_BUSCAS_POR_PESSOA
+// buscas cada (a primeira, uma segunda com outra selfie e a atualização de
+// "minhas fotos" quando chegam fotos novas). O lançamento é uma rajada — a
+// turma abre o álbum junta —, então o dia inteiro cabe no balde de uma vez
+// (`capacity`); `perHour` é o ritmo dos dias seguintes. Era 1.200 + 100/h,
+// menos que o público esperado, e cada tentativa que a AWS recusava por
+// excesso gastava uma ficha: o teto acabava em recusas. Agora a ficha de uma
+// busca recusada com "devagar" é devolvida (handleRosto), e o balde conta
+// buscas que a AWS aceitou.
+// Custo: uma busca são de 1 a 6 chamadas de US$ 0,001 (quem saiu, o álbum e
+// até ROSTO_SEMENTES sementes; em geral 2 ou 3). O dia do lançamento, cheio:
+// 4.500 buscas, de US$ 9 a US$ 27. O pior dia possível (balde cheio mais 24 h
+// de reposição, todas com 6 chamadas): 6.900 buscas, US$ 41.
+export const ROSTO_PUBLICO_DO_DIA = 1500;
+export const ROSTO_BUSCAS_POR_PESSOA = 3;
+export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: ROSTO_PUBLICO_DO_DIA * ROSTO_BUSCAS_POR_PESSOA, perHour: 100 };
+// Quantas vezes a página tenta de novo, sozinha, depois de um 429 da busca
+// (cada vez com um token novo do Turnstile). Toda repetição automática tem
+// teto (RETOMADA §5.12).
+export const ROSTO_TENTATIVAS_NO_PICO = 4;
+
+// A cota da Amazon Rekognition em sa-east-1, em transações por segundo por
+// conta. UM lugar só: `vale` é o que a conta tem hoje (o padrão da AWS é 5 por
+// operação); `pedido` é o aumento em análise na AWS (nov/2026). Quando a AWS
+// aprovar, copie `pedido` para `vale` aqui — o tempo de espera que o 429 da
+// busca manda (esperaDaBuscaNoPico) sai destes números, e nada mais no código
+// repete a cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
+// (IndexFaces e as de leitura), com o ritmo dele.
+export const ROSTO_AWS_TPS = Object.freeze({
+  SearchFacesByImage: Object.freeze({ vale: 5, pedido: 10 }),
+  SearchFaces: Object.freeze({ vale: 5, pedido: 25 }),
+});
+/**
+ * Quantos segundos o 429 de "a AWS pediu calma" manda a página esperar.
+ * Sorteado, para a turma não voltar toda no mesmo segundo, numa janela que
+ * encolhe quando a cota sobe: com 5 por segundo, de 2 a 8 s; com 10, de 2 a 5.
+ * @param {number} [sorteio] 0 a 1 (para os testes)
+ * @param {number} [tps] a cota de SearchFacesByImage (para os testes)
+ */
+export function esperaDaBuscaNoPico(sorteio = Math.random(), tps = ROSTO_AWS_TPS.SearchFacesByImage.vale) {
+  const janela = Math.ceil(30 / Math.max(1, tps));
+  return 2 + Math.floor(Math.min(0.999999, Math.max(0, sorteio)) * (janela + 1));
+}
 export const ROSTO_SAIR_POR_IP_DIA = 20;
 
 // Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel

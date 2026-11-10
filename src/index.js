@@ -34,7 +34,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -66,7 +66,7 @@ import {
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
-  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -3624,6 +3624,15 @@ export async function handleRosto(request, env, acao) {
   // (v3.7.1: a prévia é para quem o dono escolhe testar o álbum inteiro).
   if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : (!!(await verifySession(env, request)) || (!!evento && await temPrevia(request, env, evento))))) return notFound();
   const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
+  // As fichas que esta busca gastou e que voltam se ela NÃO acontecer (v3.8.8):
+  // a do IP e a do teto global. Recusada por excesso — o teto global vazio, ou
+  // a AWS pedindo calma — a busca não custou nada, e a pessoa vai tentar de
+  // novo: gastar a ficha na recusa fazia o teto acabar em tentativas.
+  let fichaGlobal = false;
+  const devolveFichas = async () => {
+    if (acao !== 'sair') await devolveToken(env, ip, 'rosto-buscar', ROSTO_BUSCA_IP_BUCKET);
+    if (fichaGlobal) await devolveToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
+  };
 
   try {
     if (acao === 'sair') {
@@ -3635,9 +3644,13 @@ export async function handleRosto(request, env, acao) {
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
-    // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
+    // Teto de custo do site inteiro (cada busca são de 1 a 6 chamadas pagas).
     const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
-    if (!global.ok) return tooManyRequests(global.retryAfter);
+    if (!global.ok) {
+      await devolveFichas();
+      return tooManyRequests(global.retryAfter);
+    }
+    fichaGlobal = true;
     if (acao === 'atualizar') {
       const a = await atualizaPorFaces(cred, slug, body.faces, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
       const res = jsonOk({ ok: true, resultados: await comChaveDaFoto(env, slug, a.resultados) });
@@ -3654,7 +3667,13 @@ export async function handleRosto(request, env, acao) {
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (e) {
-    if (ehAcelerado(e)) return tooManyRequests(3);
+    // A AWS pediu calma (cota de buscas por segundo, ROSTO_AWS_TPS): nada foi
+    // cobrado, as fichas voltam, e a página espera um tempo SORTEADO antes de
+    // tentar de novo (com outro token do Turnstile — este já foi gasto).
+    if (ehAcelerado(e)) {
+      await devolveFichas();
+      return tooManyRequests(esperaDaBuscaNoPico());
+    }
     noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
     return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
   }

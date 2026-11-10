@@ -1108,6 +1108,24 @@ export async function takeToken(env, ip, key, bucket) {
   }
 }
 
+// Devolve a ficha que `takeToken` tirou (v3.8.8, RateLimiter.devolve): o que
+// ela pagaria não aconteceu. Nunca lança — não devolver só deixa o balde um
+// pouco mais vazio, e a falha fica no registro de degradações.
+/**
+ * @param {Env} env
+ * @param {string} ip
+ * @param {string} key
+ * @param {{ capacity: number, perHour: number }} bucket
+ */
+export async function devolveToken(env, ip, key, bucket) {
+  try {
+    const id = env.RATELIMIT.idFromName(`${key}:${ipParaLimite(ip)}`);
+    await env.RATELIMIT.get(id).devolve(bucket.capacity, bucket.perHour);
+  } catch (e) {
+    noteDegraded('rate limit indisponível', `${key} (devolução) — ${umaLinha(errMessage(e)).slice(0, 120)}`, e);
+  }
+}
+
 // Lease de releitura (item 1g, ver GALERIA_LEASE_S em config.js): true = este
 // chamador pode fazer o trabalho caro. Falha ABERTO (Durable Object fora ->
 // lê, como antes do lease; o single-flight do isolate ainda segura o bando).

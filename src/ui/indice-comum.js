@@ -311,6 +311,32 @@ export const SCRIPT_ROSTO = `(function () {
     if (widget !== null && window.turnstile) window.turnstile.reset(widget);
     else if (pre !== null && window.turnstile) window.turnstile.reset(pre);
   }
+  // Um token NOVO do Turnstile, ou erro se ele não vier a tempo.
+  function tokenNovo() {
+    return new Promise(function (ok, erro) {
+      var prazo = setTimeout(function () { erro(new Error('A verificação de segurança demorou. Feche e tente de novo.')); }, 20000);
+      renova();
+      quandoToken(function () { clearTimeout(prazo); ok(); });
+    });
+  }
+  function dorme(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  // Muita gente buscando ao mesmo tempo (429): espera o que o servidor pediu e
+  // tenta de novo sozinho, até "max" vezes, avisando na tela. A cada tentativa,
+  // um token novo do Turnstile (v3.8.8): o servidor GASTA o token ao conferi-lo,
+  // e reenviar o mesmo dava "verificação de segurança falhou" na segunda vez —
+  // a nova tentativa falhava sempre, justamente no pico. "envia" devolve
+  // { status, ok, corpo } e monta o pedido com o token do momento.
+  function comNovasTentativas(envia, tokenNovo, dorme, avisa, max) {
+    function vez(n) {
+      return envia().then(function (res) {
+        if (res.status !== 429 || n >= max) return res;
+        var s = Math.min(20, Math.max(2, Number(res.corpo && res.corpo.retryAfter) || 3));
+        avisa(s);
+        return dorme(s * 1000).then(tokenNovo).then(function () { avisa(0); return vez(n + 1); });
+      });
+    }
+    return vez(0);
+  }
   if ('requestIdleCallback' in window) window.requestIdleCallback(prepara, { timeout: 2000 });
   else setTimeout(prepara, 800);
   function poeModo(s) {
@@ -345,25 +371,20 @@ export const SCRIPT_ROSTO = `(function () {
     ocupado = true; botao(); msg('');
     reduz(f).then(function (b64) {
       var hp = document.getElementById('company_website');
-      var corpo = JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' });
-      // Muita gente buscando ao mesmo tempo (429): espera o que o servidor
-      // pediu e tenta de novo sozinho, até 3 vezes, avisando na tela.
-      function envia(tentativa) {
+      // O corpo é montado A CADA tentativa, com o token do Turnstile da vez.
+      function envia() {
         return fetch(sair ? '/api/rosto/sair' : '/api/rosto/buscar', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' })
         }).then(function (r) {
-          return r.json().catch(function () { return {}; }).then(function (j) {
-            if (r.status === 429 && tentativa < 3) {
-              var espera = Math.min(20, Math.max(2, Number(j.retryAfter) || 3));
-              msg('Muita gente procurando agora. Tentando de novo em ' + espera + ' s…');
-              return new Promise(function (ok) { setTimeout(ok, espera * 1000); }).then(function () { msg(''); return envia(tentativa + 1); });
-            }
-            if (!r.ok) throw new Error(j.error || 'A busca não respondeu. Tente de novo.');
-            return j;
-          });
+          return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, ok: r.ok, corpo: j }; });
         });
       }
-      return envia(0);
+      function avisa(s) { msg(s ? 'Muita gente procurando agora. Tentando de novo em ' + s + ' s…' : ''); }
+      return comNovasTentativas(envia, tokenNovo, dorme, avisa, D.tentativas || 3).then(function (res) {
+        if (!res.ok) throw new Error((res.corpo && res.corpo.error) || 'A busca não respondeu. Tente de novo.');
+        return res.corpo;
+      });
     }).then(function (j) {
       dlg.close();
       mostra(j);
