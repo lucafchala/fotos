@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.12] — ainda não publicada
+
+- **A moderação automática não esconde mais nenhuma foto.** A Amazon continua marcando foto possivelmente imprópria, e o dono continua recebendo o e-mail com o link de cada uma (as da turma destacadas). A foto fica no álbum até o dono decidir e tocar em "Ocultar" no visualizador. Antes, foto da turma marcada saía do álbum sozinha. As que já tinham sido escondidas assim continuam ocultas: o dono mostra de novo no visualizador, se quiser.
+
 ## [3.8.11] — ainda não publicada
 
 O primeiro minuto do lançamento: mil celulares abrindo a mesma página.

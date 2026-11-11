@@ -4,7 +4,7 @@
 //     moderação que contam (praia/piscina não);
 //  2. a busca: palavra inteira ("10" não acha "100"), todos os termos, sem as
 //     ocultas; antes do lançamento só o dono; família/privado nunca;
-//  3. o indexador: só com o token; a moderação ESCONDE só foto da turma, e uma
+//  3. o indexador: só com o token; a moderação só AVISA o dono (nunca esconde), e uma
 //     vez só (se voltou ao álbum, foi o dono que mostrou); o dono recebe e-mail;
 //     foto que saiu do álbum sai da busca;
 //  4. o script da página: JS válido, sem innerHTML.
@@ -142,7 +142,7 @@ describe('indexador → site', () => {
     expect(db.sqlite.prepare('SELECT COUNT(*) n FROM busca_foto').get()).toEqual({ n: 0 });
   });
 
-  it('grava; moderação esconde só a foto da turma, uma vez; o dono recebe e-mail', async () => {
+  it('grava; moderação não esconde nada, só avisa o dono, uma vez', async () => {
     const db = d1Sqlite();
     const emails = [];
     vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ u, /** @type {any} */ init) => { if (String(u).includes('resend')) emails.push(JSON.parse(init.body)); return Response.json({ id: 'x' }); }));
@@ -152,19 +152,20 @@ describe('indexador → site', () => {
       { foto: F(3), cap: 'gala', autor: 'Luca F. Chala', texto: '', coisas: 'party', moderacao: 'Alcohol' },
     ];
     const { res, env } = await indexa(db, [ALBUM], { slug: 'entrenos2026', itens });
-    expect(await res.json()).toMatchObject({ gravadas: 3, marcadas: 2, escondidas: 1 });
+    expect(await res.json()).toMatchObject({ gravadas: 3, marcadas: 2 });
     const salvo = JSON.parse(/** @type {any} */ (env.FOTOS)._store.get('events'))[0];
-    expect(salvo.fotosOcultas).toEqual([F(2)]);
+    expect(salvo.fotosOcultas || []).toEqual([]);
+    expect(db.sqlite.prepare('SELECT COUNT(*) n FROM busca_foto WHERE escondida = 1').get()).toEqual({ n: 0 });
     expect(emails).toHaveLength(1);
     expect(emails[0].to).toEqual(['dono@example.com']);
-    expect(emails[0].html).toContain('escondida');
-    expect(emails[0].html).toContain('só marcada');
+    expect(emails[0].html).toContain('Nada foi escondido');
+    expect(emails[0].html).toContain('da turma');
+    expect(emails[0].html).toContain('fotógrafo');
 
-    // O dono mostrou a F(2) de novo; o indexador manda de novo: não esconde.
+    // O indexador manda a mesma foto de novo: não avisa outra vez.
     emails.length = 0;
-    const { res: r2, env: env2 } = await indexa(db, [{ ...ALBUM, fotosOcultas: [] }], { slug: 'entrenos2026', itens: [itens[1]] });
-    expect(await r2.json()).toMatchObject({ marcadas: 0, escondidas: 0 });
-    expect(JSON.parse(/** @type {any} */ (env2.FOTOS)._store.get('events'))[0].fotosOcultas).toEqual([]);
+    const { res: r2 } = await indexa(db, [ALBUM], { slug: 'entrenos2026', itens: [itens[1]] });
+    expect(await r2.json()).toMatchObject({ marcadas: 0 });
     expect(emails).toHaveLength(0);
   });
 

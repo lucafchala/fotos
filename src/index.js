@@ -4023,9 +4023,8 @@ export async function handleBusca(request, env, url) {
 /**
  * Os autores "da turma" de um projeto: o da linha `*` dos créditos (foto fora
  * de pasta de fotógrafo) e os das pastas de envio (chave com "!"). Sem linha
- * `*`, o autor padrão é o dono (AUTOR_PADRAO), que não é turma. A moderação só
- * ESCONDE foto da turma; a de fotógrafo credenciado só é marcada (o dono já
- * escolhe o que publica).
+ * `*`, o autor padrão é o dono (AUTOR_PADRAO), que não é turma. O e-mail da
+ * moderação diz quais marcadas são da turma, para o dono olhar essas primeiro.
  * @param {Evento} evento
  */
 export function autoresDaTurma(evento) {
@@ -4129,9 +4128,9 @@ export async function handleRostoDesfazer(request, env) {
 /**
  * POST /api/busca/indexar — o indexador (GitHub Actions, com o token dele)
  * manda o que a Rekognition leu de um lote de fotos e as que saíram do álbum.
- * Grava no D1; foto da turma com marca de moderação NOVA é escondida
- * (fotosOcultas) e o dono recebe um e-mail. Uma foto que já foi marcada antes
- * não é escondida de novo: se ela voltou ao álbum, foi o dono que a mostrou.
+ * Grava no D1; foto com marca de moderação NOVA vai para o e-mail do dono,
+ * que decide se oculta (nada é escondido sozinho, v3.8.12). Uma foto que já
+ * foi marcada antes não é avisada de novo.
  * @param {Request} request
  * @param {Env} env
  * @param {ExecutionContext} ctx
@@ -4174,37 +4173,25 @@ export async function handleBuscaIndexar(request, env, ctx) {
   }
   const turma = autoresDaTurma(evento);
   const agora = new Date().toISOString();
-  /** @type {{ id: string, cap: string, autor: string, rotulos: string, escondida: boolean }[]} */
+  // A moderação só marca e avisa o dono (v3.8.12): nunca esconde sozinha.
+  /** @type {{ id: string, cap: string, autor: string, rotulos: string, daTurma: boolean }[]} */
   const novas = [];
   const stmts = itens.map(i => {
     const nova = !!i.moderacao && !jaMarcadas.has(i.foto);
-    const esconde = nova && turma.has(i.autor);
-    if (nova) novas.push({ id: i.foto, cap: i.cap, autor: i.autor, rotulos: i.moderacao, escondida: esconde });
+    if (nova) novas.push({ id: i.foto, cap: i.cap, autor: i.autor, rotulos: i.moderacao, daTurma: turma.has(i.autor) });
     return db.prepare(`INSERT INTO busca_foto (slug, foto, cap, autor, texto, coisas, moderacao, escondida, em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, foto) DO UPDATE SET cap = excluded.cap, autor = excluded.autor, texto = excluded.texto, coisas = excluded.coisas,
       moderacao = excluded.moderacao, escondida = MAX(busca_foto.escondida, excluded.escondida), em = excluded.em`)
-      .bind(slug, i.foto, i.cap, i.autor, i.texto, i.coisas, i.moderacao, esconde ? 1 : 0, agora);
+      .bind(slug, i.foto, i.cap, i.autor, i.texto, i.coisas, i.moderacao, 0, agora);
   });
   if (remover.length) stmts.push(db.prepare(`DELETE FROM busca_foto WHERE slug = ? AND foto IN (${remover.map(() => '?').join(',')})`).bind(slug, ...remover));
   if (stmts.length) await db.batch(stmts);
 
-  const esconder = novas.filter(n => n.escondida).map(n => n.id);
-  if (esconder.length) {
-    const events = await getEvents(env, true);
-    const idx = events.findIndex(e => e.slug === slug);
-    if (idx >= 0) {
-      const ocultasAntes = events[idx].fotosOcultas;
-      const ocultas = normalizaOcultas([...(Array.isArray(events[idx].fotosOcultas) ? events[idx].fotosOcultas : []), ...esconder]);
-      events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: normalizaPendentes(events[idx].ocultasPendentes, ocultas), updatedAt: agora };
-      await saveEvents(env, events);
-      await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
-    }
-  }
   if (novas.length) {
     ctx.waitUntil(sendModeracaoEmail(env, { titulo: String(evento.title || slug), slug, origem: origemDoAlbum(slug), fotos: novas })
       .catch(e => noteDegraded('moderação: e-mail ao dono falhou', String(slug), e)));
   }
-  return jsonOk({ ok: true, gravadas: itens.length, removidas: remover.length, marcadas: novas.length, escondidas: esconder.length });
+  return jsonOk({ ok: true, gravadas: itens.length, removidas: remover.length, marcadas: novas.length });
 }
 
 /**
