@@ -25,10 +25,11 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 
 ## Mapa das transferências
 
-### 1. Cloudflare — hospedagem, KV, D1, Turnstile, Web Analytics
+### 1. Cloudflare — hospedagem, KV, D1, R2, Turnstile, Web Analytics
 
 | | |
 | --- | --- |
+| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas e arquivos baixados dos álbuns, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. A localização do bucket é escolhida na criação dele, no painel da Cloudflare: **o controlador deve conferir qual é** e anotar aqui. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
 | **Sede** | Estados Unidos (Cloudflare, Inc.) |
 | **Papel** | Operador |
 | **Dados** | Todo o tráfego do site; log de consentimento (D1); pedidos de remoção, contadores e sessões (KV); sinais anti-robô (Turnstile); métrica agregada |
@@ -117,7 +118,7 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 
 | Operador | Dados | Impacto se vazar | Fundamento | Eliminável? |
 | --- | --- | --- | --- | --- |
-| Cloudflare | Tráfego, KV, D1, Turnstile | Alto | Art. 33, II, “a” e “b” | Não — é a plataforma |
+| Cloudflare | Tráfego, KV, D1, Turnstile e, desde a v3.8.3, **cópias das fotos** no R2 (miniaturas e arquivos baixados) | Alto | Art. 33, II, “a” e “b” | Não — é a plataforma |
 | Google Drive | **As fotografias** | **Alto** | Art. 33, II, “a” e “b” ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
 | Resend | E-mail, telefone, foto anexa | Alto | Art. 33, II, “a” e “b” | Não — é o canal de e-mail |
 | YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, II, “a” e “b” | Sim — basta não colocar vídeo no projeto |

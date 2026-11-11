@@ -203,7 +203,7 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
     // A saída acontece logo depois da primeira foto indexada.
     let feito = false;
     aws.falha('IndexFaces', corpo => {
-      if (!feito && corpo.ExternalImageId !== MARCA_SAIU && aws.ops('IndexFaces').length >= 2) { feito = true; queueMicrotask(() => { sai('A'); }); }
+      if (!feito && corpo.ExternalImageId !== MARCA_SAIU && aws.ops('IndexFaces').length >= 2) { feito = true; Promise.resolve().then(() => sai('A')); }
       return null;
     });
     await indexa();

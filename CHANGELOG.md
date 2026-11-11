@@ -18,6 +18,18 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.9] — ainda não publicada
+
+Privacidade: o que a revisão de novembro de 2026 achou entre o que o site promete e o que o código faz (achados 5, 6, 7, 8, 11 e 12).
+
+- **"Não quero aparecer na busca" vale para as fotos que chegam depois.** O rosto de quem saiu vira uma marca dentro do índice do álbum. O indexador, depois de indexar fotos novas, apaga os rostos parecidos com cada marca; a busca que encontra a marca responde "você saiu", na régua mais baixa da busca (era a mais alta: uma selfie de lado passava). Antes, a foto nova de quem saiu entrava no índice. Quem saiu antes desta versão continua fora com a própria selfie, mas precisa sair de novo para as fotos novas (só houve testes da prévia).
+- **O dono vê quem saiu e desfaz.** A saída aceita qualquer foto de rosto, então dá para tirar outra pessoa da busca. No painel, em editar o projeto → *Quem saiu da busca*: a data e quantos rostos cada saída apagou (sem foto, sem nome), com *Desfazer*. Desfazer manda o indexador refazer o índice do álbum (uma indexação paga por foto). Teto de 60 saídas por dia no site (`ROSTO_SAIR_POR_DIA`), com um alerta por e-mail ao dono.
+- **Excluir o projeto apaga o índice de rostos e as inscrições de aviso.** As duas coleções na AWS são apagadas na hora (se a AWS falhar, o cron diário repete). Desligar a busca no painel para o indexador na hora e apaga o índice 72 horas depois; religar antes cancela. Antes, nada disso era apagado pelo código.
+- **Inscrição de aviso de fotos novas com validade** (400 dias sem aviso entregue; cada entrega renova). Limite de inscrições por IP na medida de uma escola (era 20 por hora), e pedido malformado não o gasta. A chave do aviso nasce uma vez só (dois primeiros acessos juntos criavam duas, e parte das pessoas nunca recebia aviso). Inscrição recusada pelo serviço de entrega (403) três vezes seguidas é apagada, e o `/api/healthz` acusa as recusas.
+- **Teto de e-mails em janela diária fixa** (`EMAIL_TETO_DIA`, 90, vira à meia-noite UTC), para todo envio: o código por e-mail e os alertas ficavam de fora, e o balde antigo deixava sair perto de 180 nas primeiras 24 horas. Dez vagas são só dos alertas ao dono.
+- **Documentos legais corrigidos:** a LIA dizia que não há tratamento biométrico; o ROPA, que o site não hospeda fotos, que nada fica no aparelho e que o indexador roda a cada 30 min; o RIPD, que só o dono busca antes do lançamento. A política de retenção ganhou o índice de rostos, as cópias no R2 e as inscrições de aviso; a transferência internacional, o R2. A página de Privacidade diz o que mudou (os Termos não mudaram: `TERMS_VERSION` fica).
+- Depois do merge, o dono confere: onde fica o bucket do R2 (anotar em `docs/legal/transferencia-internacional.md`) e se a AWS aprovou o usuário do Worker para `rekognition:DeleteCollection` (ver `docs/ROSTO.md`).
+
 ## [3.8.8] — ainda não publicada
 
 Os bloqueios do lançamento, da revisão completa de novembro de 2026.
