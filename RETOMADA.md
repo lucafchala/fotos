@@ -960,6 +960,12 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 - Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
   (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
 
+### 5.24. Indexável é uma pergunta só (v3.8.12)
+
+`galeriaIndexavel()` decide sitemaps E o noindex das páginas. O interruptor
+`foraDosBuscadores` do projeto entra ali; rota nova que anuncie uma galeria a
+buscadores (sitemap, JSON-LD, feed) pergunta a ela, não a `albumLancado`.
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a

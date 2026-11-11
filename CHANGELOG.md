@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.12] — ainda não publicada
+
+- **Fora dos buscadores, por projeto.** Interruptor novo no painel (editar o projeto → *Fora dos buscadores*): a galeria sai dos sitemaps e as páginas pedem aos buscadores que não as indexem; quem tem o link abre como sempre. Desligado por padrão, nada muda nos projetos de hoje. Recomendado para o álbum com fotos de menores: lançado, ele entrava nos sitemaps como qualquer galeria pública.
+
 ## [3.8.11] — ainda não publicada
 
 O primeiro minuto do lançamento: mil celulares abrindo a mesma página.

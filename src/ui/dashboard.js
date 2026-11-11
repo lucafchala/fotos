@@ -1345,6 +1345,16 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           </div>
           <div class="field">
             <div class="toggle-row">
+              <label class="toggle-label" for="f-fora-buscadores">Fora dos buscadores (Google)</label>
+              <label class="toggle">
+                <input type="checkbox" id="f-fora-buscadores" aria-describedby="dica-fora-buscadores">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="field-hint" id="dica-fora-buscadores" style="margin-top:.5rem">A galeria deste projeto sai dos sitemaps e as páginas pedem aos buscadores que não as indexem. Quem tem o link abre como sempre, e a prévia no WhatsApp continua. Recomendado para álbum com fotos de <strong>menores de idade</strong>. O que o Google já indexou some aos poucos, em dias ou semanas.</div>
+          </div>
+          <div class="field">
+            <div class="toggle-row">
               <label class="toggle-label" for="f-busca-texto">Busca nas fotos (texto e coisas)</label>
               <label class="toggle">
                 <input type="checkbox" id="f-busca-texto" aria-describedby="dica-busca-texto">
@@ -2021,6 +2031,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-galeria-capitulos').checked = !!(e && e.galeriaCapitulos);
       document.getElementById('f-busca-rosto').checked = !!(e && e.buscaRosto);
       document.getElementById('f-busca-texto').checked = !!(e && e.buscaTexto);
+      document.getElementById('f-fora-buscadores').checked = !!(e && e.foraDosBuscadores);
       document.getElementById('f-destaque-maximo').checked = !!(e && e.destaqueMaximo);
       document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
       document.getElementById('f-galeria-periodo').value = String(e && e.galeriaPeriodo || 600);
@@ -2100,7 +2111,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         // perguntava nada, e o rascunho de sessão expirada voltava sem ela.
         slug: val('f-slug'),
         title: val('f-title'), long: val('f-long'), drive: val('f-drive'),
-        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), estilo: val('f-estilo'), recado: val('f-recado'), pixChave: val('f-pix-chave'), pixNome: val('f-pix-nome'), pixCidade: val('f-pix-cidade'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), buscaTexto: chk('f-busca-texto'), destaqueMaximo: chk('f-destaque-maximo'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
+        driveIg: val('f-drive-ig'), creditos: val('f-creditos'), abertura: val('f-abertura'), estilo: val('f-estilo'), recado: val('f-recado'), pixChave: val('f-pix-chave'), pixNome: val('f-pix-nome'), pixCidade: val('f-pix-cidade'), nomesAmigaveis: chk('f-nomes-amigaveis'), galeriaCapitulos: chk('f-galeria-capitulos'), buscaRosto: chk('f-busca-rosto'), foraDosBuscadores: chk('f-fora-buscadores'), buscaTexto: chk('f-busca-texto'), destaqueMaximo: chk('f-destaque-maximo'), galeriaAuto: chk('f-galeria-auto'), galeriaPeriodo: val('f-galeria-periodo'), driveVideos: val('f-drive-videos'), youtube: val('f-youtube'), youtubeMais: val('f-youtube-mais'), date: val('f-date'), credits: val('f-credits'), purl: val('f-purl'),
         promised: val('f-promised'),
         visible: chk('f-visible'), comingSoon: chk('f-comingsoon'), lancarEm: val('f-lancar-em'), lancarContagem: chk('f-lancar-contagem'), status: val('f-status'),
         accessType: val('f-access'), category: val('f-category'), notes: val('f-notes'),
@@ -2155,7 +2166,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
       if (!d.editingId) set('f-slug', f.slug); // na edição o slug é só leitura
       set('f-title', f.title); set('f-long', f.long); set('f-drive', f.drive);
-      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); if (f.estilo) set('f-estilo', f.estilo); set('f-recado', f.recado); set('f-pix-chave', f.pixChave); set('f-pix-nome', f.pixNome); set('f-pix-cidade', f.pixCidade); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-busca-rosto', f.buscaRosto); setChk('f-busca-texto', f.buscaTexto); setChk('f-destaque-maximo', f.destaqueMaximo); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
+      set('f-drive-ig', f.driveIg); set('f-creditos', f.creditos); set('f-abertura', f.abertura); if (f.estilo) set('f-estilo', f.estilo); set('f-recado', f.recado); set('f-pix-chave', f.pixChave); set('f-pix-nome', f.pixNome); set('f-pix-cidade', f.pixCidade); setChk('f-nomes-amigaveis', f.nomesAmigaveis); setChk('f-galeria-capitulos', f.galeriaCapitulos); setChk('f-busca-rosto', f.buscaRosto); setChk('f-fora-buscadores', f.foraDosBuscadores); setChk('f-busca-texto', f.buscaTexto); setChk('f-destaque-maximo', f.destaqueMaximo); setChk('f-galeria-auto', f.galeriaAuto); set('f-galeria-periodo', f.galeriaPeriodo); set('f-drive-videos', f.driveVideos); set('f-youtube', f.youtube); set('f-youtube-mais', f.youtubeMais); set('f-date', f.date); set('f-credits', f.credits);
       set('f-purl', f.purl); set('f-promised', f.promised); set('f-status', f.status); set('f-access', f.accessType);
       set('f-category', f.category); set('f-notes', f.notes); set('f-alert-expires', f.alertExpires);
       set('f-alert-kind', f.alertKind || 'fotos');
@@ -2439,6 +2450,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         nomesAmigaveis: document.getElementById('f-nomes-amigaveis').checked,
         galeriaCapitulos: document.getElementById('f-galeria-capitulos').checked,
         buscaRosto: document.getElementById('f-busca-rosto').checked,
+        foraDosBuscadores: document.getElementById('f-fora-buscadores').checked,
         buscaTexto: document.getElementById('f-busca-texto').checked,
         destaqueMaximo: document.getElementById('f-destaque-maximo').checked,
         galeriaAtualizacaoAuto: document.getElementById('f-galeria-auto').checked,

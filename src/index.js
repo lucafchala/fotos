@@ -1477,6 +1477,8 @@ function camposDoEvento(body, b, cats) {
     buscaRosto: pick('buscaRosto', v => v === true),
     // Busca nas fotos (v3.7): texto e "coisas", lidos pelo indexador.
     buscaTexto: pick('buscaTexto', v => v === true),
+    // Fora dos buscadores (v3.8.12): ver galeriaIndexavel.
+    foraDosBuscadores: pick('foraDosBuscadores', v => v === true),
     // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
     // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
     destaqueMaximo: pick('destaqueMaximo', v => v === true),
@@ -4848,7 +4850,10 @@ async function podeVerGaleria(request, env, slug) {
  * @param {Evento} event
  */
 export function galeriaIndexavel(event) {
-  return albumLancado(event) && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
+  // `foraDosBuscadores` (v3.8.12): o dono tira ESTE álbum do Google sem fechá-lo
+  // — sai dos sitemaps e as páginas ganham noindex; quem tem o link abre como
+  // sempre. É a escolha para um álbum com fotos de menores.
+  return albumLancado(event) && !isRestrictedAccess(event) && event.foraDosBuscadores !== true && !!pastaDoDrive(event.driveUrl);
 }
 
 /**
@@ -5946,6 +5951,7 @@ export function sanitizeRestoredEvent(ev) {
   if (out.galeriaCapitulos !== undefined) out.galeriaCapitulos = out.galeriaCapitulos === true;
   if (out.buscaRosto !== undefined) out.buscaRosto = out.buscaRosto === true;
   if (out.buscaTexto !== undefined) out.buscaTexto = out.buscaTexto === true;
+  if (out.foraDosBuscadores !== undefined) out.foraDosBuscadores = out.foraDosBuscadores === true;
   if (out.destaqueMaximo !== undefined) out.destaqueMaximo = out.destaqueMaximo === true;
   // Lançamento marcado (v3.5): restaurar um backup NUNCA lança nada. Data que
   // já passou (ou inválida, ou longe demais) vira "sem lançamento marcado".

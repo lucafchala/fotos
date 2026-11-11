@@ -137,3 +137,27 @@ describe('o projeto comum segue como sempre', () => {
     expect((await pede(eventos, 'https://fotos.lucafchala.com/galeria/projeto-comum')).status).toBe(404);
   });
 });
+
+describe('fora dos buscadores (v3.8.12): o dono tira um álbum do Google sem fechá-lo', () => {
+  const aberto = { ...COMUM, comingSoon: false, visible: true };
+
+  it('a regra: com o interruptor, a galeria não é indexável; sem ele, é', async () => {
+    const { galeriaIndexavel, normalizeEventFields } = await import('../src/index.js');
+    expect(galeriaIndexavel(/** @type {any} */ (aberto))).toBe(true);
+    expect(galeriaIndexavel(/** @type {any} */ ({ ...aberto, foraDosBuscadores: true }))).toBe(false);
+    // O painel grava booleano; projeto antigo, sem o campo, segue indexável.
+    expect(normalizeEventFields({ foraDosBuscadores: true }, { slug: 'x' }, []).foraDosBuscadores).toBe(true);
+    expect(normalizeEventFields({ foraDosBuscadores: 'sim' }, { slug: 'x' }, []).foraDosBuscadores).toBe(false);
+    expect(normalizeEventFields({}, { slug: 'x' }, []).foraDosBuscadores).toBe(false);
+  });
+
+  it('sai dos sitemaps, mas continua na home e abre por link', async () => {
+    const mapa = async (/** @type {any[]} */ evs) => (await pede(evs, 'https://fotos.lucafchala.com/sitemap-galerias.xml')).text();
+    expect(await mapa([aberto])).toContain('projeto-comum');
+    const fora = [{ ...aberto, foraDosBuscadores: true }];
+    expect(await mapa(fora)).not.toContain('projeto-comum');
+    expect((await pede(fora, 'https://fotos.lucafchala.com/sitemap-galeria-projeto-comum.xml')).status).toBe(404);
+    expect(await (await pede(fora, 'https://fotos.lucafchala.com/')).text()).toContain('Projeto Comum');
+    expect((await pede(fora, 'https://fotos.lucafchala.com/galeria/projeto-comum')).status).not.toBe(404);
+  });
+});
