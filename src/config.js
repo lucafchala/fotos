@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.12';
+export const VERSAO = '3.8.13';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -599,14 +599,15 @@ export const ROSTO_TENTATIVAS_NO_PICO = 4;
 
 // A cota da Amazon Rekognition em sa-east-1, em transações por segundo por
 // conta. UM lugar só: `vale` é o que a conta tem hoje (o padrão da AWS é 5 por
-// operação); `pedido` é o aumento em análise na AWS (nov/2026). Quando a AWS
-// aprovar, copie `pedido` para `vale` aqui — o tempo de espera que o 429 da
-// busca manda (esperaDaBuscaNoPico) sai destes números, e nada mais no código
-// repete a cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
+// operação); `pedido` é o que foi pedido à AWS. Aprovado em 11/2026 (casos de
+// suporte de SearchFacesByImage e SearchFaces): 20 e 25. A AWS deu 20 onde
+// pedimos 10. O tempo de espera que o 429 da busca manda
+// (esperaDaBuscaNoPico) sai destes números, e nada mais no código repete a
+// cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
 // (IndexFaces e as de leitura), com o ritmo dele.
 export const ROSTO_AWS_TPS = Object.freeze({
-  SearchFacesByImage: Object.freeze({ vale: 5, pedido: 10 }),
-  SearchFaces: Object.freeze({ vale: 5, pedido: 25 }),
+  SearchFacesByImage: Object.freeze({ vale: 20, pedido: 10 }),
+  SearchFaces: Object.freeze({ vale: 25, pedido: 25 }),
 });
 /**
  * Quantos segundos o 429 de "a AWS pediu calma" manda a página esperar.

@@ -208,10 +208,10 @@ describe('os números (config.js)', () => {
     expect(ROSTO_BUSCA_GLOBAL_BUCKET.capacity).toBeGreaterThanOrEqual(ROSTO_PUBLICO_DO_DIA * ROSTO_BUSCAS_POR_PESSOA);
   });
 
-  it('a cota da AWS mora num lugar só: o que vale hoje e o pedido em análise', () => {
-    expect(ROSTO_AWS_TPS.SearchFacesByImage.pedido).toBe(10);
-    expect(ROSTO_AWS_TPS.SearchFaces.pedido).toBe(25);
-    for (const op of Object.values(ROSTO_AWS_TPS)) expect(op.vale).toBeGreaterThanOrEqual(5);
+  it('a cota da AWS mora num lugar só: a aprovada em nov/2026 é a que vale', () => {
+    expect(ROSTO_AWS_TPS.SearchFacesByImage.vale).toBe(20);
+    expect(ROSTO_AWS_TPS.SearchFaces.vale).toBe(25);
+    expect(esperaDaBuscaNoPico(0.9999)).toBe(4);
   });
 
   it('a espera do 429 sai da cota: sorteada, e mais curta quando a cota sobe', () => {

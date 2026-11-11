@@ -76,7 +76,7 @@ Worker e a opção estar marcada no projeto.
    - Secrets `ROSTO_AWS_ACCESS_KEY_ID` e `ROSTO_AWS_SECRET_ACCESS_KEY` (as mesmas do passo 2);
    - Variable `ROSTO_SLUGS` = `entrenos2026` (vários álbuns separados por vírgula).
 
-6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
+6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota. **Feito em nov/2026:** a AWS aprovou 20 (SearchFacesByImage) e 25 (SearchFaces), já em `ROSTO_AWS_TPS`.
 
 7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
 
