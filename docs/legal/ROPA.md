@@ -271,4 +271,4 @@ o caminho humano, WhatsApp e e-mail, divulgados na própria tela de erro.
 
 A busca pelo rosto (seção 12) só **sugere** fotos para a própria pessoa conferir: não identifica ninguém por nome e não toma decisão sobre ninguém.
 
-A moderação automática (seção 14) **esconde provisoriamente** uma foto enviada pela turma que a Amazon marque como imprópria, e avisa o controlador por e-mail, que decide se ela volta. É uma medida de proteção, revista por uma pessoa, e não uma decisão sobre o titular. Foto de fotógrafo credenciado só é marcada, nunca escondida automaticamente.
+A moderação automática (seção 14) **só marca** uma foto que a Amazon aponte como imprópria e avisa o controlador por e-mail, que decide se a oculta. Nada é escondido sem revisão humana (desde a v3.8.12), e não há decisão sobre o titular.

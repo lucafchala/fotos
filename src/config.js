@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.11';
+export const VERSAO = '3.8.12';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -673,9 +673,8 @@ export const BUSCA_TEXTO_CONFIANCA_MIN = 85;
 export const BUSCA_COISA_CONFIANCA_MIN = 75;
 // Moderação: só as categorias de cima abaixo contam, e só com confiança alta.
 // Ficam de fora "Swimwear or Underwear" (piscina, praia) e "Gambling". Com
-// marca, a foto da TURMA (upload aberto ou sem pasta de fotógrafo) é escondida
-// até o dono decidir; a de fotógrafo credenciado só é marcada (o dono já
-// escolhe o que publica).
+// marca, a foto só vai para o e-mail do dono, que decide se oculta: o site não
+// esconde nada sozinho (v3.8.12).
 export const BUSCA_MODERACAO_CONFIANCA_MIN = 80;
 export const BUSCA_MODERACAO_ESCONDE = Object.freeze([
   'Explicit', 'Explicit Nudity', 'Non-Explicit Nudity of Intimate parts and Kissing', 'Non-Explicit Nudity',

@@ -2500,27 +2500,27 @@ export async function sendMantidaEmail(env, req) {
 
 /**
  * Aviso ao dono (v3.7): a moderação automática marcou fotos de um álbum. As da
- * turma já ficaram escondidas; as de fotógrafo credenciado só foram marcadas.
+ * O site não esconde nada sozinho: o dono confere e oculta o que precisar.
  * Cada linha leva o link da foto (o dono, logado, vê também as ocultas e as
  * mostra de novo no visualizador). Nada de imagem no e-mail.
  * @param {Env} env
- * @param {{ titulo: string, slug: string, origem: string, fotos: { id: string, cap: string, autor: string, rotulos: string, escondida: boolean }[] }} d
+ * @param {{ titulo: string, slug: string, origem: string, fotos: { id: string, cap: string, autor: string, rotulos: string, daTurma: boolean }[] }} d
  */
 export async function sendModeracaoEmail(env, d) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL || !d.fotos.length) return false;
   if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
-  const escondidas = d.fotos.filter(f => f.escondida).length;
+  const daTurma = d.fotos.filter(f => f.daTurma).length;
   const linhas = d.fotos.slice(0, 50).map(f => {
     const url = `${d.origem}/galeria/${d.slug}${f.cap ? `/${f.cap}` : ''}#foto=${f.id}`;
-    return `<tr><td style="padding:6px 0"><a href="${esc(url)}" style="color:#1a1a1a">${esc(f.cap || 'galeria')} · ${esc(f.id.slice(0, 10))}…</a></td><td style="padding:6px 8px;color:#666">${esc(f.autor || '—')}</td><td style="padding:6px 0;color:#666">${esc(f.rotulos)}</td><td style="padding:6px 0 6px 8px">${f.escondida ? '<strong>escondida</strong>' : 'só marcada'}</td></tr>`;
+    return `<tr><td style="padding:6px 0"><a href="${esc(url)}" style="color:#1a1a1a">${esc(f.cap || 'galeria')} · ${esc(f.id.slice(0, 10))}…</a></td><td style="padding:6px 8px;color:#666">${esc(f.autor || '—')}</td><td style="padding:6px 0;color:#666">${esc(f.rotulos)}</td><td style="padding:6px 0 6px 8px">${f.daTurma ? '<strong>da turma</strong>' : 'fotógrafo'}</td></tr>`;
   }).join('');
   const html = `
 <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1a1a1a">
   <h2 style="font-size:18px;margin-bottom:4px">Moderação automática: ${d.fotos.length} ${d.fotos.length === 1 ? 'foto marcada' : 'fotos marcadas'}</h2>
   <p style="color:#888;font-size:13px;margin-bottom:16px">${esc(d.titulo)} · fotos.lucafchala.com</p>
-  <p style="font-size:14px;line-height:1.6">${escondidas ? `${escondidas} da turma ${escondidas === 1 ? 'ficou escondida' : 'ficaram escondidas'} até você decidir. ` : ''}As de fotógrafo credenciado só foram marcadas. Para mostrar de novo uma foto escondida, abra o link logado no painel e toque em "Mostrar" no visualizador.</p>
+  <p style="font-size:14px;line-height:1.6"><strong>Nada foi escondido</strong>: as fotos continuam no álbum até você decidir. ${daTurma ? `${daTurma} ${daTurma === 1 ? 'é' : 'são'} da turma (confira primeiro). ` : ''}Para tirar uma do álbum, abra o link logado no painel e toque em "Ocultar" no visualizador.</p>
   <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">${linhas}</table>
   ${d.fotos.length > 50 ? `<p style="font-size:12px;color:#888">E mais ${d.fotos.length - 50}.</p>` : ''}
   <p style="margin-top:20px;font-size:12px;color:#bbb">Amazon Rekognition (DetectModerationLabels), confiança mínima de 80%. Pode errar: confira cada uma.</p>
