@@ -39,6 +39,11 @@ export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;fo
 .rs-btn:disabled{opacity:.5;cursor:default}
 .rs-link{background:none;border:0;color:var(--text-muted);font:inherit;font-size:.8rem;text-decoration:underline;cursor:pointer;min-height:44px;padding:0}
 .rs-res{padding:1rem var(--pad) 0}
+.rs-cartao-linha{margin-top:.9rem}
+.rs-cartao{max-width:min(92vw,420px)}
+.rs-cartao h2{font-size:1.05rem;font-weight:600}
+.rs-cartao-sub{font-size:.82rem;color:var(--text-muted);margin:.3rem 0 .8rem}
+#rs-cartao-cv{display:block;width:min(62vw,250px);height:auto;aspect-ratio:9/16;margin:0 auto;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
 .rs-de-novo{margin-top:.9rem}
 .rs-ev{margin-top:1.1rem}.rs-ev h3{display:flex;align-items:baseline;gap:.5rem;font-size:.98rem;font-weight:700;color:var(--text)}
 .rs-ev h3 small{font-size:.78rem;font-weight:500;color:var(--text-muted)}
@@ -162,7 +167,17 @@ export function rostoHTML() {
       <p><button type="button" class="rs-link" id="rs-modo">Não quero aparecer na busca</button></p>
     </form>
   </dialog>
-  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><div class="rs-grupos" id="rs-grade"></div><p class="rs-de-novo"><button type="button" class="rs-btn" id="rs-de-novo">Tentar com outra selfie</button> <button type="button" class="rs-link" id="rs-esquecer">Esquecer neste aparelho</button></p></section>`;
+  <section class="rs-res" id="rs-res" hidden aria-live="polite"><h2 id="rs-res-t" tabindex="-1"></h2><p id="rs-res-sub"></p><div class="rs-grupos" id="rs-grade"></div><p class="rs-cartao-linha" id="rs-cartao-linha" hidden><button type="button" class="rs-btn rs-btn-1" id="rs-cartao-abrir">Criar cartão para os stories</button></p><p class="rs-de-novo"><button type="button" class="rs-btn" id="rs-de-novo">Tentar com outra selfie</button> <button type="button" class="rs-link" id="rs-esquecer">Esquecer neste aparelho</button></p></section>
+  <dialog class="rs rs-cartao" id="rs-cartao" aria-labelledby="rs-cartao-t">
+    <h2 id="rs-cartao-t">Seu cartão</h2>
+    <p class="rs-cartao-sub">Feito aqui no seu celular, com as suas melhores fotos. Nada é enviado: só sai daqui se você compartilhar.</p>
+    <canvas id="rs-cartao-cv" width="1080" height="1920" role="img" aria-label="Cartão com as suas fotos do álbum"></canvas>
+    <div class="rs-acoes">
+      <button type="button" class="rs-btn" id="rs-cartao-fechar">Fechar</button>
+      <button type="button" class="rs-btn" id="rs-cartao-baixar">Baixar</button>
+      <button type="button" class="rs-btn rs-btn-1" id="rs-cartao-enviar" hidden>Compartilhar</button>
+    </div>
+  </dialog>`;
 }
 
 /**
@@ -514,6 +529,8 @@ export const SCRIPT_ROSTO = `(function () {
       t.textContent = lista.length ? (lista.length === 1 ? '1 foto em que pode ser você' : lista.length + ' fotos em que pode ser você' + (nEv > 1 ? ', em ' + nEv + ' eventos' : '')) : (talvez.length ? 'Talvez seja você' : 'Nenhuma foto encontrada');
       sub.textContent = j.semIndice ? 'O álbum ainda está sendo preparado para a busca. Tente de novo mais tarde.' : (todas.length ? 'Separadas por evento, das mais parecidas para as menos. Toque para abrir.' + (talvez.length && lista.length ? ' Mais ' + talvez.length + ' em "Talvez seja você", no fim.' : '') : 'Tente outra selfie, de frente e com boa luz.');
       desenhaGrupos(grade, lista);
+      cartaoLista = lista;
+      document.getElementById('rs-cartao-linha').hidden = !lista.length;
       if (talvez.length) {
         var tz = document.createElement('section');
         tz.className = 'rs-talvez';
@@ -531,11 +548,147 @@ export const SCRIPT_ROSTO = `(function () {
       if (!restaurando) guarda(j);
     }
     document.getElementById('rs-de-novo').parentNode.hidden = j.removidas !== undefined;
+    if (j.removidas !== undefined) document.getElementById('rs-cartao-linha').hidden = true;
     var alvo = typeof restaurando === 'string' ? grade.querySelector('a[data-id="' + restaurando.replace(/[^A-Za-z0-9_-]/g, '') + '"]') : null;
     if (alvo) { alvo.classList.add('rs-ultima'); alvo.scrollIntoView({ block: 'center' }); return; }
     t.focus({ preventScroll: !!restaurando });
     sec.scrollIntoView({ behavior: restaurando ? 'auto' : 'smooth', block: 'start' });
   }
+
+  // Cartão "minhas fotos" para os stories (v3.9.0): montado AQUI, num canvas,
+  // com as fotos do resultado (as mesmas miniaturas assinadas da grade, do
+  // próprio site). Nada vai ao servidor; a pessoa escolhe se compartilha.
+  var cartaoLista = [];
+  var arqCartao = null;
+  var dlgC = document.getElementById('rs-cartao');
+  var cv = document.getElementById('rs-cartao-cv');
+  var btEnviar = document.getElementById('rs-cartao-enviar');
+  function cor(nome, padrao) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+    return v || padrao;
+  }
+  function carregaFoto(r) {
+    return new Promise(function (ok) {
+      var im = new Image();
+      im.decoding = 'async';
+      im.onload = function () { ok(im); };
+      im.onerror = function () { ok(null); };
+      im.src = '/f/' + encodeURIComponent(r.id) + '/800' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
+    });
+  }
+  // A melhor de cada evento primeiro (variedade), depois as mais parecidas.
+  function escolheFotos(lista) {
+    var out = [];
+    porEvento(lista).forEach(function (g) { if (out.length < 6) out.push(g.fotos[0]); });
+    for (var i = 0; out.length < 6 && i < lista.length; i++) if (out.indexOf(lista[i]) < 0) out.push(lista[i]);
+    return out;
+  }
+  function cobre(ctx, im, x, y, w, h, raio) {
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, raio); else ctx.rect(x, y, w, h);
+    ctx.clip();
+    var e = Math.max(w / im.naturalWidth, h / im.naturalHeight);
+    var iw = im.naturalWidth * e, ih = im.naturalHeight * e;
+    ctx.drawImage(im, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+    ctx.restore();
+  }
+  function quebra(ctx, texto, max, maxLinhas) {
+    var palavras = String(texto || '').split(' '), linhas = [], atual = '';
+    palavras.forEach(function (p) {
+      var t = atual ? atual + ' ' + p : p;
+      if (ctx.measureText(t).width > max && atual) { linhas.push(atual); atual = p; } else atual = t;
+    });
+    if (atual) linhas.push(atual);
+    if (linhas.length > maxLinhas) { linhas = linhas.slice(0, maxLinhas); linhas[maxLinhas - 1] += '…'; }
+    return linhas;
+  }
+  function desenhaCartao(fotos) {
+    var W = 1080, H = 1920, M = 80;
+    var ctx = cv.getContext('2d');
+    var fundo = cor('--bg-page', '#111317'), texto = cor('--text', '#f2f0ea'), mudo = cor('--text-muted', '#a2a5b0'), destaque = cor('--accent', '#e8c34a');
+    var h1 = document.querySelector('h1');
+    var fTit = getComputedStyle(h1 || document.body).fontFamily;
+    var fTxt = getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = fundo;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = destaque;
+    ctx.fillRect(M, 150, 72, 8);
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = mudo;
+    ctx.font = '600 34px ' + fTxt;
+    ctx.fillText('MINHAS FOTOS NO ÁLBUM', M, 220);
+    ctx.fillStyle = texto;
+    ctx.font = '700 78px ' + fTit;
+    var tit = quebra(ctx, D.titulo || document.title, W - 2 * M, 2);
+    tit.forEach(function (l, i) { ctx.fillText(l, M, 320 + i * 92); });
+    var topo = 320 + tit.length * 92 + 10;
+    var base = 1500, gap = 18, raio = 28;
+    var ok = fotos.filter(Boolean);
+    var n = ok.length;
+    var cols = n > 1 ? 2 : 1;
+    var cheia = n > 1 && n % 2 === 1;
+    var linhas = cheia ? 1 + (n - 1) / 2 : Math.ceil(n / cols);
+    var lh = (base - topo - gap * (linhas - 1)) / linhas;
+    var cw = (W - 2 * M - gap * (cols - 1)) / cols;
+    var i = 0, y = topo;
+    if (cheia || n === 1) { cobre(ctx, ok[0], M, y, W - 2 * M, lh, raio); i = 1; y += lh + gap; }
+    for (; i < n; i += 2) {
+      cobre(ctx, ok[i], M, y, cw, lh, raio);
+      if (ok[i + 1]) cobre(ctx, ok[i + 1], M + cw + gap, y, cw, lh, raio);
+      y += lh + gap;
+    }
+    var total = cartaoLista.length, nEv = porEvento(cartaoLista).length;
+    ctx.fillStyle = texto;
+    ctx.font = '700 60px ' + fTit;
+    ctx.fillText(total === 1 ? '1 foto minha' : total + ' fotos minhas', M, base + 110);
+    ctx.fillStyle = mudo;
+    ctx.font = '500 38px ' + fTxt;
+    if (nEv > 1) ctx.fillText('em ' + nEv + ' eventos', M, base + 170);
+    ctx.fillText('Ache as suas em', M, H - 150);
+    ctx.fillStyle = destaque;
+    var ender = location.host + (BASE || '');
+    var tam = 56;
+    do { ctx.font = '700 ' + tam + 'px ' + fTxt; tam -= 2; } while (tam > 24 && ctx.measureText(ender).width > W - 2 * M);
+    ctx.fillText(ender, M, H - 80);
+  }
+  document.getElementById('rs-cartao-abrir').addEventListener('click', function () {
+    var bt = this;
+    if (!cartaoLista.length || !cv.getContext) return;
+    bt.disabled = true;
+    var antes = bt.textContent;
+    bt.textContent = 'Montando o cartão…';
+    Promise.all(escolheFotos(cartaoLista).map(carregaFoto)).then(function (ims) {
+      if (!ims.filter(Boolean).length) throw new Error('sem fotos');
+      desenhaCartao(ims);
+      return new Promise(function (ok) { cv.toBlob(ok, 'image/jpeg', 0.9); });
+    }).then(function (blob) {
+      arqCartao = blob && typeof File === 'function' ? new File([blob], 'minhas-fotos.jpg', { type: 'image/jpeg' }) : blob;
+      var pode = false;
+      try { pode = !!(arqCartao && navigator.canShare && navigator.canShare({ files: [arqCartao] })); } catch (e) { pode = false; }
+      btEnviar.hidden = !pode;
+      dlgC.showModal();
+    }).catch(function () {
+      bt.textContent = 'Não deu para montar o cartão. Tente de novo.';
+      setTimeout(function () { bt.textContent = antes; }, 3000);
+    }).then(function () { bt.disabled = false; if (bt.textContent === 'Montando o cartão…') bt.textContent = antes; });
+  });
+  btEnviar.addEventListener('click', function () {
+    if (!arqCartao) return;
+    navigator.share({ files: [arqCartao], text: 'Ache as suas fotos em ' + location.origin + (BASE || '/') }).catch(function () {});
+  });
+  document.getElementById('rs-cartao-baixar').addEventListener('click', function () {
+    if (!arqCartao) return;
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(arqCartao);
+    a.download = 'minhas-fotos.jpg';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+  });
+  document.getElementById('rs-cartao-fechar').addEventListener('click', function () { dlgC.close(); });
+  dlgC.addEventListener('click', function (e) { if (e.target === dlgC) dlgC.close(); });
   restaura();
 })();`;
 
