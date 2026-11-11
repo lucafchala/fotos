@@ -88,6 +88,13 @@ describe('1. a regra, direto na Rekognition de mentira', () => {
     expect(/** @type {any[]} */ (aws.rostos(C.principal)).filter(f => f.ext === MARCA_SAIU)).toHaveLength(1);
   });
 
+  it('a saída de uma pessoa não apaga a marca de outra parecida com ela', async () => {
+    await sairDaBusca(CRED, SLUG, selfie('L'), o());
+    await sairDaBusca(CRED, SLUG, selfie('A'), o());
+    const marcas = /** @type {any[]} */ (aws.rostos(C.principal)).filter(f => f.ext === MARCA_SAIU).map(f => f.pessoa).sort();
+    expect(marcas).toEqual(['ana', 'ana-de-lado']);
+  });
+
   it('sem rosto na selfie, nada é guardado', async () => {
     expect(await sairDaBusca(CRED, SLUG, selfie('Z'), o())).toEqual({ tipo: 'sem-rosto' });
     expect(/** @type {any[]} */ (aws.rostos(C.principal)).some(f => f.ext === MARCA_SAIU)).toBe(false);
