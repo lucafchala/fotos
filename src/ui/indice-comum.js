@@ -213,9 +213,12 @@ export const SCRIPT_ROSTO = `(function () {
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         a.setAttribute('data-cap', r.cap || '');
+        // k: o álbum e a assinatura da foto, que o servidor manda com o achado
+        // (v3.8.8); sem ele a rota das fotos responde 404.
+        a.setAttribute('data-k', r.k || '');
         if (r.nova) a.className = 'rs-nova';
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -308,6 +311,32 @@ export const SCRIPT_ROSTO = `(function () {
     if (widget !== null && window.turnstile) window.turnstile.reset(widget);
     else if (pre !== null && window.turnstile) window.turnstile.reset(pre);
   }
+  // Um token NOVO do Turnstile, ou erro se ele não vier a tempo.
+  function tokenNovo() {
+    return new Promise(function (ok, erro) {
+      var prazo = setTimeout(function () { erro(new Error('A verificação de segurança demorou. Feche e tente de novo.')); }, 20000);
+      renova();
+      quandoToken(function () { clearTimeout(prazo); ok(); });
+    });
+  }
+  function dorme(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  // Muita gente buscando ao mesmo tempo (429): espera o que o servidor pediu e
+  // tenta de novo sozinho, até "max" vezes, avisando na tela. A cada tentativa,
+  // um token novo do Turnstile (v3.8.8): o servidor GASTA o token ao conferi-lo,
+  // e reenviar o mesmo dava "verificação de segurança falhou" na segunda vez —
+  // a nova tentativa falhava sempre, justamente no pico. "envia" devolve
+  // { status, ok, corpo } e monta o pedido com o token do momento.
+  function comNovasTentativas(envia, tokenNovo, dorme, avisa, max) {
+    function vez(n) {
+      return envia().then(function (res) {
+        if (res.status !== 429 || n >= max) return res;
+        var s = Math.min(20, Math.max(2, Number(res.corpo && res.corpo.retryAfter) || 3));
+        avisa(s);
+        return dorme(s * 1000).then(tokenNovo).then(function () { avisa(0); return vez(n + 1); });
+      });
+    }
+    return vez(0);
+  }
   if ('requestIdleCallback' in window) window.requestIdleCallback(prepara, { timeout: 2000 });
   else setTimeout(prepara, 800);
   function poeModo(s) {
@@ -342,25 +371,20 @@ export const SCRIPT_ROSTO = `(function () {
     ocupado = true; botao(); msg('');
     reduz(f).then(function (b64) {
       var hp = document.getElementById('company_website');
-      var corpo = JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' });
-      // Muita gente buscando ao mesmo tempo (429): espera o que o servidor
-      // pediu e tenta de novo sozinho, até 3 vezes, avisando na tela.
-      function envia(tentativa) {
+      // O corpo é montado A CADA tentativa, com o token do Turnstile da vez.
+      function envia() {
         return fetch(sair ? '/api/rosto/sair' : '/api/rosto/buscar', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: D.slug, imagem: b64, aceite: true, form_token: D.token, turnstileToken: token, company_website: hp ? hp.value : '' })
         }).then(function (r) {
-          return r.json().catch(function () { return {}; }).then(function (j) {
-            if (r.status === 429 && tentativa < 3) {
-              var espera = Math.min(20, Math.max(2, Number(j.retryAfter) || 3));
-              msg('Muita gente procurando agora. Tentando de novo em ' + espera + ' s…');
-              return new Promise(function (ok) { setTimeout(ok, espera * 1000); }).then(function () { msg(''); return envia(tentativa + 1); });
-            }
-            if (!r.ok) throw new Error(j.error || 'A busca não respondeu. Tente de novo.');
-            return j;
-          });
+          return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, ok: r.ok, corpo: j }; });
         });
       }
-      return envia(0);
+      function avisa(s) { msg(s ? 'Muita gente procurando agora. Tentando de novo em ' + s + ' s…' : ''); }
+      return comNovasTentativas(envia, tokenNovo, dorme, avisa, D.tentativas || 3).then(function (res) {
+        if (!res.ok) throw new Error((res.corpo && res.corpo.error) || 'A busca não respondeu. Tente de novo.');
+        return res.corpo;
+      });
     }).then(function (j) {
       dlg.close();
       mostra(j);
@@ -404,7 +428,13 @@ export const SCRIPT_ROSTO = `(function () {
   function salvas() {
     var s = null;
     try { s = JSON.parse(localStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    return s && s.j && Array.isArray(s.j.resultados) && s.j.resultados.length && Date.now() - s.em < 30 * 86400000 ? s : null;
+    return s && s.j && Array.isArray(s.j.resultados) && s.j.resultados.length && comChave(s.j.resultados) && Date.now() - s.em < 30 * 86400000 ? s : null;
+  }
+  // Lista guardada antes da v3.8.8 não tem o "k" de cada foto (o endereço
+  // assinado): as miniaturas viriam quebradas. Vale como não guardada.
+  function comChave(lista) {
+    for (var i = 0; i < lista.length; i++) if (!lista[i] || !lista[i].k) return false;
+    return true;
   }
   var guardadas = salvas();
   if (guardadas) {
@@ -436,8 +466,8 @@ export const SCRIPT_ROSTO = `(function () {
       if (!a || !Array.isArray(a.resultados)) { sub.textContent = antes; return; }
       var tem = {};
       g.j.resultados.forEach(function (r) { tem[r.id] = true; });
-      var novas = a.resultados.filter(function (r) { return !tem[r.id]; }).map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, nova: true }; });
-      var j = { resultados: novas.concat(g.j.resultados.map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim }; })), semIndice: false, faces: g.j.faces };
+      var novas = a.resultados.filter(function (r) { return !tem[r.id]; }).map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, k: r.k, nova: true }; });
+      var j = { resultados: novas.concat(g.j.resultados.map(function (r) { return { cap: r.cap, id: r.id, sim: r.sim, k: r.k }; })), semIndice: false, faces: g.j.faces };
       mostra(j);
       document.getElementById('rs-res-sub').textContent = novas.length ? (novas.length === 1 ? '1 foto nova sua desde a última vez, marcada.' : novas.length + ' fotos novas suas desde a última vez, marcadas.') : 'Nenhuma foto nova sua desde a última vez.';
       var b = document.getElementById('rs-minhas');
@@ -448,7 +478,7 @@ export const SCRIPT_ROSTO = `(function () {
     if (location.hash !== '#minhas-fotos') return;
     var s = null;
     try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    if (!s || !s.j || Date.now() - s.em > 3 * 3600000) return;
+    if (!s || !s.j || !Array.isArray(s.j.resultados) || !comChave(s.j.resultados) || Date.now() - s.em > 3 * 3600000) return;
     var ult = '';
     try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }
     mostra(s.j, ult || true);
@@ -653,7 +683,8 @@ export const SCRIPT_VISOR = `(function () {
     img.addEventListener('dragstart', function (e) { e.preventDefault(); });
     window.addEventListener('popstate', function () { if (dlg.open && empurrou) { empurrou = false; fechaJa(); } });
   }
-  function src(id, w) { return '/f/' + encodeURIComponent(id) + '/' + w; }
+  // f.k: o álbum e a assinatura da foto (v3.8.8), lidos do link da grade.
+  function src(f, w) { return '/f/' + encodeURIComponent(f.id) + '/' + w + (f.k ? '?k=' + encodeURIComponent(f.k) : ''); }
   // Aplica o zoom; a foto não sai da tela. Ampliada, pede a versão maior.
   function aplica(e, x, y) {
     escala = e;
@@ -674,9 +705,9 @@ export const SCRIPT_VISOR = `(function () {
     var f = lista[i];
     img.classList.add('carregando');
     aplica(1, 0, 0);
-    img.srcset = LARGURAS.map(function (w) { return src(f.id, w) + ' ' + w + 'w'; }).join(', ');
+    img.srcset = LARGURAS.map(function (w) { return src(f, w) + ' ' + w + 'w'; }).join(', ');
     img.sizes = '100vw';
-    img.src = src(f.id, 1600);
+    img.src = src(f, 1600);
     nEl.textContent = (i + 1) + ' de ' + lista.length;
     evEl.textContent = f.ev || '';
     verA.href = f.href;
@@ -684,7 +715,7 @@ export const SCRIPT_VISOR = `(function () {
     antB.hidden = i === 0;
     proxB.hidden = i === lista.length - 1;
     // Já pede a vizinha: passar para a próxima não espera.
-    [i + 1, i - 1].forEach(function (j) { if (lista[j]) { var p = new Image(); p.src = src(lista[j].id, 1200); } });
+    [i + 1, i - 1].forEach(function (j) { if (lista[j]) { var p = new Image(); p.src = src(lista[j], 1200); } });
     if (f.aoAbrir) f.aoAbrir();
   }
   function fechaJa() { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); dlg.close(); img.removeAttribute('src'); img.removeAttribute('srcset'); }
@@ -720,7 +751,7 @@ export const SCRIPT_VISOR = `(function () {
         var cap = el.getAttribute('data-cap') || '';
         var fid = el.getAttribute('data-id');
         itens.push({
-          id: fid, href: el.getAttribute('href'), ev: h && h.firstChild ? h.firstChild.textContent : '',
+          id: fid, k: el.getAttribute('data-k') || '', href: el.getAttribute('href'), ev: h && h.firstChild ? h.firstChild.textContent : '',
           baixar: '/galeria/' + encodeURIComponent(slug) + (cap ? '/' + encodeURIComponent(cap) : '') + '/baixar/' + encodeURIComponent(fid),
           aoAbrir: (function (x) { return function () { try { sessionStorage.setItem(chaveUlt, x); } catch (er) { /* sem armazenamento */ } }; })(fid)
         });
@@ -858,8 +889,9 @@ export const SCRIPT_BUSCA = `(function () {
         a.href = linkDaFoto(r.cap, r.id);
         a.setAttribute('data-id', r.id);
         a.setAttribute('data-cap', r.cap || '');
+        a.setAttribute('data-k', r.k || '');
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360';
+        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -926,7 +958,7 @@ export const SCRIPT_BUSCA = `(function () {
   if (location.hash.indexOf('#busca=') === 0) {
     var s = null;
     try { s = JSON.parse(sessionStorage.getItem(CHAVE) || 'null'); } catch (e) { s = null; }
-    if (s && Array.isArray(s.lista) && Date.now() - s.em < 3 * 3600000) {
+    if (s && Array.isArray(s.lista) && s.lista.every(function (r) { return r && r.k; }) && Date.now() - s.em < 3 * 3600000) {
       q.value = s.termo || '';
       var ult = '';
       try { ult = sessionStorage.getItem(ULT) || ''; } catch (e) { ult = ''; }

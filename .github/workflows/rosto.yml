@@ -8,6 +8,11 @@ name: rosto
 #
 # Sem `vars.ROSTO_SLUGS` (Settings → Secrets and variables → Actions →
 # Variables), o job nem começa: nada roda e nada é cobrado.
+#
+# OS LOGS DESTE WORKFLOW SÃO PÚBLICOS (repositório público). O script só
+# imprime contagens: nunca o nome de um álbum ou de um evento, o ID de uma
+# foto nem a mensagem crua de um erro. Não acrescente aqui um passo que
+# imprima dado do álbum (um `cat` do estado, um `curl -v` do site).
 on:
   schedule:
     # A cada 10 min (v3.7.2; o repositório é público, os minutos do Actions
@@ -39,15 +44,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      # O estado (fotos já vistas, inclusive as sem rosto) passa de uma
-      # execução para a próxima. Perdeu? O pior caso é reprocessar o álbum.
-      # Restaurar e salvar separados (v3.7.2): o salvar roda mesmo se o passo
-      # Indexa falhar ou o job for cancelado — o progresso não se perde.
-      - uses: actions/cache/restore@v6
-        with:
-          path: .rosto-estado.json
-          key: rosto-estado-${{ github.run_id }}
-          restore-keys: rosto-estado-
+      # O estado (fotos já vistas, inclusive as sem rosto) NÃO fica mais no
+      # cache do Actions (v3.8.8): o repositório é público, e o workflow de um
+      # pull request vindo de um fork consegue restaurar um cache daqui — o
+      # arquivo tinha o ID de toda foto do álbum, inclusive antes do
+      # lançamento. O script o guarda no próprio site (/api/busca/estado), com
+      # o ROSTO_INDEXADOR_TOKEN. Não recoloque `actions/cache` neste job
+      # (tests/rosto-indexador.test.js reprova).
       - name: Indexa
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ROSTO_AWS_ACCESS_KEY_ID }}
@@ -58,8 +61,3 @@ jobs:
           # Para de pegar foto nova aos 35 min e grava; o job tem 50.
           ROSTO_MAX_MINUTOS: '35'
         run: node scripts/rosto-indexa.mjs
-      - uses: actions/cache/save@v6
-        if: always() && hashFiles('.rosto-estado.json') != ''
-        with:
-          path: .rosto-estado.json
-          key: rosto-estado-${{ github.run_id }}

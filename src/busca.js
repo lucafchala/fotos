@@ -148,3 +148,87 @@ export async function buscaNasFotos(db, slug, termos, ocultas) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// O estado do indexador (v3.8.8)
+// ---------------------------------------------------------------------------
+// O indexador (scripts/rosto-indexa.mjs, GitHub Actions) precisa lembrar, de
+// uma execução para a outra, quais fotos já processou: as que têm rosto a
+// Rekognition lista, mas as SEM rosto não ficam em lugar nenhum, e sem essa
+// memória cada execução (a cada 10 min) pagaria de novo por elas.
+//
+// Até a 3.8.7 essa memória era um arquivo no cache do GitHub Actions. O
+// repositório é público, e um cache do Actions pode ser restaurado pelo
+// workflow de um pull request vindo de um fork: o arquivo tinha o ID de toda
+// foto do álbum, inclusive antes do lançamento. Agora mora aqui, no KV
+// (`rosto-estado:<slug>`), e só entra e sai com o token do indexador
+// (GET e POST /api/busca/estado).
+//
+// Sem estado guardado (a primeira execução depois desta versão, ou a chave
+// perdida), a resposta é montada do que o D1 já sabe: toda foto com linha em
+// `busca_foto` passou pelo indexador. Assim a troca não reprocessa o álbum.
+const ESTADO_MAX_ITENS = 20000;
+const VISTA_RE = /^(?:[a-z0-9][a-z0-9-]{0,80})?:[A-Za-z0-9_-]{10,200}$/;
+const QUALIDADE_RE = /^[A-Z]{2,12}$/;
+
+/** @param {string} slug */
+const chaveDoEstado = slug => `rosto-estado:${slug}`;
+
+/**
+ * @typedef {{ vistas: string[], descritas: string[], qualidade: string }} EstadoDoIndexador
+ */
+
+/**
+ * Só o que tem a forma esperada, sem repetição e até o teto.
+ * @param {unknown} v
+ * @returns {EstadoDoIndexador}
+ */
+export function estadoDoIndexadorLimpo(v) {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? /** @type {Record<string, unknown>} */ (v) : {};
+  /** @param {unknown} lista @param {RegExp} re */
+  const limpa = (lista, re) => [...new Set((Array.isArray(lista) ? lista : []).filter(x => typeof x === 'string' && re.test(x)))].slice(0, ESTADO_MAX_ITENS);
+  return {
+    vistas: limpa(o.vistas, VISTA_RE),
+    descritas: limpa(o.descritas, ID_RE),
+    qualidade: typeof o.qualidade === 'string' && QUALIDADE_RE.test(o.qualidade) ? o.qualidade : '',
+  };
+}
+
+/**
+ * O estado guardado; sem ele, o que o D1 sabe (`origem: 'banco'`).
+ * @param {{ FOTOS: any, CONSENT_DB?: any }} env
+ * @param {string} slug
+ * @returns {Promise<EstadoDoIndexador & { origem: 'guardado' | 'banco' | 'vazio' }>}
+ */
+export async function leEstadoDoIndexador(env, slug) {
+  const bruto = await env.FOTOS.get(chaveDoEstado(slug));
+  if (bruto) {
+    try { return { ...estadoDoIndexadorLimpo(JSON.parse(bruto)), origem: 'guardado' }; } catch { /* ilegível: cai para o banco */ }
+  }
+  if (env.CONSENT_DB) {
+    const r = await env.CONSENT_DB.prepare('SELECT foto, cap FROM busca_foto WHERE slug = ? LIMIT ?').bind(slug, ESTADO_MAX_ITENS).all();
+    const linhas = /** @type {any[]} */ (r.results || []);
+    if (linhas.length) {
+      return { ...estadoDoIndexadorLimpo({ vistas: linhas.map(l => `${l.cap || ''}:${l.foto}`), descritas: linhas.map(l => String(l.foto)) }), origem: 'banco' };
+    }
+  }
+  return { vistas: [], descritas: [], qualidade: '', origem: 'vazio' };
+}
+
+/**
+ * @param {{ FOTOS: any }} env
+ * @param {string} slug
+ * @param {unknown} estado
+ * @returns {Promise<EstadoDoIndexador>} o que foi gravado
+ */
+export async function gravaEstadoDoIndexador(env, slug, estado) {
+  const limpo = estadoDoIndexadorLimpo(estado);
+  await env.FOTOS.put(chaveDoEstado(slug), JSON.stringify({ v: 1, em: new Date().toISOString(), ...limpo }));
+  return limpo;
+}
+
+/** Projeto apagado: o estado do indexador vai junto. @param {{ FOTOS: any }} env @param {string} slug */
+export async function apagaEstadoDoIndexador(env, slug) {
+  if (!slug) return;
+  try { await env.FOTOS.delete(chaveDoEstado(slug)); } catch (e) { console.error('busca: não apagou o estado do indexador', e); }
+}

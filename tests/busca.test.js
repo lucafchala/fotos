@@ -111,12 +111,27 @@ async function indexa(db, eventos, corpo, token = TOKEN) {
   return { res, env };
 }
 /** @param {any} db @param {any[]} eventos @param {string} q @param {boolean} [dono] */
-async function busca(db, eventos, q, dono = false) {
+async function buscaCrua(db, eventos, q, dono = false) {
   const w = await frio();
   /** @type {Record<string, string>} */
   const headers = { 'CF-Connecting-IP': '203.0.113.5' };
   if (dono) headers.Cookie = `__Host-session=${SESSAO}`;
   return w.fetch(new Request(`https://fotos.lucafchala.com/api/busca?slug=entrenos2026&q=${encodeURIComponent(q)}`, { headers }), ambiente(eventos, db), { waitUntil() {} });
+}
+// Desde a v3.8.8 cada achado leva também `k` (o álbum e a assinatura que o
+// endereço da foto exige, /f/). Os testes daqui comparam o capítulo e a foto;
+// o `k` tem teste próprio, logo abaixo, com a resposta crua.
+/** @param {any} db @param {any[]} eventos @param {string} q @param {boolean} [dono] */
+async function busca(db, eventos, q, dono = false) {
+  const res = await buscaCrua(db, eventos, q, dono);
+  return {
+    status: res.status,
+    headers: res.headers,
+    json: async () => {
+      const j = /** @type {any} */ (await res.json());
+      return Array.isArray(j.resultados) ? { ...j, resultados: j.resultados.map((/** @type {any} */ r) => { const semK = { ...r }; delete semK.k; return semK; }) } : j;
+    },
+  };
 }
 
 describe('indexador → site', () => {
@@ -183,6 +198,15 @@ describe('GET /api/busca', () => {
       { foto: F(3), cap: 'festa-junina', texto: '', coisas: 'cake bolo party festa' },
     ] });
   }
+
+  it('v3.8.8: cada achado leva o `k` do endereço da foto (o álbum; com o segredo, também a assinatura)', async () => {
+    const db = d1Sqlite();
+    await semeia(db);
+    const achados = (await (await buscaCrua(db, [{ ...ALBUM }], '10')).json()).resultados;
+    expect(achados).toHaveLength(1);
+    expect(achados[0].id).toBe(F(1));
+    expect(achados[0].k).toMatch(/^entrenos2026(\.[\w-]{8})?$/);
+  });
 
   it('palavra inteira e todos os termos; as ocultas não aparecem', async () => {
     const db = d1Sqlite();

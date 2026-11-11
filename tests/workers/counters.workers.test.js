@@ -356,6 +356,33 @@ describe('RateLimiter.take — balde de fichas no runtime de verdade', () => {
     expect((await stub.take(1, 3600)).ok, 'ficha devolvida').toBe(true);
   });
 
+  it('devolve (v3.8.8): a ficha de um trabalho que não aconteceu volta — sem passar da capacidade nem criar balde', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('devolve')));
+    // Balde que não existe: nada a devolver, e nada é gravado.
+    await stub.devolve(2, 1);
+    expect(await runInDurableObject(stub, async (_i, state) => (await state.storage.list()).size)).toBe(0);
+    // Esvazia (capacidade 2, quase sem reposição) e devolve uma: passa UMA vez mais.
+    expect((await stub.take(2, 1)).ok).toBe(true);
+    expect((await stub.take(2, 1)).ok).toBe(true);
+    expect((await stub.take(2, 1)).ok).toBe(false);
+    await stub.devolve(2, 1);
+    expect((await stub.take(2, 1)).ok, 'a ficha devolvida').toBe(true);
+    expect((await stub.take(2, 1)).ok).toBe(false);
+    // Devolver demais não passa da capacidade.
+    for (let i = 0; i < 10; i++) await stub.devolve(2, 1);
+    const out = [];
+    for (let i = 0; i < 4; i++) out.push((await stub.take(2, 1)).ok);
+    expect(out).toEqual([true, true, false, false]);
+  });
+
+  it('devolve é atômico com take: 50 pares simultâneos deixam o balde como estava', async () => {
+    const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('devolve-rajada')));
+    expect((await stub.take(100, 1)).ok).toBe(true);
+    await Promise.all(Array.from({ length: 50 }, () => stub.take(100, 1).then(() => stub.devolve(100, 1))));
+    const fichas = await runInDurableObject(stub, async (_i, state) => (await state.storage.get('b')).fichas);
+    expect(Math.round(fichas)).toBe(99);
+  });
+
   it('recusa não grava nada — não gasta linha escrita do Durable Object', async () => {
     const stub = env.RATELIMIT.get(env.RATELIMIT.idFromName(chave('balde-recusa')));
     await stub.take(1, 1);

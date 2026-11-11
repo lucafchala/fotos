@@ -1,5 +1,5 @@
 import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, SERVICE_WORKER } from './aviso.js';
-import { lerRotaFoto, respondeFoto, originalDoR2, copiaOriginalParaR2 } from './foto-rota.js';
+import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
@@ -21,7 +21,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha, mesDoEvento } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -34,7 +34,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -47,7 +47,7 @@ import {
 } from './utils.js';
 import { chavePixValida } from './pix.js';
 import { credAws, imagemValida, buscaPorRosto, atualizaPorFaces, sairDaBusca, ehAcelerado } from './rosto.js';
-import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto } from './busca.js';
+import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto, leEstadoDoIndexador, gravaEstadoDoIndexador, apagaEstadoDoIndexador } from './busca.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
 import { ICONE_ENTRENOS_PNG_B64 } from './content/icone-entrenos-png.js';
@@ -66,7 +66,7 @@ import {
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
-  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -263,11 +263,9 @@ const worker = {
     const method = request.method.toUpperCase();
 
     // As fotos pelo próprio site, com cache (v3.8.3, src/foto-rota.js). Antes
-    // de tudo: é a rota mais chamada e não precisa de mais nada.
-    if (method === 'GET' && path.startsWith('/f/')) {
-      const alvoFoto = lerRotaFoto(path);
-      return alvoFoto ? await respondeFoto(request, env, ctx, alvoFoto) : new Response('Não encontrada.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-    }
+    // de tudo: é a rota mais chamada. Desde a v3.8.8 só serve foto de álbum do
+    // site, com o endereço assinado (handleFoto).
+    if (method === 'GET' && path.startsWith('/f/')) return await handleFoto(request, env, ctx, url, path);
 
     // Domínio próprio de um álbum (entrenos2026.com): antes de tudo, porque a
     // raiz dele não é a home do site. Ver DOMINIOS_DE_ALBUM em config.js. A
@@ -365,6 +363,7 @@ const worker = {
       if (path === '/api/busca' && method === 'GET') return await handleBusca(request, env, url);
       if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
+      if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
@@ -492,6 +491,8 @@ const worker = {
       console.error('consent prune failed', e);
       return sendErrorAlert(env, e, { path: 'cron:pruneOldConsent' }).catch(() => {});
     }));
+    // A faxina das cópias de fotos ocultas no R2 (v3.8.8): ver a função.
+    ctx.waitUntil(faxinaDasOcultasNoR2(env).catch(e => noteDegraded('faxina das fotos ocultas no R2 falhou', '', e)));
   },
 };
 
@@ -537,6 +538,116 @@ export default {
 };
 
 // ---------------------------------------------------------------------------
+// As fotos pelo próprio site: /f/<id>/<largura>?k=<álbum>.<assinatura>
+// ---------------------------------------------------------------------------
+// A conferência que prende a rota aos álbuns do site (v3.8.8; o porquê está no
+// topo de src/foto-rota.js). Tudo aqui acontece ANTES de qualquer leitura do
+// cache, do R2 ou do Google: quem não passa leva o 404 de rota inexistente,
+// e nada é buscado nem gravado.
+/** O 404 da rota das fotos: texto curto, nunca guardado. */
+function fotoNaoEncontrada() {
+  return new Response('Não encontrada.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {URL} url
+ * @param {string} path
+ */
+export async function handleFoto(request, env, ctx, url, path) {
+  const alvo = lerRotaFoto(path);
+  const chave = lerChaveFoto(url.searchParams.get('k'));
+  if (!alvo || !chave) return fotoNaoEncontrada();
+  // 1. A assinatura: só as páginas do site a emitem, para as fotos que listam.
+  // Sem o segredo no Worker ela fica desligada (como o nonce do Drive: o
+  // /api/healthz acusa); o álbum e a foto oculta continuam conferidos.
+  const secret = signingSecret(env);
+  if (secret && !(await assinaturaDaFotoConfere(secret, chave.slug, alvo.id, chave.assinatura))) return fotoNaoEncontrada();
+  try {
+    // 2. O álbum. A lista de projetos vem da memória do isolate (30 s).
+    const evento = (await getEvents(env)).find(e => e.slug === chave.slug);
+    if (!evento) return fotoNaoEncontrada();
+    const oculta = normalizaOcultas(evento.fotosOcultas).includes(alvo.id);
+    const aberto = albumAbertoAoPublico(evento);
+    if (!oculta && aberto) return await respondeFoto(request, env, ctx, alvo);
+    // 3. Foto oculta: só o dono e a editora (o visualizador deles mostra as
+    // ocultas, marcadas). Álbum ainda fechado: também quem tem a prévia —
+    // os mesmos que a galeria deixa entrar (podeVerGaleria).
+    const donoOuEditora = !!(await verifySession(env, request)) || await temEditora(request, env, evento);
+    if (oculta) return donoOuEditora ? await respondeFoto(request, env, ctx, alvo, { privado: 'nunca' }) : fotoNaoEncontrada();
+    if (donoOuEditora || await temPrevia(request, env, evento)) return await respondeFoto(request, env, ctx, alvo, { privado: 'navegador' });
+    return fotoNaoEncontrada();
+  } catch (e) {
+    // KV fora e sem cópia da lista: não dá para saber se a foto pode sair.
+    // Falha FECHADA, com 503 curto (a rota fica fora do try do roteador: uma
+    // miniatura não dispara e-mail de "erro no site").
+    noteKvFailure('leitura', e, 'conferência de uma foto (/f/)');
+    return new Response('Foto indisponível agora.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '10' } });
+  }
+}
+
+/**
+ * Uma vez por dia (o cron das 03:00 UTC): apaga do R2 as cópias de TODA foto
+ * que está oculta, em todos os projetos. É a rede de segurança de
+ * `apagaCopiasDasOcultadas`, que roda na hora de ocultar e pode falhar (o R2
+ * fora por um instante), e é o que limpa as cópias de fotos ocultadas antes
+ * da v3.8.8, quando nada as apagava. A foto oculta já não sai pelo site (a
+ * rota confere a lista a cada pedido); isto é para a cópia não ficar guardada.
+ * Custa uma listagem por foto oculta e, quase sempre, nenhuma exclusão.
+ * @param {Env} env
+ * @returns {Promise<number>} quantos objetos foram apagados
+ */
+export async function faxinaDasOcultasNoR2(env) {
+  if (!env.FOTOS_R2) return 0;
+  /** @type {Set<string>} */
+  const ocultas = new Set();
+  for (const e of await getEvents(env)) for (const id of normalizaOcultas(e.fotosOcultas)) ocultas.add(id);
+  if (!ocultas.size) return 0;
+  // `apagaCopiasDaFoto` conta também a chave do original, exista ou não: o
+  // que interessa aqui é só se sobrou miniatura (o que a rota servia).
+  return apagaCopiasDaFoto(env, ocultas);
+}
+
+/**
+ * Os achados de uma busca (pelo rosto ou por texto) com o `k` de cada foto: o
+ * álbum e a assinatura que o endereço /f/ exige (v3.8.8). A página monta a
+ * miniatura e a foto em tela cheia com ele.
+ * @template {{ id: string }} T
+ * @param {Env} env
+ * @param {string} slug
+ * @param {T[]} achados
+ * @returns {Promise<(T & { k: string })[]>}
+ */
+async function comChaveDaFoto(env, slug, achados) {
+  const assina = await assinadorDeFotos(signingSecret(env), slug, achados.map(a => a.id));
+  return achados.map(a => ({ ...a, k: assina(a.id) }));
+}
+
+/**
+ * As cópias no R2 das fotos que ACABARAM de ser ocultadas (as que estão em
+ * `depois` e não estavam em `antes`): miniaturas e original. Um lugar só para
+ * os quatro caminhos que escondem foto (o olho do visualizador, o desfecho de
+ * um pedido de remoção, a moderação do indexador e o formulário do painel).
+ * Nunca lança: a foto já saiu do site (a rota confere `fotosOcultas` a cada
+ * pedido); o que falhou aqui fica no /api/healthz.
+ * @param {Env} env
+ * @param {unknown} antes
+ * @param {unknown} depois
+ */
+async function apagaCopiasDasOcultadas(env, antes, depois) {
+  const ja = new Set(normalizaOcultas(antes));
+  const novas = normalizaOcultas(depois).filter(id => !ja.has(id));
+  if (!novas.length) return;
+  try {
+    await apagaCopiasDaFoto(env, novas);
+  } catch (e) {
+    noteDegraded('cópia de foto oculta não apagada do R2', `${novas.length} foto(s): a foto já não sai pelo site, mas o arquivo segue no bucket`, e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
 /**
@@ -568,7 +679,7 @@ async function handleSitemap(env) {
   // X-Robots-Tag na própria página (handleEventPage) — a página continua
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
-  const visible = events.filter(e => e.visible !== false && !e.comingSoon && !isRestrictedAccess(e));
+  const visible = events.filter(e => albumLancado(e) && !isRestrictedAccess(e));
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
@@ -830,7 +941,7 @@ const RECENTES_MAX = 5;
  */
 async function handleRecentes(env) {
   const events = await getEvents(env);
-  const visible = sortEvents(events.filter(e => e.visible !== false && !isRestrictedAccess(e)));
+  const visible = sortEvents(events.filter(e => albumListado(e) && !isRestrictedAccess(e)));
   const galerias = visible
     .filter(e => typeof e.slug === 'string' && e.slug && typeof e.title === 'string' && e.title)
     .slice(0, RECENTES_MAX)
@@ -843,7 +954,7 @@ async function handleRecentes(env) {
       data: typeof e.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : null,
       url: `${SITE_URL}/${encodeURIComponent(e.slug)}`,
       destaque: e.pinned === true,
-      emBreve: e.comingSoon === true,
+      emBreve: !albumAbertoAoPublico(e),
     }));
   return new Response(JSON.stringify({ galerias }), {
     headers: {
@@ -933,7 +1044,7 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted || restricted || event.comingSoon) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (unlisted || restricted || !albumAbertoAoPublico(event)) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }
@@ -1529,6 +1640,8 @@ async function handleUpdateEvent(request, env, path) {
 
   events[idx] = updated;
   await saveEvents(env, events);
+  // Foto ocultada pelo formulário do painel: as cópias dela saem do R2.
+  await apagaCopiasDasOcultadas(env, existing.fotosOcultas, updated.fotosOcultas);
   return jsonOk(updated);
 }
 
@@ -1559,6 +1672,7 @@ async function handleDeleteEvent(request, env, path) {
   await apagaSnapshotsDoProjeto(env, removed.slug);
   await apagaApagadasDoProjeto(env, removed.slug);
   await apagaBuscaDoProjeto(env, removed.slug);
+  await apagaEstadoDoIndexador(env, removed.slug);
   return jsonOk({ deleted: true });
 }
 
@@ -1923,7 +2037,7 @@ export async function handleTrackDrive(request, env, ctx) {
     noteKvFailure('leitura', e, 'contagem de clique no Drive');
     return jsonOk({ ok: true });
   }
-  if (!event || event.comingSoon) return jsonOk({ ok: true });
+  if (!event || !albumAbertoAoPublico(event)) return jsonOk({ ok: true });
 
   // Sem este limite, um flood sustentado inflaria a métrica à vontade e
   // gastaria a franquia de escrita do Durable Object com um clique falso por
@@ -2825,6 +2939,8 @@ async function aplicaDesfechoDaFoto(env, req, desfecho) {
   if (ocultas.length === ocultasAntes.length && pendentes.length === pendentesAntes.length) return true;
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  // "Remover da galeria": além de sair das páginas, as cópias da foto saem do R2.
+  await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
   return true;
 }
 
@@ -3321,7 +3437,7 @@ export async function handleDriveLink(request, env, ctx) {
   const events = await getEvents(env);
   const event = events.find(e => e.slug === slug);
   if (!event) return jsonErr('Projeto não encontrado.', 404);
-  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+  if (!albumAbertoAoPublico(event)) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
   // Turnstile prova que existe um browser, mas não PARA QUAL slug o token foi
   // emitido — sem o nonce (assinado no render de /<slug>) um script podia
@@ -3534,6 +3650,15 @@ export async function handleRosto(request, env, acao) {
   // (v3.7.1: a prévia é para quem o dono escolhe testar o álbum inteiro).
   if (!buscaRostoAtiva(env, evento, albumLancado(evento) ? false : (!!(await verifySession(env, request)) || (!!evento && await temPrevia(request, env, evento))))) return notFound();
   const cred = /** @type {import('./aws.js').CredAws} */ (credAws(env));
+  // As fichas que esta busca gastou e que voltam se ela NÃO acontecer (v3.8.8):
+  // a do IP e a do teto global. Recusada por excesso — o teto global vazio, ou
+  // a AWS pedindo calma — a busca não custou nada, e a pessoa vai tentar de
+  // novo: gastar a ficha na recusa fazia o teto acabar em tentativas.
+  let fichaGlobal = false;
+  const devolveFichas = async () => {
+    if (acao !== 'sair') await devolveToken(env, ip, 'rosto-buscar', ROSTO_BUSCA_IP_BUCKET);
+    if (fichaGlobal) await devolveToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
+  };
 
   try {
     if (acao === 'sair') {
@@ -3545,12 +3670,16 @@ export async function handleRosto(request, env, acao) {
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
-    // Teto de custo do site inteiro (cada busca são 2 chamadas pagas).
+    // Teto de custo do site inteiro (cada busca são de 1 a 6 chamadas pagas).
     const global = await takeToken(env, 'global', 'rosto-buscar-global', ROSTO_BUSCA_GLOBAL_BUCKET);
-    if (!global.ok) return tooManyRequests(global.retryAfter);
+    if (!global.ok) {
+      await devolveFichas();
+      return tooManyRequests(global.retryAfter);
+    }
+    fichaGlobal = true;
     if (acao === 'atualizar') {
       const a = await atualizaPorFaces(cred, slug, body.faces, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas));
-      const res = jsonOk({ ok: true, resultados: a.resultados });
+      const res = jsonOk({ ok: true, resultados: await comChaveDaFoto(env, slug, a.resultados) });
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
@@ -3560,11 +3689,17 @@ export async function handleRosto(request, env, acao) {
     try { temSair = (await env.FOTOS.get(`rosto-sair:${slug}`, { cacheTtl: 60 })) !== null; } catch { temSair = true; }
     const r = await buscaPorRosto(cred, slug, body.imagem, normalizaOcultas(/** @type {any} */ (evento).fotosOcultas), { temSair });
     if (r.tipo === 'sem-rosto') return jsonErr('Não achei um rosto nessa foto. Tente de frente, com boa luz.', 422);
-    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? r.resultados : [], faces: r.tipo === 'ok' ? r.faces || [] : [] });
+    const res = jsonOk({ ok: true, saiu: r.tipo === 'saiu', semIndice: r.tipo === 'sem-indice', resultados: r.tipo === 'ok' ? await comChaveDaFoto(env, slug, r.resultados) : [], faces: r.tipo === 'ok' ? r.faces || [] : [] });
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (e) {
-    if (ehAcelerado(e)) return tooManyRequests(3);
+    // A AWS pediu calma (cota de buscas por segundo, ROSTO_AWS_TPS): nada foi
+    // cobrado, as fichas voltam, e a página espera um tempo SORTEADO antes de
+    // tentar de novo (com outro token do Turnstile — este já foi gasto).
+    if (ehAcelerado(e)) {
+      await devolveFichas();
+      return tooManyRequests(esperaDaBuscaNoPico());
+    }
     noteDegraded('busca pelo rosto falhou', errMessage(e).replace(/\s+/g, ' ').slice(0, 160), e);
     return jsonErr('A busca pelo rosto não respondeu agora. Tente de novo em alguns minutos.', 503);
   }
@@ -3810,7 +3945,7 @@ export async function handleBusca(request, env, url) {
     noteDegraded('busca nas fotos falhou', String(slug), e);
     return jsonErr('A busca não respondeu agora. Tente de novo em instantes.', 503);
   }
-  const res = jsonOk({ termos, resultados });
+  const res = jsonOk({ termos, resultados: await comChaveDaFoto(env, slug, resultados) });
   res.headers.set('Cache-Control', 'private, max-age=60');
   return res;
 }
@@ -3834,6 +3969,43 @@ export function autoresDaTurma(evento) {
 }
 
 /**
+ * Este pedido é do indexador? O token dele (secret ROSTO_INDEXADOR_TOKEN, 32+
+ * caracteres) no cabeçalho X-Rosto-Indexador. UM lugar para as três rotas que
+ * o aceitam: ler as páginas do álbum (podeVerGaleria), mandar o que leu das
+ * fotos (/api/busca/indexar) e guardar o próprio estado (/api/busca/estado).
+ * @param {Request} request
+ * @param {Env} env
+ */
+function indexadorAutorizado(request, env) {
+  const token = String(env.ROSTO_INDEXADOR_TOKEN || '');
+  const pedido = request.headers.get('X-Rosto-Indexador') || '';
+  return token.length >= 32 && !!pedido && timingSafeEqual(pedido, token);
+}
+
+/**
+ * GET /api/busca/estado?slug= e POST /api/busca/estado { slug, vistas,
+ * descritas, qualidade } — a memória do indexador entre execuções (v3.8.8,
+ * src/busca.js). Só com o token dele; sem o token, o 404 de rota inexistente.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {URL} url
+ */
+export async function handleBuscaEstado(request, env, url) {
+  if (!indexadorAutorizado(request, env)) return notFound();
+  const grava = request.method === 'POST';
+  const body = grava ? await readJsonBody(request) : null;
+  if (grava && !body) return jsonErr('JSON inválido.', 400);
+  const slug = grava ? /** @type {Record<string, any>} */ (body).slug : url.searchParams.get('slug') || '';
+  if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  if (!(await getEvents(env)).some(e => e.slug === slug)) return jsonErr('Projeto não encontrado.', 404);
+  if (grava) {
+    const gravado = await gravaEstadoDoIndexador(env, slug, body);
+    return jsonOk({ ok: true, vistas: gravado.vistas.length, descritas: gravado.descritas.length });
+  }
+  return jsonOk(await leEstadoDoIndexador(env, slug));
+}
+
+/**
  * POST /api/busca/indexar — o indexador (GitHub Actions, com o token dele)
  * manda o que a Rekognition leu de um lote de fotos e as que saíram do álbum.
  * Grava no D1; foto da turma com marca de moderação NOVA é escondida
@@ -3844,9 +4016,7 @@ export function autoresDaTurma(evento) {
  * @param {ExecutionContext} ctx
  */
 export async function handleBuscaIndexar(request, env, ctx) {
-  const token = String(env.ROSTO_INDEXADOR_TOKEN || '');
-  const pedido = request.headers.get('X-Rosto-Indexador') || '';
-  if (token.length < 32 || !pedido || !timingSafeEqual(pedido, token)) return notFound();
+  if (!indexadorAutorizado(request, env)) return notFound();
   const db = env.CONSENT_DB;
   if (!db) return jsonErr('Banco indisponível.', 503);
   const body = await readJsonBody(request);
@@ -3902,9 +4072,11 @@ export async function handleBuscaIndexar(request, env, ctx) {
     const events = await getEvents(env, true);
     const idx = events.findIndex(e => e.slug === slug);
     if (idx >= 0) {
+      const ocultasAntes = events[idx].fotosOcultas;
       const ocultas = normalizaOcultas([...(Array.isArray(events[idx].fotosOcultas) ? events[idx].fotosOcultas : []), ...esconder]);
       events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: normalizaPendentes(events[idx].ocultasPendentes, ocultas), updatedAt: agora };
       await saveEvents(env, events);
+      await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
     }
   }
   if (novas.length) {
@@ -3991,7 +4163,7 @@ export async function handleDriveCode(request, env, ctx) {
 
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return jsonErr('Projeto não encontrado.', 404);
-  if (event.comingSoon) return jsonErr('As fotos ainda não estão disponíveis.', 403);
+  if (!albumAbertoAoPublico(event)) return jsonErr('As fotos ainda não estão disponíveis.', 403);
 
   // Do mais barato ao mais caro de gastar: IP, endereço, teto do dia.
   const porIp = await takeToken(env, ip, 'drive-code', EMAIL_CODE_SEND_BUCKET);
@@ -4288,7 +4460,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
     let ev;
     try {
       ev = (await getEvents(env)).find(e => e.slug === album.slug);
-      existe = albumLancado(ev);
+      existe = albumAbertoAoPublico(ev);
       // A contagem regressiva só com o interruptor ligado no painel: ela
       // revela a data a quem abrir o endereço (v3.5).
       if (ev && !existe && ev.lancarContagem === true && typeof ev.lancarEm === 'string') contagem = ev.lancarEm;
@@ -4519,15 +4691,15 @@ function handleVendor(path) {
 async function podeVerGaleria(request, env, slug) {
   if (await verifySession(env, request)) return true;
   // O indexador da busca pelo rosto (GitHub Actions) lê as páginas do álbum
-  // ainda em "Em breve", com um token só dele (secret ROSTO_INDEXADOR_TOKEN, 32+
-  // caracteres). Só LEITURA da página pública — não é sessão de dono.
-  const tokenIdx = String(env.ROSTO_INDEXADOR_TOKEN || '');
-  const pedido = request.headers.get('X-Rosto-Indexador') || '';
-  if (tokenIdx.length >= 32 && pedido && timingSafeEqual(pedido, tokenIdx)) return true;
+  // ainda em "Em breve", com um token só dele. Só LEITURA da página pública —
+  // não é sessão de dono.
+  if (indexadorAutorizado(request, env)) return true;
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event) return false;
-  // "Em breve": só com a prévia de senha (o easter egg, v3.7) ou a editora.
-  if (event.comingSoon) return (await temPrevia(request, env, event)) || temEditora(request, env, event);
+  // Fechado ao público ("Em breve", ou o álbum com domínio próprio antes do
+  // lançamento — utils.js, albumAbertoAoPublico): só com a prévia de senha (o
+  // easter egg, v3.7) ou a editora.
+  if (!albumAbertoAoPublico(event)) return (await temPrevia(request, env, event)) || temEditora(request, env, event);
   // Álbum público: aberto a todos, sem portão (decisão do dono, 29/10/2026).
   if (!isRestrictedAccess(event)) return true;
   // Família/privado: só com o passe que o portão do Drive emite depois da
@@ -4550,7 +4722,7 @@ async function podeVerGaleria(request, env, slug) {
  * @param {Evento} event
  */
 export function galeriaIndexavel(event) {
-  return event.visible !== false && !event.comingSoon && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
+  return albumLancado(event) && !isRestrictedAccess(event) && !!pastaDoDrive(event.driveUrl);
 }
 
 /**
@@ -4671,8 +4843,14 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
         return ano ? { slug: c.slug, nome: c.nome, ano } : { slug: c.slug, nome: c.nome };
       });
   }
+  // O endereço de cada foto leva a assinatura do site (v3.8.8, foto-rota.js):
+  // só as fotos DESTA lista (a do visitante já vem sem as ocultas).
+  /** @type {string[]} */
+  const idsDaPagina = [];
+  if (listagem) for (const sec of listagem.secoes) for (const f of sec.fotos) idsDaPagina.push(f[0]);
+  const assina = await assinadorDeFotos(signingSecret(env), slug, idsDaPagina);
   const pagina = galeriaHTML({
-    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta,
+    event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta, assina,
     capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname,
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
@@ -4734,7 +4912,9 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   if (buscaRostoAtiva(env, event, dono || previa)) { try { idxRosto = Number(await env.FOTOS.get(`rosto-novas:${slug}`, { cacheTtl: 60 })) || 0; } catch { idxRosto = 0; } }
   const rosto = buscaRostoAtiva(env, event, dono || previa) ? { token: await mintFormToken(env, 'busca-rosto'), idx: idxRosto } : null;
   const busca = buscaTextoAtiva(env, event, dono || previa);
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname });
+  // As capas levam a assinatura do site no endereço (v3.8.8, foto-rota.js).
+  const assina = await assinadorDeFotos(signingSecret(env), slug, idsDeFotoDoIndice(event, resumo));
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname, assina });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {
@@ -5085,6 +5265,9 @@ async function handleOcultarFoto(request, env, ctx) {
   const pendentes = normalizaPendentes(events[idx].ocultasPendentes, ocultas);
   events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: pendentes, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
+  // Ocultar tira a foto das páginas, do download e de /f/ (a rota confere a
+  // lista a cada pedido); as cópias no R2 são apagadas aqui (v3.8.8).
+  await apagaCopiasDasOcultadas(env, atual, ocultas);
   // O autor da foto (se tem e-mail nos créditos) é avisado; sem esperar e sem
   // poder falhar a ação.
   ctx?.waitUntil(avisaAutor(env, events[idx], { fotoId: foto, tipo: body.oculta ? 'oculta' : 'restaurada', capitulo: capOcultar }));

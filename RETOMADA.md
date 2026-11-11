@@ -459,7 +459,9 @@ de espalhar `if` de acesso pelas rotas: álbum **público** abre para qualquer
 visitante, sem login e sem o portão do Drive; **família e privado** só com o
 passe "galeria" (cookie assinado de 12 h, preso ao caminho `/galeria/<slug>`)
 que o portão do Drive emite depois da declaração de acesso; **"Em breve"**
-segue fechado — o mesmo 404 de rota inexistente. O dono logado sempre vê. Não
+segue fechado — o mesmo 404 de rota inexistente (desde a v3.8.8 a pergunta é
+`albumAbertoAoPublico()`, §5.21: o álbum com domínio próprio também fecha
+quando está oculto). O dono logado sempre vê. Não
 há liberação gradual por porcentagem: isso foi substituído pela abertura
 direta. A página do álbum público leva primeiro à galeria ("Ver e baixar as
 fotos"); o Drive virou opção secundária. A faixa do dono (atalhos do painel,
@@ -883,6 +885,49 @@ conclui "sumiu"). Não afrouxe os testes de orçamento (`tests/galeria.test.js`,
 `tests/galeria-capitulos.test.js`); adapte-os e mantenha a conta comentada em
 `src/config.js`.
 
+### 5.21. Antes do lançamento nada é público: uma regra, a rota das fotos e o log do indexador (v3.8.8)
+
+O álbum com domínio próprio é surpresa até o dono lançar, e o repositório é
+**público**. Três coisas que já vazaram, ou vazariam, e o que as prende hoje:
+
+- **"O público pode ver este álbum?" se responde num lugar só:**
+  `albumAbertoAoPublico()` em `src/utils.js` (`albumLancado`, `albumSurpresa` e
+  `albumListado` saem dela). A galeria, a raiz do domínio, a home, o
+  `/api/recentes`, os sitemaps, o portão do Drive e a rota das fotos perguntam
+  a ela. Era uma regra escrita em cinco lugares, e eles discordavam: oculto com
+  "Em breve" desmarcado abria o álbum inteiro em `/galeria/<slug>`. **Rota
+  nova que mostre algo de um álbum não lê `comingSoon` nem `visible`: chama a
+  função.** `tests/album-publico.test.js` prende a concordância entre as rotas.
+- **`/f/<id>/<largura>` só serve foto de álbum do site.** O endereço leva
+  `k=<slug>.<assinatura>` (HMAC de álbum+foto com o `SIGNING_SECRET`, 8
+  caracteres, sem prazo: o endereço precisa ser estável para o cache). Só as
+  páginas emitem a assinatura (`assinadorDeFotos`, `src/foto-rota.js`), para as
+  fotos que listam; a rota (`handleFoto`) confere, ANTES de ler cache, R2 ou
+  Google: a assinatura, o álbum aberto e a foto fora de `fotosOcultas`. Quem
+  monta um endereço de foto novo (modelo de página ou script) tem de receber o
+  `assina`/o `k` — sem ele a imagem dá 404, e nenhum teste de unidade de modelo
+  acusa sozinho: `tests/foto-assinada.test.js` varre as páginas renderizadas.
+  **Nunca assine um ID que veio do navegador ou de texto de pasta**: a
+  assinatura é a prova de que o ID saiu de uma listagem nossa. Sem o segredo no
+  Worker a assinatura fica desligada (§5.4), o resto continua conferido.
+- **Ocultar apaga a cópia.** As miniaturas e o original ficam no R2
+  (`w/<id>/…`, `o/<id>`); os quatro caminhos que escondem foto passam por
+  `apagaCopiasDasOcultadas()` (`src/index.js`), e foto apagada no Drive passa
+  por `src/sumiram.js`. O dono vendo uma foto oculta NÃO recria a cópia
+  (`privado: 'nunca'`). O navegador guarda por 4 h (`FOTO_CACHE_S`). O cron
+  diário repete a limpeza para toda foto oculta (`faxinaDasOcultasNoR2`): é a
+  rede de segurança de quando o R2 falha na hora, e o que limpou as cópias de
+  antes da v3.8.8.
+- **O log do Actions é público.** `scripts/rosto-indexa.mjs` só imprime
+  contagens; uma falha entra pelo tipo (`tipoDoErro`), nunca com a mensagem
+  crua. O estado dele mora no KV (`rosto-estado:<slug>`, `/api/busca/estado`,
+  só com o token do indexador) — não em cache nem em artefato do Actions, que
+  um PR de fork alcança. `tests/rosto-indexador.test.js` roda o script inteiro
+  e reprova qualquer linha de log com slug, evento, ID de foto ou coleção.
+- **Leitura incompleta não apaga.** O indexador só dá uma foto como "saiu do
+  álbum" com o álbum lido inteiro; página sem a lista de fotos (o Drive falhou)
+  ou álbum vazio não apagam rosto nem tiram foto da busca.
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a
@@ -1034,6 +1079,7 @@ O que vence sozinho, e onde o prazo está escrito. Mudou o número no código, m
 | Código por e-mail do portão | 15 min | `EMAIL_CODE_TTL_SECS` (`src/config.js`) |
 | Nonce do Drive e token de formulário | 2 h | `DRIVE_NONCE_TTL_SECS`, `FORM_TOKEN_TTL_SECS` |
 | Listagem da galeria própria (cache) | 10 min | `GALERIA_LISTA_TTL_S` |
+| Foto em `/f/` no navegador e no cache da Cloudflare | 4 h | `FOTO_CACHE_S` (`src/foto-rota.js`) |
 | Pedido de remoção resolvido | 180 dias, poda às 03:00 UTC | `REMOVAL_RETENTION_DAYS` (`src/index.js`) |
 | Registro de consentimento (D1) | 1825 dias (~5 anos), poda às 03:00 UTC | `CONSENT_RETENTION_DAYS` |
 | Aviso de "novas fotos" | 24 h por padrão | `photosAlert.expiresAfterHours` (`src/config.js`) |

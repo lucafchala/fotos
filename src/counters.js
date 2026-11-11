@@ -315,6 +315,27 @@ export class RateLimiter extends DurableObject {
   }
 
   /**
+   * Devolve UMA ficha ao balde (v3.8.8): o trabalho que ela pagaria não
+   * aconteceu (a busca pelo rosto que a AWS recusou com "devagar": nada foi
+   * cobrado). Sem isto, numa rajada, as tentativas recusadas esvaziavam o teto
+   * de custo no lugar das buscas de verdade. Nunca passa de `capacity`. Balde
+   * que não existe ou está inválido fica como está: vale como cheio, e não há
+   * o que devolver. Mesma regra de atomicidade de `take()`: nenhum `await`
+   * entre a leitura e a gravação.
+   * @param {number} capacity
+   * @param {number} perHour
+   */
+  async devolve(capacity, perHour) {
+    const agora = Date.now();
+    const porMs = perHour / 3_600_000;
+    /** @type {{ fichas: number, t: number, cap: number, porMs: number } | undefined} */
+    const rec = await this.ctx.storage.get('b');
+    if (!rec || !Number.isFinite(rec.fichas) || rec.fichas < 0 || !Number.isFinite(rec.t) || rec.t > agora) return;
+    const fichas = Math.min(capacity, rec.fichas + (agora - rec.t) * porMs + 1);
+    await this.ctx.storage.put('b', { fichas, t: agora, cap: capacity, porMs });
+  }
+
+  /**
    * Lease (item 1g): direito exclusivo, por `ms`, de fazer um trabalho caro
    * (reler a lista do Drive). Atômico pelo mesmo motivo de `check()`: leitura
    * e gravação sem `await` no meio. Quem pergunta e NÃO ganha não grava nada.

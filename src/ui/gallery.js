@@ -1,5 +1,5 @@
 import { albumEmDestaque, faixaDestaqueHTML, cartaoDestaqueHTML, popupDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
-import { escape, PERSON_LD, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML } from '../utils.js';
+import { escape, PERSON_LD, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML, albumListado } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -41,7 +41,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   // Second guard beyond getEvents(): a null/non-object entry here would throw
   // on e.visible and 500 the whole homepage instead of just skipping it.
   const safe = Array.isArray(events) ? events.filter(e => e && typeof e === 'object') : [];
-  const visible = sortEvents(safe.filter(e => e.visible !== false));
+  const visible = sortEvents(safe.filter(e => albumListado(e)));
   // Destaque máximo (v3.3): só álbum lançado e marcado (src/ui/destaque.js).
   const destaque = albumEmDestaque(safe);
   /** @type {import('../utils.js').Evento[]} */

@@ -13,18 +13,40 @@
 //      qualidade LOW para não perder rosto pequeno de foto de grupo) e apaga do índice os
 //      rostos das fotos que saíram do álbum.
 //
-// O estado (quais fotos já foram vistas, inclusive as sem rosto, que a
-// Rekognition não guarda) fica num JSON que o workflow preserva entre
-// execuções (actions/cache). Sem ele, o pior caso é reprocessar o álbum:
-// US$ 0,001 por foto.
+// O ESTADO (quais fotos já foram vistas, inclusive as sem rosto, que a
+// Rekognition não guarda) mora no SITE desde a v3.8.8: GET e POST
+// /api/busca/estado, com o ROSTO_INDEXADOR_TOKEN (src/busca.js). Antes era um
+// arquivo no cache do GitHub Actions — e o repositório é público: o workflow
+// de um pull request vindo de um fork consegue restaurar um cache do
+// repositório, e o arquivo tinha o ID de toda foto do álbum, inclusive antes
+// do lançamento. Sem o token (execução à mão, fora do Actions), o estado fica
+// num arquivo local (ROSTO_ESTADO); no Actions, sem o token, o indexador não
+// roda.
+//
+// O LOG É PÚBLICO (os logs do Actions de um repositório público abrem para
+// qualquer conta do GitHub). Por isso este script só imprime CONTAGENS: nunca
+// o slug de um álbum, o nome de um evento, o ID de uma foto, o nome de uma
+// coleção ou a mensagem crua de um erro (que pode levar qualquer um deles).
+// Uma falha entra na contagem pelo TIPO (`tipoDoErro`). Antes de acrescentar
+// um console.log aqui, releia este parágrafo — tests/rosto-indexador.test.js
+// reprova qualquer linha que leve um desses dados.
+//
+// LEITURA INCOMPLETA NÃO APAGA NADA (v3.8.8). "Saiu do álbum" só vale quando o
+// álbum foi lido inteiro: se uma página veio sem a lista de fotos (o Drive
+// falhou naquele instante) ou o álbum veio vazio, nenhum rosto é apagado e
+// nada sai da busca nesta execução. Antes, uma falha passageira do Drive
+// apagava do índice os rostos do evento (ou do álbum todo), e a execução
+// seguinte pagava para indexar tudo de novo.
 //
 // Variáveis: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION (padrão
-// sa-east-1), ROSTO_SLUGS (ex.: "entrenos2026"), ROSTO_SITE (padrão
-// https://fotos.lucafchala.com), ROSTO_ESTADO (padrão .rosto-estado.json),
-// ROSTO_MAX_NOVAS (padrão 3000 por execução), ROSTO_MAX_MINUTOS (padrão 35:
-// passou disso, para de pegar foto nova, envia o que tem e grava o estado — a
-// próxima execução continua de onde parou), ROSTO_SECO=1 (só mostra),
-// ROSTO_INDEXADOR_TOKEN (opcional: lê o álbum antes do lançamento).
+// sa-east-1), ROSTO_SLUGS (os slugs dos álbuns, separados por vírgula),
+// ROSTO_SITE (padrão https://fotos.lucafchala.com), ROSTO_INDEXADOR_TOKEN (lê
+// o álbum antes do lançamento, manda o que leu e guarda o estado),
+// ROSTO_ESTADO (só sem o token: o arquivo local do estado, padrão
+// .rosto-estado.json), ROSTO_MAX_NOVAS (padrão 3000 por execução),
+// ROSTO_MAX_MINUTOS (padrão 35: passou disso, para de pegar foto nova, envia o
+// que tem e grava o estado — a próxima execução continua de onde parou),
+// ROSTO_SECO=1 (só conta).
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { rekognition, base64, ErroAws } from '../src/aws.js';
@@ -72,25 +94,54 @@ export function capitulosDoIndice(html, slug) {
   return [...new Set([...html.matchAll(re)].map(x => x[1]))];
 }
 
-/** @param {string} url */
-async function pagina(url) {
+/**
+ * Um erro do próprio indexador, com um rótulo curto que PODE ir ao log (sem
+ * endereço, sem ID, sem nome de álbum).
+ */
+class ErroDoIndexador extends Error {
+  /** @param {string} rotulo */
+  constructor(rotulo) {
+    super(rotulo);
+    this.name = 'ErroDoIndexador';
+    this.rotulo = rotulo;
+  }
+}
+
+/**
+ * O TIPO de um erro, para o log público: nunca a mensagem crua (ver o topo).
+ * @param {unknown} e
+ * @returns {string}
+ */
+export function tipoDoErro(e) {
+  // Pelo nome da classe, e não por `instanceof`: o erro pode vir de outra cópia
+  // do módulo (os testes recarregam o script) e ainda assim só o tipo pode sair.
+  const o = /** @type {any} */ (e);
+  if (o instanceof ErroAws || (o && o.name === 'ErroAws' && typeof o.tipo === 'string')) return `AWS ${String(o.tipo).replace(/[^A-Za-z0-9]/g, '').slice(0, 60) || 'erro'}`;
+  if (o instanceof ErroDoIndexador) return o.rotulo;
+  return o instanceof Error && /^[A-Za-z]{1,40}$/.test(o.name) ? o.name : 'erro';
+}
+
+/** @param {string} url @param {string} oQue rótulo para o erro (sem o endereço) */
+async function pagina(url, oQue) {
   // Com ROSTO_INDEXADOR_TOKEN, lê também o álbum ainda em "Em breve" (antes do
   // lançamento, para o dono testar a busca).
   const token = process.env.ROSTO_INDEXADOR_TOKEN || '';
   const r = await fetch(url, { headers: { 'User-Agent': UA, ...(token ? { 'X-Rosto-Indexador': token } : {}) } });
-  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  if (!r.ok) throw new ErroDoIndexador(`${oQue} HTTP ${r.status}`);
   return r.text();
 }
 
 /**
  * Todas as fotos visíveis do álbum, como ExternalImageId → id do Drive, e o
  * capítulo e o autor de cada uma (para a busca nas fotos e a moderação).
+ * `completo: false` quando alguma página veio sem a lista de fotos, ou o álbum
+ * veio vazio: aí NADA pode ser dado como "saiu do álbum" (ver o topo).
  * @param {string} site @param {string} slug
- * @returns {Promise<{ todas: Map<string, string>, info: Map<string, { cap: string, autor: string }> }>}
+ * @returns {Promise<{ todas: Map<string, string>, info: Map<string, { cap: string, autor: string }>, eventos: number, completo: boolean }>}
  */
 async function fotosDoAlbum(site, slug) {
   const base = `${site}/galeria/${slug}`;
-  const inicio = await pagina(base);
+  const inicio = await pagina(base, 'página do álbum');
   /** @type {Map<string, string>} */
   const todas = new Map();
   /** @type {Map<string, { cap: string, autor: string }>} */
@@ -98,17 +149,17 @@ async function fotosDoAlbum(site, slug) {
   const unica = fotosDaPagina(inicio);
   if (unica) {
     for (const id of unica.ids) { todas.set(idExterno('', id), id); info.set(id, { cap: '', autor: unica.autores.get(id) || '' }); }
-    return { todas, info };
+    return { todas, info, eventos: 0, completo: todas.size > 0 };
   }
-  for (const cap of capitulosDoIndice(inicio, slug)) {
-    const p = fotosDaPagina(await pagina(`${base}/${cap}`));
-    if (!p) continue;
+  const caps = capitulosDoIndice(inicio, slug);
+  let completo = caps.length > 0;
+  for (const cap of caps) {
+    const p = fotosDaPagina(await pagina(`${base}/${cap}`, 'página de um evento'));
+    // Página sem a lista (o Drive não respondeu para ela): leitura incompleta.
+    if (!p) { completo = false; continue; }
     for (const id of p.ids) { todas.set(idExterno(cap, id), id); info.set(id, { cap, autor: p.autores.get(id) || '' }); }
-    // Diagnóstico (v3.8.0): quantas fotos o site mostra em cada evento, para
-    // comparar com o Drive (docs/ALBUM.md, "Conferir se está tudo no site").
-    console.log(`[${slug}] evento ${cap}: ${p.ids.length} itens`);
   }
-  return { todas, info };
+  return { todas, info, eventos: caps.length, completo: completo && todas.size > 0 };
 }
 
 /**
@@ -127,12 +178,75 @@ async function enviaBusca(site, slug, itens, remover) {
       headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': token },
       body: JSON.stringify({ slug, itens: itens.slice(i, i + BUSCA_LOTE_MAX), remover: remover.slice(i, i + BUSCA_LOTE_MAX) }),
     });
-    if (!r.ok) throw new Error(`/api/busca/indexar: HTTP ${r.status}`);
+    if (!r.ok) throw new ErroDoIndexador(`envio da busca HTTP ${r.status}`);
     const j = /** @type {any} */ (await r.json());
     marcadas += Number(j.marcadas) || 0;
     escondidas += Number(j.escondidas) || 0;
   }
   return { marcadas, escondidas };
+}
+
+// ---------------------------------------------------------------------------
+// O estado: no site (com o token) ou num arquivo local (sem ele)
+// ---------------------------------------------------------------------------
+/**
+ * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string }} Estado
+ */
+
+/** @param {Estado} e */
+const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade });
+
+/**
+ * Onde o estado de um álbum é lido e gravado. Grava só quando mudou (uma
+ * execução sem foto nova não escreve nada).
+ * @param {{ site: string, slug: string, token: string, arquivo: string }} o
+ */
+function guardaDoEstado(o) {
+  let gravado = '';
+  /** @type {Record<string, any> | null} */
+  let doArquivo = null;
+  return {
+    /** @returns {Promise<Estado>} */
+    async le() {
+      /** @type {any} */
+      let bruto;
+      if (o.token) {
+        const r = await fetch(`${o.site}/api/busca/estado?slug=${encodeURIComponent(o.slug)}`, { headers: { 'User-Agent': UA, 'X-Rosto-Indexador': o.token } });
+        // Sem o estado NÃO se segue: indexar "do zero" pagaria de novo por
+        // cada foto. A execução para, e a próxima tenta outra vez.
+        if (!r.ok) throw new ErroDoIndexador(`leitura do estado HTTP ${r.status}`);
+        bruto = await r.json();
+      } else {
+        try { doArquivo = JSON.parse(await readFile(o.arquivo, 'utf8')); } catch { doArquivo = {}; }
+        const a = /** @type {Record<string, any>} */ (doArquivo);
+        // O formato do arquivo é o de sempre: `<slug>`, `<slug>#busca`, `<slug>#qualidade`.
+        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`] };
+      }
+      const lista = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+      /** @type {Estado} */
+      const estado = { vistas: new Set(lista(bruto && bruto.vistas)), descritas: new Set(lista(bruto && bruto.descritas)), qualidade: bruto && typeof bruto.qualidade === 'string' ? bruto.qualidade : '' };
+      gravado = textoDoEstado(estado);
+      return estado;
+    },
+    /** @param {Estado} estado */
+    async grava(estado) {
+      const texto = textoDoEstado(estado);
+      if (texto === gravado) return;
+      if (o.token) {
+        const r = await fetch(`${o.site}/api/busca/estado`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': o.token },
+          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade }),
+        });
+        if (!r.ok) throw new ErroDoIndexador(`gravação do estado HTTP ${r.status}`);
+      } else {
+        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade };
+        doArquivo = a;
+        await writeFile(o.arquivo, JSON.stringify(a));
+      }
+      gravado = texto;
+    },
+  };
 }
 
 const espera = (/** @type {number} */ ms) => new Promise(r => setTimeout(r, ms));
@@ -145,11 +259,11 @@ const espera = (/** @type {number} */ ms) => new Promise(r => setTimeout(r, ms))
 async function miniatura(id) {
   for (const w of [2400, 1600]) {
     const r = await fetch(`https://lh3.googleusercontent.com/d/${id}=w${w}`, { headers: { 'User-Agent': UA } });
-    if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
+    if (!r.ok) throw new ErroDoIndexador(`miniatura HTTP ${r.status}`);
     const bytes = new Uint8Array(await r.arrayBuffer());
     if (bytes.length <= 5_000_000) return bytes;
   }
-  throw new Error('miniatura acima de 5 MB');
+  throw new ErroDoIndexador('miniatura acima de 5 MB');
 }
 
 /** Chamada com nova tentativa quando a AWS pede calma. @type {typeof rekognition} */
@@ -158,7 +272,7 @@ async function aws(cred, op, corpo) {
     try {
       return await rekognition(cred, op, corpo);
     } catch (e) {
-      if (i < 5 && e instanceof ErroAws && /Throttling|ProvisionedThroughput/.test(e.tipo)) { await espera(1000 * 2 ** i); continue; }
+      if (i < 5 && e instanceof ErroAws && /Throttling|ProvisionedThroughput/.test(e.tipo)) { await espera(PASSO_MS * 4 * 2 ** i); continue; }
       throw e;
     }
   }
@@ -180,7 +294,13 @@ async function rostosIndexados(cred, colecao) {
   return mapa;
 }
 
-async function principal() {
+// O intervalo entre o começo de uma foto e o da seguinte: com PARALELAS fotos
+// ao mesmo tempo, cada operação fica em no máximo 4 por segundo (a cota padrão
+// é 5/s). ROSTO_PASSO_MS existe para os testes.
+const PASSO_MS = Number.isFinite(Number(process.env.ROSTO_PASSO_MS)) && process.env.ROSTO_PASSO_MS !== undefined && process.env.ROSTO_PASSO_MS !== '' ? Number(process.env.ROSTO_PASSO_MS) : 250;
+const PARALELAS = 4;
+
+export async function principal() {
   const cred = {
     chave: process.env.AWS_ACCESS_KEY_ID || '',
     segredo: process.env.AWS_SECRET_ACCESS_KEY || '',
@@ -188,6 +308,7 @@ async function principal() {
   };
   const slugs = String(process.env.ROSTO_SLUGS || '').split(',').map(s => s.trim()).filter(s => /^[a-z0-9][a-z0-9-]*$/.test(s));
   const site = (process.env.ROSTO_SITE || 'https://fotos.lucafchala.com').replace(/\/+$/, '');
+  const token = process.env.ROSTO_INDEXADOR_TOKEN || '';
   const arqEstado = process.env.ROSTO_ESTADO || '.rosto-estado.json';
   const maxNovas = Number(process.env.ROSTO_MAX_NOVAS) || 3000;
   const seco = process.env.ROSTO_SECO === '1';
@@ -196,20 +317,22 @@ async function principal() {
   const acabouOTempo = () => Date.now() - inicio > limiteMs;
   // Busca nas fotos (v3.7): texto, coisas e moderação, uma vez por foto.
   // ROSTO_DESCREVER=0 desliga (só rostos).
-  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!process.env.ROSTO_INDEXADOR_TOKEN;
+  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!token;
   if (!slugs.length) { console.log('ROSTO_SLUGS vazio: nada a fazer.'); return; }
-  if (!seco && (!cred.chave || !cred.segredo)) throw new Error('Faltam AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.');
+  if (!seco && (!cred.chave || !cred.segredo)) throw new ErroDoIndexador('faltam AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY');
+  // No Actions o estado não pode ficar em arquivo (nem em cache): ver o topo.
+  if (!seco && !token && process.env.GITHUB_ACTIONS === 'true') throw new ErroDoIndexador('falta ROSTO_INDEXADOR_TOKEN (sem ele o estado não tem onde ficar)');
 
-  /** @type {Record<string, string[]>} fotos já processadas, por álbum (com ou sem rosto); `<slug>#busca`: as já descritas (ids do Drive) */
-  let estado;
-  try { estado = JSON.parse(await readFile(arqEstado, 'utf8')); } catch { estado = {}; }
-
-  for (const slug of slugs) {
+  for (const [n, slug] of slugs.entries()) {
+    // O rótulo do álbum no log: a posição na lista, nunca o slug.
+    const album = `álbum ${n + 1} de ${slugs.length}`;
     const col = colecoes(slug).principal;
-    const { todas: fotos, info } = await fotosDoAlbum(site, slug);
-    console.log(`[${slug}] ${fotos.size} fotos no álbum.`);
+    const { todas: fotos, info, eventos, completo } = await fotosDoAlbum(site, slug);
+    console.log(`${album}: ${fotos.size} fotos${eventos ? ` em ${eventos} eventos` : ''}.`);
     if (seco) continue;
-    try { await aws(cred, 'CreateCollection', { CollectionId: col }); console.log(`[${slug}] coleção ${col} criada.`); } catch (e) {
+    const guarda = guardaDoEstado({ site, slug, token, arquivo: arqEstado });
+    const estado = await guarda.le();
+    try { await aws(cred, 'CreateCollection', { CollectionId: col }); console.log(`${album}: coleção criada.`); } catch (e) {
       if (!(e instanceof ErroAws && e.tipo === 'ResourceAlreadyExistsException')) throw e;
     }
     let indexados = await rostosIndexados(cred, col);
@@ -218,36 +341,42 @@ async function principal() {
     // do rosto — texto, coisas e moderação já lidos não são lidos outra vez.
     // A marca é gravada logo depois de apagar: se a execução parar no meio, a
     // próxima continua sem apagar de novo.
-    const chaveQualidade = `${slug}#qualidade`;
-    if (estado[chaveQualidade] !== QUALIDADE) {
+    // Só com a marca GUARDADA e diferente (v3.8.8). Estado sem marca (perdido,
+    // ou vindo do banco) adota o filtro de hoje e não apaga nada: perder o
+    // estado não pode custar o índice inteiro.
+    if (estado.qualidade && estado.qualidade !== QUALIDADE) {
       const ids = [...indexados.values()].flat();
       for (let i = 0; i < ids.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: ids.slice(i, i + 4096) });
-      if (ids.length) console.log(`[${slug}] filtro de qualidade novo (${QUALIDADE}): ${ids.length} rostos apagados para indexar de novo.`);
+      if (ids.length) console.log(`${album}: filtro de qualidade novo: ${ids.length} rostos apagados para indexar de novo.`);
       indexados = new Map();
-      estado[slug] = [];
-      estado[chaveQualidade] = QUALIDADE;
-      await writeFile(arqEstado, JSON.stringify(estado));
+      estado.vistas = new Set();
     }
-    const vistas = new Set(estado[slug] || []);
+    estado.qualidade = QUALIDADE;
+    await guarda.grava(estado);
+    const vistas = estado.vistas;
     for (const k of indexados.keys()) vistas.add(k);
+    const descritas = estado.descritas;
 
     // Saíram do álbum (ocultas, apagadas, movidas de capítulo): apaga os rostos.
-    const apagar = [...indexados].filter(([k]) => !fotos.has(k) && lerIdExterno(k)).flatMap(([, ids]) => ids);
-    for (let i = 0; i < apagar.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: apagar.slice(i, i + 4096) });
-    if (apagar.length) console.log(`[${slug}] ${apagar.length} rostos apagados (fotos que saíram do álbum).`);
+    // Só com o álbum lido INTEIRO (ver o topo).
+    if (completo) {
+      const apagar = [...indexados].filter(([k]) => !fotos.has(k) && lerIdExterno(k)).flatMap(([, ids]) => ids);
+      for (let i = 0; i < apagar.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: apagar.slice(i, i + 4096) });
+      if (apagar.length) console.log(`${album}: ${apagar.length} rostos apagados (fotos que saíram do álbum).`);
+    } else {
+      console.log(`${album}: leitura incompleta do álbum; nada é apagado nesta execução.`);
+    }
 
-    const chaveBusca = `${slug}#busca`;
-    const descritas = new Set(estado[chaveBusca] || []);
     const idsNoAlbum = new Set(fotos.values());
     // Uma foto entra se falta o rosto OU (com a busca ligada) a descrição.
     const novas = [...fotos].filter(([k, id]) => !vistas.has(k) || (descrever && !descritas.has(id))).slice(0, maxNovas);
-    let rostos = 0; let falhas = 0;
+    let rostos = 0;
+    /** @type {Map<string, number>} as falhas, por tipo (nunca por foto) */
+    const falhas = new Map();
     /** @type {any[]} */
     let lote = [];
     let marcadas = 0, escondidas = 0;
-    // Até PARALELAS fotos ao mesmo tempo, começando uma a cada 250 ms: cada
-    // operação fica em no máximo 4 por segundo (a cota padrão é 5/s).
-    const PARALELAS = 4;
+    // Até PARALELAS fotos ao mesmo tempo, começando uma a cada PASSO_MS.
     let parou = false;
     /** @param {string} k @param {string} id */
     const processa = async (k, id) => {
@@ -268,17 +397,16 @@ async function principal() {
           descritas.add(id);
         }
       } catch (e) {
-        falhas++;
-        console.warn(`[${slug}] ${k}: ${e instanceof Error ? e.message : e}`);
+        // Só o TIPO entra na contagem: a chave da foto e a mensagem não vão ao log.
+        const tipo = tipoDoErro(e);
+        falhas.set(tipo, (falhas.get(tipo) || 0) + 1);
       }
       if (lote.length >= BUSCA_LOTE_MAX) {
         const envio = lote; lote = [];
         const r = await enviaBusca(site, slug, envio, []);
         marcadas += r.marcadas; escondidas += r.escondidas;
         // Progresso gravado a cada lote: se o job cair, o que foi feito fica.
-        estado[slug] = [...vistas];
-        if (descrever) estado[chaveBusca] = [...descritas];
-        await writeFile(arqEstado, JSON.stringify(estado));
+        await guarda.grava(estado);
       }
     };
     /** @type {Set<Promise<void>>} */
@@ -290,26 +418,32 @@ async function principal() {
       const t = processa(k, id).finally(() => { emCurso.delete(t); });
       emCurso.add(t);
       feitas++;
-      if (feitas % 100 === 0) console.log(`[${slug}] ${feitas} de ${novas.length}…`);
-      await espera(250);
+      if (feitas % 100 === 0) console.log(`${album}: ${feitas} de ${novas.length}…`);
+      await espera(PASSO_MS);
     }
     await Promise.all(emCurso);
-    if (parou) console.log(`[${slug}] limite de tempo: ${feitas} de ${novas.length} nesta execução; a próxima continua.`);
-    // O que sobrou do lote, e as fotos que saíram do álbum (a busca as esquece).
-    const remover = descrever ? [...descritas].filter(id => !idsNoAlbum.has(id)) : [];
+    if (parou) console.log(`${album}: limite de tempo: ${feitas} de ${novas.length} nesta execução; a próxima continua.`);
+    // O que sobrou do lote, e as fotos que saíram do álbum (a busca as esquece)
+    // — estas, só com o álbum lido inteiro.
+    const remover = descrever && completo ? [...descritas].filter(id => !idsNoAlbum.has(id)) : [];
     if (lote.length || remover.length) {
       const r = await enviaBusca(site, slug, lote, remover);
       marcadas += r.marcadas; escondidas += r.escondidas;
     }
     // Esquece o que saiu do álbum (se voltar, é indexado de novo).
-    estado[slug] = [...vistas].filter(k => fotos.has(k));
-    if (descrever) estado[chaveBusca] = [...descritas].filter(id => idsNoAlbum.has(id));
-    console.log(`[${slug}] ${feitas} fotos processadas, ${rostos} rostos indexados, ${falhas} falhas.`);
-    if (descrever) console.log(`[${slug}] busca nas fotos: ${marcadas} marcadas pela moderação, ${escondidas} escondidas (da turma).`);
+    if (completo) {
+      for (const k of [...vistas]) if (!fotos.has(k)) vistas.delete(k);
+      for (const id of [...descritas]) if (!idsNoAlbum.has(id)) descritas.delete(id);
+    }
+    await guarda.grava(estado);
+    const totalDeFalhas = [...falhas.values()].reduce((a, b) => a + b, 0);
+    console.log(`${album}: ${feitas} fotos processadas, ${rostos} rostos indexados, ${totalDeFalhas} falhas.`);
+    if (totalDeFalhas) console.log(`${album}: falhas por tipo: ${[...falhas].sort((a, b) => b[1] - a[1]).map(([t, q]) => `${t} × ${q}`).join(', ')}.`);
+    if (descrever) console.log(`${album}: busca nas fotos: ${marcadas} marcadas pela moderação, ${escondidas} escondidas (da turma).`);
   }
-  await writeFile(arqEstado, JSON.stringify(estado));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  principal().catch(e => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+  // Só o tipo do erro: a mensagem crua pode levar o endereço de uma página.
+  principal().catch(e => { console.error(`O indexador parou: ${tipoDoErro(e)}.`); process.exit(1); });
 }

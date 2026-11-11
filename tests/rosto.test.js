@@ -234,7 +234,8 @@ describe('/api/rosto/buscar e /api/rosto/sair', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     // faces (v3.8.3): o rosto DO ÍNDICE que achou a pessoa (98% vira semente), para atualizar depois sem selfie.
-    expect(await res.json()).toEqual({ ok: true, saiu: false, semIndice: false, resultados: [{ cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 98 }], faces: ['11111111-2222-3333-4444-555555555555'] });
+    // k (v3.8.8): o álbum e a assinatura que o endereço da foto (/f/) exige.
+    expect(await res.json()).toEqual({ ok: true, saiu: false, semIndice: false, resultados: [{ cap: 'cap-a', id: 'FOTO_AAAAAAAA01', sim: 98, k: expect.stringMatching(/^album\.[\w-]{8}$/) }], faces: ['11111111-2222-3333-4444-555555555555'] });
     // Ninguém saiu deste álbum: a coleção de quem saiu nem é consultada.
     expect(awsChamadas.map(c => `${c.op} ${c.corpo.CollectionId}`)).toEqual(['SearchFacesByImage fotos-album', 'SearchFaces fotos-album']);
   });

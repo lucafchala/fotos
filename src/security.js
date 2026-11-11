@@ -343,6 +343,45 @@ export async function verifyToken(secret, token, { purpose, scope = '', ttlSecs 
 }
 
 // ---------------------------------------------------------------------------
+// Assinatura curta e sem prazo (v3.8.8)
+// ---------------------------------------------------------------------------
+// Para amarrar um ENDEREÇO a algo que nós emitimos, quando o endereço precisa
+// ser estável: o token acima leva o prazo e muda a cada emissão, e a foto em
+// /f/<id>/<largura> tem de ter sempre o mesmo endereço para o cache do
+// navegador servir. São os primeiros ASSINATURA_CURTA_LEN caracteres (base64url)
+// do HMAC-SHA256 de `purpose|scope`, com o mesmo segredo dos tokens.
+//
+// 8 caracteres = 48 bits. Não há como conferir um chute sem o segredo, então
+// adivinhar é só pela rede: 2^48 pedidos por endereço. Curta de propósito: a
+// página de um evento leva uma assinatura por foto (6 mil fotos = 48 KB).
+//
+// Sem prazo quer dizer que a assinatura NÃO revoga nada sozinha: quem a usa
+// precisa conferir, a cada pedido, o que pode ter mudado desde a emissão (em
+// /f/: o álbum ainda aberto ao público, a foto não oculta).
+export const ASSINATURA_CURTA_LEN = 8;
+
+/**
+ * @param {string} secret
+ * @param {string} purpose
+ * @param {string} scope
+ */
+export async function assinaCurta(secret, purpose, scope) {
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), encoder.encode(`${purpose}|${scope}`));
+  return b64url(new Uint8Array(sig)).slice(0, ASSINATURA_CURTA_LEN);
+}
+
+/**
+ * @param {string} secret
+ * @param {unknown} assinatura
+ * @param {string} purpose
+ * @param {string} scope
+ */
+export async function confereCurta(secret, assinatura, purpose, scope) {
+  if (typeof assinatura !== 'string' || assinatura.length !== ASSINATURA_CURTA_LEN) return false;
+  return timingSafeEqualStr(assinatura, await assinaCurta(secret, purpose, scope));
+}
+
+// ---------------------------------------------------------------------------
 // Higienização de nome de arquivo
 // ---------------------------------------------------------------------------
 // O nome vem do formulário público de remoção e vira o filename de um anexo de
