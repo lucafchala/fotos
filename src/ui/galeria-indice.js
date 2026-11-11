@@ -96,7 +96,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({
       event, titulo, caps: visiveis, resumo, ocultasSet, restrito, indexavel, origem: origemDoAlbum(slug),
-      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce, assina,
+      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML(base) : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce, assina,
     });
   }
 
@@ -169,7 +169,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
     ${botaoRosto ? `<div class="ab-acoes">${botaoRosto}</div>` : ''}
     ${comBusca ? buscaHTML() : ''}
   </header>
-  ${comRosto ? rostoHTML() : ''}
+  ${comRosto ? rostoHTML(base) : ''}
   ${avisoTrunc}
   <main id="g-main" aria-label="Eventos">
     ${cartoes.length ? `<ul class="ix-grade">${cartoes.join('\n    ')}</ul>` : `<p class="ix-vazio-msg">${dono && !caps.caps.length ? 'A pasta não tem subpastas: não há eventos para mostrar.' : 'As fotos estão chegando. Volte em breve.'}</p>`}

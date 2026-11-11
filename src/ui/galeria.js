@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
+import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
@@ -40,8 +40,8 @@ import { rotuloDoPeriodo } from './album.js';
 // aparelho (v3.7.6). `:root:root` vence o :root claro do prefers-color-scheme.
 const TEMA_ALBUM = `
     :root:root{
-      --bg-page:#0f0e0c; --text:#f3ede3; --text-2:#cfc6b8; --text-muted:#a39a8c; --text-dim:#7d756a;
-      --bg-card:#1a1815; --bg-card-2:#22201b; --esqueleto:#24211c; --border:#2b2823; --accent:#f9de4b; --accent-text:#141a33;
+      --bg-page:${P.bg}; --text:${P.txt}; --text-2:${P.txt2}; --text-muted:${P.mudo}; --text-dim:${P.dim};
+      --bg-card:${P.card}; --bg-card-2:${P.card2}; --esqueleto:${P.esqueleto}; --border:${P.borda}; --accent:${P.sol}; --accent-text:#141a33;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#f0b46a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
@@ -426,7 +426,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
-  <meta name="theme-color" content="${marca ? '#0f0e0c' : '#0a0a0a'}">${marca ? '\n  <meta name="color-scheme" content="dark">' : ''}
+  <meta name="theme-color" content="${marca ? P.bg : '#0a0a0a'}">${marca ? '\n  <meta name="color-scheme" content="dark">' : ''}
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   ${marca ? '' : '<link rel="manifest" href="/manifest.json">'}

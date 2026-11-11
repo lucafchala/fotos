@@ -125,7 +125,8 @@ export const SCRIPT_NOVAS = slug => `(function () {
 })();`;
 
 /** O diálogo da busca pelo rosto (o script liga o botão; sem JS, nada aparece). */
-export function rostoHTML() {
+/** @param {string} [base] o começo dos links da galeria (para "Como funciona") */
+export function rostoHTML(base) {
   return `<dialog class="rs" id="rs" aria-labelledby="rs-t">
     <form method="dialog" id="rs-form">
       <p class="rs-t" id="rs-t">Achar minhas fotos pelo rosto</p>
@@ -135,7 +136,7 @@ export function rostoHTML() {
           <li>A selfie vai para a Amazon Rekognition, em São Paulo, só para a comparação. Nem o site nem a Amazon a guardam.</li>
           <li>O resultado é aproximado: pode faltar foto e pode aparecer alguém parecido.</li>
           <li>Use só com o <strong>seu</strong> rosto.</li>
-        </ul>
+        </ul>${typeof base === 'string' ? `<p><a href="${base}/ajuda/rosto">Como funciona e dicas</a></p>` : ''}
       </div>
       <div id="rs-txt-sair" hidden>
         <p>Envie uma selfie e o site tira o seu rosto da busca deste álbum: ninguém mais acha as suas fotos por ela, nem as que chegarem depois.</p>

@@ -46,6 +46,15 @@ Com **Texto de abertura** preenchido, o índice da galeria por capítulos (`/gal
 - Uma palavra só no caminho que não seja rota do site (`RESERVED_SLUGS`) vira evento; se não existir, a galeria responde 404 como antes.
 - No fotos.lucafchala.com nada muda: `/galeria/entrenos2026/<evento>`.
 
+### Link de uma foto (v3.9.0)
+
+Um formato só para o site inteiro: `entrenos2026.com/<evento>?foto=<código>` (o código são os 10 primeiros caracteres do ID da foto no Drive; o ID inteiro também vale). Quem monta é `enderecoDaFoto()` em `src/utils.js` (servidor) e `enderecoDaFoto` dentro do script da galeria (navegador). O servidor lê o `?foto=` e o cartão do WhatsApp mostra a própria foto (`fotoDaLista()` em `src/ui/galeria.js`); foto oculta nunca vira cartão. O `#foto=` antigo continua abrindo.
+
+### Ajuda e cartão para os stories (v3.9.0)
+
+- **Ajuda:** `/ajuda` e `/ajuda/<tema>` no domínio do álbum (`/galeria/<slug>/ajuda` no site). O texto mora só em `src/ui/ajuda.js` (`TEMAS_DE_AJUDA`); mudou um botão ou um comportamento, muda lá. O tema *Apoiar* só aparece com Pix cadastrado.
+- **Cartão "minhas fotos":** montado no celular (canvas), com as miniaturas assinadas do próprio site. Nada vai ao servidor.
+
 ### Fotos pelo próprio site e o R2 (v3.8.3)
 - As páginas pedem `/f/<id>/<largura>?k=<álbum>.<assinatura>`; o site busca no Google uma vez e guarda no cache da Cloudflare e no navegador por 4 horas (`FOTO_CACHE_S`; era uma semana até a 3.8.7).
 - **Só fotos de álbum do site (v3.8.8).** O `k` é a assinatura do site para aquela foto naquele álbum (`assinadorDeFotos`, em `src/foto-rota.js`); só as páginas a emitem. Antes de buscar qualquer coisa, a rota confere a assinatura, se o público pode ver o álbum (a regra única, abaixo) e se a foto não está oculta. Fora disso responde 404. Endereço antigo, sem `k`, não funciona mais.

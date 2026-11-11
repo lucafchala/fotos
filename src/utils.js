@@ -1502,6 +1502,8 @@ export const RESERVED_SLUGS = new Set([
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
   // Entrada e saída da editora do álbum, no domínio dele (v3.8.1).
   'entrar', 'sair',
+  // As páginas de ajuda do álbum (v3.9.0): entrenos2026.com/ajuda.
+  'ajuda',
   // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
   // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
   // que é da estrutura do site.

@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
+import { PALETA_ALBUM } from '../src/config.js';
 
 const HOSTIL = '<img src=x onerror=alert(1)>"\'&';
 const EVENTO = { slug: 'formatura', title: 'Formatura 2026', driveUrl: 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001', galeriaCapitulos: true };
@@ -111,7 +112,7 @@ describe('evento do álbum com domínio próprio (v3.7.6)', () => {
     const h = pagina('entrenos2026');
     expect(h).toContain(':root:root{');
     expect(h).toContain('--accent:#f9de4b');
-    expect(h).toContain('<meta name="theme-color" content="#0f0e0c">');
+    expect(h).toContain(`<meta name="theme-color" content="${PALETA_ALBUM.bg}">`);
     expect(pagina('formatura')).not.toContain(':root:root{');
   });
 

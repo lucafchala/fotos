@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.13';
+export const VERSAO = '3.9.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -695,3 +695,20 @@ export const PREVIA_SENHA_MIN = 6;
 export const PREVIA_COOKIE_DIAS = 30;
 export const PREVIA_TENTATIVAS_POR_IP_HORA = 8;
 export const PREVIA_TENTATIVAS_POR_DIA = 200;
+
+// As cores do álbum com domínio próprio (Entre Nós), num lugar só (v3.9.0):
+// a página do álbum, a do evento, a da editora, a ajuda e o app instalado.
+// Tudo sai do AZUL DO COLÉGIO SANTA CRUZ (#243580, o `blue` do site da
+// escola; pedido do dono): o fundo, os cartões e as bordas são o mesmo azul,
+// mais escuro (mesmo matiz, 229°), em vez do quase-preto quente de antes, que
+// puxava para o marrom. As linhas e os brilhos usam o próprio #243580. O
+// amarelo (#F9DE4B, também do colégio) só entra SÓLIDO, nos destaques:
+// misturado com o azul ou transparente sobre o escuro, vira oliva/marrom.
+export const PALETA_ALBUM = Object.freeze({
+  bg: '#0a1029', card: '#111a3d', card2: '#16204a', borda: '#22306b', esqueleto: '#131c45',
+  txt: '#f3f1ec', txt2: '#c9cee3', mudo: '#9ca3c4', dim: '#7a82a6',
+  sol: '#f9de4b', azul: '#243580',
+  /** O fundo com transparência (botão de vidro, sombra da capa): "r,g,b". */
+  bgRgb: '10,16,41',
+});
+
