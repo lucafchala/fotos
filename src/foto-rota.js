@@ -75,8 +75,9 @@ export function lerChaveFoto(k) {
 
 // As assinaturas já calculadas neste isolate: a página de um evento pede até
 // 6 mil de uma vez, e a seguinte pede as mesmas. Trocou o segredo, esvazia.
-/** @type {Map<string, string>} */
+/** @type {Map<string, Map<string, string>>} */
 const assinaturas = new Map();
+let totalDeAssinaturas = 0;
 let segredoDasAssinaturas = '';
 const ASSINATURAS_MAX = 60_000;
 const ASSINATURAS_LOTE = 500;
@@ -96,27 +97,52 @@ const ASSINATURAS_LOTE = 500;
 export async function assinadorDeFotos(secret, slug, ids) {
   if (!SLUG_DA_CHAVE.test(slug)) return () => '';
   if (!secret) return () => slug;
-  if (secret !== segredoDasAssinaturas || assinaturas.size > ASSINATURAS_MAX) {
+  if (secret !== segredoDasAssinaturas || totalDeAssinaturas > ASSINATURAS_MAX) {
     assinaturas.clear();
+    totalDeAssinaturas = 0;
     segredoDasAssinaturas = secret;
   }
-  /** @type {Map<string, string>} */
-  const desta = new Map();
+  // Um mapa por álbum, com o ID como chave: no caminho quente (a página de
+  // 6 mil fotos já assinada neste isolate) cada foto custa uma consulta, sem
+  // montar texto nem conferir o formato de novo (o que está aqui já passou).
+  // Percorrida duas vezes (aqui e, se preciso, em `pedidas`): um iterador de uso único não serviria.
+  const lista = Array.isArray(ids) ? ids : [...ids];
+  let doAlbum = assinaturas.get(slug);
+  if (!doAlbum) { doAlbum = new Map(); assinaturas.set(slug, doAlbum); }
   /** @type {string[]} */
   const faltam = [];
-  for (const id of ids) {
-    if (typeof id !== 'string' || desta.has(id) || !idDriveValido(id)) continue;
-    const pronta = assinaturas.get(`${slug}|${id}`);
-    desta.set(id, pronta || '');
-    if (!pronta) faltam.push(id);
+  /** @type {Set<string>} */
+  const vistas = new Set();
+  for (const id of lista) {
+    if (doAlbum.has(id)) continue;
+    if (typeof id !== 'string' || vistas.has(id) || !idDriveValido(id)) continue;
+    vistas.add(id);
+    faltam.push(id);
   }
   // Em lotes: milhares de promessas pendentes de uma vez só gastam memória.
   for (let i = 0; i < faltam.length; i += ASSINATURAS_LOTE) {
     const lote = faltam.slice(i, i + ASSINATURAS_LOTE);
     const feitas = await Promise.all(lote.map(id => assinaCurta(secret, 'foto', `${slug}|${id}`)));
-    lote.forEach((id, j) => { desta.set(id, feitas[j]); assinaturas.set(`${slug}|${id}`, feitas[j]); });
+    lote.forEach((id, j) => { /** @type {Map<string, string>} */ (doAlbum).set(id, feitas[j]); });
+    totalDeAssinaturas += lote.length;
   }
-  return id => { const a = desta.get(id); return a ? `${slug}.${a}` : ''; };
+  const mapa = doAlbum;
+  // Só o que ESTA chamada pediu (a página não assina o que não listou). O
+  // conjunto é montado na primeira consulta: quem só usa `crua` não paga por ele.
+  /** @type {Set<string> | null} */
+  let pedidas = null;
+  /** @type {((id: string) => string) & { crua?: (id: string) => string }} */
+  const assina = id => {
+    if (!pedidas) pedidas = new Set(lista);
+    const a = pedidas.has(id) ? mapa.get(id) : '';
+    return a ? `${slug}.${a}` : '';
+  };
+  // Só a assinatura, sem o álbum na frente e sem conferir se o ID foi pedido
+  // nesta chamada: é para quem percorre A MESMA lista que passou aqui (a página
+  // de um evento junta milhares num campo só: assinaturasDaSecao, em
+  // src/ui/galeria.js). Nunca para um ID que veio de fora.
+  assina.crua = id => mapa.get(id) || '';
+  return assina;
 }
 
 /**
