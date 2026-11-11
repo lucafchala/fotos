@@ -88,7 +88,7 @@ export const SCRIPT_NOVAS = slug => `(function () {
     if (ult && cartaoUlt && typeof ult.id === 'string' && agora - ult.em < 30 * 86400000) {
       var c = document.createElement('a');
       c.className = 'ix-continuar';
-      c.href = cartaoUlt.getAttribute('href') + '#foto=' + encodeURIComponent(ult.id);
+      c.href = cartaoUlt.getAttribute('href') + '?foto=' + encodeURIComponent(ult.id);
       var k = document.createElement('span');
       k.textContent = 'Continuar de onde parou';
       var b = document.createElement('b');
@@ -179,7 +179,7 @@ export const SCRIPT_ROSTO = `(function () {
   var D = JSON.parse(el.textContent || '{}');
   // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
   var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
-  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '?foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).
@@ -855,7 +855,7 @@ export const SCRIPT_BUSCA = `(function () {
   var D = JSON.parse(el.textContent || '{}');
   // Links curtos no domínio do álbum (v3.8.3): D.base é '' lá, /galeria/<slug> aqui.
   var BASE = typeof D.base === 'string' ? D.base : '/galeria/' + encodeURIComponent(D.slug);
-  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '#foto=' + encodeURIComponent(id); }
+  function linkDaFoto(cap, id) { return BASE + (cap ? '/' + encodeURIComponent(cap) : (BASE ? '' : '/')) + '?foto=' + encodeURIComponent(id); }
   // Por evento (v3.8.0): um título por evento, na ordem da linha do tempo do
   // álbum; dentro dele, as fotos na ordem em que vieram (no rosto, da mais
   // parecida para a menos).

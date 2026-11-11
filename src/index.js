@@ -4619,7 +4619,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
   // Links curtos (v3.8.3): o evento mora em "entrenos2026.com/piauifut". O
-  // endereço longo de antes leva ao curto (o #foto= vai junto: o navegador
+  // endereço longo de antes leva ao curto (o ?foto= e o #foto= vão juntos: o navegador
   // mantém o fragmento no redirecionamento).
   const longo = /^\/galeria\/([a-z0-9-]+)\/([a-z0-9][a-z0-9-]*)$/.exec(path);
   if (longo && longo[1] === album.slug && (!request || request.method === 'GET')) {
@@ -4964,7 +4964,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const assina = await assinadorDeFotos(signingSecret(env), slug, idsDaPagina);
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta, assina,
-    capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname,
+    capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname, fotoDoLink: url.searchParams.get('foto') || '',
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });

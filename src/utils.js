@@ -2513,7 +2513,7 @@ export async function sendModeracaoEmail(env, d) {
   const esc = escape;
   const daTurma = d.fotos.filter(f => f.daTurma).length;
   const linhas = d.fotos.slice(0, 50).map(f => {
-    const url = `${d.origem}/galeria/${d.slug}${f.cap ? `/${f.cap}` : ''}#foto=${f.id}`;
+    const url = enderecoDaFoto(d.slug, f.cap || '', f.id);
     return `<tr><td style="padding:6px 0"><a href="${esc(url)}" style="color:#1a1a1a">${esc(f.cap || 'galeria')} · ${esc(f.id.slice(0, 10))}…</a></td><td style="padding:6px 8px;color:#666">${esc(f.autor || '—')}</td><td style="padding:6px 0;color:#666">${esc(f.rotulos)}</td><td style="padding:6px 0 6px 8px">${f.daTurma ? '<strong>da turma</strong>' : 'fotógrafo'}</td></tr>`;
   }).join('');
   const html = `
@@ -3333,6 +3333,20 @@ export function enderecoDoEvento(slug, cap) {
 export function enderecoDoAlbum(slug) {
   const origem = origemDoAlbum(slug);
   return Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug) ? `${origem}/` : `${origem}/galeria/${slug}`;
+}
+
+/**
+ * O link de UMA foto (v3.9.0): a página do evento (ou do álbum) com
+ * "?foto=<ID>". É o formato único do site: a galeria, o compartilhar, a
+ * busca pelo rosto e os e-mails usam este; o servidor lê o parâmetro e o
+ * cartão do WhatsApp mostra a própria foto. O "#foto=" antigo continua
+ * abrindo na galeria.
+ * @param {string} slug
+ * @param {string} cap '' = a galeria do álbum, sem capítulo
+ * @param {string} id
+ */
+export function enderecoDaFoto(slug, cap, id) {
+  return `${cap ? enderecoDoEvento(slug, cap) : enderecoDoAlbum(slug)}?foto=${encodeURIComponent(id)}`;
 }
 
 // ---------------------------------------------------------------------------
