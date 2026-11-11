@@ -27,7 +27,7 @@ import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { assinadorDeFotos } from '../src/foto-rota.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, EPOCA_CRIADA_MS } from '../src/config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, AQUECE_LARGURAS, EPOCA_CRIADA_MS } from '../src/config.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -243,6 +243,8 @@ async function abre(o = {}) {
       const m = fotoSite ? [fotoSite[0], fotoSite[1], fotoSite[2], fotoSite[3] ? '' : '-rw'] : u.pathname.match(/^\/d\/([A-Za-z0-9_-]+)=w(\d+)(-rw)?$/);
       if (!m) return route.fulfill({ status: 404, body: '' });
       estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3], site: !!fotoSite, k: u.searchParams.get('k') || '' });
+      // `falhaFotos: N`: os N primeiros pedidos de foto falham (a rajada do lançamento).
+      if (o.falhaFotos && estado.lh3.length <= o.falhaFotos) return route.fulfill({ status: 502, body: '' });
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
@@ -435,6 +437,23 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
 }
 
 // ---- 1b. Tema escuro (o padrão da maioria dos celulares à noite) ----------
+await cenario('Miniatura que falha tenta de novo', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, falhaFotos: 4 });
+  // A primeira nova tentativa sai entre 2 e 4 s depois da falha.
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade img')].filter(i => /** @type {HTMLImageElement} */ (i).currentSrc).every(i => /** @type {HTMLImageElement} */ (i).naturalWidth > 0), null, { timeout: 12000 }).catch(() => {});
+  const r = await page.evaluate(() => {
+    const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-grade img')]).filter(i => i.currentSrc);
+    return { pedidas: imgs.length, carregadas: imgs.filter(i => i.naturalWidth > 0).length, vazias: document.querySelectorAll('.sem-mini').length, tentaram: imgs.filter(i => i.getAttribute('data-t')).length };
+  });
+  registra(estado.lh3.length > 4 && r.tentaram > 0, 'Nova tentativa: as miniaturas que falharam foram pedidas de novo', JSON.stringify(r));
+  registra(r.pedidas > 0 && r.carregadas === r.pedidas && r.vazias === 0, 'Nova tentativa: nenhuma miniatura ficou vazia', JSON.stringify(r));
+  // As larguras que o celular pede na grade são as que o indexador aquece no
+  // R2 (AQUECE_LARGURAS): aquecer a largura errada é o mesmo que não aquecer.
+  const pedidasNaGrade = [...new Set(estado.lh3.map(x => x.w))].sort((x, y) => x - y);
+  registra(pedidasNaGrade.every(w => AQUECE_LARGURAS.includes(w)), 'iPhone: toda largura pedida na grade está entre as aquecidas no R2', { pedidas: pedidasNaGrade, aquecidas: AQUECE_LARGURAS });
+  await ctx.close();
+});
+
 await cenario('Tema escuro', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, escuro: true });
   await espera(page, 900);

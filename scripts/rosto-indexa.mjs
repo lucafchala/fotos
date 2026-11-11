@@ -51,7 +51,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { rekognition, base64, ErroAws } from '../src/aws.js';
 import { colecoes, idExterno, lerIdExterno, MARCA_SAIU, limpaRostosDeQuemSaiu } from '../src/rosto.js';
-import { ROSTO_REGIAO_PADRAO, BUSCA_LOTE_MAX, ROSTO_FOTOS_POR_DIA } from '../src/config.js';
+import { ROSTO_REGIAO_PADRAO, BUSCA_LOTE_MAX, ROSTO_FOTOS_POR_DIA, AQUECE_LARGURAS, AQUECE_FOTOS_POR_EXECUCAO } from '../src/config.js';
+import { ASSINATURA_CURTA_LEN } from '../src/security.js';
 
 // Filtro de qualidade do IndexFaces. NONE (v3.7.3): todo rosto que a Amazon
 // detecta entra, até o pequeno, de lado, tremido ou no escuro — melhor um
@@ -73,8 +74,14 @@ export function fotosDaPagina(html) {
   const ids = [];
   /** @type {Map<string, string>} */
   const autores = new Map();
+  // O `k` do endereço de cada foto (/f/, v3.8.8): o álbum e a assinatura, que a
+  // página traz num campo só por seção (`as`), na ordem das fotos.
+  /** @type {Map<string, string>} */
+  const chaves = new Map();
+  const slugDaPagina = typeof dados.slug === 'string' ? dados.slug : '';
   for (const sec of Array.isArray(dados.secoes) ? dados.secoes : []) {
-    for (const f of Array.isArray(sec.fotos) ? sec.fotos : []) {
+    const assinaturas = typeof sec.as === 'string' ? sec.as : '';
+    for (const [i, f] of (Array.isArray(sec.fotos) ? sec.fotos : []).entries()) {
       // Formato da página (fotoDaPagina em src/ui/galeria.js): o "extra"
       // numérico na posição 9 é a duração de um vídeo; o autor é o índice na
       // posição 7 (ausente = 0).
@@ -82,10 +89,12 @@ export function fotosDaPagina(html) {
       if (typeof f[0] === 'string' && ID_RE.test(f[0])) {
         ids.push(f[0]);
         autores.set(f[0], nomes[typeof f[7] === 'number' ? f[7] : 0] || '');
+        const a = assinaturas.slice(i * ASSINATURA_CURTA_LEN, (i + 1) * ASSINATURA_CURTA_LEN).trim();
+        if (slugDaPagina) chaves.set(f[0], a ? `${slugDaPagina}.${a}` : slugDaPagina);
       }
     }
   }
-  return { cap: typeof dados.cap === 'string' ? dados.cap : '', ids, autores };
+  return { cap: typeof dados.cap === 'string' ? dados.cap : '', ids, autores, chaves };
 }
 
 /** Os slugs dos capítulos no índice. @param {string} html @param {string} slug */
@@ -137,18 +146,18 @@ async function pagina(url, oQue) {
  * `completo: false` quando alguma página veio sem a lista de fotos, ou o álbum
  * veio vazio: aí NADA pode ser dado como "saiu do álbum" (ver o topo).
  * @param {string} site @param {string} slug
- * @returns {Promise<{ todas: Map<string, string>, info: Map<string, { cap: string, autor: string }>, eventos: number, completo: boolean }>}
+ * @returns {Promise<{ todas: Map<string, string>, info: Map<string, { cap: string, autor: string, k?: string }>, eventos: number, completo: boolean }>}
  */
 async function fotosDoAlbum(site, slug) {
   const base = `${site}/galeria/${slug}`;
   const inicio = await pagina(base, 'página do álbum');
   /** @type {Map<string, string>} */
   const todas = new Map();
-  /** @type {Map<string, { cap: string, autor: string }>} */
+  /** @type {Map<string, { cap: string, autor: string, k?: string }>} */
   const info = new Map();
   const unica = fotosDaPagina(inicio);
   if (unica) {
-    for (const id of unica.ids) { todas.set(idExterno('', id), id); info.set(id, { cap: '', autor: unica.autores.get(id) || '' }); }
+    for (const id of unica.ids) { todas.set(idExterno('', id), id); info.set(id, { cap: '', autor: unica.autores.get(id) || '', k: unica.chaves.get(id) || '' }); }
     return { todas, info, eventos: 0, completo: todas.size > 0 };
   }
   const caps = capitulosDoIndice(inicio, slug);
@@ -157,7 +166,7 @@ async function fotosDoAlbum(site, slug) {
     const p = fotosDaPagina(await pagina(`${base}/${cap}`, 'página de um evento'));
     // Página sem a lista (o Drive não respondeu para ela): leitura incompleta.
     if (!p) { completo = false; continue; }
-    for (const id of p.ids) { todas.set(idExterno(cap, id), id); info.set(id, { cap, autor: p.autores.get(id) || '' }); }
+    for (const id of p.ids) { todas.set(idExterno(cap, id), id); info.set(id, { cap, autor: p.autores.get(id) || '', k: p.chaves.get(id) || '' }); }
   }
   return { todas, info, eventos: caps.length, completo: completo && todas.size > 0 };
 }
@@ -190,14 +199,14 @@ async function enviaBusca(site, slug, itens, remover) {
 // O estado: no site (com o token) ou num arquivo local (sem ele)
 // ---------------------------------------------------------------------------
 /**
- * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, geracaoPedida: number, rosto: boolean }} Estado
+ * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, quentes: Set<string>, geracaoPedida: number, rosto: boolean }} Estado
  *   `geracao` e `limpar` são guardados; `geracaoPedida` e `rosto` só
  *   vêm do site (quantas vezes o dono pediu para refazer o índice, e se a busca
  *   pelo rosto está ligada no painel) e não são gravados de volta.
  */
 
 /** @param {Estado} e */
-const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade, geracao: e.geracao, limpar: e.limpar, dia: e.dia, noDia: e.noDia });
+const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade, geracao: e.geracao, limpar: e.limpar, dia: e.dia, noDia: e.noDia, quentes: [...e.quentes].sort() });
 
 /**
  * Onde o estado de um álbum é lido e gravado. Grava só quando mudou (uma
@@ -225,14 +234,14 @@ function guardaDoEstado(o) {
         // O formato do arquivo é o de sempre: `<slug>`, `<slug>#busca`, `<slug>#qualidade`.
         // À mão não há painel a consultar: a busca vale como ligada e ninguém pediu para refazer.
         const extra = a[`${o.slug}#rosto`] && typeof a[`${o.slug}#rosto`] === 'object' ? a[`${o.slug}#rosto`] : {};
-        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`], geracao: extra.geracao, limpar: extra.limpar, dia: extra.dia, noDia: extra.noDia, geracaoPedida: extra.geracao, rosto: true };
+        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`], geracao: extra.geracao, limpar: extra.limpar, dia: extra.dia, noDia: extra.noDia, quentes: extra.quentes, geracaoPedida: extra.geracao, rosto: true };
       }
       const lista = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
       /** @type {Estado} */
       const numero = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
       const estado = {
         vistas: new Set(lista(bruto && bruto.vistas)), descritas: new Set(lista(bruto && bruto.descritas)), qualidade: bruto && typeof bruto.qualidade === 'string' ? bruto.qualidade : '',
-        dia: bruto && typeof bruto.dia === 'string' ? bruto.dia : '', noDia: numero(bruto && bruto.noDia),
+        dia: bruto && typeof bruto.dia === 'string' ? bruto.dia : '', noDia: numero(bruto && bruto.noDia), quentes: new Set(lista(bruto && bruto.quentes)),
         geracao: numero(bruto && bruto.geracao), limpar: !!bruto && bruto.limpar === true,
         geracaoPedida: numero(bruto && bruto.geracaoPedida),
         // Só um `false` dito pelo site desliga: site antigo (sem o campo) segue indexando.
@@ -249,11 +258,11 @@ function guardaDoEstado(o) {
         const r = await fetch(`${o.site}/api/busca/estado`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': o.token },
-          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade, geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia }),
+          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade, geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes] }),
         });
         if (!r.ok) throw new ErroDoIndexador(`gravação do estado HTTP ${r.status}`);
       } else {
-        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade, [`${o.slug}#rosto`]: { geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia } };
+        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade, [`${o.slug}#rosto`]: { geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes] } };
         doArquivo = a;
         await writeFile(o.arquivo, JSON.stringify(a));
       }
@@ -325,6 +334,7 @@ export async function principal() {
   const arqEstado = process.env.ROSTO_ESTADO || '.rosto-estado.json';
   const maxNovas = Number(process.env.ROSTO_MAX_NOVAS) || 3000;
   const maxDia = Number(process.env.ROSTO_MAX_DIA) || ROSTO_FOTOS_POR_DIA;
+  const maxAquece = process.env.ROSTO_AQUECE === '0' ? 0 : AQUECE_FOTOS_POR_EXECUCAO;
   const seco = process.env.ROSTO_SECO === '1';
   const inicio = Date.now();
   const limiteMs = (Number(process.env.ROSTO_MAX_MINUTOS) || 35) * 60000;
@@ -496,6 +506,38 @@ export async function principal() {
     if (completo) {
       for (const k of [...vistas]) if (!fotos.has(k)) vistas.delete(k);
       for (const id of [...descritas]) if (!idsNoAlbum.has(id)) descritas.delete(id);
+      for (const id of [...estado.quentes]) if (!idsNoAlbum.has(id)) estado.quentes.delete(id);
+    }
+    // Aquece as miniaturas no R2 do site (ver AQUECE_LARGURAS): cada foto que
+    // ainda não foi aquecida é pedida ao site nas larguras do celular. Só com o
+    // token (é ele que abre o álbum ainda fechado) e enquanto há tempo.
+    if (token) {
+      const frias = [...idsNoAlbum].filter(id => !estado.quentes.has(id)).slice(0, maxAquece);
+      let aquecidas = 0, semAquecer = 0;
+      /** @param {string} id */
+      const aquece = async id => {
+        const k = (info.get(id) || {}).k || '';
+        let ok = !!k;
+        for (const w of ok ? AQUECE_LARGURAS : []) {
+          try {
+            const r = await fetch(`${site}/f/${id}/${w}?k=${encodeURIComponent(k)}`, { headers: { 'User-Agent': UA, 'X-Rosto-Indexador': token } });
+            await r.arrayBuffer();
+            if (!r.ok) ok = false;
+          } catch { ok = false; }
+        }
+        if (ok) { estado.quentes.add(id); aquecidas++; } else semAquecer++;
+      };
+      /** @type {Set<Promise<void>>} */
+      const aquecendo = new Set();
+      for (const id of frias) {
+        if (acabouOTempo()) break;
+        while (aquecendo.size >= PARALELAS) await Promise.race(aquecendo);
+        const t = aquece(id).finally(() => { aquecendo.delete(t); });
+        aquecendo.add(t);
+        await espera(PASSO_MS);
+      }
+      await Promise.all(aquecendo);
+      if (aquecidas || semAquecer) console.log(`${album}: miniaturas aquecidas: ${aquecidas} fotos${semAquecer ? `, ${semAquecer} ficaram para a próxima` : ''}.`);
     }
     await guarda.grava(estado);
     const totalDeFalhas = [...falhas.values()].reduce((a, b) => a + b, 0);

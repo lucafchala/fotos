@@ -139,6 +139,10 @@ feito para reduzir o risco:
 3. Em caso de dúvida, peça uma revisão jurídica.
 4. Atualize o RIPD (`docs/legal/RIPD.md`) com este tratamento.
 
+## Aquecimento das miniaturas (v3.8.11)
+
+Depois de indexar, o indexador pede ao site as miniaturas de cada foto ainda não aquecida (`AQUECE_LARGURAS`, até `AQUECE_FOTOS_POR_EXECUCAO` fotos por execução) e anota no estado (`quentes`). A cópia fica no R2; no lançamento a página não depende do Google. Não custa AWS. Um álbum de 6.000 fotos aquece em cerca de dez execuções (menos de duas horas). O log diz "miniaturas aquecidas: N fotos". **Antes de lançar, confira no log que não sobrou foto por aquecer** (a linha deixa de aparecer). Desligar: variável `ROSTO_AQUECE=0` no workflow.
+
 ## Teto de custo do indexador (v3.8.10)
 
 O indexador processa no máximo `ROSTO_FOTOS_POR_DIA` fotos por dia (UTC) em cada álbum: 2.000, cerca de US$ 8 no pior dia (até 4 chamadas de US$ 0,001 por foto). O que passar fica para o dia seguinte, e o log diz "teto do dia". Para indexar um álbum grande de uma vez, crie a variável do repositório `ROSTO_MAX_DIA` (Settings → Secrets and variables → Actions → Variables; por exemplo `8000`) e apague depois.

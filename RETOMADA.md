@@ -950,6 +950,16 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   (`RateLimiter.guardaUmaVez`); o KV é só a cópia de leitura. Nunca apague
   `aviso:vapid`: quem já se inscreveu deixa de receber.
 
+### 5.23. No lançamento a página não pode depender do Google (v3.8.11)
+
+- Miniatura fora do R2 = uma ida ao Google por pedido, e o Google recusa
+  rajada. Quem garante o R2 cheio é o indexador (`AQUECE_LARGURAS`, estado
+  `quentes`). Mudou as larguras da grade (`GALERIA_LARGURAS_GRADE`) ou o
+  desenho da grade no celular? Reveja `AQUECE_LARGURAS`: aquecer a largura
+  errada é o mesmo que não aquecer.
+- Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
+  (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a

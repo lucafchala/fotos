@@ -137,11 +137,18 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
   /** @type {string[]} */
   let log;
 
-  const pagina = () => `<html><script type="application/json" id="g-dados" nonce="n">${JSON.stringify({ slug: SLUG, cap: CAP, secoes: [{ nome: '', fotos: fotos.map(id => [id, 3000, 2000, `${id}.jpg`, 1000]) }], autores: ['Fulano'] })}</script></html>`;
+  // A assinatura de cada foto na página (8 caracteres por foto, num campo só).
+  const assinatura = (/** @type {string} */ id) => `S${id.slice(-4)}xyz`;
+  const pagina = () => `<html><script type="application/json" id="g-dados" nonce="n">${JSON.stringify({ slug: SLUG, cap: CAP, secoes: [{ nome: '', fotos: fotos.map(id => [id, 3000, 2000, `${id}.jpg`, 1000]), as: fotos.map(assinatura).join('') }], autores: ['Fulano'] })}</script></html>`;
+  /** @type {{ caminho: string, k: string, token: string }[]} */
+  let pedidosDeFoto = [];
+  let fotoHttp = 200;
   const indice = () => `<html><a class="ix-card" href="/galeria/${SLUG}/${CAP}"><span class="ix-nome">Evento A</span></a></html>`;
 
   beforeEach(() => {
     log = [];
+    pedidosDeFoto = [];
+    fotoHttp = 200;
     vi.spyOn(console, 'log').mockImplementation((...a) => { log.push(a.map(String).join(' ')); });
     aws = rekognitionFalsa({ parecidos: { 'ana|ana-de-lado': DE_LADO } });
     aws.imagem(selfie('A'), ['ana']);
@@ -163,6 +170,10 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
           return Response.json(estado);
         }
         if (url.pathname === '/api/busca/indexar') return Response.json({ ok: true, marcadas: 0, escondidas: 0 });
+        if (url.pathname.startsWith('/f/')) {
+          pedidosDeFoto.push({ caminho: url.pathname, k: url.searchParams.get('k') || '', token: init.headers['X-Rosto-Indexador'] || '' });
+          return new Response('img', { status: fotoHttp });
+        }
         return new Response(url.pathname === `/galeria/${SLUG}` ? indice() : pagina());
       }
       if (url.host === 'lh3.googleusercontent.com') return new Response(`BYTES-${url.pathname.replace('/d/', '').split('=')[0]}`);
@@ -297,6 +308,33 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
     // Até 4 chamadas de US$ 0,001 por foto (rosto, texto, coisas, moderação).
     expect(ROSTO_FOTOS_POR_DIA * 0.004).toBeLessThanOrEqual(10);
     expect(ROSTO_FOTOS_POR_DIA).toBeGreaterThanOrEqual(500);
+  });
+
+  it('aquece as miniaturas (v3.8.11): cada foto é pedida ao site nas larguras do celular, com a assinatura da página e o token; uma vez só', async () => {
+    const { AQUECE_LARGURAS } = await import('../src/config.js');
+    await indexa();
+    expect(pedidosDeFoto.map(p => p.caminho).sort()).toEqual([F(1), F(2)].flatMap(id => AQUECE_LARGURAS.map(w => `/f/${id}/${w}`)).sort());
+    expect(pedidosDeFoto.every(p => p.token === TOKEN)).toBe(true);
+    expect(pedidosDeFoto.find(p => p.caminho.includes(F(2)))).toMatchObject({ k: `${SLUG}.${assinatura(F(2))}` });
+    expect(log.join('\n')).toContain('miniaturas aquecidas: 2 fotos');
+    // Execução seguinte: nada a aquecer. Foto nova: só ela.
+    pedidosDeFoto = [];
+    await indexa();
+    expect(pedidosDeFoto).toEqual([]);
+    fotos = [F(1), F(2), F(5)];
+    await indexa();
+    expect([...new Set(pedidosDeFoto.map(p => p.caminho.split('/')[2]))]).toEqual([F(5)]);
+  });
+
+  it('miniatura que o site recusou não conta como aquecida: a execução seguinte tenta de novo', async () => {
+    fotoHttp = 502;
+    await indexa();
+    expect(estado.quentes).toEqual([]);
+    expect(log.join('\n')).toContain('2 ficaram para a próxima');
+    fotoHttp = 200;
+    pedidosDeFoto = [];
+    await indexa();
+    expect(estado.quentes.sort()).toEqual([F(1), F(2)]);
   });
 
   it('busca pelo rosto desligada no painel: nenhum rosto é indexado e a coleção nem é criada', async () => {
