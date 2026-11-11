@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.9';
+export const VERSAO = '3.8.10';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -627,6 +627,15 @@ export const ROSTO_SAIR_POR_IP_DIA = 20;
 // dono recebe um alerta e confere a lista no painel, onde cada saída pode ser
 // desfeita.
 export const ROSTO_SAIR_POR_DIA = 60;
+// Quantas fotos o indexador processa por DIA (UTC) em cada álbum (v3.8.10). A
+// pasta do álbum recebe fotos da turma por um ano, por link aberto: sem teto,
+// alguém despejando arquivos fazia o indexador pagar por todos (até 4 chamadas
+// de US$ 0,001 por foto, 3.000 fotos por execução, uma execução a cada 10 min:
+// mais de mil dólares num dia). Com o teto, o pior dia custa
+// ROSTO_FOTOS_POR_DIA × US$ 0,004 por álbum. O que passar fica para o dia
+// seguinte, e o log do indexador diz. Para a primeira indexação de um álbum
+// grande, a variável ROSTO_MAX_DIA do workflow sobe o teto naquele dia.
+export const ROSTO_FOTOS_POR_DIA = 2000;
 // Busca pelo rosto desligada no painel: o índice (os rostos de todo mundo) é
 // apagado depois deste prazo, não na hora. Religar antes cancela. Um clique
 // errado no painel não pode custar o índice inteiro e a lista de quem saiu; e

@@ -139,6 +139,10 @@ feito para reduzir o risco:
 3. Em caso de dúvida, peça uma revisão jurídica.
 4. Atualize o RIPD (`docs/legal/RIPD.md`) com este tratamento.
 
+## Teto de custo do indexador (v3.8.10)
+
+O indexador processa no máximo `ROSTO_FOTOS_POR_DIA` fotos por dia (UTC) em cada álbum: 2.000, cerca de US$ 8 no pior dia (até 4 chamadas de US$ 0,001 por foto). O que passar fica para o dia seguinte, e o log diz "teto do dia". Para indexar um álbum grande de uma vez, crie a variável do repositório `ROSTO_MAX_DIA` (Settings → Secrets and variables → Actions → Variables; por exemplo `8000`) e apague depois.
+
 ## Quem saiu da busca (v3.8.9)
 
 - O rosto de quem saiu fica como uma **marca** dentro do índice do álbum (`ExternalImageId` = `saiu`). Não é foto nenhuma e nunca aparece num resultado.

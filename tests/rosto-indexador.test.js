@@ -287,7 +287,7 @@ describe('a rota do estado no site (/api/busca/estado)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, vistas: 2, descritas: 1 });
     const lido = await (await pede(`/api/busca/estado?slug=${SLUG}`, { token: TOKEN })).json();
-    expect(lido).toEqual({ vistas: [`${CAP_A}:${F(1)}`, `:${F(2)}`], descritas: [F(1)], qualidade: 'NONE', geracao: 0, limpar: false, origem: 'guardado', geracaoPedida: 0, rosto: false });
+    expect(lido).toEqual({ vistas: [`${CAP_A}:${F(1)}`, `:${F(2)}`], descritas: [F(1)], qualidade: 'NONE', geracao: 0, limpar: false, dia: '', noDia: 0, origem: 'guardado', geracaoPedida: 0, rosto: false });
   });
 
   it('sem estado guardado, monta do que o banco da busca já sabe — a troca não reprocessa o álbum', async () => {
@@ -306,8 +306,8 @@ describe('a rota do estado no site (/api/busca/estado)', () => {
   });
 
   it('estadoDoIndexadorLimpo: forma, repetição e teto', () => {
-    expect(estadoDoIndexadorLimpo(null)).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false });
-    expect(estadoDoIndexadorLimpo({ vistas: 'x', descritas: {}, qualidade: 'none', geracao: -3, limpar: 'sim' })).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false });
+    expect(estadoDoIndexadorLimpo(null)).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0 });
+    expect(estadoDoIndexadorLimpo({ vistas: 'x', descritas: {}, qualidade: 'none', geracao: -3, limpar: 'sim', dia: 'ontem', noDia: -1 })).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0 });
     const muitas = Array.from({ length: 20050 }, (_, i) => `:FOTO_${String(i).padStart(8, '0')}`);
     expect(estadoDoIndexadorLimpo({ vistas: muitas }).vistas).toHaveLength(20000);
   });

@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.10] — ainda não publicada
+
+- **Teto de fotos por dia no indexador** (`ROSTO_FOTOS_POR_DIA`, 2.000 por álbum). A pasta do álbum recebe fotos por link aberto durante um ano; sem teto, alguém despejando arquivos fazia o indexador pagar por todos (mais de mil dólares num dia, no pior caso). Agora o pior dia custa cerca de US$ 8 por álbum; o que passar fica para o dia seguinte, e o log diz. Para a primeira indexação de um álbum grande, a variável `ROSTO_MAX_DIA` do workflow sobe o teto.
+
 ## [3.8.9] — ainda não publicada
 
 Privacidade: o que a revisão de novembro de 2026 achou entre o que o site promete e o que o código faz (achados 5, 6, 7, 8, 11 e 12).

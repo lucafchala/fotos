@@ -60,4 +60,8 @@ jobs:
           ROSTO_INDEXADOR_TOKEN: ${{ secrets.ROSTO_INDEXADOR_TOKEN }}
           # Para de pegar foto nova aos 35 min e grava; o job tem 50.
           ROSTO_MAX_MINUTOS: '35'
+          # Teto de fotos por dia e por álbum (o padrão é ROSTO_FOTOS_POR_DIA, em
+          # src/config.js). A variável do repositório sobe o teto para a primeira
+          # indexação de um álbum grande; vazia, vale o padrão.
+          ROSTO_MAX_DIA: ${{ vars.ROSTO_MAX_DIA }}
         run: node scripts/rosto-indexa.mjs
