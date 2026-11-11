@@ -149,15 +149,5 @@ describe('R2 (v3.8.3): cópia na primeira vez, leitura depois', () => {
   });
 });
 
-describe('teto de e-mails do dia (v3.8.3)', () => {
-  it('90 por dia no site inteiro; depois, não sai', async () => {
-    const { withDurableObjects } = await import('./helpers/do.js');
-    const { cotaDeEmail } = await import('../src/utils.js');
-    const { EMAIL_COTA_DIA } = await import('../src/config.js');
-    const env = withDurableObjects({});
-    let sim = 0;
-    for (let i = 0; i < EMAIL_COTA_DIA.capacity + 5; i++) if (await cotaDeEmail(/** @type {any} */ (env))) sim++;
-    expect(sim).toBe(EMAIL_COTA_DIA.capacity);
-    expect(EMAIL_COTA_DIA.capacity).toBeLessThan(100);
-  });
-});
+// O teto de e-mails do dia tem arquivo próprio desde a 3.8.9 (janela fixa):
+// tests/email-teto.test.js.

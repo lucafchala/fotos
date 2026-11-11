@@ -50,7 +50,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { rekognition, base64, ErroAws } from '../src/aws.js';
-import { colecoes, idExterno, lerIdExterno } from '../src/rosto.js';
+import { colecoes, idExterno, lerIdExterno, MARCA_SAIU, limpaRostosDeQuemSaiu } from '../src/rosto.js';
 import { ROSTO_REGIAO_PADRAO, BUSCA_LOTE_MAX } from '../src/config.js';
 
 // Filtro de qualidade do IndexFaces. NONE (v3.7.3): todo rosto que a Amazon
@@ -190,11 +190,14 @@ async function enviaBusca(site, slug, itens, remover) {
 // O estado: no site (com o token) ou num arquivo local (sem ele)
 // ---------------------------------------------------------------------------
 /**
- * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string }} Estado
+ * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string, geracao: number, limpar: boolean, geracaoPedida: number, rosto: boolean }} Estado
+ *   `geracao` e `limpar` são guardados; `geracaoPedida` e `rosto` só
+ *   vêm do site (quantas vezes o dono pediu para refazer o índice, e se a busca
+ *   pelo rosto está ligada no painel) e não são gravados de volta.
  */
 
 /** @param {Estado} e */
-const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade });
+const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade, geracao: e.geracao, limpar: e.limpar });
 
 /**
  * Onde o estado de um álbum é lido e gravado. Grava só quando mudou (uma
@@ -220,11 +223,20 @@ function guardaDoEstado(o) {
         try { doArquivo = JSON.parse(await readFile(o.arquivo, 'utf8')); } catch { doArquivo = {}; }
         const a = /** @type {Record<string, any>} */ (doArquivo);
         // O formato do arquivo é o de sempre: `<slug>`, `<slug>#busca`, `<slug>#qualidade`.
-        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`] };
+        // À mão não há painel a consultar: a busca vale como ligada e ninguém pediu para refazer.
+        const extra = a[`${o.slug}#rosto`] && typeof a[`${o.slug}#rosto`] === 'object' ? a[`${o.slug}#rosto`] : {};
+        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`], geracao: extra.geracao, limpar: extra.limpar, geracaoPedida: extra.geracao, rosto: true };
       }
       const lista = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
       /** @type {Estado} */
-      const estado = { vistas: new Set(lista(bruto && bruto.vistas)), descritas: new Set(lista(bruto && bruto.descritas)), qualidade: bruto && typeof bruto.qualidade === 'string' ? bruto.qualidade : '' };
+      const numero = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+      const estado = {
+        vistas: new Set(lista(bruto && bruto.vistas)), descritas: new Set(lista(bruto && bruto.descritas)), qualidade: bruto && typeof bruto.qualidade === 'string' ? bruto.qualidade : '',
+        geracao: numero(bruto && bruto.geracao), limpar: !!bruto && bruto.limpar === true,
+        geracaoPedida: numero(bruto && bruto.geracaoPedida),
+        // Só um `false` dito pelo site desliga: site antigo (sem o campo) segue indexando.
+        rosto: !(bruto && bruto.rosto === false),
+      };
       gravado = textoDoEstado(estado);
       return estado;
     },
@@ -236,11 +248,11 @@ function guardaDoEstado(o) {
         const r = await fetch(`${o.site}/api/busca/estado`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': o.token },
-          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade }),
+          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade, geracao: estado.geracao, limpar: estado.limpar }),
         });
         if (!r.ok) throw new ErroDoIndexador(`gravação do estado HTTP ${r.status}`);
       } else {
-        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade };
+        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade, [`${o.slug}#rosto`]: { geracao: estado.geracao, limpar: estado.limpar } };
         doArquivo = a;
         await writeFile(o.arquivo, JSON.stringify(a));
       }
@@ -332,34 +344,57 @@ export async function principal() {
     if (seco) continue;
     const guarda = guardaDoEstado({ site, slug, token, arquivo: arqEstado });
     const estado = await guarda.le();
-    try { await aws(cred, 'CreateCollection', { CollectionId: col }); console.log(`${album}: coleção criada.`); } catch (e) {
-      if (!(e instanceof ErroAws && e.tipo === 'ResourceAlreadyExistsException')) throw e;
+    // Busca pelo rosto desligada no painel (v3.8.9): nenhum rosto é indexado e
+    // a coleção nem é criada (o site apaga o índice depois do prazo). A busca
+    // nas fotos (texto e moderação) segue, se estiver ligada aqui.
+    const comRosto = estado.rosto;
+    if (!comRosto) console.log(`${album}: busca pelo rosto desligada no painel; nenhum rosto é indexado.`);
+    if (comRosto) {
+      try { await aws(cred, 'CreateCollection', { CollectionId: col }); console.log(`${album}: coleção criada.`); } catch (e) {
+        if (!(e instanceof ErroAws && e.tipo === 'ResourceAlreadyExistsException')) throw e;
+      }
     }
-    let indexados = await rostosIndexados(cred, col);
-    // Filtro de qualidade mudou (v3.7.3: LOW → NONE, "pegar todos os rostos,
-    // mesmo na dúvida"): apaga os rostos uma vez e indexa de novo, só a parte
+    /** @type {Map<string, string[]>} */
+    let indexados = comRosto ? await rostosIndexados(cred, col) : new Map();
+    // As marcas de quem saiu da busca (src/rosto.js) moram no mesmo índice e
+    // NUNCA são apagadas aqui: nem ao refazer o índice, nem como "foto que
+    // saiu do álbum". Só o dono as tira (desfazer, no painel).
+    indexados.delete(MARCA_SAIU);
+    // Refazer o índice: apaga os rostos uma vez e indexa de novo, só a parte
     // do rosto — texto, coisas e moderação já lidos não são lidos outra vez.
+    // Dois motivos:
+    //  - o filtro de qualidade mudou (v3.7.3: LOW → NONE, "pegar todos os
+    //    rostos, mesmo na dúvida");
+    //  - o dono desfez uma saída da busca (v3.8.9): os rostos que ela apagou só
+    //    voltam indexando de novo, porque o site não guarda quais eram.
     // A marca é gravada logo depois de apagar: se a execução parar no meio, a
     // próxima continua sem apagar de novo.
     // Só com a marca GUARDADA e diferente (v3.8.8). Estado sem marca (perdido,
-    // ou vindo do banco) adota o filtro de hoje e não apaga nada: perder o
-    // estado não pode custar o índice inteiro.
-    if (estado.qualidade && estado.qualidade !== QUALIDADE) {
-      const ids = [...indexados.values()].flat();
-      for (let i = 0; i < ids.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: ids.slice(i, i + 4096) });
-      if (ids.length) console.log(`${album}: filtro de qualidade novo: ${ids.length} rostos apagados para indexar de novo.`);
-      indexados = new Map();
-      estado.vistas = new Set();
+    // ou vindo do banco) adota o filtro e o pedido de hoje e não apaga nada:
+    // perder o estado não pode custar o índice inteiro.
+    if (comRosto) {
+      const filtroNovo = !!estado.qualidade && estado.qualidade !== QUALIDADE;
+      const refazer = estado.geracaoPedida > estado.geracao;
+      if (filtroNovo || refazer) {
+        const ids = [...indexados.values()].flat();
+        for (let i = 0; i < ids.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: ids.slice(i, i + 4096) });
+        if (ids.length) console.log(`${album}: ${filtroNovo ? 'filtro de qualidade novo' : 'pedido do painel para refazer o índice'}: ${ids.length} rostos apagados para indexar de novo.`);
+        indexados = new Map();
+        estado.vistas = new Set();
+      }
+      estado.qualidade = QUALIDADE;
+      estado.geracao = Math.max(estado.geracao, estado.geracaoPedida);
+      await guarda.grava(estado);
     }
-    estado.qualidade = QUALIDADE;
-    await guarda.grava(estado);
     const vistas = estado.vistas;
     for (const k of indexados.keys()) vistas.add(k);
     const descritas = estado.descritas;
 
     // Saíram do álbum (ocultas, apagadas, movidas de capítulo): apaga os rostos.
     // Só com o álbum lido INTEIRO (ver o topo).
-    if (completo) {
+    if (!comRosto) {
+      // nada a apagar: o índice não é deste script enquanto a busca está desligada
+    } else if (completo) {
       const apagar = [...indexados].filter(([k]) => !fotos.has(k) && lerIdExterno(k)).flatMap(([, ids]) => ids);
       for (let i = 0; i < apagar.length; i += 4096) await aws(cred, 'DeleteFaces', { CollectionId: col, FaceIds: apagar.slice(i, i + 4096) });
       if (apagar.length) console.log(`${album}: ${apagar.length} rostos apagados (fotos que saíram do álbum).`);
@@ -369,7 +404,11 @@ export async function principal() {
 
     const idsNoAlbum = new Set(fotos.values());
     // Uma foto entra se falta o rosto OU (com a busca ligada) a descrição.
-    const novas = [...fotos].filter(([k, id]) => !vistas.has(k) || (descrever && !descritas.has(id))).slice(0, maxNovas);
+    const faltaRosto = (/** @type {string} */ k) => comRosto && !vistas.has(k);
+    const novas = [...fotos].filter(([k, id]) => faltaRosto(k) || (descrever && !descritas.has(id))).slice(0, maxNovas);
+    // Vai indexar rostos: a limpeza dos de quem saiu da busca (no fim) fica
+    // DEVIDA desde já, e gravada — se a execução cair no meio, a próxima limpa.
+    if (novas.some(([k]) => faltaRosto(k)) && !estado.limpar) { estado.limpar = true; await guarda.grava(estado); }
     let rostos = 0;
     /** @type {Map<string, number>} as falhas, por tipo (nunca por foto) */
     const falhas = new Map();
@@ -384,7 +423,7 @@ export async function principal() {
         const bytes = await miniatura(id);
         const imagem = { Bytes: base64(bytes) };
         const [res, texto, rotulos, moderacao] = await Promise.all([
-          vistas.has(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: QUALIDADE, DetectionAttributes: [] }),
+          !faltaRosto(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: QUALIDADE, DetectionAttributes: [] }),
           descrever && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
           descrever && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
           descrever && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,
@@ -429,6 +468,17 @@ export async function principal() {
     if (lote.length || remover.length) {
       const r = await enviaBusca(site, slug, lote, remover);
       marcadas += r.marcadas; escondidas += r.escondidas;
+    }
+    // Quem saiu da busca não volta pelas fotos novas (v3.8.9): os rostos
+    // parecidos com cada marca são apagados. Roda quando esta execução indexou
+    // rostos ou quando uma anterior ficou devendo a limpeza. As marcas são
+    // lidas DE NOVO aqui: quem saiu durante esta execução entra (a saída, no
+    // site, só apaga o que já estava no índice naquele instante).
+    if (comRosto && (rostos > 0 || estado.limpar)) {
+      const marcas = (await rostosIndexados(cred, col)).get(MARCA_SAIU) || [];
+      const limpos = await limpaRostosDeQuemSaiu((op, corpo) => aws(cred, op, corpo), col, marcas);
+      estado.limpar = false;
+      if (limpos) console.log(`${album}: ${limpos} rostos apagados (de quem saiu da busca).`);
     }
     // Esquece o que saiu do álbum (se voltar, é indexado de novo).
     if (completo) {

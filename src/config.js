@@ -428,11 +428,41 @@ export const GALERIA_CREDITOS_EMAIL_MAX = 120;
 export const AVISO_INTERVALO_MS = 3 * 3600_000;
 export const AVISO_LOTE = 400;
 export const AVISO_HOSTS = ['fcm.googleapis.com', '.push.services.mozilla.com', '.push.apple.com', '.notify.windows.com'];
-export const AVISO_INSCRICAO_IP_BUCKET = { capacity: 20, perHour: 20 };
+// Inscrições por IP: balde, na ordem do da busca pelo rosto (uma escola inteira
+// sai por um IP só; eram 20 por hora, e o 21º aluno a tocar em "Avisar" no
+// Wi-Fi da escola recebia 429). A ficha só é gasta por um pedido bem formado.
+export const AVISO_INSCRICAO_IP_BUCKET = { capacity: 600, perHour: 600 };
+// Validade de uma inscrição no KV (v3.8.9): sem prazo, o endereço de entrega de
+// quem trocou de celular ou nunca mais abriu o álbum ficava guardado para
+// sempre. Cada aviso entregue renova a inscrição (no máximo uma escrita a cada
+// AVISO_RENOVA_DIAS por pessoa); a de quem não recebe mais nada some sozinha.
+// 400 dias: o álbum recebe fotos por um ano, e pode passar meses sem foto nova.
+export const AVISO_INSCRICAO_TTL_S = 400 * 86400;
+export const AVISO_RENOVA_DIAS = 30;
+// Recusas seguidas (403) do serviço de entrega até a inscrição ser apagada. O
+// 403 diz que a inscrição não aceita a chave deste site, e não volta a aceitar
+// — mas um erro NOSSO na assinatura também daria 403 em todas de uma vez, e
+// apagar na primeira jogaria fora a lista inteira. Três avisos seguidos
+// recusados: é a inscrição.
+export const AVISO_RECUSAS_MAX = 3;
 
-// Teto de e-mails do site por dia (v3.8.3, sem plano pago no Resend: o grátis
-// manda até 100 por dia). Margem de 10 para o envio manual do dono.
-export const EMAIL_COTA_DIA = { capacity: 90, perHour: 90 / 24 };
+// Teto de e-mails do site por dia (v3.8.3; janela fixa desde a 3.8.9). O
+// Resend grátis manda até 100 por dia; o site manda no máximo EMAIL_TETO_DIA,
+// e os 10 que sobram são do envio manual do dono.
+//
+// É UMA janela diária fixa, que vira à meia-noite UTC, para TODO envio do site
+// (o código por e-mail e os alertas de segurança ficavam de fora). Era um balde
+// de 90 que repunha 90 por dia: cheio de manhã, deixava sair ~180 nas primeiras
+// 24 horas, e no dia do lançamento o Resend recusaria a partir do centésimo.
+//
+// EMAIL_RESERVA_ALERTAS desses envios são só dos alertas ao dono (erro no
+// site, login, varredura, saídas da busca em excesso): o resto do site para em
+// EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS, e um dia cheio de códigos e
+// confirmações não cala o aviso de que algo quebrou. Os tetos menores de cada
+// tipo (EMAIL_CODE_DAILY_CAP, AUTOR_AVISO_DIA, SUMIRAM_AVISO_DIA) continuam
+// valendo por dentro deste: dizem quem cede primeiro.
+export const EMAIL_TETO_DIA = 90;
+export const EMAIL_RESERVA_ALERTAS = 10;
 export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 30;
 export const GALERIA_REMOCAO_EMAIL_POR_IP_DIA = 200;
 // Motivos que o formulário da galeria aceita (valor gravado no pedido).
@@ -504,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.8';
+export const VERSAO = '3.8.9';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -590,6 +620,18 @@ export function esperaDaBuscaNoPico(sorteio = Math.random(), tps = ROSTO_AWS_TPS
   return 2 + Math.floor(Math.min(0.999999, Math.max(0, sorteio)) * (janela + 1));
 }
 export const ROSTO_SAIR_POR_IP_DIA = 20;
+// Saídas da busca por dia, no site inteiro (v3.8.9). A saída aceita qualquer
+// foto de rosto, então alguém com rostos recortados do álbum tiraria a turma
+// inteira da busca. Numa turma de 1.500, o esperado num dia cheio são algumas
+// dezenas; passou disso, o pedido é recusado (com o e-mail de privacidade), o
+// dono recebe um alerta e confere a lista no painel, onde cada saída pode ser
+// desfeita.
+export const ROSTO_SAIR_POR_DIA = 60;
+// Busca pelo rosto desligada no painel: o índice (os rostos de todo mundo) é
+// apagado depois deste prazo, não na hora. Religar antes cancela. Um clique
+// errado no painel não pode custar o índice inteiro e a lista de quem saiu; e
+// projeto EXCLUÍDO não espera: apaga na hora.
+export const ROSTO_APAGA_APOS_DESLIGAR_H = 72;
 
 // Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel
 // aceita marcar. Mais que isso é engano de digitação (ano errado).

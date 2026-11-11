@@ -1339,7 +1339,9 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <span class="toggle-track"></span>
               </label>
             </div>
-            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>.</div>
+            <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>. <strong>Desligar</strong> para o indexador na hora e apaga o índice (os rostos de todo mundo e a lista de quem saiu) depois de 72 horas; religar antes disso cancela.</div>
+            <div class="field-hint" style="margin-top:.5rem"><button type="button" class="btn-sm" id="f-saidas-btn" data-onclick="carregaSaidas">Quem saiu da busca</button></div>
+            <div class="field-hint" id="f-saidas" role="status" aria-live="polite" style="margin-top:.5rem" hidden></div>
           </div>
           <div class="field">
             <div class="toggle-row">
@@ -1700,6 +1702,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
         case 'exportSerieCSV': exportSerieCSV(); break;
         case 'loadMetrics': loadMetrics(el); break;
         case 'carregaApagadas': carregaApagadas(el); break;
+        case 'carregaSaidas': carregaSaidas(el); break;
+        case 'desfazSaida': desfazSaida(el); break;
         case 'escolheAbaMetricas': escolheAbaMetricas(el.dataset.aba, false); break;
         case 'exportGaleriaCSV': exportGaleriaCSV(); break;
         case 'escolhePeriodo': escolhePeriodo(el); break;
@@ -1890,6 +1894,73 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       list.innerHTML = sorted.map(e => cardProjeto(e, ajudaCard, massMode ? selectedIds.has(e.id) : null)).join('');
     }
 
+    // ---- Quem saiu da busca pelo rosto (v3.8.9): a data e a contagem; desfazer ----
+    // Sem foto e sem nome: o site não guarda de quem é a selfie. O que o dono
+    // vê é QUANDO e QUANTOS rostos cada saída apagou, que é o que denuncia
+    // alguém tirando os outros da busca (várias saídas seguidas).
+    async function carregaSaidas(btn) {
+      const caixa = document.getElementById('f-saidas');
+      const ev = events.find(x => x.id === editingId);
+      if (!ev) return;
+      btn.disabled = true;
+      caixa.hidden = false;
+      caixa.textContent = 'Carregando...';
+      try {
+        const r = await api('GET', '/api/rosto/saidas?slug=' + encodeURIComponent(ev.slug));
+        caixa.textContent = '';
+        const quandoBR = function(t) { return new Date(t).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+        if (r.apagaEm) {
+          const fim = document.createElement('div');
+          fim.textContent = 'Busca desligada: o índice de rostos deste álbum será apagado em ' + quandoBR(r.apagaEm) + '. Religar a busca e salvar cancela.';
+          caixa.appendChild(fim);
+        }
+        if (!r.saidas.length) {
+          const nada = document.createElement('div');
+          nada.textContent = 'Ninguém saiu da busca deste álbum.';
+          caixa.appendChild(nada);
+          return;
+        }
+        const ul = document.createElement('ul');
+        ul.style.cssText = 'padding-left:1.1rem;margin:0';
+        r.saidas.forEach(function(sd) {
+          const li = document.createElement('li');
+          li.textContent = quandoBR(sd.em) + ' — ' + sd.removidas + (sd.removidas === 1 ? ' rosto apagado ' : ' rostos apagados ');
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'btn-sm';
+          b.textContent = 'Desfazer';
+          b.dataset.onclick = 'desfazSaida';
+          b.dataset.id = sd.id;
+          li.appendChild(b);
+          ul.appendChild(li);
+        });
+        const aviso = document.createElement('div');
+        aviso.textContent = 'Desfazer é para quando alguém tirou OUTRA pessoa da busca. A pessoa volta a ser achada depois que o indexador refizer o índice do álbum inteiro (uma indexação paga por foto; ver docs/ROSTO.md). Limite de ' + r.tetoDoDia + ' saídas por dia no site.';
+        caixa.appendChild(ul);
+        caixa.appendChild(aviso);
+      } catch (err) {
+        caixa.textContent = 'Não foi possível carregar: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function desfazSaida(btn) {
+      const ev = events.find(x => x.id === editingId);
+      if (!ev) return;
+      const ok = await confirmDialog({ title: 'Desfazer saída da busca', message: 'A pessoa volta a aparecer na busca pelo rosto, e o indexador refaz o índice do álbum inteiro (custa uma indexação por foto). Use só quando alguém tirou outra pessoa da busca.', confirmLabel: 'Desfazer', danger: true });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/rosto/desfazer', { slug: ev.slug, id: btn.dataset.id });
+        toast('Saída desfeita. O indexador refaz o índice na próxima execução.');
+        await carregaSaidas(document.getElementById('f-saidas-btn'));
+      } catch (err) {
+        btn.disabled = false;
+        toast(err.message || 'Erro ao desfazer.', 'err');
+      }
+    }
+
     // ---- Fotos apagadas recentemente (galeria; 30 dias, só id/nome/autor/data) ----
     async function carregaApagadas(btn) {
       const caixa = document.getElementById('f-apagadas');
@@ -1954,6 +2025,8 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
       document.getElementById('f-galeria-auto').checked = !e || e.galeriaAtualizacaoAuto !== false;
       document.getElementById('f-galeria-periodo').value = String(e && e.galeriaPeriodo || 600);
       document.getElementById('f-apagadas').hidden = true;
+      document.getElementById('f-saidas').hidden = true;
+      document.getElementById('f-saidas-btn').disabled = !(e && e.slug && id);
       document.getElementById('f-apagadas-btn').disabled = !(e && e.slug && id);
       document.getElementById('f-galeria-agora').href = e && e.slug ? '/galeria/' + encodeURIComponent(e.slug) + '?atualizar=1' : '#';
       document.getElementById('f-drive-videos').value = e ? (e.driveUrlVideos || '') : '';

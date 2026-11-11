@@ -139,11 +139,22 @@ feito para reduzir o risco:
 3. Em caso de dúvida, peça uma revisão jurídica.
 4. Atualize o RIPD (`docs/legal/RIPD.md`) com este tratamento.
 
+## Quem saiu da busca (v3.8.9)
+
+- O rosto de quem saiu fica como uma **marca** dentro do índice do álbum (`ExternalImageId` = `saiu`). Não é foto nenhuma e nunca aparece num resultado.
+- **Na busca:** se a marca está entre os parecidos com a selfie (na régua mais baixa, `ROSTO_LIMIAR_BUSCA`), a resposta é "você saiu" e nada aparece.
+- **No indexador:** depois de indexar fotos novas, ele procura os parecidos com cada marca (`ROSTO_LIMIAR_SAIR`, abaixo da régua da busca) e os apaga. Custa uma chamada (US$ 0,001) por pessoa que saiu, em cada execução que indexou rosto. Se a execução cair antes, a dívida fica anotada no estado (`limpar`) e a seguinte limpa.
+- Por que a marca fica no mesmo índice: a Rekognition só compara um rosto já indexado com outros da mesma coleção, e a busca por imagem numa foto de grupo só olha o maior rosto. Com a marca numa coleção à parte (até a 3.8.8), a foto nova de quem saiu entrava no índice.
+- **No painel** (editar o projeto → *Quem saiu da busca*): a data e quantos rostos cada saída apagou. Sem foto e sem nome; o site não guarda em quais fotos a pessoa aparecia. **Desfazer** tira a marca e manda o indexador refazer o índice do álbum inteiro (uma indexação paga por foto: cerca de US$ 1 a cada 1.000 fotos). É para quando alguém tirou outra pessoa da busca.
+- **Teto:** `ROSTO_SAIR_POR_DIA` saídas por dia no site. Passou, o pedido é recusado com o e-mail de privacidade e o dono recebe um alerta por dia.
+- Quem saiu antes da 3.8.9 está na coleção antiga (`fotos-<slug>-sair`), que a busca ainda consulta enquanto existir a chave `rosto-sair:<slug>` no KV. Para valer nas fotos novas, a pessoa sai de novo.
+
 ## Desligar e apagar
 
 - **Desligar no site:** desmarque a opção no projeto. Ou, para todos os projetos de uma vez, apague os secrets da AWS no Worker.
+- **O que o site faz sozinho (v3.8.9):** com a opção desmarcada, o indexador para de indexar rostos na execução seguinte (o site diz a ele), e o índice é apagado 72 horas depois, pelo cron diário (`ROSTO_APAGA_APOS_DESLIGAR_H`). Religar e salvar antes disso cancela. **Excluir o projeto** apaga as duas coleções na hora. Para isso o usuário da AWS do Worker precisa da permissão `rekognition:DeleteCollection` (além de `DeleteFaces`, `IndexFaces`, `SearchFaces`, `SearchFacesByImage` e `CreateCollection`); sem ela, o `/api/healthz` acusa "índice de rostos por apagar" todo dia.
 - **Parar o indexador:** apague a variável `ROSTO_SLUGS`.
-- **Apagar o índice e quem saiu** (AWS CloudShell, na região de São Paulo):
+- **Apagar o índice e quem saiu à mão** (AWS CloudShell, na região de São Paulo):
 
   ```bash
   aws rekognition delete-collection --collection-id fotos-entrenos2026 --region sa-east-1

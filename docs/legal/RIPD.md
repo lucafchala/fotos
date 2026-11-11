@@ -271,7 +271,10 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | Dados na região de **São Paulo**; opt-out de treino de IA da AWS ativado | `docs/ROSTO.md` |
 | Foto oculta ou removida sai do índice na execução seguinte do indexador | `scripts/rosto-indexa.mjs` |
 | Índice apagado ao fim do álbum ou quando a busca é desligada | `docs/ROSTO.md`, "Desligar e apagar" |
-| Antes do lançamento do álbum, só o controlador (logado) usa a busca | `buscaRostoAtiva` |
+| Antes do lançamento do álbum, só o controlador (logado) e quem ele escolheu para testar (a prévia com senha) usam a busca | `buscaRostoAtiva`, `temPrevia` |
+| A saída vale para as fotos que chegam depois: o indexador apaga os rostos parecidos com os de quem saiu na mesma execução que os indexou, e a busca não mostra nada a quem saiu, na régua mais baixa dela | `limpaRostosDeQuemSaiu`, `confereSaida` (`src/rosto.js`); `tests/rosto-saida.test.js` |
+| A saída aceita qualquer foto de rosto: teto de saídas por dia no site com alerta ao controlador, e lista no painel (data e contagem, sem foto) com desfazer | `ROSTO_SAIR_POR_DIA`, `src/saidas.js` |
+| Projeto excluído apaga as coleções na hora; busca desligada, em 72 horas | `apagaIndiceDoAlbum`, `apagaIndicesVencidos` |
 | Limite por IP, Turnstile, token do formulário e teto de custo | `src/index.js`, `handleRosto` |
 
 **Risco residual: MÉDIO-ALTO** enquanto não houver concordância formal da turma e dos responsáveis. Cai para **MÉDIO** com o aviso prévio e a saída usada por quem pedir. O encaminhamento é o mesmo de R3: formalizar junto à escola ou à comissão, de preferência antes de ligar a busca para o público.
