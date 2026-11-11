@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.10';
+export const VERSAO = '3.8.11';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -627,6 +627,23 @@ export const ROSTO_SAIR_POR_IP_DIA = 20;
 // dono recebe um alerta e confere a lista no painel, onde cada saída pode ser
 // desfeita.
 export const ROSTO_SAIR_POR_DIA = 60;
+// Aquecimento das miniaturas (v3.8.11). No lançamento, mil celulares abrem a
+// mesma página no mesmo minuto; miniatura que ainda não está no R2 é buscada
+// no Google por CADA pedido que chega antes de a primeira cópia ser gravada, e
+// o Google recusa a rajada. O indexador (que já passa por toda foto do álbum,
+// inclusive antes do lançamento) pede ao site estas larguras de cada foto, em
+// ritmo lento, e a cópia fica no R2: no dia, a página não depende do Google.
+// As larguras são as que um iPhone (390 px, densidade 3) pede na grade em
+// mosaico, medidas no navegador; `verifica:galeria` reprova se a grade passar
+// a pedir outra. As demais (outros aparelhos, o visor em tela cheia) ainda vão
+// ao Google na primeira vez, e a grade tenta de novo se ele recusar.
+export const AQUECE_LARGURAS = [400, 500, 700, 800, 1200];
+// Fotos aquecidas por execução do indexador (cada uma são AQUECE_LARGURAS.length
+// pedidos ao site).
+export const AQUECE_FOTOS_POR_EXECUCAO = 600;
+// Miniatura que falha na grade tenta de novo esta quantidade de vezes, com
+// espera crescente e sorteada, antes de virar o quadro vazio.
+export const GALERIA_MINIATURA_TENTATIVAS = 2;
 // Quantas fotos o indexador processa por DIA (UTC) em cada álbum (v3.8.10). A
 // pasta do álbum recebe fotos da turma por um ano, por link aberto: sem teto,
 // alguém despejando arquivos fazia o indexador pagar por todos (até 4 chamadas

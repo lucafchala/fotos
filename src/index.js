@@ -585,7 +585,10 @@ export async function handleFoto(request, env, ctx, url, path) {
     // os mesmos que a galeria deixa entrar (podeVerGaleria).
     const donoOuEditora = !!(await verifySession(env, request)) || await temEditora(request, env, evento);
     if (oculta) return donoOuEditora ? await respondeFoto(request, env, ctx, alvo, { privado: 'nunca' }) : fotoNaoEncontrada();
-    if (donoOuEditora || await temPrevia(request, env, evento)) return await respondeFoto(request, env, ctx, alvo, { privado: 'navegador' });
+    // O indexador (com o token dele) também: é ele que aquece o R2 antes do
+    // lançamento (v3.8.11, AQUECE_LARGURAS). A resposta sai privada; a cópia
+    // guardada é a de sempre.
+    if (donoOuEditora || indexadorAutorizado(request, env) || await temPrevia(request, env, evento)) return await respondeFoto(request, env, ctx, alvo, { privado: 'navegador' });
     return fotoNaoEncontrada();
   } catch (e) {
     // KV fora e sem cópia da lista: não dá para saber se a foto pode sair.

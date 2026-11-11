@@ -18,6 +18,13 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.8.11] — ainda não publicada
+
+O primeiro minuto do lançamento: mil celulares abrindo a mesma página.
+
+- **As miniaturas já estão no R2 antes do lançamento.** O indexador, que passa por toda foto do álbum (inclusive com ele ainda fechado), pede ao site as miniaturas nas larguras que o iPhone pede na grade (`AQUECE_LARGURAS`, medidas no navegador), devagar, e a cópia fica no R2. Antes, a primeira visita a cada miniatura ia ao Google, e numa rajada cada pedido que chegava antes de a cópia existir ia também: o Google recusa, e a foto ficava em branco. As fotos que a turma mandar ao longo do ano são aquecidas na execução que as indexa. Para isso a rota das fotos aceita o indexador (com o token dele e o endereço assinado) no álbum fechado.
+- **Miniatura que falha tenta de novo** (duas vezes, com espera crescente e sorteada) antes de virar o quadro vazio. Antes, só recarregar a página trazia a foto.
+
 ## [3.8.10] — ainda não publicada
 
 - **Teto de fotos por dia no indexador** (`ROSTO_FOTOS_POR_DIA`, 2.000 por álbum). A pasta do álbum recebe fotos por link aberto durante um ano; sem teto, alguém despejando arquivos fazia o indexador pagar por todos (mais de mil dólares num dia, no pior caso). Agora o pior dia custa cerca de US$ 8 por álbum; o que passar fica para o dia seguinte, e o log diz. Para a primeira indexação de um álbum grande, a variável `ROSTO_MAX_DIA` do workflow sobe o teto.

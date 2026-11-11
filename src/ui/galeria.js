@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
@@ -398,6 +398,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     sessao: NOVAS_SESSAO_MIN,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
+    tentativasMini: GALERIA_MINIATURA_TENTATIVAS,
     // Só o dono recebe a lista do que está oculto (o visitante já recebe a
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
     dono: !!dono,
@@ -894,7 +895,7 @@ const SCRIPT = `
   const dadosEl = document.getElementById('g-dados');
   const main = document.getElementById('g-main');
   if (!dadosEl || !main) return;
-  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, secoes: { nome: string, fotos: any[][], as?: string }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
+  /** @type {{ slug: string, cap: string, titulo: string, amigavel: string[] | null, tentativasMini: number, secoes: { nome: string, fotos: any[][], as?: string }[], autores: string[], cr0: number, sessao: number, larguras: number[], grade: number[], drive: string, dono: boolean, ocultas: string[], pendentes: string[], remocao: { token: string, ts: string } | null, lightbox: string, core: string, css: string }} */
   const D = JSON.parse(dadosEl.textContent || '{}');
   // Campos novos (v3.8.0) lidos por um apelido sem tipo fixo.
   const DX = /** @type {any} */ (D);
@@ -1095,7 +1096,20 @@ const SCRIPT = `
         const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova };
         if (D.dono) pintaOculta(foto);
         img.addEventListener('load', function () { carregou(foto); });
-        img.addEventListener('error', function () { img.classList.add('ok'); a.classList.add('sem-mini'); });
+        // Miniatura que falhou (o site ou o Google recusou na rajada do
+        // lançamento) tenta de novo, com espera crescente e sorteada, antes de
+        // virar o quadro vazio: a falha não fica em cache, então pedir de novo
+        // resolve. Sem isto, só recarregar a página trazia a foto.
+        img.addEventListener('error', function () {
+          var n = Number(img.getAttribute('data-t') || 0);
+          if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); return; }
+          img.setAttribute('data-t', String(n + 1));
+          setTimeout(function () {
+            var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
+            if (conjunto) { img.removeAttribute('srcset'); img.setAttribute('srcset', conjunto); }
+            if (unica) { img.removeAttribute('src'); img.setAttribute('src', unica); }
+          }, (n + 1) * 2000 + Math.random() * 2000);
+        });
         fotos.push(foto);
         lista.push(foto);
       });
