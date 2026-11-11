@@ -149,7 +149,10 @@ const CONSERTOS = {
  * @param {(id: string) => string} assina dá `<slug>.<assinatura>`, ou só o slug
  */
 function assinaturasDaSecao(fotos, assina) {
-  const partes = fotos.map(f => { const k = assina(f[0]); const p = k.indexOf('.'); return p < 0 ? '' : k.slice(p + 1); });
+  const crua = /** @type {any} */ (assina).crua;
+  const partes = typeof crua === 'function'
+    ? fotos.map(f => crua(f[0]))
+    : fotos.map(f => { const k = assina(f[0]); const p = k.indexOf('.'); return p < 0 ? '' : k.slice(p + 1); });
   if (!partes.some(Boolean)) return '';
   return partes.map(a => (a.length === ASSINATURA_CURTA_LEN ? a : ' '.repeat(ASSINATURA_CURTA_LEN))).join('');
 }
