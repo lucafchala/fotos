@@ -275,6 +275,30 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
     expect(noIndice('ana')).toEqual([MARCA_SAIU]);
   });
 
+  it('teto do dia (v3.8.10): o indexador não processa mais que o teto num dia, por mais execuções que haja; no dia seguinte continua', async () => {
+    vi.stubEnv('ROSTO_MAX_DIA', '3');
+    fotos = [F(1), F(2), F(3), F(4), F(5)];
+    await indexa();
+    expect(aws.ops('IndexFaces').length).toBe(3);
+    expect(log.join('\n')).toContain('teto do dia (3 fotos): 2 ficam para depois');
+    // Mais execuções no mesmo dia: nada.
+    await indexa();
+    await indexa();
+    expect(aws.ops('IndexFaces').length).toBe(3);
+    // Virou o dia (UTC): as duas que faltavam.
+    estado = { ...estado, dia: '2000-01-01' };
+    await indexa();
+    expect(aws.ops('IndexFaces').length).toBe(5);
+    expect(estado.noDia).toBe(2);
+  });
+
+  it('o teto do dia padrão limita o pior custo diário de um álbum a poucos dólares', async () => {
+    const { ROSTO_FOTOS_POR_DIA } = await import('../src/config.js');
+    // Até 4 chamadas de US$ 0,001 por foto (rosto, texto, coisas, moderação).
+    expect(ROSTO_FOTOS_POR_DIA * 0.004).toBeLessThanOrEqual(10);
+    expect(ROSTO_FOTOS_POR_DIA).toBeGreaterThanOrEqual(500);
+  });
+
   it('busca pelo rosto desligada no painel: nenhum rosto é indexado e a coleção nem é criada', async () => {
     estado = { ...estado, rosto: false };
     await indexa();

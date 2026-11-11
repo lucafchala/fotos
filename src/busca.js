@@ -175,7 +175,9 @@ const QUALIDADE_RE = /^[A-Z]{2,12}$/;
 const chaveDoEstado = slug => `rosto-estado:${slug}`;
 
 /**
- * @typedef {{ vistas: string[], descritas: string[], qualidade: string, geracao: number, limpar: boolean }} EstadoDoIndexador
+ * @typedef {{ vistas: string[], descritas: string[], qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number }} EstadoDoIndexador
+ *   `dia`/`noDia`: quantas fotos o indexador já processou no dia (UTC), para o
+ *   teto ROSTO_FOTOS_POR_DIA;
  *   `geracao`: o último pedido do dono para refazer o índice que o
  *   indexador já atendeu; `limpar`: indexou rostos e ainda não limpou os de quem saiu
  *   (v3.8.9, ver src/rosto.js)
@@ -199,6 +201,8 @@ export function estadoDoIndexadorLimpo(v) {
     qualidade: typeof o.qualidade === 'string' && QUALIDADE_RE.test(o.qualidade) ? o.qualidade : '',
     geracao: inteiro(o.geracao),
     limpar: o.limpar === true,
+    dia: typeof o.dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.dia) ? o.dia : '',
+    noDia: inteiro(o.noDia),
   };
 }
 
@@ -220,7 +224,7 @@ export async function leEstadoDoIndexador(env, slug) {
       return { ...estadoDoIndexadorLimpo({ vistas: linhas.map(l => `${l.cap || ''}:${l.foto}`), descritas: linhas.map(l => String(l.foto)) }), origem: 'banco' };
     }
   }
-  return { vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, origem: 'vazio' };
+  return { vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, origem: 'vazio' };
 }
 
 /**
