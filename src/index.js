@@ -16,6 +16,7 @@ import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
 import { ajudaHTML } from './ui/ajuda.js';
+import { numerosHTML, numerosDoAlbum } from './ui/numeros.js';
 import { galeriaIndiceHTML } from './ui/galeria-indice.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
@@ -226,6 +227,8 @@ const CAP_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
 const GALERIA_CAP_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/;
 // As páginas de ajuda (v3.9.0): antes do capítulo, que casaria "ajuda".
 const GALERIA_AJUDA_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/ajuda(?:\/([a-z]+))?$/;
+// "Turma em números" (v3.9.1), também antes do capítulo.
+const GALERIA_NUMEROS_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/numeros$/;
 const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 // Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
 // sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
@@ -454,6 +457,8 @@ const worker = {
       if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
       const ajudaMatch = path.match(GALERIA_AJUDA_RE);
       if (ajudaMatch && method === 'GET') return await handleAjuda(request, env, ajudaMatch[1], ajudaMatch[2] || '', nonce);
+      const numerosMatch = path.match(GALERIA_NUMEROS_RE);
+      if (numerosMatch && method === 'GET') return await handleNumeros(request, env, numerosMatch[1], nonce, ctx);
       const capMatch = path.match(GALERIA_CAP_RE);
       if (capMatch && method === 'GET') return await handleGaleriaPagina(request, env, capMatch[1], url, nonce, ctx, capMatch[2]);
 
@@ -4635,6 +4640,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   // As páginas de ajuda (v3.9.0): "entrenos2026.com/ajuda/rosto".
   const ajuda = /^\/ajuda(?:\/([a-z]+))?$/.exec(path);
   if (ajuda) return { servir: `/galeria/${album.slug}/ajuda${ajuda[1] ? `/${ajuda[1]}` : ''}` };
+  if (path === '/numeros') return { servir: `/galeria/${album.slug}/numeros` };
   const curto = /^\/([a-z0-9][a-z0-9-]{0,80})$/.exec(path);
   if (curto && !RESERVED_SLUGS.has(curto[1])) return { servir: `/galeria/${album.slug}/${curto[1]}` };
   return null;
@@ -4859,6 +4865,26 @@ async function cookieGaleria(env, slug) {
   if (!secret) return '';
   const token = await signToken(secret, { purpose: 'galeria', scope: slug, ttlSecs: GALERIA_PASSE_SECS });
   return `galeria=${token}; Path=/galeria/${slug}; Max-Age=${GALERIA_PASSE_SECS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/**
+ * "Turma em números" (v3.9.1, src/ui/numeros.js): a retrospectiva do álbum,
+ * do resumo que já existe (sem ler o Drive de novo além da lista de eventos,
+ * que tem cache). Mesmo portão da galeria; só álbum com eventos (capítulos).
+ * @param {Request} request @param {Env} env @param {string} slug @param {string} nonce @param {ExecutionContext} [ctx]
+ */
+export async function handleNumeros(request, env, slug, nonce, ctx) {
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+  const alvo = await alvoDaGaleria(env, event, '', false, ctx);
+  if (alvo.kind !== 'ok' || !alvo.caps) return notFound();
+  const resumo = comDatasDoDono(await lerResumo(alvo.raiz.id, env), alvo.caps.caps, event.datasEventos);
+  const pagina = numerosHTML({ event: { slug, title: String(event.title || '') }, numeros: numerosDoAlbum(alvo.caps.caps, resumo), base: baseDaGaleria(slug, new URL(request.url).hostname), nonce });
+  const res = html(pagina, 200, nonce);
+  res.headers.set('Cache-Control', 'private, no-cache');
+  res.headers.set('X-Robots-Tag', 'noindex');
+  return res;
 }
 
 /**

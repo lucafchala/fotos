@@ -119,7 +119,9 @@ describe('evento do álbum com domínio próprio (v3.7.6)', () => {
   it('o "reportar problema" sai do topo e vira "Algo deu errado?" no rodapé; outros projetos seguem com o ícone', () => {
     const h = pagina('entrenos2026');
     expect(h).not.toContain('class="g-btn g-bug"');
-    expect(h).toContain('<footer class="g-fim"><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>');
+    expect(h).toContain('<a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>');
+    // O botão de ajuda do rodapé (v3.9.1), na página do álbum.
+    expect(h).toMatch(/<footer class="g-fim"><div class="aj-rodape"><a class="aj-botao" href="[^"]*\/ajuda">/);
     // No álbum, o fim do evento não manda para a "Página do projeto" (o álbum já é ela).
     expect(h).not.toMatch(/g-cap-fim[^]*Página do projeto/);
     const outro = pagina('formatura');

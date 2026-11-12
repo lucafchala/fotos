@@ -22,6 +22,7 @@ import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS, BUSCA_CSS } from './indice-comum.js';
 import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM, PALETA_ALBUM as P } from '../config.js';
 import { brCodePix } from '../pix.js';
+import { botaoDeAjudaHTML, BOTAO_AJUDA_CSS } from './botao-ajuda.js';
 import { qrLinhas } from '../qr.js';
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -272,6 +273,7 @@ export function albumHTML(p) {
   // aparece na linha quando a busca pelo rosto ocupa o botão principal (CSS).
   const links = [
     caps.length ? '<a class="al-link al-link-ver" href="#eventos">Ver os eventos</a>' : '',
+    restrito || caps.length < 2 ? '' : `<a class="al-link" href="${base}/numeros">Turma em números</a>`,
     restrito ? '' : `<a class="al-link" href="${base}/ajuda">Dúvidas?</a>`,
     restrito ? '' : `<span class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-link al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button></span>`,
   ].filter(Boolean).join('');
@@ -421,6 +423,7 @@ export function albumHTML(p) {
   </main>
   <footer class="al-fim">
     ${recado ? `<p class="al-recado">${recado.split('\n').map(l => escape(l.trim())).join('<br>')}</p>` : ''}
+    ${marca ? `<div class="aj-rodape">${botaoDeAjudaHTML(base)}</div>` : ''}
     <span class="al-kick">${escape(titulo)}</span>
     <div class="al-legal">${footerLegalLinksHTML(marca ? 'https://fotos.lucafchala.com' : '')}</div>
   </footer>
@@ -730,6 +733,7 @@ body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
 .rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem}
 .al-fim{margin:4.5rem 0 0;padding:3.5rem var(--pad) 2.5rem;text-align:center;background:linear-gradient(180deg,var(--bg) 0%,#141a33 30%,#172154 100%);border-top:1px solid #1f2a5c}
 .al-fim .al-kick{color:var(--sol)}
+${BOTAO_AJUDA_CSS}
 .al-recado{max-width:40rem;margin:0 auto 1.4rem;font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:clamp(1.3rem,3.4vw,1.9rem);line-height:1.4;color:var(--txt2)}
 .al-legal{margin-top:2rem;font-size:.8rem;color:var(--mudo)}
 .al-legal .footer-actions-legal{display:flex;flex-wrap:wrap;justify-content:center;gap:.2rem 1rem}
