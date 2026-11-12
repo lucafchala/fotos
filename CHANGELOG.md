@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.9.2] — ainda não publicada
+
+- **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).
+
 ## [3.9.1] — ainda não publicada
 
 - **"A turma em números"**: `entrenos2026.com/numeros` (`/galeria/<slug>/numeros` no site), a retrospectiva do álbum para compartilhar. Total de fotos, de eventos, de anos e de quem fotografou; fotos por ano (em barras); os 5 eventos com mais fotos; quem mais fotografou. Sai do resumo que o álbum já guarda (com o ano escolhido pelo dono por cima), sem dado de visitante. Mesmo portão da galeria (antes do lançamento, só com a prévia). A página do álbum ganha o link *Turma em números* (com 2 eventos ou mais). `numeros` vira nome reservado.
