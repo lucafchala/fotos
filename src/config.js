@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.9.1';
+export const VERSAO = '3.9.2';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -698,17 +698,17 @@ export const PREVIA_TENTATIVAS_POR_DIA = 200;
 
 // As cores do álbum com domínio próprio (Entre Nós), num lugar só (v3.9.0):
 // a página do álbum, a do evento, a da editora, a ajuda e o app instalado.
-// Tudo sai do AZUL DO COLÉGIO SANTA CRUZ (#243580, o `blue` do site da
-// escola; pedido do dono): o fundo, os cartões e as bordas são o mesmo azul,
-// mais escuro (mesmo matiz, 229°), em vez do quase-preto quente de antes, que
-// puxava para o marrom. As linhas e os brilhos usam o próprio #243580. O
-// amarelo (#F9DE4B, também do colégio) só entra SÓLIDO, nos destaques:
-// misturado com o azul ou transparente sobre o escuro, vira oliva/marrom.
+// O fundo, os cartões e as bordas são os do fotos.lucafchala.com (v3.9.2,
+// pedido do dono: o preto neutro de lá; nem o quase-preto quente de antes,
+// que puxava para o marrom, nem o azul-marinho da 3.9.0). As cores do Colégio
+// Santa Cruz ficam nos detalhes: o amarelo (#F9DE4B) SÓLIDO nos destaques
+// (misturado ou transparente sobre o escuro, vira oliva/marrom) e o azul
+// (#243580) nas linhas, nas barras e no brilho do rodapé.
 export const PALETA_ALBUM = Object.freeze({
-  bg: '#0a1029', card: '#111a3d', card2: '#16204a', borda: '#22306b', esqueleto: '#131c45',
-  txt: '#f3f1ec', txt2: '#c9cee3', mudo: '#9ca3c4', dim: '#7a82a6',
+  bg: '#0a0a0a', card: '#141414', card2: '#1c1c1c', borda: '#262626', esqueleto: '#1d1d1d',
+  txt: '#f0ebe5', txt2: '#bbbbbb', mudo: '#999999', dim: '#8c8c8c',
   sol: '#f9de4b', azul: '#243580',
   /** O fundo com transparência (botão de vidro, sombra da capa): "r,g,b". */
-  bgRgb: '10,16,41',
+  bgRgb: '10,10,10',
 });
 

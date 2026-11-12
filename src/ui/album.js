@@ -780,7 +780,7 @@ const CSS_MOSAICO = `
 .al-mos-h .al-tit{font-size:clamp(3.2rem,12vw,7.5rem);margin:.5rem 0 .7rem}`;
 
 const CSS_RECORDACAO = `
-.al-papel{background:radial-gradient(ellipse at 30% 0%,#1b2347 0%,var(--bg) 62%);padding:clamp(2rem,6vh,4rem) var(--pad) 1rem;overflow:hidden}
+.al-papel{background:radial-gradient(ellipse at 30% 0%,#1c1c1c 0%,var(--bg) 62%);padding:clamp(2rem,6vh,4rem) var(--pad) 1rem;overflow:hidden}
 .al-mesa{position:relative;height:clamp(300px,52vw,520px);max-width:60rem;margin:0 auto}
 .al-pol{position:absolute;background:#fbf7ef;padding:10px 10px 38px;box-shadow:0 18px 40px rgba(0,0,0,.45);width:clamp(140px,30vw,300px)}
 .al-pol img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:#ddd6c8}
