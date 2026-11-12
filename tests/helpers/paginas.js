@@ -17,6 +17,7 @@ import { docHTML } from '../../src/ui/doc.js';
 import { LEGAL_DOCS } from '../../src/content/legal-docs.js';
 import { galeriaHTML } from '../../src/ui/galeria.js';
 import { galeriaIndiceHTML } from '../../src/ui/galeria-indice.js';
+import { enviarHTML } from '../../src/ui/enviar.js';
 import { comFaixa, SIMULACOES } from '../../src/previa.js';
 
 export const EVENTO = {
@@ -54,6 +55,16 @@ export function paginas() {
       },
       erro: null,
       nonce: 'NONCE',
+    }),
+    // Envio pelo site: o script grande da página (fila, partes, Turnstile).
+    enviar: enviarHTML({
+      event: { ...EVENTO, galeriaCapitulos: true },
+      destinos: [
+        { p: 'ENVIO_A_00001', cap: 'formatura', evento: 'Formatura', rotulo: '', url: 'https://drive.google.com/drive/folders/ENVIO_A_00001' },
+        { p: 'ENVIO_B25_001', cap: 'interclasse', evento: 'Interclasse', rotulo: '2025', url: 'https://drive.google.com/drive/folders/ENVIO_B25_001' },
+      ],
+      dias: { formatura: [20251212], interclasse: [20250614, 20250615] },
+      volta: '/', urlPasta: 'https://drive.google.com/drive/folders/RAIZ', evento: '', token: 'form-token', nonce: 'NONCE',
     }),
   };
 }

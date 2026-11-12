@@ -178,3 +178,9 @@ jobs:
       # faixa, o menu "Testes" e as simulações contra o servidor de verdade.
       - name: Prévia de PR (faixa e menu "Testes")
         run: npm run verifica:previa
+
+      # O envio pelo site (src/envio.js, src/ui/enviar.js) contra o Google
+      # simulado: escolher, agrupar por dia, enviar em partes, rede caindo,
+      # recarregar e retomar, não duplicar, passe recusado.
+      - name: Envio de fotos pelo site
+        run: npm run verifica:envio

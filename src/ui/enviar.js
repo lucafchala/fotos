@@ -31,12 +31,14 @@ import { escape, jsonParaScript, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML,
 import { HONEYPOT_CSS } from '../security.js';
 import {
   TURNSTILE_SITE_KEY, ENVIO_PARTE_BYTES, ENVIO_PARTE_MIN_BYTES, ENVIO_PARTE_TETO_BYTES, ENVIO_PARTE_MULTIPLO,
-  ENVIO_MAX_BYTES, ENVIO_TIPOS, ENVIO_DECLARACAO, ENVIO_ASSINATURA_MAX,
+  ENVIO_MAX_BYTES, ENVIO_TIPOS, ENVIO_DECLARACAO, ENVIO_ASSINATURA_MAX, PALETA_ALBUM as P,
 } from '../config.js';
 
+// As cores são as do álbum (PALETA_ALBUM, src/config.js): a página de envio é
+// parte dele, e a paleta mora num lugar só desde a 3.9.0.
 const CSS = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f0e0c;--card:#1a1815;--borda:#2b2823;--txt:#f3ede3;--txt2:#cfc6b8;--mudo:#a39a8c;--sol:#f9de4b;--ok:#8fd694;--erro:#ff9d8a;color-scheme:dark}
+:root{--bg:${P.bg};--card:${P.card};--borda:${P.borda};--txt:${P.txt};--txt2:${P.txt2};--mudo:${P.mudo};--sol:${P.sol};--ok:#8fd694;--erro:#ff9d8a;color-scheme:dark}
 html{-webkit-text-size-adjust:100%}
 body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;line-height:1.5}
 a{color:var(--sol)}
@@ -49,7 +51,7 @@ a{color:var(--sol)}
 .ev-cartao h2{font-size:1.05rem;font-weight:700;margin-bottom:.5rem}
 .ev-btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:48px;padding:0 1.3rem;border-radius:999px;border:1px solid var(--sol);background:transparent;color:var(--sol);font:inherit;font-weight:700;font-size:1rem;cursor:pointer;text-decoration:none}
 .ev-btn[disabled]{opacity:.5;cursor:default}
-.ev-b1{background:var(--sol);color:#141a33}
+.ev-b1{background:var(--sol);color:var(--bg)}
 .ev-largo{width:100%}
 .ev-btn svg{width:1.25rem;height:1.25rem;flex:none}
 .ev-nota{font-size:.84rem;color:var(--mudo);margin-top:.6rem}
@@ -134,9 +136,10 @@ export function enviarHTML(p) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow">
-  <meta name="theme-color" content="#0f0e0c">
+  <meta name="theme-color" content="${P.bg}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
+  <link rel="manifest" href="${marca ? '/manifest-album.json' : '/manifest.json'}">
   <title>Mandar suas fotos · ${escape(titulo)}</title>
   ${fontPreloadHTML()}
   <style>
@@ -617,7 +620,12 @@ export const SCRIPT_ENVIAR = `
       passe = r.passe || '';
       try { sessionStorage.setItem('envio-passe:' + D.slug, passe); } catch (e) { /* modo privado */ }
       return passe;
-    }, function (e) { vooDoPasse = null; throw e; });
+    }, function (e) {
+      vooDoPasse = null;
+      // Marca a origem: recusa do PASSE não é recusa do arquivo (trata()).
+      if (e && typeof e === 'object') e.passe = true;
+      throw e;
+    });
     return vooDoPasse;
   }
 
@@ -735,6 +743,11 @@ export const SCRIPT_ENVIAR = `
     var texto = (e && e.corpo && e.corpo.error) || '';
     if (pausado || fatal) { it.estado = 'fila'; it.retomar = !!it.sessao; return false; }
     if (e && e.tipo === 'ts') { para('A verificação de segurança não carregou (um bloqueador de anúncios ou VPN pode estar impedindo). Desative para este site e toque em "Tentar de novo", ou mande pela pasta do álbum no Google Drive.'); it.estado = 'fila'; return false; }
+    // O passe foi recusado (página aberta tempo demais, verificação que não
+    // passou, nome do crédito recusado): o problema é de TODOS os arquivos, e
+    // a frase do servidor diz o que fazer. Antes cada arquivo virava "não pôde
+    // ser aceito", sem motivo nenhum (achado pelo verifica:envio).
+    if (e && e.passe && st >= 400 && st < 500 && st !== 429) { para(texto || 'A verificação de segurança não passou. Recarregue a página e tente de novo.'); it.estado = 'fila'; return false; }
     if (st === 401 && cod === 'passe') {
       passe = '';
       it.reinicios++;
@@ -946,7 +959,7 @@ export const SCRIPT_ENVIAR = `
   });
   elArq.addEventListener('change', function () { recebe(elArq.files); });
   elGrupos.addEventListener('change', function (e) {
-    var s = e.target;
+    var s = /** @type {HTMLSelectElement} */ (e.target);
     if (!s || !s.dataset || s.dataset.dia === undefined) return;
     escolhas[s.dataset.dia] = s.value === '' ? -1 : Number(s.value);
     s.removeAttribute('aria-invalid');

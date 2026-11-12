@@ -44,7 +44,9 @@ export const SENHA_DE_TESTE = 'Senha-De-Teste-2026!';
  * Sobe o Worker. `kv` semeia o armazenamento (valores já serializados, como o
  * KV guarda); a senha do painel é semeada sempre, com SENHA_DE_TESTE.
  * `externo` responde a hosts de fora antes do bloqueio padrão (devolva `null`
- * para cair nele).
+ * para cair nele). Recebe também o `init` e a entrada do fetch: o roteiro do
+ * envio (verifica-envio.mjs) simula o Google, e precisa do método, dos
+ * cabeçalhos e do corpo de cada parte, não só do endereço.
  * `contadores` semeia o armazenamento do Durable Object dos contadores (as
  * chaves cruas, como `views:<slug>` e `d:<AAAA-MM-DD>:views:<slug>` — ver
  * src/counters.js), para o roteiro de Métricas ter série por dia sem esperar
@@ -54,7 +56,7 @@ export const SENHA_DE_TESTE = 'Senha-De-Teste-2026!';
  *   kv?: Record<string, string>,
  *   contadores?: Record<string, number>,
  *   env?: Record<string, unknown>,
- *   externo?: (url: URL) => Response | Promise<Response> | null,
+ *   externo?: (url: URL, init?: RequestInit, entrada?: RequestInfo | URL) => Response | Promise<Response> | null,
  * }} [o]
  * @returns {Promise<WorkerLocal>}
  */
@@ -131,7 +133,7 @@ export async function sobeWorker(o = {}) {
       } catch { /* corpo que não é JSON: não é um envio de verdade */ }
       return Response.json({ id: 'teste' });
     }
-    const resposta = o.externo ? await o.externo(url) : null;
+    const resposta = o.externo ? await o.externo(url, init, entrada) : null;
     if (resposta) return resposta;
     return new Response(`bloqueado no roteiro local: ${url.host}`, { status: 599 });
   };
