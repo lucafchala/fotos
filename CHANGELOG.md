@@ -18,6 +18,15 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.9.3] — ainda não publicada
+
+Desempenho do álbum (pedido do dono: "extremamente lento" ao entrar nos eventos, ao passar as fotos e no "minhas fotos") e o console limpo. Medido no ar, pela prévia, num iPhone, num Android e no computador.
+
+- **Evento abre sem esperar o Drive.** A primeira abertura de cada evento levava de 3 a 5 s no servidor (as seguintes, 150 ms). A foto durável da lista (D1) só tinha a data trocada quando o conteúdo mudava; num álbum parado ela passava de 6 h e contava como "sem lista", e todo isolate sem a Cache API relia a pasta do Drive com o visitante esperando. Agora a releitura que acha a mesma lista marca a foto como conferida (`GALERIA_SNAPSHOT_CONFERE_S`, no máximo um UPDATE a cada 30 min por pasta), e o isolate novo serve a foto do D1 na hora e relê em segundo plano.
+- **"Minhas fotos" e a busca pedem miniaturas que já estão no R2.** As grades pediam a largura 360, que nenhum aquecimento cobria: cada foto encontrada ia ao Google na hora (cerca de 1,3 s cada, e a rajada podia ser recusada). Agora pedem 400.
+- **Mais larguras aquecidas no R2**: 300, 600 e 1000, além das do iPhone (o Android pede 600 na grade; o computador, 300 e 1000). O indexador guarda com que lista aqueceu (`quentesLarguras`) e, quando ela muda, reaquece tudo uma vez (as larguras que já estavam no R2 saem de lá, sem Google).
+- **Console sem erros do Turnstile nem aviso de `web-share`**: `connect-src` aceita `data:` (o teste que o Turnstile faz no navegador), o widget pode pedir picture-in-picture, e a diretiva `web-share` sai do Permissions-Policy (o Chrome não a reconhece; o padrão dela já é `self`).
+
 ## [3.9.2] — ainda não publicada
 
 - **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).
