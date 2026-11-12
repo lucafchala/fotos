@@ -199,14 +199,14 @@ async function enviaBusca(site, slug, itens, remover) {
 // O estado: no site (com o token) ou num arquivo local (sem ele)
 // ---------------------------------------------------------------------------
 /**
- * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, quentes: Set<string>, geracaoPedida: number, rosto: boolean }} Estado
+ * @typedef {{ vistas: Set<string>, descritas: Set<string>, qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, quentes: Set<string>, quentesLarguras: string, geracaoPedida: number, rosto: boolean }} Estado
  *   `geracao` e `limpar` são guardados; `geracaoPedida` e `rosto` só
  *   vêm do site (quantas vezes o dono pediu para refazer o índice, e se a busca
  *   pelo rosto está ligada no painel) e não são gravados de volta.
  */
 
 /** @param {Estado} e */
-const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade, geracao: e.geracao, limpar: e.limpar, dia: e.dia, noDia: e.noDia, quentes: [...e.quentes].sort() });
+const textoDoEstado = e => JSON.stringify({ vistas: [...e.vistas].sort(), descritas: [...e.descritas].sort(), qualidade: e.qualidade, geracao: e.geracao, limpar: e.limpar, dia: e.dia, noDia: e.noDia, quentes: [...e.quentes].sort(), quentesLarguras: e.quentesLarguras });
 
 /**
  * Onde o estado de um álbum é lido e gravado. Grava só quando mudou (uma
@@ -234,7 +234,7 @@ function guardaDoEstado(o) {
         // O formato do arquivo é o de sempre: `<slug>`, `<slug>#busca`, `<slug>#qualidade`.
         // À mão não há painel a consultar: a busca vale como ligada e ninguém pediu para refazer.
         const extra = a[`${o.slug}#rosto`] && typeof a[`${o.slug}#rosto`] === 'object' ? a[`${o.slug}#rosto`] : {};
-        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`], geracao: extra.geracao, limpar: extra.limpar, dia: extra.dia, noDia: extra.noDia, quentes: extra.quentes, geracaoPedida: extra.geracao, rosto: true };
+        bruto = { vistas: a[o.slug], descritas: a[`${o.slug}#busca`], qualidade: a[`${o.slug}#qualidade`], geracao: extra.geracao, limpar: extra.limpar, dia: extra.dia, noDia: extra.noDia, quentes: extra.quentes, quentesLarguras: extra.quentesLarguras, geracaoPedida: extra.geracao, rosto: true };
       }
       const lista = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
       /** @type {Estado} */
@@ -242,6 +242,7 @@ function guardaDoEstado(o) {
       const estado = {
         vistas: new Set(lista(bruto && bruto.vistas)), descritas: new Set(lista(bruto && bruto.descritas)), qualidade: bruto && typeof bruto.qualidade === 'string' ? bruto.qualidade : '',
         dia: bruto && typeof bruto.dia === 'string' ? bruto.dia : '', noDia: numero(bruto && bruto.noDia), quentes: new Set(lista(bruto && bruto.quentes)),
+        quentesLarguras: bruto && typeof bruto.quentesLarguras === 'string' ? bruto.quentesLarguras : '',
         geracao: numero(bruto && bruto.geracao), limpar: !!bruto && bruto.limpar === true,
         geracaoPedida: numero(bruto && bruto.geracaoPedida),
         // Só um `false` dito pelo site desliga: site antigo (sem o campo) segue indexando.
@@ -258,11 +259,11 @@ function guardaDoEstado(o) {
         const r = await fetch(`${o.site}/api/busca/estado`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': o.token },
-          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade, geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes] }),
+          body: JSON.stringify({ slug: o.slug, vistas: [...estado.vistas], descritas: [...estado.descritas], qualidade: estado.qualidade, geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes], quentesLarguras: estado.quentesLarguras }),
         });
         if (!r.ok) throw new ErroDoIndexador(`gravação do estado HTTP ${r.status}`);
       } else {
-        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade, [`${o.slug}#rosto`]: { geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes] } };
+        const a = { ...(doArquivo || {}), [o.slug]: [...estado.vistas], [`${o.slug}#busca`]: [...estado.descritas], [`${o.slug}#qualidade`]: estado.qualidade, [`${o.slug}#rosto`]: { geracao: estado.geracao, limpar: estado.limpar, dia: estado.dia, noDia: estado.noDia, quentes: [...estado.quentes], quentesLarguras: estado.quentesLarguras } };
         doArquivo = a;
         await writeFile(o.arquivo, JSON.stringify(a));
       }
@@ -512,6 +513,10 @@ export async function principal() {
     // ainda não foi aquecida é pedida ao site nas larguras do celular. Só com o
     // token (é ele que abre o álbum ainda fechado) e enquanto há tempo.
     if (token) {
+      // A lista de larguras mudou (v3.9.3): a foto "quente" só tinha as
+      // larguras antigas. Recomeça; as que já estavam no R2 saem de lá, sem Google.
+      const larguras = AQUECE_LARGURAS.join(',');
+      if (estado.quentesLarguras !== larguras) { estado.quentes.clear(); estado.quentesLarguras = larguras; }
       const frias = [...idsNoAlbum].filter(id => !estado.quentes.has(id)).slice(0, maxAquece);
       let aquecidas = 0, semAquecer = 0;
       /** @param {string} id */

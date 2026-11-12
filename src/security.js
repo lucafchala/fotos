@@ -41,9 +41,13 @@ const PERMISSIONS_POLICY = [
   'camera=()', 'display-capture=()', `encrypted-media=(self "${CSP_YT_PLAYER}")`,
   `fullscreen=(self "${CSP_YT_PLAYER}" "${CSP_DRIVE_PLAYER}")`, 'gamepad=()', 'geolocation=()', 'gyroscope=()',
   'hid=()', 'idle-detection=()', 'local-fonts=()', 'magnetometer=()',
-  'microphone=()', 'midi=()', 'payment=()', `picture-in-picture=(self "${CSP_YT_PLAYER}")`,
+  // O Turnstile pede picture-in-picture no iframe dele; negar só enchia o
+  // console de "Permissions policy violation" (v3.9.3).
+  'microphone=()', 'midi=()', 'payment=()', `picture-in-picture=(self "${CSP_YT_PLAYER}" "${CSP_TURNSTILE}")`,
   'publickey-credentials-get=()', 'screen-wake-lock=()', 'serial=()',
-  'storage-access=()', 'usb=()', 'web-share=(self)',
+  // Sem web-share (v3.9.3): o Chrome não reconhece a diretiva e avisava em
+  // toda página; o padrão dela já é 'self', que é o que o site usa.
+  'storage-access=()', 'usb=()',
   'xr-spatial-tracking=()',
 ].join(', ');
 
@@ -115,7 +119,10 @@ export function contentSecurityPolicy(nonce, { driveFrame = false } = {}) {
     // operadores (docs/legal/ROPA.md) — o IP do visitante iria junto.
     "font-src 'self'",
     `img-src 'self' data: blob: ${CSP_IMAGES} ${CSP_YT_THUMB}`,
-    `connect-src 'self' ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_CONNECT}`,
+    // data: porque o Turnstile testa o navegador com fetch('data:,'); sem
+    // isto, dois erros de CSP no console em toda página com o widget (v3.9.3).
+    // Ler um data: não manda nada para fora.
+    `connect-src 'self' data: ${CSP_TURNSTILE} ${CSP_CF_INSIGHTS_CONNECT}`,
     `frame-src ${CSP_TURNSTILE} ${CSP_YT_PLAYER}${driveFrame ? ` ${CSP_DRIVE_PLAYER}` : ''}`,
     // Nada abaixo é usado pelo site: negar explicitamente evita que um dia um
     // <object>/<embed> injetado tenha para onde ir.

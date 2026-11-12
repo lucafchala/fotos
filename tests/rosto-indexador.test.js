@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { ErroAws } from '../src/aws.js';
 import { estadoDoIndexadorLimpo } from '../src/busca.js';
+import { AQUECE_LARGURAS } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { d1Sqlite } from './helpers/d1.js';
 
@@ -48,7 +49,9 @@ function mundo(o = {}) {
   const estadosGravados = [];
   /** @type {any[]} */
   const enviosDaBusca = [];
-  let estado = o.estado || { vistas: [], descritas: [], qualidade: '', origem: 'vazio' };
+  // O estado já marca as larguras de hoje (v3.9.3); sem isso, toda execução
+  // reaqueceria (ver o teste das larguras novas).
+  let estado = { quentesLarguras: AQUECE_LARGURAS.join(','), ...(o.estado || { vistas: [], descritas: [], qualidade: '', origem: 'vazio' }) };
   const f = vi.fn(async (/** @type {any} */ input, /** @type {any} */ init = {}) => {
     const url = new URL(typeof input === 'string' ? input : input.url);
     if (url.origin === SITE) {
@@ -287,7 +290,7 @@ describe('a rota do estado no site (/api/busca/estado)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, vistas: 2, descritas: 1 });
     const lido = await (await pede(`/api/busca/estado?slug=${SLUG}`, { token: TOKEN })).json();
-    expect(lido).toEqual({ vistas: [`${CAP_A}:${F(1)}`, `:${F(2)}`], descritas: [F(1)], qualidade: 'NONE', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], origem: 'guardado', geracaoPedida: 0, rosto: false });
+    expect(lido).toEqual({ vistas: [`${CAP_A}:${F(1)}`, `:${F(2)}`], descritas: [F(1)], qualidade: 'NONE', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], quentesLarguras: '', origem: 'guardado', geracaoPedida: 0, rosto: false });
   });
 
   it('sem estado guardado, monta do que o banco da busca já sabe — a troca não reprocessa o álbum', async () => {
@@ -306,8 +309,8 @@ describe('a rota do estado no site (/api/busca/estado)', () => {
   });
 
   it('estadoDoIndexadorLimpo: forma, repetição e teto', () => {
-    expect(estadoDoIndexadorLimpo(null)).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [] });
-    expect(estadoDoIndexadorLimpo({ vistas: 'x', descritas: {}, qualidade: 'none', geracao: -3, limpar: 'sim', dia: 'ontem', noDia: -1 })).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [] });
+    expect(estadoDoIndexadorLimpo(null)).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], quentesLarguras: '' });
+    expect(estadoDoIndexadorLimpo({ vistas: 'x', descritas: {}, qualidade: 'none', geracao: -3, limpar: 'sim', dia: 'ontem', noDia: -1 })).toEqual({ vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], quentesLarguras: '' });
     const muitas = Array.from({ length: 20050 }, (_, i) => `:FOTO_${String(i).padStart(8, '0')}`);
     expect(estadoDoIndexadorLimpo({ vistas: muitas }).vistas).toHaveLength(20000);
   });
