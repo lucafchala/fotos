@@ -780,7 +780,7 @@ quente):
 |---|---|---|---|---|---|
 | Página, cookie `gv_<slug>` presente | 0 | 0 | 0 | 0 | 1 leitura |
 | Página, 1a visita do navegador na hora | 0 | 1 (contador, em `waitUntil`) | 0 | 0 | 1 leitura |
-| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo) | 0 |
+| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo; com o original no R2, nenhuma ida ao Google — nem a sonda `?p=1`, v3.9.3) | 0 |
 | Lista vencida | 0 | 1 (lease, só quem relê) | 0 ou 1 (snapshot) | 1 listagem no mundo todo | 1 escrita |
 
 CPU da página de capítulo com 6.000 itens, memória quente: ~3,5 ms para montar

@@ -24,6 +24,7 @@ import { withDurableObjects } from './helpers/do.js';
 import { fakeCaches } from './helpers/caches.js';
 import { d1Contado } from './helpers/d1.js';
 import { contaScriptTags, foraDosScripts } from './helpers/paginas.js';
+import { r2Falso } from './helpers/r2.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 
 const SITE = 'https://fotos.lucafchala.com';
@@ -423,6 +424,31 @@ describe('/galeria/<slug>/baixar/<id> — downloads', () => {
     expect(res.headers.get('Content-Disposition')).toBeNull();
     const up = chamadas.find(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'));
     expect(up.headers.Range).toBe('bytes=0-0');
+  });
+
+  it('"pronto?" de original que já está no R2: 204 sem chamar o Google (o download sai do R2)', async () => {
+    env.FOTOS_R2 = r2Falso({ 'o/FOTO_DEZ_00010': 'ORIGINAL' });
+    // Se a sonda fosse ao Google, ele estaria ocupado: a resposta seria 503.
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010') ? new Response('{}', { status: 429 }) : null);
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(204);
+    expect(chamadas.some(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'))).toBe(false);
+    // E o download que vem depois sai do R2, também sem o Google.
+    const baixa = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max');
+    expect(baixa.status).toBe(200);
+    expect(await baixa.text()).toBe('ORIGINAL');
+    expect(chamadas.some(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'))).toBe(false);
+  });
+
+  it('"pronto?" com o R2 fora do ar: segue para o Google, como antes', async () => {
+    env.FOTOS_R2 = { head: async () => { throw new Error('R2 fora'); }, get: async () => null };
+    rotaExtra = url => (url.pathname.startsWith('/drive/v3/files/FOTO_DEZ_00010')
+      ? new Response('O', { status: 206, headers: { 'Content-Type': 'image/jpeg', 'Content-Range': 'bytes 0-0/8' } })
+      : null);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await get('/galeria/formatura/baixar/FOTO_DEZ_00010?v=max&p=1&c=0');
+    expect(res.status).toBe(204);
+    expect(chamadas.find(c => c.url.includes('/drive/v3/files/FOTO_DEZ_00010'))?.headers.Range).toBe('bytes=0-0');
   });
 
   it('"pronto?" com o Google ocupado: 503 + Retry-After, para a fila do navegador', async () => {

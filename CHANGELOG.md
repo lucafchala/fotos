@@ -18,6 +18,10 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.9.3] — ainda não publicada
+
+- **A sonda do download não vai mais ao Google quando o original já está no R2.** Antes de baixar, a página pergunta ao servidor se o arquivo está pronto (`?p=1`). Essa pergunta ia sempre ao Google Drive, mesmo quando o download em seguida sairia do R2 — uma chamada à toa por foto, justamente no pico, que é quando o Google recusa. Agora a sonda confere o R2 primeiro (sem ler o arquivo) e só vai ao Google se o original não estiver lá ou se o R2 falhar.
+
 ## [3.9.2] — ainda não publicada
 
 - **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).

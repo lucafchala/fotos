@@ -1,6 +1,6 @@
 import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, apagaInscricoes, SERVICE_WORKER } from './aviso.js';
 import { registraSaida, listaSaidas, desfazUmaSaida, geracaoDoIndice, marcaIndiceParaApagar, cancelaApagarIndice, indiceSeraApagadoEm, apagaIndiceDoAlbum, apagaIndicesVencidos } from './saidas.js';
-import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
+import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, originalNoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
@@ -5282,6 +5282,10 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // para a fila automática não puxar o arquivo duas vezes. Pede só o primeiro
   // byte (Range) e responde 204; as checagens e o limite por IP são os mesmos.
   const sonda = url.searchParams.get('p') === '1';
+  // A sonda de um original que já está no R2 nem chega ao Google: o download
+  // que vem em seguida sai do R2 (logo abaixo). Antes ela ia ao Drive sempre —
+  // uma chamada à toa por foto, justamente no pico.
+  if (sonda && await originalNoR2(env, alvoFoto[0])) return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   // Com o R2 (v3.8.3): o original que já foi baixado uma vez sai de lá. O
   // Google nem é chamado (é ele que trava com muita gente baixando).
   const doR2 = sonda ? null : await originalDoR2(env, alvoFoto[0]);
