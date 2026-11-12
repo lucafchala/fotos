@@ -178,6 +178,7 @@ const ICONE_ROSTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
  *   scripts: string,
  *   nonce?: string,
  *   assina?: (id: string) => string,
+ *   envioSite?: string,
  * }} p
  */
 export function albumHTML(p) {
@@ -223,6 +224,10 @@ export function albumHTML(p) {
 
   const pasta = restrito ? null : pastaDoDrive(event.driveUrl);
   const urlPasta = pasta ? `https://drive.google.com/drive/folders/${pasta.id}${pasta.resourceKey ? `?resourcekey=${pasta.resourceKey}` : ''}` : '';
+  // A página de envio só vale onde o diálogo valeria (pasta de envio e
+  // capítulos): quem decide se o envio está LIGADO é o Worker, que só passa
+  // `envioSite` quando os segredos do Google existem (`albumRecebeEnvio`).
+  const paginaDeEnvio = p.envioSite && urlPasta && caps.length > 0 ? p.envioSite : '';
   const botoes = `<div class="al-btns">${[
     // A busca pelo rosto é o caminho principal (v3.7.5, pedido do dono): vem
     // primeiro e em destaque. Ela só aparece com o script ligado; até lá (ou
@@ -231,7 +236,12 @@ export function albumHTML(p) {
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
     // "Mandar suas fotos" em destaque (v3.8.7, pedido do dono): botão, ao
     // lado do principal.
-    urlPasta ? `<a class="al-btn al-b2 al-mandar" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">${ICONE_ENVIAR}Mandar suas fotos</a>` : '',
+    // Com o envio pelo site ligado (v3.9), o botão leva à página de envio, na
+    // mesma aba: é o próprio álbum, e a pasta do Drive vira o plano B de lá.
+    // O `data-acao` some de propósito — é ele que o diálogo antigo procura.
+    paginaDeEnvio
+      ? `<a class="al-btn al-b2 al-mandar" href="${escape(paginaDeEnvio)}">${ICONE_ENVIAR}Mandar suas fotos</a>`
+      : urlPasta ? `<a class="al-btn al-b2 al-mandar" href="${escape(urlPasta)}" target="_blank" rel="nofollow noopener" data-acao="mandar-fotos">${ICONE_ENVIAR}Mandar suas fotos</a>` : '',
   ].join('')}</div>`;
   // A abertura mais limpa (v3.8.7, pedido do dono: "muitos botões"): um botão
   // principal; o resto vira uma linha de links discretos. "Ver os eventos" só
@@ -253,7 +263,7 @@ export function albumHTML(p) {
   // Com pasta de envio, a janela de "Mandar suas fotos" explica tudo (v3.8.7:
   // a dica saiu da abertura). Só o jeito antigo (pasta `outros`) ainda precisa dela.
   const dicaEnvio = temOutros ? '<p class="al-dica">Para mandar fotos: abra o evento e a pasta <b>outros</b>.</p>' : '';
-  const envio = temEnvio ? envioHTML(slug, urlPasta) : '';
+  const envio = temEnvio && !paginaDeEnvio ? envioHTML(slug, urlPasta) : '';
   const kicker = doDominio ? doDominio.linha : (event.date ? String(event.date).slice(0, 4) : '');
   // O texto de abertura vem ANTES dos botões, em todo estilo (v3.8.2, pedido
   // do dono: a turma tem de ler antes de sair clicando).

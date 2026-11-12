@@ -22,7 +22,12 @@ import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
 import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice } from './ui/album.js';
-import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
+import { enviarHTML } from './ui/enviar.js';
+import {
+  EnvioError, envioLigado, saudeDoEnvio, criaSessao, enviaParte, consultaSessao, cancelaSessao, procuraDuplicata, cabeNoDrive,
+  selaSessao, abreSessao, nomeDeArquivo, tipoDoArquivo, bytesConferem, fpValido, dataModificada, limpaAssinatura, descricaoDoEnvio,
+} from './envio.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio, chavesDeEnvio, chavePasta } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -34,7 +39,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, baseDaGaleria, counterStub, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -67,6 +72,8 @@ import {
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
   PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  ENVIO_IP_BUCKET, ENVIO_PASSE_IP_BUCKET, ENVIO_PARTE_IP_BUCKET, ENVIO_TETO_ARQUIVOS_DIA, ENVIO_TETO_MB_DIA, ENVIO_PASSE_TTL_SECS,
+  ENVIO_MAX_BYTES, ENVIO_PARTE_MAX_BYTES, ENVIO_PARTE_MULTIPLO, ENVIO_DECLARACAO,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -220,6 +227,7 @@ const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9
 // Galeria por capítulos (v3.1): /galeria/<slug>/<capítulo> e o download dele.
 // "baixar" e "sitemap" são slugs reservados (drive.js os evita nos capítulos).
 const CAP_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
+const GALERIA_ENVIAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/enviar$/;
 const GALERIA_CAP_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/;
 const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 // Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
@@ -366,6 +374,12 @@ const worker = {
       if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
+      // Envio de fotos pelo site (v3.9): o passe, o começo de um arquivo, as
+      // partes dele e a pergunta "onde parou?". Ver handleEnvioInicia.
+      if (path === '/api/envio/passe' && method === 'POST') return await handleEnvioPasse(request, env, ctx);
+      if (path === '/api/envio/inicia' && method === 'POST') return await handleEnvioInicia(request, env);
+      if (path === '/api/envio/parte' && method === 'PUT') return await handleEnvioParte(request, env, ctx, url);
+      if (path === '/api/envio/estado' && method === 'POST') return await handleEnvioEstado(request, env);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
       if (path.startsWith('/api/events/') && method === 'DELETE') return await handleDeleteEvent(request, env, path);
       if (path === '/api/categories' && method === 'GET') return await handleGetCategories(request, env);
@@ -444,6 +458,10 @@ const worker = {
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
       const capBaixarMatch = path.match(GALERIA_CAP_BAIXAR_RE);
       if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
+      // A página de envio (v3.9) vem ANTES da rota de evento: "enviar" não é
+      // um evento (uma pasta com esse nome ficaria sem página).
+      const enviarMatch = path.match(GALERIA_ENVIAR_RE);
+      if (enviarMatch && method === 'GET') return await handleEnvioPagina(request, env, enviarMatch[1], url, nonce);
       const capMatch = path.match(GALERIA_CAP_RE);
       if (capMatch && method === 'GET') return await handleGaleriaPagina(request, env, capMatch[1], url, nonce, ctx, capMatch[2]);
 
@@ -3012,6 +3030,8 @@ export function cronStale(lastIso, now = Date.now()) {
 // link, unset form backend). Nominates one healthy event as `sample` for the
 // dashboard to deep-probe.
 const MAX_SELFTEST_PROBLEMS = 12;
+// Quanto o healthz espera o Google antes de dizer "incerto" sobre o envio.
+const HEALTHZ_ENVIO_PRAZO_MS = 4000;
 /**
  * @param {Evento[]} events
  * @param {Partial<Env>} [env] parcial de propósito: a função existe para acusar binding que falta
@@ -3222,8 +3242,32 @@ async function medirSaude(env) {
   // formulário não configurado.
   const selftest = auditSite(eventsList, env, degradedHealth());
 
+  // O envio de fotos pelo site (v3.9, src/envio.js): a credencial do Google e
+  // o espaço do Drive são as duas coisas que quebram em silêncio — a turma
+  // veria "tente de novo" e o dono, nada. O painel de status lê `envio`; os
+  // problemas entram no self-test, que é o que já vira alerta. Nunca derruba
+  // `ok` (o site entrega foto sem o envio) e tem prazo curto: Google lento é
+  // "incerto", não motivo para o healthz atrasar o smoke do deploy.
+  /** @type {{ estado: 'desligado'|'ok'|'falha'|'incerto', livreGb: number|null }} */
+  let envio = { estado: 'incerto', livreGb: null };
+  try {
+    const s = await Promise.race([
+      saudeDoEnvio(env),
+      new Promise(r => setTimeout(() => r(null), HEALTHZ_ENVIO_PRAZO_MS)),
+    ]);
+    if (s) {
+      envio = { estado: s.estado, livreGb: s.livreGb };
+      for (const linha of s.problemas) {
+        if (selftest.problems.length < MAX_SELFTEST_PROBLEMS) selftest.problems.push(linha);
+        selftest.ok = false;
+      }
+    }
+  } catch {
+    // fica "incerto": desconhecido não é ok, e também não é falha
+  }
+
   const ok = kv && events !== null;
-  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest };
+  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio };
 }
 
 /**
@@ -3235,7 +3279,7 @@ async function medirSaude(env) {
  * @param {'hit'|'miss'} cache
  */
 function healthzResposta(request, env, medicao, cache) {
-  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest } = medicao;
+  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio } = medicao;
   // Resto do payload vem de dados já carregados + bindings de env — zero
   // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
   const res = jsonOk({
@@ -3254,7 +3298,11 @@ function healthzResposta(request, env, medicao, cache) {
       consentDb: !!env.CONSENT_DB,
       adminEmail: !!env.ADMIN_EMAIL,
       signing: signingSecretProblem(env) === null,
+      envio: envioLigado(env),
     },
+    // Envio de fotos pelo site: `desligado` (sem segredos), `ok`, `falha`
+    // (credencial recusada ou Drive cheio) ou `incerto` (o Google não respondeu).
+    envio,
     termsVersion: TERMS_VERSION,
     // As duas versões juntas (src/config.js, "Versões"): a do site, que diz o
     // que mudou, e a implantação da Cloudflare, que diz qual build está no ar.
@@ -3732,6 +3780,374 @@ export async function handleGaleriaEnvio(request, env, url) {
   const res = jsonOk({ pastas });
   res.headers.set('Cache-Control', 'private, max-age=600');
   return res;
+}
+
+// ---------------------------------------------------------------------------
+// Envio de fotos pelo site (v3.9) — src/envio.js, src/ui/enviar.js, docs/ENVIO.md
+// ---------------------------------------------------------------------------
+// A turma manda fotos e vídeos pelo próprio álbum, e tudo termina na pasta de
+// envio do evento no Google Drive — a mesma que a janela "Mandar suas fotos"
+// abria. O Drive segue sendo a fonte da verdade; estas rotas são só a IDA.
+//
+// As defesas, na ordem em que um pedido as encontra:
+//  1. o álbum: as mesmas regras de quem abre a galeria (podeVerGaleria) — antes
+//     do lançamento, só o dono, a editora e quem tem a prévia;
+//  2. o PASSE: Turnstile + a declaração marcada, uma vez; vale 12 h e é só
+//     assinatura (sem estado). O aceite fica no registro de consentimento;
+//  3. limite por IP (largo: a turma inteira divide o Wi-Fi da festa) e tetos
+//     do DIA por álbum;
+//  4. o destino: o ID da pasta tem de estar na lista que o SERVIDOR montou
+//     (pastasDeEnvio) — nunca se grava numa pasta que veio do navegador;
+//  5. o arquivo: só extensão de foto ou vídeo, tamanho com teto, e os
+//     primeiros bytes conferidos na primeira parte;
+//  6. o espaço: com o Drive quase cheio, recusa (o Drive cheio pararia também
+//     o e-mail da conta).
+
+/**
+ * O que um álbum precisa para receber envio pelo site: a credencial do Google
+ * no Worker, álbum público por capítulos que este visitante pode ver, e ao
+ * menos uma pasta de envio. UMA função para a página e para as rotas.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {unknown} slug
+ * @returns {Promise<{ ok: true, event: Evento, raiz: { id: string, resourceKey: string }, caps: import('./drive.js').CapitulosDrive, destinos: import('./drive.js').PastaDeEnvio[] } | { ok: false, status: 404 | 503 }>}
+ */
+async function contextoDoEnvio(request, env, slug) {
+  if (!envioLigado(env) || typeof slug !== 'string' || !validateSlug(slug)) return { ok: false, status: 404 };
+  if (!await podeVerGaleria(request, env, slug)) return { ok: false, status: 404 };
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event || isRestrictedAccess(event) || !event.galeriaCapitulos) return { ok: false, status: 404 };
+  const alvo = await alvoDaGaleria(env, event, '');
+  if (alvo.kind !== 'ok' || !alvo.caps) return { ok: false, status: 503 };
+  const destinos = await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos);
+  if (!destinos.length) return { ok: false, status: 404 };
+  return { ok: true, event, raiz: alvo.raiz, caps: alvo.caps, destinos };
+}
+
+/**
+ * Este álbum mostra o botão que leva à página de envio? Sem ler o Drive (a
+ * página do álbum não pode esperar por isso): credencial no Worker, álbum
+ * público por capítulos e pasta de envio nos créditos.
+ * @param {Env} env
+ * @param {Evento} event
+ */
+export function albumRecebeEnvio(env, event) {
+  return envioLigado(env) && !isRestrictedAccess(event) && !!event.galeriaCapitulos && chavesDeEnvio(event.galeriaCreditos).size > 0;
+}
+
+/** @param {{ id: string, resourceKey?: string, rk?: string }} p */
+const urlDaPasta = p => `https://drive.google.com/drive/folders/${p.id}${p.resourceKey || p.rk ? `?resourcekey=${encodeURIComponent(String(p.resourceKey || p.rk))}` : ''}`;
+
+/**
+ * GET /galeria/<slug>/enviar (no domínio do álbum, /enviar).
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {URL} url
+ * @param {string} nonce
+ */
+export async function handleEnvioPagina(request, env, slug, url, nonce) {
+  const c = await contextoDoEnvio(request, env, slug);
+  if (!c.ok) return c.status === 503 ? errorPage('503', 'O Google Drive não respondeu agora. Tente de novo em instantes.', 503) : notFound();
+  const resumo = await lerResumo(c.raiz.id, env);
+  /** @type {Record<string, number[]>} */
+  const dias = {};
+  for (const cap of c.caps.caps) {
+    const r = resumo[cap.id];
+    if (r && Array.isArray(r.dd) && r.dd.length) dias[cap.slug] = r.dd;
+  }
+  const evento = url.searchParams.get('evento') || '';
+  const pagina = enviarHTML({
+    event: c.event,
+    destinos: c.destinos.map(d => ({ p: d.id, cap: d.cap, evento: d.evento, rotulo: d.rotulo, url: urlDaPasta(d) })),
+    dias,
+    volta: baseDaGaleria(slug, url.hostname) || '/',
+    urlPasta: urlDaPasta(c.raiz),
+    evento: CAP_SLUG_RE.test(evento) ? evento : '',
+    token: await mintFormToken(env, 'envio'),
+    nonce,
+  });
+  const res = html(pagina, 200, nonce);
+  // Leva o token do formulário e o nonce: nunca em cache compartilhado.
+  res.headers.set('Cache-Control', 'private, no-store');
+  res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return res;
+}
+
+/**
+ * A resposta de um erro do envio. O texto do Google nunca vai à página; o
+ * `codigo` é o que o script lê para decidir (a frase é para a pessoa).
+ * @param {unknown} e
+ */
+function respostaDoErroDeEnvio(e) {
+  if (!(e instanceof EnvioError)) throw e;
+  /** @param {string} error @param {string} codigo @param {number} status @param {number} [espera] */
+  const r = (error, codigo, status, espera = 0) => {
+    const res = jsonOk({ error, codigo }, status);
+    if (espera) res.headers.set('Retry-After', String(espera));
+    return res;
+  };
+  const FORA = 'O envio pelo site está fora do ar agora. Use a pasta do álbum no Google Drive, no fim da página.';
+  switch (e.codigo) {
+    case 'cheio': return r('O álbum está sem espaço para receber fotos agora.', 'cheio', 507);
+    case 'sessao': return r('Este envio expirou. Começando de novo.', 'sessao', 410);
+    case 'desligado': return r(FORA, 'desligado', 503);
+    case 'credencial': return r(FORA, 'credencial', 503);
+    case 'pasta': return r(FORA, 'pasta', 503);
+    default:
+      // Google ocupado ou fora: a página espera e tenta de novo (com teto).
+      console.error(`envio: ${e.message}`);
+      return r('O Google Drive está ocupado. Tentando de novo em instantes.', 'ocupado', 503, 5);
+  }
+}
+
+/** @param {string} error @param {string} codigo @param {number} status */
+const erroDeEnvio = (error, codigo, status) => jsonOk({ error, codigo }, status);
+
+/**
+ * A assinatura serve como crédito NESTE álbum? Não pode ser o nome de um
+ * crédito que o álbum já tem (ninguém assina como o fotógrafo oficial).
+ * @param {Evento} event @param {string} assinatura já limpa
+ */
+function assinaturaLivre(event, assinatura) {
+  const k = chavePasta(assinatura);
+  for (const nome of parseCreditos(event.galeriaCreditos).values()) if (chavePasta(nome) === k) return false;
+  return true;
+}
+
+/**
+ * POST /api/envio/passe { slug, form_token, turnstileToken, aceite, nome }.
+ * Turnstile e declaração UMA vez; o passe (HMAC, 12 h, preso ao álbum) abre os
+ * `inicia` seguintes. O aceite vai para o registro de consentimento (D1), com
+ * o texto exato da declaração.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ */
+export async function handleEnvioPasse(request, env, ctx) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  // Honeypot: 200 com um passe vazio, que não abre nada.
+  if (honeypotTripped(body[HONEYPOT_FIELD])) return jsonOk({ ok: true, passe: '' });
+  const secret = signingSecret(env);
+  if (!secret || !envioLigado(env)) return jsonErr('Não encontrado.', 404);
+  const t = await verifyToken(secret, String(body.form_token || ''), {
+    purpose: 'form', scope: 'envio', ttlSecs: FORM_TOKEN_TTL_SECS, minAgeSecs: FORM_TOKEN_MIN_AGE_SECS,
+  });
+  if (!t.ok) {
+    return t.reason === 'expired'
+      ? jsonErr('A página ficou aberta tempo demais. Recarregue e escolha as fotos de novo: o que já subiu não se perde.', 400)
+      : jsonErr('Não foi possível validar o envio. Recarregue a página e tente de novo.', 400);
+  }
+  if (body.aceite !== true) return jsonErr('Marque a caixa para confirmar que pode publicar essas fotos.', 400);
+  const bruta = typeof body.nome === 'string' ? body.nome.trim() : '';
+  const assinatura = limpaAssinatura(bruta);
+  if (bruta && !assinatura) return jsonErr('O nome para o crédito pode ter letras, números, espaço, ponto e hífen (de 2 a 40 caracteres). Ou deixe em branco.', 400);
+  const limite = await takeToken(env, ip, 'envio-passe', ENVIO_PASSE_IP_BUCKET);
+  if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  const c = await contextoDoEnvio(request, env, body.slug);
+  if (!c.ok) return c.status === 503 ? erroDeEnvio('O Google Drive não respondeu agora. Tente de novo em instantes.', 'ocupado', 503) : jsonErr('Não encontrado.', 404);
+  if (assinatura && !assinaturaLivre(c.event, assinatura)) return jsonErr('Esse nome já é o de um crédito do álbum. Use o seu nome, ou deixe em branco.', 400);
+  if (!(await verifyTurnstile(body.turnstileToken, env))) {
+    return jsonErr('A verificação de segurança falhou. Recarregue a página e tente de novo.', 400);
+  }
+  registraAceiteDeEnvio(request, env, ctx, c.event, assinatura);
+  const passe = await signToken(secret, { purpose: 'envio', scope: c.event.slug, ttlSecs: ENVIO_PASSE_TTL_SECS });
+  return jsonOk({ ok: true, passe });
+}
+
+/**
+ * O aceite de quem envia, no registro de consentimento (D1): o texto exato da
+ * declaração, a versão dos Termos, o nome assinado (se houver) e de onde veio.
+ * É o que permite responder "quem mandou esta foto?" a um pedido de remoção.
+ * Fora do caminho da resposta, com barulho se falhar (como o do portão).
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {Evento} event
+ * @param {string} assinatura
+ */
+function registraAceiteDeEnvio(request, env, ctx, event, assinatura) {
+  if (!env.CONSENT_DB) return;
+  const db = env.CONSENT_DB;
+  const cf = /** @type {Record<string, any>} */ (request.cf || {});
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  ctx.waitUntil((async () => {
+    try {
+      await db.prepare(
+        `INSERT INTO image_use_consent
+           (id, created_at, event_slug, event_title, drive_target, access_type, terms_version, terms_hash,
+            consent_text, declaration_text, consenter_name, turnstile_ok, ip, country, region, city, timezone,
+            asn, as_org, colo, user_agent, accept_language, referrer, page_url)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        generateId(), new Date().toISOString(), event.slug, String(event.title || '').slice(0, 200),
+        // 'envio': a pessoa MANDOU fotos (as outras linhas são de quem abriu o Drive).
+        'envio', 'public', TERMS_VERSION, await getTermsHash(), CONSENT_LABEL, ENVIO_DECLARACAO, assinatura || null, 1,
+        ip.slice(0, 64), String(request.headers.get('CF-IPCountry') || cf.country || '').slice(0, 8),
+        String(cf.region || '').slice(0, 80), String(cf.city || '').slice(0, 120), String(cf.timezone || '').slice(0, 64),
+        cf.asn ? parseInt(String(cf.asn), 10) : null, String(cf.asOrganization || '').slice(0, 160), String(cf.colo || '').slice(0, 16),
+        (request.headers.get('User-Agent') || '').slice(0, 400), (request.headers.get('Accept-Language') || '').slice(0, 120),
+        (request.headers.get('Referer') || '').slice(0, 400), '',
+      ).run();
+    } catch (e) {
+      noteDegraded('registro de consentimento não gravou', `D1 recusou o INSERT do aceite de envio (evento ${event.slug}). O passe foi emitido, mas sem prova de aceite`, e);
+    }
+  })());
+}
+
+/**
+ * Soma `by` ao contador do dia e devolve o total DE HOJE (o objeto Counter
+ * guarda a série por dia sozinho). Falha aberta: sem o contador o teto do dia
+ * não é conferido — o espaço livre do Drive segue conferido.
+ * @param {Env} env @param {string} chave @param {number} by
+ */
+async function somaDoDia(env, chave, by) {
+  try {
+    const c = counterStub(env);
+    await c.increment(chave, by);
+    return await c.value(`d:${hojeEmSaoPaulo()}:${chave}`);
+  } catch (e) {
+    noteDegraded('contador não gravado', `${chave} (teto do dia do envio não conferido) — ${errMessage(e).slice(0, 120)}`, e);
+    return 0;
+  }
+}
+
+/**
+ * POST /api/envio/inicia { slug, passe, pasta, nome, tamanho, modificado, fp, assinatura }
+ * → { sessao } (o selo), ou { duplicada: true } se a pasta já tem esse arquivo.
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleEnvioInicia(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const secret = signingSecret(env);
+  if (!secret || !envioLigado(env)) return jsonErr('Não encontrado.', 404);
+  const slug = body.slug;
+  if (typeof slug !== 'string' || !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  const p = await verifyToken(secret, String(body.passe || ''), { purpose: 'envio', scope: slug });
+  if (!p.ok) return erroDeEnvio('A verificação de segurança venceu. Conferindo de novo…', 'passe', 401);
+
+  const nome = nomeDeArquivo(body.nome);
+  const tipo = nome ? tipoDoArquivo(nome) : null;
+  if (!nome || !tipo) return erroDeEnvio('Só fotos e vídeos (JPG, HEIC, PNG, MP4, MOV…).', 'tipo', 415);
+  const tamanho = Number(body.tamanho);
+  if (!Number.isSafeInteger(tamanho) || tamanho < 1) return erroDeEnvio('Arquivo vazio.', 'tamanho', 400);
+  if (tamanho > ENVIO_MAX_BYTES) return erroDeEnvio('Arquivo grande demais para enviar pelo site.', 'tamanho', 413);
+  if (!fpValido(body.fp)) return jsonErr('Pedido inválido. Recarregue a página.', 400);
+  if (typeof body.pasta !== 'string' || !idDriveValido(body.pasta)) return jsonErr('Evento inválido. Recarregue a página.', 400);
+
+  const limite = await takeToken(env, ip, 'envio', ENVIO_IP_BUCKET);
+  if (!limite.ok) return tooManyRequests(limite.retryAfter);
+
+  const c = await contextoDoEnvio(request, env, slug);
+  if (!c.ok) return c.status === 503 ? erroDeEnvio('O Google Drive não respondeu agora. Tentando de novo em instantes.', 'ocupado', 503) : jsonErr('Não encontrado.', 404);
+  // O destino tem de estar na lista do SERVIDOR: o ID veio do navegador.
+  const destino = c.destinos.find(d => d.id === body.pasta);
+  if (!destino) return jsonErr('Evento inválido. Recarregue a página.', 400);
+  const limpa = limpaAssinatura(body.assinatura);
+  const assinatura = limpa && assinaturaLivre(c.event, limpa) ? limpa : '';
+
+  try {
+    if (await procuraDuplicata(env, destino.id, destino.rk, body.fp)) {
+      await devolveToken(env, ip, 'envio', ENVIO_IP_BUCKET);
+      return jsonOk({ ok: true, duplicada: true });
+    }
+    if (!await cabeNoDrive(env, tamanho)) throw new EnvioError('cheio', 'sem margem de espaço no Drive do envio');
+    // Tetos do dia, por álbum: arquivos começados e megabytes prometidos.
+    const TETO = 'O álbum já recebeu muitas fotos hoje. Tente de novo amanhã, ou mande pela pasta do álbum no Google Drive.';
+    if (await somaDoDia(env, `envio:arquivos:${slug}`, 1) > ENVIO_TETO_ARQUIVOS_DIA) return erroDeEnvio(TETO, 'teto', 429);
+    if (await somaDoDia(env, `envio:mb:${slug}`, Math.ceil(tamanho / 1048576)) > ENVIO_TETO_MB_DIA) return erroDeEnvio(TETO, 'teto', 429);
+    const uri = await criaSessao(env, {
+      pasta: destino.id, rk: destino.rk, nome, mime: tipo.mime, tamanho, fp: body.fp,
+      descricao: descricaoDoEnvio(assinatura), modificado: dataModificada(body.modificado),
+    });
+    return jsonOk({ ok: true, sessao: await selaSessao(secret, { u: uri, n: tamanho, s: slug, x: tipo.ext }), pos: 0 });
+  } catch (e) {
+    return respostaDoErroDeEnvio(e);
+  }
+}
+
+/**
+ * PUT /api/envio/parte?pos=<n> (cabeçalho X-Envio-Sessao: o selo; corpo: os
+ * bytes) → { pos } (até onde o Google recebeu) ou { feito: true }.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {URL} url
+ */
+export async function handleEnvioParte(request, env, ctx, url) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const secret = signingSecret(env);
+  if (!secret || !envioLigado(env)) return jsonErr('Não encontrado.', 404);
+  const s = await abreSessao(secret, request.headers.get('X-Envio-Sessao'));
+  // Selo que não é nosso ou vencido: mesma resposta — a página recomeça o arquivo.
+  if (!s) return erroDeEnvio('Este envio expirou. Começando de novo.', 'sessao', 410);
+  const pos = Number(url.searchParams.get('pos'));
+  if (!Number.isSafeInteger(pos) || pos < 0 || pos >= s.n) return jsonErr('Posição inválida.', 400);
+  // O tamanho declarado é conferido ANTES de ler o corpo para a memória.
+  const declarado = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declarado) && declarado > ENVIO_PARTE_MAX_BYTES) return erroDeEnvio('Parte grande demais.', 'parte', 413);
+  const limite = await takeToken(env, ip, 'envio-parte', ENVIO_PARTE_IP_BUCKET);
+  if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  const n = bytes.byteLength;
+  if (!n) return jsonErr('Parte vazia.', 400);
+  if (n > ENVIO_PARTE_MAX_BYTES) return erroDeEnvio('Parte grande demais.', 'parte', 413);
+  // Toda parte, menos a última, em múltiplos de 256 KiB (regra do Drive).
+  if (pos + n > s.n || (pos + n < s.n && n % ENVIO_PARTE_MULTIPLO !== 0)) return jsonErr('Parte fora do tamanho.', 400);
+  // Os primeiros bytes têm de ser do tipo que a extensão diz. Só agora dá
+  // para conferir; recusado, a sessão é cancelada e nada fica no Drive.
+  if (pos === 0 && !bytesConferem(s.x, bytes)) {
+    ctx.waitUntil(cancelaSessao(s.u));
+    return erroDeEnvio('O conteúdo deste arquivo não é o de uma foto ou de um vídeo.', 'tipo', 415);
+  }
+  try {
+    /** @type {Awaited<ReturnType<typeof enviaParte>>} */
+    let r;
+    try {
+      r = await enviaParte(s.u, bytes, pos, s.n);
+    } catch (e) {
+      if (!(e instanceof EnvioError) || e.codigo !== 'desalinhado') throw e;
+      // A página e o Google discordam de onde parou: quem manda é o Google.
+      r = await consultaSessao(s.u, s.n);
+      if (!r.feito) return jsonOk({ error: 'Retomando de onde parou.', codigo: 'pos', pos: r.pos }, 409);
+    }
+    if (!r.feito) return jsonOk({ pos: r.pos });
+    // Chegou inteiro ao Drive. Conta (para o painel de métricas e para o dono
+    // saber que há foto nova); o nome do arquivo não vai a log.
+    bumpCounter(env, ctx, `envio:feitos:${s.s}`);
+    return jsonOk({ feito: true });
+  } catch (e) {
+    return respostaDoErroDeEnvio(e);
+  }
+}
+
+/**
+ * POST /api/envio/estado { sessao } → { pos } ou { feito: true }: onde o
+ * Google parou. É a pergunta de quem volta (rede caiu, página reaberta).
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleEnvioEstado(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const secret = signingSecret(env);
+  if (!secret || !envioLigado(env)) return jsonErr('Não encontrado.', 404);
+  const s = await abreSessao(secret, body.sessao);
+  if (!s) return erroDeEnvio('Este envio expirou. Começando de novo.', 'sessao', 410);
+  const limite = await takeToken(env, ip, 'envio-parte', ENVIO_PARTE_IP_BUCKET);
+  if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  try {
+    const r = await consultaSessao(s.u, s.n);
+    return jsonOk(r.feito ? { feito: true } : { pos: r.pos });
+  } catch (e) {
+    return respostaDoErroDeEnvio(e);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4502,6 +4918,8 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
     res.headers.append('Set-Cookie', `editora_${album.slug}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
     return res;
   }
+  // Mandar suas fotos (v3.9): "entrenos2026.com/enviar".
+  if (path === '/enviar') return { servir: `/galeria/${album.slug}/enviar` };
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
@@ -4914,7 +5332,9 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const busca = buscaTextoAtiva(env, event, dono || previa);
   // As capas levam a assinatura do site no endereço (v3.8.8, foto-rota.js).
   const assina = await assinadorDeFotos(signingSecret(env), slug, idsDeFotoDoIndice(event, resumo));
-  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname, assina });
+  // Com o envio pelo site ligado, "Mandar suas fotos" leva à página dele.
+  const envioSite = albumRecebeEnvio(env, event) ? `${baseDaGaleria(slug, new URL(request.url).hostname)}/enviar` : '';
+  const pagina = galeriaIndiceHTML({ event, caps: alvo.caps, resumo, ocultas, dono, indexavel, nonce, rosto, busca, host: new URL(request.url).hostname, assina, envioSite });
   /** @type {Response} */
   let res;
   if (dono || isRestrictedAccess(event)) {

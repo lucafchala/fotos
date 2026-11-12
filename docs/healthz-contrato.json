@@ -32,6 +32,10 @@
     "config.consentDb": "boolean",
     "config.adminEmail": "boolean",
     "config.signing": "boolean",
+    "config.envio": "boolean",
+    "envio": "object",
+    "envio.estado": "string",
+    "envio.livreGb": "number|null",
     "termsVersion": "string",
     "versaoSite": "string",
     "versao": "object|null",
@@ -43,7 +47,8 @@
     "now": "string"
   },
   "valores": {
-    "d1": ["absent", "ok", "down"]
+    "d1": ["absent", "ok", "down"],
+    "envio.estado": ["desligado", "ok", "falha", "incerto"]
   },
   "ausentes": ["hashMs"],
   "exemplo": {
@@ -62,7 +67,8 @@
       "forms": { "turnstile": true, "resend": true, "adminEmail": true, "signing": true },
       "sample": "piauifest2025"
     },
-    "config": { "resend": true, "turnstile": true, "consentDb": true, "adminEmail": true, "signing": true },
+    "config": { "resend": true, "turnstile": true, "consentDb": true, "adminEmail": true, "signing": true, "envio": true },
+    "envio": { "estado": "ok", "livreGb": 82.4 },
     "termsVersion": "2026-10-18",
     "versaoSite": "2.0.0",
     "versao": { "id": "6a9c2f1e-4b7d-4f0a-9e3c-2d8b1a7f5e40", "tag": "3aba593", "em": "2026-09-24T09:12:40.000Z" },

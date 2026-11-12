@@ -17,6 +17,7 @@
 
 import { lerSnapshot, gravaSnapshot } from './snapshot.js';
 import { tomaLease, soltaLease } from './utils.js';
+import { creditoDaDescricao } from './envio.js';
 import {
   GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
   GALERIA_MAX_PROFUNDIDADE, GALERIA_MAX_CHAMADAS, GALERIA_MAX_OCULTAS, GALERIA_MAX_CHAMADAS_CAP,
@@ -24,7 +25,7 @@ import {
   AUTOR_PADRAO, CREDITOS_PADRAO, GALERIA_CREDITOS_MAX_LINHAS, GALERIA_CREDITOS_NOME_MAX,
   GALERIA_CREDITOS_EMAIL_MAX, EMAIL_RE, GALERIA_MAX_CAPITULOS,
   GALERIA_LEASE_S, GALERIA_LEASE_POS_S, GALERIA_REVERIFICA_S, GALERIA_VELHO_MAX_S, GALERIA_ESPERA_MS, GALERIA_ESPERAS,
-  NOVAS_JANELA_DIAS, EPOCA_CRIADA_MS, NOVAS_RESUMO_MAX,
+  NOVAS_JANELA_DIAS, EPOCA_CRIADA_MS, NOVAS_RESUMO_MAX, ENVIO_ASSINATURAS_POR_LISTA, RESUMO_DIAS_MAX,
 } from './config.js';
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -32,7 +33,10 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
 // `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
-const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime,shortcutDetails(targetId,targetMimeType,targetResourceKey))';
+// `description` (v3.9): o crédito assinado por quem enviou pelo site ("Crédito:
+// Nome", src/envio.js). O Drive só manda o campo em arquivo que tem descrição:
+// a lista de um álbum comum não cresce um byte.
+const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,description,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime,shortcutDetails(targetId,targetMimeType,targetResourceKey))';
 // Atalho do Drive (v3.6): ver percorre.
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 // ID de arquivo/pasta do Drive. Validado antes de entrar na query `q` da API:
@@ -596,7 +600,27 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
     aut.push(nome);
     return aut.length - 1;
   };
-  /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string }[]} */
+  // Crédito assinado (v3.9): dentro de uma PASTA DE ENVIO (a de crédito cujo
+  // nome começa com "!"), o arquivo que traz "Crédito: Nome" na descrição é
+  // creditado a esse nome, e não ao da pasta ("Turma 2026"). Só ali: nas pastas
+  // dos fotógrafos, que são só de leitura, a descrição não muda crédito
+  // nenhum. Nome igual ao de um crédito do álbum não vale (ninguém assina como
+  // o fotógrafo oficial, e o aviso por e-mail ao autor vai pelo NOME), e há um
+  // teto de nomes por lista.
+  const reservados = new Set([...creditos.values()].map(chavePasta));
+  let assinaturas = 0;
+  /** @param {any} f @param {{ autor: number, envio?: boolean }} onde */
+  const autorDoArquivo = (f, onde) => {
+    if (!onde.envio || typeof f.description !== 'string') return onde.autor;
+    const nome = creditoDaDescricao(f.description);
+    if (!nome || reservados.has(chavePasta(nome))) return onde.autor;
+    const ja = aut.indexOf(nome);
+    if (ja >= 0) return ja;
+    if (assinaturas >= ENVIO_ASSINATURAS_POR_LISTA) return onde.autor;
+    assinaturas++;
+    return indiceAutor(nome);
+  };
+  /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string, envio?: boolean }[]} */
   const fila = [{ id: raiz.id, rk: raiz.resourceKey, caminho: [], autor: 0 }];
   const vistas = new Set([raiz.id]);
   let semAcesso = 0;
@@ -617,7 +641,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
 
   percurso:
   while (fila.length) {
-    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string }} */ (fila.shift());
+    const atual = /** @type {{ id: string, rk: string, caminho: string[], autor: number, atalho?: boolean, origem?: string, envio?: boolean }} */ (fila.shift());
     const caminho = atual.caminho.join(' / ');
     let secao = secoes.get(caminho);
     if (!secao) {
@@ -650,7 +674,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             pastas++;
             vistas.add(alvo);
             const rkAlvo = typeof sd.targetResourceKey === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(sd.targetResourceKey) ? sd.targetResourceKey : '';
-            fila.push({ id: alvo, rk: rkAlvo, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem || alvo });
+            fila.push({ id: alvo, rk: rkAlvo, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem || alvo, envio: atual.envio });
           } else {
             truncada = true;
           }
@@ -667,7 +691,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             // profundidade); as fotos dela levam o autor.
             if (pastas < maxPastas) {
               pastas++;
-              fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: indiceAutor(autorDaPasta) });
+              fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: indiceAutor(autorDaPasta), envio: chaveDaPasta.startsWith('!') });
             } else {
               truncada = true;
             }
@@ -677,10 +701,10 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
             // seguem as pastas do álbum (o ano, a banda), não as de onde as
             // fotos moram.
             pastas++;
-            fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem });
+            fila.push({ id: f.id, rk: rkPasta, caminho: atual.caminho, autor: atual.autor, atalho: true, origem: atual.origem, envio: atual.envio });
           } else if (atual.caminho.length < GALERIA_MAX_PROFUNDIDADE && pastas < maxPastas) {
             pastas++;
-            fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor });
+            fila.push({ id: f.id, rk: rkPasta, caminho: [...atual.caminho, String(f.name || 'Sem nome').slice(0, 120)], autor: atual.autor, envio: atual.envio });
           } else {
             truncada = true;
           }
@@ -691,10 +715,11 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
         const ehImg = mime.startsWith('image/');
         const ehVid = !ehImg && mime.startsWith('video/');
         if (ehImg || ehVid) {
-          const item = ehVid ? videoCompacto(f, atual.autor) : fotoCompacta(f, atual.autor);
+          const autor = autorDoArquivo(f, atual);
+          const item = ehVid ? videoCompacto(f, autor) : fotoCompacta(f, autor);
           if (atual.atalho) {
             const hora = ehVid ? 0 : Number(item[6]) || 0;
-            const k = `${atual.origem || ''}\u0000${atual.autor}\u0000${caminho}\u0000${String(f.name || '').toLowerCase()}\u0000${hora || f.id}`;
+            const k = `${atual.origem || ''}\u0000${autor}\u0000${caminho}\u0000${String(f.name || '').toLowerCase()}\u0000${hora || f.id}`;
             const ja = porNome.get(k);
             if (ja) {
               if ((item[4] || 0) > (ja.secao.fotos[ja.i][4] || 0)) {
@@ -1516,10 +1541,12 @@ export function achaCapitulo(dados, slug) {
 // pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
 // um espaço reservado.
 /**
- * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], pm?: number, a?: Record<string, number>, z?: number }} ResumoCap
+ * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], pm?: number, a?: Record<string, number>, z?: number, dd?: number[] }} ResumoCap
  * `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX.
  * `p` (v3.3): o primeiro e o último mês das fotos do capítulo, AAAAMM, pelas datas de captura (a linha do tempo da apresentação).
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
+ * `dd` (v3.9): os DIAS (AAAAMMDD) com mais fotos no capítulo, em ordem, até RESUMO_DIAS_MAX. É por eles que o envio pelo site
+ *   sugere o evento de uma foto pelo dia em que ela foi feita.
  */
 const RESUMO_MEM_MS = 6 * 3600 * 1000;
 const RESUMO_MEM_PAGO_MS = 60 * 1000;
@@ -1634,12 +1661,18 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
   const limite = Number(new Date().toISOString().slice(0, 7).replace('-', '')) + 1;
   /** @type {Record<string, number>} */
   const porAutor = {};
+  /** @type {Map<number, number>} */
+  const porDia = new Map();
   const autores = Array.isArray(listagem.aut) ? listagem.aut : [];
   for (const sec of listagem.secoes) {
     for (const f of sec.fotos) {
       const hora = Number(f[6]) || 0;
       const m = Math.floor(hora / 1e8);
-      if (m >= 200001 && m <= limite) meses.push(m);
+      if (m >= 200001 && m <= limite) {
+        meses.push(m);
+        const dia = Math.floor(hora / 1e6);
+        porDia.set(dia, (porDia.get(dia) || 0) + 1);
+      }
       const nome = autores[Number(f[5]) || 0];
       if (typeof nome === 'string' && nome) porAutor[nome] = (porAutor[nome] || 0) + 1;
     }
@@ -1649,6 +1682,12 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
     const corte = Math.floor(meses.length * 0.05);
     novo.p = [meses[corte], meses[meses.length - 1 - corte]];
     novo.pm = meses[Math.floor(meses.length / 2)];
+    // Os dias do evento (v3.9): os que têm mais fotos, e só os que pesam (2%
+    // das fotos datadas, no mínimo 2) — a foto solta de uma câmera com o
+    // relógio errado não vira "dia do evento".
+    const piso = Math.max(2, Math.ceil(meses.length * 0.02));
+    const dias = [...porDia].filter(([, n]) => n >= piso).sort((a, b) => b[1] - a[1]).slice(0, RESUMO_DIAS_MAX).map(([d]) => d).sort((a, b) => a - b);
+    if (dias.length) novo.dd = dias;
   }
   if (Object.keys(porAutor).length) novo.a = porAutor;
   const mapa = { ...(await lerResumo(raizId, env)) };

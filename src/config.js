@@ -627,3 +627,71 @@ export const PREVIA_SENHA_MIN = 6;
 export const PREVIA_COOKIE_DIAS = 30;
 export const PREVIA_TENTATIVAS_POR_IP_HORA = 8;
 export const PREVIA_TENTATIVAS_POR_DIA = 200;
+
+// ---------------------------------------------------------------------------
+// Envio de fotos pelo site (v3.9, src/envio.js — guia em docs/ENVIO.md)
+// ---------------------------------------------------------------------------
+// O arquivo sai do celular em PARTES, passa pelo Worker e vai para a pasta de
+// envio do evento no Google Drive (envio retomável da Drive API). O Drive
+// exige que toda parte, menos a última, seja múltipla de 256 KiB.
+export const ENVIO_PARTE_MULTIPLO = 256 * 1024;
+// A parte que a página começa usando; ela mesma encolhe quando a rede falha e
+// cresce quando vai bem (entre o mínimo e o máximo abaixo).
+export const ENVIO_PARTE_BYTES = 4 * 1024 * 1024;
+export const ENVIO_PARTE_MIN_BYTES = 1024 * 1024;
+export const ENVIO_PARTE_TETO_BYTES = 16 * 1024 * 1024;
+// O que o servidor aceita num pedido só: o corpo é lido inteiro na memória do
+// Worker (128 MB) antes de seguir para o Google, e a Cloudflare corta pedidos
+// acima de 100 MB. 32 MiB deixa folga nos dois.
+export const ENVIO_PARTE_MAX_BYTES = 32 * 1024 * 1024;
+// Um arquivo: até 5 GB (um vídeo longo em 4K). O teto existe para um pedido
+// absurdo não reservar o dia inteiro de uma vez.
+export const ENVIO_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+// Arquivos começados por IP. Balde largo de propósito (RETOMADA §5.12): numa
+// festa a turma inteira manda do mesmo Wi-Fi, e 300 pessoas com 100 fotos
+// cada são 30 mil arquivos de um IP só. Quem segura abuso de verdade são o
+// Turnstile do passe, os tetos do dia e o espaço livre no Drive, abaixo.
+export const ENVIO_IP_BUCKET = { capacity: 30000, perHour: 30000 };
+// Partes (e perguntas "onde parou?") por IP: só um freio para um laço
+// descontrolado — cada parte já exige o selo de uma sessão aberta com passe.
+export const ENVIO_PARTE_IP_BUCKET = { capacity: 200000, perHour: 200000 };
+// Passes pedidos por IP (cada um gasta uma conferência no Turnstile).
+export const ENVIO_PASSE_IP_BUCKET = { capacity: 600, perHour: 600 };
+// Tetos do DIA, por álbum (contador atômico, src/counters.js). São o freio de
+// um script com passe válido despejando lixo: o Drive é do dono.
+export const ENVIO_TETO_ARQUIVOS_DIA = 40000;
+export const ENVIO_TETO_MB_DIA = 200 * 1024;
+// Abaixo disto de espaço livre no Drive o site para de aceitar envio (e o
+// healthz avisa antes: ENVIO_AVISO_DRIVE_BYTES). O Drive cheio também para o
+// Gmail e o Fotos da conta: melhor recusar foto do que travar a conta do dono.
+export const ENVIO_MARGEM_DRIVE_BYTES = 2 * 1024 * 1024 * 1024;
+export const ENVIO_AVISO_DRIVE_BYTES = 10 * 1024 * 1024 * 1024;
+// O passe (depois do Turnstile e da declaração): a noite do evento inteira.
+export const ENVIO_PASSE_TTL_SECS = 12 * 3600;
+// A sessão de um arquivo. O Google guarda a dele por uma semana; a nossa
+// vence um dia antes, para a página nunca insistir numa sessão morta.
+export const ENVIO_SESSAO_TTL_SECS = 6 * 86400;
+// A assinatura de quem manda (vira o crédito das fotos dela).
+export const ENVIO_ASSINATURA_MIN = 2;
+export const ENVIO_ASSINATURA_MAX = 40;
+// Quantas assinaturas diferentes uma página de evento credita; daí em diante
+// a foto fica com o crédito da pasta ("Turma 2026"). Sem teto, um script
+// encheria a página de nomes.
+export const ENVIO_ASSINATURAS_POR_LISTA = 80;
+// A declaração que a pessoa marca antes de enviar. O texto EXATO vai para o
+// registro de consentimento (D1): mudou aqui, mude os Termos (item 6-A) e a
+// TERMS_VERSION.
+export const ENVIO_DECLARACAO = 'As fotos e os vídeos são meus ou tenho autorização de quem fez e de quem aparece para publicá-los neste álbum, e li os Termos de Uso.';
+// Quantos dias cada evento guarda no resumo (`ResumoCap.dd`, src/drive.js): os
+// de mais fotos. É por eles que a página de envio sugere o evento pelo dia da
+// foto. Um festival de três dias cabe; um evento com cinco anos guarda os
+// dias cheios de cada ano.
+export const RESUMO_DIAS_MAX = 12;
+// O que o site aceita, pela extensão (o tipo que o navegador declara não é
+// confiável; os primeiros bytes são conferidos na primeira parte). Só foto e
+// vídeo: nada que o Drive abriria como documento ou programa.
+export const ENVIO_TIPOS = Object.freeze({
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', dng: 'image/x-adobe-dng',
+  mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', '3gp': 'video/3gpp', webm: 'video/webm',
+});

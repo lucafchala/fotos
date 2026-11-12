@@ -28,6 +28,9 @@ import { FONTS } from './content/fonts.js';
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
  *   GOOGLE_DRIVE_API_KEY?: string,
+ *   GOOGLE_OAUTH_CLIENT_ID?: string,
+ *   GOOGLE_OAUTH_CLIENT_SECRET?: string,
+ *   GOOGLE_OAUTH_REFRESH_TOKEN?: string,
  *   AWS_ACCESS_KEY_ID?: string,
  *   AWS_SECRET_ACCESS_KEY?: string,
  *   AWS_REGION?: string,
@@ -1502,6 +1505,8 @@ export const RESERVED_SLUGS = new Set([
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
   // Entrada e saída da editora do álbum, no domínio dele (v3.8.1).
   'entrar', 'sair',
+  // A página "Mandar suas fotos" no domínio do álbum (v3.9): /enviar.
+  'enviar',
   // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
   // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
   // que é da estrutura do site.

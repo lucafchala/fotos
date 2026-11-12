@@ -27,9 +27,10 @@ import { TURNSTILE_SITE_KEY, ROSTO_LIMIAR, ROSTO_TENTATIVAS_NO_PICO } from '../c
  *   busca?: boolean,
  *   host?: string,
  *   assina?: (id: string) => string,
+ *   envioSite?: string,
  * }} p
  */
-export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null, busca = false, host = '', assina = () => '' }) {
+export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexavel, nonce = '', rosto = null, busca = false, host = '', assina = () => '', envioSite = '' }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   // Links curtos no domínio do álbum (v3.8.3).
@@ -96,7 +97,7 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({
       event, titulo, caps: visiveis, resumo, ocultasSet, restrito, indexavel, origem: origemDoAlbum(slug),
-      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce, assina,
+      base, barraDono, avisoTrunc, botaoRosto: comRosto, rostoDialog: comRosto ? rostoHTML() : '', buscaFotos: comBusca ? buscaHTML() : '', scripts, nonce, assina, envioSite,
     });
   }
 
