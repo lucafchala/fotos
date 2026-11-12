@@ -18,7 +18,7 @@
 //    comum. iPhone/iPad: "Salvar no Fotos" (a folha do sistema com o arquivo,
 //    um toque até o app Fotos) e "Baixar arquivo" (vai para o app Arquivos);
 //  - seleção de várias fotos, lembrada no aparelho, e link direto para cada
-//    foto (#foto=ID).
+//    foto (?foto=código; o #foto= antigo também abre).
 //
 // As fotos vêm do lh3 do Google (sem chave). Os downloads passam pelo proxy
 // /galeria/<slug>/baixar/<id>, que só entrega arquivo que está na pasta do
@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
+import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
@@ -40,8 +40,8 @@ import { rotuloDoPeriodo } from './album.js';
 // aparelho (v3.7.6). `:root:root` vence o :root claro do prefers-color-scheme.
 const TEMA_ALBUM = `
     :root:root{
-      --bg-page:#0f0e0c; --text:#f3ede3; --text-2:#cfc6b8; --text-muted:#a39a8c; --text-dim:#7d756a;
-      --bg-card:#1a1815; --bg-card-2:#22201b; --esqueleto:#24211c; --border:#2b2823; --accent:#f9de4b; --accent-text:#141a33;
+      --bg-page:${P.bg}; --text:${P.txt}; --text-2:${P.txt2}; --text-muted:${P.mudo}; --text-dim:${P.dim};
+      --bg-card:${P.card}; --bg-card-2:${P.card2}; --esqueleto:${P.esqueleto}; --border:${P.borda}; --accent:${P.sol}; --accent-text:#141a33;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#f0b46a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
@@ -175,6 +175,8 @@ function assinaturasDaSecao(fotos, assina) {
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string, ano?: string }[] } | null,
  *   host?: string,
  *   assina?: (id: string) => string,
+ *   fotoDoLink?: string,
+ *   dataDoEvento?: { atual: string, auto: string } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -196,7 +198,7 @@ function assinaturasDaSecao(fotos, assina) {
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '', assina = () => '' }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '', assina = () => '', fotoDoLink = '', dataDoEvento = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -269,9 +271,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     );
   const primeiraFoto = todasFotos.find(f => !ehVideo(f));
   const capaDaFoto = primeiraFoto ? urlLh3(primeiraFoto[0], 1600) : '';
-  const capaDoCartao = restrito ? '' : capitulo ? capaDaFoto || event.thumbnailUrl || '' : event.thumbnailUrl || capaDaFoto;
+  // Link de UMA foto (v3.9.0, "?foto=" com o código curto da foto): o cartão
+  // do WhatsApp mostra aquela foto, não a capa. Só foto desta lista (a do
+  // visitante já vem sem as ocultas), nunca em álbum restrito.
+  const fotoDoCartao = restrito ? undefined : fotoDaLista(todasFotos, fotoDoLink);
+  const capaDoCartao = restrito ? '' : fotoDoCartao ? urlLh3(fotoDoCartao[0], 1600) : capitulo ? capaDaFoto || event.thumbnailUrl || '' : event.thumbnailUrl || capaDaFoto;
   const ogImage = ogImageFor(capaDoCartao);
-  const tituloDoCartao = restrito ? `Fotos de ${titulo}` : capitulo ? `${capitulo.nome} · ${titulo}` : tituloPagina;
+  const nomeDoCartao = capitulo ? `${capitulo.nome} · ${titulo}` : tituloPagina;
+  const tituloDoCartao = restrito ? `Fotos de ${titulo}` : fotoDoCartao ? `Uma foto de ${capitulo ? capitulo.nome : titulo}` : nomeDoCartao;
   const jsonLd = todasFotos.length ? {
     '@context': 'https://schema.org',
     '@type': 'ImageGallery',
@@ -421,7 +428,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
-  <meta name="theme-color" content="${marca ? '#0f0e0c' : '#0a0a0a'}">${marca ? '\n  <meta name="color-scheme" content="dark">' : ''}
+  <meta name="theme-color" content="${marca ? P.bg : '#0a0a0a'}">${marca ? '\n  <meta name="color-scheme" content="dark">' : ''}
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   ${marca ? '' : '<link rel="manifest" href="/manifest.json">'}
@@ -431,7 +438,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   ${socialMetaHTML({
     title: tituloDoCartao,
     description: descricao,
-    url: urlPagina,
+    url: fotoDoCartao ? `${urlPagina}?foto=${encodeURIComponent(fotoDoLink)}` : urlPagina,
     image: ogImage.url,
     imageAlt: tituloDoCartao,
     imageWidth: ogImage.width,
@@ -471,6 +478,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
+    .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
+    .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
     .g-top-l{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.25rem;padding:.8rem var(--pad)}
     .g-tit{flex:1 1 14rem;min-width:0}
@@ -706,7 +715,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ${listagem ? `<span class="g-lista" title="${escape(descreveRenovacao(event))}">Atualizada em ${escape(quando)}</span>` : ''}
     ${listagem && event.driveUrlInstagram ? `<span id="g-n-redes">${comRedes} de ${total} com "para redes" (pasta do Instagram)</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
-  </div>` : ''}
+    ${dataDoEvento && capitulo ? seletorDoAno(slug, capitulo.slug, dataDoEvento) : ''}
+  </div>${dataDoEvento && capitulo ? `<script nonce="${nonce}">${SCRIPT_ANO}</script>` : ''}` : ''}
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
       <div class="g-tit">
@@ -792,6 +802,50 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   <script nonce="${nonce}">${SCRIPT}</script>` : ''}
 </body>
 </html>`;
+}
+
+/**
+ * "Ano do evento" (v3.9.0), na faixa do dono: o ano que vale na linha do tempo
+ * quando a data das fotos está errada. "Automático" volta à data das fotos.
+ * @param {string} slug @param {string} cap
+ * @param {{ atual: string, auto: string }} d
+ */
+function seletorDoAno(slug, cap, d) {
+  const agora = new Date().getUTCFullYear();
+  /** @type {string[]} */
+  const anos = [];
+  for (let a = agora + 1; a >= 2015; a--) anos.push(String(a));
+  if (d.atual && !anos.includes(d.atual)) anos.push(d.atual);
+  const op = (/** @type {string} */ v, /** @type {string} */ t) => `<option value="${escape(v)}"${v === d.atual ? ' selected' : ''}>${escape(t)}</option>`;
+  return `<label class="g-ano">Ano do evento <select id="g-ano" data-slug="${escape(slug)}" data-cap="${escape(cap)}">${op('', `Automático${d.auto ? ` (${d.auto})` : ''}`)}${anos.map(a => op(a, a)).join('')}</select></label><span id="g-ano-msg" role="status"></span>`;
+}
+
+const SCRIPT_ANO = `(function () {
+  var s = document.getElementById('g-ano');
+  var m = document.getElementById('g-ano-msg');
+  if (!s || !m) return;
+  s.addEventListener('change', function () {
+    s.disabled = true;
+    m.textContent = 'Salvando…';
+    fetch('/api/galeria/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: s.dataset.slug, cap: s.dataset.cap, data: s.value }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'Não salvou. Tente de novo.'); m.textContent = s.value ? 'Salvo: o evento vai para ' + s.value + ' na linha do tempo.' : 'Salvo: de volta à data das fotos.'; }); })
+      .catch(function (e) { m.textContent = (e && e.message) || 'Não salvou. Tente de novo.'; })
+      .then(function () { s.disabled = false; });
+  });
+})();`;
+
+/**
+ * A foto de um link "?foto=": pelo ID inteiro ou pelos 10 primeiros
+ * caracteres (o código curto que a galeria usa no #foto=). Vídeo não vale:
+ * o cartão precisa de imagem.
+ * @param {import('../drive.js').FotoDrive[]} fotos
+ * @param {unknown} codigo
+ * @returns {import('../drive.js').FotoDrive | undefined}
+ */
+export function fotoDaLista(fotos, codigo) {
+  if (typeof codigo !== 'string' || !/^[A-Za-z0-9_-]{6,120}$/.test(codigo)) return undefined;
+  return fotos.find(f => !ehVideo(f) && f[0] === codigo)
+    || (codigo.length === 10 ? fotos.find(f => !ehVideo(f) && String(f[0]).slice(0, 10) === codigo) : undefined);
 }
 
 /**
@@ -973,6 +1027,22 @@ const SCRIPT = `
   const prefixos = {};
   D.secoes.forEach(function (s) { s.fotos.forEach(function (f) { const p = String(f[0]).slice(0, 10); prefixos[p] = (prefixos[p] || 0) + 1; }); });
   const codigoDe = function (id) { const p = String(id).slice(0, 10); return prefixos[p] > 1 ? id : p; };
+  // O link de uma foto (v3.9.0): "<página>?foto=<código>". O servidor vê o
+  // código e o cartão do WhatsApp mostra a própria foto. O #foto= antigo
+  // continua abrindo.
+  const FOTO_NO_LINK = (function () {
+    const q = new URLSearchParams(location.search).get('foto');
+    if (q && /^[A-Za-z0-9_-]+$/.test(q)) return q;
+    const m = location.hash.match(/^#foto=([A-Za-z0-9_-]+)$/);
+    return m ? m[1] : '';
+  })();
+  const semFotoNaBusca = function () {
+    const q = new URLSearchParams(location.search);
+    q.delete('foto');
+    const s = q.toString();
+    return location.pathname + (s ? '?' + s : '');
+  };
+  const enderecoDaFoto = function (id) { return location.pathname + '?foto=' + codigoDe(id); };
   const semExt = function (n) { return String(n || '').replace(/[.][^.]+$/, ''); };
   const LONGO_ESTIMADO = 4096;
   const reduz = function () {
@@ -1052,7 +1122,7 @@ const SCRIPT = `
         const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
         const a = document.createElement('a');
         a.className = 'g-t' + (ehVid ? ' g-video' : '') + (nova ? ' nova' : '');
-        a.href = '#foto=' + codigoDe(f[0]);
+        a.href = '?foto=' + codigoDe(f[0]);
         a.dataset.i = String(i);
         a.dataset.ext = extDoNome(f[3]).toUpperCase();
         a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]) + (nova ? ', nova' : ''));
@@ -1273,9 +1343,9 @@ const SCRIPT = `
   const anosLista = anosSec.filter(function (a, i) { return a && anosSec.indexOf(a) === i; });
   const secoesSaoAnos = D.secoes.length > 1 && anosSec.every(Boolean) && anosLista.length > 1;
   // O ano escolhido fica lembrado neste aparelho (v3.8.3): voltar ao evento
-  // reabre no mesmo ano. Quem chega por link de foto (#foto=) vê tudo.
+  // reabre no mesmo ano. Quem chega por link de foto (?foto=) vê tudo.
   const CHAVE_ANO = 'gal-ano:' + D.slug + ':' + D.cap;
-  if (secoesSaoAnos && !/^#foto=/.test(location.hash)) {
+  if (secoesSaoAnos && !FOTO_NO_LINK) {
     try { const a = localStorage.getItem(CHAVE_ANO); const k = a ? anosLista.indexOf(a) : -1; if (k >= 0) filtroSec = k; } catch (e) { /* sem armazenamento */ }
   }
   function filtroAtivo() {
@@ -1816,7 +1886,7 @@ const SCRIPT = `
         if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
       });
       lightbox.on('uiRegister', registraUi);
-      // Link direto para a foto aberta (#foto=ID): copiar a barra de endereço
+      // Link direto para a foto aberta (?foto=código, v3.9.0): copiar a barra de endereço
       // e mandar para alguém (ou abrir noutra aba) cai na mesma foto. Abrir
       // EMPILHA uma entrada (o "voltar" fecha a foto — ver o popstate acima);
       // trocar de foto só reescreve a entrada, senão o voltar andaria foto
@@ -1825,7 +1895,7 @@ const SCRIPT = `
         vendo = true;
         document.body.classList.add('g-vendo');
         const f = vistas[lightbox.pswp.currIndex];
-        if (f) history.pushState({ g: 'foto' }, '', '#foto=' + codigoDe(f.id));
+        if (f) history.pushState({ g: 'foto' }, '', enderecoDaFoto(f.id));
         marcaTipoDoSlide();
       });
       lightbox.on('destroy', function () {
@@ -1839,7 +1909,7 @@ const SCRIPT = `
       });
       lightbox.on('change', function () {
         const f = vistas[lightbox.pswp.currIndex];
-        if (f && noTopo('foto')) history.replaceState(history.state, '', '#foto=' + codigoDe(f.id));
+        if (f && noTopo('foto')) history.replaceState(history.state, '', enderecoDaFoto(f.id));
         marcaTipoDoSlide();
       });
       lightbox.on('close', function () {
@@ -2503,7 +2573,7 @@ const SCRIPT = `
   // a cada toque até o prazo passar.
   let compartilharAte = 0;
   async function compartilhaFoto(f) {
-    const link = location.origin + location.pathname + '#foto=' + codigoDe(f.id);
+    const link = location.origin + enderecoDaFoto(f.id);
     if (Date.now() < compartilharAte) {
       avisa('Muita gente baixando agora. Tente de novo em ' + Math.ceil((compartilharAte - Date.now()) / 1000) + ' s.');
       return;
@@ -2891,7 +2961,7 @@ const SCRIPT = `
     if (!f) return;
     if (alvo.closest('.g-fav')) { e.preventDefault(); alternaFav(f); return; }
     if (modoSel && e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); selecionaIntervalo(f); return; }
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; // nova aba: o #foto= abre lá
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; // nova aba: o ?foto= abre lá
     e.preventDefault();
     if (modoSel) { alternaSel(f); return; }
     abre(vistas.indexOf(f));
@@ -2980,14 +3050,13 @@ const SCRIPT = `
     } else {
       window.addEventListener('resize', function () { agendaDiagrama(); medeTopo(); });
     }
-    const m = location.hash.match(/^#foto=([A-Za-z0-9_-]+)$/);
-    if (m) {
-      const f = fotos.find(function (x) { return x.id === m[1]; }) || fotos.find(function (x) { return codigoDe(x.id) === m[1]; });
+    if (FOTO_NO_LINK) {
+      const f = fotos.find(function (x) { return x.id === FOTO_NO_LINK; }) || fotos.find(function (x) { return codigoDe(x.id) === FOTO_NO_LINK; });
       if (f) {
         // A entrada de chegada vira a da grade, e a abertura empilha a da
         // foto: assim o voltar de quem chegou pelo link fecha a foto e fica
         // na galeria.
-        history.replaceState(null, '', location.pathname + location.search);
+        history.replaceState(null, '', semFotoNaBusca());
         abre(vistas.indexOf(f));
       }
     }

@@ -20,7 +20,7 @@ import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js'
 import { urlFoto } from '../foto-rota.js';
 import { HONEYPOT_CSS } from '../security.js';
 import { ROSTO_CSS, BUSCA_CSS } from './indice-comum.js';
-import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM } from '../config.js';
+import { GALERIA_ESTILOS, DOMINIOS_DE_ALBUM, PALETA_ALBUM as P } from '../config.js';
 import { brCodePix } from '../pix.js';
 import { qrLinhas } from '../qr.js';
 
@@ -92,6 +92,40 @@ export function ordemDaLinha(caps, resumo) {
   if (!caps.some(c => mesDoEvento(resumo[c.id]))) return caps;
   return caps.map((c, i) => ({ c, i, d: mesDoEvento(resumo[c.id]) || 999999 }))
     .sort((x, y) => x.d - y.d || x.i - y.i).map(x => x.c);
+}
+
+/**
+ * A data que o dono escolheu para um evento (v3.9.0): "AAAA" ou "AAAA-MM".
+ * Serve quando as fotos vêm com a data errada (câmera com o relógio errado,
+ * foto escaneada, pasta de outro ano).
+ */
+export const DATA_DO_EVENTO_RE = /^(19[5-9][0-9]|20[0-9][0-9])(?:-(0[1-9]|1[0-2]))?$/;
+
+/**
+ * O resumo dos eventos com as datas do dono por cima (v3.9.0, `datasEventos`
+ * { [cap]: "AAAA" | "AAAA-MM" }). Com só o ano, o mês das fotos fica (ordena
+ * os eventos do mesmo ano); sem ele, janeiro. O cartão mostra só o que o dono
+ * escolheu ("2024" ou "mar 2024"). Evento sem resumo ainda fica como está.
+ * @template {{ id: string, slug: string }} C
+ * @param {Record<string, import('../drive.js').ResumoCap>} resumo
+ * @param {C[]} caps
+ * @param {unknown} datas
+ * @returns {Record<string, import('../drive.js').ResumoCap>}
+ */
+export function comDatasDoDono(resumo, caps, datas) {
+  if (!datas || typeof datas !== 'object' || Array.isArray(datas)) return resumo;
+  const mapa = /** @type {Record<string, unknown>} */ (datas);
+  const out = { ...resumo };
+  for (const c of caps) {
+    const v = mapa[c.slug];
+    const m = typeof v === 'string' ? DATA_DO_EVENTO_RE.exec(v) : null;
+    const r = resumo[c.id];
+    if (!m || !r) continue;
+    const mes = m[2] ? Number(m[2]) : (mesDoEvento(r) % 100 || 1);
+    const am = Number(m[1]) * 100 + mes;
+    out[c.id] = { ...r, pm: am, p: [am, am], rotulo: m[2] ? `${MESES[mes - 1]} ${m[1]}` : m[1] };
+  }
+  return out;
 }
 
 /**
@@ -238,6 +272,7 @@ export function albumHTML(p) {
   // aparece na linha quando a busca pelo rosto ocupa o botão principal (CSS).
   const links = [
     caps.length ? '<a class="al-link al-link-ver" href="#eventos">Ver os eventos</a>' : '',
+    restrito ? '' : `<a class="al-link" href="${base}/ajuda">Dúvidas?</a>`,
     restrito ? '' : `<span class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-link al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button></span>`,
   ].filter(Boolean).join('');
   const linhaLinks = links ? `<nav class="al-links" aria-label="Mais opções">${links}</nav>${restrito ? '' : '<p class="al-aviso-msg" id="av-msg" role="status"></p>'}` : '';
@@ -302,7 +337,7 @@ export function albumHTML(p) {
   const itens = caps.map(c => {
     const r = resumo[c.id];
     const cs = capasDe(c.id);
-    const periodo = r ? rotuloDoPeriodo(r.p) : '';
+    const periodo = r ? r.rotulo || rotuloDoPeriodo(r.p) : '';
     const n = r ? r.n : 0;
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
@@ -351,7 +386,7 @@ export function albumHTML(p) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
-  <meta name="theme-color" content="#0f0e0c">
+  <meta name="theme-color" content="${P.bg}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
@@ -592,10 +627,12 @@ export const SCRIPT_ENVIO = `(function () {
 // site da escola); o azul entra pouco: a faixa do recado, o fim da linha do
 // tempo e um brilho atrás do título. As variáveis da segunda linha são as que
 // o CSS da busca pelo rosto (indice-comum.js) usa.
+// As cores do álbum num lugar só: a página do álbum e as de ajuda (v3.9.0).
+export const CORES_DO_ALBUM = `:root{--bg:${P.bg};--card:${P.card};--borda:${P.borda};--txt:${P.txt};--txt2:${P.txt2};--mudo:${P.mudo};--sol:${P.sol};--azul:${P.azul};--pad:clamp(16px,4vw,48px);
+  --bg-page:var(--bg);--bg-card:var(--card);--border:var(--borda);--text:var(--txt);--text-2:var(--txt2);--text-muted:var(--mudo);--accent:var(--sol);--warn-text:#f0b46a;--esqueleto:${P.esqueleto};color-scheme:dark}`;
 const CSS_BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f0e0c;--card:#1a1815;--borda:#2b2823;--txt:#f3ede3;--txt2:#cfc6b8;--mudo:#a39a8c;--sol:#f9de4b;--azul:#243580;--pad:clamp(16px,4vw,48px);
-  --bg-page:var(--bg);--bg-card:var(--card);--border:var(--borda);--text:var(--txt);--text-2:var(--txt2);--text-muted:var(--mudo);--accent:var(--sol);--warn-text:#f0b46a;--esqueleto:#24211c;color-scheme:dark}
+${CORES_DO_ALBUM}
 html{scroll-behavior:smooth}
 @media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
 body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh}
@@ -621,8 +658,8 @@ a{color:inherit;text-decoration:none}
 .al-btn:active{transform:scale(.97)}
 .al-b1{background:var(--sol);color:#141a33}
 .al-rosto{gap:.55rem;justify-content:center}.al-rosto svg{width:1.25rem;height:1.25rem;flex:none}
-.al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(15,14,12,.45);color:var(--sol);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.al-b2{color:var(--sol);background:rgba(15,14,12,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(${P.bgRgb},.45);color:var(--sol);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.al-b2{color:var(--sol);background:rgba(${P.bgRgb},.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 @media (hover:hover){.al-b2:hover{background:rgba(249,222,75,.12)}.al-b1:hover{filter:brightness(1.06)}}
 .al-sec{display:block;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}
 .al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.4rem);letter-spacing:-.02em;margin:.4rem 0 1.4rem}
@@ -666,7 +703,7 @@ body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
 .al-vazio{display:block;width:100%;aspect-ratio:16/9;background:var(--esqueleto)}
 .al-sem-foto{padding-top:clamp(3rem,10vh,6rem)}
 .al-tl{list-style:none;position:relative;display:grid;gap:1.1rem;grid-template-columns:1fr}
-.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--sol),var(--azul) 70%,var(--borda))}
+.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--azul),var(--borda))}
 .al-tl>li{position:relative;padding-left:2rem}
 .al-tl>li::before{content:"";position:absolute;left:0;top:.3rem;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--sol)}
 .al-mes{display:block;font-size:.72rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--sol);min-height:1em}
@@ -719,7 +756,7 @@ ${Array.from({ length: n }, (_, i) => `.al-slides img:nth-child(${i + 1}){animat
 .al-hero{position:relative;min-height:100svh;display:flex;align-items:flex-end;overflow:hidden}
 .al-slides img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--esqueleto)}
 ${troca}
-.al-hero:not(.al-sem-foto)::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,14,12,.25) 0%,rgba(15,14,12,0) 30%,rgba(15,14,12,.7) 68%,var(--bg) 100%)}
+.al-hero:not(.al-sem-foto)::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(${P.bgRgb},.25) 0%,rgba(${P.bgRgb},0) 30%,rgba(${P.bgRgb},.7) 68%,var(--bg) 100%)}
 .al-hero-txt{position:relative;z-index:1;width:100%;max-width:72rem;margin:0 auto;padding:0 var(--pad) clamp(3rem,9vh,5.5rem)}
 .al-hero .al-tit{font-size:clamp(3.6rem,16vw,10.5rem);margin:.6rem 0 .8rem}
 .al-desce{position:absolute;z-index:1;left:50%;bottom:.6rem;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--mudo);font-size:1.4rem}
@@ -757,7 +794,7 @@ const CSS_LINHA = `
 .al-linha-h .al-tit{font-size:clamp(3.6rem,14vw,9rem);margin:.5rem 0 1.2rem}
 .al-linha-h .al-intro{margin-bottom:1.2rem}
 .al-big{list-style:none;position:relative}
-.al-big::before{content:"";position:absolute;left:9px;top:0;bottom:0;width:2px;background:linear-gradient(var(--sol),var(--azul) 75%,transparent)}
+.al-big::before{content:"";position:absolute;left:9px;top:0;bottom:0;width:2px;background:linear-gradient(var(--azul),transparent)}
 .al-big>li{position:relative;padding:0 0 2.6rem 2.6rem}
 .al-big>li::before{content:"";position:absolute;left:0;top:.15rem;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid var(--sol)}
 .al-big .al-mes{font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:1.2rem;letter-spacing:0;text-transform:none}
