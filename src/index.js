@@ -4862,15 +4862,6 @@ async function cookieGaleria(env, slug) {
 }
 
 /**
- * @param {Request} request
- * @param {Env} env
- * @param {string} slug
- * @param {URL} url
- * @param {string} nonce
- * @param {ExecutionContext} [ctx]
- * @param {string} [capSlug] capítulo (galeria por capítulos); vazio = a galeria do projeto, ou o ÍNDICE nos projetos com capítulos
- */
-/**
  * As páginas de ajuda do álbum (v3.9.0, src/ui/ajuda.js). O mesmo portão da
  * galeria: antes do lançamento, só quem tem a prévia (ou o dono) vê.
  * @param {Request} request @param {Env} env @param {string} slug @param {string} tema @param {string} nonce
@@ -4887,6 +4878,15 @@ export async function handleAjuda(request, env, slug, tema, nonce) {
   return res;
 }
 
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {URL} url
+ * @param {string} nonce
+ * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug] capítulo (galeria por capítulos); vazio = a galeria do projeto, ou o ÍNDICE nos projetos com capítulos
+ */
 export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, capSlug = '') {
   if (!await podeVerGaleria(request, env, slug)) return notFound();
   const event = (await getEvents(env)).find(e => e.slug === slug);

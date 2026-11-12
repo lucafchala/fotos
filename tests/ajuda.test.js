@@ -89,7 +89,7 @@ describe('ajuda no site principal', () => {
 describe('a página em si', () => {
   it('todo script com nonce, sem innerHTML; título de evento escapado', () => {
     const h = /** @type {string} */ (ajudaHTML({ event: { slug: 'x', title: '<b>Turma</b>' }, tema: '', base: '/galeria/x', nonce: 'NONCE' }));
-    for (const s of h.match(/<script[^>]*>/g) || []) expect(s).toContain('nonce="NONCE"');
+    for (const s of h.match(/<script[^>]*>/gi) || []) expect(s).toContain('nonce="NONCE"');
     expect(h).not.toContain('innerHTML');
     expect(h).toContain('&lt;b&gt;Turma&lt;/b&gt;');
     expect(h).not.toContain('<b>Turma</b>');

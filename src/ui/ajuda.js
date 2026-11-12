@@ -176,7 +176,7 @@ function semAcento(s) {
 
 /**
  * @param {{
- *   event: { slug: string, title?: string, pixChave?: unknown },
+ *   event: { slug?: string, title?: string, pixChave?: unknown },
  *   tema: string, base: string, nonce: string,
  * }} p  tema '' = todos; base: '' no domínio do álbum, '/galeria/<slug>' no site
  * @returns {string | null} null = tema que não existe neste álbum
@@ -187,7 +187,7 @@ export function ajudaHTML({ event, tema, base, nonce }) {
   if (tema && !atual) return null;
   const titulo = String(event.title || 'Álbum');
   const raiz = base || '/';
-  const marca = marcaDoAlbum(event.slug);
+  const marca = marcaDoAlbum(String(event.slug || ''));
   const mostrar = atual ? [atual] : temas;
   /** @param {string} r */
   const resposta = r => r.replaceAll('{base}', base).replaceAll('{raiz}', raiz);

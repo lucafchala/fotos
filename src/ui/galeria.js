@@ -175,6 +175,8 @@ function assinaturasDaSecao(fotos, assina) {
  *   capitulo?: { slug: string, nome: string, anterior: { slug: string, nome: string } | null, proximo: { slug: string, nome: string } | null, eventos?: { slug: string, nome: string, ano?: string }[] } | null,
  *   host?: string,
  *   assina?: (id: string) => string,
+ *   fotoDoLink?: string,
+ *   dataDoEvento?: { atual: string, auto: string } | null,
  * }} p
  */
 // `indexavel` (padrão false, o lado seguro): a página pode ir para o Google —
@@ -836,9 +838,9 @@ const SCRIPT_ANO = `(function () {
  * A foto de um link "?foto=": pelo ID inteiro ou pelos 10 primeiros
  * caracteres (o código curto que a galeria usa no #foto=). Vídeo não vale:
  * o cartão precisa de imagem.
- * @param {any[][]} fotos
+ * @param {import('../drive.js').FotoDrive[]} fotos
  * @param {unknown} codigo
- * @returns {any[] | undefined}
+ * @returns {import('../drive.js').FotoDrive | undefined}
  */
 export function fotoDaLista(fotos, codigo) {
   if (typeof codigo !== 'string' || !/^[A-Za-z0-9_-]{6,120}$/.test(codigo)) return undefined;
