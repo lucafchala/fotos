@@ -20,10 +20,12 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ## [3.9.0] — ainda não publicada
 
-Três coisas para quem usa o álbum no celular.
+O que deixa o álbum mais fácil de usar e de compartilhar.
 
 - **O link de uma foto mostra a própria foto no WhatsApp.** Todo link de foto agora tem um formato só, `entrenos2026.com/<evento>?foto=<código>`: a grade, o Compartilhar, a barra de endereço com a foto aberta, os resultados da busca pelo rosto e o e-mail da moderação. Como o servidor enxerga a foto no endereço, o cartão do link (WhatsApp, Instagram, Telegram) mostra aquela foto, com o título "Uma foto de <evento>". Foto oculta, de outro evento ou código inválido caem no cartão normal do evento; o canônico continua a página do evento. O `#foto=` antigo continua abrindo.
 - **Cartão "minhas fotos" para os stories.** Depois da busca pelo rosto, *Criar cartão para os stories* monta no próprio celular uma imagem 1080×1920 com o título do álbum, até 6 fotos (a melhor de cada evento primeiro), quantas fotos a pessoa tem e o endereço do álbum. Compartilhar (onde o aparelho deixa) ou Baixar. Nada vai ao servidor.
+- **O ano de cada evento, escolhido pelo dono.** Na página do evento, a faixa do painel (só o dono ou a editora veem) ganha *Ano do evento*: "Automático (o ano das fotos)" ou um ano. Vale na linha do tempo, na grade por ano, na faixa de eventos e no cartão do evento (que mostra só o ano escolhido). Serve para foto com a data errada (câmera com o relógio errado, foto escaneada). Guardado em `datasEventos`; a API aceita também ano e mês (`2024-03`).
+- **As cores do álbum saem do azul do Colégio Santa Cruz** (`#243580`): o fundo, os cartões e as bordas são esse azul bem escuro, em vez do quase-preto quente que puxava para o marrom; as linhas da linha do tempo são azuis (o degradê amarelo → azul ficava oliva/marrom no meio). O amarelo só entra sólido, nos destaques. As cores moram num lugar só, `PALETA_ALBUM` em `src/config.js` (antes repetidas em cinco).
 - **Páginas de ajuda**: `entrenos2026.com/ajuda` e `/ajuda/<tema>` (rosto, baixar, enviar, remover, navegar, apoiar, contato), com o campo *Qual é a sua dúvida?* que filtra as perguntas. Mesmo portão da galeria: antes do lançamento, só quem tem a prévia vê. A página do álbum ganha o link *Dúvidas?*, e a janela da busca pelo rosto, *Como funciona e dicas*. `ajuda` vira nome reservado (não pode ser nome de projeto).
 
 ## [3.8.13] — ainda não publicada

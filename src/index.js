@@ -23,7 +23,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice, comDatasDoDono, DATA_DO_EVENTO_RE } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -360,6 +360,7 @@ const worker = {
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/capa' && method === 'POST') return await handleCapaDoEvento(request, env);
+      if (path === '/api/galeria/data' && method === 'POST') return await handleDataDoEvento(request, env);
       if (path === '/api/editora/entrar' && method === 'POST') return await handleEditoraEntrar(request, env);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
@@ -4972,8 +4973,14 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   // não vê evento que o resumo diz vazio; o atual entra sempre).
   /** @type {{ slug: string, nome: string, ano?: string }[]} */
   let eventosDaFaixa = [];
+  /** @type {{ atual: string, auto: string } | null} */
+  let dataDoEvento = null;
   if (alvo.kind === 'ok' && capitulo && alvo.caps) {
-    const resumoFaixa = await lerResumo(alvo.raiz.id, env);
+    const resumoBruto = await lerResumo(alvo.raiz.id, env);
+    const resumoFaixa = comDatasDoDono(resumoBruto, alvo.caps.caps, event.datasEventos);
+    // Só o dono: o seletor "Ano do evento" (v3.9.0) mostra o ano automático.
+    const mesAuto = mesDoEvento(resumoBruto[capitulo.id]);
+    dataDoEvento = { atual: normalizaDatasEventos(event.datasEventos)[capitulo.slug] || '', auto: mesAuto ? String(Math.floor(mesAuto / 100)) : '' };
     eventosDaFaixa = ordemDaLinha(alvo.caps.caps, resumoFaixa)
       .filter(c => c.id === capitulo.id || dono || !capVazio(resumoFaixa[c.id]))
       .map(c => {
@@ -4991,6 +4998,7 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta, assina,
     capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname, fotoDoLink: url.searchParams.get('foto') || '',
+    ...(dono && dataDoEvento ? { dataDoEvento } : {}),
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
@@ -5039,7 +5047,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const { event, slug, alvo, dono, nonce, atualizar, volta } = o;
   if (atualizar) return redirect(volta);
   const ocultas = normalizaOcultas(event.fotosOcultas);
-  const resumo = await lerResumo(alvo.raiz.id, env);
+  const resumo = comDatasDoDono(await lerResumo(alvo.raiz.id, env), alvo.caps.caps, event.datasEventos);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
@@ -5350,6 +5358,48 @@ async function handleCapaDoEvento(request, env) {
   events[idx] = { ...events[idx], capasEventos: capas, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
   return jsonOk({ capas });
+}
+
+/**
+ * "Ano do evento" (v3.9.0), na faixa do dono na página do evento: a data que
+ * vale na linha do tempo quando a das fotos está errada. `data: ''` volta à
+ * automática (a das fotos). Guardado em `datasEventos` { [cap]: "AAAA" | "AAAA-MM" }.
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleDataDoEvento(request, env) {
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const authErr = await autorizaNoAlbum(request, env, body.slug);
+  if (authErr) return authErr;
+  const cap = typeof body.cap === 'string' && CAP_SLUG_RE.test(body.cap) ? body.cap : '';
+  if (!cap) return jsonErr('Evento inválido.', 400);
+  const data = typeof body.data === 'string' ? body.data : '';
+  if (data && !DATA_DO_EVENTO_RE.test(data)) return jsonErr('Data inválida: use o ano (2024) ou ano e mês (2024-03).', 400);
+  const events = await getEvents(env, true);
+  const idx = events.findIndex(e => e.slug === body.slug);
+  if (idx === -1) return jsonErr('Projeto não encontrado.', 404);
+  const datas = normalizaDatasEventos(events[idx].datasEventos);
+  if (data) datas[cap] = data; else delete datas[cap];
+  events[idx] = { ...events[idx], datasEventos: datas, updatedAt: new Date().toISOString() };
+  await saveEvents(env, events);
+  return jsonOk({ datas });
+}
+
+/**
+ * As datas escolhidas por evento, conferidas: slug de capítulo → "AAAA" ou
+ * "AAAA-MM", até 200.
+ * @param {unknown} v
+ * @returns {Record<string, string>}
+ */
+export function normalizaDatasEventos(v) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, d] of Object.entries(/** @type {Record<string, unknown>} */ (v)).slice(0, 200)) {
+    if (CAP_SLUG_RE.test(k) && typeof d === 'string' && DATA_DO_EVENTO_RE.test(d)) out[k] = d;
+  }
+  return out;
 }
 
 /**

@@ -93,6 +93,14 @@ describe('o que a editora pode e não pode', () => {
     const capa = await pede(env, 'https://entrenos2026.com/api/galeria/capa', { metodo: 'POST', cookie, json: { slug: 'entrenos2026', cap: 'piauifut', foto } });
     expect(capa.status).toBe(200);
     expect(await capa.json()).toEqual({ capas: { piauifut: foto } });
+    // O ano do evento (v3.9.0): só ano, ano e mês, voltar ao automático; lixo é 400.
+    const data = (/** @type {string} */ d, slug = 'entrenos2026') => pede(env, 'https://entrenos2026.com/api/galeria/data', { metodo: 'POST', cookie, json: { slug, cap: 'piauifut', data: d } });
+    expect(await (await data('2024')).json()).toEqual({ datas: { piauifut: '2024' } });
+    expect(await (await data('2023-05')).json()).toEqual({ datas: { piauifut: '2023-05' } });
+    expect((await data('24')).status).toBe(400);
+    expect((await data('2024-13')).status).toBe(400);
+    expect((await data('2024', 'outro-album')).status).toBe(401);
+    expect(await (await data('')).json()).toEqual({ datas: {} });
     // O painel: nada.
     expect((await pede(env, 'https://fotos.lucafchala.com/api/metrics', { cookie })).status).toBe(401);
   });

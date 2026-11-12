@@ -196,7 +196,7 @@ function assinaturasDaSecao(fotos, assina) {
 // `redes` (id da foto da galeria → arquivo da pasta do Instagram, ver casaRedes
 // em drive.js): as fotos que têm "para redes". Só tamanho e nome vão para a
 // página — o id do arquivo do Instagram nunca sai do servidor.
-export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '', assina = () => '', fotoDoLink = '' }) {
+export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas = [], pendentes = [], formToken = '', indexavel = false, redes = new Map(), avisoRedes = null, listagemBruta = null, capituloNome = '', capitulo = null, host = '', assina = () => '', fotoDoLink = '', dataDoEvento = null }) {
   const titulo = String(event.title || event.slug || '');
   const slug = String(event.slug || '');
   const drive = safeUrl(event.driveUrl);
@@ -476,6 +476,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
+    .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
+    .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
     .g-top-l{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.25rem;padding:.8rem var(--pad)}
     .g-tit{flex:1 1 14rem;min-width:0}
@@ -711,7 +713,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ${listagem ? `<span class="g-lista" title="${escape(descreveRenovacao(event))}">Atualizada em ${escape(quando)}</span>` : ''}
     ${listagem && event.driveUrlInstagram ? `<span id="g-n-redes">${comRedes} de ${total} com "para redes" (pasta do Instagram)</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
-  </div>` : ''}
+    ${dataDoEvento && capitulo ? seletorDoAno(slug, capitulo.slug, dataDoEvento) : ''}
+  </div>${dataDoEvento && capitulo ? `<script nonce="${nonce}">${SCRIPT_ANO}</script>` : ''}` : ''}
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
       <div class="g-tit">
@@ -798,6 +801,36 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
 </body>
 </html>`;
 }
+
+/**
+ * "Ano do evento" (v3.9.0), na faixa do dono: o ano que vale na linha do tempo
+ * quando a data das fotos está errada. "Automático" volta à data das fotos.
+ * @param {string} slug @param {string} cap
+ * @param {{ atual: string, auto: string }} d
+ */
+function seletorDoAno(slug, cap, d) {
+  const agora = new Date().getUTCFullYear();
+  /** @type {string[]} */
+  const anos = [];
+  for (let a = agora + 1; a >= 2015; a--) anos.push(String(a));
+  if (d.atual && !anos.includes(d.atual)) anos.push(d.atual);
+  const op = (/** @type {string} */ v, /** @type {string} */ t) => `<option value="${escape(v)}"${v === d.atual ? ' selected' : ''}>${escape(t)}</option>`;
+  return `<label class="g-ano">Ano do evento <select id="g-ano" data-slug="${escape(slug)}" data-cap="${escape(cap)}">${op('', `Automático${d.auto ? ` (${d.auto})` : ''}`)}${anos.map(a => op(a, a)).join('')}</select></label><span id="g-ano-msg" role="status"></span>`;
+}
+
+const SCRIPT_ANO = `(function () {
+  var s = document.getElementById('g-ano');
+  var m = document.getElementById('g-ano-msg');
+  if (!s || !m) return;
+  s.addEventListener('change', function () {
+    s.disabled = true;
+    m.textContent = 'Salvando…';
+    fetch('/api/galeria/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: s.dataset.slug, cap: s.dataset.cap, data: s.value }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'Não salvou. Tente de novo.'); m.textContent = s.value ? 'Salvo: o evento vai para ' + s.value + ' na linha do tempo.' : 'Salvo: de volta à data das fotos.'; }); })
+      .catch(function (e) { m.textContent = (e && e.message) || 'Não salvou. Tente de novo.'; })
+      .then(function () { s.disabled = false; });
+  });
+})();`;
 
 /**
  * A foto de um link "?foto=": pelo ID inteiro ou pelos 10 primeiros

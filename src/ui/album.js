@@ -95,6 +95,40 @@ export function ordemDaLinha(caps, resumo) {
 }
 
 /**
+ * A data que o dono escolheu para um evento (v3.9.0): "AAAA" ou "AAAA-MM".
+ * Serve quando as fotos vêm com a data errada (câmera com o relógio errado,
+ * foto escaneada, pasta de outro ano).
+ */
+export const DATA_DO_EVENTO_RE = /^(19[5-9][0-9]|20[0-9][0-9])(?:-(0[1-9]|1[0-2]))?$/;
+
+/**
+ * O resumo dos eventos com as datas do dono por cima (v3.9.0, `datasEventos`
+ * { [cap]: "AAAA" | "AAAA-MM" }). Com só o ano, o mês das fotos fica (ordena
+ * os eventos do mesmo ano); sem ele, janeiro. O cartão mostra só o que o dono
+ * escolheu ("2024" ou "mar 2024"). Evento sem resumo ainda fica como está.
+ * @template {{ id: string, slug: string }} C
+ * @param {Record<string, import('../drive.js').ResumoCap>} resumo
+ * @param {C[]} caps
+ * @param {unknown} datas
+ * @returns {Record<string, import('../drive.js').ResumoCap>}
+ */
+export function comDatasDoDono(resumo, caps, datas) {
+  if (!datas || typeof datas !== 'object' || Array.isArray(datas)) return resumo;
+  const mapa = /** @type {Record<string, unknown>} */ (datas);
+  const out = { ...resumo };
+  for (const c of caps) {
+    const v = mapa[c.slug];
+    const m = typeof v === 'string' ? DATA_DO_EVENTO_RE.exec(v) : null;
+    const r = resumo[c.id];
+    if (!m || !r) continue;
+    const mes = m[2] ? Number(m[2]) : (mesDoEvento(r) % 100 || 1);
+    const am = Number(m[1]) * 100 + mes;
+    out[c.id] = { ...r, pm: am, p: [am, am], rotulo: m[2] ? `${MESES[mes - 1]} ${m[1]}` : m[1] };
+  }
+  return out;
+}
+
+/**
  * O mês (AAAAMM) que situa o evento na linha do tempo: o do meio das fotos
  * (v3.8.5); resumo antigo, sem ele, o primeiro mês. 0 = sem data.
  * @param {import('../drive.js').ResumoCap | undefined} r
@@ -303,7 +337,7 @@ export function albumHTML(p) {
   const itens = caps.map(c => {
     const r = resumo[c.id];
     const cs = capasDe(c.id);
-    const periodo = r ? rotuloDoPeriodo(r.p) : '';
+    const periodo = r ? r.rotulo || rotuloDoPeriodo(r.p) : '';
     const n = r ? r.n : 0;
     const sub = r ? (n === 1 ? '1 foto' : `${n.toLocaleString('pt-BR')} fotos`) : 'Ver fotos';
     const cr = r && r.cr && r.cr.length ? ` data-cr="${r.cr.join(',')}"` : '';
