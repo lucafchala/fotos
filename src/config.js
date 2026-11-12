@@ -534,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.12';
+export const VERSAO = '3.10.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -599,14 +599,15 @@ export const ROSTO_TENTATIVAS_NO_PICO = 4;
 
 // A cota da Amazon Rekognition em sa-east-1, em transações por segundo por
 // conta. UM lugar só: `vale` é o que a conta tem hoje (o padrão da AWS é 5 por
-// operação); `pedido` é o aumento em análise na AWS (nov/2026). Quando a AWS
-// aprovar, copie `pedido` para `vale` aqui — o tempo de espera que o 429 da
-// busca manda (esperaDaBuscaNoPico) sai destes números, e nada mais no código
-// repete a cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
+// operação); `pedido` é o que foi pedido à AWS. Aprovado em 11/2026 (casos de
+// suporte de SearchFacesByImage e SearchFaces): 20 e 25. A AWS deu 20 onde
+// pedimos 10. O tempo de espera que o 429 da busca manda
+// (esperaDaBuscaNoPico) sai destes números, e nada mais no código repete a
+// cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
 // (IndexFaces e as de leitura), com o ritmo dele.
 export const ROSTO_AWS_TPS = Object.freeze({
-  SearchFacesByImage: Object.freeze({ vale: 5, pedido: 10 }),
-  SearchFaces: Object.freeze({ vale: 5, pedido: 25 }),
+  SearchFacesByImage: Object.freeze({ vale: 20, pedido: 10 }),
+  SearchFaces: Object.freeze({ vale: 25, pedido: 25 }),
 });
 /**
  * Quantos segundos o 429 de "a AWS pediu calma" manda a página esperar.
@@ -673,9 +674,8 @@ export const BUSCA_TEXTO_CONFIANCA_MIN = 85;
 export const BUSCA_COISA_CONFIANCA_MIN = 75;
 // Moderação: só as categorias de cima abaixo contam, e só com confiança alta.
 // Ficam de fora "Swimwear or Underwear" (piscina, praia) e "Gambling". Com
-// marca, a foto da TURMA (upload aberto ou sem pasta de fotógrafo) é escondida
-// até o dono decidir; a de fotógrafo credenciado só é marcada (o dono já
-// escolhe o que publica).
+// marca, a foto só vai para o e-mail do dono, que decide se oculta: o site não
+// esconde nada sozinho (v3.8.12).
 export const BUSCA_MODERACAO_CONFIANCA_MIN = 80;
 export const BUSCA_MODERACAO_ESCONDE = Object.freeze([
   'Explicit', 'Explicit Nudity', 'Non-Explicit Nudity of Intimate parts and Kissing', 'Non-Explicit Nudity',
@@ -695,3 +695,20 @@ export const PREVIA_SENHA_MIN = 6;
 export const PREVIA_COOKIE_DIAS = 30;
 export const PREVIA_TENTATIVAS_POR_IP_HORA = 8;
 export const PREVIA_TENTATIVAS_POR_DIA = 200;
+
+// As cores do álbum com domínio próprio (Entre Nós), num lugar só (v3.9.0):
+// a página do álbum, a do evento, a da editora, a ajuda e o app instalado.
+// O fundo, os cartões e as bordas são os do fotos.lucafchala.com (v3.9.2,
+// pedido do dono: o preto neutro de lá; nem o quase-preto quente de antes,
+// que puxava para o marrom, nem o azul-marinho da 3.9.0). As cores do Colégio
+// Santa Cruz ficam nos detalhes: o amarelo (#F9DE4B) SÓLIDO nos destaques
+// (misturado ou transparente sobre o escuro, vira oliva/marrom) e o azul
+// (#243580) nas linhas, nas barras e no brilho do rodapé.
+export const PALETA_ALBUM = Object.freeze({
+  bg: '#0a0a0a', card: '#141414', card2: '#1c1c1c', borda: '#262626', esqueleto: '#1d1d1d',
+  txt: '#f0ebe5', txt2: '#bbbbbb', mudo: '#999999', dim: '#8c8c8c',
+  sol: '#f9de4b', azul: '#243580',
+  /** O fundo com transparência (botão de vidro, sombra da capa): "r,g,b". */
+  bgRgb: '10,10,10',
+});
+

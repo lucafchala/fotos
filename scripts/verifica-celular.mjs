@@ -235,8 +235,12 @@ for (const tela of TELAS) {
   page.on('pageerror', e => { const m = String(e.message || e); if (!TRANSICAO_CANCELADA.test(m)) erros.push(m); });
   let tsCarregado = 0;
   let semRosto = false;
+  // As fotos do cartão (/800) vêm coloridas: a selfie de teste (v3.9.0).
+  /** @type {Buffer | null} */
+  let fotoColorida = null;
   await page.route('**/*', route => {
     const u = route.request().url();
+    if (fotoColorida && /\/f\/[A-Za-z0-9_-]+\/800(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: fotoColorida });
     if (u.startsWith('https://fotos.test/galeria/')) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>foto</title><p>foto aberta</p>' });
     if (u === 'https://fotos.test/' || u.startsWith('https://fotos.test/#')) return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
     if (u.includes('challenges.cloudflare.com/turnstile')) {
@@ -263,6 +267,7 @@ for (const tela of TELAS) {
   registra(await page.locator('#rs-tirar').isEnabled(), 'Rosto: com o aceite, "Tirar selfie" já está ativo (sem esperar o Turnstile)', await page.locator('#rs-tirar').textContent());
   // A "selfie": uma captura de verdade (um PNG válido que o navegador decodifica).
   const selfie = await page.screenshot({ clip: { x: 0, y: 0, width: 120, height: 120 } });
+  fotoColorida = await page.screenshot({ clip: { x: 0, y: 0, width: 390, height: 500 } });
   await page.locator('#rs-arquivo').setInputFiles({ name: 'selfie.png', mimeType: 'image/png', buffer: selfie });
   await page.waitForSelector('#rs-res:not([hidden]) #rs-grade a', { timeout: 8000 }).catch(() => {});
   registra(await page.locator('#rs-grade a').count() === 4 && page.url().endsWith('#minhas-fotos'), 'Rosto: o resultado aparece e o endereço ganha #minhas-fotos', page.url());
@@ -325,6 +330,24 @@ for (const tela of TELAS) {
   registra(await page.locator('#rs-grade a.rs-ultima').getAttribute('data-id').catch(() => null) === clicada, 'Rosto: a foto que foi aberta fica marcada e à vista', clicada);
   registra(await page.locator('#rs-grade > .rs-ev h3').count() === 2, 'Rosto: o resultado vem separado por evento', await page.locator('#rs-grade > .rs-ev h3').allTextContents());
   registra((await page.locator('#rs-grade .rs-talvez > h3').textContent().catch(() => '')) === 'Talvez seja você (1)' && await page.locator('#rs-grade .rs-talvez a[data-id="FOTO_TALVEZ_004"]').count() === 1, 'Rosto: a menos parecida vai para "Talvez seja você", no fim', '');
+  // Cartão "minhas fotos" (v3.9.0): montado no aparelho, num canvas.
+  registra(await page.locator('#rs-cartao-abrir').isVisible(), 'Cartão: o botão aparece com o resultado', '');
+  await page.locator('#rs-cartao-abrir').click();
+  await page.waitForSelector('#rs-cartao[open]', { timeout: 8000 }).catch(() => {});
+  const cartao = await page.evaluate(() => {
+    const cv = /** @type {HTMLCanvasElement} */ (document.getElementById('rs-cartao-cv'));
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    const cores = new Set();
+    for (let i = 0; i < d.length; i += 4 * 997) cores.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2]);
+    return { aberto: /** @type {HTMLDialogElement} */ (document.getElementById('rs-cartao')).open, w: cv.width, h: cv.height, cores: cores.size };
+  });
+  registra(cartao.aberto && cartao.w === 1080 && cartao.h === 1920 && cartao.cores > 8, 'Cartão: abre com a imagem 1080×1920 desenhada (fotos e texto)', cartao);
+  if (process.env.CARTAO_PNG) {
+    const png = await page.evaluate(() => /** @type {HTMLCanvasElement} */ (document.getElementById('rs-cartao-cv')).toDataURL('image/png'));
+    (await import('node:fs')).writeFileSync(process.env.CARTAO_PNG, Buffer.from(png.split(',')[1], 'base64'));
+  }
+  await page.locator('#rs-cartao-fechar').click();
+  registra(!(await page.locator('#rs-cartao[open]').count()), 'Cartão: Fechar fecha', '');
   // Busca nas fotos: o mesmo.
   // v3.8.7: as sugestões saíram da abertura; a pessoa digita.
   await page.locator('#bf-q').fill('bolo');

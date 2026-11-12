@@ -138,7 +138,7 @@ describe('o projeto comum segue como sempre', () => {
   });
 });
 
-describe('fora dos buscadores (v3.8.12): o dono tira um álbum do Google sem fechá-lo', () => {
+describe('fora dos buscadores (v3.10.0): o dono tira um álbum do Google sem fechá-lo', () => {
   const aberto = { ...COMUM, comingSoon: false, visible: true };
 
   it('a regra: com o interruptor, a galeria não é indexável; sem ele, é', async () => {

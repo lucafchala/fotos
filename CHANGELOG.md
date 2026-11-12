@@ -18,9 +18,35 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.8.12] — ainda não publicada
+## [3.10.0] — ainda não publicada
 
 - **Fora dos buscadores, por projeto.** Interruptor novo no painel (editar o projeto → *Fora dos buscadores*): a galeria sai dos sitemaps e as páginas pedem aos buscadores que não as indexem; quem tem o link abre como sempre. Desligado por padrão, nada muda nos projetos de hoje. Recomendado para o álbum com fotos de menores: lançado, ele entrava nos sitemaps como qualquer galeria pública.
+
+## [3.9.2] — ainda não publicada
+
+- **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).
+
+## [3.9.1] — ainda não publicada
+
+- **"A turma em números"**: `entrenos2026.com/numeros` (`/galeria/<slug>/numeros` no site), a retrospectiva do álbum para compartilhar. Total de fotos, de eventos, de anos e de quem fotografou; fotos por ano (em barras); os 5 eventos com mais fotos; quem mais fotografou. Sai do resumo que o álbum já guarda (com o ano escolhido pelo dono por cima), sem dado de visitante. Mesmo portão da galeria (antes do lançamento, só com a prévia). A página do álbum ganha o link *Turma em números* (com 2 eventos ou mais). `numeros` vira nome reservado.
+
+## [3.9.0] — ainda não publicada
+
+O que deixa o álbum mais fácil de usar e de compartilhar.
+
+- **O link de uma foto mostra a própria foto no WhatsApp.** Todo link de foto agora tem um formato só, `entrenos2026.com/<evento>?foto=<código>`: a grade, o Compartilhar, a barra de endereço com a foto aberta, os resultados da busca pelo rosto e o e-mail da moderação. Como o servidor enxerga a foto no endereço, o cartão do link (WhatsApp, Instagram, Telegram) mostra aquela foto, com o título "Uma foto de <evento>". Foto oculta, de outro evento ou código inválido caem no cartão normal do evento; o canônico continua a página do evento. O `#foto=` antigo continua abrindo.
+- **Cartão "minhas fotos" para os stories.** Depois da busca pelo rosto, *Criar cartão para os stories* monta no próprio celular uma imagem 1080×1920 com o título do álbum, até 6 fotos (a melhor de cada evento primeiro), quantas fotos a pessoa tem e o endereço do álbum. Compartilhar (onde o aparelho deixa) ou Baixar. Nada vai ao servidor.
+- **O ano de cada evento, escolhido pelo dono.** Na página do evento, a faixa do painel (só o dono ou a editora veem) ganha *Ano do evento*: "Automático (o ano das fotos)" ou um ano. Vale na linha do tempo, na grade por ano, na faixa de eventos e no cartão do evento (que mostra só o ano escolhido). Serve para foto com a data errada (câmera com o relógio errado, foto escaneada). Guardado em `datasEventos`; a API aceita também ano e mês (`2024-03`).
+- **As cores do álbum saem do azul do Colégio Santa Cruz** (`#243580`): o fundo, os cartões e as bordas são esse azul bem escuro, em vez do quase-preto quente que puxava para o marrom; as linhas da linha do tempo são azuis (o degradê amarelo → azul ficava oliva/marrom no meio). O amarelo só entra sólido, nos destaques. As cores moram num lugar só, `PALETA_ALBUM` em `src/config.js` (antes repetidas em cinco).
+- **Páginas de ajuda**: `entrenos2026.com/ajuda` e `/ajuda/<tema>` (rosto, baixar, enviar, remover, navegar, apoiar, contato), com o campo *Qual é a sua dúvida?* que filtra as perguntas. Mesmo portão da galeria: antes do lançamento, só quem tem a prévia vê. A página do álbum ganha o link *Dúvidas?*, e a janela da busca pelo rosto, *Como funciona e dicas*. `ajuda` vira nome reservado (não pode ser nome de projeto).
+
+## [3.8.13] — ainda não publicada
+
+- **A Amazon aprovou a cota maior da busca pelo rosto** em São Paulo: 20 buscas por selfie por segundo (o padrão era 5; pedimos 10) e 25 para a busca pelas sementes. O site passa a usar esses números: no pico, quem cai na fila espera menos (de 2 a 4 s, antes de 2 a 8 s).
+
+## [3.8.12] — ainda não publicada
+
+- **A moderação automática não esconde mais nenhuma foto.** A Amazon continua marcando foto possivelmente imprópria, e o dono continua recebendo o e-mail com o link de cada uma (as da turma destacadas). A foto fica no álbum até o dono decidir e tocar em "Ocultar" no visualizador. Antes, foto da turma marcada saía do álbum sozinha. As que já tinham sido escondidas assim continuam ocultas: o dono mostra de novo no visualizador, se quiser.
 
 ## [3.8.11] — ainda não publicada
 

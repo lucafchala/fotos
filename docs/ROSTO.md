@@ -76,7 +76,7 @@ Worker e a opção estar marcada no projeto.
    - Secrets `ROSTO_AWS_ACCESS_KEY_ID` e `ROSTO_AWS_SECRET_ACCESS_KEY` (as mesmas do passo 2);
    - Variable `ROSTO_SLUGS` = `entrenos2026` (vários álbuns separados por vírgula).
 
-6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
+6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota. **Feito em nov/2026:** a AWS aprovou 20 (SearchFacesByImage) e 25 (SearchFaces), já em `ROSTO_AWS_TPS`.
 
 7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
 
@@ -180,7 +180,7 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 |---|---|---|
 | `DetectText` | As palavras visíveis (só as com confiança ≥ 85%), normalizadas | Buscar "10" (camisa), "terceirão" (faixa), "PiauíFut" |
 | `DetectLabels` | As "coisas" e cenas (≥ 75%), em inglês e em português (`ROTULOS_PT`); as genéricas ("person", "face") ficam de fora | Buscar "palco", "bolo", "bola", "fantasia" |
-| `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Esconder foto imprópria **da turma** |
+| `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Avisar o dono de foto imprópria (ele decide se oculta) |
 
 **Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras.
 
@@ -192,9 +192,9 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 - Tem o mesmo portão da busca pelo rosto: álbum público, e antes do lançamento só o dono (ou quem tem a senha de prévia).
 
 **A moderação.** Roda sempre que o indexador passa, mesmo com a busca desligada.
-- **Foto da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`) com marca **nova**: entra em `fotosOcultas` na hora, e o dono recebe um e-mail com o link de cada uma.
-- **Foto de fotógrafo credenciado** (Luca, Mag, colégio, comissão): só marcada, com aviso no e-mail. Vocês já fazem a seleção.
-- **Uma foto só é escondida uma vez.** Se o dono a mostrar de novo no visualizador, o indexador não a esconde outra vez.
+- **Nada é escondido sozinho** (desde a 3.8.12). Foto com marca **nova** continua no álbum, e o dono recebe um e-mail com o link de cada uma; ele decide e toca em "Ocultar" no visualizador.
+- O e-mail destaca as fotos **da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`), que são as que pedem atenção primeiro. As de fotógrafo credenciado vêm marcadas como "fotógrafo".
+- **Uma foto só é avisada uma vez.** O indexador não manda de novo uma foto que já foi marcada.
 
 **Permissão nova no IAM** (já está no `~/entrenos-handoff/aws-fase5.sh`). As três operações não aceitam restrição por coleção, por isso vão num `Statement` à parte, com `"Resource": "*"`:
 

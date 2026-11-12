@@ -15,6 +15,8 @@ import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
 import { galeriaHTML } from './ui/galeria.js';
+import { ajudaHTML } from './ui/ajuda.js';
+import { numerosHTML, numerosDoAlbum } from './ui/numeros.js';
 import { galeriaIndiceHTML } from './ui/galeria-indice.js';
 import { ICON_SVG } from './content/icon-svg.js';
 import { ICONES } from './content/icons.js';
@@ -22,7 +24,7 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice, comDatasDoDono, DATA_DO_EVENTO_RE } from './ui/album.js';
 import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
@@ -35,7 +37,7 @@ import {
   getEvents, saveEvents, getCategories, saveCategories, MAX_CATEGORIES, MAX_CATEGORY_LEN,
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
-  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
+  verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, baseDaGaleria, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
   noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
@@ -68,6 +70,7 @@ import {
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
   PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, ROSTO_SAIR_POR_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  PALETA_ALBUM,
 } from './config.js';
 
 // Classes de Durable Object têm de ser exportadas pelo módulo de entrada — é
@@ -222,6 +225,10 @@ const GALERIA_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9
 // "baixar" e "sitemap" são slugs reservados (drive.js os evita nos capítulos).
 const CAP_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
 const GALERIA_CAP_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/;
+// As páginas de ajuda (v3.9.0): antes do capítulo, que casaria "ajuda".
+const GALERIA_AJUDA_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/ajuda(?:\/([a-z]+))?$/;
+// "Turma em números" (v3.9.1), também antes do capítulo.
+const GALERIA_NUMEROS_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/numeros$/;
 const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
 // Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
 // sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
@@ -356,6 +363,7 @@ const worker = {
       if (path.startsWith('/api/events/') && method === 'PUT') return await handleUpdateEvent(request, env, path);
       if (path === '/api/galeria/ocultar' && method === 'POST') return await handleOcultarFoto(request, env, ctx);
       if (path === '/api/galeria/capa' && method === 'POST') return await handleCapaDoEvento(request, env);
+      if (path === '/api/galeria/data' && method === 'POST') return await handleDataDoEvento(request, env);
       if (path === '/api/editora/entrar' && method === 'POST') return await handleEditoraEntrar(request, env);
       if (path === '/api/galeria/remocao' && method === 'POST') return await handleGaleriaRemocao(request, env, ctx);
       if (path === '/api/rosto/buscar' && method === 'POST') return await handleRosto(request, env, 'buscar');
@@ -447,6 +455,10 @@ const worker = {
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
       const capBaixarMatch = path.match(GALERIA_CAP_BAIXAR_RE);
       if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
+      const ajudaMatch = path.match(GALERIA_AJUDA_RE);
+      if (ajudaMatch && method === 'GET') return await handleAjuda(request, env, ajudaMatch[1], ajudaMatch[2] || '', nonce);
+      const numerosMatch = path.match(GALERIA_NUMEROS_RE);
+      if (numerosMatch && method === 'GET') return await handleNumeros(request, env, numerosMatch[1], nonce, ctx);
       const capMatch = path.match(GALERIA_CAP_RE);
       if (capMatch && method === 'GET') return await handleGaleriaPagina(request, env, capMatch[1], url, nonce, ctx, capMatch[2]);
 
@@ -1477,7 +1489,7 @@ function camposDoEvento(body, b, cats) {
     buscaRosto: pick('buscaRosto', v => v === true),
     // Busca nas fotos (v3.7): texto e "coisas", lidos pelo indexador.
     buscaTexto: pick('buscaTexto', v => v === true),
-    // Fora dos buscadores (v3.8.12): ver galeriaIndexavel.
+    // Fora dos buscadores (v3.10.0): ver galeriaIndexavel.
     foraDosBuscadores: pick('foraDosBuscadores', v => v === true),
     // Destaque máximo no site (v3.3): faixa, cartão da home e popup — só
     // depois do lançamento (ver albumEmDestaque em src/ui/destaque.js).
@@ -4025,9 +4037,8 @@ export async function handleBusca(request, env, url) {
 /**
  * Os autores "da turma" de um projeto: o da linha `*` dos créditos (foto fora
  * de pasta de fotógrafo) e os das pastas de envio (chave com "!"). Sem linha
- * `*`, o autor padrão é o dono (AUTOR_PADRAO), que não é turma. A moderação só
- * ESCONDE foto da turma; a de fotógrafo credenciado só é marcada (o dono já
- * escolhe o que publica).
+ * `*`, o autor padrão é o dono (AUTOR_PADRAO), que não é turma. O e-mail da
+ * moderação diz quais marcadas são da turma, para o dono olhar essas primeiro.
  * @param {Evento} evento
  */
 export function autoresDaTurma(evento) {
@@ -4131,9 +4142,9 @@ export async function handleRostoDesfazer(request, env) {
 /**
  * POST /api/busca/indexar — o indexador (GitHub Actions, com o token dele)
  * manda o que a Rekognition leu de um lote de fotos e as que saíram do álbum.
- * Grava no D1; foto da turma com marca de moderação NOVA é escondida
- * (fotosOcultas) e o dono recebe um e-mail. Uma foto que já foi marcada antes
- * não é escondida de novo: se ela voltou ao álbum, foi o dono que a mostrou.
+ * Grava no D1; foto com marca de moderação NOVA vai para o e-mail do dono,
+ * que decide se oculta (nada é escondido sozinho, v3.8.12). Uma foto que já
+ * foi marcada antes não é avisada de novo.
  * @param {Request} request
  * @param {Env} env
  * @param {ExecutionContext} ctx
@@ -4176,37 +4187,25 @@ export async function handleBuscaIndexar(request, env, ctx) {
   }
   const turma = autoresDaTurma(evento);
   const agora = new Date().toISOString();
-  /** @type {{ id: string, cap: string, autor: string, rotulos: string, escondida: boolean }[]} */
+  // A moderação só marca e avisa o dono (v3.8.12): nunca esconde sozinha.
+  /** @type {{ id: string, cap: string, autor: string, rotulos: string, daTurma: boolean }[]} */
   const novas = [];
   const stmts = itens.map(i => {
     const nova = !!i.moderacao && !jaMarcadas.has(i.foto);
-    const esconde = nova && turma.has(i.autor);
-    if (nova) novas.push({ id: i.foto, cap: i.cap, autor: i.autor, rotulos: i.moderacao, escondida: esconde });
+    if (nova) novas.push({ id: i.foto, cap: i.cap, autor: i.autor, rotulos: i.moderacao, daTurma: turma.has(i.autor) });
     return db.prepare(`INSERT INTO busca_foto (slug, foto, cap, autor, texto, coisas, moderacao, escondida, em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(slug, foto) DO UPDATE SET cap = excluded.cap, autor = excluded.autor, texto = excluded.texto, coisas = excluded.coisas,
       moderacao = excluded.moderacao, escondida = MAX(busca_foto.escondida, excluded.escondida), em = excluded.em`)
-      .bind(slug, i.foto, i.cap, i.autor, i.texto, i.coisas, i.moderacao, esconde ? 1 : 0, agora);
+      .bind(slug, i.foto, i.cap, i.autor, i.texto, i.coisas, i.moderacao, 0, agora);
   });
   if (remover.length) stmts.push(db.prepare(`DELETE FROM busca_foto WHERE slug = ? AND foto IN (${remover.map(() => '?').join(',')})`).bind(slug, ...remover));
   if (stmts.length) await db.batch(stmts);
 
-  const esconder = novas.filter(n => n.escondida).map(n => n.id);
-  if (esconder.length) {
-    const events = await getEvents(env, true);
-    const idx = events.findIndex(e => e.slug === slug);
-    if (idx >= 0) {
-      const ocultasAntes = events[idx].fotosOcultas;
-      const ocultas = normalizaOcultas([...(Array.isArray(events[idx].fotosOcultas) ? events[idx].fotosOcultas : []), ...esconder]);
-      events[idx] = { ...events[idx], fotosOcultas: ocultas, ocultasPendentes: normalizaPendentes(events[idx].ocultasPendentes, ocultas), updatedAt: agora };
-      await saveEvents(env, events);
-      await apagaCopiasDasOcultadas(env, ocultasAntes, ocultas);
-    }
-  }
   if (novas.length) {
     ctx.waitUntil(sendModeracaoEmail(env, { titulo: String(evento.title || slug), slug, origem: origemDoAlbum(slug), fotos: novas })
       .catch(e => noteDegraded('moderação: e-mail ao dono falhou', String(slug), e)));
   }
-  return jsonOk({ ok: true, gravadas: itens.length, removidas: remover.length, marcadas: novas.length, escondidas: esconder.length });
+  return jsonOk({ ok: true, gravadas: itens.length, removidas: remover.length, marcadas: novas.length });
 }
 
 /**
@@ -4634,12 +4633,16 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');
   if (ehPainel) return redirect(`${SITE_URL}/dashboard`);
   // Links curtos (v3.8.3): o evento mora em "entrenos2026.com/piauifut". O
-  // endereço longo de antes leva ao curto (o #foto= vai junto: o navegador
+  // endereço longo de antes leva ao curto (o ?foto= e o #foto= vão juntos: o navegador
   // mantém o fragmento no redirecionamento).
   const longo = /^\/galeria\/([a-z0-9-]+)\/([a-z0-9][a-z0-9-]*)$/.exec(path);
   if (longo && longo[1] === album.slug && (!request || request.method === 'GET')) {
     return new Response(null, { status: 301, headers: { ...dataSecurityHeaders('text/plain; charset=utf-8'), Location: `/${longo[2]}${url.search}` } });
   }
+  // As páginas de ajuda (v3.9.0): "entrenos2026.com/ajuda/rosto".
+  const ajuda = /^\/ajuda(?:\/([a-z]+))?$/.exec(path);
+  if (ajuda) return { servir: `/galeria/${album.slug}/ajuda${ajuda[1] ? `/${ajuda[1]}` : ''}` };
+  if (path === '/numeros') return { servir: `/galeria/${album.slug}/numeros` };
   const curto = /^\/([a-z0-9][a-z0-9-]{0,80})$/.exec(path);
   if (curto && !RESERVED_SLUGS.has(curto[1])) return { servir: `/galeria/${album.slug}/${curto[1]}` };
   return null;
@@ -4654,13 +4657,13 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
 function paginaDaEditora(album, erro) {
   const msg = erro === 'muitas' ? 'Muitas tentativas. Espere um pouco e tente de novo.' : erro ? 'Senha errada.' : '';
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0f0e0c"><title>Entrar · ${escape(album.titulo)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="${PALETA_ALBUM.bg}"><title>Entrar · ${escape(album.titulo)}</title>
 <link rel="icon" type="image/svg+xml" href="/icon-entrenos.svg">
-<style>*{box-sizing:border-box;margin:0}body{min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f0e0c;color:#f3ede3;font:16px/1.5 system-ui,sans-serif}
-form{width:min(22rem,100%);display:flex;flex-direction:column;gap:.8rem}h1{font-size:1.4rem}p{color:#cfc6b8;font-size:.92rem}
-input{min-height:48px;padding:0 1rem;border-radius:12px;border:1px solid #2b2823;background:#1a1815;color:#f3ede3;font:inherit;font-size:16px}
-button{min-height:48px;border:0;border-radius:999px;background:#f9de4b;color:#141a33;font:inherit;font-weight:700;cursor:pointer}
-.erro{color:#f0b46a}a{color:#cfc6b8;font-size:.85rem}</style></head><body>
+<style>*{box-sizing:border-box;margin:0}body{min-height:100vh;display:grid;place-items:center;padding:24px;background:${PALETA_ALBUM.bg};color:${PALETA_ALBUM.txt};font:16px/1.5 system-ui,sans-serif}
+form{width:min(22rem,100%);display:flex;flex-direction:column;gap:.8rem}h1{font-size:1.4rem}p{color:${PALETA_ALBUM.txt2};font-size:.92rem}
+input{min-height:48px;padding:0 1rem;border-radius:12px;border:1px solid ${PALETA_ALBUM.borda};background:${PALETA_ALBUM.card};color:${PALETA_ALBUM.txt};font:inherit;font-size:16px}
+button{min-height:48px;border:0;border-radius:999px;background:${PALETA_ALBUM.sol};color:#141a33;font:inherit;font-weight:700;cursor:pointer}
+.erro{color:#f0b46a}a{color:${PALETA_ALBUM.txt2};font-size:.85rem}</style></head><body>
 <form method="post" action="/api/editora/entrar"><h1>${escape(album.titulo)}</h1><p>Entrada da editora do álbum.</p>
 <input type="hidden" name="slug" value="${escape(album.slug)}">
 <label><span class="sr" style="position:absolute;left:-9999px">Senha</span><input type="password" name="senha" autocomplete="current-password" required minlength="8" maxlength="100" placeholder="Senha" aria-label="Senha"></label>
@@ -4850,7 +4853,7 @@ async function podeVerGaleria(request, env, slug) {
  * @param {Evento} event
  */
 export function galeriaIndexavel(event) {
-  // `foraDosBuscadores` (v3.8.12): o dono tira ESTE álbum do Google sem fechá-lo
+  // `foraDosBuscadores` (v3.10.0): o dono tira ESTE álbum do Google sem fechá-lo
   // — sai dos sitemaps e as páginas ganham noindex; quem tem o link abre como
   // sempre. É a escolha para um álbum com fotos de menores.
   return albumLancado(event) && !isRestrictedAccess(event) && event.foraDosBuscadores !== true && !!pastaDoDrive(event.driveUrl);
@@ -4867,6 +4870,43 @@ async function cookieGaleria(env, slug) {
   if (!secret) return '';
   const token = await signToken(secret, { purpose: 'galeria', scope: slug, ttlSecs: GALERIA_PASSE_SECS });
   return `galeria=${token}; Path=/galeria/${slug}; Max-Age=${GALERIA_PASSE_SECS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/**
+ * "Turma em números" (v3.9.1, src/ui/numeros.js): a retrospectiva do álbum,
+ * do resumo que já existe (sem ler o Drive de novo além da lista de eventos,
+ * que tem cache). Mesmo portão da galeria; só álbum com eventos (capítulos).
+ * @param {Request} request @param {Env} env @param {string} slug @param {string} nonce @param {ExecutionContext} [ctx]
+ */
+export async function handleNumeros(request, env, slug, nonce, ctx) {
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+  const alvo = await alvoDaGaleria(env, event, '', false, ctx);
+  if (alvo.kind !== 'ok' || !alvo.caps) return notFound();
+  const resumo = comDatasDoDono(await lerResumo(alvo.raiz.id, env), alvo.caps.caps, event.datasEventos);
+  const pagina = numerosHTML({ event: { slug, title: String(event.title || '') }, numeros: numerosDoAlbum(alvo.caps.caps, resumo), base: baseDaGaleria(slug, new URL(request.url).hostname), nonce });
+  const res = html(pagina, 200, nonce);
+  res.headers.set('Cache-Control', 'private, no-cache');
+  res.headers.set('X-Robots-Tag', 'noindex');
+  return res;
+}
+
+/**
+ * As páginas de ajuda do álbum (v3.9.0, src/ui/ajuda.js). O mesmo portão da
+ * galeria: antes do lançamento, só quem tem a prévia (ou o dono) vê.
+ * @param {Request} request @param {Env} env @param {string} slug @param {string} tema @param {string} nonce
+ */
+export async function handleAjuda(request, env, slug, tema, nonce) {
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event) return notFound();
+  const pagina = ajudaHTML({ event, tema, base: baseDaGaleria(slug, new URL(request.url).hostname), nonce });
+  if (!pagina) return notFound();
+  const res = html(pagina, 200, nonce);
+  res.headers.set('Cache-Control', 'private, no-cache');
+  res.headers.set('X-Robots-Tag', 'noindex');
+  return res;
 }
 
 /**
@@ -4964,8 +5004,14 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   // não vê evento que o resumo diz vazio; o atual entra sempre).
   /** @type {{ slug: string, nome: string, ano?: string }[]} */
   let eventosDaFaixa = [];
+  /** @type {{ atual: string, auto: string } | null} */
+  let dataDoEvento = null;
   if (alvo.kind === 'ok' && capitulo && alvo.caps) {
-    const resumoFaixa = await lerResumo(alvo.raiz.id, env);
+    const resumoBruto = await lerResumo(alvo.raiz.id, env);
+    const resumoFaixa = comDatasDoDono(resumoBruto, alvo.caps.caps, event.datasEventos);
+    // Só o dono: o seletor "Ano do evento" (v3.9.0) mostra o ano automático.
+    const mesAuto = mesDoEvento(resumoBruto[capitulo.id]);
+    dataDoEvento = { atual: normalizaDatasEventos(event.datasEventos)[capitulo.slug] || '', auto: mesAuto ? String(Math.floor(mesAuto / 100)) : '' };
     eventosDaFaixa = ordemDaLinha(alvo.caps.caps, resumoFaixa)
       .filter(c => c.id === capitulo.id || dono || !capVazio(resumoFaixa[c.id]))
       .map(c => {
@@ -4982,7 +5028,8 @@ export async function handleGaleriaPagina(request, env, slug, url, nonce, ctx, c
   const assina = await assinadorDeFotos(signingSecret(env), slug, idsDaPagina);
   const pagina = galeriaHTML({
     event, listagem, erro, nonce, dono: !!dono, indexavel, redes, avisoRedes, formToken, listagemBruta, assina,
-    capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname,
+    capituloNome: capitulo ? capitulo.nome : '', host: new URL(request.url).hostname, fotoDoLink: url.searchParams.get('foto') || '',
+    ...(dono && dataDoEvento ? { dataDoEvento } : {}),
     ...(alvo.kind === 'ok' && capitulo ? { capitulo: { slug: capitulo.slug, nome: capitulo.nome, anterior: resumoNav(alvo.anterior), proximo: resumoNav(alvo.proximo), eventos: eventosDaFaixa } } : {}),
     ...(dono ? { ocultas, pendentes: normalizaPendentes(event.ocultasPendentes, ocultas).map(p => p.id) } : {}),
   });
@@ -5031,7 +5078,7 @@ async function respondeIndiceDaGaleria(request, env, ctx, o) {
   const { event, slug, alvo, dono, nonce, atualizar, volta } = o;
   if (atualizar) return redirect(volta);
   const ocultas = normalizaOcultas(event.fotosOcultas);
-  const resumo = await lerResumo(alvo.raiz.id, env);
+  const resumo = comDatasDoDono(await lerResumo(alvo.raiz.id, env), alvo.caps.caps, event.datasEventos);
   const contaGaleria = contaAberturaDaGaleria(request, env, ctx, slug, !dono && alvo.caps.caps.length > 0, '');
   const indexavel = !dono && !ehPrevia(env) && galeriaIndexavel(event) && alvo.caps.caps.length > 0;
   // Busca pelo rosto (v3.2): o token do formulário só sai quando a busca vale.
@@ -5342,6 +5389,48 @@ async function handleCapaDoEvento(request, env) {
   events[idx] = { ...events[idx], capasEventos: capas, updatedAt: new Date().toISOString() };
   await saveEvents(env, events);
   return jsonOk({ capas });
+}
+
+/**
+ * "Ano do evento" (v3.9.0), na faixa do dono na página do evento: a data que
+ * vale na linha do tempo quando a das fotos está errada. `data: ''` volta à
+ * automática (a das fotos). Guardado em `datasEventos` { [cap]: "AAAA" | "AAAA-MM" }.
+ * @param {Request} request
+ * @param {Env} env
+ */
+async function handleDataDoEvento(request, env) {
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const authErr = await autorizaNoAlbum(request, env, body.slug);
+  if (authErr) return authErr;
+  const cap = typeof body.cap === 'string' && CAP_SLUG_RE.test(body.cap) ? body.cap : '';
+  if (!cap) return jsonErr('Evento inválido.', 400);
+  const data = typeof body.data === 'string' ? body.data : '';
+  if (data && !DATA_DO_EVENTO_RE.test(data)) return jsonErr('Data inválida: use o ano (2024) ou ano e mês (2024-03).', 400);
+  const events = await getEvents(env, true);
+  const idx = events.findIndex(e => e.slug === body.slug);
+  if (idx === -1) return jsonErr('Projeto não encontrado.', 404);
+  const datas = normalizaDatasEventos(events[idx].datasEventos);
+  if (data) datas[cap] = data; else delete datas[cap];
+  events[idx] = { ...events[idx], datasEventos: datas, updatedAt: new Date().toISOString() };
+  await saveEvents(env, events);
+  return jsonOk({ datas });
+}
+
+/**
+ * As datas escolhidas por evento, conferidas: slug de capítulo → "AAAA" ou
+ * "AAAA-MM", até 200.
+ * @param {unknown} v
+ * @returns {Record<string, string>}
+ */
+export function normalizaDatasEventos(v) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, d] of Object.entries(/** @type {Record<string, unknown>} */ (v)).slice(0, 200)) {
+    if (CAP_SLUG_RE.test(k) && typeof d === 'string' && DATA_DO_EVENTO_RE.test(d)) out[k] = d;
+  }
+  return out;
 }
 
 /**
@@ -6272,8 +6361,8 @@ function handleManifestDoAlbum(url) {
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#0f0e0c',
-    theme_color: '#0f0e0c',
+    background_color: a ? PALETA_ALBUM.bg : '#0a0a0a',
+    theme_color: a ? PALETA_ALBUM.bg : '#0a0a0a',
     icons: [
       { src: '/apple-touch-entrenos.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
       { src: '/icon-entrenos.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },

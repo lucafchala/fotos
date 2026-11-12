@@ -1361,7 +1361,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <span class="toggle-track"></span>
               </label>
             </div>
-            <div class="field-hint" id="dica-busca-texto" style="margin-top:.5rem">O álbum ganha o campo <em>Procurar nas fotos</em>: número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola). O indexador da Amazon lê cada foto uma vez (texto, coisas e moderação); a busca em si não custa nada por visita. Só em <strong>álbum público</strong>, e antes do lançamento só você vê. A <strong>moderação</strong> roda sempre que o indexador passa: foto da turma marcada fica escondida até você decidir, e você recebe um e-mail. Detalhes em <code>docs/ROSTO.md</code>.</div>
+            <div class="field-hint" id="dica-busca-texto" style="margin-top:.5rem">O álbum ganha o campo <em>Procurar nas fotos</em>: número da camisa, palavra de uma faixa ou uma coisa (palco, bolo, bola). O indexador da Amazon lê cada foto uma vez (texto, coisas e moderação); a busca em si não custa nada por visita. Só em <strong>álbum público</strong>, e antes do lançamento só você vê. A <strong>moderação</strong> roda sempre que o indexador passa: foto marcada continua no álbum e você recebe um e-mail para decidir se oculta. Detalhes em <code>docs/ROSTO.md</code>.</div>
           </div>
           <div class="field">
             <label for="f-lancar-em">Lançamento marcado <span class="dica-rotulo">(opcional)</span></label>
