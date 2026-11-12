@@ -76,8 +76,10 @@ muda: o botão abre o diálogo das pastas, como antes.
 
 **A prévia de PR não recebe envio**: `scripts/previa-publica.mjs` não passa a
 credencial do Google para a prévia, de propósito — uma prévia gravando no Drive
-de produção não é prévia. O envio é testado pelo `verifica:envio` e pela
-suíte.
+de produção não é prévia. E, se alguém puser os `GOOGLE_OAUTH_*` numa prévia
+mesmo assim, o código recusa: `envioLigado` devolve falso quando
+`AMBIENTE = "previa"` (segunda trava, com teste). O envio é testado pelo
+`verifica:envio` e pela suíte.
 
 ## Configurar (o dono, uma vez)
 

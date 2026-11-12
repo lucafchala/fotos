@@ -32,7 +32,7 @@ import {
   creditoDaDescricao,
 } from '../src/envio.js';
 import { limpaCacheEnvio, limpaCacheDrive, listaPasta, registraResumo, lerResumo } from '../src/drive.js';
-import { saveEvents, counterStub, hojeEmSaoPaulo } from '../src/utils.js';
+import { saveEvents, counterStub, hojeEmSaoPaulo, degradedHealth, resetDegraded } from '../src/utils.js';
 import { signToken } from '../src/security.js';
 import {
   ENVIO_SESSAO_TTL_SECS, ENVIO_MARGEM_DRIVE_BYTES, ENVIO_AVISO_DRIVE_BYTES, ENVIO_TETO_ARQUIVOS_DIA, ENVIO_TETO_MB_DIA,
@@ -260,6 +260,8 @@ describe('envioLigado: as três peças da credencial e um SIGNING_SECRET de verd
     }
     // Sem o segredo o envio fica DESLIGADO, não aberto.
     expect(envioLigado({ ...env, SIGNING_SECRET: '' })).toBe(false);
+    // Numa prévia de PR, nunca — mesmo com a credencial inteira lá.
+    expect(envioLigado({ ...env, AMBIENTE: 'previa' })).toBe(false);
     expect(envioLigado({ ...env, SIGNING_SECRET: 'curto' })).toBe(false);
   });
 });
@@ -720,9 +722,11 @@ describe('POST /api/envio/passe', () => {
   });
 
   it('D1 recusando o INSERT não derruba o passe (fica no healthz)', async () => {
+    resetDegraded();
     env.CONSENT_DB = { prepare() { throw new Error('D1 fora'); } };
     expect((await pedePasse()).status).toBe(200);
     await ctx.drena();
+    expect(degradedHealth().map(d => d.label)).toContain('registro de consentimento não gravou');
   });
 
   it('JSON inválido: 400', async () => {
@@ -767,6 +771,7 @@ describe('POST /api/envio/inicia', () => {
     const r = await inicia();
     expect(await r.json()).toEqual({ ok: true, duplicada: true });
     expect(G.aberturas).toHaveLength(0);
+    expect(env.RATELIMIT._calls()).toContain('devolve');
   });
 
   it('passe: sem, de outro álbum, de outro propósito ou vencido → 401 "passe"', async () => {
@@ -837,8 +842,12 @@ describe('POST /api/envio/inicia', () => {
   });
 
   it('contador fora do ar: o teto do dia não é conferido (falha aberta, fica no healthz)', async () => {
+    // Falha ABERTA de propósito: o Google ainda limita pelo espaço do Drive, e
+    // travar o envio de todos por um contador fora seria pior.
+    resetDegraded();
     env.COUNTER = { idFromName() { return 'x'; }, get() { throw new Error('DO fora'); } };
     expect((await inicia()).status).toBe(200);
+    expect(degradedHealth().map(d => d.label)).toContain('contador não gravado');
   });
 
   it('erros do Google ao abrir: o texto dele nunca vai à página', async () => {
@@ -1019,7 +1028,7 @@ describe('PUT /api/envio/parte e POST /api/envio/estado', () => {
     expect(r.status).toBe(503);
   });
 
-  it('o selo vale para o arquivo e o tamanho dele: a página não muda o total', async () => {
+  it('o total que vai ao Google é o do selo, não o que a página manda (uma parte só não fecha a sessão)', async () => {
     // Mandar como se o arquivo fosse menor (fechar a sessão antes) não passa:
     // o total que vai ao Google é o do selo.
     const r = await parte(selo, 0, arquivo.subarray(0, ENVIO_PARTE_MULTIPLO));

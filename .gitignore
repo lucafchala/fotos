@@ -1,4 +1,6 @@
-node_modules/
+# Sem a barra: "node_modules/" não ignora um LINK simbólico (worktree com
+# node_modules ligado ao de outro checkout — foi assim que um entrou no commit).
+node_modules
 .wrangler/
 .dev.vars
 coverage/

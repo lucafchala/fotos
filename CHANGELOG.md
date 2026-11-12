@@ -26,6 +26,7 @@ Maior porque muda o que o visitante aceita: os Termos de Uso e a Política de Pr
 - **Crédito de quem envia.** O nome assinado vai na descrição do arquivo no Drive ("Crédito: Nome") e o álbum mostra a foto com ele, só dentro de pasta de envio, nunca com o nome de um crédito que o álbum já tem, e com um teto de nomes por evento. Com muitos nomes, a linha de autores do evento mostra os 5 primeiros e "mais N pessoas".
 - **Proteções:** verificação anti-robô e declaração uma vez por aparelho (o aceite fica no registro de consentimento, como o do Drive), limites por IP largos (a turma divide o Wi-Fi), tetos do dia por álbum, a pasta de destino sempre da lista do servidor, só foto e vídeo (a extensão e os primeiros bytes conferidos) e uma margem de espaço livre no Drive (o Drive cheio pararia também o e-mail da conta).
 - **`/api/healthz`** ganha `config.envio` e `envio.{estado,livreGb}` (`desligado`, `ok`, `falha`, `incerto`): o token do Google que vence em silêncio e o Drive que enche aparecem antes de a turma reclamar. Contrato segue em 1 (só acréscimo).
+- **Prévia de PR nunca envia ao Drive**, nem com a credencial do Google posta nela por engano (a lista de segredos da prévia já não a passava; agora o código também recusa). E, com vários arquivos ao mesmo tempo, uma recusa atrasada do passe não joga mais fora o passe novo que outro arquivo acabou de pedir (custava uma verificação anti-robô a mais).
 
 ## [3.9.2] — ainda não publicada
 

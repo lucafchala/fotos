@@ -704,7 +704,11 @@ export const SCRIPT_ENVIAR = `
       try {
         if (!passe) await pedePasse();
         if (!it.sessao) {
-          var r = await api('/api/envio/inicia', { slug: D.slug, passe: passe, pasta: it.destino, nome: it.nome, tamanho: it.tam, modificado: it.lm, fp: it.fp, assinatura: elNome.value });
+          // Anota com que passe este pedido saiu: com vários arquivos ao mesmo
+          // tempo, um 401 atrasado (passe antigo) não pode jogar fora o passe
+          // novo que outro arquivo acabou de pedir (ver trata()).
+          var usado = passe;
+          var r = await api('/api/envio/inicia', { slug: D.slug, passe: usado, pasta: it.destino, nome: it.nome, tamanho: it.tam, modificado: it.lm, fp: it.fp, assinatura: elNome.value }).catch(function (er) { if (er && typeof er === 'object') er.passeUsado = usado; throw er; });
           if (r.duplicada) { terminou(it, 'duplicada'); return; }
           it.sessao = r.sessao;
           it.pos = 0;
@@ -749,7 +753,7 @@ export const SCRIPT_ENVIAR = `
     // ser aceito", sem motivo nenhum (achado pelo verifica:envio).
     if (e && e.passe && st >= 400 && st < 500 && st !== 429) { para(texto || 'A verificação de segurança não passou. Recarregue a página e tente de novo.'); it.estado = 'fila'; return false; }
     if (st === 401 && cod === 'passe') {
-      passe = '';
+      if (!e.passeUsado || e.passeUsado === passe) passe = '';
       it.reinicios++;
       if (it.reinicios > 3) { it.estado = 'erro'; it.erro = 'A verificação de segurança não passou.'; return false; }
       return true;

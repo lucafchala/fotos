@@ -43,7 +43,7 @@
 // sessão o servidor pergunta à pasta se já existe um arquivo com ela. Vale
 // entre aparelhos e entre pessoas, sem banco paralelo.
 
-import { noteDegraded, errMessage } from './utils.js';
+import { noteDegraded, errMessage, ehPrevia } from './utils.js';
 import {
   ENVIO_TIPOS, ENVIO_ASSINATURA_MIN, ENVIO_ASSINATURA_MAX, ENVIO_SESSAO_TTL_SECS,
   ENVIO_MARGEM_DRIVE_BYTES, ENVIO_AVISO_DRIVE_BYTES, SIGNING_SECRET_MIN_LENGTH,
@@ -98,6 +98,10 @@ function credencial(env) {
  * @param {Record<string, any>} env
  */
 export function envioLigado(env) {
+  // Numa prévia de PR, nunca: mesmo que alguém ponha ali os GOOGLE_OAUTH_*, a
+  // prévia não grava no Drive de produção. A lista de segredos de
+  // scripts/previa-publica.mjs é a primeira trava; esta é a segunda, no código.
+  if (ehPrevia(env)) return false;
   const s = typeof env.SIGNING_SECRET === 'string' ? env.SIGNING_SECRET.trim() : '';
   return !!credencial(env) && s.length >= SIGNING_SECRET_MIN_LENGTH;
 }

@@ -975,9 +975,12 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   (`pastasDeEnvio`); o ID que vem do navegador só escolhe dentro dela.
 - Recusa do **passe** é de todos os arquivos, não de um: a página para e mostra
   o motivo (o `verifica:envio` pegou a versão que marcava cada foto como
-  "não aceita", sem motivo).
+  "não aceita", sem motivo). Um 401 de passe só zera o passe se o pedido saiu
+  com o passe ATUAL (`passeUsado`): com vários arquivos em paralelo, um 401
+  atrasado jogava fora o passe novo que outro arquivo acabara de pedir.
 - A credencial OAuth é escrita no Drive do dono: nunca na página, em log ou na
-  prévia (`SEGREDOS_DA_PREVIA` não a inclui, de propósito). App do OAuth em
+  prévia (`SEGREDOS_DA_PREVIA` não a inclui, de propósito; e `envioLigado`
+  recusa com `AMBIENTE = "previa"`, a segunda trava). App do OAuth em
   "Teste" faz o token vencer em 7 dias — o healthz mostra `envio.estado =
   "falha"`.
 - O crédito assinado só vale dentro de pasta de envio e nunca com o nome de um
