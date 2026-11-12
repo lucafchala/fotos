@@ -38,7 +38,7 @@ import {
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
   verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, baseDaGaleria, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
-  noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
+  noteKvFailure, noteDegraded, degradacoesDeTodos, guardaDegradacoes, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
@@ -538,22 +538,32 @@ export default {
    * @param {Env} env
    * @param {ExecutionContext} ctx
    */
-  fetch(request, env, ctx) {
-    if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
-    return fetchDaPrevia(request, env, ctx, {
-      rotear: (r, e, c) => worker.fetch(r, e, c),
-      // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
-      // painel — a mesma checagem das rotas /api/ de admin.
-      autenticado: async (r, e) => (await checkAuth(r, e)) === null,
-    });
+  async fetch(request, env, ctx) {
+    try {
+      if (!ehPrevia(env)) return await worker.fetch(request, env, ctx);
+      return await fetchDaPrevia(request, env, ctx, {
+        rotear: (r, e, c) => worker.fetch(r, e, c),
+        // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
+        // painel — a mesma checagem das rotas /api/ de admin.
+        autenticado: async (r, e) => (await checkAuth(r, e)) === null,
+      });
+    } finally {
+      // O que degradou neste pedido vai para o Durable Object (v3.11.0), para
+      // o healthz de outro isolate ver. Sem nada novo, nenhuma chamada.
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(guardaDegradacoes(env));
+    }
   },
   /**
    * @param {ScheduledController} event
    * @param {Env} env
    * @param {ExecutionContext} ctx
    */
-  scheduled(event, env, ctx) {
-    return worker.scheduled(event, env, ctx);
+  async scheduled(event, env, ctx) {
+    try {
+      return await worker.scheduled(event, env, ctx);
+    } finally {
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(guardaDegradacoes(env));
+    }
   },
 };
 
@@ -3290,7 +3300,9 @@ async function medirSaude(env) {
   // Self-test funcional sobre o array de eventos já carregado (zero leitura
   // extra de KV): links de Drive quebrados, dados inválidos, backend de
   // formulário não configurado.
-  const selftest = auditSite(eventsList, env, degradedHealth());
+  // As degradações de TODOS os isolates (v3.11.0): as deste mais as guardadas
+  // no Durable Object. Uma subrequisição; com o objeto fora, só as deste.
+  const selftest = auditSite(eventsList, env, await degradacoesDeTodos(env));
 
   const ok = kv && events !== null;
   return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest };

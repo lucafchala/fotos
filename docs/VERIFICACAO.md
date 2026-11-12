@@ -471,6 +471,21 @@ máquina enxerga nessas telas e estados", não "acessível": falta leitor de tel
 de verdade, e o contraste contra FOTO real (texto sobre imagem) o axe só mede
 contra a imagem de teste.
 
+### Álbum no celular — `npm run verifica:celular`
+
+A página do álbum (nos estilos de `GALERIA_ESTILOS`) e a de um evento em 5
+telas de celular (320 a 844 px): nada vaza para os lados, alvos de 44 px, campo
+sem zoom no iPhone, nenhum texto menor que 11 px; as janelas (rosto, busca)
+cabem na tela; o visor e o "Minhas fotos". Capturas em `CAPTURAS`.
+
+Desde a v3.11.0, também o **navegador de dentro de um app**: a página do evento
+com o user agent do Instagram no iPhone e no Android, e do Safari. Nada na
+entrada; ao tocar em "Baixar tudo", a faixa aparece, cabe na tela, tem alvos de
+44 px; no Android traz "Abrir no Chrome" (`intent://`), no iPhone só o caminho
+pelo menu; "Fechar" esconde; no Safari, nunca aparece. O que ele **não** prova:
+o navegador do Instagram de verdade (o user agent é trocado num Chromium), nem
+que o `intent://` abre o Chrome num Android real.
+
 ### Prévia de PR — `npm run verifica:previa`
 
 Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o

@@ -56,7 +56,7 @@ npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wra
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 npm run verifica:galeria     # galeria própria: grade, zoom, downloads por aparelho (não precisa do wrangler)
-npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone
+npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone; a faixa do navegador de app
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 ```
@@ -780,7 +780,7 @@ quente):
 |---|---|---|---|---|---|
 | Página, cookie `gv_<slug>` presente | 0 | 0 | 0 | 0 | 1 leitura |
 | Página, 1a visita do navegador na hora | 0 | 1 (contador, em `waitUntil`) | 0 | 0 | 1 leitura |
-| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo; com o original no R2, nenhuma ida ao Google — nem a sonda `?p=1`, v3.9.3) | 0 |
+| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo; com o original no R2, nenhuma ida ao Google — nem a sonda `?p=1`, v3.11.0) | 0 |
 | Lista vencida | 0 | 1 (lease, só quem relê) | 0 ou 1 (snapshot) | 1 listagem no mundo todo | 1 escrita |
 
 CPU da página de capítulo com 6.000 itens, memória quente: ~3,5 ms para montar
@@ -959,6 +959,28 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   errada é o mesmo que não aquecer.
 - Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
   (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
+
+### 5.26. O healthz vê o que degradou em qualquer isolate; e o navegador de dentro do app (v3.11.0)
+
+- `noteDegraded()` continua síncrona e sem `env`. A cópia para o Durable
+  Object (`guardaDegradacoes`) roda no `finally` do `fetch` e do `scheduled`
+  do export default (`src/index.js`). Rota nova não precisa fazer nada; mas
+  quem chamar `worker.fetch` por fora do export default (um teste, por
+  exemplo) não copia — use o export default.
+- A cópia não pode virar `noteDegraded` quando falha (seria um laço): só
+  `console.error`, e o rótulo volta para a fila.
+- A instância `degradacoes` é outro objeto do mesmo `COUNTER`: o dos
+  contadores (`contadores`) continua sem ser endereçado num HEAD
+  (`tests/security.test.js`).
+- A faixa do navegador embutido (`src/ui/navegador-embutido.js`) só aparece
+  no toque em baixar ou em ligar avisos, por um ouvinte em captura no
+  documento. Botão novo de download? Ele precisa casar com o seletor dos
+  gatilhos (`[data-acao^="baixar"]`, `#g-folha-ops`, `[data-vz="baixar"]`,
+  `#rs-cartao-baixar`, `#av-btn`, `a[download]`), ou a faixa não aparece.
+  `verifica:celular` tem o cenário (Instagram no iPhone e no Android, Safari).
+- CSS de componente que usa `display:` em `a` ou `button` precisa de
+  `[hidden]{display:none}` próprio: o `display` da classe vence o atributo
+  `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone).
 
 ## 6. Como fazer uma mudança
 

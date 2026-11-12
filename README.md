@@ -239,7 +239,9 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:navegador
 os downloads exatos e o "Pedir remoção". `verifica:celular` abre a página
 principal do álbum e a de um evento em 5 telas de celular e reprova vazamento
 lateral, alvo de toque menor que 44 px, campo que faz o iPhone dar zoom e texto
-menor que 11 px. `verifica:evento` é a véspera de evento:
+menor que 11 px; também abre a página de um evento com o user agent do
+Instagram (iPhone e Android) e do Safari e confere a faixa do navegador
+embutido. `verifica:evento` é a véspera de evento:
 portão do Drive, 429, código por e-mail e álbum restrito sem Turnstile.
 `verifica:painel` dirige o painel logado no iPhone, no Android e no computador.
 `verifica:previa` cobre a faixa e o menu "Testes" da prévia. `verifica:navegador`

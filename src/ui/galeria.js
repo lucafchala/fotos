@@ -35,6 +35,7 @@ import { urlLh3, descreveRenovacao } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
 import { nomesDaListagem } from '../nomes.js';
 import { rotuloDoPeriodo } from './album.js';
+import { navegadorEmbutidoHTML } from './navegador-embutido.js';
 
 // Álbum com domínio próprio (Entre Nós): a página do evento usa a paleta da
 // apresentação do álbum, escura e com o amarelo do Santa, em qualquer tema do
@@ -801,7 +802,8 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   </dialog>` : ''}
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
   ${dados ? `<script type="application/json" id="g-dados" nonce="${nonce}">${jsonParaScript(dados)}</script>
-  <script nonce="${nonce}">${SCRIPT}</script>` : ''}
+  <script nonce="${nonce}">${SCRIPT}</script>
+  ${navegadorEmbutidoHTML(nonce)}` : ''}
 </body>
 </html>`;
 }

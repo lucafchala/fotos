@@ -73,7 +73,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 11 de novembro de 2026</p>
+    <p class="updated">Atualizada em 12 de novembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -98,6 +98,7 @@ export function privacyHTML() {
       <li><strong>Medição de acesso anônima e sem cookies</strong> (Cloudflare Web Analytics), que não identifica visitantes individualmente.</li>
       <li><strong>Contagem por capítulo</strong>: nos projetos com a galeria dividida em capítulos, as contagens de aberturas e de downloads também são separadas por capítulo. É só um número por projeto, por capítulo e por dia, sem identificar ninguém, e apagado depois de 400 dias, como as demais.</li>
       <li><strong>Última visita, só no seu aparelho</strong> (<code>localStorage</code>, chaves <code>gal-visita:…</code>): a galeria guarda no seu navegador o instante da sua última visita a cada projeto ou capítulo, só para destacar as fotos que chegaram depois. Não é cookie, não é enviado ao servidor e some quando você limpa os dados do site.</li>
+      <li><strong>Aviso do navegador de aplicativo, só no seu aparelho</strong> (<code>sessionStorage</code>, chave <code>nav-emb-fechado</code>): se você abre o álbum pelo navegador de dentro de um app (Instagram, Facebook…) e fecha o aviso que explica como abrir no navegador, a página lembra disso até você fechar a aba. O app é reconhecido pelo nome que ele mesmo põe no navegador (o <em>user agent</em>), só no seu aparelho; nada vai ao servidor.</li>
     </ul>
     <p><strong>Dados lidos do Google Drive.</strong> Para montar a galeria, o site lê da pasta do Drive o nome e o tamanho de cada arquivo, o nome da subpasta de créditos (que indica o <strong>autor</strong> da foto) e a <strong>data e hora de captura</strong> gravadas no arquivo. Não lê localização (GPS) nem dados da câmera.</p>
     <p><strong>Cópia da lista de fotos (banco de dados).</strong> Duas tabelas guardam só o que a galeria já mostra: a <em>última lista lida</em> de cada pasta (id, nome do arquivo, medidas, autor, capítulo e data/hora de captura), usada para a galeria continuar funcionando e para perceber fotos que sumiram da pasta, e a lista de <em>fotos apagadas recentemente</em> (as mesmas informações de cada foto, mais o momento em que o sumiço foi percebido), para eu ser avisado. Não há e-mail, localização nem dado de visitante nessas tabelas.</p>

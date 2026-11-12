@@ -20,6 +20,8 @@ const DIARIO = 'd:';
 const PREFIXO_DIA = DIARIO.length + 11;
 /** @param {string} dia @param {string} key */
 const chaveDia = (dia, key) => `${DIARIO}${dia}:${key}`;
+/** Quantas degradações a instância `degradacoes` guarda, no máximo. */
+const DEGRADACOES_MAX = 40;
 
 // ---------------------------------------------------------------------------
 // Contadores e rate limit em Durable Objects
@@ -220,6 +222,44 @@ export class Counter extends DurableObject {
     }
     for (const k of apagar) this.#counts.delete(k);
     for (let i = 0; i < apagar.length; i += 128) await this.ctx.storage.delete(apagar.slice(i, i + 128));
+  }
+
+  // Degradações (v3.11.0, src/utils.js `guardaDegradacoes`): a cópia que
+  // sobrevive à troca de isolate. Só na instância `degradacoes` — um objeto
+  // separado do dos contadores, para não misturar com a série. Cada rótulo é
+  // uma chave `g:<rótulo>` com o instante e o detalhe; a gravação poda o que
+  // passou da janela e guarda no máximo DEGRADACOES_MAX.
+  /**
+   * @param {{ label: string, at: number, detail: string }[]} lista
+   * @param {number} ttlMs
+   */
+  async registraDegradacoes(lista, ttlMs) {
+    /** @type {Record<string, { at: number, detail: string }>} */
+    const novas = {};
+    for (const d of (Array.isArray(lista) ? lista : []).slice(0, 50)) {
+      if (!d || typeof d.label !== 'string' || !d.label || !Number.isFinite(d.at)) continue;
+      novas[`g:${d.label.slice(0, 160)}`] = { at: d.at, detail: String(d.detail || '').slice(0, 160) };
+    }
+    if (Object.keys(novas).length) await this.ctx.storage.put(novas);
+    const agora = Date.now();
+    /** @type {Map<string, { at: number }>} */
+    const todas = await this.ctx.storage.list({ prefix: 'g:' });
+    const vivas = [...todas].filter(([, v]) => v && agora - v.at <= ttlMs).sort((a, b) => b[1].at - a[1].at);
+    const ficam = new Set(vivas.slice(0, DEGRADACOES_MAX).map(([k]) => k));
+    const saem = [...todas.keys()].filter(k => !ficam.has(k));
+    for (let i = 0; i < saem.length; i += 128) await this.ctx.storage.delete(saem.slice(i, i + 128));
+  }
+
+  /**
+   * As degradações ainda dentro da janela.
+   * @param {number} ttlMs
+   * @returns {Promise<{ label: string, at: number, detail: string }[]>}
+   */
+  async degradacoes(ttlMs) {
+    const agora = Date.now();
+    /** @type {Map<string, { at: number, detail: string }>} */
+    const todas = await this.ctx.storage.list({ prefix: 'g:' });
+    return [...todas].filter(([, v]) => v && agora - v.at <= ttlMs).map(([k, v]) => ({ label: k.slice(2), at: v.at, detail: v.detail }));
   }
 }
 

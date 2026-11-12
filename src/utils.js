@@ -818,11 +818,23 @@ export async function encerraOutrasSessoes(env, tokenAtual) {
 // Era três registradores separados; agora é um: quem degradar chama
 // `noteDegraded`, e /api/healthz relata tudo dentro da janela.
 //
-// Estado de módulo, sem persistência (persistir exigiria a escrita que pode
-// estar sendo recusada) — vale por isolate, aceitável porque a condição é da
-// conta inteira e qualquer isolate a encontra em segundos.
+// Estado de módulo por isolate, MAIS uma cópia num Durable Object (v3.11.0):
+// antes era só por isolate, e a degradação sumia no isolate seguinte — o
+// healthz (e o painel de status, que o lê a cada 10 min) quase nunca caía no
+// mesmo isolate que viu o defeito, e um problema que durou minutos passava
+// invisível. A cópia NÃO usa KV (persistir exigiria a escrita que pode estar
+// sendo recusada): vai para a instância `degradacoes` do COUNTER, gravada no
+// fim do pedido (`guardaDegradacoes`, em waitUntil), no máximo uma vez por
+// rótulo a cada DEGRADED_GRAVA_MS por isolate. O healthz junta as duas listas.
 const DEGRADED_TTL_MS = 30 * 60_000;
+const DEGRADED_GRAVA_MS = 5 * 60_000;
+const DEGRADED_OBJ = 'degradacoes';
+/** @type {Map<string, { at: number, detail: string }>} */
 const _degraded = new Map();
+/** Rótulos ainda não copiados para o Durable Object. @type {Set<string>} */
+const _pendentes = new Set();
+/** Quando cada rótulo foi copiado pela última vez, neste isolate. @type {Map<string, number>} */
+const _gravadas = new Map();
 
 // `label` é a chave de dedup e o texto exibido no painel — escreva como a
 // frase que você quer ler às 2h da manhã: o que quebrou, o que parou.
@@ -869,7 +881,9 @@ export function errMessage(err) {
 export function noteDegraded(label, detail = '', err = null) {
   const rotulo = umaLinha(label);
   const texto = umaLinha(detail);
-  _degraded.set(rotulo, { at: Date.now(), detail: texto });
+  const agora = Date.now();
+  _degraded.set(rotulo, { at: agora, detail: texto });
+  if (agora - (_gravadas.get(rotulo) || 0) >= DEGRADED_GRAVA_MS) _pendentes.add(rotulo);
   console.error(`degradado: ${rotulo}${texto ? ` — ${texto}` : ''}`, err || '');
 }
 
@@ -885,7 +899,67 @@ export function degradedHealth(now = Date.now()) {
   return out.sort((a, b) => a.agoSecs - b.agoSecs);
 }
 
-export function resetDegraded() { _degraded.clear(); }
+export function resetDegraded() { _degraded.clear(); _pendentes.clear(); _gravadas.clear(); }
+
+/**
+ * Copia para o Durable Object as degradações novas deste isolate (v3.11.0).
+ * Chamada no fim de todo pedido e do cron (src/index.js, em waitUntil); sem
+ * nada pendente, não faz chamada nenhuma. Nunca lança, e a falha NÃO vira
+ * noteDegraded (seria um laço: a cópia falhando registraria outra cópia).
+ * @param {{ COUNTER?: any }} env
+ */
+export async function guardaDegradacoes(env) {
+  if (!_pendentes.size || !env || !env.COUNTER) return;
+  const agora = Date.now();
+  const lista = [];
+  for (const label of _pendentes) {
+    const d = _degraded.get(label);
+    if (d) lista.push({ label, at: d.at, detail: d.detail });
+    _gravadas.set(label, agora);
+  }
+  _pendentes.clear();
+  if (!lista.length) return;
+  try {
+    await env.COUNTER.get(env.COUNTER.idFromName(DEGRADED_OBJ)).registraDegradacoes(lista, DEGRADED_TTL_MS);
+  } catch (e) {
+    // Volta para a fila: o próximo pedido tenta de novo.
+    for (const d of lista) { _pendentes.add(d.label); _gravadas.delete(d.label); }
+    console.error('degradações: a cópia no Durable Object falhou', e);
+  }
+}
+
+/**
+ * As degradações de TODOS os isolates (as do Durable Object juntas com as
+ * deste), no formato de degradedHealth(): a mais recente de cada rótulo, as
+ * mais novas primeiro. Sem o Durable Object (ou com ele fora), só as deste
+ * isolate — como antes. Uma subrequisição.
+ * @param {{ COUNTER?: any }} env
+ * @param {number} [now]
+ */
+export async function degradacoesDeTodos(env, now = Date.now()) {
+  /** @type {Map<string, { at: number, detail: string }>} */
+  const todas = new Map();
+  if (env && env.COUNTER) {
+    try {
+      const guardadas = await env.COUNTER.get(env.COUNTER.idFromName(DEGRADED_OBJ)).degradacoes(DEGRADED_TTL_MS);
+      for (const d of Array.isArray(guardadas) ? guardadas : []) {
+        if (d && typeof d.label === 'string' && Number.isFinite(d.at)) todas.set(d.label, { at: d.at, detail: String(d.detail || '') });
+      }
+    } catch (e) {
+      console.error('degradações: a leitura do Durable Object falhou', e);
+    }
+  }
+  for (const [label, d] of _degraded) {
+    const ja = todas.get(label);
+    if (!ja || d.at >= ja.at) todas.set(label, d);
+  }
+  const out = [];
+  for (const [label, { at, detail }] of todas) {
+    if (now - at > DEGRADED_TTL_MS) continue;
+    out.push({ label, detail, agoSecs: Math.max(0, Math.round((now - at) / 1000)) });
+  }
+  return out.sort((a, b) => a.agoSecs - b.agoSecs);
+}
 
 // Atalho para o caso mais comum: uma operação de KV recusada. `op` não é
 // cosmético — uma falha de leitura relatada como escrita mandaria quem
