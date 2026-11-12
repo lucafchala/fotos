@@ -232,6 +232,7 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:celular
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:evento
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:painel
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:previa
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:envio
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:navegador
 ```
 
@@ -242,7 +243,9 @@ lateral, alvo de toque menor que 44 px, campo que faz o iPhone dar zoom e texto
 menor que 11 px. `verifica:evento` é a véspera de evento:
 portão do Drive, 429, código por e-mail e álbum restrito sem Turnstile.
 `verifica:painel` dirige o painel logado no iPhone, no Android e no computador.
-`verifica:previa` cobre a faixa e o menu "Testes" da prévia. `verifica:navegador`
+`verifica:previa` cobre a faixa e o menu "Testes" da prévia. `verifica:envio`
+cobre a página "Mandar suas fotos" (envio pelo site, `docs/ENVIO.md`) contra o
+Google simulado. `verifica:navegador`
 roda contra o `wrangler dev`; os outros usam o `src/index.js` de verdade num
 servidor local.
 

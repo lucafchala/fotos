@@ -1,4 +1,4 @@
-// Envio de fotos pelo site (v3.9): o arquivo sai do celular e termina na
+// Envio de fotos pelo site (v4.0.0): o arquivo sai do celular e termina na
 // pasta de envio do evento, no Google Drive. O Drive continua sendo a fonte
 // da verdade — a galeria, o indexador de rostos e os créditos leem a pasta
 // como sempre leram. Este módulo é só o caminho de IDA.

@@ -54,7 +54,12 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** Os segredos que uma prévia recebe — a tabela de docs/REFERENCIA.md, "Prévia de PR". */
+/**
+ * Os segredos que uma prévia recebe — a tabela de docs/REFERENCIA.md, "Prévia de PR".
+ * A credencial OAuth do envio pelo site (GOOGLE_OAUTH_*) fica de fora DE
+ * PROPÓSITO: ela grava no Drive de produção do dono, e uma prévia gravando lá
+ * não é prévia (docs/ENVIO.md).
+ */
 export const SEGREDOS_DA_PREVIA = /** @type {const} */ ([
   'ADMIN_PASSWORD',
   'SIGNING_SECRET',

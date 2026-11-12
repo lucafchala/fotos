@@ -471,6 +471,34 @@ máquina enxerga nessas telas e estados", não "acessível": falta leitor de tel
 de verdade, e o contraste contra FOTO real (texto sobre imagem) o axe só mede
 contra a imagem de teste.
 
+### Envio pelo site — `npm run verifica:envio`
+
+A página "Mandar suas fotos" (`src/ui/enviar.js`) num Chromium de celular
+(390 px), contra o `src/index.js` de verdade (o harness do §2) com a
+credencial do envio e o **Google simulado** no `externo` do
+`worker-local.mjs` (token, lista das pastas, "já existe este fp?", espaço,
+sessão retomável com 308 + `Range`). Cada byte que chega ao "Drive" fica
+guardado, e o roteiro confere o arquivo inteiro, na pasta certa, com o
+crédito, uma vez só:
+
+- escolher 6 arquivos: o repetido (mesmo conteúdo, outro nome) e o `.exe`
+  ficam de fora com aviso; um grupo por dia; o evento sugerido pela data da
+  foto (o resumo com `dd` é semeado numa Cache API de mentira); sem evento ou
+  sem a declaração, não envia;
+- o passe recusado (rápido demais para o `form_token`) para tudo e mostra o
+  motivo, e "Tentar de novo" envia;
+- duplicata de outro aparelho: nenhuma sessão nova;
+- parte perdida no caminho (a retomada passa por `/api/envio/estado`) e
+  internet caindo e voltando (o envio segue sozinho);
+- pausar, recarregar a página e escolher as mesmas fotos: continua na MESMA
+  sessão, sem outro Turnstile;
+- alvos de 44 px, sem rolagem lateral, axe, nenhum erro de JS, nenhuma
+  mensagem de CSP. Uma coluna legível no computador.
+
+O que ele **não** prova: o Google de verdade (escopo do token, a resposta real
+a uma sessão vencida), o seletor de fotos do iPhone (HEIC, Live Photo) e o
+Turnstile de verdade.
+
 ### Prévia de PR — `npm run verifica:previa`
 
 Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o

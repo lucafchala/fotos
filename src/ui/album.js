@@ -271,7 +271,7 @@ export function albumHTML(p) {
     caps.length ? '<a class="al-btn al-b1 al-ver" href="#eventos">Ver todas as fotos</a>' : '',
     // "Mandar suas fotos" em destaque (v3.8.7, pedido do dono): botão, ao
     // lado do principal.
-    // Com o envio pelo site ligado (v3.9), o botão leva à página de envio, na
+    // Com o envio pelo site ligado (v4.0.0), o botão leva à página de envio, na
     // mesma aba: é o próprio álbum, e a pasta do Drive vira o plano B de lá.
     // O `data-acao` some de propósito — é ele que o diálogo antigo procura.
     paginaDeEnvio

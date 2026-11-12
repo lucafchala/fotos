@@ -272,6 +272,13 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 
 ## Mandar suas fotos (v3.4)
 
+> **Com o envio pelo site ligado (v4.0.0)**, o botão leva à página
+> `entrenos2026.com/enviar`, e a janela abaixo não aparece: a turma escolhe as
+> fotos no celular, confere o evento de cada dia e envia, sem abrir o Drive.
+> As fotos terminam nas mesmas pastas de envio. Como ligar e como funciona:
+> [`docs/ENVIO.md`](./ENVIO.md). O que segue descreve o caminho de sempre, que
+> vale enquanto a credencial do Google não está no Worker.
+
 - **Pasta de envio** é a pasta de crédito cujo nome começa com `!` (`chavesDeEnvio`, em `src/drive.js`).
 - **A janela:** o botão **Mandar suas fotos** abre uma janela com os eventos, na ordem da linha do tempo. Se o evento tem mais de uma pasta de envio (uma por ano ou por banda), ela pergunta qual. A opção abre a pasta no Drive, e a janela explica: entrar com a conta Google e tocar em **+ → Fazer upload**.
 - **Sem JavaScript, ou se a lista falhar:** o botão continua um link para a pasta do álbum, e a janela mostra "Abrir a pasta do álbum".

@@ -33,7 +33,7 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 // Só o que a galeria usa: menos campos = JSON menor = menos CPU no parse (o
 // plano gratuito tem 10 ms de CPU por requisição).
 // `videoMediaMetadata` (item 1f): largura, altura e duração do vídeo.
-// `description` (v3.9): o crédito assinado por quem enviou pelo site ("Crédito:
+// `description` (v4.0.0): o crédito assinado por quem enviou pelo site ("Crédito:
 // Nome", src/envio.js). O Drive só manda o campo em arquivo que tem descrição:
 // a lista de um álbum comum não cresce um byte.
 const CAMPOS = 'nextPageToken,files(id,name,mimeType,size,description,resourceKey,imageMediaMetadata(width,height,rotation,time),videoMediaMetadata(width,height,durationMillis),createdTime,shortcutDetails(targetId,targetMimeType,targetResourceKey))';
@@ -600,7 +600,7 @@ export async function percorre(chave, raiz, maxChamadas, creditos, maxPastas = G
     aut.push(nome);
     return aut.length - 1;
   };
-  // Crédito assinado (v3.9): dentro de uma PASTA DE ENVIO (a de crédito cujo
+  // Crédito assinado (v4.0.0): dentro de uma PASTA DE ENVIO (a de crédito cujo
   // nome começa com "!"), o arquivo que traz "Crédito: Nome" na descrição é
   // creditado a esse nome, e não ao da pasta ("Turma 2026"). Só ali: nas pastas
   // dos fotógrafos, que são só de leitura, a descrição não muda crédito
@@ -1545,7 +1545,7 @@ export function achaCapitulo(dados, slug) {
  * `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX.
  * `p` (v3.3): o primeiro e o último mês das fotos do capítulo, AAAAMM, pelas datas de captura (a linha do tempo da apresentação).
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
- * `dd` (v3.9): os DIAS (AAAAMMDD) com mais fotos no capítulo, em ordem, até RESUMO_DIAS_MAX. É por eles que o envio pelo site
+ * `dd` (v4.0.0): os DIAS (AAAAMMDD) com mais fotos no capítulo, em ordem, até RESUMO_DIAS_MAX. É por eles que o envio pelo site
  *   sugere o evento de uma foto pelo dia em que ela foi feita.
  * `rotulo` (v3.9.0): só em memória, quando o dono escolheu a data do evento (comDatasDoDono).
  */
@@ -1683,7 +1683,7 @@ export async function registraResumo(raizId, capId, listagem, env = undefined) {
     const corte = Math.floor(meses.length * 0.05);
     novo.p = [meses[corte], meses[meses.length - 1 - corte]];
     novo.pm = meses[Math.floor(meses.length / 2)];
-    // Os dias do evento (v3.9): os que têm mais fotos, e só os que pesam (2%
+    // Os dias do evento (v4.0.0): os que têm mais fotos, e só os que pesam (2%
     // das fotos datadas, no mínimo 2) — a foto solta de uma câmera com o
     // relógio errado não vira "dia do evento".
     const piso = Math.max(2, Math.ceil(meses.length * 0.02));

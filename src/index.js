@@ -385,7 +385,7 @@ const worker = {
       if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
-      // Envio de fotos pelo site (v3.9): o passe, o começo de um arquivo, as
+      // Envio de fotos pelo site (v4.0.0): o passe, o começo de um arquivo, as
       // partes dele e a pergunta "onde parou?". Ver handleEnvioInicia.
       if (path === '/api/envio/passe' && method === 'POST') return await handleEnvioPasse(request, env, ctx);
       if (path === '/api/envio/inicia' && method === 'POST') return await handleEnvioInicia(request, env);
@@ -469,7 +469,7 @@ const worker = {
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
       const capBaixarMatch = path.match(GALERIA_CAP_BAIXAR_RE);
       if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
-      // A página de envio (v3.9) vem ANTES da rota de evento: "enviar" não é
+      // A página de envio (v4.0.0) vem ANTES da rota de evento: "enviar" não é
       // um evento (uma pasta com esse nome ficaria sem página).
       const enviarMatch = path.match(GALERIA_ENVIAR_RE);
       if (enviarMatch && method === 'GET') return await handleEnvioPagina(request, env, enviarMatch[1], url, nonce);
@@ -3312,7 +3312,7 @@ async function medirSaude(env) {
   // formulário não configurado.
   const selftest = auditSite(eventsList, env, degradedHealth());
 
-  // O envio de fotos pelo site (v3.9, src/envio.js): a credencial do Google e
+  // O envio de fotos pelo site (v4.0.0, src/envio.js): a credencial do Google e
   // o espaço do Drive são as duas coisas que quebram em silêncio — a turma
   // veria "tente de novo" e o dono, nada. O painel de status lê `envio`; os
   // problemas entram no self-test, que é o que já vira alerta. Nunca derruba
@@ -3865,7 +3865,7 @@ export async function handleGaleriaEnvio(request, env, url) {
 }
 
 // ---------------------------------------------------------------------------
-// Envio de fotos pelo site (v3.9) — src/envio.js, src/ui/enviar.js, docs/ENVIO.md
+// Envio de fotos pelo site (v4.0.0) — src/envio.js, src/ui/enviar.js, docs/ENVIO.md
 // ---------------------------------------------------------------------------
 // A turma manda fotos e vídeos pelo próprio álbum, e tudo termina na pasta de
 // envio do evento no Google Drive — a mesma que a janela "Mandar suas fotos"
@@ -5043,7 +5043,7 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
     res.headers.append('Set-Cookie', `editora_${album.slug}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
     return res;
   }
-  // Mandar suas fotos (v3.9): "entrenos2026.com/enviar".
+  // Mandar suas fotos (v4.0.0): "entrenos2026.com/enviar".
   if (path === '/enviar') return { servir: `/galeria/${album.slug}/enviar` };
   // O painel mora no domínio principal (é lá que o cookie da sessão vale).
   const ehPainel = path === '/dashboard' || path.startsWith('/dashboard/');

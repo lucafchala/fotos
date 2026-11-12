@@ -925,7 +925,7 @@ const AUTORES_NA_LINHA = 5;
 /** "A", "A e B", "A, B e C"; com muitos, "A, B, C, D, E e mais 12 pessoas". @param {string[]} nomes */
 function listaComE(nomes) {
   if (nomes.length < 2) return nomes.join('');
-  // Com crédito assinado por quem envia pelo site (v3.9) um evento pode ter
+  // Com crédito assinado por quem envia pelo site (v4.0.0) um evento pode ter
   // dezenas de nomes: a linha mostra os primeiros e conta o resto. Os chips de
   // fotógrafo, logo abaixo, seguem com todos.
   if (nomes.length > AUTORES_NA_LINHA + 1) return `${nomes.slice(0, AUTORES_NA_LINHA).join(', ')} e mais ${nomes.length - AUTORES_NA_LINHA} pessoas`;

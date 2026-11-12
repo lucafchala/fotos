@@ -196,7 +196,9 @@ no #178.
    `npm run verifica:painel` (o fluxo logado inteiro, no celular e no
    computador, contra o Worker de verdade). Mudou a prévia de PR
    (`src/previa.js`, a faixa e o menu "Testes")? Rode
-   `npm run verifica:previa`. Os quatro `verifica:*` que dispensam o wrangler
+   `npm run verifica:previa`. Mudou o envio pelo site (`src/envio.js`,
+   `src/ui/enviar.js`, as rotas `/api/envio/*`)? Rode `npm run verifica:envio`.
+   Os `verifica:*` que dispensam o wrangler
    também rodam na CI (job *Roteiros no navegador*), mas rode antes de
    empurrar — a CI é a confirmação, não o primeiro aviso. Mudou login,
    healthz ou algo que o smoke do deploy olha? Rode também

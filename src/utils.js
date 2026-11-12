@@ -84,7 +84,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-11-06';
+export const TERMS_VERSION = '2026-11-12';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -1505,7 +1505,7 @@ export const RESERVED_SLUGS = new Set([
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
   // Entrada e saída da editora do álbum, no domínio dele (v3.8.1).
   'entrar', 'sair',
-  // A página "Mandar suas fotos" no domínio do álbum (v3.9): /enviar.
+  // A página "Mandar suas fotos" no domínio do álbum (v4.0.0): /enviar.
   'enviar',
   // As páginas de ajuda do álbum (v3.9.0): entrenos2026.com/ajuda; e a
   // "Turma em números" (v3.9.1): entrenos2026.com/numeros.

@@ -1,4 +1,4 @@
-// A página "Mandar suas fotos" (v3.9): /galeria/<slug>/enviar (no domínio do
+// A página "Mandar suas fotos" (v4.0.0): /galeria/<slug>/enviar (no domínio do
 // álbum, /enviar). A pessoa escolhe as fotos e os vídeos do celular, a página
 // os separa por dia, sugere o evento de cada dia, e envia em partes para a
 // pasta de envio do evento no Google Drive (o caminho está em src/envio.js).
