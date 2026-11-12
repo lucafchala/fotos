@@ -64,6 +64,8 @@ Um formato só para o site inteiro: `entrenos2026.com/<evento>?foto=<código>` (
 ### Quem abre pelo navegador de dentro de um app (v3.11.0)
 - Link aberto no Instagram, no Facebook, no TikTok (e em outros apps com navegador próprio) cai no navegador do app, onde baixar e os avisos falham sem dizer nada.
 - Ao tocar em baixar ou em "Avisar quando chegar foto nova", o álbum mostra uma faixa: no iPhone, "toque nos três pontinhos e escolha Abrir no navegador"; no Android, o botão **Abrir no Chrome**; nos dois, **Copiar o link**. Não impede a ação e, fechada, não volta naquela aba.
+- "Abrir no Chrome" aparece só nos apps conhecidos (Instagram, Facebook, TikTok, Snapchat, LinkedIn, LINE); num app qualquer, só "Copiar o link". Sem o Chrome instalado, o botão volta para a mesma página.
+- No lugar do botão de avisos (que o navegador de um app não suporta), o álbum diz para abrir no navegador do celular.
 - O WhatsApp não mostra a faixa: ele abre o link no navegador de verdade. Detalhes em `src/ui/navegador-embutido.js`.
 
 ### Aviso de fotos novas no celular (v3.8.4)

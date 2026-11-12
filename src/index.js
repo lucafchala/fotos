@@ -536,9 +536,10 @@ export default {
   /**
    * @param {Request} request
    * @param {Env} env
-   * @param {ExecutionContext} ctx
+   * @param {ExecutionContext} ctxReal
    */
-  async fetch(request, env, ctx) {
+  async fetch(request, env, ctxReal) {
+    const { ctx, depoisDeTudo } = coletaTarefas(ctxReal);
     try {
       if (!ehPrevia(env)) return await worker.fetch(request, env, ctx);
       return await fetchDaPrevia(request, env, ctx, {
@@ -550,22 +551,63 @@ export default {
     } finally {
       // O que degradou neste pedido vai para o Durable Object (v3.11.0), para
       // o healthz de outro isolate ver. Sem nada novo, nenhuma chamada.
-      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(guardaDegradacoes(env));
+      depoisDeTudo(() => guardaDegradacoes(env));
     }
   },
   /**
    * @param {ScheduledController} event
    * @param {Env} env
-   * @param {ExecutionContext} ctx
+   * @param {ExecutionContext} ctxReal
    */
-  async scheduled(event, env, ctx) {
+  async scheduled(event, env, ctxReal) {
+    const { ctx, depoisDeTudo } = coletaTarefas(ctxReal);
     try {
       return await worker.scheduled(event, env, ctx);
     } finally {
-      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(guardaDegradacoes(env));
+      depoisDeTudo(() => guardaDegradacoes(env));
     }
   },
 };
+
+/**
+ * Um `ctx` que anota cada tarefa posta em `waitUntil`, e `depoisDeTudo(f)`, que
+ * roda `f` quando todas elas (e as que elas puserem) terminarem.
+ *
+ * Por quê: o cron põe todo o trabalho em `waitUntil` e retorna na hora; o
+ * `finally` que copia as degradações rodava ANTES de qualquer tarefa falhar, e
+ * a faxina do R2 que falhasse às 03:00 nunca chegava ao Durable Object. O mesmo
+ * vale, em menor grau, para o que degrada depois da resposta de um pedido.
+ * Só `waitUntil` é usado do ExecutionContext neste Worker; o resto não passa.
+ * @param {ExecutionContext | undefined} ctxReal
+ */
+export function coletaTarefas(ctxReal) {
+  if (!ctxReal || typeof ctxReal.waitUntil !== 'function') {
+    return { ctx: /** @type {ExecutionContext} */ (/** @type {unknown} */ (ctxReal)), depoisDeTudo: (/** @type {() => Promise<unknown>} */ _f) => {} };
+  }
+  /** @type {Promise<unknown>[]} */
+  const tarefas = [];
+  const ctx = /** @type {ExecutionContext} */ (/** @type {unknown} */ ({
+    waitUntil(/** @type {Promise<unknown>} */ p) {
+      tarefas.push(Promise.resolve(p).catch(() => {}));
+      ctxReal.waitUntil(p);
+    },
+    passThroughOnException() { ctxReal.passThroughOnException(); },
+  }));
+  /** @param {() => Promise<unknown>} f */
+  const depoisDeTudo = f => {
+    ctxReal.waitUntil((async () => {
+      // Em laço: uma tarefa pode pôr outra em waitUntil enquanto roda.
+      let vistas = 0;
+      while (vistas < tarefas.length) {
+        const lote = tarefas.slice(vistas);
+        vistas = tarefas.length;
+        await Promise.allSettled(lote);
+      }
+      await f();
+    })());
+  };
+  return { ctx, depoisDeTudo };
+}
 
 // ---------------------------------------------------------------------------
 // As fotos pelo próprio site: /f/<id>/<largura>?k=<álbum>.<assinatura>

@@ -12,7 +12,7 @@
 //  5. o mais recente de cada rótulo vence.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index.js';
-import { noteDegraded, resetDegraded, guardaDegradacoes, degradacoesDeTodos, degradedHealth } from '../src/utils.js';
+import { noteDegraded, resetDegraded, guardaDegradacoes, degradacoesDeTodos, degradedHealth, saveEvents } from '../src/utils.js';
 import { withDurableObjects, brokenDONamespace } from './helpers/do.js';
 import { ctxColetor } from './helpers/ctx.js';
 
@@ -63,13 +63,31 @@ describe('a cópia no Durable Object', () => {
     expect(j.selftest.ok).toBe(false);
   });
 
-  it('o cron também copia', async () => {
+  it('o cron também copia — mesmo o que degrada DENTRO de uma tarefa em waitUntil', async () => {
+    // O caso real: a faxina do R2 roda em waitUntil e falha depois que o
+    // `scheduled` já retornou. Antes da v3.11.0 final, a cópia corria no
+    // `finally`, com a fila ainda vazia, e o objeto ficava sem nada.
+    // saveEvents, não put: a lista fica também no cache do isolate.
+    await saveEvents(env, /** @type {any} */ ([{ id: '1', slug: 'formatura', title: 'F', fotosOcultas: ['FOTO_AAAAAAAAAA'] }]));
+    const quebra = () => { throw new Error('R2 fora'); };
+    env.FOTOS_R2 = { list: quebra, delete: quebra, head: quebra, get: quebra, put: quebra };
     const ctx = ctxColetor();
-    noteDegraded('aviso falhou', 'x');
-    await worker.scheduled(/** @type {any} */ ({ cron: '*/10 * * * *', scheduledTime: Date.now() }), env, ctx);
+    await worker.scheduled(/** @type {any} */ ({ cron: '0 3 * * *', scheduledTime: Date.UTC(2026, 10, 12, 3, 0) }), env, ctx);
     await ctx.drena();
     resetDegraded();
-    expect((await degradacoesDeTodos(env)).map(d => d.label)).toContain('aviso falhou');
+    expect((await degradacoesDeTodos(env)).map(d => d.label)).toContain('faxina das fotos ocultas no R2 falhou');
+  });
+
+  it('o que degrada depois da resposta de um pedido também chega ao objeto', async () => {
+    const ctx = ctxColetor();
+    const { coletaTarefas } = await import('../src/index.js');
+    const { ctx: c, depoisDeTudo } = coletaTarefas(/** @type {any} */ (ctx));
+    // Uma tarefa que, ao rodar, põe outra — e só a segunda degrada.
+    c.waitUntil(Promise.resolve().then(() => { c.waitUntil(new Promise(r => setTimeout(r, 5)).then(() => noteDegraded('tarde', ''))); }));
+    depoisDeTudo(() => guardaDegradacoes(env));
+    await ctx.drena();
+    resetDegraded();
+    expect((await degradacoesDeTodos(env)).map(d => d.label)).toEqual(['tarde']);
   });
 });
 
@@ -112,6 +130,26 @@ describe('falha do objeto', () => {
     env.COUNTER = brokenDONamespace();
     noteDegraded('D1 fora', '');
     await expect(guardaDegradacoes(env)).resolves.toBeUndefined();
+    env.COUNTER = bom;
+    // Passada a espera depois da falha (30 s), a cópia é tentada de novo.
+    const agora = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(agora + 30_001);
+    await guardaDegradacoes(env);
+    resetDegraded();
+    expect((await degradacoesDeTodos(env)).map(d => d.label)).toEqual(['D1 fora']);
+  });
+
+  it('com o objeto fora, espera 30 s antes de tentar de novo (no pico, sem uma chamada à toa por pedido)', async () => {
+    const bom = env.COUNTER;
+    let chamadas = 0;
+    env.COUNTER = { idFromName: () => 'x', get: () => ({ registraDegradacoes: async () => { chamadas++; throw new Error('fora'); } }) };
+    noteDegraded('D1 fora', '');
+    await guardaDegradacoes(env);
+    await guardaDegradacoes(env);
+    await guardaDegradacoes(env);
+    expect(chamadas).toBe(1);
+    const agora = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(agora + 30_001);
     env.COUNTER = bom;
     await guardaDegradacoes(env);
     resetDegraded();

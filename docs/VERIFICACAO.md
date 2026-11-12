@@ -481,7 +481,7 @@ cabem na tela; o visor e o "Minhas fotos". Capturas em `CAPTURAS`.
 Desde a v3.11.0, também o **navegador de dentro de um app**: a página do evento
 com o user agent do Instagram no iPhone e no Android, e do Safari. Nada na
 entrada; ao tocar em "Baixar tudo", a faixa aparece, cabe na tela, tem alvos de
-44 px; no Android traz "Abrir no Chrome" (`intent://`), no iPhone só o caminho
+44 px; no Android traz "Abrir no Chrome" (`intent://`, com volta sem Chrome), no iPhone só o caminho
 pelo menu; "Fechar" esconde; no Safari, nunca aparece. O que ele **não** prova:
 o navegador do Instagram de verdade (o user agent é trocado num Chromium), nem
 que o `intent://` abre o Chrome num Android real.

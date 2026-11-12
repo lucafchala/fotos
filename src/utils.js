@@ -835,6 +835,11 @@ const _degraded = new Map();
 const _pendentes = new Set();
 /** Quando cada rótulo foi copiado pela última vez, neste isolate. @type {Map<string, number>} */
 const _gravadas = new Map();
+/** Quando a última cópia falhou (0 = nunca). @type {number} */
+let _copiaFalhouEm = 0;
+// Com o objeto fora, esperar um pouco antes de tentar de novo: sem isto, no
+// pico, cada pedido de cada isolate faria uma chamada extra que falha.
+const DEGRADED_ESPERA_FALHA_MS = 30_000;
 
 // `label` é a chave de dedup e o texto exibido no painel — escreva como a
 // frase que você quer ler às 2h da manhã: o que quebrou, o que parou.
@@ -899,7 +904,7 @@ export function degradedHealth(now = Date.now()) {
   return out.sort((a, b) => a.agoSecs - b.agoSecs);
 }
 
-export function resetDegraded() { _degraded.clear(); _pendentes.clear(); _gravadas.clear(); }
+export function resetDegraded() { _degraded.clear(); _pendentes.clear(); _gravadas.clear(); _copiaFalhouEm = 0; }
 
 /**
  * Copia para o Durable Object as degradações novas deste isolate (v3.11.0).
@@ -911,6 +916,7 @@ export function resetDegraded() { _degraded.clear(); _pendentes.clear(); _gravad
 export async function guardaDegradacoes(env) {
   if (!_pendentes.size || !env || !env.COUNTER) return;
   const agora = Date.now();
+  if (agora - _copiaFalhouEm < DEGRADED_ESPERA_FALHA_MS) return;
   const lista = [];
   for (const label of _pendentes) {
     const d = _degraded.get(label);
@@ -924,6 +930,7 @@ export async function guardaDegradacoes(env) {
   } catch (e) {
     // Volta para a fila: o próximo pedido tenta de novo.
     for (const d of lista) { _pendentes.add(d.label); _gravadas.delete(d.label); }
+    _copiaFalhouEm = Date.now();
     console.error('degradações: a cópia no Durable Object falhou', e);
   }
 }

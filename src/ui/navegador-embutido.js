@@ -15,13 +15,18 @@
 //  - NÃO bloqueia a ação: às vezes o download funciona, e a faixa só explica
 //    o que fazer se não funcionar;
 //  - oferece "Copiar o link" e, no Android, "Abrir no Chrome" (um link
-//    `intent://`, que o Android entrega ao Chrome). No iPhone não existe
-//    link que tire a pessoa do app: a faixa diz o caminho (⋯ → Abrir no
-//    navegador);
+//    `intent://`, que o Android entrega ao Chrome). Só para os apps
+//    conhecidos: uma WebView genérica pode não tratar `intent://` e trocaria
+//    o álbum por uma página de erro. Sem o Chrome instalado, o
+//    `S.browser_fallback_url` traz de volta a mesma página. O `#fragmento`
+//    se perde (o `#` do intent é dele). No iPhone não existe link que tire a
+//    pessoa do app: a faixa diz o caminho (⋯ → Abrir no navegador);
+//  - sem aviso de foto nova possível (sem PushManager), o SCRIPT_AVISO de
+//    src/ui/indice-comum.js diz para abrir no navegador, em vez de esconder;
 //  - fechada, não volta nesta aba (sessionStorage).
 //
-// Um lugar só para as três páginas do álbum (a apresentação, o índice e a
-// página do evento): o script não depende do estilo da página, e o CSS usa
+// Um lugar só para as três páginas do álbum — a apresentação e o índice
+// (src/ui/galeria-indice.js) e a página do evento (src/ui/galeria.js): o script não depende do estilo da página, e o CSS usa
 // cores próprias, legíveis sobre qualquer um dos três.
 //
 // O script mora numa template string: sem crase, sem dólar-chave e sem barra
@@ -83,6 +88,7 @@ export const SCRIPT_EMBUTIDO = `(function () {
   var copiar = document.getElementById('nav-emb-copiar');
   var fechar = document.getElementById('nav-emb-fechar');
   var app = /Instagram/.test(ua) ? 'do Instagram' : /FBAN|FBAV|FB_IAB|FBIOS/.test(ua) ? 'do Facebook' : /musical_ly|BytedanceWebview|TikTok/.test(ua) ? 'do TikTok' : /Snapchat/.test(ua) ? 'do Snapchat' : /LinkedInApp/.test(ua) ? 'do LinkedIn' : /Line[/]/.test(ua) ? 'do LINE' : 'de um aplicativo';
+  var conhecido = app !== 'de um aplicativo';
   var android = /Android/.test(ua);
   var CHAVE = 'nav-emb-fechado';
   var mostrou = false;
@@ -94,11 +100,13 @@ export const SCRIPT_EMBUTIDO = `(function () {
     var b = document.createElement('b');
     b.textContent = 'Você está no navegador ' + app + '.';
     txt.appendChild(b);
-    txt.appendChild(document.createTextNode(android
+    txt.appendChild(document.createTextNode(android && conhecido
       ? ' Aqui, baixar fotos e receber avisos pode não funcionar. Abra o álbum no Chrome:'
+      : android
+      ? ' Aqui, baixar fotos e receber avisos pode não funcionar. Copie o link e abra no Chrome.'
       : ' Aqui, baixar fotos e receber avisos pode não funcionar. Toque nos três pontinhos (no canto da tela) e escolha "Abrir no navegador", ou copie o link e cole no Safari.'));
-    if (android) {
-      abrir.href = 'intent://' + location.host + location.pathname + location.search + '#Intent;scheme=https;package=com.android.chrome;end';
+    if (android && conhecido) {
+      abrir.href = 'intent://' + location.host + location.pathname + location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.origin + location.pathname + location.search) + ';end';
       abrir.hidden = false;
     }
     faixa.hidden = false;

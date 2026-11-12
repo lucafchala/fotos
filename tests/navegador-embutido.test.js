@@ -67,7 +67,7 @@ describe('o script', () => {
       addEventListener: (/** @type {string} */ t, /** @type {Function} */ f, /** @type {boolean} */ cap) => { if (t === 'click' && cap) capturas.push(f); },
     };
     const sessionStorage = { getItem: (/** @type {string} */ k) => guardado.get(k) || null, setItem: (/** @type {string} */ k, /** @type {string} */ v) => guardado.set(k, v) };
-    const location = { host: 'entrenos2026.com', pathname: '/formatura', search: '?foto=ABC', hash: '#x', href: 'https://entrenos2026.com/formatura?foto=ABC#x' };
+    const location = { host: 'entrenos2026.com', pathname: '/formatura', search: '?foto=ABC', hash: '#x', origin: 'https://entrenos2026.com', href: 'https://entrenos2026.com/formatura?foto=ABC#x' };
     new Function('document', 'navigator', 'sessionStorage', 'location', 'window', SCRIPT_EMBUTIDO)(document, { userAgent: ua }, sessionStorage, location, {});
     /** Um toque num elemento que casa (ou não) com o seletor dos gatilhos. */
     const toca = (/** @type {boolean} */ gatilho) => {
@@ -102,7 +102,16 @@ describe('o script', () => {
     const r = roda(UA.instagramAndroid);
     r.toca(true);
     expect(r.ids['nav-emb-abrir'].hidden).toBe(false);
-    expect(r.ids['nav-emb-abrir'].href).toBe('intent://entrenos2026.com/formatura?foto=ABC#Intent;scheme=https;package=com.android.chrome;end');
+    expect(r.ids['nav-emb-abrir'].href).toBe('intent://entrenos2026.com/formatura?foto=ABC#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent('https://entrenos2026.com/formatura?foto=ABC') + ';end');
+  });
+
+  it('numa WebView genérica do Android, sem "Abrir no Chrome" (o app pode não tratar intent://): só copiar o link', () => {
+    const r = roda(UA.webview);
+    r.toca(true);
+    expect(r.ids['nav-emb'].hidden).toBe(false);
+    expect(r.ids['nav-emb-abrir'].hidden).toBe(true);
+    const texto = r.ids['nav-emb-txt'].filhos.map((/** @type {any} */ f) => f.textContent).join('');
+    expect(texto).toContain('Copie o link e abra no Chrome.');
   });
 
   it('fechada, não volta nesta aba', () => {
@@ -139,5 +148,31 @@ describe('as páginas do álbum incluem a faixa', () => {
     expect(h).toContain('<style>.nav-emb{');
     expect(h).toContain('role="region"');
     expect(h).toContain(`<script nonce="N">${SCRIPT_EMBUTIDO}</script>`);
+  });
+});
+
+describe('o aviso de foto nova dentro de um app', () => {
+  /** Roda o SCRIPT_AVISO sem PushManager (como no navegador de um app). */
+  async function aviso(/** @type {string} */ ua) {
+    const { SCRIPT_AVISO } = await import('../src/ui/indice-comum.js');
+    /** @param {string} id */
+    const el = id => ({ id, hidden: true, textContent: '', getAttribute: () => 'formatura', addEventListener() {} });
+    const ids = Object.fromEntries(['av', 'av-btn', 'av-txt', 'av-msg'].map(i => [i, el(i)]));
+    const document = { getElementById: (/** @type {string} */ i) => ids[i] || null };
+    new Function('document', 'navigator', 'window', SCRIPT_AVISO)(document, { userAgent: ua, platform: '', maxTouchPoints: 0 }, {});
+    return ids;
+  }
+
+  it('no Instagram do iPhone: diz para abrir no navegador, não para "Adicionar à Tela de Início"', async () => {
+    const ids = await aviso(UA.instagramIos);
+    expect(ids.av.hidden).toBe(false);
+    expect(ids['av-btn'].hidden).toBe(true);
+    expect(ids['av-msg'].textContent).toContain('Abra o álbum no navegador');
+    expect(ids['av-msg'].textContent).not.toContain('Tela de Início');
+  });
+
+  it('no Safari do iPhone, continua a orientação da Tela de Início', async () => {
+    const ids = await aviso(UA.safari);
+    expect(ids['av-msg'].textContent).toContain('Adicionar à Tela de Início');
   });
 });

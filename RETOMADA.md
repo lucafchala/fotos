@@ -963,12 +963,19 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 ### 5.26. O healthz vê o que degradou em qualquer isolate; e o navegador de dentro do app (v3.11.0)
 
 - `noteDegraded()` continua síncrona e sem `env`. A cópia para o Durable
-  Object (`guardaDegradacoes`) roda no `finally` do `fetch` e do `scheduled`
-  do export default (`src/index.js`). Rota nova não precisa fazer nada; mas
-  quem chamar `worker.fetch` por fora do export default (um teste, por
-  exemplo) não copia — use o export default.
+  Object (`guardaDegradacoes`) roda no fim do `fetch` e do `scheduled` do
+  export default (`src/index.js`), DEPOIS de todas as tarefas postas em
+  `ctx.waitUntil` terminarem (`coletaTarefas`). Por quê: o cron põe todo o
+  trabalho em `waitUntil` e retorna na hora; copiar no `finally` (a primeira
+  versão) rodava com a fila vazia, e a faxina do R2 que falhasse às 03:00
+  nunca chegava ao objeto (achado da revisão). Rota nova não precisa fazer
+  nada; mas quem chamar `worker.fetch` por fora do export default (um teste,
+  por exemplo) não copia — use o export default. O `ctx` que as rotas recebem
+  é o embrulho: só `waitUntil` e `passThroughOnException` passam.
 - A cópia não pode virar `noteDegraded` quando falha (seria um laço): só
-  `console.error`, e o rótulo volta para a fila.
+  `console.error`, e o rótulo volta para a fila. Depois de uma falha, 30 s
+  sem tentar (`DEGRADED_ESPERA_FALHA_MS`): com o objeto fora, no pico, cada
+  pedido faria uma chamada que falha.
 - A instância `degradacoes` é outro objeto do mesmo `COUNTER`: o dos
   contadores (`contadores`) continua sem ser endereçado num HEAD
   (`tests/security.test.js`).
@@ -978,6 +985,13 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   gatilhos (`[data-acao^="baixar"]`, `#g-folha-ops`, `[data-vz="baixar"]`,
   `#rs-cartao-baixar`, `#av-btn`, `a[download]`), ou a faixa não aparece.
   `verifica:celular` tem o cenário (Instagram no iPhone e no Android, Safari).
+  "Abrir no Chrome" só para apps conhecidos (uma WebView genérica pode não
+  tratar `intent://`), com `S.browser_fallback_url` para quem não tem Chrome.
+  Sem push possível, o aviso de foto nova (`SCRIPT_AVISO`) diz para abrir no
+  navegador, em vez de "Adicionar à Tela de Início", que o app não tem.
+- O script k6 de `docs/ENSAIO-DE-CARGA.md` lê o HTML do site; as funções de
+  extração dele rodam no `npm test` (`tests/ensaio-de-carga.test.js`). Mudou o
+  `g-dados` ou os cartões do álbum? O teste avisa.
 - CSS de componente que usa `display:` em `a` ou `button` precisa de
   `[hidden]{display:none}` próprio: o `display` da classe vence o atributo
   `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone).

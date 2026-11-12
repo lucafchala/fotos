@@ -5,6 +5,7 @@
 
 import { honeypotFieldHTML } from '../security.js';
 import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
+import { EMBUTIDO_FONTE } from './navegador-embutido.js';
 
 /** O CSS do diálogo e do resultado da busca pelo rosto (usa as variáveis de cor da página). */
 export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;font-size:.7rem;opacity:.75}
@@ -933,6 +934,10 @@ export const SCRIPT_AVISO = `(function () {
   var instalado = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
   var temPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!temPush) {
+    // Navegador de dentro de um app (v3.11.0, src/ui/navegador-embutido.js):
+    // ali não há aviso, e "Adicionar à Tela de Início" nem existe. O caminho
+    // é abrir o álbum no navegador de verdade.
+    if (new RegExp(${JSON.stringify(EMBUTIDO_FONTE)}).test(navigator.userAgent || '')) { el.hidden = false; btn.hidden = true; msg.textContent = 'Quer aviso de foto nova? Abra o álbum no navegador do celular (Safari ou Chrome): dentro deste aplicativo os avisos não funcionam.'; return; }
     // iPhone fora da Tela de Início: o Safari só manda aviso para o site instalado.
     if (ios && !instalado) { el.hidden = false; btn.hidden = true; msg.textContent = 'Quer aviso de foto nova no iPhone? Toque em Compartilhar, depois em "Adicionar à Tela de Início", e abra o álbum pelo ícone.'; }
     return;

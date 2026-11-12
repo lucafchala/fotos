@@ -457,7 +457,7 @@ for (const tela of TELAS) {
       registra(!m.pequenos.length && !m.rolaDeLado, `${rotulo}: botões da faixa com 44 px, nada vaza`, { pequenos: m.pequenos, vaza: m.vaza });
       const abrir = page.locator('#nav-emb-abrir');
       if (nomeUa.includes('Android')) {
-        registra(await abrir.isVisible() && /^intent:\/\/fotos\.test\/#Intent;scheme=https;package=com\.android\.chrome;end$/.test((await abrir.getAttribute('href')) || ''), `${rotulo}: "Abrir no Chrome" com o endereço da página`, await abrir.getAttribute('href'));
+        registra(await abrir.isVisible() && /^intent:\/\/fotos\.test\/#Intent;scheme=https;package=com\.android\.chrome;S\.browser_fallback_url=https%3A%2F%2Ffotos\.test%2F;end$/.test((await abrir.getAttribute('href')) || ''), `${rotulo}: "Abrir no Chrome" com o endereço da página (e a volta, sem Chrome)`, await abrir.getAttribute('href'));
       } else {
         registra(!(await abrir.isVisible()) && /Abrir no navegador/.test(texto), `${rotulo}: no iPhone, o caminho pelo menu (sem link que não funcionaria)`, texto);
       }
