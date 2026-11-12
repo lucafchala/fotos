@@ -80,6 +80,36 @@ const meta = (h, nome) => h.match(new RegExp(`<meta (?:property|name)="${nome}" 
 // `&amp;` por último: decodificado antes, `&amp;quot;` viraria `"` (duas vezes).
 const decodifica = t => t.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 
+describe('cartão de UMA foto (?foto=, v3.9.0)', () => {
+  it('o link da foto mostra a própria foto no cartão, pelo ID inteiro ou pelo código curto', async () => {
+    for (const cod of ['FOTO_A2_000001', 'FOTO_A2_00']) {
+      const h = await (await get(`/galeria/formatura/abertura?foto=${cod}`)).text();
+      expect(meta(h, 'og:image')).toBe('https://lh3.googleusercontent.com/d/FOTO_A2_000001=w1200-h630-c');
+      expect(decodifica(meta(h, 'og:title'))).toBe('Uma foto de Abertura');
+      expect(meta(h, 'og:url')).toBe(`${SITE}/galeria/formatura/abertura?foto=${cod}`);
+      // O canônico continua a página do evento (a busca não indexa cada foto).
+      expect(h).toContain(`<link rel="canonical" href="${SITE}/galeria/formatura/abertura">`);
+    }
+  });
+
+  it('código que não é desta página, foto oculta ou lixo: o cartão normal do evento', async () => {
+    await saveEvents(env, [{ ...EVENTO, fotosOcultas: ['FOTO_A2_000001'] }]);
+    for (const cod of ['FOTO_A2_000001', 'NAO_EXISTE_0001', '"><script>', '']) {
+      const h = await (await get(`/galeria/formatura/abertura?foto=${encodeURIComponent(cod)}`)).text();
+      expect(meta(h, 'og:image')).toBe('https://lh3.googleusercontent.com/d/FOTO_A1_000001=w1200-h630-c');
+      expect(decodifica(meta(h, 'og:title'))).toBe('Abertura · Formatura 2026');
+      expect(meta(h, 'og:url')).toBe(`${SITE}/galeria/formatura/abertura`);
+    }
+  });
+
+  it('a grade, o compartilhar e a barra de endereço usam ?foto=', async () => {
+    const h = await (await get('/galeria/formatura/abertura')).text();
+    expect(h).toContain("a.href = '?foto=' + codigoDe(f[0]);");
+    expect(h).toContain("const link = location.origin + enderecoDaFoto(f.id);");
+    expect(h).toContain("history.pushState({ g: 'foto' }, '', enderecoDaFoto(f.id));");
+  });
+});
+
 describe('cartão do capítulo', () => {
   it('título "<Capítulo> · <Projeto>", url canônica e capa = primeira foto do capítulo em 1200x630', async () => {
     const h = await (await get('/galeria/formatura/abertura')).text();

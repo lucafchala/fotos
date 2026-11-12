@@ -928,6 +928,38 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   álbum" com o álbum lido inteiro; página sem a lista de fotos (o Drive falhou)
   ou álbum vazio não apagam rosto nem tiram foto da busca.
 
+### 5.22. O que o site promete sobre o rosto precisa estar no código (v3.8.9)
+
+- **A saída da busca é uma marca NO índice do álbum** (`MARCA_SAIU`, em
+  `src/rosto.js`), não uma coleção à parte. O indexador nunca apaga marca (nem
+  ao refazer o índice, nem como "foto que saiu do álbum") e, depois de indexar,
+  apaga os parecidos com cada uma (`limpaRostosDeQuemSaiu`). Mexeu no
+  indexador? `tests/rosto-saida.test.js` roda o script contra uma Rekognition
+  de mentira que guarda rostos (`tests/helpers/rekognition.js`) e confere o que
+  FICOU no índice.
+- **Não guarde em quais fotos a pessoa que saiu aparecia.** Seria manter o que
+  ela pediu para apagar. Por isso desfazer uma saída refaz o índice inteiro.
+- **Quem cria dado na AWS apaga.** Projeto excluído e busca desligada passam
+  por `src/saidas.js` (`marcaIndiceParaApagar`, `apagaIndicesVencidos` no cron
+  diário). Coleção nova, bucket novo, chave nova no KV por projeto: entra em
+  `handleDeleteEvent` e em `docs/legal/politica-de-retencao.md` no mesmo PR.
+- **E-mail: uma janela fixa por dia para tudo** (`cotaDeEmail`, `EMAIL_TETO_DIA`).
+  Envio novo chama `cotaDeEmail` DEPOIS das travas de repetição dele; alerta ao
+  dono usa a classe `'alerta'`.
+- **A chave do aviso (VAPID) nasce uma vez**, decidida por um Durable Object
+  (`RateLimiter.guardaUmaVez`); o KV é só a cópia de leitura. Nunca apague
+  `aviso:vapid`: quem já se inscreveu deixa de receber.
+
+### 5.23. No lançamento a página não pode depender do Google (v3.8.11)
+
+- Miniatura fora do R2 = uma ida ao Google por pedido, e o Google recusa
+  rajada. Quem garante o R2 cheio é o indexador (`AQUECE_LARGURAS`, estado
+  `quentes`). Mudou as larguras da grade (`GALERIA_LARGURAS_GRADE`) ou o
+  desenho da grade no celular? Reveja `AQUECE_LARGURAS`: aquecer a largura
+  errada é o mesmo que não aquecer.
+- Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
+  (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a

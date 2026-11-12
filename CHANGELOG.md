@@ -18,6 +18,55 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [3.9.2] — ainda não publicada
+
+- **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).
+
+## [3.9.1] — ainda não publicada
+
+- **"A turma em números"**: `entrenos2026.com/numeros` (`/galeria/<slug>/numeros` no site), a retrospectiva do álbum para compartilhar. Total de fotos, de eventos, de anos e de quem fotografou; fotos por ano (em barras); os 5 eventos com mais fotos; quem mais fotografou. Sai do resumo que o álbum já guarda (com o ano escolhido pelo dono por cima), sem dado de visitante. Mesmo portão da galeria (antes do lançamento, só com a prévia). A página do álbum ganha o link *Turma em números* (com 2 eventos ou mais). `numeros` vira nome reservado.
+
+## [3.9.0] — ainda não publicada
+
+O que deixa o álbum mais fácil de usar e de compartilhar.
+
+- **O link de uma foto mostra a própria foto no WhatsApp.** Todo link de foto agora tem um formato só, `entrenos2026.com/<evento>?foto=<código>`: a grade, o Compartilhar, a barra de endereço com a foto aberta, os resultados da busca pelo rosto e o e-mail da moderação. Como o servidor enxerga a foto no endereço, o cartão do link (WhatsApp, Instagram, Telegram) mostra aquela foto, com o título "Uma foto de <evento>". Foto oculta, de outro evento ou código inválido caem no cartão normal do evento; o canônico continua a página do evento. O `#foto=` antigo continua abrindo.
+- **Cartão "minhas fotos" para os stories.** Depois da busca pelo rosto, *Criar cartão para os stories* monta no próprio celular uma imagem 1080×1920 com o título do álbum, até 6 fotos (a melhor de cada evento primeiro), quantas fotos a pessoa tem e o endereço do álbum. Compartilhar (onde o aparelho deixa) ou Baixar. Nada vai ao servidor.
+- **O ano de cada evento, escolhido pelo dono.** Na página do evento, a faixa do painel (só o dono ou a editora veem) ganha *Ano do evento*: "Automático (o ano das fotos)" ou um ano. Vale na linha do tempo, na grade por ano, na faixa de eventos e no cartão do evento (que mostra só o ano escolhido). Serve para foto com a data errada (câmera com o relógio errado, foto escaneada). Guardado em `datasEventos`; a API aceita também ano e mês (`2024-03`).
+- **As cores do álbum saem do azul do Colégio Santa Cruz** (`#243580`): o fundo, os cartões e as bordas são esse azul bem escuro, em vez do quase-preto quente que puxava para o marrom; as linhas da linha do tempo são azuis (o degradê amarelo → azul ficava oliva/marrom no meio). O amarelo só entra sólido, nos destaques. As cores moram num lugar só, `PALETA_ALBUM` em `src/config.js` (antes repetidas em cinco).
+- **Páginas de ajuda**: `entrenos2026.com/ajuda` e `/ajuda/<tema>` (rosto, baixar, enviar, remover, navegar, apoiar, contato), com o campo *Qual é a sua dúvida?* que filtra as perguntas. Mesmo portão da galeria: antes do lançamento, só quem tem a prévia vê. A página do álbum ganha o link *Dúvidas?*, e a janela da busca pelo rosto, *Como funciona e dicas*. `ajuda` vira nome reservado (não pode ser nome de projeto).
+
+## [3.8.13] — ainda não publicada
+
+- **A Amazon aprovou a cota maior da busca pelo rosto** em São Paulo: 20 buscas por selfie por segundo (o padrão era 5; pedimos 10) e 25 para a busca pelas sementes. O site passa a usar esses números: no pico, quem cai na fila espera menos (de 2 a 4 s, antes de 2 a 8 s).
+
+## [3.8.12] — ainda não publicada
+
+- **A moderação automática não esconde mais nenhuma foto.** A Amazon continua marcando foto possivelmente imprópria, e o dono continua recebendo o e-mail com o link de cada uma (as da turma destacadas). A foto fica no álbum até o dono decidir e tocar em "Ocultar" no visualizador. Antes, foto da turma marcada saía do álbum sozinha. As que já tinham sido escondidas assim continuam ocultas: o dono mostra de novo no visualizador, se quiser.
+
+## [3.8.11] — ainda não publicada
+
+O primeiro minuto do lançamento: mil celulares abrindo a mesma página.
+
+- **As miniaturas já estão no R2 antes do lançamento.** O indexador, que passa por toda foto do álbum (inclusive com ele ainda fechado), pede ao site as miniaturas nas larguras que o iPhone pede na grade (`AQUECE_LARGURAS`, medidas no navegador), devagar, e a cópia fica no R2. Antes, a primeira visita a cada miniatura ia ao Google, e numa rajada cada pedido que chegava antes de a cópia existir ia também: o Google recusa, e a foto ficava em branco. As fotos que a turma mandar ao longo do ano são aquecidas na execução que as indexa. Para isso a rota das fotos aceita o indexador (com o token dele e o endereço assinado) no álbum fechado.
+- **Miniatura que falha tenta de novo** (duas vezes, com espera crescente e sorteada) antes de virar o quadro vazio. Antes, só recarregar a página trazia a foto.
+
+## [3.8.10] — ainda não publicada
+
+- **Teto de fotos por dia no indexador** (`ROSTO_FOTOS_POR_DIA`, 2.000 por álbum). A pasta do álbum recebe fotos por link aberto durante um ano; sem teto, alguém despejando arquivos fazia o indexador pagar por todos (mais de mil dólares num dia, no pior caso). Agora o pior dia custa cerca de US$ 8 por álbum; o que passar fica para o dia seguinte, e o log diz. Para a primeira indexação de um álbum grande, a variável `ROSTO_MAX_DIA` do workflow sobe o teto.
+
+## [3.8.9] — ainda não publicada
+
+Privacidade: o que a revisão de novembro de 2026 achou entre o que o site promete e o que o código faz (achados 5, 6, 7, 8, 11 e 12).
+
+- **"Não quero aparecer na busca" vale para as fotos que chegam depois.** O rosto de quem saiu vira uma marca dentro do índice do álbum. O indexador, depois de indexar fotos novas, apaga os rostos parecidos com cada marca; a busca que encontra a marca responde "você saiu", na régua mais baixa da busca (era a mais alta: uma selfie de lado passava). Antes, a foto nova de quem saiu entrava no índice. Quem saiu antes desta versão continua fora com a própria selfie, mas precisa sair de novo para as fotos novas (só houve testes da prévia).
+- **O dono vê quem saiu e desfaz.** A saída aceita qualquer foto de rosto, então dá para tirar outra pessoa da busca. No painel, em editar o projeto → *Quem saiu da busca*: a data e quantos rostos cada saída apagou (sem foto, sem nome), com *Desfazer*. Desfazer manda o indexador refazer o índice do álbum (uma indexação paga por foto). Teto de 60 saídas por dia no site (`ROSTO_SAIR_POR_DIA`), com um alerta por e-mail ao dono.
+- **Excluir o projeto apaga o índice de rostos e as inscrições de aviso.** As duas coleções na AWS são apagadas na hora (se a AWS falhar, o cron diário repete). Desligar a busca no painel para o indexador na hora e apaga o índice 72 horas depois; religar antes cancela. Antes, nada disso era apagado pelo código.
+- **Inscrição de aviso de fotos novas com validade** (400 dias sem aviso entregue; cada entrega renova). Limite de inscrições por IP na medida de uma escola (era 20 por hora), e pedido malformado não o gasta. A chave do aviso nasce uma vez só (dois primeiros acessos juntos criavam duas, e parte das pessoas nunca recebia aviso). Inscrição recusada pelo serviço de entrega (403) três vezes seguidas é apagada, e o `/api/healthz` acusa as recusas.
+- **Teto de e-mails em janela diária fixa** (`EMAIL_TETO_DIA`, 90, vira à meia-noite UTC), para todo envio: o código por e-mail e os alertas ficavam de fora, e o balde antigo deixava sair perto de 180 nas primeiras 24 horas. Dez vagas são só dos alertas ao dono.
+- **Documentos legais corrigidos:** a LIA dizia que não há tratamento biométrico; o ROPA, que o site não hospeda fotos, que nada fica no aparelho e que o indexador roda a cada 30 min; o RIPD, que só o dono busca antes do lançamento. A política de retenção ganhou o índice de rostos, as cópias no R2 e as inscrições de aviso; a transferência internacional, o R2. A página de Privacidade diz o que mudou (os Termos não mudaram: `TERMS_VERSION` fica).
+- Depois do merge, o dono confere: onde fica o bucket do R2 (anotar em `docs/legal/transferencia-internacional.md`) e se a AWS aprovou o usuário do Worker para `rekognition:DeleteCollection` (ver `docs/ROSTO.md`).
+
 ## [3.8.8] — ainda não publicada
 
 Os bloqueios do lançamento, da revisão completa de novembro de 2026.

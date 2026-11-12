@@ -1,5 +1,5 @@
 import { dataSecurityHeaders, sanitizeFilename } from './security.js';
-import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM, EMAIL_COTA_DIA } from './config.js';
+import { NOSCRIPT_SWEEP_ALERT_COOLDOWN_SECS, DOMINIOS_DE_ALBUM, EMAIL_TETO_DIA, EMAIL_RESERVA_ALERTAS } from './config.js';
 import { FONTS } from './content/fonts.js';
 
 /**
@@ -1507,6 +1507,9 @@ export const RESERVED_SLUGS = new Set([
   'entrar', 'sair',
   // A página "Mandar suas fotos" no domínio do álbum (v3.9): /enviar.
   'enviar',
+  // As páginas de ajuda do álbum (v3.9.0): entrenos2026.com/ajuda; e a
+  // "Turma em números" (v3.9.1): entrenos2026.com/numeros.
+  'ajuda', 'numeros',
   // Prefixos de rota de dois níveis (/galeria/<slug>, /vendor/<arquivo>):
   // um projeto com esse slug não quebraria nada hoje, mas ocuparia um nome
   // que é da estrutura do site.
@@ -2335,19 +2338,25 @@ export function corpoResend(env, dados) {
   return JSON.stringify(corpo);
 }
 /**
- * O teto de e-mails do site inteiro por dia (v3.8.3): o Resend grátis manda
- * até 100 por dia. Cada envio gasta uma ficha de um balde de EMAIL_COTA_DIA
- * (que se recompõe aos poucos ao longo do dia). Sem ficha, o e-mail não sai e
- * o caso fica no registro de degradações (o pedido de remoção continua no
- * painel). Os alertas de login e de varredura ficam de fora: são de segurança
- * e já têm trava própria.
+ * O teto de e-mails do site inteiro por dia: UMA janela fixa (vira à meia-noite
+ * UTC) para todo envio — ver EMAIL_TETO_DIA. Sem vaga, o e-mail não sai e o
+ * caso fica no registro de degradações (o pedido de remoção continua no
+ * painel).
  * @param {Env} env
+ * @param {'comum' | 'alerta'} [classe] `alerta`: aviso ao dono de que algo está
+ *   errado; tem EMAIL_RESERVA_ALERTAS vagas que o resto do site não gasta
  */
-export async function cotaDeEmail(env) {
+export async function cotaDeEmail(env, classe = 'comum') {
   if (!env.RATELIMIT) return true;
-  const ficha = await takeToken(env, 'global', 'email-dia', EMAIL_COTA_DIA);
-  if (!ficha.ok) noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_COTA_DIA.capacity} e-mails por dia foi atingido; o resto fica no painel`);
-  return ficha.ok;
+  if (classe !== 'alerta' && !await checkRateLimit(env, 'global', 'email-dia-comum', EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS, 86400)) {
+    noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS} e-mails por dia foi atingido (volta à meia-noite UTC); o resto fica no painel`);
+    return false;
+  }
+  if (!await checkRateLimit(env, 'global', 'email-dia', EMAIL_TETO_DIA, 86400)) {
+    noteDegraded('e-mail do dia esgotado', `o teto de ${EMAIL_TETO_DIA} e-mails por dia foi atingido (volta à meia-noite UTC)`);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -2499,27 +2508,27 @@ export async function sendMantidaEmail(env, req) {
 
 /**
  * Aviso ao dono (v3.7): a moderação automática marcou fotos de um álbum. As da
- * turma já ficaram escondidas; as de fotógrafo credenciado só foram marcadas.
+ * O site não esconde nada sozinho: o dono confere e oculta o que precisar.
  * Cada linha leva o link da foto (o dono, logado, vê também as ocultas e as
  * mostra de novo no visualizador). Nada de imagem no e-mail.
  * @param {Env} env
- * @param {{ titulo: string, slug: string, origem: string, fotos: { id: string, cap: string, autor: string, rotulos: string, escondida: boolean }[] }} d
+ * @param {{ titulo: string, slug: string, origem: string, fotos: { id: string, cap: string, autor: string, rotulos: string, daTurma: boolean }[] }} d
  */
 export async function sendModeracaoEmail(env, d) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL || !d.fotos.length) return false;
   if (!(await cotaDeEmail(env))) return false;
   const esc = escape;
-  const escondidas = d.fotos.filter(f => f.escondida).length;
+  const daTurma = d.fotos.filter(f => f.daTurma).length;
   const linhas = d.fotos.slice(0, 50).map(f => {
-    const url = `${d.origem}/galeria/${d.slug}${f.cap ? `/${f.cap}` : ''}#foto=${f.id}`;
-    return `<tr><td style="padding:6px 0"><a href="${esc(url)}" style="color:#1a1a1a">${esc(f.cap || 'galeria')} · ${esc(f.id.slice(0, 10))}…</a></td><td style="padding:6px 8px;color:#666">${esc(f.autor || '—')}</td><td style="padding:6px 0;color:#666">${esc(f.rotulos)}</td><td style="padding:6px 0 6px 8px">${f.escondida ? '<strong>escondida</strong>' : 'só marcada'}</td></tr>`;
+    const url = enderecoDaFoto(d.slug, f.cap || '', f.id);
+    return `<tr><td style="padding:6px 0"><a href="${esc(url)}" style="color:#1a1a1a">${esc(f.cap || 'galeria')} · ${esc(f.id.slice(0, 10))}…</a></td><td style="padding:6px 8px;color:#666">${esc(f.autor || '—')}</td><td style="padding:6px 0;color:#666">${esc(f.rotulos)}</td><td style="padding:6px 0 6px 8px">${f.daTurma ? '<strong>da turma</strong>' : 'fotógrafo'}</td></tr>`;
   }).join('');
   const html = `
 <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1a1a1a">
   <h2 style="font-size:18px;margin-bottom:4px">Moderação automática: ${d.fotos.length} ${d.fotos.length === 1 ? 'foto marcada' : 'fotos marcadas'}</h2>
   <p style="color:#888;font-size:13px;margin-bottom:16px">${esc(d.titulo)} · fotos.lucafchala.com</p>
-  <p style="font-size:14px;line-height:1.6">${escondidas ? `${escondidas} da turma ${escondidas === 1 ? 'ficou escondida' : 'ficaram escondidas'} até você decidir. ` : ''}As de fotógrafo credenciado só foram marcadas. Para mostrar de novo uma foto escondida, abra o link logado no painel e toque em "Mostrar" no visualizador.</p>
+  <p style="font-size:14px;line-height:1.6"><strong>Nada foi escondido</strong>: as fotos continuam no álbum até você decidir. ${daTurma ? `${daTurma} ${daTurma === 1 ? 'é' : 'são'} da turma (confira primeiro). ` : ''}Para tirar uma do álbum, abra o link logado no painel e toque em "Ocultar" no visualizador.</p>
   <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">${linhas}</table>
   ${d.fotos.length > 50 ? `<p style="font-size:12px;color:#888">E mais ${d.fotos.length - 50}.</p>` : ''}
   <p style="margin-top:20px;font-size:12px;color:#bbb">Amazon Rekognition (DetectModerationLabels), confiança mínima de 80%. Pode errar: confira cada uma.</p>
@@ -2734,7 +2743,6 @@ export async function sendSupportEmail(env, { name, email, message }) {
 export async function sendErrorAlert(env, err, context = {}) {
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !env.ADMIN_EMAIL) return false;
-  if (!(await cotaDeEmail(env))) return false;
   // Trava do próprio isolate ANTES da do KV. A do KV sozinha não segura uma
   // rajada: a leitura que deu `null` fica em cache no colo por até 60 s, então
   // numa onda de 500 (o público de um evento chegando junto) cada requisição
@@ -2751,6 +2759,9 @@ export async function sendErrorAlert(env, err, context = {}) {
     if (await env.FOTOS.get(cooldownKey)) return false;
     await env.FOTOS.put(cooldownKey, '1', { expirationTtl: ERROR_ALERT_COOLDOWN_SECS });
   } catch { /* KV hiccup shouldn't block the alert or the response */ }
+  // A vaga do dia só DEPOIS das travas (v3.8.9): pedida antes, cada erro de
+  // uma onda gastava uma vaga sem mandar e-mail nenhum.
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   // `catch` entrega `unknown`; um narrow explícito é o que deixa ler .stack
@@ -2790,6 +2801,41 @@ export async function sendErrorAlert(env, err, context = {}) {
   }
 }
 
+// Alerta de saídas da busca pelo rosto em excesso (v3.8.9): o teto do dia
+// (ROSTO_SAIR_POR_DIA) foi atingido. Pode ser a turma, pode ser alguém tirando
+// os outros da busca; quem decide é o dono, olhando a lista no painel. Um por
+// dia (quem chama trava). Mesmo contrato dos outros alertas: nunca lança, e
+// não leva dado de visitante — só a contagem.
+/**
+ * @param {Env} env
+ * @param {{ titulo: string, teto: number }} d
+ */
+export async function sendSaidasAlert(env, { titulo, teto }) {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey || !env.ADMIN_EMAIL) return false;
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
+  const esc = escape;
+  const html = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+  <h2 style="font-size:18px;margin-bottom:4px">Muitas saídas da busca pelo rosto hoje</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">fotos.lucafchala.com — ${esc(titulo)}</p>
+  <p style="font-size:14px;line-height:1.6">O limite de <strong>${esc(teto)}</strong> pedidos de "não quero aparecer na busca" por dia foi atingido. Os próximos de hoje são recusados, com o e-mail de privacidade.</p>
+  <p style="font-size:14px;line-height:1.6">Qualquer foto de rosto serve para pedir a saída, então pode ser alguém tirando outras pessoas da busca. Confira em <strong>/dashboard → editar o projeto → Quem saiu da busca</strong>: cada saída tem a data e pode ser desfeita.</p>
+  <p style="margin-top:20px;font-size:12px;color:#bbb">${dataHoraBR()} · um alerta deste tipo por dia.</p>
+</div>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: corpoResend(env, { from: 'Fotos <noreply@lucafchala.com>', to: [env.ADMIN_EMAIL], subject: 'Muitas saídas da busca pelo rosto hoje', html }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Alerta de tentativas de login falhas — sem isso, um ataque de força bruta a
 // /dashboard/login é silencioso: o rate limit segura o volume, mas ninguém
 // fica sabendo que houve tentativa.
@@ -2811,6 +2857,7 @@ export async function sendLoginAlert(env, { ip, attempts, windowMins, userAgent 
     if (await env.FOTOS.get(cooldownKey)) return false;
     await env.FOTOS.put(cooldownKey, '1', { expirationTtl: LOGIN_ALERT_COOLDOWN_SECS });
   } catch { /* falha de KV não pode engolir o alerta nem quebrar o login */ }
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   const html = `
@@ -2875,6 +2922,7 @@ export async function sendNoscriptSweepAlert(env, { ip, slugs, restritos, total,
     noteKvFailure('escrita', e, 'cooldown do alerta de varredura noscript');
   }
   ultimoAlertaVarredura = Date.now();
+  if (!(await cotaDeEmail(env, 'alerta'))) return false;
 
   const esc = escape;
   const html = `
@@ -3293,6 +3341,20 @@ export function enderecoDoEvento(slug, cap) {
 export function enderecoDoAlbum(slug) {
   const origem = origemDoAlbum(slug);
   return Object.values(DOMINIOS_DE_ALBUM).some(a => a.slug === slug) ? `${origem}/` : `${origem}/galeria/${slug}`;
+}
+
+/**
+ * O link de UMA foto (v3.9.0): a página do evento (ou do álbum) com
+ * "?foto=<ID>". É o formato único do site: a galeria, o compartilhar, a
+ * busca pelo rosto e os e-mails usam este; o servidor lê o parâmetro e o
+ * cartão do WhatsApp mostra a própria foto. O "#foto=" antigo continua
+ * abrindo na galeria.
+ * @param {string} slug
+ * @param {string} cap '' = a galeria do álbum, sem capítulo
+ * @param {string} id
+ */
+export function enderecoDaFoto(slug, cap, id) {
+  return `${cap ? enderecoDoEvento(slug, cap) : enderecoDoAlbum(slug)}?foto=${encodeURIComponent(id)}`;
 }
 
 // ---------------------------------------------------------------------------

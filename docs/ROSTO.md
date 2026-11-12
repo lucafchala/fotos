@@ -76,7 +76,7 @@ Worker e a opção estar marcada no projeto.
    - Secrets `ROSTO_AWS_ACCESS_KEY_ID` e `ROSTO_AWS_SECRET_ACCESS_KEY` (as mesmas do passo 2);
    - Variable `ROSTO_SLUGS` = `entrenos2026` (vários álbuns separados por vírgula).
 
-6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota.
+6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota. **Feito em nov/2026:** a AWS aprovou 20 (SearchFacesByImage) e 25 (SearchFaces), já em `ROSTO_AWS_TPS`.
 
 7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
 
@@ -139,11 +139,30 @@ feito para reduzir o risco:
 3. Em caso de dúvida, peça uma revisão jurídica.
 4. Atualize o RIPD (`docs/legal/RIPD.md`) com este tratamento.
 
+## Aquecimento das miniaturas (v3.8.11)
+
+Depois de indexar, o indexador pede ao site as miniaturas de cada foto ainda não aquecida (`AQUECE_LARGURAS`, até `AQUECE_FOTOS_POR_EXECUCAO` fotos por execução) e anota no estado (`quentes`). A cópia fica no R2; no lançamento a página não depende do Google. Não custa AWS. Um álbum de 6.000 fotos aquece em cerca de dez execuções (menos de duas horas). O log diz "miniaturas aquecidas: N fotos". **Antes de lançar, confira no log que não sobrou foto por aquecer** (a linha deixa de aparecer). Desligar: variável `ROSTO_AQUECE=0` no workflow.
+
+## Teto de custo do indexador (v3.8.10)
+
+O indexador processa no máximo `ROSTO_FOTOS_POR_DIA` fotos por dia (UTC) em cada álbum: 2.000, cerca de US$ 8 no pior dia (até 4 chamadas de US$ 0,001 por foto). O que passar fica para o dia seguinte, e o log diz "teto do dia". Para indexar um álbum grande de uma vez, crie a variável do repositório `ROSTO_MAX_DIA` (Settings → Secrets and variables → Actions → Variables; por exemplo `8000`) e apague depois.
+
+## Quem saiu da busca (v3.8.9)
+
+- O rosto de quem saiu fica como uma **marca** dentro do índice do álbum (`ExternalImageId` = `saiu`). Não é foto nenhuma e nunca aparece num resultado.
+- **Na busca:** se a marca está entre os parecidos com a selfie (na régua mais baixa, `ROSTO_LIMIAR_BUSCA`), a resposta é "você saiu" e nada aparece.
+- **No indexador:** depois de indexar fotos novas, ele procura os parecidos com cada marca (`ROSTO_LIMIAR_SAIR`, abaixo da régua da busca) e os apaga. Custa uma chamada (US$ 0,001) por pessoa que saiu, em cada execução que indexou rosto. Se a execução cair antes, a dívida fica anotada no estado (`limpar`) e a seguinte limpa.
+- Por que a marca fica no mesmo índice: a Rekognition só compara um rosto já indexado com outros da mesma coleção, e a busca por imagem numa foto de grupo só olha o maior rosto. Com a marca numa coleção à parte (até a 3.8.8), a foto nova de quem saiu entrava no índice.
+- **No painel** (editar o projeto → *Quem saiu da busca*): a data e quantos rostos cada saída apagou. Sem foto e sem nome; o site não guarda em quais fotos a pessoa aparecia. **Desfazer** tira a marca e manda o indexador refazer o índice do álbum inteiro (uma indexação paga por foto: cerca de US$ 1 a cada 1.000 fotos). É para quando alguém tirou outra pessoa da busca.
+- **Teto:** `ROSTO_SAIR_POR_DIA` saídas por dia no site. Passou, o pedido é recusado com o e-mail de privacidade e o dono recebe um alerta por dia.
+- Quem saiu antes da 3.8.9 está na coleção antiga (`fotos-<slug>-sair`), que a busca ainda consulta enquanto existir a chave `rosto-sair:<slug>` no KV. Para valer nas fotos novas, a pessoa sai de novo.
+
 ## Desligar e apagar
 
 - **Desligar no site:** desmarque a opção no projeto. Ou, para todos os projetos de uma vez, apague os secrets da AWS no Worker.
+- **O que o site faz sozinho (v3.8.9):** com a opção desmarcada, o indexador para de indexar rostos na execução seguinte (o site diz a ele), e o índice é apagado 72 horas depois, pelo cron diário (`ROSTO_APAGA_APOS_DESLIGAR_H`). Religar e salvar antes disso cancela. **Excluir o projeto** apaga as duas coleções na hora. Para isso o usuário da AWS do Worker precisa da permissão `rekognition:DeleteCollection` (além de `DeleteFaces`, `IndexFaces`, `SearchFaces`, `SearchFacesByImage` e `CreateCollection`); sem ela, o `/api/healthz` acusa "índice de rostos por apagar" todo dia.
 - **Parar o indexador:** apague a variável `ROSTO_SLUGS`.
-- **Apagar o índice e quem saiu** (AWS CloudShell, na região de São Paulo):
+- **Apagar o índice e quem saiu à mão** (AWS CloudShell, na região de São Paulo):
 
   ```bash
   aws rekognition delete-collection --collection-id fotos-entrenos2026 --region sa-east-1
@@ -161,7 +180,7 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 |---|---|---|
 | `DetectText` | As palavras visíveis (só as com confiança ≥ 85%), normalizadas | Buscar "10" (camisa), "terceirão" (faixa), "PiauíFut" |
 | `DetectLabels` | As "coisas" e cenas (≥ 75%), em inglês e em português (`ROTULOS_PT`); as genéricas ("person", "face") ficam de fora | Buscar "palco", "bolo", "bola", "fantasia" |
-| `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Esconder foto imprópria **da turma** |
+| `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Avisar o dono de foto imprópria (ele decide se oculta) |
 
 **Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras.
 
@@ -173,9 +192,9 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 - Tem o mesmo portão da busca pelo rosto: álbum público, e antes do lançamento só o dono (ou quem tem a senha de prévia).
 
 **A moderação.** Roda sempre que o indexador passa, mesmo com a busca desligada.
-- **Foto da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`) com marca **nova**: entra em `fotosOcultas` na hora, e o dono recebe um e-mail com o link de cada uma.
-- **Foto de fotógrafo credenciado** (Luca, Mag, colégio, comissão): só marcada, com aviso no e-mail. Vocês já fazem a seleção.
-- **Uma foto só é escondida uma vez.** Se o dono a mostrar de novo no visualizador, o indexador não a esconde outra vez.
+- **Nada é escondido sozinho** (desde a 3.8.12). Foto com marca **nova** continua no álbum, e o dono recebe um e-mail com o link de cada uma; ele decide e toca em "Ocultar" no visualizador.
+- O e-mail destaca as fotos **da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`), que são as que pedem atenção primeiro. As de fotógrafo credenciado vêm marcadas como "fotógrafo".
+- **Uma foto só é avisada uma vez.** O indexador não manda de novo uma foto que já foi marcada.
 
 **Permissão nova no IAM** (já está no `~/entrenos-handoff/aws-fase5.sh`). As três operações não aceitam restrição por coleção, por isso vão num `Statement` à parte, com `"Resource": "*"`:
 

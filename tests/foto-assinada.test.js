@@ -102,6 +102,7 @@ async function pede(path, o = {}) {
   /** @type {Record<string, string>} */
   const headers = { 'CF-Connecting-IP': '203.0.113.9' };
   const c = [o.dono ? `__Host-session=${TOKEN}` : '', o.cookie || ''].filter(Boolean).join('; ');
+  if (o.indexador) headers['X-Rosto-Indexador'] = o.indexador;
   if (c) headers.Cookie = c;
   if (o.body) headers['Content-Type'] = 'application/json';
   const res = await worker.fetch(new Request(SITE + path, { method: o.method || 'GET', headers, ...(o.body ? { body: JSON.stringify(o.body) } : {}) }), env, ctx);
@@ -265,6 +266,24 @@ describe('4. álbum fechado ao público', () => {
     const dono = await pede(u, { dono: true });
     expect(dono.status).toBe(200);
     expect(dono.headers.get('Cache-Control')).toBe(`private, max-age=${FOTO_CACHE_S}`);
+  });
+
+  it('o indexador, com o token dele, pede a foto do álbum ainda fechado e a cópia fica no R2 (aquecimento, v3.8.11); token errado, 404', async () => {
+    env.ROSTO_INDEXADOR_TOKEN = 't'.repeat(40);
+    await saveEvents(env, [{ ...structuredClone(EVENTO), comingSoon: true }]);
+    const u = await endereco(F1);
+    expect((await pede(u, { indexador: 'x'.repeat(40) })).status).toBe(404);
+    expect(aoGoogle).toEqual([]);
+    const res = await pede(u, { indexador: 't'.repeat(40) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('private');
+    expect(aoGoogle).toHaveLength(1);
+    // Lançado o álbum, o público recebe a cópia sem nova ida ao Google.
+    await saveEvents(env, [{ ...structuredClone(EVENTO), comingSoon: false }]);
+    expect((await pede(u)).status).toBe(200);
+    expect(aoGoogle).toHaveLength(1);
+    // Sem assinatura, nem o indexador.
+    expect((await pede(u.split('?')[0], { indexador: 't'.repeat(40) })).status).toBe(404);
   });
 
   it('álbum com domínio próprio oculto (a surpresa): a mesma regra da galeria', async () => {

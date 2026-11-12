@@ -3,6 +3,14 @@
 // - A chave do site (VAPID, ECDSA P-256) nasce sozinha no primeiro uso e fica
 //   no KV (`aviso:vapid`). Ela só assina os avisos deste site: quem a tivesse
 //   ainda precisaria dos endereços de entrega, que moram no mesmo KV.
+//   Nasce UMA vez (v3.8.9): quem decide qual chave vale é um Durable Object
+//   (RateLimiter.guardaUmaVez), e o KV é só a cópia de leitura rápida. Com o
+//   KV sozinho, dois primeiros acessos ao mesmo tempo criavam duas chaves; a
+//   última gravação vencia, e quem se inscreveu com a outra nunca recebia
+//   aviso (o serviço de entrega responde 403).
+// - Cada inscrição vence sozinha (AVISO_INSCRICAO_TTL_S) e é renovada quando
+//   um aviso é entregue. 404 e 410 do serviço de entrega apagam a inscrição na
+//   hora; 403, depois de AVISO_RECUSAS_MAX avisos seguidos recusados.
 // - Cada inscrição é uma chave do KV (`aviso:sub:<slug>:<hash>`) com o
 //   endereço de entrega e as chaves do navegador nos METADADOS: o envio lista
 //   as chaves e já tem tudo, sem uma leitura por pessoa.
@@ -11,7 +19,7 @@
 // - O disparo: o indexador manda fotos novas → `marcaFotosNovas` junta por
 //   evento; o cron (a cada 5 min) manda no máximo um aviso por álbum a cada
 //   AVISO_INTERVALO_MS, em lotes de AVISO_LOTE inscrições por execução.
-import { AVISO_INTERVALO_MS, AVISO_LOTE, AVISO_HOSTS } from './config.js';
+import { AVISO_INTERVALO_MS, AVISO_LOTE, AVISO_HOSTS, AVISO_INSCRICAO_TTL_S, AVISO_RENOVA_DIAS, AVISO_RECUSAS_MAX } from './config.js';
 
 const enc = new TextEncoder();
 
@@ -42,25 +50,36 @@ function junta(...partes) {
 /** @type {{ privada: CryptoKey, publica: string } | null} */
 let chaveEmMemoria = null;
 
+/** @param {string} texto o JSON guardado: `{ jwk, publica }` */
+async function chaveDoTexto(texto) {
+  const j = JSON.parse(texto);
+  const privada = await crypto.subtle.importKey('jwk', j.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  return { privada, publica: String(j.publica) };
+}
+
 /**
- * A chave VAPID do site: lida do KV; criada (e guardada) na primeira vez.
- * @param {{ FOTOS: any }} env
+ * A chave VAPID do site: lida do KV; criada na primeira vez — e só uma vez
+ * (ver o topo). Sem o Durable Object (testes de unidade), vale o KV sozinho.
+ * @param {{ FOTOS: any, RATELIMIT?: any }} env
  * @returns {Promise<{ privada: CryptoKey, publica: string }>}
  */
 export async function chaveVapid(env) {
   if (chaveEmMemoria) return chaveEmMemoria;
   const guardada = await env.FOTOS.get('aviso:vapid');
   if (guardada) {
-    const j = JSON.parse(guardada);
-    const privada = await crypto.subtle.importKey('jwk', j.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-    chaveEmMemoria = { privada, publica: String(j.publica) };
+    chaveEmMemoria = await chaveDoTexto(guardada);
     return chaveEmMemoria;
   }
   const par = /** @type {CryptoKeyPair} */ (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']));
   const jwk = await crypto.subtle.exportKey('jwk', par.privateKey);
   const publica = b64url(/** @type {ArrayBuffer} */ (await crypto.subtle.exportKey('raw', par.publicKey)));
-  await env.FOTOS.put('aviso:vapid', JSON.stringify({ jwk, publica }));
-  chaveEmMemoria = { privada: par.privateKey, publica };
+  const candidata = JSON.stringify({ jwk, publica });
+  // A candidata só vale se for a primeira a chegar ao Durable Object; senão,
+  // vale a que já estava lá. Se ele falhar, o erro sobe: melhor não entregar
+  // chave nenhuma agora do que entregar uma que pode não ser a do site.
+  const vale = env.RATELIMIT ? String(await env.RATELIMIT.get(env.RATELIMIT.idFromName('aviso-vapid:global')).guardaUmaVez(candidata)) : candidata;
+  await env.FOTOS.put('aviso:vapid', vale);
+  chaveEmMemoria = await chaveDoTexto(vale);
   return chaveEmMemoria;
 }
 
@@ -137,7 +156,52 @@ async function hashDe(endpoint) {
 export async function inscreve(env, slug, sub) {
   const meta = { e: sub.endpoint, p: sub.keys.p256dh, a: sub.keys.auth, t: Date.now() };
   if (JSON.stringify(meta).length > 1000) throw new Error('inscrição grande demais');
-  await env.FOTOS.put(`aviso:sub:${slug}:${await hashDe(sub.endpoint)}`, '1', { metadata: meta });
+  await env.FOTOS.put(`aviso:sub:${slug}:${await hashDe(sub.endpoint)}`, '1', { metadata: meta, expirationTtl: AVISO_INSCRICAO_TTL_S });
+}
+
+/**
+ * Projeto excluído: as inscrições e o que estava pendente de envio vão junto.
+ * @param {{ FOTOS: any }} env @param {string} slug
+ * @returns {Promise<number>} quantas inscrições saíram
+ */
+export async function apagaInscricoes(env, slug) {
+  let cursor, n = 0;
+  do {
+    /** @type {any} */
+    const r = await env.FOTOS.list({ prefix: `aviso:sub:${slug}:`, ...(cursor ? { cursor } : {}) });
+    for (const k of r.keys) { await env.FOTOS.delete(k.name); n++; }
+    cursor = r.list_complete ? undefined : r.cursor;
+  } while (cursor);
+  for (const k of [`aviso:pendente:${slug}`, `aviso:envio:${slug}`, `aviso:ultimo:${slug}`]) await env.FOTOS.delete(k);
+  return n;
+}
+
+/**
+ * O que fazer com a inscrição depois da resposta do serviço de entrega.
+ *  - 404/410: a inscrição não existe mais → apaga;
+ *  - 403: não aceita a chave deste site → conta; na AVISO_RECUSAS_MAX-ésima
+ *    seguida, apaga (ver o comentário da constante);
+ *  - entregue: zera as recusas e, se a inscrição não é renovada há
+ *    AVISO_RENOVA_DIAS, grava de novo (renova a validade);
+ *  - o resto (429, 5xx): fica como está, o próximo aviso tenta de novo.
+ * @param {number} status
+ * @param {{ e: string, p: string, a: string, t?: number, f?: number }} meta
+ * @param {number} agora
+ * @returns {{ acao: 'apaga' | 'grava' | 'nada', meta?: Record<string, unknown>, entregue: boolean, recusada: boolean }}
+ */
+export function desfechoDoEnvio(status, meta, agora) {
+  if (status === 404 || status === 410) return { acao: 'apaga', entregue: false, recusada: false };
+  if (status === 403) {
+    const f = (Number(meta.f) || 0) + 1;
+    if (f >= AVISO_RECUSAS_MAX) return { acao: 'apaga', entregue: false, recusada: true };
+    return { acao: 'grava', meta: { ...meta, f }, entregue: false, recusada: true };
+  }
+  if (status >= 200 && status < 300) {
+    const velha = !(Number(meta.t) > agora - AVISO_RENOVA_DIAS * 86400_000);
+    if (velha || meta.f) return { acao: 'grava', meta: { e: meta.e, p: meta.p, a: meta.a, t: velha ? agora : meta.t }, entregue: true, recusada: false };
+    return { acao: 'nada', entregue: true, recusada: false };
+  }
+  return { acao: 'nada', entregue: false, recusada: false };
 }
 
 /** @param {{ FOTOS: any }} env @param {string} slug @param {string} endpoint */
@@ -205,7 +269,7 @@ export async function mandaUm(chave, meta, aviso, f = fetch) {
  * @param {typeof fetch} [f]
  */
 export async function enviaPendentes(env, albuns, agora = Date.now(), f = fetch) {
-  /** @type {{ slug: string, enviados: number, removidos: number }[]} */
+  /** @type {{ slug: string, enviados: number, removidos: number, recusados: number }[]} */
   const feitos = [];
   for (const a of albuns) {
     const kEnvio = `aviso:envio:${a.slug}`;
@@ -223,20 +287,23 @@ export async function enviaPendentes(env, albuns, agora = Date.now(), f = fetch)
     }
     const lista = await env.FOTOS.list({ prefix: `aviso:sub:${a.slug}:`, limit: AVISO_LOTE, ...(envio.cursor ? { cursor: envio.cursor } : {}) });
     const chave = await chaveVapid(env);
-    let enviados = 0, removidos = 0;
+    let enviados = 0, removidos = 0, recusados = 0;
     await Promise.all(lista.keys.map(async (/** @type {{ name: string, metadata?: any }} */ k) => {
       const m = k.metadata;
       if (!m || !endpointValido(m.e)) { await env.FOTOS.delete(k.name); removidos++; return; }
       try {
-        const st = await mandaUm(chave, m, envio.aviso, f);
-        if (st === 404 || st === 410) { await env.FOTOS.delete(k.name); removidos++; } else if (st < 300) enviados++;
+        const d = desfechoDoEnvio(await mandaUm(chave, m, envio.aviso, f), m, agora);
+        if (d.entregue) enviados++;
+        if (d.recusada) recusados++;
+        if (d.acao === 'apaga') { await env.FOTOS.delete(k.name); removidos++; }
+        else if (d.acao === 'grava') await env.FOTOS.put(k.name, '1', { metadata: d.meta, expirationTtl: AVISO_INSCRICAO_TTL_S });
       } catch (e) {
         console.error('aviso: envio falhou', e);
       }
     }));
     if (lista.list_complete) await env.FOTOS.delete(kEnvio);
     else await env.FOTOS.put(kEnvio, JSON.stringify({ ...envio, cursor: lista.cursor }));
-    feitos.push({ slug: a.slug, enviados, removidos });
+    feitos.push({ slug: a.slug, enviados, removidos, recusados });
   }
   return feitos;
 }

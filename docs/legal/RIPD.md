@@ -271,7 +271,10 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | Dados na região de **São Paulo**; opt-out de treino de IA da AWS ativado | `docs/ROSTO.md` |
 | Foto oculta ou removida sai do índice na execução seguinte do indexador | `scripts/rosto-indexa.mjs` |
 | Índice apagado ao fim do álbum ou quando a busca é desligada | `docs/ROSTO.md`, "Desligar e apagar" |
-| Antes do lançamento do álbum, só o controlador (logado) usa a busca | `buscaRostoAtiva` |
+| Antes do lançamento do álbum, só o controlador (logado) e quem ele escolheu para testar (a prévia com senha) usam a busca | `buscaRostoAtiva`, `temPrevia` |
+| A saída vale para as fotos que chegam depois: o indexador apaga os rostos parecidos com os de quem saiu na mesma execução que os indexou, e a busca não mostra nada a quem saiu, na régua mais baixa dela | `limpaRostosDeQuemSaiu`, `confereSaida` (`src/rosto.js`); `tests/rosto-saida.test.js` |
+| A saída aceita qualquer foto de rosto: teto de saídas por dia no site com alerta ao controlador, e lista no painel (data e contagem, sem foto) com desfazer | `ROSTO_SAIR_POR_DIA`, `src/saidas.js` |
+| Projeto excluído apaga as coleções na hora; busca desligada, em 72 horas | `apagaIndiceDoAlbum`, `apagaIndicesVencidos` |
 | Limite por IP, Turnstile, token do formulário e teto de custo | `src/index.js`, `handleRosto` |
 
 **Risco residual: MÉDIO-ALTO** enquanto não houver concordância formal da turma e dos responsáveis. Cai para **MÉDIO** com o aviso prévio e a saída usada por quem pedir. O encaminhamento é o mesmo de R3: formalizar junto à escola ou à comissão, de preferência antes de ligar a busca para o público.
@@ -289,11 +292,11 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | Desligada por padrão; só o controlador liga, projeto a projeto; antes do lançamento, só o controlador (e quem tem a senha de prévia) usa | opção "Busca nas fotos", `buscaTextoAtiva` |
 | Só palavras com confiança alta (85%); resultados limitados a 120 | `BUSCA_TEXTO_CONFIANCA_MIN`, `BUSCA_MAX_RESULTADOS` |
 | Foto oculta não aparece; foto removida sai da busca na execução seguinte | `buscaNasFotos`, indexador |
-| **Moderação automática** esconde foto da turma marcada como imprópria (gestos obscenos, nudez, álcool, drogas, violência) até o controlador decidir, com aviso por e-mail | `handleBuscaIndexar`, `BUSCA_MODERACAO_ESCONDE` |
+| **Moderação automática** marca foto possivelmente imprópria (gestos obscenos, nudez, álcool, drogas, violência) e avisa o controlador por e-mail, que revisa e oculta o que for preciso. Desde a v3.8.12 nada é escondido sem revisão humana | `handleBuscaIndexar`, `BUSCA_MODERACAO_ESCONDE` |
 | Dados em São Paulo; opt-out de treino de IA; nada de rosto nem de imagem guardado | `docs/ROSTO.md` |
 | Remoção de foto a pedido continua valendo e tira a foto da busca | fluxo de remoção da galeria |
 
-**Risco residual: BAIXO.** A moderação **reduz** o risco R3 para fotos enviadas pela turma.
+**Risco residual: BAIXO.** A moderação **reduz** o risco R3 para fotos enviadas pela turma, desde que o controlador leia o aviso e oculte a foto logo: entre o aviso e a decisão, a foto marcada continua visível.
 
 ---
 
@@ -310,7 +313,7 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | R7 | XSS na galeria | Baixo | Migração da CSP em andamento |
 | R8 | Metadados EXIF | Baixo | Remoção automática no servidor |
 | R9 | **Busca pelo rosto** (biometria) | **Médio-Alto** | Desligada por padrão, saída imediata, aviso prévio à turma, dados em São Paulo |
-| R10 | Texto e objetos lidos nas fotos; moderação | Baixo | Desligada por padrão, confiança alta, ocultas fora, moderação esconde foto imprópria da turma |
+| R10 | Texto e objetos lidos nas fotos; moderação | Baixo | Desligada por padrão, confiança alta, ocultas fora, moderação avisa o controlador de foto imprópria |
 
 ## 5. Conclusão
 

@@ -27,7 +27,7 @@ import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { assinadorDeFotos } from '../src/foto-rota.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, EPOCA_CRIADA_MS } from '../src/config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, AQUECE_LARGURAS, EPOCA_CRIADA_MS } from '../src/config.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -243,6 +243,8 @@ async function abre(o = {}) {
       const m = fotoSite ? [fotoSite[0], fotoSite[1], fotoSite[2], fotoSite[3] ? '' : '-rw'] : u.pathname.match(/^\/d\/([A-Za-z0-9_-]+)=w(\d+)(-rw)?$/);
       if (!m) return route.fulfill({ status: 404, body: '' });
       estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3], site: !!fotoSite, k: u.searchParams.get('k') || '' });
+      // `falhaFotos: N`: os N primeiros pedidos de foto falham (a rajada do lançamento).
+      if (o.falhaFotos && estado.lh3.length <= o.falhaFotos) return route.fulfill({ status: 502, body: '' });
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
@@ -435,6 +437,23 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
 }
 
 // ---- 1b. Tema escuro (o padrão da maioria dos celulares à noite) ----------
+await cenario('Miniatura que falha tenta de novo', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, falhaFotos: 4 });
+  // A primeira nova tentativa sai entre 2 e 4 s depois da falha.
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade img')].filter(i => /** @type {HTMLImageElement} */ (i).currentSrc).every(i => /** @type {HTMLImageElement} */ (i).naturalWidth > 0), null, { timeout: 12000 }).catch(() => {});
+  const r = await page.evaluate(() => {
+    const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-grade img')]).filter(i => i.currentSrc);
+    return { pedidas: imgs.length, carregadas: imgs.filter(i => i.naturalWidth > 0).length, vazias: document.querySelectorAll('.sem-mini').length, tentaram: imgs.filter(i => i.getAttribute('data-t')).length };
+  });
+  registra(estado.lh3.length > 4 && r.tentaram > 0, 'Nova tentativa: as miniaturas que falharam foram pedidas de novo', JSON.stringify(r));
+  registra(r.pedidas > 0 && r.carregadas === r.pedidas && r.vazias === 0, 'Nova tentativa: nenhuma miniatura ficou vazia', JSON.stringify(r));
+  // As larguras que o celular pede na grade são as que o indexador aquece no
+  // R2 (AQUECE_LARGURAS): aquecer a largura errada é o mesmo que não aquecer.
+  const pedidasNaGrade = [...new Set(estado.lh3.map(x => x.w))].sort((x, y) => x - y);
+  registra(pedidasNaGrade.every(w => AQUECE_LARGURAS.includes(w)), 'iPhone: toda largura pedida na grade está entre as aquecidas no R2', { pedidas: pedidasNaGrade, aquecidas: AQUECE_LARGURAS });
+  await ctx.close();
+});
+
 await cenario('Tema escuro', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, escuro: true });
   await espera(page, 900);
@@ -478,7 +497,7 @@ await cenario('Visualizador no desktop', async () => {
     return { link: !!l, antesDoStyle: !!l && !!l.nextElementSibling && l.nextElementSibling.tagName === 'STYLE', fixo: !!pswp && getComputedStyle(pswp).position === 'fixed' };
   });
   registra(cssLb.link && cssLb.antesDoStyle && cssLb.fixo, 'Desktop: o CSS do visualizador entra ao abrir, antes do <style> da página (mesma cascata)', cssLb);
-  registra(/[#]foto=RAIZFOTO_000000$/.test(page.url()), 'Desktop: o endereço ganha o link direto da foto', page.url());
+  registra(/[?]foto=RAIZFOTO_000000$/.test(page.url()), 'Desktop: o endereço ganha o link direto da foto', page.url());
   // Zoom máximo com a roda: tem de chegar ao original.
   await page.mouse.move(720, 450);
   for (let k = 0; k < 14; k++) { await page.mouse.wheel(0, -400); await page.waitForTimeout(60); }
@@ -489,7 +508,7 @@ await cenario('Visualizador no desktop', async () => {
   // Teclado: → troca a foto e o link; Esc fecha e limpa o link.
   await page.keyboard.press('ArrowRight');
   await espera(page, 600);
-  registra(/[#]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
+  registra(/[?]foto=RAIZFOTO_000001$/.test(page.url()), 'Desktop: seta → vai para a próxima foto (link atualizado)', page.url());
   // A legenda é o nome da foto e, abaixo, o crédito ("Foto: <autor>"; sem pasta
   // de autor, o padrão do site) — duas linhas, o nome primeiro.
   const legenda = await page.locator('.pswp__g-legenda').textContent();
@@ -500,14 +519,14 @@ await cenario('Visualizador no desktop', async () => {
   registra(altAberta === `Formatura 2026 — foto 2 de ${TODAS.length}`, 'Desktop: a foto aberta no visualizador tem o mesmo alt da grade', altAberta);
   await page.keyboard.press('Escape');
   await espera(page, 700);
-  registra(!(await page.locator('.pswp--open').count()) && !page.url().includes('#foto='), 'Desktop: Esc fecha e limpa o link', page.url());
+  registra(!(await page.locator('.pswp--open').count()) && !page.url().includes('foto='), 'Desktop: Esc fecha e limpa o link', page.url());
   // Voltar do navegador com a foto aberta fecha a FOTO e fica na galeria.
   await page.locator('.g-t').nth(3).click();
   await page.waitForSelector('.pswp--open');
   await espera(page, 700);
   await page.evaluate(() => history.back());
   await espera(page, 700);
-  registra(!(await page.locator('.pswp--open').count()) && new URL(page.url()).pathname === '/galeria/formatura' && !page.url().includes('#foto='),
+  registra(!(await page.locator('.pswp--open').count()) && new URL(page.url()).pathname === '/galeria/formatura' && !page.url().includes('foto='),
     'Desktop: voltar com a foto aberta fecha a foto e fica na galeria', page.url());
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Desktop: visualizador sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) {
@@ -552,6 +571,20 @@ await cenario('Link direto', async () => {
     'Link direto: voltar fecha a foto e fica na galeria (não sai do site)', page.url());
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Link direto: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
+  // O formato de hoje (v3.9.0): ?foto=<código>. Abre a foto, a barra
+  // mostra o link dela, e o voltar tira o ?foto= e fica na galeria.
+  const b = await abre({ url: 'https://fotos.test/galeria/formatura?foto=FESTAFOTO_000004' });
+  await b.page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await espera(b.page, 800);
+  const leg2 = await b.page.locator('.pswp__g-legenda').textContent();
+  registra(leg2 === 'Foto de Luca F. Chalafesta-5 · Festa', 'Link ?foto= abre na foto certa', leg2);
+  registra(new URL(b.page.url()).searchParams.has('foto'), 'Com a foto aberta, a barra de endereço tem ?foto=', b.page.url());
+  await b.page.evaluate(() => history.back());
+  await espera(b.page, 700);
+  registra(!(await b.page.locator('.pswp--open').count()) && b.page.url() === 'https://fotos.test/galeria/formatura',
+    'Link ?foto=: voltar fecha a foto e tira o ?foto= da barra', b.page.url());
+  registra(b.estado.erros.length === 0 && b.estado.csp.length === 0, 'Link ?foto=: sem erro de JS nem CSP', [...b.estado.erros, ...b.estado.csp]);
+  await b.ctx.close();
 });
 
 // ---- 4. Downloads no computador e no Android --------------------------------
@@ -1033,27 +1066,27 @@ await cenario('Ocultar', async () => {
   const pagina = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: true, ocultas: [JA], redes: REDES });
   const { ctx, page, estado } = await abre({ pagina, ocultas: [JA] });
   const marcada = await page.evaluate(id => {
-    const a = document.querySelector('.g-t[href="#foto=' + id + '"]');
+    const a = document.querySelector('.g-t[href="?foto=' + id + '"]');
     const selo = a && a.querySelector('.g-oc');
     return { classe: !!a && a.classList.contains('oculta'), selo: selo ? getComputedStyle(selo).display : '' };
   }, JA);
   registra(marcada.classe && marcada.selo === 'block', 'Dono: a foto já oculta aparece apagada, com o selo "Oculta"', marcada);
   registra((await page.locator('#g-n-ocultas').textContent()) === '1 oculta para os visitantes', 'Dono: a faixa diz quantas estão ocultas');
-  await page.locator(`.g-t[href="#foto=${ALVO}"]`).click();
+  await page.locator(`.g-t[href="?foto=${ALVO}"]`).click();
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
   await espera(page, 500);
   const botao = page.locator('.pswp__button--g-ocultar');
   registra((await botao.count()) === 1 && (await botao.getAttribute('aria-pressed')) === 'false', 'Dono: o visualizador tem o botão de ocultar, desligado numa foto visível');
   await botao.click();
   await espera(page, 400);
-  const depois = await page.evaluate(id => document.querySelector('.g-t[href="#foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
+  const depois = await page.evaluate(id => document.querySelector('.g-t[href="?foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
   registra(estado.ocultar.length === 1 && estado.ocultar[0].foto === ALVO && estado.ocultar[0].oculta === true && depois === true
     && (await botao.getAttribute('aria-pressed')) === 'true', 'Dono: ocultar grava no servidor e marca a miniatura', estado.ocultar);
   registra((await page.locator('#g-aviso-flut').textContent() || '').startsWith('Oculta para os visitantes'), 'Dono: um aviso confirma que ocultou');
   registra((await page.locator('#g-n-ocultas').textContent()) === '2 ocultas para os visitantes', 'Dono: a contagem da faixa acompanha');
   await botao.click();
   await espera(page, 400);
-  const voltou = await page.evaluate(id => document.querySelector('.g-t[href="#foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
+  const voltou = await page.evaluate(id => document.querySelector('.g-t[href="?foto=' + id + '"]')?.classList.contains('oculta'), ALVO);
   registra(estado.ocultar.length === 2 && estado.ocultar[1].oculta === false && voltou === false, 'Dono: tocar de novo mostra a foto aos visitantes', estado.ocultar);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'galeria-ocultar.png') });
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Ocultar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
@@ -1162,8 +1195,8 @@ await cenario('Pedir remoção', async () => {
 
   // A foto CONTINUA na grade e no visualizador: quem decide é o fotógrafo.
   const aposEnvio = await page.evaluate(([a, b]) => ({
-    alvoNaGrade: document.querySelectorAll('.g-t[href="#foto=' + a + '"]').length,
-    seguinteNaGrade: document.querySelectorAll('.g-t[href="#foto=' + b + '"]').length,
+    alvoNaGrade: document.querySelectorAll('.g-t[href="?foto=' + a + '"]').length,
+    seguinteNaGrade: document.querySelectorAll('.g-t[href="?foto=' + b + '"]').length,
     total: document.querySelectorAll('.g-t').length,
     indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
   }), [ALVO, SEGUINTE]);

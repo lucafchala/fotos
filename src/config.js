@@ -428,11 +428,41 @@ export const GALERIA_CREDITOS_EMAIL_MAX = 120;
 export const AVISO_INTERVALO_MS = 3 * 3600_000;
 export const AVISO_LOTE = 400;
 export const AVISO_HOSTS = ['fcm.googleapis.com', '.push.services.mozilla.com', '.push.apple.com', '.notify.windows.com'];
-export const AVISO_INSCRICAO_IP_BUCKET = { capacity: 20, perHour: 20 };
+// Inscrições por IP: balde, na ordem do da busca pelo rosto (uma escola inteira
+// sai por um IP só; eram 20 por hora, e o 21º aluno a tocar em "Avisar" no
+// Wi-Fi da escola recebia 429). A ficha só é gasta por um pedido bem formado.
+export const AVISO_INSCRICAO_IP_BUCKET = { capacity: 600, perHour: 600 };
+// Validade de uma inscrição no KV (v3.8.9): sem prazo, o endereço de entrega de
+// quem trocou de celular ou nunca mais abriu o álbum ficava guardado para
+// sempre. Cada aviso entregue renova a inscrição (no máximo uma escrita a cada
+// AVISO_RENOVA_DIAS por pessoa); a de quem não recebe mais nada some sozinha.
+// 400 dias: o álbum recebe fotos por um ano, e pode passar meses sem foto nova.
+export const AVISO_INSCRICAO_TTL_S = 400 * 86400;
+export const AVISO_RENOVA_DIAS = 30;
+// Recusas seguidas (403) do serviço de entrega até a inscrição ser apagada. O
+// 403 diz que a inscrição não aceita a chave deste site, e não volta a aceitar
+// — mas um erro NOSSO na assinatura também daria 403 em todas de uma vez, e
+// apagar na primeira jogaria fora a lista inteira. Três avisos seguidos
+// recusados: é a inscrição.
+export const AVISO_RECUSAS_MAX = 3;
 
-// Teto de e-mails do site por dia (v3.8.3, sem plano pago no Resend: o grátis
-// manda até 100 por dia). Margem de 10 para o envio manual do dono.
-export const EMAIL_COTA_DIA = { capacity: 90, perHour: 90 / 24 };
+// Teto de e-mails do site por dia (v3.8.3; janela fixa desde a 3.8.9). O
+// Resend grátis manda até 100 por dia; o site manda no máximo EMAIL_TETO_DIA,
+// e os 10 que sobram são do envio manual do dono.
+//
+// É UMA janela diária fixa, que vira à meia-noite UTC, para TODO envio do site
+// (o código por e-mail e os alertas de segurança ficavam de fora). Era um balde
+// de 90 que repunha 90 por dia: cheio de manhã, deixava sair ~180 nas primeiras
+// 24 horas, e no dia do lançamento o Resend recusaria a partir do centésimo.
+//
+// EMAIL_RESERVA_ALERTAS desses envios são só dos alertas ao dono (erro no
+// site, login, varredura, saídas da busca em excesso): o resto do site para em
+// EMAIL_TETO_DIA - EMAIL_RESERVA_ALERTAS, e um dia cheio de códigos e
+// confirmações não cala o aviso de que algo quebrou. Os tetos menores de cada
+// tipo (EMAIL_CODE_DAILY_CAP, AUTOR_AVISO_DIA, SUMIRAM_AVISO_DIA) continuam
+// valendo por dentro deste: dizem quem cede primeiro.
+export const EMAIL_TETO_DIA = 90;
+export const EMAIL_RESERVA_ALERTAS = 10;
 export const GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA = 30;
 export const GALERIA_REMOCAO_EMAIL_POR_IP_DIA = 200;
 // Motivos que o formulário da galeria aceita (valor gravado no pedido).
@@ -504,7 +534,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.8.8';
+export const VERSAO = '3.9.2';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -569,14 +599,15 @@ export const ROSTO_TENTATIVAS_NO_PICO = 4;
 
 // A cota da Amazon Rekognition em sa-east-1, em transações por segundo por
 // conta. UM lugar só: `vale` é o que a conta tem hoje (o padrão da AWS é 5 por
-// operação); `pedido` é o aumento em análise na AWS (nov/2026). Quando a AWS
-// aprovar, copie `pedido` para `vale` aqui — o tempo de espera que o 429 da
-// busca manda (esperaDaBuscaNoPico) sai destes números, e nada mais no código
-// repete a cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
+// operação); `pedido` é o que foi pedido à AWS. Aprovado em 11/2026 (casos de
+// suporte de SearchFacesByImage e SearchFaces): 20 e 25. A AWS deu 20 onde
+// pedimos 10. O tempo de espera que o 429 da busca manda
+// (esperaDaBuscaNoPico) sai destes números, e nada mais no código repete a
+// cota. O indexador (scripts/rosto-indexa.mjs) usa OUTRAS operações
 // (IndexFaces e as de leitura), com o ritmo dele.
 export const ROSTO_AWS_TPS = Object.freeze({
-  SearchFacesByImage: Object.freeze({ vale: 5, pedido: 10 }),
-  SearchFaces: Object.freeze({ vale: 5, pedido: 25 }),
+  SearchFacesByImage: Object.freeze({ vale: 20, pedido: 10 }),
+  SearchFaces: Object.freeze({ vale: 25, pedido: 25 }),
 });
 /**
  * Quantos segundos o 429 de "a AWS pediu calma" manda a página esperar.
@@ -590,6 +621,44 @@ export function esperaDaBuscaNoPico(sorteio = Math.random(), tps = ROSTO_AWS_TPS
   return 2 + Math.floor(Math.min(0.999999, Math.max(0, sorteio)) * (janela + 1));
 }
 export const ROSTO_SAIR_POR_IP_DIA = 20;
+// Saídas da busca por dia, no site inteiro (v3.8.9). A saída aceita qualquer
+// foto de rosto, então alguém com rostos recortados do álbum tiraria a turma
+// inteira da busca. Numa turma de 1.500, o esperado num dia cheio são algumas
+// dezenas; passou disso, o pedido é recusado (com o e-mail de privacidade), o
+// dono recebe um alerta e confere a lista no painel, onde cada saída pode ser
+// desfeita.
+export const ROSTO_SAIR_POR_DIA = 60;
+// Aquecimento das miniaturas (v3.8.11). No lançamento, mil celulares abrem a
+// mesma página no mesmo minuto; miniatura que ainda não está no R2 é buscada
+// no Google por CADA pedido que chega antes de a primeira cópia ser gravada, e
+// o Google recusa a rajada. O indexador (que já passa por toda foto do álbum,
+// inclusive antes do lançamento) pede ao site estas larguras de cada foto, em
+// ritmo lento, e a cópia fica no R2: no dia, a página não depende do Google.
+// As larguras são as que um iPhone (390 px, densidade 3) pede na grade em
+// mosaico, medidas no navegador; `verifica:galeria` reprova se a grade passar
+// a pedir outra. As demais (outros aparelhos, o visor em tela cheia) ainda vão
+// ao Google na primeira vez, e a grade tenta de novo se ele recusar.
+export const AQUECE_LARGURAS = [400, 500, 700, 800, 1200];
+// Fotos aquecidas por execução do indexador (cada uma são AQUECE_LARGURAS.length
+// pedidos ao site).
+export const AQUECE_FOTOS_POR_EXECUCAO = 600;
+// Miniatura que falha na grade tenta de novo esta quantidade de vezes, com
+// espera crescente e sorteada, antes de virar o quadro vazio.
+export const GALERIA_MINIATURA_TENTATIVAS = 2;
+// Quantas fotos o indexador processa por DIA (UTC) em cada álbum (v3.8.10). A
+// pasta do álbum recebe fotos da turma por um ano, por link aberto: sem teto,
+// alguém despejando arquivos fazia o indexador pagar por todos (até 4 chamadas
+// de US$ 0,001 por foto, 3.000 fotos por execução, uma execução a cada 10 min:
+// mais de mil dólares num dia). Com o teto, o pior dia custa
+// ROSTO_FOTOS_POR_DIA × US$ 0,004 por álbum. O que passar fica para o dia
+// seguinte, e o log do indexador diz. Para a primeira indexação de um álbum
+// grande, a variável ROSTO_MAX_DIA do workflow sobe o teto naquele dia.
+export const ROSTO_FOTOS_POR_DIA = 2000;
+// Busca pelo rosto desligada no painel: o índice (os rostos de todo mundo) é
+// apagado depois deste prazo, não na hora. Religar antes cancela. Um clique
+// errado no painel não pode custar o índice inteiro e a lista de quem saiu; e
+// projeto EXCLUÍDO não espera: apaga na hora.
+export const ROSTO_APAGA_APOS_DESLIGAR_H = 72;
 
 // Lançamento marcado de um álbum (v3.5): até quantos dias à frente o painel
 // aceita marcar. Mais que isso é engano de digitação (ano errado).
@@ -605,9 +674,8 @@ export const BUSCA_TEXTO_CONFIANCA_MIN = 85;
 export const BUSCA_COISA_CONFIANCA_MIN = 75;
 // Moderação: só as categorias de cima abaixo contam, e só com confiança alta.
 // Ficam de fora "Swimwear or Underwear" (piscina, praia) e "Gambling". Com
-// marca, a foto da TURMA (upload aberto ou sem pasta de fotógrafo) é escondida
-// até o dono decidir; a de fotógrafo credenciado só é marcada (o dono já
-// escolhe o que publica).
+// marca, a foto só vai para o e-mail do dono, que decide se oculta: o site não
+// esconde nada sozinho (v3.8.12).
 export const BUSCA_MODERACAO_CONFIANCA_MIN = 80;
 export const BUSCA_MODERACAO_ESCONDE = Object.freeze([
   'Explicit', 'Explicit Nudity', 'Non-Explicit Nudity of Intimate parts and Kissing', 'Non-Explicit Nudity',
@@ -695,3 +763,20 @@ export const ENVIO_TIPOS = Object.freeze({
   heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', dng: 'image/x-adobe-dng',
   mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', '3gp': 'video/3gpp', webm: 'video/webm',
 });
+
+// As cores do álbum com domínio próprio (Entre Nós), num lugar só (v3.9.0):
+// a página do álbum, a do evento, a da editora, a ajuda e o app instalado.
+// O fundo, os cartões e as bordas são os do fotos.lucafchala.com (v3.9.2,
+// pedido do dono: o preto neutro de lá; nem o quase-preto quente de antes,
+// que puxava para o marrom, nem o azul-marinho da 3.9.0). As cores do Colégio
+// Santa Cruz ficam nos detalhes: o amarelo (#F9DE4B) SÓLIDO nos destaques
+// (misturado ou transparente sobre o escuro, vira oliva/marrom) e o azul
+// (#243580) nas linhas, nas barras e no brilho do rodapé.
+export const PALETA_ALBUM = Object.freeze({
+  bg: '#0a0a0a', card: '#141414', card2: '#1c1c1c', borda: '#262626', esqueleto: '#1d1d1d',
+  txt: '#f0ebe5', txt2: '#bbbbbb', mudo: '#999999', dim: '#8c8c8c',
+  sol: '#f9de4b', azul: '#243580',
+  /** O fundo com transparência (botão de vidro, sombra da capa): "r,g,b". */
+  bgRgb: '10,10,10',
+});
+

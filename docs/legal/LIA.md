@@ -75,10 +75,17 @@ não sustenta legítimo interesse ali.
 
 ### Impacto sobre direitos e liberdades
 
-- **Natureza do dado:** imagem de pessoa identificável. Não é dado sensível por
-  padrão — não há tratamento biométrico, reconhecimento facial ou indexação por
-  face. É, ainda assim, dado que afeta diretamente a personalidade (CF art. 5º,
-  X; CC art. 20).
+- **Natureza do dado:** imagem de pessoa identificável. A PUBLICAÇÃO das fotos,
+  que é o objeto desta avaliação, não envolve tratamento biométrico. **A busca
+  pelo rosto** (desde a v3.2, só nos álbuns em que o controlador a liga) **é
+  tratamento de dado biométrico, dado sensível (art. 5º, II), e NÃO se apoia
+  neste legítimo interesse**: o art. 11 não admite essa base. Ela tem registro
+  próprio (ROPA, seção 12) e avaliação própria (RIPD, R9), com consentimento
+  de quem busca e de quem sai, e com o ponto fraco do índice dos retratados
+  dito lá. Esta LIA dizia "não há tratamento biométrico, reconhecimento facial
+  ou indexação por face": deixou de ser verdade para esses álbuns e foi
+  corrigida em 11/11/2026. A imagem é, em qualquer caso, dado que afeta
+  diretamente a personalidade (CF art. 5º, X; CC art. 20).
 - **Contexto:** evento social, com expectativa de privacidade reduzida (mas não
   nula) por já ser um ambiente coletivo e fotografado.
 - **Escala:** pequena. Fotógrafo autônomo, dezenas de eventos, sem

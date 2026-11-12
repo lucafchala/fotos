@@ -1541,12 +1541,13 @@ export function achaCapitulo(dados, slug) {
 // pedaço quando mudou; capítulo nunca aberto fica sem resumo e o cartão mostra
 // um espaço reservado.
 /**
- * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], pm?: number, a?: Record<string, number>, z?: number, dd?: number[] }} ResumoCap
+ * @typedef {{ n: number, capas: string[], cr?: number[], p?: [number, number], pm?: number, a?: Record<string, number>, z?: number, dd?: number[], rotulo?: string }} ResumoCap
  * `cr`: os instantes (minutos desde EPOCA_CRIADA_MS) das fotos recentes, as mais novas primeiro, até NOVAS_RESUMO_MAX.
  * `p` (v3.3): o primeiro e o último mês das fotos do capítulo, AAAAMM, pelas datas de captura (a linha do tempo da apresentação).
  * `a` (v3.3): quantos itens cada autor tem no capítulo ("Quem fotografou").
  * `dd` (v3.9): os DIAS (AAAAMMDD) com mais fotos no capítulo, em ordem, até RESUMO_DIAS_MAX. É por eles que o envio pelo site
  *   sugere o evento de uma foto pelo dia em que ela foi feita.
+ * `rotulo` (v3.9.0): só em memória, quando o dono escolheu a data do evento (comDatasDoDono).
  */
 const RESUMO_MEM_MS = 6 * 3600 * 1000;
 const RESUMO_MEM_PAGO_MS = 60 * 1000;

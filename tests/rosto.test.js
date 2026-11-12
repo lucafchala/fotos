@@ -13,12 +13,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker, { mintFormToken, normalizeEventFields } from '../src/index.js';
 import { assinaV4, rekognition, base64, ErroAws } from '../src/aws.js';
-import { buscaPorRosto, sairDaBusca, imagemValida, idExterno, lerIdExterno, colecoes, credAws } from '../src/rosto.js';
+import { buscaPorRosto, imagemValida, idExterno, lerIdExterno, colecoes, credAws } from '../src/rosto.js';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
 import { galeriaHTML } from '../src/ui/galeria.js';
 import { fotosDaPagina, capitulosDoIndice } from '../scripts/rosto-indexa.mjs';
 import { saveEvents } from '../src/utils.js';
-import { ROSTO_IMAGEM_MAX_B64, ROSTO_BUSCA_IP_BUCKET } from '../src/config.js';
+import { ROSTO_IMAGEM_MAX_B64, ROSTO_BUSCA_IP_BUCKET, ROSTO_LIMIAR_BUSCA } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 
 const CRED = { chave: 'AKIDEXAMPLE', segredo: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY', regiao: 'sa-east-1' };
@@ -163,28 +163,9 @@ describe('buscaPorRosto', () => {
   });
 });
 
-describe('sairDaBusca', () => {
-  const c = colecoes('album');
-  it('guarda o rosto em quem saiu e apaga os parecidos do índice', async () => {
-    const { f, chamadas } = awsFalsa({
-      CreateCollection: new Error('ResourceAlreadyExistsException'),
-      IndexFaces: { FaceRecords: [{ Face: { FaceId: 'x' } }] },
-      [`SearchFacesByImage ${c.principal}`]: { FaceMatches: [FACE('a:FOTO_AAAAAAAA01', 90, 'aaaaaaaa-0000-0000-0000-000000000001'), FACE('b:FOTO_BBBBBBBB02', 86, 'aaaaaaaa-0000-0000-0000-000000000002')] },
-      DeleteFaces: { DeletedFaces: ['aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002'] },
-    });
-    expect(await sairDaBusca(CRED, 'album', SELFIE, { fetch: f })).toEqual({ tipo: 'ok', removidas: 2 });
-    expect(chamadas.map(x => `${x.op} ${x.corpo.CollectionId}`)).toEqual([
-      `CreateCollection ${c.sair}`, `IndexFaces ${c.sair}`, `SearchFacesByImage ${c.principal}`, `DeleteFaces ${c.principal}`,
-    ]);
-    expect(chamadas[3].corpo.FaceIds).toEqual(['aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002']);
-  });
-
-  it('sem rosto na selfie, nada é guardado', async () => {
-    const { f, chamadas } = awsFalsa({ IndexFaces: { FaceRecords: [] } });
-    expect(await sairDaBusca(CRED, 'album', SELFIE, { fetch: f })).toEqual({ tipo: 'sem-rosto' });
-    expect(chamadas.map(x => x.op)).toEqual(['CreateCollection', 'IndexFaces']);
-  });
-});
+// "Não quero aparecer na busca" (sairDaBusca, a marca no índice, o desfazer e o
+// indexador) tem arquivo próprio desde a 3.8.9: tests/rosto-saida.test.js, com
+// uma Rekognition de mentira que guarda rostos de verdade.
 
 // --- Rotas ----------------------------------------------------------------
 const SITE = 'https://fotos.lucafchala.com';
@@ -255,12 +236,11 @@ describe('/api/rosto/buscar e /api/rosto/sair', () => {
     expect(awsChamadas).toEqual([]);
   });
 
-  it('depois que alguém sai, toda busca consulta quem saiu', async () => {
+  it('quem saiu ANTES da 3.8.9 (coleção antiga, marcada no KV): toda busca ainda a consulta, na régua mais baixa', async () => {
     await saveEvents(env, [structuredClone(EVENTO)]);
-    expect((await busca({}, '/api/rosto/sair')).status).toBe(200);
-    awsChamadas = [];
+    await env.FOTOS.put('rosto-sair:album', '1');
     expect((await busca()).status).toBe(200);
-    expect(awsChamadas[0]).toMatchObject({ op: 'SearchFacesByImage', corpo: { CollectionId: 'fotos-album-sair' } });
+    expect(awsChamadas[0]).toMatchObject({ op: 'SearchFacesByImage', corpo: { CollectionId: 'fotos-album-sair', FaceMatchThreshold: ROSTO_LIMIAR_BUSCA } });
   });
 
   it('404 com a busca desligada, em álbum restrito, oculto ou sem as chaves da AWS', async () => {
@@ -308,14 +288,6 @@ describe('/api/rosto/buscar e /api/rosto/sair', () => {
     const res = await busca();
     expect(res.status).toBe(503);
     expect(await res.text()).not.toContain('arn:aws');
-  });
-
-  it('sair: guarda o rosto e apaga os parecidos', async () => {
-    await saveEvents(env, [structuredClone(EVENTO)]);
-    const res = await busca({}, '/api/rosto/sair');
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, removidas: 1 });
-    expect(awsChamadas.map(c => `${c.op} ${c.corpo.CollectionId}`)).toEqual(['CreateCollection fotos-album-sair', 'IndexFaces fotos-album-sair', 'SearchFacesByImage fotos-album', 'DeleteFaces fotos-album']);
   });
 
   it('o painel grava a opção como booleano', () => {
