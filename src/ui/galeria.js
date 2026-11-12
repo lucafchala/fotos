@@ -29,6 +29,7 @@ import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, 
 import { VENDOR } from '../content/vendor.js';
 import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
+import { botaoDeAjudaHTML, BOTAO_AJUDA_CSS } from './botao-ajuda.js';
 import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
 import { urlLh3, descreveRenovacao } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
@@ -46,7 +47,8 @@ const TEMA_ALBUM = `
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
     }
-    .g-fim{display:flex;justify-content:center;padding:2.5rem var(--pad) 3rem}
+    .g-fim{display:flex;flex-direction:column;align-items:center;padding:2.5rem var(--pad) 3rem}
+    ${BOTAO_AJUDA_CSS}
     .g-fim a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-muted);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}`;
 
 /**
@@ -746,7 +748,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
   <main id="g-main" aria-label="Fotos"></main>
   ${capitulo && listagem ? navCapitulos(base, capitulo, 'fim', marca ? '' : slug) : ''}
-  ${marca ? '<footer class="g-fim"><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>' : ''}
+  ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
   <div class="g-barra" id="g-barra" hidden>
