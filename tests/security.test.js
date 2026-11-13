@@ -254,6 +254,13 @@ describe('cabeçalhos de segurança', () => {
     expect(h['Permissions-Policy']).toMatch(/geolocation=\(\)/);
   });
 
+  it('console limpo com o Turnstile (v3.9.3): sem web-share, PiP para o widget e data: no connect-src', () => {
+    const h = htmlSecurityHeaders(generateNonce());
+    expect(h['Permissions-Policy']).not.toMatch(/web-share/);
+    expect(h['Permissions-Policy']).toMatch(/picture-in-picture=\([^)]*"https:\/\/challenges\.cloudflare\.com"/);
+    expect(h['Content-Security-Policy']).toMatch(/connect-src 'self' data: /);
+  });
+
   it('never lets a data response be cached', () => {
     // /api/metrics, /api/backup e /api/consent/export devolvem dados pessoais.
     // Sem no-store eles encostam em cache de disco e de intermediário.

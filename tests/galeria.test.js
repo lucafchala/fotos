@@ -1281,6 +1281,16 @@ describe('desempenho da carga da galeria', () => {
     expect([...escada].sort((a, b) => a - b)).toEqual(escada);
   });
 
+  it('grades de "minhas fotos" e da busca pedem só larguras aquecidas no R2 (era 360: toda foto achada ia ao Google)', async () => {
+    const { AQUECE_LARGURAS } = await import('../src/config.js');
+    const { SCRIPT_ROSTO, SCRIPT_BUSCA } = await import('../src/ui/indice-comum.js');
+    for (const script of [SCRIPT_ROSTO, SCRIPT_BUSCA]) {
+      const larguras = [...script.matchAll(/'\/f\/' \+ encodeURIComponent\(r\.id\) \+ '\/(\d+)'/g)].map(m => Number(m[1]));
+      expect(larguras.length).toBeGreaterThan(0);
+      for (const w of larguras) expect(AQUECE_LARGURAS).toContain(w);
+    }
+  });
+
   it('o CSS do visualizador não vai no <head> (bloquearia a pintura): vai nos dados, para entrar com ele', () => {
     const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
     const css = VENDOR.find(v => v.source.endsWith('photoswipe.css')).path;

@@ -141,7 +141,7 @@ feito para reduzir o risco:
 
 ## Aquecimento das miniaturas (v3.8.11)
 
-Depois de indexar, o indexador pede ao site as miniaturas de cada foto ainda não aquecida (`AQUECE_LARGURAS`, até `AQUECE_FOTOS_POR_EXECUCAO` fotos por execução) e anota no estado (`quentes`). A cópia fica no R2; no lançamento a página não depende do Google. Não custa AWS. Um álbum de 6.000 fotos aquece em cerca de dez execuções (menos de duas horas). O log diz "miniaturas aquecidas: N fotos". **Antes de lançar, confira no log que não sobrou foto por aquecer** (a linha deixa de aparecer). Desligar: variável `ROSTO_AQUECE=0` no workflow.
+Depois de indexar, o indexador pede ao site as miniaturas de cada foto ainda não aquecida (`AQUECE_LARGURAS`, até `AQUECE_FOTOS_POR_EXECUCAO` fotos por execução) e anota no estado (`quentes`, com a lista de larguras usada em `quentesLarguras`: se `AQUECE_LARGURAS` mudar, a execução seguinte recomeça o aquecimento, uma vez). A cópia fica no R2; no lançamento a página não depende do Google. Não custa AWS. Um álbum de 6.000 fotos aquece em cerca de dez execuções (menos de duas horas). O log diz "miniaturas aquecidas: N fotos". **Antes de lançar, confira no log que não sobrou foto por aquecer** (a linha deixa de aparecer). Desligar: variável `ROSTO_AQUECE=0` no workflow.
 
 ## Teto de custo do indexador (v3.8.10)
 

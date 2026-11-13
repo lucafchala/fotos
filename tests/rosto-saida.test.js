@@ -326,6 +326,17 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
     expect([...new Set(pedidosDeFoto.map(p => p.caminho.split('/')[2]))]).toEqual([F(5)]);
   });
 
+  it('larguras novas (v3.9.3): foto aquecida com a lista antiga é aquecida de novo, uma vez', async () => {
+    const { AQUECE_LARGURAS } = await import('../src/config.js');
+    estado = { ...estado, quentes: [F(1), F(2)], quentesLarguras: '400,500,700,800,1200' };
+    await indexa();
+    expect(pedidosDeFoto.map(p => p.caminho).sort()).toEqual([F(1), F(2)].flatMap(id => AQUECE_LARGURAS.map(w => `/f/${id}/${w}`)).sort());
+    expect(estado.quentesLarguras).toBe(AQUECE_LARGURAS.join(','));
+    pedidosDeFoto = [];
+    await indexa();
+    expect(pedidosDeFoto).toEqual([]);
+  });
+
   it('miniatura que o site recusou não conta como aquecida: a execução seguinte tenta de novo', async () => {
     fotoHttp = 502;
     await indexa();

@@ -7,7 +7,9 @@
 // só perde a opção de "congelar" a lista. Nunca derruba a página.
 //
 // Custo de subrequisição (conta do plano gratuito, src/config.js): cada
-// operação no D1 conta como uma. Ler = 1; gravar = 1.
+// operação no D1 conta como uma. Ler = 1; gravar = 1; marcar como conferida = 1.
+
+import { GALERIA_SNAPSHOT_CONFERE_S } from './config.js';
 
 /** @typedef {{ CONSENT_DB?: D1Database }} EnvSnapshot */
 
@@ -57,6 +59,36 @@ async function lerHash(env, chave, ctx) {
 const TETO_BYTES = 1_500_000;
 
 /**
+ * A listagem guardada na foto durável, com o `em` da última CONFERÊNCIA (a
+ * coluna), não o da última mudança (o JSON): a lista que o Drive confirmou
+ * agora há pouco não é "velha" só porque ninguém mexeu na pasta.
+ * @template {{ em: string }} T
+ * @param {T} dados o JSON da foto, já lido
+ * @param {{ em: string }} foto a linha
+ * @returns {T}
+ */
+export function comEmConferido(dados, foto) {
+  const coluna = Date.parse(foto.em);
+  return coluna > Date.parse(dados.em) ? { ...dados, em: new Date(coluna).toISOString() } : dados;
+}
+
+/**
+ * Releitura sem mudança: marca a foto como conferida agora, no máximo uma vez
+ * a cada GALERIA_SNAPSHOT_CONFERE_S (o WHERE não toca a linha recém-marcada).
+ * @param {EnvSnapshot} env
+ * @param {string} chave
+ * @param {string} ctx
+ * @param {string} em o instante da releitura
+ */
+async function marcaConferida(env, chave, ctx, em) {
+  const t = Date.parse(em);
+  if (!env.CONSENT_DB || !Number.isFinite(t)) return;
+  const limite = new Date(t - GALERIA_SNAPSHOT_CONFERE_S * 1000).toISOString();
+  await env.CONSENT_DB.prepare('UPDATE galeria_snapshot SET em = ? WHERE chave = ? AND ctx = ? AND em < ?')
+    .bind(new Date(t).toISOString(), chave, ctx, limite).run();
+}
+
+/**
  * Grava a listagem como a foto da pasta. Sem `forcar`, só grava se o conteúdo
  * mudou (1 leitura do hash; 1 escrita só quando mudou). Com `forcar` (o dono
  * tocou em "Atualizar agora", ou não havia foto) grava sempre — atualiza o "em".
@@ -74,7 +106,7 @@ export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, sl
   try {
     const hash = await hashDaListagem(dados);
     const antes = antesLido !== undefined ? antesLido : await lerHash(env, chave, ctx);
-    if (antes === hash && !forcar) return false;
+    if (antes === hash && !forcar) { await marcaConferida(env, chave, ctx, dados.em); return false; }
     if (aoMudar && antes !== null && antes !== hash) {
       const foto = await lerSnapshot(env, chave, ctx);
       if (foto) {

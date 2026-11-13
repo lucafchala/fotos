@@ -235,7 +235,9 @@ export const SCRIPT_ROSTO = `(function () {
         a.setAttribute('data-k', r.k || '');
         if (r.nova) a.className = 'rs-nova';
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
+        // 400: uma das AQUECE_LARGURAS (já no R2). Era 360, que nenhum
+        // aquecimento cobria: cada foto achada ia ao Google na hora (v3.9.3).
+        img.src = '/f/' + encodeURIComponent(r.id) + '/400' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
@@ -1050,7 +1052,9 @@ export const SCRIPT_BUSCA = `(function () {
         a.setAttribute('data-cap', r.cap || '');
         a.setAttribute('data-k', r.k || '');
         var img = document.createElement('img');
-        img.src = '/f/' + encodeURIComponent(r.id) + '/360' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
+        // 400: uma das AQUECE_LARGURAS (já no R2). Era 360, que nenhum
+        // aquecimento cobria: cada foto achada ia ao Google na hora (v3.9.3).
+        img.src = '/f/' + encodeURIComponent(r.id) + '/400' + (r.k ? '?k=' + encodeURIComponent(r.k) : '');
         img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
         a.appendChild(img);
         li.appendChild(a); ul.appendChild(li);
