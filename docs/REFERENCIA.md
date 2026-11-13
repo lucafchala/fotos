@@ -672,6 +672,7 @@ fotos/
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── drive.js            ← cliente da Drive API da galeria própria: lista a pasta, mapeia erros, URLs do lh3 e do original
     ├── counters.js         ← Durable Objects: Counter (totais + série por dia, poda) e RateLimiter (janela fixa e balde de fichas)
+    ├── indexnow.js         ← aviso ao IndexNow (Bing, Yandex…): manda só o que entrou ou saiu, chave pública em /<chave>.txt, só com INDEXNOW = "ligado"
     ├── previa.js           ← a camada da prévia de PR (faixa, noindex, menu "Testes": simulações e ações) — só com AMBIENTE = "previa"
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
@@ -1994,8 +1995,10 @@ baixo.
 **Downloads fora.** `Disallow: /galeria/*/baixar/` nos grupos `*` e de busca do
 `robots.txt`, `X-Robots-Tag: noindex` em toda resposta do proxy e
 `rel="nofollow"` nos links de download e do Drive: robô baixando original
-gastaria a cota do Drive e do Worker. O `Content-Signal` (`ai-train=no`) fica
-em todos os grupos — o Lighthouse o acusa como diretiva desconhecida (é a
+gastaria a cota do Drive e do Worker. O `Content-Signal` (`search=yes, ai-train=yes,
+ai-input=yes` desde a v3.11.0, decisão do dono) fica em todos os grupos, e
+todo grupo repete o `Disallow` do download (um robô com grupo próprio ignora o
+`*`) — o Lighthouse o acusa como diretiva desconhecida (é a
 única falha do SEO, 92), e o Google ignora a linha.
 
 **Foto oculta ou pedido de remoção:** sai do HTML e do sitemap de imagens no

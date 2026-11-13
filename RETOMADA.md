@@ -85,6 +85,8 @@ src/
                   lh3 e do original. A chave só existe aqui e no proxy de download.
   pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
                   que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
+  indexnow.js   ← aviso ao IndexNow: só a diferença (entrou E saiu), um pedido por
+                  domínio, KV só quando muda; só com INDEXNOW = "ligado" (§5.27)
   previa.js     ← a camada da PRÉVIA DE PR, por fora do roteador: faixa, noindex, menu
                   "Testes" (simulações por cookie, ações com sessão). Só com AMBIENTE =
                   "previa"; em produção nenhuma linha dela roda (§5.16)
@@ -1003,6 +1005,45 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 - CSS de componente que usa `display:` em `a` ou `button` precisa de
   `[hidden]{display:none}` próprio: o `display` da classe vence o atributo
   `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone).
+
+### 5.27. Indexada em tudo: treino de IA liberado e IndexNow (v3.11.0)
+
+Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
+(#307) foi deixado de lado; `/numeros` e `/ajuda` continuam `noindex`.
+
+- **Treino de IA liberado.** `robots.txt`: `Content-Signal: search=yes,
+  ai-train=yes, ai-input=yes` e um grupo só para os robôs de IA (busca e
+  treino) com `Allow: /`. Todo grupo repete `Disallow: /galeria/*/baixar/`:
+  robô com grupo próprio IGNORA o `*` — esquecer a linha num grupo novo põe
+  esse robô baixando originais (`tests/healthz.test.js` cobra em todo grupo).
+  `llms.txt` diz o mesmo. Os Termos e a Política de Privacidade dizem que as
+  páginas públicas podem ser lidas por IA, inclusive para treino; por isso o
+  `TERMS_VERSION` subiu (`2026-11-13`). Família e privado seguem `noindex` e
+  fora dos sitemaps, mas o robô de treino chega até o portão como qualquer
+  visitante.
+- **IndexNow** (`src/indexnow.js`). O cron, a cada 15 min
+  (`ehPassadaDoIndexNow`), calcula as URLs públicas (`urlsDoIndexNow` em
+  `src/index.js`: as do sitemap — `paginasDoSitemap`, a MESMA lista que o
+  `/sitemap.xml` usa — mais a raiz do domínio próprio e cada capítulo), compara
+  com `indexnow:avisadas` no KV e manda só a diferença, inclusive o que SAIU
+  (o buscador relê, vê o 404/noindex e tira mais cedo). Sem mudança: zero
+  pedidos e zero gravações. Gravação só se TODO domínio respondeu 200/202;
+  senão a próxima passada repete. Drive fora no meio da conta → `null` →
+  nada é avisado (nunca anunciar como retirada uma página que só não foi
+  lida). Página pública nova? Se ela entra no sitemap por
+  `paginasDoSitemap`, entra no IndexNow sozinha.
+- **Só em produção.** `INDEXNOW = "ligado"` em `[vars]` do `wrangler.toml`; a
+  prévia não herda `[vars]`, e os testes e o Worker local não têm a variável.
+  A chave é pública por desenho e responde em `/<chave>.txt` no
+  fotos.lucafchala.com e em cada domínio de álbum (um pedido por host, com a
+  chave daquele host). Domínio de álbum novo em `DOMINIOS_DE_ALBUM` herda a
+  rota sozinho.
+- **Endereço canônico dos capítulos.** Os sitemaps de capítulo de um álbum com
+  domínio próprio listavam `/galeria/<slug>/<capítulo>`, que responde 301.
+  Agora usam `enderecoDoEvento` (`https://entrenos2026.com/<capítulo>`), o
+  mesmo do IndexNow (`tests/galeria-capitulos.test.js`).
+- O Google não participa do IndexNow. Para ele valem o sitemap e o Search
+  Console.
 
 ## 6. Como fazer uma mudança
 

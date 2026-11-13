@@ -12,7 +12,7 @@
 //  5. o orçamento de subrequisições do plano gratuito.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import worker, { mintFormToken } from '../src/index.js';
+import worker, { mintFormToken, urlsDoIndexNow } from '../src/index.js';
 import { limpaCacheDrive, listaCapitulos, lerResumo, nomeDeCapitulo, slugBaseDeCapitulo, ordemDeCapitulos } from '../src/drive.js';
 import { saveEvents, readCounters, deleteCounters } from '../src/utils.js';
 import { GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_CAP } from '../src/config.js';
@@ -490,6 +490,36 @@ describe('sitemaps', () => {
     chamadas.length = 0;
     await get('/sitemap-galerias.xml');
     expect(chamadas.length).toBeLessThanOrEqual(8);
+  });
+});
+
+describe('IndexNow e endereço canônico dos capítulos (v3.11.0)', () => {
+  it('urlsDoIndexNow: a página do projeto, o índice e cada capítulo', async () => {
+    const urls = await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }]);
+    expect(urls).toContain(`${SITE}/formatura`);
+    expect(urls).toContain(`${SITE}/galeria/formatura`);
+    for (const s of slugsDoIndice(await html('/galeria/formatura'))) expect(urls).toContain(`${SITE}/galeria/formatura/${s}`);
+  });
+
+  it('Drive fora no meio da conta: null (nada é anunciado como retirado)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('erro', { status: 500 })));
+    limpaCacheDrive();
+    expect(await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }])).toBeNull();
+  });
+
+  it('álbum com domínio próprio: o sitemap e o IndexNow usam https://<domínio>/<capítulo>, não o /galeria/ que redireciona', async () => {
+    const dom = { ...EVENTO, slug: 'entrenos2026', visible: true, comingSoon: false };
+    await saveEvents(env, [dom]);
+    limpaCacheDrive();
+    const x = await html('/sitemap-galeria-entrenos2026.xml');
+    expect(x).toContain('<loc>https://entrenos2026.com/2024-festa</loc>');
+    expect(x).not.toContain('/galeria/entrenos2026/');
+    const cap = await html('/sitemap-galeria-entrenos2026.2024-festa.xml');
+    expect(cap).toContain('<loc>https://entrenos2026.com/2024-festa</loc>');
+    const urls = await urlsDoIndexNow(env, [dom]);
+    expect(urls).toContain('https://entrenos2026.com/');
+    expect(urls).toContain('https://entrenos2026.com/2024-festa');
+    expect(urls.filter(u => u.includes('/galeria/entrenos2026/'))).toEqual([]);
   });
 });
 

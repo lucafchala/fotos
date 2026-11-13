@@ -35,6 +35,7 @@ import { FONTS } from './content/fonts.js';
  *   WORKERS_PLANO?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
+ *   INDEXNOW?: string,
  *   PREVIA_EMAIL?: string,
  *   FOTOS_R2?: R2Bucket,
  * }} Env
@@ -81,7 +82,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-11-06';
+export const TERMS_VERSION = '2026-11-13';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.

@@ -136,8 +136,13 @@ e sem etapa de build.
 - **Sem rastreamento de terceiros por padrão.** Fontes servidas pela própria
   origem, sem Google Fonts, e nenhum CDN de terceiro. O Web Analytics da
   Cloudflare é opcional, controlado por token. O player do Drive só carrega
-  depois do toque. O `robots.txt` diz `ai-train=no` e o `llms.txt` diz que treino
-  não é permitido.
+  depois do toque. O `robots.txt` e o `llms.txt` liberam busca, resposta de IA e
+  treino de IA nas páginas públicas (decisão do dono, v3.11.0); álbum de
+  família e privado continua `noindex` e fora dos sitemaps.
+- **Indexação.** Sitemaps de páginas, galerias e fotos, e aviso direto ao
+  IndexNow (Bing, Yandex e outros) quando uma página pública entra ou sai
+  (`src/indexnow.js`, a cada 15 min, só em produção). O Google não usa
+  IndexNow: para ele vale o sitemap.
 - **Consentimento em álbum restrito.** Família e privado se apoiam no
   consentimento, não em senha. No caminho sem Turnstile, o visitante informa o
   nome e cada IP abre no máximo 3 álbuns restritos diferentes por dia.
