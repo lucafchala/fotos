@@ -181,6 +181,7 @@ jobs:
 
       # O envio pelo site (src/envio.js, src/ui/enviar.js) contra o Google
       # simulado: escolher, agrupar por dia, enviar em partes, rede caindo,
-      # recarregar e retomar, não duplicar, passe recusado.
+      # recarregar e retomar, não duplicar, passe recusado, 401 atrasado.
+      # Aprovado pelo dono em 13/11/2026 (AGENTS.md: mudança de workflow).
       - name: Envio de fotos pelo site
         run: npm run verifica:envio
