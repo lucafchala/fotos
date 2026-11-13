@@ -366,6 +366,44 @@ await cenario('Passe recusado', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1c. O 401 atrasado não joga fora o passe novo (revisão final do #312)
+// ---------------------------------------------------------------------------
+// Com vários arquivos ao mesmo tempo, o passe vence: o arquivo 2 leva 401 na
+// hora, pede passe novo e segue; o 401 do arquivo 1 (com o passe ANTIGO)
+// chega depois. Sem a guarda de `passeUsado` em trata() (src/ui/enviar.js),
+// esse 401 atrasado apagava o passe novo e a página pedia um terceiro.
+await cenario('401 atrasado', async () => {
+  const { ctx, page, estado } = await aparelho();
+  await page.goto(`${PAGINA}?evento=formatura`);
+  /** @type {string} */
+  let antigo = '';
+  let recusados = 0;
+  await page.route(/\/api\/envio\/inicia/, async r => {
+    const usado = String(JSON.parse(r.request().postData() || '{}').passe || '');
+    if (!antigo) antigo = usado;
+    if (usado === antigo && recusados < 2) {
+      const n = ++recusados;
+      // O primeiro recusado demora: chega DEPOIS de o segundo ter renovado o passe.
+      if (n === 1) await new Promise(ok => setTimeout(ok, 5000));
+      return r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'Passe vencido.', codigo: 'passe' }) });
+    }
+    return r.continue();
+  });
+  const arqs = [0, 1].map(i => ({ name: `IMG_07${i}0.jpg`, mimeType: 'image/jpeg', buffer: jpeg(150 * 1024, '2025:12:12 19:00:00', 70 + i) }));
+  await escolhe(page, arqs);
+  await envia(page);
+  const pronto = await esperaEstado(page, /Pronto! Tudo enviado/);
+  const passes = estado.pedidos.filter(x => x.endsWith('/passe')).length;
+  const chegaram = arqs.map(a => { const ss = noDrive(a.name); return ss.length === 1 && bytesDe(ss[0]).equals(a.buffer); });
+  registra(recusados === 2, '401 atrasado: os dois arquivos levaram 401 com o passe antigo (o cenário aconteceu)', { recusados });
+  registra(pronto && chegaram.every(Boolean), '401 atrasado: os dois arquivos chegam, uma vez cada', { pronto, chegaram });
+  registra(passes === 2, '401 atrasado: um passe só de renovação (o atrasado não apaga o novo)', { passes });
+  await page.unroute(/\/api\/envio\/inicia/);
+  semErros('401 atrasado', estado);
+  await ctx.close();
+});
+
+// ---------------------------------------------------------------------------
 // 2. Não duplicar, de outro aparelho
 // ---------------------------------------------------------------------------
 await cenario('Duplicata', async () => {

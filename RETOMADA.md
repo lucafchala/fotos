@@ -985,7 +985,9 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   o motivo (o `verifica:envio` pegou a versão que marcava cada foto como
   "não aceita", sem motivo). Um 401 de passe só zera o passe se o pedido saiu
   com o passe ATUAL (`passeUsado`): com vários arquivos em paralelo, um 401
-  atrasado jogava fora o passe novo que outro arquivo acabara de pedir.
+  atrasado jogava fora o passe novo que outro arquivo acabara de pedir. O
+  `verifica:envio` ("401 atrasado") prende: dois arquivos levam 401 com o
+  passe antigo, o primeiro 5 s depois; sem a guarda sai um terceiro passe.
 - A credencial OAuth é escrita no Drive do dono: nunca na página, em log ou na
   prévia (`SEGREDOS_DA_PREVIA` não a inclui, de propósito; e `envioLigado`
   recusa com `AMBIENTE = "previa"`, a segunda trava). App do OAuth em

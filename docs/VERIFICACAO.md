@@ -487,6 +487,8 @@ crédito, uma vez só:
   sem a declaração, não envia;
 - o passe recusado (rápido demais para o `form_token`) para tudo e mostra o
   motivo, e "Tentar de novo" envia;
+- o 401 atrasado: dois arquivos em paralelo levam 401 com o passe antigo, o
+  segundo renova e o primeiro chega depois; conta UM passe de renovação;
 - duplicata de outro aparelho: nenhuma sessão nova;
 - parte perdida no caminho (a retomada passa por `/api/envio/estado`) e
   internet caindo e voltando (o envio segue sozinho);
