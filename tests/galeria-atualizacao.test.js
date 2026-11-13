@@ -177,6 +177,44 @@ describe('atualização automática', () => {
     expect(chamadas.length).toBe(2);
   });
 
+  it('álbum que não muda: a releitura marca a foto do D1 como conferida e o isolate novo não espera o Drive', async () => {
+    await nFotos('/galeria/festa');
+    expect(chamadas.length).toBe(1);
+    avanca(5 * 3600_000);
+    limpaCacheDrive(); // isolate novo, sem Cache API: só o D1 lembra
+    await nFotos('/galeria/festa'); // serve a foto e relê em segundo plano: mesma lista
+    expect(chamadas.length).toBe(2);
+    expect(escritas).toBe(1); // o conteúdo não mudou: não regrava o JSON
+    expect(linhas()[0].em).toBe(new Date(Date.now()).toISOString());
+    avanca(2 * 3600_000); // 7 h desde a última MUDANÇA, 2 h desde a conferência
+    limpaCacheDrive();
+    arvore[RAIZ].push(arq('FOTO_3_0000001', 'tres.jpg'));
+    // Respondeu com a foto do D1, sem esperar o Drive (antes: lia o Drive na
+    // hora e já mostrava a foto 3); a releitura vai em segundo plano.
+    expect(await nFotos('/galeria/festa')).toBe(2);
+    expect(chamadas.length).toBe(3);
+    expect(await nFotos('/galeria/festa')).toBe(3);
+  });
+
+  it('a marca de conferida é gravada no máximo a cada 30 minutos por pasta', async () => {
+    let updates = 0;
+    const original = d1.prepare.bind(d1);
+    d1.prepare = sql => { if (/^\s*UPDATE galeria_snapshot/i.test(sql)) updates++; return original(sql); };
+    await nFotos('/galeria/festa');
+    avanca(11 * MIN);
+    await nFotos('/galeria/festa');
+    expect(chamadas.length).toBe(2);
+    const em = linhas()[0].em;
+    avanca(11 * MIN);
+    await nFotos('/galeria/festa');
+    expect(chamadas.length).toBe(3);
+    expect(linhas()[0].em).toBe(em); // 22 min: ainda não remarca
+    avanca(11 * MIN);
+    await nFotos('/galeria/festa');
+    expect(linhas()[0].em).toBe(new Date(Date.now()).toISOString()); // 33 min: remarca
+    expect(updates).toBe(3); // o UPDATE roda, mas o WHERE só toca a linha quando passou o prazo
+  });
+
   it('só grava no D1 quando o conteúdo muda', async () => {
     await nFotos('/galeria/festa');
     expect(escritas).toBe(1);

@@ -15,7 +15,7 @@
 // isolate e na Cache API (grátis, sem cota de escrita — o mesmo padrão da cópia
 // da lista de eventos em utils.js). Nenhuma escrita de KV.
 
-import { lerSnapshot, gravaSnapshot } from './snapshot.js';
+import { lerSnapshot, gravaSnapshot, comEmConferido } from './snapshot.js';
 import { tomaLease, soltaLease } from './utils.js';
 import { creditoDaDescricao } from './envio.js';
 import {
@@ -503,7 +503,7 @@ export async function listaPasta(env, pasta, { atualizar = false, maxChamadas = 
       if (foto) {
         try {
           const dados = /** @type {ListagemDrive} */ (JSON.parse(foto.dados));
-          if (dados && (dados.v === 3 || dados.v === 2)) return { dados, fresco: congelada };
+          if (dados && (dados.v === 3 || dados.v === 2)) return { dados: comEmConferido(dados, foto), fresco: congelada };
         } catch (e) {
           console.error('galeria: foto da lista ilegível', e);
         }
@@ -1485,7 +1485,7 @@ export async function listaCapitulos(env, pasta, { atualizar = false, auto = tru
       if (foto) {
         try {
           const dados = /** @type {CapitulosDrive} */ (JSON.parse(foto.dados));
-          if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados, fresco: congelada };
+          if (dados && dados.v === 1 && Array.isArray(dados.caps)) return { dados: comEmConferido(dados, foto), fresco: congelada };
         } catch (e) {
           console.error('galeria: foto dos capítulos ilegível', e);
         }

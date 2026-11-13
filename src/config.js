@@ -272,6 +272,13 @@ export const GALERIA_PERIODOS_S = [600, 3600, 21600, 86400];
 // D1 a cada foto da grade — e para o "Atualizar agora" aparecer logo nos
 // outros isolates.
 export const GALERIA_SNAPSHOT_MEM_S = 60;
+// Releitura do Drive que achou a MESMA lista (v3.9.3): a foto durável não é
+// regravada, mas a coluna `em` passa a dizer "conferida agora", no máximo uma
+// vez a cada GALERIA_SNAPSHOT_CONFERE_S por pasta (um UPDATE pequeno). Sem
+// isso, num álbum que não muda, a foto do D1 passava de GALERIA_VELHO_MAX_S e
+// era tratada como "sem lista": todo isolate ou colo sem a Cache API relia o
+// Drive com o visitante esperando (3 a 5 s por evento).
+export const GALERIA_SNAPSHOT_CONFERE_S = 1800;
 // Pico de acessos (v3.1, item 1g): centenas de pessoas abrindo a galeria ao
 // mesmo tempo, muitas atrás do MESMO IP. Quando a lista vence, NINGUÉM espera
 // a releitura e NINGUÉM a dispara em bando: serve-se sempre a última lista
@@ -638,7 +645,10 @@ export const ROSTO_SAIR_POR_DIA = 60;
 // mosaico, medidas no navegador; `verifica:galeria` reprova se a grade passar
 // a pedir outra. As demais (outros aparelhos, o visor em tela cheia) ainda vão
 // ao Google na primeira vez, e a grade tenta de novo se ele recusar.
-export const AQUECE_LARGURAS = [400, 500, 700, 800, 1200];
+// v3.9.3: + 300 e 1000 (grade no computador), 600 (grade no Android, medida
+// num Pixel 7) e 400 também é a das grades de "minhas fotos" e da busca. Mudar
+// esta lista faz o indexador reaquecer tudo (`quentesLarguras`).
+export const AQUECE_LARGURAS = [300, 400, 500, 600, 700, 800, 1000, 1200];
 // Fotos aquecidas por execução do indexador (cada uma são AQUECE_LARGURAS.length
 // pedidos ao site).
 export const AQUECE_FOTOS_POR_EXECUCAO = 600;

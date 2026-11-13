@@ -958,7 +958,15 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   rajada. Quem garante o R2 cheio é o indexador (`AQUECE_LARGURAS`, estado
   `quentes`). Mudou as larguras da grade (`GALERIA_LARGURAS_GRADE`) ou o
   desenho da grade no celular? Reveja `AQUECE_LARGURAS`: aquecer a largura
-  errada é o mesmo que não aquecer.
+  errada é o mesmo que não aquecer. Vale também para as grades de "minhas
+  fotos" e da busca (`src/ui/indice-comum.js`, largura fixa 400; antes da
+  v3.9.3 era 360 e toda foto achada ia ao Google). Mudar `AQUECE_LARGURAS`
+  faz o indexador reaquecer tudo uma vez (`quentesLarguras` no estado).
+- A foto durável da lista do Drive (D1 `galeria_snapshot`) tem a coluna `em`
+  da última CONFERÊNCIA, não da última mudança (v3.9.3,
+  `GALERIA_SNAPSHOT_CONFERE_S`). Sem isso, num álbum parado ela passava de
+  `GALERIA_VELHO_MAX_S` e cada isolate sem a Cache API relia o Drive com o
+  visitante esperando: 3 a 5 s na primeira abertura de cada evento.
 - Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
   (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
 
