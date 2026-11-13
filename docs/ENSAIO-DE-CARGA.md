@@ -40,8 +40,13 @@ estar, e sem isso o ensaio mede o Google, não o site.
 **Um IP só fica no limite:** o limite de download por IP
 (`GALERIA_BAIXAR_BUCKET`) é de 6.000 fichas, e cada pessoa gasta 6 (3 sondas,
 que gastam ficha antes de olhar o R2, e 3 downloads). As 1.020 pessoas do
-script pedem ~6.100: as últimas levam 429, que é o freio funcionando — conte-os
-à parte, não como falha. Para ver o site sem o freio, rode o k6 de duas
+script pedem ~6.120 em ~67 s (60 s de chegadas e ~7 s de pausas da última
+pessoa). O balde repõe continuamente (`perHour` 20.000, ~5,6 fichas/s, ver
+`RateLimiter.take` em `src/counters.js`): ~370 fichas no período, então o saldo
+termina perto de +250 e **nenhum 429 é esperado** — a folga é pequena. Se
+aparecer 429, ou o script mudou (mais pessoas, mais downloads, pausas mais
+longas) ou o freio está gastando mais do que esta conta; conte-os à parte e
+investigue antes de lançar. Para ver o site longe do freio, rode o k6 de duas
 máquinas, cada uma com metade da taxa.
 
 ## O script (k6)

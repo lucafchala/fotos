@@ -1004,7 +1004,11 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   `g-dados` ou os cartões do álbum? O teste avisa.
 - CSS de componente que usa `display:` em `a` ou `button` precisa de
   `[hidden]{display:none}` próprio: o `display` da classe vence o atributo
-  `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone).
+  `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone, e
+  depois o `#av-btn` — `.al-link[hidden]` em `src/ui/album.js`).
+- O `verifica:celular` abre o álbum SEM `PushManager`/`Notification`
+  (`addInitScript`) no Instagram (iPhone e Android) e no Safari: o Chromium
+  do roteiro tem as duas APIs, e só trocar o user agent escondia o defeito.
 
 ### 5.27. Indexada em tudo: treino de IA liberado e IndexNow (v3.11.0)
 
@@ -1050,7 +1054,10 @@ Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a
    proteção da `main` em [`docs/BRANCHES.md`](./docs/BRANCHES.md).
 2. Código + teste. **Reintroduza o bug e confirme que o teste falha** — teste de
-   regressão que nunca falhou não é teste de regressão.
+   regressão que nunca falhou não é teste de regressão. Isso não basta: siga
+   o checklist de `docs/VERIFICACAO.md` §6 (mutação no comportamento, rotas e
+   ambientes não exercitados, título ↔ `expect`, interruptor por rota). A
+   lista mora lá, uma vez só.
 3. `npm run lint && npm run typecheck && npm test && npm run test:coverage`.
    - **`npm test` são DUAS suítes.** `unit` roda em node com dublês; `workers`
      roda dentro do workerd, com Durable Objects, KV e D1 de verdade. A segunda

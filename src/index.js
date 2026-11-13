@@ -582,6 +582,11 @@ export default {
  * a faxina do R2 que falhasse às 03:00 nunca chegava ao Durable Object. O mesmo
  * vale, em menor grau, para o que degrada depois da resposta de um pedido.
  * Só `waitUntil` é usado do ExecutionContext neste Worker; o resto não passa.
+ *
+ * Limite conhecido: a cópia divide o prazo do `waitUntil` (30 s) com as
+ * tarefas. Se uma delas estourar o prazo, a cópia é cortada junto e a
+ * degradação daquele pedido só aparece no healthz quando outro pedido ou
+ * passada do cron a copiar. Aceitável: o rótulo fica na fila do isolate.
  * @param {ExecutionContext | undefined} ctxReal
  */
 export function coletaTarefas(ctxReal) {

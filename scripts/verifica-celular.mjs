@@ -470,6 +470,46 @@ for (const tela of TELAS) {
   }
 }
 
+// ---- Aviso de foto nova sem push (v3.11.0, revisão final) ----
+// O navegador de dentro do app NÃO tem PushManager/Notification; o Chromium
+// do roteiro tem. Trocar só o user agent mostrava o botão de avisos como num
+// navegador normal — foi assim que o #av-btn "inexistente no app" passou.
+// Aqui as duas APIs saem antes de a página carregar, e o que se confere é o
+// que a pessoa lê no álbum de verdade (não um DOM de mentira).
+{
+  const album = /** @type {string} */ (paginas[0].html);
+  const CASOS = {
+    'Instagram (iPhone)': ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 330.0.0.0 (iPhone14,5; iOS 17_5; pt_BR)', /Abra o álbum no navegador/],
+    'Instagram (Android)': ['Mozilla/5.0 (Linux; Android 14; SM-S911B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36 Instagram 330.0.0.0 Android', /Abra o álbum no navegador/],
+    'Safari (iPhone), fora da Tela de Início': ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', /Adicionar à Tela de Início/],
+  };
+  for (const [nomeUa, [userAgent, espera]] of Object.entries(CASOS)) {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, userAgent });
+    await ctx.addInitScript(() => { const w = /** @type {any} */ (globalThis); delete w.PushManager; delete w.Notification; });
+    const page = await ctx.newPage();
+    const erros = /** @type {string[]} */ ([]);
+    page.on('pageerror', e => erros.push(String(e).slice(0, 160)));
+    await page.route('**/*', route => {
+      const u = route.request().url();
+      if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: album });
+      if (/\.(png|jpe?g|webp|svg)(\?|$)|\/f\//.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      return route.fulfill({ status: 204, body: '' });
+    });
+    await page.goto('https://fotos.test/');
+    await page.waitForTimeout(400);
+    const rotulo = `Aviso sem push, ${nomeUa}`;
+    const semApi = await page.evaluate(() => !('PushManager' in globalThis) && !('Notification' in globalThis));
+    registra(semApi, `${rotulo}: o roteiro tirou PushManager e Notification`, '');
+    const btn = await page.locator('#av-btn').isVisible();
+    const frase = await page.locator('#av-msg').isVisible();
+    const texto = (await page.locator('#av-msg').textContent().catch(() => '')) || '';
+    registra(!btn && frase && espera.test(texto), `${rotulo}: sem botão de avisos (que nada faria); a frase certa à vista`, { btn, frase, texto });
+    if (nomeUa.startsWith('Instagram (Android)')) await page.locator('#av-msg').screenshot({ path: `${SAIDA}/aviso-sem-push-android.png` });
+    registra(!erros.length, `${rotulo}: sem erro de JS`, erros);
+    await ctx.close();
+  }
+}
+
 await browser.close();
 console.log(`${oks} ok, ${falhas.length} falha(s)`);
 process.exit(falhas.length ? 1 : 0);

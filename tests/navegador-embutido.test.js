@@ -171,6 +171,13 @@ describe('o aviso de foto nova dentro de um app', () => {
     expect(ids['av-msg'].textContent).not.toContain('Tela de Início');
   });
 
+  it('no Instagram do Android também (o caso que quebrava calado)', async () => {
+    const ids = await aviso(UA.instagramAndroid);
+    expect(ids.av.hidden).toBe(false);
+    expect(ids['av-btn'].hidden).toBe(true);
+    expect(ids['av-msg'].textContent).toContain('Abra o álbum no navegador');
+  });
+
   it('no Safari do iPhone, continua a orientação da Tela de Início', async () => {
     const ids = await aviso(UA.safari);
     expect(ids['av-msg'].textContent).toContain('Adicionar à Tela de Início');
