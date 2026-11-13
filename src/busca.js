@@ -175,8 +175,9 @@ const QUALIDADE_RE = /^[A-Z]{2,12}$/;
 const chaveDoEstado = slug => `rosto-estado:${slug}`;
 
 /**
- * @typedef {{ vistas: string[], descritas: string[], qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, quentes: string[] }} EstadoDoIndexador
+ * @typedef {{ vistas: string[], descritas: string[], qualidade: string, geracao: number, limpar: boolean, dia: string, noDia: number, quentes: string[], quentesLarguras: string }} EstadoDoIndexador
  *   `quentes`: fotos cujas miniaturas já estão no R2 (v3.8.11);
+ *   `quentesLarguras`: as AQUECE_LARGURAS com que elas foram aquecidas (v3.9.3);
  *   `dia`/`noDia`: quantas fotos o indexador já processou no dia (UTC), para o
  *   teto ROSTO_FOTOS_POR_DIA;
  *   `geracao`: o último pedido do dono para refazer o índice que o
@@ -205,6 +206,7 @@ export function estadoDoIndexadorLimpo(v) {
     dia: typeof o.dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.dia) ? o.dia : '',
     noDia: inteiro(o.noDia),
     quentes: limpa(o.quentes, ID_RE),
+    quentesLarguras: typeof o.quentesLarguras === 'string' && /^[0-9,]{1,100}$/.test(o.quentesLarguras) ? o.quentesLarguras : '',
   };
 }
 
@@ -226,7 +228,7 @@ export async function leEstadoDoIndexador(env, slug) {
       return { ...estadoDoIndexadorLimpo({ vistas: linhas.map(l => `${l.cap || ''}:${l.foto}`), descritas: linhas.map(l => String(l.foto)) }), origem: 'banco' };
     }
   }
-  return { vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], origem: 'vazio' };
+  return { vistas: [], descritas: [], qualidade: '', geracao: 0, limpar: false, dia: '', noDia: 0, quentes: [], quentesLarguras: '', origem: 'vazio' };
 }
 
 /**
