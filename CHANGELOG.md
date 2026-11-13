@@ -20,7 +20,7 @@ publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 
 ## [3.10.0] — ainda não publicada
 
-- **Fora dos buscadores, por projeto.** Interruptor novo no painel (editar o projeto → *Fora dos buscadores*): a galeria sai dos sitemaps e as páginas pedem aos buscadores que não as indexem; quem tem o link abre como sempre. Desligado por padrão, nada muda nos projetos de hoje. Recomendado para o álbum com fotos de menores: lançado, ele entrava nos sitemaps como qualquer galeria pública.
+- **Fora dos buscadores, por projeto.** Interruptor novo no painel (editar o projeto → *Fora dos buscadores*): a galeria sai dos sitemaps e as páginas pedem aos buscadores que não as indexem; quem tem o link abre como sempre. Desligado por padrão, nada muda nos projetos de hoje. Recomendado para o álbum com fotos de menores: lançado, ele entrava nos sitemaps como qualquer galeria pública. Vale também para a página do projeto (`fotos.lucafchala.com/<projeto>`): sai do `sitemap.xml` e responde com `X-Robots-Tag: noindex` (na primeira versão só a galeria saía).
 
 ## [3.9.2] — ainda não publicada
 

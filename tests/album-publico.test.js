@@ -160,4 +160,19 @@ describe('fora dos buscadores (v3.10.0): o dono tira um álbum do Google sem fec
     expect(await (await pede(fora, 'https://fotos.lucafchala.com/')).text()).toContain('Projeto Comum');
     expect((await pede(fora, 'https://fotos.lucafchala.com/galeria/projeto-comum')).status).not.toBe(404);
   });
+
+  it('a página do projeto (/<slug>) também sai: fora do sitemap.xml e com X-Robots-Tag noindex', async () => {
+    // Antes só a galeria saía; a página do projeto seguia no sitemap e
+    // indexável — o interruptor prometia mais do que fazia (revisão do #307).
+    const fora = [{ ...aberto, foraDosBuscadores: true }];
+    const mapa = async (/** @type {any[]} */ evs) => (await pede(evs, 'https://fotos.lucafchala.com/sitemap.xml')).text();
+    expect(await mapa([aberto])).toContain('/projeto-comum<');
+    expect(await mapa(fora)).not.toContain('/projeto-comum<');
+    const dentro = await pede([aberto], 'https://fotos.lucafchala.com/projeto-comum');
+    expect(dentro.status).toBe(200);
+    expect(dentro.headers.get('X-Robots-Tag')).toBeNull();
+    const pagina = await pede(fora, 'https://fotos.lucafchala.com/projeto-comum');
+    expect(pagina.status).toBe(200);
+    expect(pagina.headers.get('X-Robots-Tag')).toContain('noindex');
+  });
 });

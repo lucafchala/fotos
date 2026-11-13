@@ -702,7 +702,9 @@ async function handleSitemap(env) {
   // X-Robots-Tag na própria página (handleEventPage) — a página continua
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
-  const visible = events.filter(e => albumLancado(e) && !isRestrictedAccess(e));
+  // `foraDosBuscadores` também: o mesmo interruptor que tira a galeria tira a
+  // página do projeto (o noindex dela está em handleEventPage).
+  const visible = events.filter(e => albumLancado(e) && !isRestrictedAccess(e) && e.foraDosBuscadores !== true);
 
   const urls = [
     `  <url><loc>${SITE_URL}/</loc></url>`,
@@ -1067,7 +1069,10 @@ async function handleEventPage(request, env, slug, ctx, nonce, headOnly = false)
     200,
     nonce
   );
-  if (unlisted || restricted || !albumAbertoAoPublico(event)) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  // `foraDosBuscadores` (v3.10.0) vale também para a página do projeto: o
+  // interruptor promete tirar o projeto do Google, e esta página (título,
+  // capa, descrição) é a mais fácil de achar pelo nome do álbum.
+  if (unlisted || restricted || !albumAbertoAoPublico(event) || event.foraDosBuscadores === true) res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   if (counts) res.headers.append('Set-Cookie', `${cookieName}=1; Max-Age=3600; Path=/${slug}; SameSite=Lax`);
   return res;
 }

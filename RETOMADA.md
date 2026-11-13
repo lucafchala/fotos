@@ -966,6 +966,13 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 `foraDosBuscadores` do projeto entra ali; rota nova que anuncie uma galeria a
 buscadores (sitemap, JSON-LD, feed) pergunta a ela, não a `albumLancado`.
 
+A página do projeto (`/<slug>`) não passa por `galeriaIndexavel` (não exige
+pasta do Drive), então o interruptor é lido nela à parte, em dois lugares:
+o `X-Robots-Tag` de `handleEventPage` e o filtro de `handleSitemap`. Os dois
+estão presos em `tests/album-publico.test.js`. A primeira versão esqueceu os
+dois e o teste só olhava a galeria — teste de interruptor confere TODA página
+que o interruptor promete afetar, não só a que motivou a mudança.
+
 ## 6. Como fazer uma mudança
 
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a

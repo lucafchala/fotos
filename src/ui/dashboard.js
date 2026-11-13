@@ -1351,7 +1351,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
                 <span class="toggle-track"></span>
               </label>
             </div>
-            <div class="field-hint" id="dica-fora-buscadores" style="margin-top:.5rem">A galeria deste projeto sai dos sitemaps e as páginas pedem aos buscadores que não as indexem. Quem tem o link abre como sempre, e a prévia no WhatsApp continua. Recomendado para álbum com fotos de <strong>menores de idade</strong>. O que o Google já indexou some aos poucos, em dias ou semanas.</div>
+            <div class="field-hint" id="dica-fora-buscadores" style="margin-top:.5rem">A página e a galeria deste projeto saem dos sitemaps e pedem aos buscadores que não as indexem. Quem tem o link abre como sempre, e a prévia no WhatsApp continua. Recomendado para álbum com fotos de <strong>menores de idade</strong>. O que o Google já indexou some aos poucos, em dias ou semanas.</div>
           </div>
           <div class="field">
             <div class="toggle-row">
