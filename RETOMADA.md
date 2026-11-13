@@ -988,6 +988,11 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
   atrasado jogava fora o passe novo que outro arquivo acabara de pedir. O
   `verifica:envio` ("401 atrasado") prende: dois arquivos levam 401 com o
   passe antigo, o primeiro 5 s depois; sem a guarda sai um terceiro passe.
+  Armadilha do roteiro: o passe é assinado com a hora em **segundos**, então
+  dois passes pedidos no mesmo segundo saem idênticos. O cenário reconhecia o
+  "antigo" pelo valor e recusava o renovado também (falhou na CI do 71d7cec);
+  agora o primeiro passe é um vencido de mentira (`vencido.roteiro`). Em
+  produção não acontece: só passe vencido leva 401, e o novo nunca é igual.
 - A credencial OAuth é escrita no Drive do dono: nunca na página, em log ou na
   prévia (`SEGREDOS_DA_PREVIA` não a inclui, de propósito; e `envioLigado`
   recusa com `AMBIENTE = "previa"`, a segunda trava). App do OAuth em

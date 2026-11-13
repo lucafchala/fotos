@@ -375,12 +375,22 @@ await cenario('Passe recusado', async () => {
 await cenario('401 atrasado', async () => {
   const { ctx, page, estado } = await aparelho();
   await page.goto(`${PAGINA}?evento=formatura`);
-  /** @type {string} */
-  let antigo = '';
+  // O primeiro passe é um vencido de mentira, com valor próprio. Não dá para
+  // reconhecer o "antigo" pelo valor que o servidor deu: o passe é assinado
+  // com a hora em segundos, e o renovado no mesmo segundo sai IDÊNTICO — aí o
+  // roteiro recusava o novo também e a página pedia um terceiro (falhou na CI
+  // do 71d7cec). Em produção isso não acontece: só passe vencido leva 401, e
+  // o novo nunca é igual a um vencido.
+  const antigo = 'vencido.roteiro';
+  let primeiro = true;
+  await page.route(/\/api\/envio\/passe/, async r => {
+    if (!primeiro) return r.continue();
+    primeiro = false;
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, passe: antigo }) });
+  });
   let recusados = 0;
   await page.route(/\/api\/envio\/inicia/, async r => {
     const usado = String(JSON.parse(r.request().postData() || '{}').passe || '');
-    if (!antigo) antigo = usado;
     if (usado === antigo && recusados < 2) {
       const n = ++recusados;
       // O primeiro recusado demora: chega DEPOIS de o segundo ter renovado o passe.
@@ -399,6 +409,7 @@ await cenario('401 atrasado', async () => {
   registra(pronto && chegaram.every(Boolean), '401 atrasado: os dois arquivos chegam, uma vez cada', { pronto, chegaram });
   registra(passes === 2, '401 atrasado: um passe só de renovação (o atrasado não apaga o novo)', { passes });
   await page.unroute(/\/api\/envio\/inicia/);
+  await page.unroute(/\/api\/envio\/passe/);
   semErros('401 atrasado', estado);
   await ctx.close();
 });
