@@ -18,7 +18,17 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [3.9.3] — ainda não publicada
+## [3.9.4] — 2026-11-13
+
+Galeria mais leve no celular e resposta imediata ao toque.
+
+- **Galeria:** só as miniaturas da primeira tela recebem as URLs na abertura; as outras recebem quando chegam perto. As linhas fora da tela não passam por layout nem pintura (`content-visibility`). No evento com mais fotos, a CPU gasta na abertura caiu (Lighthouse, celular).
+- **Abrir um evento:** uma barra amarela no topo e o cartão tocado esmaecido aparecem no toque, antes de a página nova chegar.
+- **Download:** "Download iniciado" aparece embaixo, no toque, na galeria e em "minhas fotos" — para ninguém tocar de novo. O aviso flutuante da galeria passou do topo para baixo.
+- **Aquecimento:** o indexador aquece até 3000 fotos por execução (era 600); o teto de tempo continua valendo.
+- `<meta name="mobile-web-app-capable">` ao lado da versão da Apple (o Chrome avisava no console).
+
+## [3.9.3] — 2026-11-12
 
 Desempenho do álbum (pedido do dono: "extremamente lento" ao entrar nos eventos, ao passar as fotos e no "minhas fotos") e o console limpo. Medido no ar, pela prévia, num iPhone, num Android e no computador.
 

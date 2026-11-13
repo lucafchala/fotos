@@ -541,7 +541,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '3.9.3';
+export const VERSAO = '3.9.4';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)
@@ -650,8 +650,11 @@ export const ROSTO_SAIR_POR_DIA = 60;
 // esta lista faz o indexador reaquecer tudo (`quentesLarguras`).
 export const AQUECE_LARGURAS = [300, 400, 500, 600, 700, 800, 1000, 1200];
 // Fotos aquecidas por execução do indexador (cada uma são AQUECE_LARGURAS.length
-// pedidos ao site).
-export const AQUECE_FOTOS_POR_EXECUCAO = 600;
+// pedidos ao site). v3.9.4: 600 → 3000. Com o agendamento real do GitHub
+// (a cada 4 a 8 h, não 10 min) 600 deixava o álbum frio por dias depois de
+// mudar AQUECE_LARGURAS; o teto de tempo (ROSTO_MAX_MINUTOS) corta antes se
+// precisar, e a foto não aquecida fica para a próxima execução.
+export const AQUECE_FOTOS_POR_EXECUCAO = 3000;
 // Miniatura que falha na grade tenta de novo esta quantidade de vezes, com
 // espera crescente e sorteada, antes de virar o quadro vazio.
 export const GALERIA_MINIATURA_TENTATIVAS = 2;
