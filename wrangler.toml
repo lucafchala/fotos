@@ -67,6 +67,12 @@ preview_urls = true
 # herda (fica no padrão grátis).
 [vars]
 WORKERS_PLANO = "pago"
+# IndexNow (v3.11.0, src/indexnow.js): o cron avisa Bing, Yandex e cia. do que
+# entrou ou saiu do site. Só "ligado" liga, e nunca na prévia: indexNowLigado
+# recusa AMBIENTE = "previa" pelo nome, mesmo se ela herdar esta variável (não
+# confirmamos que [previews.vars] não herda [vars]). Testes e o Worker local
+# não têm a variável.
+INDEXNOW = "ligado"
 
 [[kv_namespaces]]
 binding = "FOTOS"

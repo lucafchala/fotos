@@ -1,4 +1,4 @@
-// Um bucket R2 de mentira, só com o que o site usa: get, put, delete (uma
+// Um bucket R2 de mentira, só com o que o site usa: get, head, put, delete (uma
 // chave ou uma lista) e list por prefixo. Guarda os objetos num Map, para o
 // teste conferir o que ficou e o que foi apagado.
 
@@ -19,6 +19,10 @@ export function r2Falso(inicial = {}) {
     async get(/** @type {string} */ k) {
       const o = objetos.get(k);
       return o ? { body: new Response(o.corpo).body, size: o.corpo.length, httpMetadata: { contentType: o.tipo } } : null;
+    },
+    async head(/** @type {string} */ k) {
+      const o = objetos.get(k);
+      return o ? { size: o.corpo.length, httpMetadata: { contentType: o.tipo } } : null;
     },
     async put(/** @type {string} */ k, /** @type {any} */ corpo, /** @type {any} */ opcoes = {}) {
       const texto = typeof corpo === 'string' ? corpo : await new Response(corpo).text();

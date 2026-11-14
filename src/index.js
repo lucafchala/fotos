@@ -1,7 +1,8 @@
 import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, apagaInscricoes, SERVICE_WORKER } from './aviso.js';
 import { registraSaida, listaSaidas, desfazUmaSaida, geracaoDoIndice, marcaIndiceParaApagar, cancelaApagarIndice, indiceSeraApagadoEm, apagaIndiceDoAlbum, apagaIndicesVencidos } from './saidas.js';
-import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
+import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, originalNoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
+import { INDEXNOW_CAMINHO, respostaDaChave, indexNowLigado, ehPassadaDoIndexNow, avisaIndexNow } from './indexnow.js';
 import { eventHTML } from './ui/event.js';
 import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
@@ -38,7 +39,7 @@ import {
   getAgenda, saveAgenda, limpaAgenda, getUltimoBackup, registraUltimoBackup,
   hashPassword, verifyPassword, generateToken, sha256Hex,
   verifySession, encerraOutrasSessoes, escape, validateSlug, origemDoAlbum, enderecoDoAlbum, baseDaGaleria, enderecoDoEvento, albumLancado, albumSurpresa, albumAbertoAoPublico, albumListado, timingSafeEqual, RESERVED_SLUGS, generateId, checkRateLimit, takeToken, devolveToken,
-  noteKvFailure, noteDegraded, degradedHealth, toCount, errMessage,
+  noteKvFailure, noteDegraded, degradacoesDeTodos, guardaDegradacoes, toCount, errMessage,
   bumpCounter, readCounters, deleteCounters, readSerie, hojeEmSaoPaulo, diaMenos,
   sendRemovalEmail, sendConfirmationEmail, sendResolvedEmail, sendMantidaEmail, sendSupportEmail, sendDriveCodeEmail, sendModeracaoEmail, emailCanonico,
   toHttps, safeUrl, isLikelyImage, sortEvents, eventYear, csvResponse, ipParaLimite, stripImageMetadata,
@@ -335,6 +336,7 @@ const worker = {
       if (sitemapGaleriaMatch && method === 'GET') return await handleSitemapGaleria(env, sitemapGaleriaMatch[1], sitemapGaleriaMatch[2] || '');
       if (path === '/robots.txt' && method === 'GET') return await handleRobots();
       if (path === '/llms.txt' && method === 'GET') return await handleLlmsTxt();
+      if (path === INDEXNOW_CAMINHO && method === 'GET') return respostaDaChave();
       // Lista curta para o widget "Galerias recentes" da home lucafchala.com
       // (outra origem, por isso o CORS aberto). Ver handleRecentes().
       if (path === '/api/recentes' && method === 'GET') return await handleRecentes(env);
@@ -494,6 +496,8 @@ const worker = {
     ctx.waitUntil(getEvents(env).then(evs => aqueceAlbuns(env, evs)).catch(e => console.error('aquece falhou', e)));
     // Aviso de fotos novas no celular (v3.8.4): o que estiver pendente, em lotes.
     ctx.waitUntil(avisosDoCron(env).catch(e => console.error('aviso falhou', e)));
+    // IndexNow (v3.11.0): avisa Bing e cia. do que entrou ou saiu do site.
+    if (indexNowLigado(env) && ehPassadaDoIndexNow(event)) ctx.waitUntil(indexNowDoCron(env));
     if (!ehExecucaoDiaria(event)) return;
     // Carimbo do último disparo diário: o /api/healthz (e o painel de status)
     // detectam um agendamento morto em silêncio — um job parado não emite erro.
@@ -536,26 +540,83 @@ export default {
   /**
    * @param {Request} request
    * @param {Env} env
-   * @param {ExecutionContext} ctx
+   * @param {ExecutionContext} ctxReal
    */
-  fetch(request, env, ctx) {
-    if (!ehPrevia(env)) return worker.fetch(request, env, ctx);
-    return fetchDaPrevia(request, env, ctx, {
-      rotear: (r, e, c) => worker.fetch(r, e, c),
-      // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
-      // painel — a mesma checagem das rotas /api/ de admin.
-      autenticado: async (r, e) => (await checkAuth(r, e)) === null,
-    });
+  async fetch(request, env, ctxReal) {
+    const { ctx, depoisDeTudo } = coletaTarefas(ctxReal);
+    try {
+      if (!ehPrevia(env)) return await worker.fetch(request, env, ctx);
+      return await fetchDaPrevia(request, env, ctx, {
+        rotear: (r, e, c) => worker.fetch(r, e, c),
+        // As ações da faixa (gerar métricas, zerar limites) pedem a sessão do
+        // painel — a mesma checagem das rotas /api/ de admin.
+        autenticado: async (r, e) => (await checkAuth(r, e)) === null,
+      });
+    } finally {
+      // O que degradou neste pedido vai para o Durable Object (v3.11.0), para
+      // o healthz de outro isolate ver. Sem nada novo, nenhuma chamada.
+      depoisDeTudo(() => guardaDegradacoes(env));
+    }
   },
   /**
    * @param {ScheduledController} event
    * @param {Env} env
-   * @param {ExecutionContext} ctx
+   * @param {ExecutionContext} ctxReal
    */
-  scheduled(event, env, ctx) {
-    return worker.scheduled(event, env, ctx);
+  async scheduled(event, env, ctxReal) {
+    const { ctx, depoisDeTudo } = coletaTarefas(ctxReal);
+    try {
+      return await worker.scheduled(event, env, ctx);
+    } finally {
+      depoisDeTudo(() => guardaDegradacoes(env));
+    }
   },
 };
+
+/**
+ * Um `ctx` que anota cada tarefa posta em `waitUntil`, e `depoisDeTudo(f)`, que
+ * roda `f` quando todas elas (e as que elas puserem) terminarem.
+ *
+ * Por quê: o cron põe todo o trabalho em `waitUntil` e retorna na hora; o
+ * `finally` que copia as degradações rodava ANTES de qualquer tarefa falhar, e
+ * a faxina do R2 que falhasse às 03:00 nunca chegava ao Durable Object. O mesmo
+ * vale, em menor grau, para o que degrada depois da resposta de um pedido.
+ * Só `waitUntil` é usado do ExecutionContext neste Worker; o resto não passa.
+ *
+ * Limite conhecido: a cópia divide o prazo do `waitUntil` (30 s) com as
+ * tarefas. Se uma delas estourar o prazo, a cópia é cortada junto e a
+ * degradação daquele pedido só aparece no healthz quando outro pedido ou
+ * passada do cron a copiar. Aceitável: o rótulo fica na fila do isolate.
+ * @param {ExecutionContext | undefined} ctxReal
+ */
+export function coletaTarefas(ctxReal) {
+  if (!ctxReal || typeof ctxReal.waitUntil !== 'function') {
+    return { ctx: /** @type {ExecutionContext} */ (/** @type {unknown} */ (ctxReal)), depoisDeTudo: (/** @type {() => Promise<unknown>} */ _f) => {} };
+  }
+  /** @type {Promise<unknown>[]} */
+  const tarefas = [];
+  const ctx = /** @type {ExecutionContext} */ (/** @type {unknown} */ ({
+    waitUntil(/** @type {Promise<unknown>} */ p) {
+      tarefas.push(Promise.resolve(p).catch(() => {}));
+      ctxReal.waitUntil(p);
+    },
+    passThroughOnException() { ctxReal.passThroughOnException(); },
+  }));
+  /** @param {() => Promise<unknown>} f */
+  const depoisDeTudo = f => {
+    ctxReal.waitUntil((async () => {
+      // Em laço: uma tarefa pode pôr outra em waitUntil enquanto roda.
+      let vistas = 0;
+      while (vistas < tarefas.length) {
+        const lote = tarefas.slice(vistas);
+        vistas = tarefas.length;
+        await Promise.allSettled(lote);
+      }
+      await f();
+    })());
+  };
+  return { ctx, depoisDeTudo };
+}
 
 // ---------------------------------------------------------------------------
 // As fotos pelo próprio site: /f/<id>/<largura>?k=<álbum>.<assinatura>
@@ -693,8 +754,14 @@ async function handleGallery(env, nonce) {
 /**
  * @param {Env} env
  */
-async function handleSitemap(env) {
-  const events = await getEvents(env);
+/**
+ * As páginas do /sitemap.xml: as fixas, a de cada projeto público lançado e a
+ * galeria de cada álbum indexável do domínio principal. UMA lista para o
+ * sitemap e para o IndexNow (urlsDoIndexNow) — o que um anuncia, o outro avisa.
+ * @param {Evento[]} events
+ * @returns {{ loc: string, lastmod: string }[]}
+ */
+function paginasDoSitemap(events) {
   // accessType 'private'/'family' são gate de auto-declaração (não confidencial
   // — SECURITY.md), mas o próprio gate existe para restringir a
   // membro/participante, e um sitemap público é a forma mais barata de um
@@ -703,38 +770,74 @@ async function handleSitemap(env) {
   // abrindo por link direto, só some da indexação de busca.
   // "Em breve" também fica de fora: a página ainda não tem o que indexar.
   const visible = events.filter(e => albumLancado(e) && !isRestrictedAccess(e));
-
-  const urls = [
-    `  <url><loc>${SITE_URL}/</loc></url>`,
-    `  <url><loc>${SITE_URL}/sobre</loc></url>`,
-    `  <url><loc>${SITE_URL}/equipamentos</loc></url>`,
-    `  <url><loc>${SITE_URL}/privacidade</loc></url>`,
-    `  <url><loc>${SITE_URL}/termos</loc></url>`,
-    `  <url><loc>${SITE_URL}/legal</loc></url>`,
-    ...LEGAL_DOCS.map(d => `  <url><loc>${SITE_URL}/legal/${d.slug}</loc></url>`),
-    `  <url><loc>${SITE_URL}/suporte</loc></url>`,
-  ];
-  for (const e of visible) {
-    const lastmod = lastmodOf(e);
-    urls.push(
-      // lastmod escapado como o slug: um `&` solto (via restore de backup)
-      // torna o XML malformado e o Google descarta o sitemap inteiro.
-      `  <url><loc>${SITE_URL}/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`
-    );
-  }
+  /** @type {{ loc: string, lastmod: string }[]} */
+  const paginas = [
+    '/', '/sobre', '/equipamentos', '/privacidade', '/termos', '/legal',
+    ...LEGAL_DOCS.map(d => `/legal/${d.slug}`),
+    '/suporte',
+  ].map(c => ({ loc: `${SITE_URL}${c}`, lastmod: '' }));
+  for (const e of visible) paginas.push({ loc: `${SITE_URL}/${e.slug}`, lastmod: lastmodOf(e) });
   // A galeria própria de cada álbum público (decisão do dono, 29/10/2026): só a
   // URL e o lastmod — as fotos (image:image) ficam no sitemap de cada galeria
   // (handleSitemapGaleria), para este aqui nunca chamar o Drive.
   // Álbum com domínio próprio (entrenos2026.com) fica de fora: o sitemap dele
   // é anunciado no robots.txt do domínio, com os endereços de lá.
   for (const e of events.filter(galeriaIndexavel).filter(x => origemDoAlbum(x.slug) === SITE_URL)) {
-    const lastmod = lastmodOf(e);
-    urls.push(`  <url><loc>${SITE_URL}/galeria/${escape(e.slug)}</loc>${lastmod ? `<lastmod>${escape(lastmod)}</lastmod>` : ''}</url>`);
+    paginas.push({ loc: `${SITE_URL}/galeria/${e.slug}`, lastmod: lastmodOf(e) });
   }
+  return paginas;
+}
+
+/**
+ * @param {Env} env
+ */
+async function handleSitemap(env) {
+  // loc e lastmod escapados: um `&` solto (via restore de backup) torna o XML
+  // malformado e o Google descarta o sitemap inteiro.
+  const urls = paginasDoSitemap(await getEvents(env))
+    .map(p => `  <url><loc>${escape(p.loc)}</loc>${p.lastmod ? `<lastmod>${escape(p.lastmod)}</lastmod>` : ''}</url>`);
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   return new Response(xml, {
     headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=3600' },
   });
+}
+
+/**
+ * Tudo o que o IndexNow avisa: as páginas do /sitemap.xml, a galeria dos
+ * álbuns de domínio próprio (entrenos2026.com/) e o endereço de cada evento
+ * das galerias por capítulos — os mesmos endereços canônicos dos sitemaps.
+ * Null quando a lista de eventos de algum álbum não pôde ser lida (Drive
+ * fora): melhor não avisar nada do que avisar como retirado o que só não foi
+ * lido. Sem teto de projetos abertos como o do sitemap: roda no cron, a cada
+ * 15 min, com a listagem de capítulos em cache.
+ * @param {Env} env
+ * @param {Evento[]} events
+ * @returns {Promise<string[] | null>}
+ */
+export async function urlsDoIndexNow(env, events) {
+  const urls = paginasDoSitemap(events).map(p => p.loc);
+  for (const e of events.filter(galeriaIndexavel)) {
+    if (origemDoAlbum(e.slug) !== SITE_URL) urls.push(enderecoDoAlbum(e.slug));
+    if (!e.galeriaCapitulos) continue;
+    const caps = await capitulosOuNulo(env, e);
+    if (!caps) return null;
+    for (const c of caps.caps) urls.push(enderecoDoEvento(e.slug, c.slug));
+  }
+  return urls;
+}
+
+/**
+ * A passada do cron: calcula, avisa, e registra no healthz o que falhou (o
+ * aviso que não saiu é refeito na próxima passada).
+ * @param {Env} env
+ */
+async function indexNowDoCron(env) {
+  try {
+    const r = await avisaIndexNow(env, await urlsDoIndexNow(env, await getEvents(env)));
+    if (r.falhas.length) noteDegraded('aviso ao IndexNow falhou', `${r.falhas.join('; ')}; a próxima passada (15 min) tenta de novo`);
+  } catch (e) {
+    noteDegraded('aviso ao IndexNow falhou', '', e);
+  }
 }
 
 /** @param {Evento} e */
@@ -826,9 +929,10 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
   if (event.galeriaCapitulos && !capSlug) {
     const caps = await capitulosOuNulo(env, event);
     if (!caps) return indisponivel();
-    const origem = origemDoAlbum(event.slug);
     const urls = [`  <url><loc>${escape(enderecoDoAlbum(event.slug))}</loc>${lm}</url>`,
-      ...caps.caps.map(c => `  <url><loc>${origem}/galeria/${escape(event.slug)}/${escape(c.slug)}</loc>${lm}</url>`)];
+      // O endereço canônico do evento: no domínio próprio, /galeria/<slug>/<evento>
+      // responde 301 para /<evento>, e sitemap com redirecionamento é URL perdida.
+      ...caps.caps.map(c => `  <url><loc>${escape(enderecoDoEvento(event.slug, c.slug))}</loc>${lm}</url>`)];
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`, {
       headers: { ...dataSecurityHeaders('application/xml; charset=utf-8', { store: true }), 'Cache-Control': 'no-cache' },
     });
@@ -853,7 +957,7 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
     .filter(f => !ehVideo(f))
     .slice(0, SITEMAP_IMAGENS_POR_URL);
   if (!fotos.length) return notFound();
-  const pagina = alvo.capitulo ? `${origemDoAlbum(event.slug)}/galeria/${escape(event.slug)}/${escape(alvo.capitulo.slug)}` : escape(enderecoDoAlbum(event.slug));
+  const pagina = escape(alvo.capitulo ? enderecoDoEvento(event.slug, alvo.capitulo.slug) : enderecoDoAlbum(event.slug));
   // A mesma URL que o visualizador da galeria usa como `src` (até 1600 px).
   const imagens = fotos.map(f => `<image:image><image:loc>${escape(urlLh3(f[0], Math.min(f[1] || 1600, 1600)))}</image:loc></image:image>`);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -871,11 +975,18 @@ async function handleSitemapGaleria(env, slug, capSlug = '') {
  * @param {string[]} [sitemaps] os sitemaps anunciados
  */
 function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/sitemap.xml`, `${SITE_URL}/sitemap-galerias.xml`]) {
-  // Busca e resposta de IA são bem-vindas; treino de modelo não. O Content-Signal
-  // vale em cada grupo (um grupo próprio de um robô ignora o do `*`), e os robôs
-  // que existem só para treinar levam Disallow. /dashboard e /api/ não são
-  // protegidos por aqui (robots.txt é aviso, não controle de acesso): têm login
-  // e limite de taxa.
+  // Busca, resposta de IA e treino de modelo: tudo liberado (decisão do dono,
+  // 13/11/2026: "quero a galeria indexada em tudo"; até a v3.10 o treino era
+  // `ai-train=no` com Disallow para os robôs de treino). O Content-Signal vale
+  // em cada grupo (um grupo próprio de um robô ignora o do `*`), por isso os
+  // robôs de IA têm grupo próprio com as MESMAS regras do `*`: quem lê só o seu
+  // grupo também fica fora do download. robots.txt é aviso, não controle de
+  // acesso: o /dashboard tem login e a API limite de taxa. Mesmo assim o
+  // painel leva Disallow nos dois grupos (não tem nada a indexar). A /api/
+  // NÃO: a página da galeria busca /api/galeria no navegador, e fechar a API
+  // impediria o Google de renderizar a página como o visitante a vê.
+  // Família e privado não dependem do robots.txt: ficam fora dos sitemaps,
+  // levam noindex e o portão pede a declaração de quem abre.
   //
   // O download da galeria (/galeria/<slug>/baixar/<id>) leva Disallow nos dois
   // grupos que podem rastrear: cada pedido dele é um original pela Drive API ou
@@ -883,19 +994,20 @@ function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/si
   // gratuito gastas por robô. As fotos que o Google indexa são as do lh3
   // (sitemap de imagens e a própria página), que não passam pelo Worker.
   // O Content-Signal faz o Lighthouse acusar "Unknown directive" (robots-txt);
-  // fica assim de propósito — o Google ignora a linha, e o ai-train=no é
+  // fica assim de propósito — o Google ignora a linha, e declarar o uso é
   // decisão do dono.
-  const sinal = 'Content-Signal: search=yes, ai-train=no, ai-input=yes\n';
-  const fechado = 'Disallow: /galeria/*/baixar/\nDisallow: /galeria/*/*/baixar/\n';
-  const robosDeBusca = ['OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot'];
-  const robosDeTreino = ['GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai'];
+  const sinal = 'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n';
+  const fechado = 'Disallow: /galeria/*/baixar/\nDisallow: /galeria/*/*/baixar/\nDisallow: /dashboard\n';
+  const robosDeIA = [
+    'OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot',
+    'GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai',
+  ];
   const body =
     `# robots.txt — ${host}\n` +
     '# RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309).\n' +
-    '# Preferências de uso: busca e resposta de IA permitidas, treino de IA não (https://contentsignals.org).\n\n' +
+    '# Preferências de uso: busca, resposta de IA e treino de IA permitidos (https://contentsignals.org).\n\n' +
     'User-agent: *\n' + sinal + 'Allow: /\n' + fechado + '\n' +
-    robosDeBusca.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
-    robosDeTreino.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Disallow: /\n\n' +
+    robosDeIA.map(a => `User-agent: ${a}`).join('\n') + '\n' + sinal + 'Allow: /\n' + fechado + '\n' +
     sitemaps.map(u => `Sitemap: ${u}\n`).join('');
   return new Response(body, {
     headers: { ...dataSecurityHeaders('text/plain; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=86400' },
@@ -912,11 +1024,11 @@ function handleLlmsTxt() {
     'Disallow: /.well-known\n\n' +
     '# LLM Usage Policy\n' +
     'User-Agent: *\n' +
-    'Allow-User-Agent: PerplexityBot, Amazonbot, OAI-SearchBot, Claude-SearchBot\n' +
+    'Allow-User-Agent: *\n' +
     'Crawl-delay: 1\n' +
     'Request-limit: 100/1h\n\n' +
     '# Data usage declaration\n' +
-    'Usage-Policy: Training not allowed. Image-use consent required for sensitive content.\n' +
+    'Usage-Policy: Search, AI answers and AI training allowed on public pages. Family and private albums are not public. Image-use consent required for sensitive content.\n' +
     'Source: https://fotos.lucafchala.com\n' +
     'Maintainer: Luca F. Chala <security@lucafchala.com>\n';
   return new Response(body, {
@@ -3290,7 +3402,9 @@ async function medirSaude(env) {
   // Self-test funcional sobre o array de eventos já carregado (zero leitura
   // extra de KV): links de Drive quebrados, dados inválidos, backend de
   // formulário não configurado.
-  const selftest = auditSite(eventsList, env, degradedHealth());
+  // As degradações de TODOS os isolates (v3.11.0): as deste mais as guardadas
+  // no Durable Object. Uma subrequisição; com o objeto fora, só as deste.
+  const selftest = auditSite(eventsList, env, await degradacoesDeTodos(env));
 
   const ok = kv && events !== null;
   return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest };
@@ -4614,6 +4728,9 @@ export async function rotaDoDominioDeAlbum(url, path, env, request) {
   }
   // O robots.txt do domínio anuncia o sitemap do álbum, com os endereços de lá.
   if (path === '/robots.txt') return handleRobots(dominio, [`https://${dominio}/sitemap-galeria-${album.slug}.xml`]);
+  // A chave do IndexNow também mora aqui: o aviso de entrenos2026.com só vale
+  // com a chave publicada no próprio domínio (src/indexnow.js).
+  if (path === INDEXNOW_CAMINHO) return respostaDaChave();
   // A editora do álbum (v3.8.1): entrar e sair, no próprio domínio.
   if (path === '/entrar') {
     const erro = url.searchParams.get('erro');
@@ -5282,6 +5399,10 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // para a fila automática não puxar o arquivo duas vezes. Pede só o primeiro
   // byte (Range) e responde 204; as checagens e o limite por IP são os mesmos.
   const sonda = url.searchParams.get('p') === '1';
+  // A sonda de um original que já está no R2 nem chega ao Google: o download
+  // que vem em seguida sai do R2 (logo abaixo). Antes ela ia ao Drive sempre —
+  // uma chamada à toa por foto, justamente no pico.
+  if (sonda && await originalNoR2(env, alvoFoto[0])) return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   // Com o R2 (v3.8.3): o original que já foi baixado uma vez sai de lá. O
   // Google nem é chamado (é ele que trava com muita gente baixando).
   const doR2 = sonda ? null : await originalDoR2(env, alvoFoto[0]);

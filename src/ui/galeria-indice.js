@@ -7,6 +7,7 @@
 
 import { HONEYPOT_CSS } from '../security.js';
 import { SCRIPT_NOVAS, SCRIPT_ROSTO, ROSTO_CSS, rostoHTML, SCRIPT_BUSCA, BUSCA_CSS, buscaHTML, SCRIPT_AVISO, SCRIPT_VISOR, VISOR_CSS } from './indice-comum.js';
+import { navegadorEmbutidoHTML } from './navegador-embutido.js';
 import { albumHTML, ordemDaLinha } from './album.js';
 import { enderecoDoAlbum, baseDaGaleria, marcaDoAlbum, escape, jsonParaScript, origemDoAlbum, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, isRestrictedAccess } from '../utils.js';
 import { urlLh3, descreveRenovacao, capVazio } from '../drive.js';
@@ -91,7 +92,8 @@ export function galeriaIndiceHTML({ event, caps, resumo, ocultas, dono, indexave
   ${comBusca ? `<script type="application/json" id="bf-dados" nonce="${nonce}">${jsonParaScript({ slug, base, caps: Object.fromEntries(visiveis.map(c => [c.slug, c.nome])), ordem: ordemDaLinha(visiveis, resumo).map(c => c.slug) })}</script>
   <script nonce="${nonce}">${SCRIPT_BUSCA}</script>` : ''}
   ${!isRestrictedAccess(event) && String(event.galeriaAbertura || '').trim() ? `<script nonce="${nonce}">${SCRIPT_AVISO}</script>` : ''}
-  ${comRosto || comBusca ? `<style>${VISOR_CSS}</style><script nonce="${nonce}">${SCRIPT_VISOR}</script>` : ''}`;
+  ${comRosto || comBusca ? `<style>${VISOR_CSS}</style><script nonce="${nonce}">${SCRIPT_VISOR}</script>` : ''}
+  ${navegadorEmbutidoHTML(nonce)}`;
   // Com texto de abertura, o índice vira a apresentação do álbum (v3.3).
   if (String(event.galeriaAbertura || '').trim()) {
     return albumHTML({

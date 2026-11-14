@@ -284,6 +284,25 @@ export async function originalDoR2(env, id) {
 }
 
 /**
+ * O original já está no R2? Para a sonda "pronto?" (`p=1`) do download, que
+ * só quer saber se o arquivo sai: um `head` (sem corpo) no lugar de ir ao
+ * Drive. No pico é a diferença entre zero e uma chamada ao Google por foto
+ * baixada — e é o Google que trava com muita gente baixando. Falha do R2 é
+ * "não sei": a sonda segue para o Drive, como antes.
+ * @param {{ FOTOS_R2?: any }} env
+ * @param {string} id
+ */
+export async function originalNoR2(env, id) {
+  if (!env.FOTOS_R2) return false;
+  try {
+    return !!(await env.FOTOS_R2.head(`o/${id}`));
+  } catch (e) {
+    console.error('baixar: R2 falhou na sonda, vai ao Drive', e);
+    return false;
+  }
+}
+
+/**
  * Copia o original do Drive para o R2, depois de entregar o primeiro download
  * (v3.8.3). Uma segunda leitura do Drive, direto para o R2: o site não segura
  * o arquivo na memória (dividir o mesmo corpo entre o visitante e o R2 faria

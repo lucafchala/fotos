@@ -12,7 +12,7 @@
 //  5. o orçamento de subrequisições do plano gratuito.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import worker, { mintFormToken } from '../src/index.js';
+import worker, { mintFormToken, urlsDoIndexNow } from '../src/index.js';
 import { limpaCacheDrive, listaCapitulos, lerResumo, nomeDeCapitulo, slugBaseDeCapitulo, ordemDeCapitulos } from '../src/drive.js';
 import { saveEvents, readCounters, deleteCounters } from '../src/utils.js';
 import { GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_CAP } from '../src/config.js';
@@ -490,6 +490,53 @@ describe('sitemaps', () => {
     chamadas.length = 0;
     await get('/sitemap-galerias.xml');
     expect(chamadas.length).toBeLessThanOrEqual(8);
+  });
+});
+
+describe('IndexNow e endereço canônico dos capítulos (v3.11.0)', () => {
+  it('urlsDoIndexNow: a página do projeto, o índice e cada capítulo', async () => {
+    const urls = await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }]);
+    expect(urls).toContain(`${SITE}/formatura`);
+    expect(urls).toContain(`${SITE}/galeria/formatura`);
+    for (const s of slugsDoIndice(await html('/galeria/formatura'))) expect(urls).toContain(`${SITE}/galeria/formatura/${s}`);
+  });
+
+  // Revisão final do #313: trocar o filtro por `events` passava a suíte
+  // inteira, e os capítulos de um álbum de família, privado, oculto ou "em
+  // breve" (o álbum surpresa) iriam para o Bing. Os quatro têm capítulos aqui,
+  // para que só o filtro os tire da lista.
+  it('álbum de família, privado, oculto ou "em breve" nunca entra no IndexNow (nem os capítulos)', async () => {
+    const restritos = [
+      { ...EVENTO, slug: 'so-familia', accessType: 'family', visible: true, comingSoon: false },
+      { ...EVENTO, slug: 'so-privado', accessType: 'private', visible: true, comingSoon: false },
+      { ...EVENTO, slug: 'so-oculto', visible: false, comingSoon: false },
+      { ...EVENTO, slug: 'so-surpresa', visible: true, comingSoon: true },
+    ];
+    const urls = await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }, ...restritos]);
+    expect(urls).toContain(`${SITE}/galeria/formatura`);
+    expect(urls.some(u => u.startsWith(`${SITE}/galeria/formatura/`))).toBe(true);
+    for (const r of restritos) expect(urls.filter(u => u.includes(r.slug)), r.slug).toEqual([]);
+  });
+
+  it('Drive fora no meio da conta: null (nada é anunciado como retirado)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('erro', { status: 500 })));
+    limpaCacheDrive();
+    expect(await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }])).toBeNull();
+  });
+
+  it('álbum com domínio próprio: o sitemap e o IndexNow usam https://<domínio>/<capítulo>, não o /galeria/ que redireciona', async () => {
+    const dom = { ...EVENTO, slug: 'entrenos2026', visible: true, comingSoon: false };
+    await saveEvents(env, [dom]);
+    limpaCacheDrive();
+    const x = await html('/sitemap-galeria-entrenos2026.xml');
+    expect(x).toContain('<loc>https://entrenos2026.com/2024-festa</loc>');
+    expect(x).not.toContain('/galeria/entrenos2026/');
+    const cap = await html('/sitemap-galeria-entrenos2026.2024-festa.xml');
+    expect(cap).toContain('<loc>https://entrenos2026.com/2024-festa</loc>');
+    const urls = await urlsDoIndexNow(env, [dom]);
+    expect(urls).toContain('https://entrenos2026.com/');
+    expect(urls).toContain('https://entrenos2026.com/2024-festa');
+    expect(urls.filter(u => u.includes('/galeria/entrenos2026/'))).toEqual([]);
   });
 });
 

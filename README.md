@@ -136,8 +136,13 @@ e sem etapa de build.
 - **Sem rastreamento de terceiros por padrão.** Fontes servidas pela própria
   origem, sem Google Fonts, e nenhum CDN de terceiro. O Web Analytics da
   Cloudflare é opcional, controlado por token. O player do Drive só carrega
-  depois do toque. O `robots.txt` diz `ai-train=no` e o `llms.txt` diz que treino
-  não é permitido.
+  depois do toque. O `robots.txt` e o `llms.txt` liberam busca, resposta de IA e
+  treino de IA nas páginas públicas (decisão do dono, v3.11.0); álbum de
+  família e privado continua `noindex` e fora dos sitemaps.
+- **Indexação.** Sitemaps de páginas, galerias e fotos, e aviso direto ao
+  IndexNow (Bing, Yandex e outros) quando uma página pública entra ou sai
+  (`src/indexnow.js`, a cada 15 min, só em produção). O Google não usa
+  IndexNow: para ele vale o sitemap.
 - **Consentimento em álbum restrito.** Família e privado se apoiam no
   consentimento, não em senha. No caminho sem Turnstile, o visitante informa o
   nome e cada IP abre no máximo 3 álbuns restritos diferentes por dia.
@@ -239,7 +244,9 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:navegador
 os downloads exatos e o "Pedir remoção". `verifica:celular` abre a página
 principal do álbum e a de um evento em 5 telas de celular e reprova vazamento
 lateral, alvo de toque menor que 44 px, campo que faz o iPhone dar zoom e texto
-menor que 11 px. `verifica:evento` é a véspera de evento:
+menor que 11 px; também abre a página de um evento com o user agent do
+Instagram (iPhone e Android) e do Safari e confere a faixa do navegador
+embutido. `verifica:evento` é a véspera de evento:
 portão do Drive, 429, código por e-mail e álbum restrito sem Turnstile.
 `verifica:painel` dirige o painel logado no iPhone, no Android e no computador.
 `verifica:previa` cobre a faixa e o menu "Testes" da prévia. `verifica:navegador`

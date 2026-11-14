@@ -1943,9 +1943,11 @@ describe('HEAD não conta visita nem custa escrita', () => {
     const head = await bater('HEAD');
     expect(head.status, 'HEAD continua respondendo como GET').toBe(200);
     expect(head.escritas, 'HEAD não pode gravar NADA em KV').toEqual([]);
-    // `_instances` vazio diz mais do que "não gravou": o contador nem chegou a
-    // ser endereçado, então não houve nem leitura.
-    expect(head.env.COUNTER._instances.size, 'HEAD não pode nem endereçar o contador').toBe(0);
+    // O objeto dos contadores nem endereçado diz mais do que "não gravou": não
+    // houve nem leitura. (Desde a v3.11.0 o /api/healthz do primer lê a
+    // instância `degradacoes`, que é outro objeto e não conta visita nenhuma.)
+    expect(head.env.COUNTER._instances.has('contadores'), 'HEAD não pode nem endereçar o contador').toBe(false);
+    expect([...head.env.COUNTER._instances.keys()].every(n => n === 'degradacoes')).toBe(true);
   });
 
   // Se o HEAD emitisse o cookie de "já contado", o GET seguinte — o de verdade

@@ -138,40 +138,58 @@ describe('scheduled() — cron de 5 em 5 minutos', () => {
   });
 });
 
-describe('robots.txt e llms.txt: busca e resposta sim, treino não', () => {
+describe('robots.txt e llms.txt: busca, resposta e treino de IA liberados (v3.11.0)', () => {
   const pede = (caminho) => worker.fetch(new Request(`${SITE}${caminho}`), { FOTOS: fakeKV({}) }, fakeCtx());
 
-  it('todo grupo declara ai-train=no e os robôs só de treino levam Disallow', async () => {
+  it('todo grupo declara ai-train=yes e nenhum robô fica fora do site', async () => {
+    // Decisão do dono (13/11/2026): "quero a galeria indexada em tudo". Até a
+    // v3.10 os robôs de treino levavam Disallow: / e o sinal era ai-train=no.
     const txt = await (await pede('/robots.txt')).text();
-    expect(txt).not.toContain('ai-train=yes');
+    expect(txt).not.toContain('ai-train=no');
     const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
-    expect(grupos.length).toBe(3);
-    for (const g of grupos) expect(g).toContain('ai-train=no');
-    const treino = grupos.find(g => g.includes('User-agent: GPTBot'));
-    expect(treino).toContain('Disallow: /');
-    expect(treino).toContain('User-agent: Google-Extended');
-    const busca = grupos.find(g => g.includes('User-agent: OAI-SearchBot'));
-    expect(busca).toContain('Allow: /');
-    // Robô de busca só fica fora do download da galeria — nunca do site.
-    expect(busca).not.toMatch(/^Disallow: \/$/m);
+    expect(grupos.length).toBe(2);
+    for (const g of grupos) {
+      expect(g).toContain('Content-Signal: search=yes, ai-train=yes, ai-input=yes');
+      expect(g).toContain('Allow: /');
+      expect(g).not.toMatch(/^Disallow: \/$/m);
+    }
+    const ia = grupos.find(g => g.includes('User-agent: GPTBot'));
+    for (const robo of ['GPTBot', 'ClaudeBot', 'Google-Extended', 'CCBot', 'OAI-SearchBot', 'PerplexityBot']) {
+      expect(ia).toContain(`User-agent: ${robo}`);
+    }
   });
 
-  it('download da galeria fechado para todo robô que rastreia; sitemaps das galerias anunciados', async () => {
+  it('download da galeria fechado para todo robô (inclusive os de IA); sitemaps das galerias anunciados', async () => {
     // Cada download passa pelo Worker (original pela Drive API, cópia pelo
-    // lh3): robô baixando gasta a cota do Drive e do plano gratuito.
+    // lh3): robô baixando gasta a cota do Drive e do plano gratuito. Um robô
+    // com grupo próprio ignora o do `*`, então TODO grupo tem de fechar.
     const txt = await (await pede('/robots.txt')).text();
     const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
-    for (const g of grupos.filter(x => !x.includes('User-agent: GPTBot'))) {
-      expect(g).toMatch(/^Disallow: \/galeria\/\*\/baixar\/$/m);
-    }
+    for (const g of grupos) expect(g).toMatch(/^Disallow: \/galeria\/\*\/baixar\/$/m);
     expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap.xml');
     expect(txt).toContain('Sitemap: https://fotos.lucafchala.com/sitemap-galerias.xml');
   });
 
-  it('o llms.txt diz que treino não é permitido e não libera robô de treino', async () => {
+  it('o llms.txt libera treino nas páginas públicas e não abre o painel nem a API', async () => {
     const txt = await (await pede('/llms.txt')).text();
-    expect(txt).toContain('Training not allowed');
-    expect(txt).not.toMatch(/Allow-User-Agent:.*(GPTBot|ClaudeBot)/);
+    expect(txt).not.toContain('Training not allowed');
+    expect(txt).toContain('AI training allowed on public pages');
+    expect(txt).toContain('Disallow: /dashboard');
+    expect(txt).toContain('Disallow: /api');
+  });
+
+  // Revisão final do #313: o teste acima só olhava o llms.txt; com o grupo de
+  // IA liberado, nada no robots.txt fechava o painel. A /api/ fica aberta de
+  // propósito: a galeria busca /api/galeria no navegador, e o Google precisa
+  // dela para renderizar a página.
+  it('robots.txt: painel fechado em todo grupo; a API da galeria aberta (renderização)', async () => {
+    const txt = await (await pede('/robots.txt')).text();
+    const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
+    expect(grupos.length).toBe(2);
+    for (const g of grupos) {
+      expect(g).toMatch(/^Disallow: \/dashboard$/m);
+      expect(g).not.toMatch(/^Disallow: \/api/m);
+    }
   });
 });
 
