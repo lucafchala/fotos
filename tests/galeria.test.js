@@ -1291,6 +1291,34 @@ describe('desempenho da carga da galeria', () => {
     }
   });
 
+  it('teto de densidade das miniaturas: DPR acima de 2 escolhe como se fosse 2; até 2, o real (4.0.1)', async () => {
+    const { fatorMiniatura, MINIATURA_DPR_TETO, MINIATURA_DPR_DEGRAUS } = await import('../src/config.js');
+    expect(MINIATURA_DPR_TETO).toBe(2);
+    for (const dpr of [1, 1.5, 1.75, 2, 2.2]) expect(fatorMiniatura(dpr)).toBe(1);
+    expect(fatorMiniatura(3) * 3).toBeCloseTo(2, 3);
+    expect(fatorMiniatura(2.625) * 2.625).toBeCloseTo(2, 3);
+    // Entre degraus: o maior degrau ≤ DPR, nunca um fator que ponha a tela abaixo de 2×.
+    for (let dpr = 2.25; dpr <= 4.5; dpr += 0.05) {
+      const ef = dpr * fatorMiniatura(dpr);
+      expect(ef).toBeGreaterThanOrEqual(2 - 1e-3);
+      // O maior vão da escada é 3 → 3,5: no pior caso, ~2,33×.
+      expect(ef).toBeLessThan(2.34);
+    }
+    expect([...MINIATURA_DPR_DEGRAUS].sort((a, b) => b - a)).toEqual(MINIATURA_DPR_DEGRAUS);
+  });
+
+  it('pré-carga do LCP e script da grade usam a MESMA escada de densidade (senão a foto do LCP baixa duas vezes)', async () => {
+    const { fatorMiniatura, MINIATURA_DPR_DEGRAUS } = await import('../src/config.js');
+    const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
+    const sizes = (html.match(/imagesizes="([^"]+)"/) || [])[1];
+    expect(sizes).toBeTruthy();
+    const degraus = [...sizes.replace(/&#39;|&amp;/g, '').matchAll(/\(min-resolution: ([\d.]+)dppx\) calc\(\(100vw - 2 \* max\(12px, 3vw\)\) \* ([\d.]+)\)/g)].map(m => [Number(m[1]), Number(m[2])]);
+    expect(degraus).toEqual(MINIATURA_DPR_DEGRAUS.map(g => [g, fatorMiniatura(g)]));
+    expect(sizes.endsWith('calc(100vw - 2 * max(12px, 3vw))')).toBe(true);
+    const dados = JSON.parse((html.match(/<script type="application\/json" id="g-dados"[^>]*>([^<]+)<\/script>/) || [])[1]);
+    expect(dados.dpr).toEqual(degraus);
+  });
+
   it('o CSS do visualizador não vai no <head> (bloquearia a pintura): vai nos dados, para entrar com ele', () => {
     const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
     const css = VENDOR.find(v => v.source.endsWith('photoswipe.css')).path;

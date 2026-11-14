@@ -83,6 +83,9 @@ mesmo assim, o código recusa: `envioLigado` devolve falso quando
 
 ## Configurar (o dono, uma vez)
 
+**Estado (14/11/2026):** adiado pelo dono, que configura depois. Sem os
+`GOOGLE_OAUTH_*`, `envioLigado` é falso e o álbum segue com o diálogo das pastas.
+
 O envio grava no Drive **em nome de uma conta Google** (a do dono do álbum).
 Chave de API só lê pasta pública, e conta de serviço não tem espaço próprio
 num Drive pessoal (o Google recusa com `storageQuotaExceeded`). Por isso é um
