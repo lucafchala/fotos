@@ -484,6 +484,32 @@ export const GALERIA_LARGURAS = [480, 800, 1200, 1600, 2048, 2560, 3200, 4096, 5
 // (~390 px × DPR 1,75–3), e um degrau largo baixava até 30% a mais que o
 // necessário em cada foto da primeira tela.
 export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 500, 600, 700, 800, 1000, 1200, 1600];
+// Densidade máxima das MINIATURAS da grade (otimização de 14/11/2026). Celular
+// de tela 2,6–3× escolhia a de 1200 px para um quadradinho de ~390 px: 237 KB
+// cada uma na primeira tela, e o LCP da galeria em 5,3 s num 4G lento. Com o
+// teto em 2× ele pede a de 800–1000 (119–172 KB, de 30 a 50% a menos), e a
+// diferença não aparece num quadradinho desse tamanho. A foto aberta no
+// visualizador NÃO tem teto: lá vale a tela inteira, e o zoom sobe o degrau.
+//
+// Os degraus existem por causa da pré-carga do LCP: o servidor não sabe o DPR,
+// então diz o fator por `(min-resolution: Xdppx)` no `imagesizes`, e o script
+// da grade usa ESTA mesma escada (o maior degrau ≤ DPR). Fator diferente nos
+// dois lados = a foto do LCP baixada duas vezes. Navegador sem
+// `min-resolution` (Safari < 16) cai no fator 1 na pré-carga: no pior caso,
+// baixa a maior uma vez a mais, só lá.
+export const MINIATURA_DPR_TETO = 2;
+export const MINIATURA_DPR_DEGRAUS = [4, 3.5, 3, 2.75, 2.625, 2.5, 2.25];
+/**
+ * O fator que multiplica a largura do quadradinho no `sizes` para o navegador
+ * escolher como se o DPR fosse no máximo MINIATURA_DPR_TETO. Arredondado em 4
+ * casas: é o MESMO número que vai para o `imagesizes` da pré-carga.
+ * @param {number} dpr
+ * @returns {number}
+ */
+export function fatorMiniatura(dpr) {
+  const d = MINIATURA_DPR_DEGRAUS.find(g => dpr >= g);
+  return d ? Math.round(MINIATURA_DPR_TETO / d * 1e4) / 1e4 : 1;
+}
 
 // ---------------------------------------------------------------------------
 // Métricas por dia (v2, #215)
@@ -541,7 +567,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '4.0.0';
+export const VERSAO = '4.0.1';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)

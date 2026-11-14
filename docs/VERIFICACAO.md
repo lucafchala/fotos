@@ -339,7 +339,7 @@ Cobre:
 
 - **grade por aparelho** — desktop 1440@1, Retina 1440@2, iPhone 390@3,
   Android 360@2 e Pixel 412@2,625: linhas justificadas (cada uma fecha na
-  largura, ±2 px), miniatura com pixels suficientes (largura × DPR), carga
+  largura, ±2 px), miniatura com pixels suficientes (largura × DPR efetivo, com o teto de 2× da 4.0.1), carga
   preguiçosa, WebP, sem rolagem lateral; tema escuro;
 - **visualizador** — abre na menor largura da escada que cobre a foto exibida
   em pixels físicos; o zoom sobe a resolução por degraus até o original

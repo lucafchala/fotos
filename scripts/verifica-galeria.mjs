@@ -27,7 +27,7 @@ import { adminHtmlSecurityHeaders } from '../src/security.js';
 import { assinadorDeFotos } from '../src/foto-rota.js';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
-import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, AQUECE_LARGURAS, EPOCA_CRIADA_MS } from '../src/config.js';
+import { GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, AQUECE_LARGURAS, EPOCA_CRIADA_MS, fatorMiniatura, MINIATURA_DPR_TETO } from '../src/config.js';
 
 function chromiumLocal() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -408,8 +408,12 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
   registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
   registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
-  const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dpr));
-  registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais)`, g.tiles.slice(0, 4));
+  // Teto de densidade (MINIATURA_DPR_TETO): a grade escolhe como se o DPR
+  // fosse o degrau × fator — 2 num celular 2,625× ou 3×; abaixo disso, o real.
+  const dprEf = dpr * fatorMiniatura(dpr);
+  const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01));
+  registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais; DPR efetivo ${dprEf.toFixed(2)})`, g.tiles.slice(0, 4));
+  registra(dpr <= MINIATURA_DPR_TETO ? dprEf === dpr : dprEf <= MINIATURA_DPR_TETO + 0.25, `${nome}: teto de densidade das miniaturas (DPR ${dpr} → ${dprEf.toFixed(2)})`, dprEf);
   // A pré-carga do LCP (celular até 430 px) pede o MESMO arquivo que a <img>:
   // uma requisição só da primeira foto, sem desperdício.
   if (viewport.width <= 430) {
@@ -420,7 +424,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   registra(g.total === TODAS.length, `${nome}: todas as ${TODAS.length} fotos na grade`, g.total);
   registra(g.desvio >= 0 && g.desvio <= 2, `${nome}: linhas justificadas (cada linha fecha na largura, ±2 px)`, { desvio: g.desvio });
   registra(!g.nan && !g.rolagemLateral, `${nome}: nenhuma largura inválida, sem rolagem lateral`, { nan: g.nan, lateral: g.rolagemLateral });
-  const fisicoOk = g.tiles.filter(t => t.ok).every(t => t.w >= Math.min(degrau(GALERIA_LARGURAS_GRADE, t.css * dpr), GALERIA_LARGURAS_GRADE.at(-1)));
+  const fisicoOk = g.tiles.filter(t => t.ok).every(t => t.w >= Math.min(degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01), GALERIA_LARGURAS_GRADE.at(-1)));
   registra(fisicoOk && g.tiles.some(t => t.ok), `${nome}: miniatura com pixels suficientes para a tela (largura × DPR)`, g.tiles.slice(0, 4));
   const pedidas = new Set(estado.lh3.map(x => x.id)).size;
   registra(pedidas < TODAS.length, `${nome}: carga preguiçosa (pediu ${pedidas} de ${TODAS.length} miniaturas)`, pedidas);

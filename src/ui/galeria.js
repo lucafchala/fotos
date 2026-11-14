@@ -27,7 +27,7 @@
 
 import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
-import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
+import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, MINIATURA_DPR_DEGRAUS, fatorMiniatura, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
 import { botaoDeAjudaHTML, BOTAO_AJUDA_CSS } from './botao-ajuda.js';
 import { honeypotFieldHTML, HONEYPOT_CSS, ASSINATURA_CURTA_LEN } from '../security.js';
@@ -328,9 +328,15 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
   // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
+  // O teto de densidade das miniaturas (MINIATURA_DPR_TETO) entra aqui por
+  // `min-resolution`, degrau a degrau, com o mesmo fator que o script da grade
+  // calcula com o DPR de verdade (fatorMiniatura): os dois escolhem o mesmo
+  // arquivo, e a pré-carga é a própria foto que a <img> pede.
+  const larguraLinha = 'calc(100vw - 2 * max(12px, 3vw))';
+  const sizesPreload = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((100vw - 2 * max(12px, 3vw)) * ${fatorMiniatura(g)})`), larguraLinha].join(', ');
   const lcp = todasFotos[0];
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
-    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="calc(100vw - 2 * max(12px, 3vw))">`
+    ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="${escape(sizesPreload)}">`
     : '';
 
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
@@ -408,6 +414,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     sessao: NOVAS_SESSAO_MIN,
     larguras: GALERIA_LARGURAS,
     grade: GALERIA_LARGURAS_GRADE,
+    // A escada do teto de densidade das miniaturas (ver fatorMiniatura).
+    dpr: MINIATURA_DPR_DEGRAUS.map(g => [g, fatorMiniatura(g)]),
     tentativasMini: GALERIA_MINIATURA_TENTATIVAS,
     // Só o dono recebe a lista do que está oculto (o visitante já recebe a
     // listagem sem essas fotos) e o botão de ocultar no visualizador.
@@ -1274,6 +1282,16 @@ const SCRIPT = `
   }, { rootMargin: '1500px 0px' }) : null;
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
+  // Teto de densidade das miniaturas (MINIATURA_DPR_TETO, config.js): o
+  // "sizes" encolhe pelo fator do degrau do DPR, e o navegador escolhe a
+  // miniatura como se a tela fosse no máximo 2×. A escada vem do servidor
+  // (D.dpr) para ser a MESMA da pré-carga do LCP.
+  const fatorDpr = (function () {
+    const dpr = window.devicePixelRatio || 1;
+    const escada = DX.dpr || [];
+    for (let i = 0; i < escada.length; i++) if (dpr >= escada[i][0]) return escada[i][1];
+    return 1;
+  })();
   function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
       // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
@@ -1294,7 +1312,7 @@ const SCRIPT = `
       if (perto || !vigia) poeSrc(f);
       else if (!f.vigiada) { f.vigiada = true; vigia.observe(f.el); }
     }
-    f.img.sizes = w + 'px';
+    f.img.sizes = (fatorDpr === 1 ? w : Math.round(w * fatorDpr * 100) / 100) + 'px';
   }
   function poeSrc(f) {
     if (f.img.srcset) return;

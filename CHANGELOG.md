@@ -18,7 +18,13 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.0.0] — ainda não publicada
+## [4.0.1] — ainda não publicada
+
+Correção: a galeria fica igual, só mais leve no celular.
+
+- **Miniaturas da grade com teto de densidade 2×** (`MINIATURA_DPR_TETO`, `fatorMiniatura` em `src/config.js`). Um celular de tela 2,6–3× pedia a miniatura de 1200 px para um quadradinho de ~390 px: 237 KB cada uma na primeira tela, e o LCP da galeria em 5,3 s (ecp125 em produção, Pixel 7, 4G lento, CPU 4×). Agora ele pede a de 800–1000 (119–172 KB, de 30 a 50% a menos por foto), e a diferença não se vê num quadradinho desse tamanho. A foto aberta no visualizador não tem teto. A pré-carga do LCP leva o mesmo fator por `min-resolution` no `imagesizes`, com a mesma escada que o script usa, para as duas pedirem o mesmo arquivo; todas as larguras escolhidas continuam entre as que o indexador aquece no R2.
+
+## [4.0.0] — 2026-11-14
 
 Maior porque muda o que o visitante aceita: os Termos de Uso e a Política de Privacidade ganham o envio pelo site (versão dos Termos `2026-11-14`, que também leva o texto de IA da 3.11.0). **Nada muda no ar até o dono configurar a credencial do Google** (passo a passo em `docs/ENVIO.md`); sem ela, "Mandar suas fotos" segue abrindo a pasta do Drive, como hoje.
 
@@ -35,7 +41,7 @@ Maior porque muda o que o visitante aceita: os Termos de Uso e a Política de Pr
 - **Testes mais leves sob carga** (#256): a varredura das tags das páginas renderizadas é feita uma vez por página, e não uma vez por verificação. "As variações cobrem o que a CSP olha" caiu de ~4 s para milissegundos, e as duas suítes de páginas ficaram com metade do tempo.
 - **Dependência de desenvolvimento:** `playwright-core` 1.65.0 (o Chromium dos roteiros sobe para o 158; PR do Dependabot #302) e `eslint` 10.15.0 só no lockfile, que traz o `minimatch` 11.0.8 e fecha o alerta moderado do Dependabot #31 (DoS no `minimatch`, só em ferramenta de desenvolvimento). Com ele, o `page.evaluate` que desenhava o QR baixado num canvas morria logo depois do download ("Execution context was destroyed"), até numa aba nova; o roteiro do painel agora lê o PNG e o SVG baixados no próprio Node (`scripts/qr-no-node.mjs`) e confere que baixar não tira a aba do painel. Nada muda no que vai ao ar.
 
-## [3.11.0] — ainda não publicada
+## [3.11.0] — 2026-11-14
 
 O que falta antes do lançamento (itens A1 a A3 do plano). Menor por causa da faixa nova no álbum. O número pula o 3.10.0, que ficou com o PR "Fora dos buscadores" (#307), deixado de lado: o dono quer a galeria indexada em tudo.
 

@@ -1874,8 +1874,10 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
 
 - **Grade justificada**: cada foto na proporção real, sem recorte; uma seção por
   subpasta (até 2 níveis), em ordem natural (`2.jpg` antes de `10.jpg`).
-  Miniaturas do `lh3` na largura × DPR do aparelho, WebP decidido por
-  decodificação de verdade, carga preguiçosa.
+  Miniaturas do `lh3` na largura × DPR do aparelho, com o DPR limitado a 2×
+  (`MINIATURA_DPR_TETO`, 4.0.1: acima disso o quadradinho não ganha nada que
+  se veja e a foto pesa até o dobro), WebP decidido por decodificação de
+  verdade, carga preguiçosa. O visualizador não tem teto.
 - **Visualizador** (PhotoSwipe 5, MIT, vendorizado em `vendor/photoswipe/` e
   servido em `/vendor/` — nenhum CDN de terceiro): abre na resolução da tela
   **em pixels físicos**, e o zoom pede a próxima largura da escada
@@ -1913,6 +1915,15 @@ só para quem não codifica WebP), então a grade sai no mesmo passo do script; 
 CSS do visualizador entra com ele; o coração da miniatura é CSS; e no celular a
 primeira foto é pré-carregada no `<head>` com o mesmo `srcset`. Antes/depois
 (3 rodadas cada): desempenho 72–80 → 84–90, LCP 4,5–4,6 s → 3,1–3,7 s.
+
+**Teto de densidade (14/11/2026, 4.0.1).** Em produção, na ecp125, com Pixel 7
+emulado (DPR 2,625, 4G lento, CPU 4×), o LCP da galeria era 5,3 s: a grade
+pedia a miniatura de 1200 px (237 KB) para um quadradinho de ~390 px. Com o
+teto em 2×, a mesma foto sai na de 800–1000 (119–172 KB). O `imagesizes` da
+pré-carga leva o fator por `(min-resolution: Xdppx)` e o script usa a mesma
+escada (`MINIATURA_DPR_DEGRAUS`, enviada em `D.dpr`): fator diferente nos dois
+lados baixaria a foto do LCP duas vezes, e o `verifica:galeria` reprova isso
+("1 pedido só" a 390@3 e 412@2,625).
 
 ### Ocultar uma foto
 
