@@ -311,18 +311,15 @@ As fotos dos eventos da escola já estão em `!Escola - eventos`, que **outros p
 
 Os créditos não mudam: as mesmas seis linhas valem para todos os eventos.
 
-## O que falta (estado em 06/11/2026, noite)
+## O que falta (estado em 14/11/2026)
 
-1. **Drive:** pronto. A raiz é "Leitor"; as 20 pastas da turma estão como Editor e renomeadas para `!turma 2026 (adicione suas fotos aqui)`; as pastas `santa oficial` e `comissao` existem nos 20 lugares.
-2. **Merges**, nesta ordem, todos com "Create a merge commit": #264 e #274 (feitos, 3.1.0 no ar) → #275 → #277 → #278 → o PR da 3.4.0. Depois, conferir o deploy e rodar `~/entrenos-handoff/criar-releases.sh`, que cria as Releases (criar Release daqui foi bloqueado pelo sistema de permissões).
-3. **Fase 4 do prompt do Cowork:** criar o projeto `entrenos2026` em "Em breve" e não visível, com os créditos de 6 linhas, o estilo Mosaico e o recado; testar com mídia real (inclusive a janela "Mandar suas fotos", logado); passar o domínio para o Worker `fotos`.
-4. **Fase 5:** conta da AWS (permissão nova `rekognition:SearchFaces`), pedido de cota, `ROSTO_INDEXADOR_TOKEN` no Worker e no GitHub, e rodar o indexador.
-5. **Fase 6:** o dono testa a busca pelo rosto, logado.
-6. **Fase 7:** lançar, só com o "pode lançar" do dono.
-7. **Pendências que dependem do dono:**
-   - mergear os PRs do aviso nos outros sites (lucafchala.com#44, dash#37, paste#16, url#16);
-   - preencher o Pix no painel;
-   - autorizar o Search Console do domínio;
-   - decidir sobre o Workers Paid (US$ 5/mês) para o mês do lançamento.
+Respostas do dono em 14/11/2026:
+
+- **Feito:** autorização de imagem dos menores coletada (#119); Pix preenchido; Search Console autorizado; Bot Fight Mode desligado nas zonas lucafchala.com e entrenos2026.com (o AI Labyrinth fica ligado: não afeta pessoas nem buscadores); turma avisada da busca pelo rosto; Workers Paid assinado (ver acima).
+- **Conta do Drive:** pessoal, não Workspace (#124). As cotas de download do Google são as de conta pessoal (#233).
+- **Envio pelo site (OAuth):** adiado pelo dono. Até ele seguir [docs/ENVIO.md](ENVIO.md), "Configurar", o botão "Mandar suas fotos" abre o diálogo das pastas do Drive, como antes.
+- **Aviso nos outros sites** (lucafchala.com#44, dash#37, paste#16, url#16) e **status#67**: só no dia do lançamento.
+- **Ensaio de carga** ([ENSAIO-DE-CARGA.md](ENSAIO-DE-CARGA.md)), **#267** (vídeo/HEIC/RAW/Live Photo no Google de verdade) e **#178** (Worker de prévia, rollback, primeiro alerta): rodam na máquina do dono ou com a conta da Cloudflare; a rede das sessões não alcança a prévia nem o Google.
+- **Lançar:** só com o "pode lançar" do dono.
 
 Os prompts do Cowork, as respostas dadas a ele e as imagens de comparação estão em `~/entrenos-handoff/`, fora do repositório, porque têm o e-mail da Mag.
