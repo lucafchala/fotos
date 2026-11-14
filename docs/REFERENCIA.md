@@ -674,6 +674,7 @@ fotos/
     ├── security.js         ← cabeçalhos, CSP, CSRF, tokens HMAC, política de senha, honeypot
     ├── drive.js            ← cliente da Drive API da galeria própria: lista a pasta, mapeia erros, URLs do lh3 e do original
     ├── counters.js         ← Durable Objects: Counter (totais + série por dia, poda) e RateLimiter (janela fixa e balde de fichas)
+    ├── indexnow.js         ← aviso ao IndexNow (Bing, Yandex…): manda só o que entrou ou saiu, chave pública em /<chave>.txt, só com INDEXNOW = "ligado"
     ├── previa.js           ← a camada da prévia de PR (faixa, noindex, menu "Testes": simulações e ações) — só com AMBIENTE = "previa"
     ├── content/
     │   ├── legal-docs.js   ← GERADO por scripts/build-legal-docs.mjs — não editar à mão
@@ -1676,6 +1677,7 @@ O JSON do token é escapado com `.replace(/</g, '\\u003c')` para evitar quebrar 
 4. `await hashPassword('healthcheck')` — canário do budget de CPU do Worker (não é KV). **Não cronometrado**: o Workers congela `Date.now()` durante execução síncrona, então o antigo `hashMs` era zero por construção (RETOMADA §5.9). O que prova o orçamento é o hash *completar*: se não couber, a requisição morre e o endpoint devolve 5xx.
 5. **Leitura 2/2 (KV):** `cron` `{ lastRunAt, ageHours, stale }` — heartbeat gravado pelo `scheduled` em `cron:last`, que detecta um cron *silenciosamente morto*.
 6. **Autoteste funcional (`selftest`) — ZERO leituras extras de KV** (roda sobre o array de `events` já carregado no passo 2, via `auditSite`): sinaliza coisas que "deram errado" e que um 500 não pegaria — `{ ok, problems[], drive: { ok, bad, live }, forms: { turnstile, resend, adminEmail }, sample }`. Detecta **links do Google Drive ausentes/inválidos** em eventos publicados (acesso ao Drive quebrado), **dados inconsistentes** (slug duplicado → rotas colidem, status fora do enum, evento sem título), e **dependências de formulário ausentes** (Turnstile/Resend/`ADMIN_EMAIL` — sem elas os formulários de suporte/remoção/Drive recusam ou não entregam envios). `sample` aponta um evento publicado saudável para o dashboard fazer deep-probe (gate do Drive + form de remoção). `auditSite` é puro e tem teste unitário.
+   - **Degradações de todos os isolates (v3.11.0).** As entradas de `noteDegraded()` que entram em `problems` vêm da memória deste isolate **e** da cópia guardada na instância `degradacoes` do Durable Object `COUNTER` (`degradacoesDeTodos`, uma subrequisição; com o objeto fora, só as deste isolate). A cópia é feita no fim de cada pedido e do cron (`guardaDegradacoes`, em `waitUntil`), sem KV, no máximo uma vez por rótulo a cada 5 min por isolate, e guarda até 40 rótulos dentro da janela de 30 min. Antes, o problema só aparecia se o healthz caísse no mesmo isolate que o viu.
 7. **Resto do diagnóstico — ZERO leituras extras de KV:** `config` `{ resend, turnstile, consentDb, adminEmail, signing }` (booleanos a partir dos bindings — segredos de produção presentes, sem vazar valores), `termsVersion`, `versaoSite` (a versão do site, `VERSAO` de `src/config.js` — o que mudou, para quem usa), `versao` `{ id, tag, em }` (qual versão do Worker respondeu, pelo binding `[version_metadata]`; `tag` é o SHA curto do commit que o deploy passa em `--tag`; `null` sem o binding), `colo`/`country` (de `request.cf`) e `now`.
    - **`contrato`** — número da versão do contrato. O contrato inteiro (nome e tipo de cada campo, os valores de `d1`, os campos que saíram de propósito e um exemplo) está em [`docs/healthz-contrato.json`](./healthz-contrato.json), a **única** cópia: `tests/healthz-contrato.test.js` reprova se o payload divergir dele em qualquer sentido (inclusive campo novo sem entrada lá), e o CI do `status.lucafchala.com` baixa o arquivo e reprova se o painel ler um campo que ele não tem. Acrescentou campo? Acrescente no arquivo. Mudou o sentido de um campo ou tirou um? Suba `contrato` (e `HEALTHZ_CONTRATO` em `src/config.js`).
 8. Retorna `{ ok, kv, events, d1, … }`. `ok` é `true` (HTTP 200) só quando a lista veio **do próprio KV** e `events` é um array; caso contrário `ok:false` com HTTP 503.
@@ -2001,8 +2003,11 @@ baixo.
 **Downloads fora.** `Disallow: /galeria/*/baixar/` nos grupos `*` e de busca do
 `robots.txt`, `X-Robots-Tag: noindex` em toda resposta do proxy e
 `rel="nofollow"` nos links de download e do Drive: robô baixando original
-gastaria a cota do Drive e do Worker. O `Content-Signal` (`ai-train=no`) fica
-em todos os grupos — o Lighthouse o acusa como diretiva desconhecida (é a
+gastaria a cota do Drive e do Worker. O `Content-Signal` (`search=yes, ai-train=yes,
+ai-input=yes` desde a v3.11.0, decisão do dono) fica em todos os grupos, e
+todo grupo repete o `Disallow` do download e o do `/dashboard` (um robô com
+grupo próprio ignora o `*`); a `/api/` fica aberta porque a galeria busca
+`/api/galeria` no navegador e o Google precisa dela para renderizar — o Lighthouse o acusa como diretiva desconhecida (é a
 única falha do SEO, 92), e o Google ignora a linha.
 
 **Foto oculta ou pedido de remoção:** sai do HTML e do sitemap de imagens no

@@ -4,7 +4,7 @@
 
 - **Controlador:** Luca Ferriani Chala
 - **Sistema avaliado:** `fotos.lucafchala.com`
-- **Data:** 2026-08-16 · **atualizado em 2026-11-06** (busca pelo rosto, risco R9)
+- **Data:** 2026-08-16 · **atualizado em 2026-11-06** (busca pelo rosto, risco R9) · **2026-11-14** (buscadores, IndexNow e treino de IA, risco R12)
 - **Revisão:** anual, ou a cada mudança nas categorias de dados / operadores.
 
 ## Por que este relatório existe
@@ -324,6 +324,24 @@ caminho — decisão do controlador.
 
 **Risco residual: MÉDIO.**
 
+### R12 — Fotos públicas lidas para treino de IA · Prob. **Alta** · Impacto **Médio**
+
+**O tratamento.** Desde a v3.11.0 (decisão do controlador, 13/11/2026: "quero a galeria indexada em tudo"), o `robots.txt` declara `ai-train=yes` e não fecha mais o site aos robôs de treino (GPTBot, ClaudeBot, Google-Extended, CCBot e outros). Os álbuns **públicos** podem ser lidos e usados para treinar modelos de IA, e o IndexNow avisa Bing, Yandex e os demais quando uma página pública entra ou sai. (Este risco é o R12 porque o R11 é o do envio de fotos pelo site, que vem num PR separado.)
+
+**O risco.** Fotos de turma, **com menores** (R3), entram em conjuntos de treino de terceiros. A remoção a pedido tira a foto do site e, com o tempo, dos buscadores, mas **não a retira de um modelo já treinado** nem de cópias que esses serviços tenham guardado. O efeito da remoção, que é a principal salvaguarda dos riscos R2 e R3, fica menor para quem pede depois de a foto ter sido lida.
+
+**Mitigações**
+
+| Mitigação | Onde |
+| --- | --- |
+| Só álbuns públicos: família e privado ficam fora dos sitemaps e do IndexNow, levam noindex e ficam atrás do portão (um teste prende que álbum restrito nunca entra no IndexNow) | `galeriaIndexavel`, `urlsDoIndexNow`, `tests/galeria-capitulos.test.js` |
+| O download (o arquivo original) fica fechado para todo robô, inclusive os de IA | `handleRobots`, `tests/healthz.test.js` |
+| A Privacidade diz, no parágrafo de menores, que a remoção não alcança modelo já treinado; pedido de responsável por menor tem prioridade | `src/ui/privacy.js` (§3) |
+| Página ou capítulo retirado é avisado ao IndexNow, para o buscador reler e tirar do índice | `src/indexnow.js` |
+| Reversível: voltar `ai-train=no` e o Disallow dos robôs de treino é uma linha, e vale para a leitura seguinte | `handleRobots` |
+
+**Risco residual: MÉDIO.** O `robots.txt` é um pedido, não um controle: mesmo com `ai-train=no` um robô podia ler a página pública. A decisão torna explícito o que antes era só desestimulado. Ela pesa mais sobre R3: o controlador deve rever esta escolha antes de publicar um álbum público com muitos menores identificáveis, ou tornar esse álbum privado.
+
 ---
 
 ## 4. Quadro-resumo
@@ -341,6 +359,7 @@ caminho — decisão do controlador.
 | R9 | **Busca pelo rosto** (biometria) | **Médio-Alto** | Desligada por padrão, saída imediata, aviso prévio à turma, dados em São Paulo |
 | R10 | Texto e objetos lidos nas fotos; moderação | Baixo | Desligada por padrão, confiança alta, ocultas fora, moderação avisa o controlador de foto imprópria |
 | R11 | Envio de fotos pelo site | Médio | Declaração registrada, Turnstile, só mídia, pasta da lista do servidor, tetos; a localização do arquivo **não** é retirada |
+| R12 | **Fotos públicas lidas para treino de IA** | **Médio** | Só álbuns públicos; download fechado; a Privacidade avisa que a remoção não alcança modelo já treinado |
 
 ## 5. Conclusão
 

@@ -6,7 +6,8 @@
 
 - [ ] CI verde no PR: `checks`, CodeQL, Invariantes de segurança, Dependências e Roteiros no navegador.
 - [ ] `npm run lint`, `npm run typecheck` e `npm test` (com `--maxWorkers=2` se a máquina estiver carregada: os testes de limite de taxa estouram os 5 s do vitest sob carga).
-- [ ] `npm run verifica:painel`, `verifica:evento`, `verifica:galeria`, `verifica:previa` e `verifica:envio`, com `PLAYWRIGHT_BROWSERS_PATH` apontando para o Chromium (rode um de cada vez: com a máquina carregada, o zoom do visualizador da galeria já oscilou uma vez em dez). Última rodada de 24/10/2026: painel 240 ok, evento 55 ok, galeria 101 ok, 0 falhas.
+- [ ] Antes de um lançamento de álbum: o ensaio de carga de [`ENSAIO-DE-CARGA.md`](./ENSAIO-DE-CARGA.md) (só o dono; contra uma prévia).
+- [ ] `npm run verifica:painel`, `verifica:evento`, `verifica:galeria`, `verifica:celular`, `verifica:previa` e `verifica:envio`, com `PLAYWRIGHT_BROWSERS_PATH` apontando para o Chromium (rode um de cada vez: com a máquina carregada, o zoom do visualizador da galeria já oscilou uma vez em dez). Última rodada de 24/10/2026: painel 240 ok, evento 55 ok, galeria 101 ok, 0 falhas.
 - [ ] `VERSAO` (`src/config.js`), `version` do `package.json` e a seção do `CHANGELOG.md` batem.
 - [ ] Na prévia do PR: entrar no painel, abrir um projeto, `/robots.txt`, `/sitemap.xml` e `/og-padrao.png`.
 - [ ] Galeria no Google (29/10/2026): na prévia, `/robots.txt` fecha tudo e a galeria sai com `noindex` (prévia nunca indexa). Depois do merge, em produção: `/sitemap-galerias.xml` lista as galerias públicas, `/sitemap-galeria-<slug>.xml` traz as fotos, e o `robots.txt` tem `Disallow: /galeria/*/baixar/`. Enviar `/sitemap-galerias.xml` no Search Console (Sitemaps).

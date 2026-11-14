@@ -501,6 +501,21 @@ O que ele **não** prova: o Google de verdade (escopo do token, a resposta real
 a uma sessão vencida), o seletor de fotos do iPhone (HEIC, Live Photo) e o
 Turnstile de verdade.
 
+### Álbum no celular — `npm run verifica:celular`
+
+A página do álbum (nos estilos de `GALERIA_ESTILOS`) e a de um evento em 5
+telas de celular (320 a 844 px): nada vaza para os lados, alvos de 44 px, campo
+sem zoom no iPhone, nenhum texto menor que 11 px; as janelas (rosto, busca)
+cabem na tela; o visor e o "Minhas fotos". Capturas em `CAPTURAS`.
+
+Desde a v3.11.0, também o **navegador de dentro de um app**: a página do evento
+com o user agent do Instagram no iPhone e no Android, e do Safari. Nada na
+entrada; ao tocar em "Baixar tudo", a faixa aparece, cabe na tela, tem alvos de
+44 px; no Android traz "Abrir no Chrome" (`intent://`, com volta sem Chrome), no iPhone só o caminho
+pelo menu; "Fechar" esconde; no Safari, nunca aparece. O que ele **não** prova:
+o navegador do Instagram de verdade (o user agent é trocado num Chromium), nem
+que o `intent://` abre o Chrome num Android real.
+
 ### Prévia de PR — `npm run verifica:previa`
 
 Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o
@@ -623,7 +638,32 @@ Duas coisas que confundem na primeira vez:
 
 - [ ] `npm test` e `npm run lint`
 - [ ] **O bug foi reintroduzido e o teste falhou?** Se o teste passa com o bug de
-      volta, ele não testa o que você acha
+      volta, ele não testa o que você acha. Reintroduza o defeito **como ele
+      aconteceria** (ordem, momento, ambiente), não só apagando a linha da
+      correção: apagar o `finally` inteiro derrubava o teste antigo das
+      degradações; trocar a ordem (o defeito real) não derrubava
+- [ ] **Que rota, ambiente ou momento o teste não exercita?** A mutação só
+      prova o código que o teste já roda. Pergunte também: a tarefa nasce
+      dentro do `waitUntil` ou antes da chamada? O navegador de verdade tem a
+      API que o teste supõe? Há outra rota que entrega a mesma coisa?
+- [ ] **Interruptor ou promessa de texto** (opção do painel, frase dos Termos,
+      "tira do Google"): liste TODAS as rotas que a frase cobre e teste cada
+      uma, com o controle ligado e desligado — não só a função que mudou
+- [ ] **O título de cada teste novo tem um `expect` que o prova.** "Fica no
+      healthz" pede um `expect` sobre o healthz, não sobre o status 200. A
+      cobertura sobe do mesmo jeito sem ele
+- [ ] **Código executável em documento** (script k6, comando de exemplo) é
+      extraído e rodado por um teste, como `tests/ensaio-de-carga.test.js`; o
+      que não dá para rodar leva no próprio documento o rótulo "nunca
+      executado"
+- [ ] **Navegador de app no roteiro:** além do user agent, tire as APIs que o
+      app não tem (`addInitScript` apagando `PushManager` e `Notification`,
+      como no `verifica:celular`). Só trocar o user agent deixou o botão de
+      avisos à vista no roteiro e escondeu dois defeitos (o `#av-btn` que não
+      existe no app e o `[hidden]` vencido pelo `display` da classe)
+- [ ] **Tudo que escreve fora do site** (Drive, e-mail, AWS) tem trava de
+      ambiente NO CÓDIGO, com teste "credencial completa + prévia =
+      desligado"; lista de segredos de script de deploy não é trava
 - [ ] Mexeu em UI, CSP ou rota → `npm run verifica:navegador` e a verificação
       específica da mudança num navegador, console limpo
 - [ ] Mexeu no portão do Drive, no carrossel/fotos da página de projeto ou em

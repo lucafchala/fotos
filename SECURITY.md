@@ -301,7 +301,10 @@ things bound it:
 - **It is never silent**, and that is a property of the whole system rather than
   of this one control. Anything that degrades calls `noteDegraded(label, detail)`,
   and `/api/healthz` reports every entry in `problems` until 30 minutes pass
-  without a repeat — so the status dashboard goes red while the site is quietly
+  without a repeat. Since v3.11.0 the entries also survive an isolate change:
+  at the end of each request (and cron run) new ones are copied to a Durable
+  Object instance (`degradacoes`, no KV write, at most once per label every
+  5 minutes per isolate), and the healthz merges that copy with its own — so the status dashboard goes red while the site is quietly
   serving on with counters and limiters switched off. This matters more here than
   in a system that simply falls over: **everything below is designed to keep
   delivering photos while pieces fail, which means "the site is up" is not

@@ -38,6 +38,7 @@ import { FONTS } from './content/fonts.js';
  *   WORKERS_PLANO?: string,
  *   CF_VERSION_METADATA?: WorkerVersionMetadata,
  *   AMBIENTE?: string,
+ *   INDEXNOW?: string,
  *   PREVIA_EMAIL?: string,
  *   FOTOS_R2?: R2Bucket,
  * }} Env
@@ -84,7 +85,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-11-12';
+export const TERMS_VERSION = '2026-11-14';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -821,11 +822,28 @@ export async function encerraOutrasSessoes(env, tokenAtual) {
 // Era três registradores separados; agora é um: quem degradar chama
 // `noteDegraded`, e /api/healthz relata tudo dentro da janela.
 //
-// Estado de módulo, sem persistência (persistir exigiria a escrita que pode
-// estar sendo recusada) — vale por isolate, aceitável porque a condição é da
-// conta inteira e qualquer isolate a encontra em segundos.
+// Estado de módulo por isolate, MAIS uma cópia num Durable Object (v3.11.0):
+// antes era só por isolate, e a degradação sumia no isolate seguinte — o
+// healthz (e o painel de status, que o lê a cada 10 min) quase nunca caía no
+// mesmo isolate que viu o defeito, e um problema que durou minutos passava
+// invisível. A cópia NÃO usa KV (persistir exigiria a escrita que pode estar
+// sendo recusada): vai para a instância `degradacoes` do COUNTER, gravada no
+// fim do pedido (`guardaDegradacoes`, em waitUntil), no máximo uma vez por
+// rótulo a cada DEGRADED_GRAVA_MS por isolate. O healthz junta as duas listas.
 const DEGRADED_TTL_MS = 30 * 60_000;
+const DEGRADED_GRAVA_MS = 5 * 60_000;
+const DEGRADED_OBJ = 'degradacoes';
+/** @type {Map<string, { at: number, detail: string }>} */
 const _degraded = new Map();
+/** Rótulos ainda não copiados para o Durable Object. @type {Set<string>} */
+const _pendentes = new Set();
+/** Quando cada rótulo foi copiado pela última vez, neste isolate. @type {Map<string, number>} */
+const _gravadas = new Map();
+/** Quando a última cópia falhou (0 = nunca). @type {number} */
+let _copiaFalhouEm = 0;
+// Com o objeto fora, esperar um pouco antes de tentar de novo: sem isto, no
+// pico, cada pedido de cada isolate faria uma chamada extra que falha.
+const DEGRADED_ESPERA_FALHA_MS = 30_000;
 
 // `label` é a chave de dedup e o texto exibido no painel — escreva como a
 // frase que você quer ler às 2h da manhã: o que quebrou, o que parou.
@@ -872,7 +890,9 @@ export function errMessage(err) {
 export function noteDegraded(label, detail = '', err = null) {
   const rotulo = umaLinha(label);
   const texto = umaLinha(detail);
-  _degraded.set(rotulo, { at: Date.now(), detail: texto });
+  const agora = Date.now();
+  _degraded.set(rotulo, { at: agora, detail: texto });
+  if (agora - (_gravadas.get(rotulo) || 0) >= DEGRADED_GRAVA_MS) _pendentes.add(rotulo);
   console.error(`degradado: ${rotulo}${texto ? ` — ${texto}` : ''}`, err || '');
 }
 
@@ -888,7 +908,69 @@ export function degradedHealth(now = Date.now()) {
   return out.sort((a, b) => a.agoSecs - b.agoSecs);
 }
 
-export function resetDegraded() { _degraded.clear(); }
+export function resetDegraded() { _degraded.clear(); _pendentes.clear(); _gravadas.clear(); _copiaFalhouEm = 0; }
+
+/**
+ * Copia para o Durable Object as degradações novas deste isolate (v3.11.0).
+ * Chamada no fim de todo pedido e do cron (src/index.js, em waitUntil); sem
+ * nada pendente, não faz chamada nenhuma. Nunca lança, e a falha NÃO vira
+ * noteDegraded (seria um laço: a cópia falhando registraria outra cópia).
+ * @param {{ COUNTER?: any }} env
+ */
+export async function guardaDegradacoes(env) {
+  if (!_pendentes.size || !env || !env.COUNTER) return;
+  const agora = Date.now();
+  if (agora - _copiaFalhouEm < DEGRADED_ESPERA_FALHA_MS) return;
+  const lista = [];
+  for (const label of _pendentes) {
+    const d = _degraded.get(label);
+    if (d) lista.push({ label, at: d.at, detail: d.detail });
+    _gravadas.set(label, agora);
+  }
+  _pendentes.clear();
+  if (!lista.length) return;
+  try {
+    await env.COUNTER.get(env.COUNTER.idFromName(DEGRADED_OBJ)).registraDegradacoes(lista, DEGRADED_TTL_MS);
+  } catch (e) {
+    // Volta para a fila: o próximo pedido tenta de novo.
+    for (const d of lista) { _pendentes.add(d.label); _gravadas.delete(d.label); }
+    _copiaFalhouEm = Date.now();
+    console.error('degradações: a cópia no Durable Object falhou', e);
+  }
+}
+
+/**
+ * As degradações de TODOS os isolates (as do Durable Object juntas com as
+ * deste), no formato de degradedHealth(): a mais recente de cada rótulo, as
+ * mais novas primeiro. Sem o Durable Object (ou com ele fora), só as deste
+ * isolate — como antes. Uma subrequisição.
+ * @param {{ COUNTER?: any }} env
+ * @param {number} [now]
+ */
+export async function degradacoesDeTodos(env, now = Date.now()) {
+  /** @type {Map<string, { at: number, detail: string }>} */
+  const todas = new Map();
+  if (env && env.COUNTER) {
+    try {
+      const guardadas = await env.COUNTER.get(env.COUNTER.idFromName(DEGRADED_OBJ)).degradacoes(DEGRADED_TTL_MS);
+      for (const d of Array.isArray(guardadas) ? guardadas : []) {
+        if (d && typeof d.label === 'string' && Number.isFinite(d.at)) todas.set(d.label, { at: d.at, detail: String(d.detail || '') });
+      }
+    } catch (e) {
+      console.error('degradações: a leitura do Durable Object falhou', e);
+    }
+  }
+  for (const [label, d] of _degraded) {
+    const ja = todas.get(label);
+    if (!ja || d.at >= ja.at) todas.set(label, d);
+  }
+  const out = [];
+  for (const [label, { at, detail }] of todas) {
+    if (now - at > DEGRADED_TTL_MS) continue;
+    out.push({ label, detail, agoSecs: Math.max(0, Math.round((now - at) / 1000)) });
+  }
+  return out.sort((a, b) => a.agoSecs - b.agoSecs);
+}
 
 // Atalho para o caso mais comum: uma operação de KV recusada. `op` não é
 // cosmético — uma falha de leitura relatada como escrita mandaria quem
@@ -1317,8 +1399,18 @@ export function fontPreloadHTML() {
  */
 export function navegacaoFluidaHTML(nonce) {
   const regras = { prefetch: [{ where: { and: [{ href_matches: '/*' }, { not: { href_matches: '/api/*' } }, { not: { href_matches: '/dashboard*' } }, { not: { href_matches: '*/baixar/*' } }, { not: { href_matches: '/f/*' } }, { not: { href_matches: '/sair' } }] }, eagerness: 'moderate' }] };
-  return `<style>@view-transition{navigation:auto}@media (prefers-reduced-motion:reduce){@view-transition{navigation:none}}</style>
-  ${nonce ? `<script type="speculationrules" nonce="${escape(nonce)}">${JSON.stringify(regras)}</script>` : ''}`;
+  // v3.9.4: resposta NO TOQUE (antes a página ficava parada até o HTML novo
+  // chegar): uma barra no topo e o cartão tocado esmaecido. Só para link
+  // interno de página (nunca foto, download, API ou nova aba); "pageshow"
+  // limpa ao voltar pelo histórico (bfcache).
+  const toque = `(function(){var h=document.documentElement;addEventListener('click',function(e){if(e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a||(a.target&&a.target!=='_self')||a.hasAttribute('download'))return;var u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search)||u.pathname.indexOf('/f/')===0||u.pathname.indexOf('/api/')===0||u.pathname.indexOf('/baixar/')>=0)return;var b=document.getElementById('nav-carrega');if(!b){b=document.createElement('div');b.id='nav-carrega';b.setAttribute('aria-hidden','true');document.body.appendChild(b)}var v=document.querySelector('[data-nav-alvo]');if(v)v.removeAttribute('data-nav-alvo');a.setAttribute('data-nav-alvo','');h.classList.add('navegando')});addEventListener('pageshow',function(){h.classList.remove('navegando')})})();`;
+  return `<style>@view-transition{navigation:auto}@media (prefers-reduced-motion:reduce){@view-transition{navigation:none}}
+#nav-carrega{position:fixed;left:0;right:0;top:0;height:3px;z-index:2147483646;pointer-events:none;background:#f9de4b;transform-origin:0 50%;transform:scaleX(0);opacity:0}
+html.navegando #nav-carrega{opacity:1;animation:nav-carrega 6s cubic-bezier(.1,.7,.2,1) forwards}
+html.navegando [data-nav-alvo]{opacity:.55;transition:opacity .12s ease-out}
+@keyframes nav-carrega{from{transform:scaleX(.12)}to{transform:scaleX(.94)}}
+@media (prefers-reduced-motion:reduce){html.navegando #nav-carrega{animation:none;transform:scaleX(.6)}}</style>
+  ${nonce ? `<script type="speculationrules" nonce="${escape(nonce)}">${JSON.stringify(regras)}</script><script nonce="${escape(nonce)}" data-nav>${toque}</script>` : ''}`;
 }
 
 export function photoPreconnectHTML() {

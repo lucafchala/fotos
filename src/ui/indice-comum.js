@@ -5,6 +5,7 @@
 
 import { honeypotFieldHTML } from '../security.js';
 import { EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN, NOVAS_RESUMO_MAX } from '../config.js';
+import { EMBUTIDO_FONTE } from './navegador-embutido.js';
 
 /** O CSS do diálogo e do resultado da busca pelo rosto (usa as variáveis de cor da página). */
 export const ROSTO_CSS = `.ix-visto-m{display:inline-block;margin-left:.45rem;font-size:.7rem;opacity:.75}
@@ -717,6 +718,9 @@ export const VISOR_CSS = `
 .vz-b{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 .9rem;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.35);color:#fff;font:inherit;font-size:.9rem;text-decoration:none;cursor:pointer}
 .vz-b:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .vz-baixar{background:#f9de4b;border-color:#f9de4b;color:#141a33;font-weight:700}
+.vz-toast{position:absolute;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));z-index:3;transform:translateX(-50%) translateY(8px);background:#111;color:#f0ebe5;font-size:.85rem;padding:.55rem .95rem;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .2s ease-out,transform .2s ease-out}
+.vz-toast.on{opacity:1;transform:translateX(-50%)}
+@media (prefers-reduced-motion:reduce){.vz-toast{transition:opacity .1s linear;transform:translateX(-50%)}}
 .vz-seta{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:48px;height:48px;padding:0;font-size:1.6rem;line-height:1;background:rgba(0,0,0,.45)}
 .vz-ant{left:max(.5rem,env(safe-area-inset-left))}
 .vz-prox{right:max(.5rem,env(safe-area-inset-right))}
@@ -753,7 +757,9 @@ export const SCRIPT_VISOR = `(function () {
     verA = el('a', 'vz-b', { 'data-vz': 'ver' }, 'Ver no evento');
     baixarA = el('a', 'vz-b vz-baixar', { 'data-vz': 'baixar', download: '' }, 'Baixar');
     base.appendChild(evEl); base.appendChild(verA); base.appendChild(baixarA);
-    [img, topo, antB, proxB, base].forEach(function (n) { dlg.appendChild(n); });
+    // v3.9.4: "Download iniciado" embaixo, no toque, para ninguém tocar de novo.
+    var toastEl = el('div', 'vz-toast', { role: 'status', 'aria-live': 'polite' }), toastT = 0;
+    [img, topo, antB, proxB, base, toastEl].forEach(function (n) { dlg.appendChild(n); });
     document.body.appendChild(dlg);
     if (document.fullscreenEnabled && dlg.requestFullscreen) cheiaB.hidden = false;
     img.addEventListener('load', function () { img.classList.remove('carregando'); });
@@ -764,6 +770,7 @@ export const SCRIPT_VISOR = `(function () {
       if (o === 'fechar') fecha();
       else if (o === 'ant') vai(i - 1);
       else if (o === 'prox') vai(i + 1);
+      else if (o === 'baixar') { toastEl.textContent = 'Download iniciado'; toastEl.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { toastEl.classList.remove('on'); }, 2600); }
       else if (o === 'cheia') { if (document.fullscreenElement) document.exitFullscreen(); else dlg.requestFullscreen().catch(function () {}); }
     });
     dlg.addEventListener('keydown', function (e) {
@@ -935,6 +942,10 @@ export const SCRIPT_AVISO = `(function () {
   var instalado = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
   var temPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   if (!temPush) {
+    // Navegador de dentro de um app (v3.11.0, src/ui/navegador-embutido.js):
+    // ali não há aviso, e "Adicionar à Tela de Início" nem existe. O caminho
+    // é abrir o álbum no navegador de verdade.
+    if (new RegExp(${JSON.stringify(EMBUTIDO_FONTE)}).test(navigator.userAgent || '')) { el.hidden = false; btn.hidden = true; msg.textContent = 'Quer aviso de foto nova? Abra o álbum no navegador do celular (Safari ou Chrome): dentro deste aplicativo os avisos não funcionam.'; return; }
     // iPhone fora da Tela de Início: o Safari só manda aviso para o site instalado.
     if (ios && !instalado) { el.hidden = false; btn.hidden = true; msg.textContent = 'Quer aviso de foto nova no iPhone? Toque em Compartilhar, depois em "Adicionar à Tela de Início", e abra o álbum pelo ícone.'; }
     return;

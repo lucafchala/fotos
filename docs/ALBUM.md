@@ -61,6 +61,13 @@ Um formato só para o site inteiro: `entrenos2026.com/<evento>?foto=<código>` (
 - **Foto oculta ou removida:** ocultar, "Remover da galeria" e apagar no Drive apagam as cópias da foto no R2. Quem já tinha a foto aberta deixa de vê-la em até 4 horas.
 - **R2:** com o bucket ligado no `wrangler.toml` (binding `FOTOS_R2`), a miniatura e o original vão para o R2 na primeira vez que alguém os pede e daí em diante saem de lá. Chaves: `w/<id>/<largura>.webp|jpg` e `o/<id>`. Para ligar: criar o bucket no painel da Cloudflare e acrescentar o binding (PR pequeno).
 
+### Quem abre pelo navegador de dentro de um app (v3.11.0)
+- Link aberto no Instagram, no Facebook, no TikTok (e em outros apps com navegador próprio) cai no navegador do app, onde baixar e os avisos falham sem dizer nada.
+- Ao tocar em baixar ou em "Avisar quando chegar foto nova", o álbum mostra uma faixa: no iPhone, "toque nos três pontinhos e escolha Abrir no navegador"; no Android, o botão **Abrir no Chrome**; nos dois, **Copiar o link**. Não impede a ação e, fechada, não volta naquela aba.
+- "Abrir no Chrome" aparece só nos apps conhecidos (Instagram, Facebook, TikTok, Snapchat, LinkedIn, LINE); num app qualquer, só "Copiar o link". Sem o Chrome instalado, o botão volta para a mesma página.
+- No lugar do botão de avisos (que o navegador de um app não suporta), o álbum diz para abrir no navegador do celular.
+- O WhatsApp não mostra a faixa: ele abre o link no navegador de verdade. Detalhes em `src/ui/navegador-embutido.js`.
+
 ### Aviso de fotos novas no celular (v3.8.4)
 - O botão "Avisar quando chegar foto nova" fica na abertura. No Android e no computador funciona direto; no iPhone, só com o álbum adicionado à Tela de Início (o botão explica).
 - Quando o indexador manda fotos que ainda não estavam no álbum, o cron avisa quem ligou, no máximo uma vez a cada 3 h por álbum: "12 fotos novas em PiauiFut e Gala. Toque para ver."
@@ -125,6 +132,8 @@ Um projeto com **Texto de abertura** (a apresentação do álbum) não usa mais 
 ### Como lançar (v3.5)
 
 **O álbum é surpresa até a hora.** Antes do lançamento, nada pode revelá-lo fora do entrenos2026.com, que só mostra o "em breve" com `noindex`.
+
+**Ensaio de carga antes do dia:** o plano (1.000 pessoas em 60 s, critérios e o script k6) está em [`ENSAIO-DE-CARGA.md`](./ENSAIO-DE-CARGA.md). Só o dono roda, contra uma prévia, com o R2 do álbum de teste aquecido.
 
 **Jeito 1: na hora, com um clique.** No painel, no menu ⋯ do projeto, toque em **Lançar agora…**. O item só aparece em projeto oculto ou "Em breve".
 - A confirmação pede para digitar **LANÇAR**.

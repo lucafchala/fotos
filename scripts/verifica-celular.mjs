@@ -416,6 +416,100 @@ for (const tela of TELAS) {
   await ctx.close();
 }
 
+// ---- Navegador embutido de app (v3.11.0, src/ui/navegador-embutido.js) ----
+// Quem abre o link pelo Instagram cai no navegador de dentro do app, onde
+// baixar e os avisos falham calados. A faixa só aparece quando a pessoa tenta
+// baixar, cabe na tela e tem alvos de 44 px; no Android, "Abrir no Chrome".
+{
+  const evento = /** @type {string} */ (paginas[paginas.length - 1].html);
+  const UAS = {
+    'Instagram (iPhone)': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 330.0.0.0 (iPhone14,5; iOS 17_5; pt_BR)',
+    'Instagram (Android)': 'Mozilla/5.0 (Linux; Android 14; SM-S911B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36 Instagram 330.0.0.0 Android',
+    'Safari (iPhone)': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  };
+  for (const [nomeUa, userAgent] of Object.entries(UAS)) {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent });
+    const page = await ctx.newPage();
+    const erros = /** @type {string[]} */ ([]);
+    page.on('pageerror', e => erros.push(String(e).slice(0, 160)));
+    await page.route('**/*', route => {
+      const u = route.request().url();
+      if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: evento });
+      if (/\.(png|jpe?g|webp|svg)(\?|$)|\/f\//.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      return route.fulfill({ status: 204, body: '' });
+    });
+    await page.goto('https://fotos.test/');
+    await page.waitForTimeout(600);
+    const rotulo = `Navegador embutido, ${nomeUa}`;
+    const antes = await page.locator('#nav-emb').isVisible();
+    await page.locator('[data-acao="baixar-tudo"]').tap();
+    await page.waitForTimeout(300);
+    const depois = await page.locator('#nav-emb').isVisible();
+    if (nomeUa.startsWith('Safari')) {
+      registra(!antes && !depois, `${rotulo}: no navegador de verdade, a faixa nunca aparece`, { antes, depois });
+    } else {
+      registra(!antes && depois, `${rotulo}: nada na entrada; ao tocar em "Baixar tudo", a faixa aparece`, { antes, depois });
+      const texto = (await page.locator('#nav-emb-txt').textContent()) || '';
+      registra(/navegador do Instagram/.test(texto), `${rotulo}: a faixa diz em que navegador a pessoa está`, texto);
+      const caixa = await page.locator('#nav-emb').boundingBox();
+      registra(!!caixa && caixa.x >= -1 && caixa.x + caixa.width <= 361 && caixa.y + caixa.height <= 741, `${rotulo}: a faixa cabe na tela`, caixa);
+      const m = await page.evaluate(mede);
+      registra(!m.pequenos.length && !m.rolaDeLado, `${rotulo}: botões da faixa com 44 px, nada vaza`, { pequenos: m.pequenos, vaza: m.vaza });
+      const abrir = page.locator('#nav-emb-abrir');
+      if (nomeUa.includes('Android')) {
+        registra(await abrir.isVisible() && /^intent:\/\/fotos\.test\/#Intent;scheme=https;package=com\.android\.chrome;S\.browser_fallback_url=https%3A%2F%2Ffotos\.test%2F;end$/.test((await abrir.getAttribute('href')) || ''), `${rotulo}: "Abrir no Chrome" com o endereço da página (e a volta, sem Chrome)`, await abrir.getAttribute('href'));
+      } else {
+        registra(!(await abrir.isVisible()) && /Abrir no navegador/.test(texto), `${rotulo}: no iPhone, o caminho pelo menu (sem link que não funcionaria)`, texto);
+      }
+      await page.screenshot({ path: `${SAIDA}/navegador-embutido-${nomeUa.includes('Android') ? 'android' : 'iphone'}.png` });
+      await page.locator('#nav-emb-fechar').tap();
+      registra(!(await page.locator('#nav-emb').isVisible()), `${rotulo}: "Fechar" esconde a faixa`, '');
+    }
+    registra(!erros.length, `${rotulo}: sem erro de JS`, erros);
+    await ctx.close();
+  }
+}
+
+// ---- Aviso de foto nova sem push (v3.11.0, revisão final) ----
+// O navegador de dentro do app NÃO tem PushManager/Notification; o Chromium
+// do roteiro tem. Trocar só o user agent mostrava o botão de avisos como num
+// navegador normal — foi assim que o #av-btn "inexistente no app" passou.
+// Aqui as duas APIs saem antes de a página carregar, e o que se confere é o
+// que a pessoa lê no álbum de verdade (não um DOM de mentira).
+{
+  const album = /** @type {string} */ (paginas[0].html);
+  const CASOS = {
+    'Instagram (iPhone)': ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 330.0.0.0 (iPhone14,5; iOS 17_5; pt_BR)', /Abra o álbum no navegador/],
+    'Instagram (Android)': ['Mozilla/5.0 (Linux; Android 14; SM-S911B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36 Instagram 330.0.0.0 Android', /Abra o álbum no navegador/],
+    'Safari (iPhone), fora da Tela de Início': ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', /Adicionar à Tela de Início/],
+  };
+  for (const [nomeUa, [userAgent, espera]] of Object.entries(CASOS)) {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, userAgent });
+    await ctx.addInitScript(() => { const w = /** @type {any} */ (globalThis); delete w.PushManager; delete w.Notification; });
+    const page = await ctx.newPage();
+    const erros = /** @type {string[]} */ ([]);
+    page.on('pageerror', e => erros.push(String(e).slice(0, 160)));
+    await page.route('**/*', route => {
+      const u = route.request().url();
+      if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: album });
+      if (/\.(png|jpe?g|webp|svg)(\?|$)|\/f\//.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      return route.fulfill({ status: 204, body: '' });
+    });
+    await page.goto('https://fotos.test/');
+    await page.waitForTimeout(400);
+    const rotulo = `Aviso sem push, ${nomeUa}`;
+    const semApi = await page.evaluate(() => !('PushManager' in globalThis) && !('Notification' in globalThis));
+    registra(semApi, `${rotulo}: o roteiro tirou PushManager e Notification`, '');
+    const btn = await page.locator('#av-btn').isVisible();
+    const frase = await page.locator('#av-msg').isVisible();
+    const texto = (await page.locator('#av-msg').textContent().catch(() => '')) || '';
+    registra(!btn && frase && espera.test(texto), `${rotulo}: sem botão de avisos (que nada faria); a frase certa à vista`, { btn, frase, texto });
+    if (nomeUa.startsWith('Instagram (Android)')) await page.locator('#av-msg').screenshot({ path: `${SAIDA}/aviso-sem-push-android.png` });
+    registra(!erros.length, `${rotulo}: sem erro de JS`, erros);
+    await ctx.close();
+  }
+}
+
 await browser.close();
 console.log(`${oks} ok, ${falhas.length} falha(s)`);
 process.exit(falhas.length ? 1 : 0);

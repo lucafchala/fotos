@@ -401,7 +401,7 @@ export function albumHTML(p) {
   <meta name="theme-color" content="${P.bg}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
-  ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
+  ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
   ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height , ...(marca ? { siteName: marca.siteName } : {}) })}
@@ -692,6 +692,10 @@ a{color:inherit;text-decoration:none}
 .al-link{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.95rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
 @media (hover:hover){.al-link:hover{color:var(--sol);text-decoration-color:currentColor}}
 .al-link svg{width:1.05rem;height:1.05rem;flex:none;color:var(--sol)}
+/* O display da classe vence o atributo hidden: sem esta linha, o botão de
+   avisos que o script esconde (navegador de app, Safari fora da Tela de
+   Início) continuava na tela, sem fazer nada (verifica:celular, v3.11.0). */
+.al-link[hidden]{display:none}
 .al-aviso-btn[aria-pressed="true"]{color:var(--txt)}
 .al-aviso-btn:disabled{opacity:.6;cursor:default}
 .al-aviso-msg{font-size:.82rem;color:var(--mudo);max-width:34rem;margin-top:.2rem}

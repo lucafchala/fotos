@@ -56,7 +56,7 @@ npm run verifica:navegador   # noutro terminal: Chromium de verdade contra o wra
 npm run smoke:local          # o mesmo smoke que decide a reversão em produção
 npm run verifica:evento      # véspera de evento: portão do Drive e fotos por aparelho (não precisa do wrangler)
 npm run verifica:galeria     # galeria própria: grade, zoom, downloads por aparelho (não precisa do wrangler)
-npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone
+npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone; a faixa do navegador de app
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
 npm run verifica:envio       # o envio pelo site no celular, contra o Google simulado: partes, rede caindo, retomada, duplicata
@@ -86,6 +86,8 @@ src/
                   lh3 e do original. A chave só existe aqui e no proxy de download.
   pedidos.js    ← pedidos de remoção, um por chave no KV (#198): lista em lote, regravação
                   que espera a janela de 1 s do KV, migração do array antigo, poda (§5.15)
+  indexnow.js   ← aviso ao IndexNow: só a diferença (entrou E saiu), um pedido por
+                  domínio, KV só quando muda; só com INDEXNOW = "ligado" (§5.27)
   previa.js     ← a camada da PRÉVIA DE PR, por fora do roteador: faixa, noindex, menu
                   "Testes" (simulações por cookie, ações com sessão). Só com AMBIENTE =
                   "previa"; em produção nenhuma linha dela roda (§5.16)
@@ -782,7 +784,7 @@ quente):
 |---|---|---|---|---|---|
 | Página, cookie `gv_<slug>` presente | 0 | 0 | 0 | 0 | 1 leitura |
 | Página, 1a visita do navegador na hora | 0 | 1 (contador, em `waitUntil`) | 0 | 0 | 1 leitura |
-| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo) | 0 |
+| Download de 1 foto | 0 | 2 (limite + contagem) | 0 | 0 (só o arquivo; com o original no R2, nenhuma ida ao Google — nem a sonda `?p=1`, v3.11.0) | 0 |
 | Lista vencida | 0 | 1 (lease, só quem relê) | 0 ou 1 (snapshot) | 1 listagem no mundo todo | 1 escrita |
 
 CPU da página de capítulo com 6.000 itens, memória quente: ~3,5 ms para montar
@@ -970,7 +972,102 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 - Falha de miniatura nunca é definitiva na primeira vez: a grade tenta de novo
   (`GALERIA_MINIATURA_TENTATIVAS`); `verifica:galeria` tem o cenário.
 
-### 5.25. Envio pelo site: a posição quem diz é o Google, e a pasta quem diz é o servidor (v4.0.0)
+### 5.26. O healthz vê o que degradou em qualquer isolate; e o navegador de dentro do app (v3.11.0)
+
+- `noteDegraded()` continua síncrona e sem `env`. A cópia para o Durable
+  Object (`guardaDegradacoes`) roda no fim do `fetch` e do `scheduled` do
+  export default (`src/index.js`), DEPOIS de todas as tarefas postas em
+  `ctx.waitUntil` terminarem (`coletaTarefas`). Por quê: o cron põe todo o
+  trabalho em `waitUntil` e retorna na hora; copiar no `finally` (a primeira
+  versão) rodava com a fila vazia, e a faxina do R2 que falhasse às 03:00
+  nunca chegava ao objeto (achado da revisão). Rota nova não precisa fazer
+  nada; mas quem chamar `worker.fetch` por fora do export default (um teste,
+  por exemplo) não copia — use o export default. O `ctx` que as rotas recebem
+  é o embrulho: só `waitUntil` e `passThroughOnException` passam.
+- A cópia não pode virar `noteDegraded` quando falha (seria um laço): só
+  `console.error`, e o rótulo volta para a fila. Depois de uma falha, 30 s
+  sem tentar (`DEGRADED_ESPERA_FALHA_MS`): com o objeto fora, no pico, cada
+  pedido faria uma chamada que falha.
+- A instância `degradacoes` é outro objeto do mesmo `COUNTER`: o dos
+  contadores (`contadores`) continua sem ser endereçado num HEAD
+  (`tests/security.test.js`).
+- A faixa do navegador embutido (`src/ui/navegador-embutido.js`) só aparece
+  no toque em baixar ou em ligar avisos, por um ouvinte em captura no
+  documento. Botão novo de download? Ele precisa casar com o seletor dos
+  gatilhos (`[data-acao^="baixar"]`, `#g-folha-ops`, `[data-vz="baixar"]`,
+  `#rs-cartao-baixar`, `#av-btn`, `a[download]`), ou a faixa não aparece.
+  `verifica:celular` tem o cenário (Instagram no iPhone e no Android, Safari).
+  "Abrir no Chrome" só para apps conhecidos (uma WebView genérica pode não
+  tratar `intent://`), com `S.browser_fallback_url` para quem não tem Chrome.
+  Sem push possível, o aviso de foto nova (`SCRIPT_AVISO`) diz para abrir no
+  navegador, em vez de "Adicionar à Tela de Início", que o app não tem.
+- O script k6 de `docs/ENSAIO-DE-CARGA.md` lê o HTML do site; as funções de
+  extração dele rodam no `npm test` (`tests/ensaio-de-carga.test.js`). Mudou o
+  `g-dados` ou os cartões do álbum? O teste avisa.
+- CSS de componente que usa `display:` em `a` ou `button` precisa de
+  `[hidden]{display:none}` próprio: o `display` da classe vence o atributo
+  `hidden` (o roteiro pegou o "Abrir no Chrome" aparecendo no iPhone, e
+  depois o `#av-btn` — `.al-link[hidden]` em `src/ui/album.js`).
+- O `verifica:celular` abre o álbum SEM `PushManager`/`Notification`
+  (`addInitScript`) no Instagram (iPhone e Android) e no Safari: o Chromium
+  do roteiro tem as duas APIs, e só trocar o user agent escondia o defeito.
+
+### 5.27. Indexada em tudo: treino de IA liberado e IndexNow (v3.11.0)
+
+Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
+(#307) foi deixado de lado; `/numeros` e `/ajuda` continuam `noindex`.
+
+- **Treino de IA liberado.** `robots.txt`: `Content-Signal: search=yes,
+  ai-train=yes, ai-input=yes` e um grupo só para os robôs de IA (busca e
+  treino) com `Allow: /`. Todo grupo repete `Disallow: /galeria/*/baixar/`:
+  robô com grupo próprio IGNORA o `*` — esquecer a linha num grupo novo põe
+  esse robô baixando originais (`tests/healthz.test.js` cobra em todo grupo).
+  `llms.txt` diz o mesmo. Os Termos e a Política de Privacidade dizem que as
+  páginas públicas podem ser lidas por IA, inclusive para treino; por isso o
+  `TERMS_VERSION` subiu (`2026-11-13`; com o envio da v4.0.0, `2026-11-14`). Família e privado seguem `noindex` e
+  fora dos sitemaps, mas o robô de treino chega até o portão como qualquer
+  visitante. `Disallow: /dashboard` em todo grupo; a `/api/` fica ABERTA de
+  propósito (a galeria busca `/api/galeria` no navegador, e o Google precisa
+  dela para renderizar). A Privacidade (§3, menores), o ROPA (§1,
+  compartilhamento) e o RIPD (R12) dizem que a remoção não alcança modelo de
+  IA já treinado.
+- **IndexNow** (`src/indexnow.js`). O cron, a cada 15 min
+  (`ehPassadaDoIndexNow`), calcula as URLs públicas (`urlsDoIndexNow` em
+  `src/index.js`: as do sitemap — `paginasDoSitemap`, a MESMA lista que o
+  `/sitemap.xml` usa — mais a raiz do domínio próprio e cada capítulo), compara
+  com `indexnow:avisadas` no KV e manda só a diferença, inclusive o que SAIU
+  (o buscador relê, vê o 404/noindex e tira mais cedo). O aviso é por
+  PÁGINA: foto oculta ou removida não muda a lista e não gera aviso (a
+  Privacidade manda à ferramenta de remoção do Google). Sem mudança: zero
+  pedidos e zero gravações. O que vale é **por domínio**: o que respondeu
+  200/202 grava a lista de agora; o recusado fica com a de antes e só ele vai
+  de novo na passada seguinte. Antes uma recusa travava todos, e um domínio de
+  álbum com a chave não verificada fazia o fotos.lucafchala.com ser reavisado
+  96 vezes por dia (revisão final do #313). Só álbum público entra
+  (`galeriaIndexavel`): família, privado, oculto e "em breve" (o surpresa)
+  ficam fora, capítulos inclusive — trocar o filtro por `events` passava a
+  suíte inteira até a revisão final (agora um teste com os quatro tipos
+  prende). Drive fora no meio da conta → `null` →
+  nada é avisado (nunca anunciar como retirada uma página que só não foi
+  lida). Página pública nova? Se ela entra no sitemap por
+  `paginasDoSitemap`, entra no IndexNow sozinha.
+- **Só em produção.** `INDEXNOW = "ligado"` em `[vars]` do `wrangler.toml`, e
+  `indexNowLigado` recusa a prévia pelo NOME (`ehPrevia`), não só pela falta
+  da variável: não confirmamos que `[previews.vars]` não herda `[vars]` (é a
+  mesma classe do defeito da prévia no envio). Testes e Worker local não têm
+  a variável.
+  A chave é pública por desenho e responde em `/<chave>.txt` no
+  fotos.lucafchala.com e em cada domínio de álbum (um pedido por host, com a
+  chave daquele host). Domínio de álbum novo em `DOMINIOS_DE_ALBUM` herda a
+  rota sozinho.
+- **Endereço canônico dos capítulos.** Os sitemaps de capítulo de um álbum com
+  domínio próprio listavam `/galeria/<slug>/<capítulo>`, que responde 301.
+  Agora usam `enderecoDoEvento` (`https://entrenos2026.com/<capítulo>`), o
+  mesmo do IndexNow (`tests/galeria-capitulos.test.js`).
+- O Google não participa do IndexNow. Para ele valem o sitemap e o Search
+  Console.
+
+### 5.28. Envio pelo site: a posição quem diz é o Google, e a pasta quem diz é o servidor (v4.0.0)
 
 - O arquivo vai do celular ao Worker em partes e do Worker ao Drive por uma
   sessão de envio retomável (`src/envio.js`, guia em `docs/ENVIO.md`). Sem
@@ -1006,7 +1103,10 @@ O álbum com domínio próprio é surpresa até o dono lançar, e o repositório
 1. Branch a partir de `main`, um assunto por branch — nomes, ciclo de vida e a
    proteção da `main` em [`docs/BRANCHES.md`](./docs/BRANCHES.md).
 2. Código + teste. **Reintroduza o bug e confirme que o teste falha** — teste de
-   regressão que nunca falhou não é teste de regressão.
+   regressão que nunca falhou não é teste de regressão. Isso não basta: siga
+   o checklist de `docs/VERIFICACAO.md` §6 (mutação no comportamento, rotas e
+   ambientes não exercitados, título ↔ `expect`, interruptor por rota). A
+   lista mora lá, uma vez só.
 3. `npm run lint && npm run typecheck && npm test && npm run test:coverage`.
    - **`npm test` são DUAS suítes.** `unit` roda em node com dublês; `workers`
      roda dentro do workerd, com Durable Objects, KV e D1 de verdade. A segunda
