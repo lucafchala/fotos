@@ -247,6 +247,24 @@ Código em `src/aviso.js`. Só para quem toca em "Avisar quando chegar foto nova
 
 ---
 
+## 17. Envio de fotos pelo site (v4.0.0)
+
+Código em `src/envio.js` (o caminho até o Drive) e `src/ui/enviar.js` (a página); guia em `docs/ENVIO.md`. Só nos álbuns públicos por capítulos com pasta de envio, e só com a credencial OAuth do Google configurada no Worker.
+
+| Campo | Conteúdo |
+| --- | --- |
+| **Dados** | Os **arquivos** escolhidos (foto ou vídeo), **sem alteração**: com os metadados que o aparelho gravou (data, câmera e, se registrada, **localização**). Nome do arquivo, tamanho, data do arquivo no aparelho e uma impressão digital do conteúdo (`appProperties.fp`, para não duplicar). O nome indicado para o crédito (opcional), na descrição do arquivo no Drive. O aceite da declaração de envio vai para a tabela `image_use_consent` (seção 2) com `drive_target = 'envio'`, `declaration_text` = `ENVIO_DECLARACAO` e `consenter_name` = o nome indicado. |
+| **Titulares** | Quem envia; e quem aparece nas fotos e nos vídeos enviados (inclusive menores). |
+| **Origem** | O aparelho de quem envia. |
+| **Finalidade** | Receber no álbum as fotos e os vídeos da turma, na pasta do evento, sem que a pessoa precise abrir o Google Drive. |
+| **Base legal** | Os arquivos: o mesmo das fotos do álbum (seção 1), com a declaração de quem envia de que pode publicá-los. O aceite: o da seção 2. |
+| **Retenção** | Os arquivos ficam no Drive como as demais fotos do álbum, até a remoção (pedido do titular, seção 3, ou decisão do controlador). O aceite segue a seção 2 (1825 dias). O servidor não guarda o arquivo nem a sessão de envio: o endereço da sessão do Google vai cifrado (AES-GCM) ao aparelho e vence em 6 dias. No aparelho, a página guarda no IndexedDB a lista dos envios em andamento (até 6 dias) e dos já enviados (até 30 dias), sem conteúdo. |
+| **Compartilhamento** | Google (Drive), na conta do controlador, como operador de armazenamento. Os arquivos passam pelo Worker da Cloudflare sem ser guardados. |
+| **Transferência internacional** | Sim — Google e Cloudflare (ver o resumo abaixo). |
+| **Observação** | Os metadados de localização **não são retirados** (o arquivo sobe byte a byte, em partes, e o servidor só confere os primeiros bytes); a galeria não lê a localização, mas quem baixa a foto no tamanho máximo recebe o arquivo original. A Política de Privacidade diz isso a quem envia. |
+
+---
+
 ## Resumo das transferências internacionais
 
 | Operador | O que recebe | Onde | Detalhe |

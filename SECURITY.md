@@ -733,6 +733,18 @@ what is already shared as "anyone with the link", so a leaked key exposes
 nothing private — its cost would be quota, which is why it never leaves the
 server.
 
+`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and
+`GOOGLE_OAUTH_REFRESH_TOKEN` are optional and turn on uploads from the album
+page (v4.0.0, `docs/ENVIO.md`). Unlike the API key, the refresh token is
+**write access to the owner's Drive**: it never leaves the server (not to the
+page, not to logs, not to PR previews). The resumable-upload session URL is
+itself a credential, so it reaches the browser only sealed (AES-GCM, key
+derived from `SIGNING_SECRET`, 6-day expiry). Without a valid
+`SIGNING_SECRET` uploads stay **off** (fail closed, unlike the rest of the
+site). Every upload goes only to a folder from the server's own list, with
+extension and magic bytes checked, per-IP buckets, per-album daily caps and a
+free-space margin.
+
 `SIGNING_SECRET` deserves a note: unlike the others, its absence **breaks
 nothing**. The Drive page nonce and the form tokens simply stop being required,
 and the site keeps serving as if it were protected. That is a deliberate

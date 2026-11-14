@@ -1,6 +1,6 @@
 {
   "name": "fotos",
-  "version": "3.11.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -28,7 +28,8 @@
     "verifica:galeria": "node scripts/verifica-galeria.mjs",
     "verifica:celular": "node scripts/verifica-celular.mjs",
     "verifica:painel": "node --import ./scripts/node-com-workers.mjs scripts/verifica-painel.mjs",
-    "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs"
+    "verifica:previa": "node --import ./scripts/node-com-workers.mjs scripts/verifica-previa.mjs",
+    "verifica:envio": "node --import ./scripts/node-com-workers.mjs scripts/verifica-envio.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",

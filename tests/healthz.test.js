@@ -96,7 +96,10 @@ describe('handleHealthz', () => {
   it('reflects which optional integrations are configured, without leaking their values', async () => {
     const env = { FOTOS: fakeKV({ events: '[]' }), RESEND_API_KEY: 'k', ADMIN_EMAIL: 'a@b.com' };
     const body = await (await handleHealthz(new Request(`${SITE}/api/healthz`), env)).json();
-    expect(body.config).toEqual({ resend: true, turnstile: false, consentDb: false, adminEmail: true, signing: false });
+    expect(body.config).toEqual({ resend: true, turnstile: false, consentDb: false, adminEmail: true, signing: false, envio: false });
+    // Sem os segredos do Google, o envio pelo site está desligado — e desligado
+    // não é problema: não entra no self-test nem derruba `ok` (src/envio.js).
+    expect(body.envio).toEqual({ estado: 'desligado', livreGb: null });
   });
 
   it('surfaces auditSite problems for a live event with a broken Drive link', async () => {

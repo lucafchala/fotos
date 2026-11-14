@@ -298,6 +298,32 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 
 **Risco residual: BAIXO.** A moderação **reduz** o risco R3 para fotos enviadas pela turma, desde que o controlador leia o aviso e oculte a foto logo: entre o aviso e a decisão, a foto marcada continua visível.
 
+### R11 — Envio de fotos pelo site · Prob. **Média** · Impacto **Médio** (v4.0.0)
+
+A página "Mandar suas fotos" (`docs/ENVIO.md`) deixa qualquer pessoa que vê o
+álbum mandar fotos e vídeos para a pasta do evento, sem abrir o Drive. Três
+riscos: (a) foto de terceiro ou de menor publicada sem cuidado, por quem não é
+o autor; (b) o arquivo sobe **sem alteração**, com a **localização** que o
+aparelho gravou, e quem baixa no "tamanho máximo" recebe o original; (c) abuso
+(lixo, volume, arquivo que não é foto).
+
+**Mitigação implementada:** declaração de quem envia (é o autor ou tem
+autorização de quem fez e de quem aparece), registrada no D1 com a versão dos
+Termos e o hash do texto (`drive_target = 'envio'`), mais Turnstile; a foto
+entra no mesmo canal de remoção do álbum, com prioridade para menores, e a
+moderação automática (R10) também a lê; só foto e vídeo (extensão e primeiros
+bytes), a pasta de destino sempre da lista do servidor, limites por IP, tetos
+do dia por álbum e margem de espaço no Drive. A Política de Privacidade diz a
+quem envia que o arquivo vai como está, com a localização se houver. Envio
+desligado por padrão (só com a credencial OAuth no Worker).
+
+**Não mitigado:** os metadados de localização não são retirados no envio (o
+arquivo sobe em partes e o servidor só lê o começo); é o mesmo do envio pela
+pasta do Drive, que já existia. Retirar exigiria reescrever o arquivo no
+caminho — decisão do controlador.
+
+**Risco residual: MÉDIO.**
+
 ### R12 — Fotos públicas lidas para treino de IA · Prob. **Alta** · Impacto **Médio**
 
 **O tratamento.** Desde a v3.11.0 (decisão do controlador, 13/11/2026: "quero a galeria indexada em tudo"), o `robots.txt` declara `ai-train=yes` e não fecha mais o site aos robôs de treino (GPTBot, ClaudeBot, Google-Extended, CCBot e outros). Os álbuns **públicos** podem ser lidos e usados para treinar modelos de IA, e o IndexNow avisa Bing, Yandex e os demais quando uma página pública entra ou sai. (Este risco é o R12 porque o R11 é o do envio de fotos pelo site, que vem num PR separado.)
@@ -332,6 +358,7 @@ Rosto é dado sensível (art. 5º, II, e art. 11), e o álbum tem menores (R3).
 | R8 | Metadados EXIF | Baixo | Remoção automática no servidor |
 | R9 | **Busca pelo rosto** (biometria) | **Médio-Alto** | Desligada por padrão, saída imediata, aviso prévio à turma, dados em São Paulo |
 | R10 | Texto e objetos lidos nas fotos; moderação | Baixo | Desligada por padrão, confiança alta, ocultas fora, moderação avisa o controlador de foto imprópria |
+| R11 | Envio de fotos pelo site | Médio | Declaração registrada, Turnstile, só mídia, pasta da lista do servidor, tetos; a localização do arquivo **não** é retirada |
 | R12 | **Fotos públicas lidas para treino de IA** | **Médio** | Só álbuns públicos; download fechado; a Privacidade avisa que a remoção não alcança modelo já treinado |
 
 ## 5. Conclusão

@@ -28,6 +28,9 @@ import { FONTS } from './content/fonts.js';
  *   CF_ANALYTICS_TOKEN?: string,
  *   KUMA_PUSH_URL?: string,
  *   GOOGLE_DRIVE_API_KEY?: string,
+ *   GOOGLE_OAUTH_CLIENT_ID?: string,
+ *   GOOGLE_OAUTH_CLIENT_SECRET?: string,
+ *   GOOGLE_OAUTH_REFRESH_TOKEN?: string,
  *   AWS_ACCESS_KEY_ID?: string,
  *   AWS_SECRET_ACCESS_KEY?: string,
  *   AWS_REGION?: string,
@@ -82,7 +85,7 @@ let ultimoAlertaDeErro = null;
 // Terms of Service version (the "Atualizada em" date, YYYY-MM-DD). Bump whenever the
 // Terms text changes — every image-use consent record pins the version the visitor
 // accepted, so old acceptances stay tied to the exact text they agreed to.
-export const TERMS_VERSION = '2026-11-13';
+export const TERMS_VERSION = '2026-11-14';
 
 // Exact wording of the consent the visitor ticks before Drive access. Stored verbatim
 // with each consent record (the client echoes it back) for non-repudiation.
@@ -1594,6 +1597,8 @@ export const RESERVED_SLUGS = new Set([
   'sobre', 'equipamentos', 'api', 'cdn-cgi',
   // Entrada e saída da editora do álbum, no domínio dele (v3.8.1).
   'entrar', 'sair',
+  // A página "Mandar suas fotos" no domínio do álbum (v4.0.0): /enviar.
+  'enviar',
   // As páginas de ajuda do álbum (v3.9.0): entrenos2026.com/ajuda; e a
   // "Turma em números" (v3.9.1): entrenos2026.com/numeros.
   'ajuda', 'numeros',

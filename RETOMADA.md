@@ -59,6 +59,7 @@ npm run verifica:galeria     # galeria própria: grade, zoom, downloads por apar
 npm run verifica:celular     # álbum e evento em 5 telas de celular: vazamento, alvos de 44 px, zoom do iPhone; a faixa do navegador de app
 npm run verifica:painel      # o painel logado, no iPhone, no Android e no computador (não precisa do wrangler)
 npm run verifica:previa      # a faixa e o menu "Testes" da prévia de PR, no celular e no computador (não precisa do wrangler)
+npm run verifica:envio       # o envio pelo site no celular, contra o Google simulado: partes, rede caindo, retomada, duplicata
 ```
 
 Se quiser o ambiente que os testes de navegador usam (KV e D1 em memória,
@@ -113,6 +114,7 @@ scripts/verifica-navegador.mjs  ← roteiro no Chromium (`npm run verifica:naveg
 scripts/verifica-evento.mjs     ← véspera de evento: 429, código por e-mail, fotos por aparelho (`npm run verifica:evento`)
 scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (`npm run verifica:galeria`)
 scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
+scripts/verifica-envio.mjs      ← o envio pelo site no Chromium contra o Google simulado (`npm run verifica:envio`)
 scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
 scripts/vigia-csp.mjs           ← o vigia de CSP dos roteiros: qualquer mensagem de CSP reprova; a página-canário prova que ele enxerga (#126, §5.1)
 scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
@@ -1022,7 +1024,7 @@ Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
   esse robô baixando originais (`tests/healthz.test.js` cobra em todo grupo).
   `llms.txt` diz o mesmo. Os Termos e a Política de Privacidade dizem que as
   páginas públicas podem ser lidas por IA, inclusive para treino; por isso o
-  `TERMS_VERSION` subiu (`2026-11-13`). Família e privado seguem `noindex` e
+  `TERMS_VERSION` subiu (`2026-11-13`; com o envio da v4.0.0, `2026-11-14`). Família e privado seguem `noindex` e
   fora dos sitemaps, mas o robô de treino chega até o portão como qualquer
   visitante. `Disallow: /dashboard` em todo grupo; a `/api/` fica ABERTA de
   propósito (a galeria busca `/api/galeria` no navegador, e o Google precisa
@@ -1064,6 +1066,37 @@ Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
   mesmo do IndexNow (`tests/galeria-capitulos.test.js`).
 - O Google não participa do IndexNow. Para ele valem o sitemap e o Search
   Console.
+
+### 5.28. Envio pelo site: a posição quem diz é o Google, e a pasta quem diz é o servidor (v4.0.0)
+
+- O arquivo vai do celular ao Worker em partes e do Worker ao Drive por uma
+  sessão de envio retomável (`src/envio.js`, guia em `docs/ENVIO.md`). Sem
+  estado no servidor: o endereço da sessão volta ao aparelho **selado**
+  (AES-GCM). Não troque por KV ou Durable Object — cada parte seria uma
+  escrita, e a cota é de 1000/dia.
+- A posição que vale é a que o **Google** responde (308 + `Range`). Página e
+  Google discordando é 409 com a posição do Google, nunca "confiar na página".
+- A pasta de destino tem de estar na lista que o **servidor** montou
+  (`pastasDeEnvio`); o ID que vem do navegador só escolhe dentro dela.
+- Recusa do **passe** é de todos os arquivos, não de um: a página para e mostra
+  o motivo (o `verifica:envio` pegou a versão que marcava cada foto como
+  "não aceita", sem motivo). Um 401 de passe só zera o passe se o pedido saiu
+  com o passe ATUAL (`passeUsado`): com vários arquivos em paralelo, um 401
+  atrasado jogava fora o passe novo que outro arquivo acabara de pedir. O
+  `verifica:envio` ("401 atrasado") prende: dois arquivos levam 401 com o
+  passe antigo, o primeiro 5 s depois; sem a guarda sai um terceiro passe.
+  Armadilha do roteiro: o passe é assinado com a hora em **segundos**, então
+  dois passes pedidos no mesmo segundo saem idênticos. O cenário reconhecia o
+  "antigo" pelo valor e recusava o renovado também (falhou na CI do 71d7cec);
+  agora o primeiro passe é um vencido de mentira (`vencido.roteiro`). Em
+  produção não acontece: só passe vencido leva 401, e o novo nunca é igual.
+- A credencial OAuth é escrita no Drive do dono: nunca na página, em log ou na
+  prévia (`SEGREDOS_DA_PREVIA` não a inclui, de propósito; e `envioLigado`
+  recusa com `AMBIENTE = "previa"`, a segunda trava). App do OAuth em
+  "Teste" faz o token vencer em 7 dias — o healthz mostra `envio.estado =
+  "falha"`.
+- O crédito assinado só vale dentro de pasta de envio e nunca com o nome de um
+  crédito do álbum (o aviso ao autor de um pedido de remoção vai pelo NOME).
 
 ## 6. Como fazer uma mudança
 

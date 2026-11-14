@@ -29,6 +29,14 @@ account_id = "e5869d6881e992cf4681ce85583a6ab2"
 #                         "tamanho máximo". OPCIONAL: sem ela, /galeria/<slug>
 #                         mostra o passo a passo de como criar, e nada mais
 #                         muda. Só é usada no servidor — nunca sai na página.
+#   GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN
+#                         a credencial OAuth da conta Google dona do álbum,
+#                         para o ENVIO PELO SITE (v4.0.0, docs/ENVIO.md): grava
+#                         as fotos da turma na pasta de envio do evento. As três
+#                         juntas, e com um SIGNING_SECRET válido, ou o envio
+#                         fica DESLIGADO (o botão volta a abrir o Drive). O
+#                         token de atualização É acesso de escrita ao Drive do
+#                         dono: nunca vai à página, a log nem à prévia de PR.
 #
 # ATENÇÃO ao SIGNING_SECRET: diferente dos outros, a ausência dele NÃO quebra
 # nada — os dois controles simplesmente não são exigidos, e o site segue

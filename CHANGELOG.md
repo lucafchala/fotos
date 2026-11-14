@@ -18,6 +18,16 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [4.0.0] — ainda não publicada
+
+Maior porque muda o que o visitante aceita: os Termos de Uso e a Política de Privacidade ganham o envio pelo site (versão dos Termos `2026-11-14`, que também leva o texto de IA da 3.11.0). **Nada muda no ar até o dono configurar a credencial do Google** (passo a passo em `docs/ENVIO.md`); sem ela, "Mandar suas fotos" segue abrindo a pasta do Drive, como hoje.
+
+- **Mandar fotos pelo próprio álbum, sem abrir o Google Drive.** `entrenos2026.com/enviar` (`/galeria/<slug>/enviar` no site): escolher muitas fotos e vídeos de uma vez no celular, conferir o evento de cada dia (sugerido pela data da foto, ou já escolhido quando a pessoa vem de um evento), assinar o crédito (opcional) e acompanhar o progresso. O arquivo sobe no tamanho original, em partes, e termina na mesma pasta de envio do evento no Drive que a galeria já lê — sem banco paralelo. Caiu a internet, a tela apagou ou a página foi fechada: o envio continua de onde parou (escolhendo as mesmas fotos de novo). O que já está no álbum não sobe de novo, nem de outro celular. Com o envio ligado, o botão "Mandar suas fotos" do álbum leva a essa página; a pasta do Drive vira o plano B, no fim dela.
+- **Crédito de quem envia.** O nome assinado vai na descrição do arquivo no Drive ("Crédito: Nome") e o álbum mostra a foto com ele, só dentro de pasta de envio, nunca com o nome de um crédito que o álbum já tem, e com um teto de nomes por evento. Com muitos nomes, a linha de autores do evento mostra os 5 primeiros e "mais N pessoas".
+- **Proteções:** verificação anti-robô e declaração uma vez por aparelho (o aceite fica no registro de consentimento, como o do Drive), limites por IP largos (a turma divide o Wi-Fi), tetos do dia por álbum, a pasta de destino sempre da lista do servidor, só foto e vídeo (a extensão e os primeiros bytes conferidos) e uma margem de espaço livre no Drive (o Drive cheio pararia também o e-mail da conta).
+- **`/api/healthz`** ganha `config.envio` e `envio.{estado,livreGb}` (`desligado`, `ok`, `falha`, `incerto`): o token do Google que vence em silêncio e o Drive que enche aparecem antes de a turma reclamar. Contrato segue em 1 (só acréscimo).
+- **Prévia de PR nunca envia ao Drive**, nem com a credencial do Google posta nela por engano (a lista de segredos da prévia já não a passava; agora o código também recusa). E, com vários arquivos ao mesmo tempo, uma recusa atrasada do passe não joga mais fora o passe novo que outro arquivo acabou de pedir (custava uma verificação anti-robô a mais).
+
 ## [3.11.0] — ainda não publicada
 
 O que falta antes do lançamento (itens A1 a A3 do plano). Menor por causa da faixa nova no álbum. O número pula o 3.10.0, que ficou com o PR "Fora dos buscadores" (#307), deixado de lado: o dono quer a galeria indexada em tudo.
