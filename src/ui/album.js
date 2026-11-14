@@ -391,7 +391,7 @@ export function albumHTML(p) {
   <meta name="theme-color" content="${P.bg}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
-  ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
+  ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
   ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height , ...(marca ? { siteName: marca.siteName } : {}) })}

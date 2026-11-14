@@ -1314,8 +1314,18 @@ export function fontPreloadHTML() {
  */
 export function navegacaoFluidaHTML(nonce) {
   const regras = { prefetch: [{ where: { and: [{ href_matches: '/*' }, { not: { href_matches: '/api/*' } }, { not: { href_matches: '/dashboard*' } }, { not: { href_matches: '*/baixar/*' } }, { not: { href_matches: '/f/*' } }, { not: { href_matches: '/sair' } }] }, eagerness: 'moderate' }] };
-  return `<style>@view-transition{navigation:auto}@media (prefers-reduced-motion:reduce){@view-transition{navigation:none}}</style>
-  ${nonce ? `<script type="speculationrules" nonce="${escape(nonce)}">${JSON.stringify(regras)}</script>` : ''}`;
+  // v3.9.4: resposta NO TOQUE (antes a página ficava parada até o HTML novo
+  // chegar): uma barra no topo e o cartão tocado esmaecido. Só para link
+  // interno de página (nunca foto, download, API ou nova aba); "pageshow"
+  // limpa ao voltar pelo histórico (bfcache).
+  const toque = `(function(){var h=document.documentElement;addEventListener('click',function(e){if(e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a||(a.target&&a.target!=='_self')||a.hasAttribute('download'))return;var u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search)||u.pathname.indexOf('/f/')===0||u.pathname.indexOf('/api/')===0||u.pathname.indexOf('/baixar/')>=0)return;var b=document.getElementById('nav-carrega');if(!b){b=document.createElement('div');b.id='nav-carrega';b.setAttribute('aria-hidden','true');document.body.appendChild(b)}var v=document.querySelector('[data-nav-alvo]');if(v)v.removeAttribute('data-nav-alvo');a.setAttribute('data-nav-alvo','');h.classList.add('navegando')});addEventListener('pageshow',function(){h.classList.remove('navegando')})})();`;
+  return `<style>@view-transition{navigation:auto}@media (prefers-reduced-motion:reduce){@view-transition{navigation:none}}
+#nav-carrega{position:fixed;left:0;right:0;top:0;height:3px;z-index:2147483646;pointer-events:none;background:#f9de4b;transform-origin:0 50%;transform:scaleX(0);opacity:0}
+html.navegando #nav-carrega{opacity:1;animation:nav-carrega 6s cubic-bezier(.1,.7,.2,1) forwards}
+html.navegando [data-nav-alvo]{opacity:.55;transition:opacity .12s ease-out}
+@keyframes nav-carrega{from{transform:scaleX(.12)}to{transform:scaleX(.94)}}
+@media (prefers-reduced-motion:reduce){html.navegando #nav-carrega{animation:none;transform:scaleX(.6)}}</style>
+  ${nonce ? `<script type="speculationrules" nonce="${escape(nonce)}">${JSON.stringify(regras)}</script><script nonce="${escape(nonce)}" data-nav>${toque}</script>` : ''}`;
 }
 
 export function photoPreconnectHTML() {
