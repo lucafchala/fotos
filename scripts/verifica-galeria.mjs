@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
-import { galeriaHTML } from '../src/ui/galeria.js';
+import { galeriaHTML, GALERIA_JS } from '../src/ui/galeria.js';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
 import { nomeAmigavel } from '../src/nomes.js';
 import { VENDOR } from '../src/content/vendor.js';
@@ -270,6 +270,8 @@ async function abre(o = {}) {
       if (corpo.oculta) ocultasNoServidor.add(corpo.foto); else ocultasNoServidor.delete(corpo.foto);
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ocultas: [...ocultasNoServidor] }) });
     }
+    // O script da galeria é arquivo desde a v4.1.0 (#252).
+    if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
     const b = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/baixar\/([A-Za-z0-9_-]+)$/);

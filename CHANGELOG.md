@@ -18,7 +18,16 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.0.1] — ainda não publicada
+## [4.1.0] — ainda não publicada
+
+Menor: função nova para o dono, e a galeria e a página do projeto mais rápidas no celular.
+
+- **Dica na faixa do dono: pastas que viraram seção** (#319). Uma pasta de fotógrafo que não está em *Créditos* vira um chip de seção com o nome cru da pasta ("comissao", "santa oficial"). A faixa do dono na página do evento lista essas pastas e diz para pôr em Créditos no painel; o visitante não vê nada (`pastasQueViraramSecao` em `src/ui/galeria.js`).
+- **Capa da página do projeto na proporção real** (#254). O painel mede cada capa nova no Drive ao criar ou salvar o evento (campo `capasProporcao`) e a caixa da capa usa essa proporção, não mais um 3:2 fixo — capa em pé deixa de ter faixas escuras largas no celular. Carrossel usa a mediana das capas. Evento antigo fica no 3:2 até ser salvo de novo no painel.
+- **Script da galeria como arquivo com cache de um ano** (#252): `/galeria.<hash>.js`, `immutable`; a página fica ~100 KB menor, e a segunda galeria aberta já tem o script.
+- **Primeira fileira da galeria já no HTML** (#253): no celular a foto do LCP começa a baixar antes do script; o script troca pela grade completa. No desktop nada muda (e nada baixa a mais).
+
+## [4.0.1] — 2026-11-14
 
 Correção: a galeria fica igual, só mais leve no celular.
 

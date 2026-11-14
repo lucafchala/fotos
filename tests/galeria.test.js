@@ -1268,7 +1268,9 @@ describe('galeria pública no Google', () => {
     expect(html).not.toContain('id="g-folha-drive"');
     expect(html).toMatch(/href="https:\/\/drive\.google\.com\/[^"]*" rel="nofollow">Abrir a pasta no Drive/);
     // O <a download> que o script cria para o download.
-    const script = html.slice(html.indexOf('function linkDireto'));
+    // O script vem como arquivo (#252), lido pela própria rota.
+    const js = await (await visitante(/** @type {RegExpMatchArray} */ (html.match(/<script src="(\/galeria\.[0-9a-f]{10}\.js)"/))[1])).text();
+    const script = js.slice(js.indexOf('function linkDireto'));
     expect(script.slice(0, 300)).toContain("a.rel = 'nofollow';");
     expect(html).not.toMatch(/a\.rel = 'noopener';/);
   });

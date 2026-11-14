@@ -143,7 +143,9 @@ describe('1. as páginas emitem o endereço assinado, e a rota o serve', () => {
     // A assinatura é DA foto: a da primeira não abre a segunda.
     expect((await pede(`/f/${F2}/400?k=${k(0)}`)).status).toBe(404);
     // O script da página lê `as` para montar o endereço (sem isso, 404 em tudo).
-    expect(h).toContain("'?k=' + (K[id] || D.slug)");
+    // O script vem como arquivo (#252): o endereço está no HTML, o texto na rota.
+    const src = /** @type {RegExpMatchArray} */ (h.match(/<script src="(\/galeria\.[0-9a-f]{10}\.js)"/))[1];
+    expect(await (await pede(src)).text()).toContain("'?k=' + (K[id] || D.slug)");
   });
 
   it('o modelo do índice não deixa nenhum endereço de foto sem assinatura', async () => {

@@ -571,6 +571,68 @@ export async function consultaArquivo(env, id, rk = '') {
   }
 }
 
+// Proporção das capas (#254): largura/altura de cada foto de capa, medida pela
+// API do Drive quando o DONO salva o evento — nunca por visitante (seria uma
+// chamada por visita e uma escrita no KV por visita). A página do projeto usa
+// o número para reservar a caixa certa antes da foto chegar: sem ele a caixa
+// era 3:2 fixa, e uma capa em pé ganhava faixas escuras largas no celular.
+const PROPORCAO_MIN = 0.2;
+const PROPORCAO_MAX = 5;
+const CAPAS_MEDIDAS_MAX = 12;
+
+/**
+ * Só ID válido do Drive com número dentro da faixa sobrevive — o campo vem
+ * também de backup restaurado, e vira CSS na página.
+ * @param {unknown} v
+ * @returns {Record<string, number>}
+ */
+export function normalizaProporcoes(v) {
+  /** @type {Record<string, number>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [id, r] of Object.entries(v)) {
+    if (Object.keys(out).length >= CAPAS_MEDIDAS_MAX * 4) break;
+    if (!ID_RE.test(id) || typeof r !== 'number' || !Number.isFinite(r)) continue;
+    if (r < PROPORCAO_MIN || r > PROPORCAO_MAX) continue;
+    out[id] = Math.round(r * 1000) / 1000;
+  }
+  return out;
+}
+
+/**
+ * Mede as capas que ainda não têm proporção conhecida. Devolve o mapa só das
+ * capas da lista atual (capa retirada some do mapa). Falha de uma medição
+ * deixa a capa de fora — a página cai no 3:2 de antes, nada quebra.
+ * @param {import('./utils.js').Env} env
+ * @param {string[]} urls fotos de capa do evento
+ * @param {(id: string) => string} idDe extrai o ID do Drive da URL
+ * @param {unknown} [conhecidas] o mapa já gravado no evento
+ * @returns {Promise<Record<string, number>>}
+ */
+export async function medeCapas(env, urls, idDe, conhecidas) {
+  const antes = normalizaProporcoes(conhecidas);
+  const ids = [...new Set(urls.map(idDe).filter(Boolean))].slice(0, CAPAS_MEDIDAS_MAX);
+  const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
+  /** @type {Record<string, number>} */
+  const out = {};
+  await Promise.all(ids.map(async id => {
+    if (antes[id]) { out[id] = antes[id]; return; }
+    if (!chave) return;
+    const params = new URLSearchParams({ fields: 'imageMediaMetadata(width,height,rotation)', supportsAllDrives: 'true', key: chave });
+    try {
+      const res = await fetch(`${DRIVE_FILES}/${encodeURIComponent(id)}?${params}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (!res.ok) return;
+      const m = /** @type {any} */ (await res.json())?.imageMediaMetadata;
+      const w = Number(m?.width), h = Number(m?.height);
+      if (!(w > 0 && h > 0)) return;
+      // Mesma regra de fotoCompacta: rotação 90°/270° troca os lados.
+      const r = (m.rotation === 1 || m.rotation === 3) ? h / w : w / h;
+      if (r >= PROPORCAO_MIN && r <= PROPORCAO_MAX) out[id] = Math.round(r * 1000) / 1000;
+    } catch { /* fica de fora: 3:2 */ }
+  }));
+  return out;
+}
+
 /**
  * Busca em largura, pasta a pasta. Cada página da API é uma subrequisição
  * (50 por invocação no plano gratuito), por isso o teto `maxChamadas`
