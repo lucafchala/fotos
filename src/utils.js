@@ -2758,7 +2758,7 @@ export async function sendSumiramEmail(env, d) {
   <p style="font-size:14px;line-height:1.6;color:#444;margin:0 0 12px">Sumiu entre ${esc(d.de)} e ${esc(d.ate)} (as duas leituras da pasta).</p>
   ${linhas ? `<ul style="font-size:14px;line-height:1.5;padding-left:18px;margin:0 0 12px">${linhas}</ul>` : ''}
   ${extra}
-  <p style="font-size:13px;line-height:1.6;color:#666">Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.</p>
+  <p style="font-size:13px;line-height:1.6;color:#666">Uma foto movida para uma pasta sem acesso público também aparece aqui: para o Google, as duas somem igual (#269). Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.</p>
   ${d.paraAutor ? '<p style="font-size:13px;line-height:1.6;color:#666">Você não precisa fazer nada. Dúvidas: <a href="mailto:privacidade@lucafchala.com" style="color:#888">privacidade@lucafchala.com</a>.</p>' : '<p style="font-size:13px;line-height:1.6;color:#666">A lista fica no painel, em "Fotos apagadas recentemente" (30 dias).</p>'}
   <p style="margin-top:16px;font-size:12px;color:#bbb">Luca F. Chala · fotos.lucafchala.com</p>
 </div>`;

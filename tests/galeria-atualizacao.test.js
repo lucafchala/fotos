@@ -261,8 +261,12 @@ describe('atualização automática desligada', () => {
     const meio = linhas()[0].em;
     avanca(MIN);
     limpaCacheDrive();
+    const inserts = escritas;
     await get('/galeria/festa?atualizar=1', { dono: true });
     expect(linhas()[0].em).not.toBe(meio);
+    // …e só o instante: o JSON igual não é regravado (#268)
+    expect(escritas, 'mesma lista: nenhum INSERT do JSON de novo').toBe(inserts);
+    expect(await nFotos('/galeria/festa')).toBe(3);
   });
 
   it('o dono vê "Atualizada em" e a explicação; o visitante não vê a faixa', async () => {

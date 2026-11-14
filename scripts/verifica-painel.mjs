@@ -36,6 +36,7 @@ import { existsSync, readdirSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import jsQR from 'jsqr';
+import { decodificaPng, rasterizaSvgDoQr } from './qr-no-node.mjs';
 import { sobeWorker, entraNoPainel, SENHA_DE_TESTE } from './worker-local.mjs';
 import { vigiaCsp, provaOVigia } from './vigia-csp.mjs';
 import { verificaAxe } from './axe.mjs';
@@ -67,7 +68,10 @@ async function cenario(nome, fn) {
   try {
     await fn();
   } catch (e) {
-    registra(false, `${nome}: o cenário quebrou no meio`, String(e instanceof Error ? e.message : e).split('\n')[0]);
+    // A linha do roteiro onde quebrou vai junto: "Execution context was
+    // destroyed" sozinho não diz qual dos page.evaluate morreu (#302).
+    const linha = ((e instanceof Error && e.stack) || '').split('\n').find(l => l.includes('verifica-painel.mjs')) || '';
+    registra(false, `${nome}: o cenário quebrou no meio`, String(e instanceof Error ? e.message : e).split('\n')[0] + (linha ? ` (${linha.trim().replace(/^.*verifica-painel\.mjs/, 'verifica-painel.mjs')})` : ''));
   }
 }
 
@@ -1178,44 +1182,33 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       }
       registra(await page.locator('#qr-png').isEnabled() && await page.locator('#qr-svg').isEnabled(), `${rotulo}: Baixar PNG e Baixar SVG ficam ativos`);
 
-      // PNG: baixa, desenha num canvas na própria página e decodifica no Node.
+      // O QR baixado é lido no Node (scripts/qr-no-node.mjs), não num canvas
+      // do navegador: no Chromium 158 (playwright-core 1.65) o page.evaluate
+      // logo depois de um download morria com "Execution context was
+      // destroyed", até numa aba nova (#302). O que se prova é o arquivo que a
+      // pessoa recebe.
+      // Toda navegação da aba do painel durante os downloads fica anotada:
+      // baixar o QR não pode tirar a pessoa do painel.
+      /** @type {string[]} */
+      const navegou = [];
+      const anotaNav = (/** @type {import('playwright-core').Frame} */ f) => { if (f === page.mainFrame()) navegou.push(f.url().slice(0, 80)); };
+      page.on('framenavigated', anotaNav);
       const [dlPng] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-png'), toque)]);
-      const caminhoPng = await dlPng.path();
-      const bytesPng = readFileSync(caminhoPng);
-      const pxPng = await page.evaluate(async b64 => {
-        const img = new window.Image();
-        img.src = 'data:image/png;base64,' + b64;
-        await img.decode();
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
-        g.drawImage(img, 0, 0);
-        const d = g.getImageData(0, 0, c.width, c.height);
-        return { w: c.width, h: c.height, data: Array.from(d.data) };
-      }, bytesPng.toString('base64'));
-      const lidoPng = jsQR(new Uint8ClampedArray(pxPng.data), pxPng.w, pxPng.h);
+      const pxPng = decodificaPng(readFileSync(await dlPng.path()));
+      const lidoPng = jsQR(pxPng.data, pxPng.w, pxPng.h);
       registra(dlPng.suggestedFilename() === 'qr-formatura-medicina-2026.png' && pxPng.w >= 1000 && !!lidoPng && lidoPng.data === url,
         `${rotulo}: o PNG baixado é grande e decodifica para o link`, { nome: dlPng.suggestedFilename(), w: pxPng.w, h: pxPng.h, lido: lidoPng && lidoPng.data });
 
-      // SVG: baixa, rasteriza na página e decodifica; o título vem embaixo.
+      // SVG: baixa, rasteriza os módulos e decodifica; o título vem no texto.
       const [dlSvg] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-svg'), toque)]);
       const texto = readFileSync(await dlSvg.path(), 'utf8');
-      const pxSvg = await page.evaluate(async svg => {
-        const img = new window.Image();
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-        await img.decode();
-        const c = document.createElement('canvas');
-        c.width = 800;
-        c.height = Math.round(800 * img.naturalHeight / img.naturalWidth);
-        const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
-        g.drawImage(img, 0, 0, c.width, c.height);
-        const d = g.getImageData(0, 0, c.width, c.height);
-        return { w: c.width, h: c.height, data: Array.from(d.data) };
-      }, texto);
-      const lidoSvg = jsQR(new Uint8ClampedArray(pxSvg.data), pxSvg.w, pxSvg.h);
+      const pxSvg = rasterizaSvgDoQr(texto);
+      const lidoSvg = jsQR(pxSvg.data, pxSvg.w, pxSvg.h);
       registra(dlSvg.suggestedFilename() === 'qr-formatura-medicina-2026.svg' && texto.includes('Formatura Medicina 2026') && !!lidoSvg && lidoSvg.data === url,
         `${rotulo}: o SVG baixado tem o título embaixo e decodifica para o link`, { nome: dlSvg.suggestedFilename(), lido: lidoSvg && lidoSvg.data });
+      await page.waitForTimeout(500);
+      page.off('framenavigated', anotaNav);
+      registra(navegou.length === 0 && /\/dashboard/.test(page.url()), `${rotulo}: baixar o PNG e o SVG não tira a aba do painel`, { navegou, url: page.url().slice(0, 80) });
 
       // Seletor de capítulo: só aparece se a lista de capítulos veio (o Drive
       // deste worker local pode não responder); se vier, trocar leva ao capítulo.

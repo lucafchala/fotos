@@ -116,6 +116,7 @@ scripts/verifica-galeria.mjs    ← galeria própria no Chromium, por aparelho (
 scripts/verifica-painel.mjs     ← o painel logado, fluxo do #220 por aparelho (`npm run verifica:painel`)
 scripts/verifica-envio.mjs      ← o envio pelo site no Chromium contra o Google simulado (`npm run verifica:envio`)
 scripts/verifica-previa.mjs     ← a faixa e o menu "Testes" da prévia de PR (`npm run verifica:previa`)
+scripts/qr-no-node.mjs          ← o QR baixado no painel lido no Node (PNG via zlib, SVG pelo <path> de svgDoQr), sem page.evaluate (#302)
 scripts/vigia-csp.mjs           ← o vigia de CSP dos roteiros: qualquer mensagem de CSP reprova; a página-canário prova que ele enxerga (#126, §5.1)
 scripts/worker-local.mjs        ← o Worker DE VERDADE num servidor HTTP local (KV/DO em memória, rede externa interceptada)
 scripts/node-com-workers.mjs    ← gancho do Node que troca `cloudflare:workers` pelo dublê (para o worker-local)
