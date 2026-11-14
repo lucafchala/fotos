@@ -550,6 +550,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-modo-sel .g-sec-todas{display:inline-flex;align-items:center}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
+    /* v3.9.4: linha fora da tela não passa por layout nem pintura (a altura já
+       vem fixa no style). A contenção corta o que vaza da linha: o foco da
+       miniatura fica por dentro. */
+    .g-linha{content-visibility:auto;contain-intrinsic-size:auto 300px}
+    .g-t:focus-visible{outline-offset:-3px}
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
     .g-t img.ok{opacity:1}
@@ -636,7 +641,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-folha-msg{font-size:.8rem;color:var(--text-muted);min-height:1.2em;margin:.2rem 0 .6rem}
     .g-folha-rod{display:flex;justify-content:space-between;align-items:center;gap:.5rem}
     .g-folha-rod a{font-size:.78rem;color:var(--text-muted)}
-    .g-aviso-flut{position:fixed;left:50%;top:calc(var(--topo) + 12px + env(safe-area-inset-top));transform:translateX(-50%);z-index:100020;background:#111;color:#f0ebe5;font-size:.82rem;padding:.55rem .9rem;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:translateX(-50%) translateY(-6px);transition:opacity .2s var(--sai),transform .2s var(--sai)}
+    .g-aviso-flut{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:100020;background:#111;color:#f0ebe5;font-size:.82rem;padding:.55rem .9rem;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s var(--sai),transform .2s var(--sai)}
     .g-aviso-flut.on{opacity:1;transform:translateX(-50%)}
     /* Visualizador: legenda e o botão de seleção ligado. */
     .pswp{--pswp-bg:#000}
@@ -1254,6 +1259,14 @@ const SCRIPT = `
     g.sec.style.containIntrinsicSize = 'auto ' + Math.ceil(altura + 60) + 'px';
   }
 
+  const vigia = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      vigia.unobserve(e.target);
+      const f = fotos[Number(e.target.dataset.i)];
+      if (f) poeSrc(f);
+    });
+  }, { rootMargin: '1500px 0px' }) : null;
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
   function dimensiona(f, w, topo, primeiraLinha) {
@@ -1264,15 +1277,24 @@ const SCRIPT = `
       // disputar a banda com o que se vê.
       // Vídeo (v3.8.1): o Google demora para gerar a miniatura de vídeo
       // grande; ela vem depois das fotos e nunca segura a primeira tela.
+      const perto = topo < window.innerHeight * 1.25;
       if (f.video) f.img.setAttribute('fetchpriority', 'low');
       else {
-        if (topo < window.innerHeight * 1.25) f.img.loading = 'eager';
+        if (perto) f.img.loading = 'eager';
         if (primeiraLinha) f.img.setAttribute('fetchpriority', 'high');
       }
-      f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
-      f.img.src = lh3(f.id, 400);
+      // v3.9.4: só a primeira tela ganha o srcset já. O resto ganha quando
+      // chega perto (ver poeSrc): montar as ~13 URLs de cada uma das mil e
+      // tantas miniaturas na abertura travava o celular por meio segundo.
+      if (perto || !vigia) poeSrc(f);
+      else if (!f.vigiada) { f.vigiada = true; vigia.observe(f.el); }
     }
     f.img.sizes = w + 'px';
+  }
+  function poeSrc(f) {
+    if (f.img.srcset) return;
+    f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
+    f.img.src = lh3(f.id, 400);
   }
 
   let reflow = 0;
@@ -2641,6 +2663,9 @@ const SCRIPT = `
     // Já há uma fila andando nesta aba: uma tentativa por vez.
     if (filaViva) { folhaMsg.textContent = 'Já há downloads na fila. Espere ou toque em Cancelar.'; return; }
     const minha = geracao;
+    // v3.9.4: o toque responde NA HORA, embaixo (antes só depois da fila, no
+    // topo) — sem resposta, a pessoa toca de novo e baixa duas vezes.
+    avisa(lista.length > 1 ? 'Download de ' + lista.length + ' fotos iniciado' : 'Download iniciado');
     folhaMsg.textContent = lista.length > 1
       ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
       : 'Preparando o download…';
@@ -2654,7 +2679,6 @@ const SCRIPT = `
       if (folhaMsg && !manterAberta) folhaMsg.textContent = lista.length > 1
         ? 'Baixando ' + lista.length + ' fotos. Se o navegador perguntar, permita vários downloads.'
         : 'Download iniciado.';
-      avisa(lista.length > 1 ? lista.length + ' fotos baixando' : 'Download começou');
       if (!manterAberta) setTimeout(function () { if (minha === geracao) fechaFolha(); }, lista.length > 1 ? 2500 : 900);
     });
   }
@@ -2765,7 +2789,7 @@ const SCRIPT = `
     flut.textContent = txt;
     flut.classList.add('on');
     clearTimeout(flutT);
-    flutT = setTimeout(function () { flut.classList.remove('on'); }, 1800);
+    flutT = setTimeout(function () { flut.classList.remove('on'); }, 2600);
   }
 
   // Compartilhar a PÁGINA DO PROJETO (não a galeria): é o link que o dono

@@ -32,7 +32,17 @@ O que falta antes do lançamento (itens A1 a A3 do plano). Menor por causa da fa
 - **A sonda do download não vai mais ao Google quando o original já está no R2.** Antes de baixar, a página pergunta ao servidor se o arquivo está pronto (`?p=1`). Essa pergunta ia sempre ao Google Drive, mesmo quando o download em seguida sairia do R2 — uma chamada à toa por foto, justamente no pico. Agora a sonda confere o R2 primeiro (sem ler o arquivo).
 - **Plano do ensaio de carga** (`docs/ENSAIO-DE-CARGA.md`, só documentação): 1.000 pessoas em 60 s, os critérios para lançar e o script k6, que o dono roda contra uma prévia. A leitura do HTML que o script faz é testada contra as páginas de verdade.
 
-## [3.9.3] — ainda não publicada
+## [3.9.4] — 2026-11-13
+
+Galeria mais leve no celular e resposta imediata ao toque.
+
+- **Galeria:** só as miniaturas da primeira tela recebem as URLs na abertura; as outras recebem quando chegam perto. As linhas fora da tela não passam por layout nem pintura (`content-visibility`). No evento com mais fotos, a CPU gasta na abertura caiu (Lighthouse, celular).
+- **Abrir um evento:** uma barra amarela no topo e o cartão tocado esmaecido aparecem no toque, antes de a página nova chegar.
+- **Download:** "Download iniciado" aparece embaixo, no toque, na galeria e em "minhas fotos" — para ninguém tocar de novo. O aviso flutuante da galeria passou do topo para baixo.
+- **Aquecimento:** o indexador aquece até 3000 fotos por execução (era 600); o teto de tempo continua valendo.
+- `<meta name="mobile-web-app-capable">` ao lado da versão da Apple (o Chrome avisava no console).
+
+## [3.9.3] — 2026-11-12
 
 Desempenho do álbum (pedido do dono: "extremamente lento" ao entrar nos eventos, ao passar as fotos e no "minhas fotos") e o console limpo. Medido no ar, pela prévia, num iPhone, num Android e no computador.
 
