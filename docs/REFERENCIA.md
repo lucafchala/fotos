@@ -631,6 +631,7 @@ fotos/
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção (inclusive os feitos pela galeria, com foto e as duas decisões), métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-envio.mjs   ← o envio pelo site no Chromium (celular), contra o Worker de verdade e o Google simulado: escolher, agrupar por dia, partes, rede caindo, recarregar e retomar, duplicata, passe recusado, 401 atrasado (npm run verifica:envio)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
+│   ├── qr-no-node.mjs       ← lê no Node o QR que o roteiro do painel baixa (PNG e SVG), sem canvas do navegador (#302)
 │   ├── vigia-csp.mjs        ← o vigia de CSP dos cinco roteiros: qualquer mensagem de CSP no console reprova, e uma página-canário prova que o vigia enxerga e a política bloqueia (#126)
 │   ├── worker-local.mjs     ← o `src/index.js` de verdade num servidor HTTP local: KV e Durable Objects em memória, Turnstile e Resend interceptados, outros hosts recebem 599 (o harness de docs/VERIFICACAO.md §2)
 │   ├── node-com-workers.mjs ← gancho do Node (`--import`) que troca `cloudflare:workers` pelo dublê de tests/stubs/, para rodar o `src/index.js` fora do workerd
