@@ -188,7 +188,7 @@ describe('foto apagada', () => {
     expect(e.html).toContain('Luca F. Chala');
     expect(e.html).toContain('2026-10-30 15:04:05');
     expect(e.html).toContain('Sumiu entre');
-    expect(e.html).toContain('Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.');
+    expect(e.html).toContain('Uma foto movida para uma pasta sem acesso público também aparece aqui: para o Google, as duas somem igual (#269). Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.');
     const l = linhas();
     expect(l.length).toBe(1);
     expect(l[0]).toMatchObject({ slug: 'festa', foto_id: idFoto(1), nome: 'um.jpg', autor: 'Luca F. Chala', capitulo: '' });

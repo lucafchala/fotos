@@ -558,6 +558,10 @@ export async function consultaArquivo(env, id, rk = '') {
   if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${id}/${rk}`;
   try {
     const res = await fetch(`${DRIVE_FILES}/${encodeURIComponent(id)}?${params}`, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // 404 = inexistente PARA A CHAVE DE API: apagada de vez OU movida para uma
+    // pasta sem acesso público — o Google não distingue as duas (#269). Conta
+    // como apagada (a foto saiu do álbum de qualquer jeito, e a cópia no R2
+    // deve sair), e o texto do aviso diz que pode ser só uma mudança de lugar.
     if (res.status === 404) return 'apagada';
     if (!res.ok) return 'indefinida';
     const corpo = /** @type {any} */ (await res.json());

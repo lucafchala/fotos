@@ -1984,7 +1984,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           ul.appendChild(li);
         });
         const aviso = document.createElement('div');
-        aviso.textContent = 'Guardado por ' + r.retencaoDias + ' dias. Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.';
+        aviso.textContent = 'Guardado por ' + r.retencaoDias + ' dias. Uma foto movida para uma pasta sem acesso público também aparece aqui: para o Google, as duas somem igual (#269). Se foi engano, quem enviou pode reenviar; arquivos apagados vão para a lixeira de quem é dono do arquivo.';
         caixa.appendChild(ul);
         caixa.appendChild(aviso);
       } catch (err) {
