@@ -1178,11 +1178,16 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       }
       registra(await page.locator('#qr-png').isEnabled() && await page.locator('#qr-svg').isEnabled(), `${rotulo}: Baixar PNG e Baixar SVG ficam ativos`);
 
-      // PNG: baixa, desenha num canvas na própria página e decodifica no Node.
+      // A decodificação roda numa aba à parte: no Chromium do playwright-core
+      // 1.65 o clique no <a download> conta como navegação da aba do painel, e
+      // um page.evaluate lá logo depois do download morre com "Execution
+      // context was destroyed" (#302). O painel não muda — só o teste corria.
+      const leitor = await ctx.newPage();
+      // PNG: baixa, desenha num canvas na aba leitora e decodifica no Node.
       const [dlPng] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-png'), toque)]);
       const caminhoPng = await dlPng.path();
       const bytesPng = readFileSync(caminhoPng);
-      const pxPng = await page.evaluate(async b64 => {
+      const pxPng = await leitor.evaluate(async b64 => {
         const img = new window.Image();
         img.src = 'data:image/png;base64,' + b64;
         await img.decode();
@@ -1201,7 +1206,7 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       // SVG: baixa, rasteriza na página e decodifica; o título vem embaixo.
       const [dlSvg] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-svg'), toque)]);
       const texto = readFileSync(await dlSvg.path(), 'utf8');
-      const pxSvg = await page.evaluate(async svg => {
+      const pxSvg = await leitor.evaluate(async svg => {
         const img = new window.Image();
         img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
         await img.decode();
@@ -1216,6 +1221,8 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       const lidoSvg = jsQR(new Uint8ClampedArray(pxSvg.data), pxSvg.w, pxSvg.h);
       registra(dlSvg.suggestedFilename() === 'qr-formatura-medicina-2026.svg' && texto.includes('Formatura Medicina 2026') && !!lidoSvg && lidoSvg.data === url,
         `${rotulo}: o SVG baixado tem o título embaixo e decodifica para o link`, { nome: dlSvg.suggestedFilename(), lido: lidoSvg && lidoSvg.data });
+      await leitor.close();
+      await page.bringToFront();
 
       // Seletor de capítulo: só aparece se a lista de capítulos veio (o Drive
       // deste worker local pode não responder); se vier, trocar leva ao capítulo.

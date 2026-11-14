@@ -28,6 +28,8 @@ Maior porque muda o que o visitante aceita: os Termos de Uso e a Política de Pr
 - **`/api/healthz`** ganha `config.envio` e `envio.{estado,livreGb}` (`desligado`, `ok`, `falha`, `incerto`): o token do Google que vence em silêncio e o Drive que enche aparecem antes de a turma reclamar. Contrato segue em 1 (só acréscimo).
 - **Prévia de PR nunca envia ao Drive**, nem com a credencial do Google posta nela por engano (a lista de segredos da prévia já não a passava; agora o código também recusa). E, com vários arquivos ao mesmo tempo, uma recusa atrasada do passe não joga mais fora o passe novo que outro arquivo acabou de pedir (custava uma verificação anti-robô a mais).
 
+- **Dependência de desenvolvimento:** `playwright-core` 1.65.0 (o Chromium dos roteiros sobe para o 158; PR do Dependabot #302). Com ele o clique em "Baixar PNG" do QR conta como navegação da aba do painel, e o roteiro decodificava o QR nessa mesma aba — agora decodifica numa aba à parte (`scripts/verifica-painel.mjs`). Nada muda no que vai ao ar.
+
 ## [3.11.0] — ainda não publicada
 
 O que falta antes do lançamento (itens A1 a A3 do plano). Menor por causa da faixa nova no álbum. O número pula o 3.10.0, que ficou com o PR "Fora dos buscadores" (#307), deixado de lado: o dono quer a galeria indexada em tudo.
