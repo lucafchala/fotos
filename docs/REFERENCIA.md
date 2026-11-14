@@ -1997,8 +1997,9 @@ baixo.
 `rel="nofollow"` nos links de download e do Drive: robô baixando original
 gastaria a cota do Drive e do Worker. O `Content-Signal` (`search=yes, ai-train=yes,
 ai-input=yes` desde a v3.11.0, decisão do dono) fica em todos os grupos, e
-todo grupo repete o `Disallow` do download (um robô com grupo próprio ignora o
-`*`) — o Lighthouse o acusa como diretiva desconhecida (é a
+todo grupo repete o `Disallow` do download e o do `/dashboard` (um robô com
+grupo próprio ignora o `*`); a `/api/` fica aberta porque a galeria busca
+`/api/galeria` no navegador e o Google precisa dela para renderizar — o Lighthouse o acusa como diretiva desconhecida (é a
 única falha do SEO, 92), e o Google ignora a linha.
 
 **Foto oculta ou pedido de remoção:** sai do HTML e do sitemap de imagens no

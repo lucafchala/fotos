@@ -3,11 +3,11 @@
 //  1. só a diferença vai ao IndexNow — o que entrou E o que saiu —, um pedido
 //     por domínio, com a chave publicada naquele domínio;
 //  2. sem mudança, zero gravação no KV (1.000/dia, dividido com a conta);
-//  3. aviso recusado não grava a lista (a próxima passada manda de novo), e
-//     lista desconhecida (Drive fora) não avisa nada;
+//  3. o que vale é por domínio: o aceito grava, o recusado fica com a lista de
+//     antes e só ele vai de novo; lista desconhecida (Drive fora) não avisa;
 //  4. a chave responde em /<chave>.txt nos dois domínios;
-//  5. o cron só avisa com INDEXNOW = "ligado" (testes, Worker local e prévia
-//     não têm a variável) e só a cada 15 min.
+//  5. o cron só avisa com INDEXNOW = "ligado" e fora da prévia (mesmo que ela
+//     herde a variável), e só a cada 15 min.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import worker from '../src/index.js';
 import {
@@ -53,6 +53,8 @@ describe('as peças', () => {
     expect(indexNowLigado({})).toBe(false);
     expect(indexNowLigado({ INDEXNOW: 'sim' })).toBe(false);
     expect(indexNowLigado(null)).toBe(false);
+    // A prévia é recusada pelo nome, mesmo se herdar a variável de produção.
+    expect(indexNowLigado({ INDEXNOW: 'ligado', AMBIENTE: 'previa' })).toBe(false);
     expect(ehPassadaDoIndexNow(undefined)).toBe(true);
     expect(ehPassadaDoIndexNow({ scheduledTime: Date.UTC(2026, 10, 13, 9, 30) })).toBe(true);
     expect(ehPassadaDoIndexNow({ scheduledTime: Date.UTC(2026, 10, 13, 9, 46) })).toBe(true);
@@ -108,11 +110,36 @@ describe('avisaIndexNow', () => {
     }
   });
 
-  it('um domínio aceito e outro recusado: não grava nada (os dois vão de novo)', async () => {
+  // Revisão final do #313: antes uma recusa travava a lista de TODOS, e um
+  // domínio de álbum recusado para sempre (chave não verificada, 403/422)
+  // fazia o fotos.lucafchala.com, já aceito, ser reavisado a cada 15 min.
+  it('um domínio aceito e outro recusado: grava só o aceito; a próxima passada reavisa só o recusado', async () => {
     const kv = fakeKV();
-    const f = vi.fn(async (/** @type {string} */ _u, /** @type {any} */ init) => new Response(null, { status: JSON.parse(init.body).host === 'entrenos2026.com' ? 500 : 200 }));
-    const r = await avisaIndexNow(/** @type {any} */ ({ FOTOS: kv }), [A, E], /** @type {any} */ (f));
-    expect(r.falhas).toEqual(['entrenos2026.com: HTTP 500']);
+    const recusa = vi.fn(async (/** @type {string} */ _u, /** @type {any} */ init) => new Response(null, { status: JSON.parse(init.body).host === 'entrenos2026.com' ? 403 : 200 }));
+    const r = await avisaIndexNow(/** @type {any} */ ({ FOTOS: kv }), [A, E], /** @type {any} */ (recusa));
+    expect(r.falhas).toEqual(['entrenos2026.com: HTTP 403']);
+    expect(r.avisadas).toBe(1);
+    expect(JSON.parse(kv.store.get(INDEXNOW_KV))).toEqual([A]);
+
+    // Recusado de novo: o fotos não vai outra vez, e nada é gravado.
+    const de_novo = vi.fn(async (/** @type {string} */ _u, /** @type {any} */ init) => new Response(null, { status: JSON.parse(init.body).host === 'entrenos2026.com' ? 403 : 200 }));
+    await avisaIndexNow(/** @type {any} */ ({ FOTOS: kv }), [A, E], /** @type {any} */ (de_novo));
+    expect(corpos(de_novo).map((/** @type {any} */ p) => p.host)).toEqual(['entrenos2026.com']);
+    expect(kv.puts).toEqual([INDEXNOW_KV]);
+
+    // Aceito agora: só o que faltava vai, e a lista fica completa.
+    const f = ok();
+    expect((await avisaIndexNow(/** @type {any} */ ({ FOTOS: kv }), [A, E], /** @type {any} */ (f))).avisadas).toBe(1);
+    expect(corpos(f)).toHaveLength(1);
+    expect(corpos(f)[0].urlList).toEqual([E]);
+    expect(JSON.parse(kv.store.get(INDEXNOW_KV))).toEqual([E, A].sort());
+  });
+
+  it('domínio recusado não perde o que saiu dele: a saída continua pendente até ser aceita', async () => {
+    const kv = fakeKV({ [INDEXNOW_KV]: JSON.stringify([A, E]) });
+    const recusa = vi.fn(async () => new Response(null, { status: 422 }));
+    await avisaIndexNow(/** @type {any} */ ({ FOTOS: kv }), [A], /** @type {any} */ (recusa));
+    expect(JSON.parse(kv.store.get(INDEXNOW_KV))).toEqual([A, E]);
     expect(kv.puts).toEqual([]);
   });
 
@@ -174,6 +201,12 @@ describe('no cron', () => {
 
   it('sem a variável (teste, Worker local, prévia): não avisa ninguém', async () => {
     const { kv, avisos } = await roda({});
+    expect(avisos).toHaveLength(0);
+    expect(kv.store.has(INDEXNOW_KV)).toBe(false);
+  });
+
+  it('prévia com a variável herdada: não avisa ninguém', async () => {
+    const { kv, avisos } = await roda({ INDEXNOW: 'ligado', AMBIENTE: 'previa' });
     expect(avisos).toHaveLength(0);
     expect(kv.store.has(INDEXNOW_KV)).toBe(false);
   });

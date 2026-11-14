@@ -1024,20 +1024,36 @@ Pedido do dono: "quero a galeria indexada em tudo". O "Fora dos buscadores"
   páginas públicas podem ser lidas por IA, inclusive para treino; por isso o
   `TERMS_VERSION` subiu (`2026-11-13`). Família e privado seguem `noindex` e
   fora dos sitemaps, mas o robô de treino chega até o portão como qualquer
-  visitante.
+  visitante. `Disallow: /dashboard` em todo grupo; a `/api/` fica ABERTA de
+  propósito (a galeria busca `/api/galeria` no navegador, e o Google precisa
+  dela para renderizar). A Privacidade (§3, menores), o ROPA (§1,
+  compartilhamento) e o RIPD (R12) dizem que a remoção não alcança modelo de
+  IA já treinado.
 - **IndexNow** (`src/indexnow.js`). O cron, a cada 15 min
   (`ehPassadaDoIndexNow`), calcula as URLs públicas (`urlsDoIndexNow` em
   `src/index.js`: as do sitemap — `paginasDoSitemap`, a MESMA lista que o
   `/sitemap.xml` usa — mais a raiz do domínio próprio e cada capítulo), compara
   com `indexnow:avisadas` no KV e manda só a diferença, inclusive o que SAIU
-  (o buscador relê, vê o 404/noindex e tira mais cedo). Sem mudança: zero
-  pedidos e zero gravações. Gravação só se TODO domínio respondeu 200/202;
-  senão a próxima passada repete. Drive fora no meio da conta → `null` →
+  (o buscador relê, vê o 404/noindex e tira mais cedo). O aviso é por
+  PÁGINA: foto oculta ou removida não muda a lista e não gera aviso (a
+  Privacidade manda à ferramenta de remoção do Google). Sem mudança: zero
+  pedidos e zero gravações. O que vale é **por domínio**: o que respondeu
+  200/202 grava a lista de agora; o recusado fica com a de antes e só ele vai
+  de novo na passada seguinte. Antes uma recusa travava todos, e um domínio de
+  álbum com a chave não verificada fazia o fotos.lucafchala.com ser reavisado
+  96 vezes por dia (revisão final do #313). Só álbum público entra
+  (`galeriaIndexavel`): família, privado, oculto e "em breve" (o surpresa)
+  ficam fora, capítulos inclusive — trocar o filtro por `events` passava a
+  suíte inteira até a revisão final (agora um teste com os quatro tipos
+  prende). Drive fora no meio da conta → `null` →
   nada é avisado (nunca anunciar como retirada uma página que só não foi
   lida). Página pública nova? Se ela entra no sitemap por
   `paginasDoSitemap`, entra no IndexNow sozinha.
-- **Só em produção.** `INDEXNOW = "ligado"` em `[vars]` do `wrangler.toml`; a
-  prévia não herda `[vars]`, e os testes e o Worker local não têm a variável.
+- **Só em produção.** `INDEXNOW = "ligado"` em `[vars]` do `wrangler.toml`, e
+  `indexNowLigado` recusa a prévia pelo NOME (`ehPrevia`), não só pela falta
+  da variável: não confirmamos que `[previews.vars]` não herda `[vars]` (é a
+  mesma classe do defeito da prévia no envio). Testes e Worker local não têm
+  a variável.
   A chave é pública por desenho e responde em `/<chave>.txt` no
   fotos.lucafchala.com e em cada domínio de álbum (um pedido por host, com a
   chave daquele host). Domínio de álbum novo em `DOMINIOS_DE_ALBUM` herda a

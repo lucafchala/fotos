@@ -177,6 +177,20 @@ describe('robots.txt e llms.txt: busca, resposta e treino de IA liberados (v3.11
     expect(txt).toContain('Disallow: /dashboard');
     expect(txt).toContain('Disallow: /api');
   });
+
+  // Revisão final do #313: o teste acima só olhava o llms.txt; com o grupo de
+  // IA liberado, nada no robots.txt fechava o painel. A /api/ fica aberta de
+  // propósito: a galeria busca /api/galeria no navegador, e o Google precisa
+  // dela para renderizar a página.
+  it('robots.txt: painel fechado em todo grupo; a API da galeria aberta (renderização)', async () => {
+    const txt = await (await pede('/robots.txt')).text();
+    const grupos = txt.split('\n\n').filter(g => g.includes('User-agent'));
+    expect(grupos.length).toBe(2);
+    for (const g of grupos) {
+      expect(g).toMatch(/^Disallow: \/dashboard$/m);
+      expect(g).not.toMatch(/^Disallow: \/api/m);
+    }
+  });
 });
 
 describe('scheduled() — daily retention cron', () => {

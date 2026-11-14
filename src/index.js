@@ -980,10 +980,13 @@ function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/si
   // `ai-train=no` com Disallow para os robôs de treino). O Content-Signal vale
   // em cada grupo (um grupo próprio de um robô ignora o do `*`), por isso os
   // robôs de IA têm grupo próprio com as MESMAS regras do `*`: quem lê só o seu
-  // grupo também fica fora do download. /dashboard e /api/ não são protegidos
-  // por aqui (robots.txt é aviso, não controle de acesso): têm login e limite
-  // de taxa. Família e privado não dependem do robots.txt: ficam fora dos
-  // sitemaps, levam noindex e o portão pede a declaração de quem abre.
+  // grupo também fica fora do download. robots.txt é aviso, não controle de
+  // acesso: o /dashboard tem login e a API limite de taxa. Mesmo assim o
+  // painel leva Disallow nos dois grupos (não tem nada a indexar). A /api/
+  // NÃO: a página da galeria busca /api/galeria no navegador, e fechar a API
+  // impediria o Google de renderizar a página como o visitante a vê.
+  // Família e privado não dependem do robots.txt: ficam fora dos sitemaps,
+  // levam noindex e o portão pede a declaração de quem abre.
   //
   // O download da galeria (/galeria/<slug>/baixar/<id>) leva Disallow nos dois
   // grupos que podem rastrear: cada pedido dele é um original pela Drive API ou
@@ -994,7 +997,7 @@ function handleRobots(host = 'fotos.lucafchala.com', sitemaps = [`${SITE_URL}/si
   // fica assim de propósito — o Google ignora a linha, e declarar o uso é
   // decisão do dono.
   const sinal = 'Content-Signal: search=yes, ai-train=yes, ai-input=yes\n';
-  const fechado = 'Disallow: /galeria/*/baixar/\nDisallow: /galeria/*/*/baixar/\n';
+  const fechado = 'Disallow: /galeria/*/baixar/\nDisallow: /galeria/*/*/baixar/\nDisallow: /dashboard\n';
   const robosDeIA = [
     'OAI-SearchBot', 'ChatGPT-User', 'Claude-Web', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Amazonbot',
     'GPTBot', 'Google-Extended', 'ClaudeBot', 'anthropic-ai', 'CCBot', 'Bytespider', 'Applebot-Extended', 'Meta-ExternalAgent', 'cohere-ai',

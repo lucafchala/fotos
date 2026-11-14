@@ -501,6 +501,23 @@ describe('IndexNow e endereço canônico dos capítulos (v3.11.0)', () => {
     for (const s of slugsDoIndice(await html('/galeria/formatura'))) expect(urls).toContain(`${SITE}/galeria/formatura/${s}`);
   });
 
+  // Revisão final do #313: trocar o filtro por `events` passava a suíte
+  // inteira, e os capítulos de um álbum de família, privado, oculto ou "em
+  // breve" (o álbum surpresa) iriam para o Bing. Os quatro têm capítulos aqui,
+  // para que só o filtro os tire da lista.
+  it('álbum de família, privado, oculto ou "em breve" nunca entra no IndexNow (nem os capítulos)', async () => {
+    const restritos = [
+      { ...EVENTO, slug: 'so-familia', accessType: 'family', visible: true, comingSoon: false },
+      { ...EVENTO, slug: 'so-privado', accessType: 'private', visible: true, comingSoon: false },
+      { ...EVENTO, slug: 'so-oculto', visible: false, comingSoon: false },
+      { ...EVENTO, slug: 'so-surpresa', visible: true, comingSoon: true },
+    ];
+    const urls = await urlsDoIndexNow(env, [{ ...EVENTO, visible: true, comingSoon: false }, ...restritos]);
+    expect(urls).toContain(`${SITE}/galeria/formatura`);
+    expect(urls.some(u => u.startsWith(`${SITE}/galeria/formatura/`))).toBe(true);
+    for (const r of restritos) expect(urls.filter(u => u.includes(r.slug)), r.slug).toEqual([]);
+  });
+
   it('Drive fora no meio da conta: null (nada é anunciado como retirado)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('erro', { status: 500 })));
     limpaCacheDrive();
