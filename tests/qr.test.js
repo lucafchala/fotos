@@ -13,8 +13,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import jsQR from 'jsqr';
 import worker from '../src/index.js';
 import { qrMatriz, qrLinhas, QR_VERSAO_MAX } from '../src/qr.js';
-import { limpaCacheDrive } from '../src/drive.js';
-import { saveEvents } from '../src/utils.js';
+import { limpaCacheDrive, slugBaseDeCapitulo } from '../src/drive.js';
+import { saveEvents, validateSlug } from '../src/utils.js';
+import { DOMINIOS_DE_ALBUM } from '../src/config.js';
 import { dashboardHTML, cardProjetoPainel, ICONES } from '../src/ui/dashboard.js';
 import { withDurableObjects } from './helpers/do.js';
 
@@ -66,6 +67,24 @@ describe('src/qr.js', () => {
   it('recusa o que não cabe na versão 10', () => {
     expect(QR_VERSAO_MAX).toBe(10);
     expect(() => qrMatriz('x'.repeat(214))).toThrow(RangeError);
+  });
+
+  // #272: os 213 bytes não são alcançáveis pelo painel. O pior link é o do
+  // capítulo: a origem mais longa (o site ou um domínio de álbum), slug de
+  // projeto no teto de validateSlug (60) e slug de capítulo no teto de
+  // slugBaseDeCapitulo (60, inclusive com o sufixo de desempate). Se um desses
+  // tetos subir, este teste diz se o QR ainda cabe — em vez de o dono
+  // descobrir num erro do painel.
+  it('o maior link que o painel pode pedir (capítulo, slugs no teto) cabe no QR', () => {
+    expect(validateSlug('a'.repeat(60))).toBe(true);
+    expect(validateSlug('a'.repeat(61))).toBe(false);
+    const capSlug = slugBaseDeCapitulo('Capítulo '.repeat(20));
+    expect(capSlug.length).toBeLessThanOrEqual(60);
+    const origens = ['https://fotos.lucafchala.com', ...Object.keys(DOMINIOS_DE_ALBUM).map(d => `https://${d}`)];
+    const maior = Math.max(...origens.map(o => o.length));
+    const pior = `${'h'.repeat(maior)}/galeria/${'p'.repeat(60)}/${'c'.repeat(60)}`;
+    expect(new TextEncoder().encode(pior).length).toBeLessThanOrEqual(213);
+    expect(() => qrMatriz(pior)).not.toThrow();
   });
 
   it('é determinístico: o mesmo texto dá a mesma matriz', () => {

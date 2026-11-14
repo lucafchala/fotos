@@ -91,7 +91,8 @@ async function marcaConferida(env, chave, ctx, em) {
 /**
  * Grava a listagem como a foto da pasta. Sem `forcar`, só grava se o conteúdo
  * mudou (1 leitura do hash; 1 escrita só quando mudou). Com `forcar` (o dono
- * tocou em "Atualizar agora", ou não havia foto) grava sempre — atualiza o "em".
+ * tocou em "Atualizar agora") o "em" anda sempre, mas o JSON só é regravado
+ * quando o conteúdo mudou (#268).
  * @param {EnvSnapshot} env
  * @param {string} chave
  * @param {string} ctx
@@ -107,6 +108,14 @@ export async function gravaSnapshot(env, chave, ctx, dados, { forcar = false, sl
     const hash = await hashDaListagem(dados);
     const antes = antesLido !== undefined ? antesLido : await lerHash(env, chave, ctx);
     if (antes === hash && !forcar) { await marcaConferida(env, chave, ctx, dados.em); return false; }
+    if (antes === hash) {
+      // "Atualizar agora" sem mudança (#268): o conteúdo já está lá, igual. Só
+      // o instante anda (a coluna `em`, que comEmConferido já prefere ao JSON) —
+      // regravar ~600 KB de JSON para trocar uma data era peso à toa no D1.
+      await env.CONSENT_DB.prepare('UPDATE galeria_snapshot SET em = ?, slug = ? WHERE chave = ? AND ctx = ?')
+        .bind(dados.em, slug, chave, ctx).run();
+      return true;
+    }
     if (aoMudar && antes !== null && antes !== hash) {
       const foto = await lerSnapshot(env, chave, ctx);
       if (foto) {

@@ -844,6 +844,31 @@ await cenario('Fila de download libera sozinha', async () => {
   await ctx.close();
 });
 
+// #271: fechar a folha com a fila esperando encerra a fila — e DIZ isso no
+// aviso de baixo (antes a pessoa fechava achando que a foto ainda viria).
+await cenario('Fechar a folha com a fila esperando avisa que parou', async () => {
+  const { ctx, page, estado } = await abre({ limite429: 30, limite429Vezes: 5 });
+  /** @type {string[]} */
+  const baixados = [];
+  page.on('download', d => baixados.push(urlDe(d)));
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-baixar').click();
+  await page.waitForSelector('#g-folha:not([hidden])');
+  await page.locator('.g-op').first().click();
+  await page.waitForFunction(() => /Na fila/.test(document.querySelector('.g-op')?.textContent || ''), null, { timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await espera(page, 300);
+  const aviso = (await page.locator('#g-aviso-flut').textContent().catch(() => '')) || '';
+  registra(await page.locator('#g-folha').isHidden(), 'Fila + fechar: a folha fecha', '');
+  registra(/Download cancelado ao fechar a janela/.test(aviso), 'Fila + fechar: o aviso diz que o download parou e como voltar', aviso);
+  await espera(page, 1500);
+  registra(baixados.length === 0 && estado.pedidos.length === 1, 'Fila + fechar: a fila parou de fato (só a primeira sonda, nenhum download)', { pedidos: estado.pedidos, baixados });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Fila + fechar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
 // v3.7.2: nada de link para a pasta no Drive. "Baixar tudo" baixa pelo site
 // (a mesma folha do "Baixar" da seleção) e, com filtro ligado, só o da tela.
 // Seções que são anos ("2026", "2025") viram filtro no topo.

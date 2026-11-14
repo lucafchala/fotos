@@ -138,6 +138,23 @@ export function variacoes() {
  *   de abertura (com o corpo cru, quando é <script> ou <style>), fora dos comentários
  */
 export function tagsDeAbertura(html) {
+  // A mesma página passa por três ou quatro varreduras (handlers, nonce,
+  // javascript:, a contagem das variações): sob carga, refazer o parse a cada
+  // uma estourava o tempo do teste (#256). Guardar o resultado por HTML deixa
+  // uma passada só; quem chama só lê (filter/find), nunca altera a lista.
+  const pronto = memoTags.get(html);
+  if (pronto) return pronto;
+  const tags = parseTags(html);
+  if (memoTags.size >= 200) memoTags.delete(/** @type {string} */ (memoTags.keys().next().value));
+  memoTags.set(html, tags);
+  return tags;
+}
+
+/** @type {Map<string, { tag: string, attrs: { nome: string, valor: string }[], corpo: string }[]>} */
+const memoTags = new Map();
+
+/** @param {string} html */
+function parseTags(html) {
   const baixo = html.toLowerCase();
   /** @type {{ tag: string, attrs: { nome: string, valor: string }[], corpo: string }[]} */
   const tags = [];

@@ -167,6 +167,8 @@ e sem etapa de build.
 - **Fila no navegador.** Quando o Google recusa um arquivo muito baixado, o
   Worker tenta de novo e responde 503 com espera de 20 a 60 s; o botão vira
   "Na fila… tentando de novo em N s" e tenta sozinho por até cerca de 5 min.
+  Fechar a janela de download encerra a fila e o aviso de baixo diz isso
+  (#271).
   O botão do evento inteiro no Drive é a saída sem fila.
 - **Plano gratuito da Cloudflare.** A cota é de 100 mil requisições/dia ao
   Worker, 100 mil linhas escritas/dia nos Durable Objects e cerca de 1.000

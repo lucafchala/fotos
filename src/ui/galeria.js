@@ -2647,6 +2647,10 @@ const SCRIPT = `
   /** @param {boolean} [peloVoltar] a entrada do histórico já saiu */
   function fechaFolha(peloVoltar) {
     if (!folha || folha.hidden) return;
+    // Fechar a folha encerra a fila (geracao++). Sem aviso, quem fechou para
+    // "esperar lá fora" achava que a foto ainda viria (#271): diz que parou e
+    // como voltar, no aviso de baixo, que fica visível com a folha fechada.
+    if (filaViva) avisa('Download cancelado ao fechar a janela. Toque em Baixar de novo para voltar à fila.');
     geracao++;
     folha.hidden = true;
     if (!peloVoltar && noTopo('folha')) history.back();
