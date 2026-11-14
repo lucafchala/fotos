@@ -1183,6 +1183,13 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
       // um page.evaluate lá logo depois do download morre com "Execution
       // context was destroyed" (#302). O painel não muda — só o teste corria.
       const leitor = await ctx.newPage();
+      // Toda navegação da aba do painel durante os downloads fica anotada:
+      // baixar o QR não pode tirar a pessoa do painel (e, se tirar, o detalhe
+      // diz para onde, em vez de um "Execution context was destroyed" mudo).
+      /** @type {string[]} */
+      const navegou = [];
+      const anotaNav = (/** @type {import('playwright-core').Frame} */ f) => { if (f === page.mainFrame()) navegou.push(f.url().slice(0, 80)); };
+      page.on('framenavigated', anotaNav);
       // PNG: baixa, desenha num canvas na aba leitora e decodifica no Node.
       const [dlPng] = await Promise.all([page.waitForEvent('download'), aciona(page.locator('#qr-png'), toque)]);
       const caminhoPng = await dlPng.path();
@@ -1223,6 +1230,9 @@ for (const [rotulo, viewport, dpr, toque] of /** @type {const} */ ([
         `${rotulo}: o SVG baixado tem o título embaixo e decodifica para o link`, { nome: dlSvg.suggestedFilename(), lido: lidoSvg && lidoSvg.data });
       await leitor.close();
       await page.bringToFront();
+      await page.waitForTimeout(500);
+      page.off('framenavigated', anotaNav);
+      registra(navegou.length === 0 && /\/dashboard/.test(page.url()), `${rotulo}: baixar o PNG e o SVG não tira a aba do painel`, { navegou, url: page.url().slice(0, 80) });
 
       // Seletor de capítulo: só aparece se a lista de capítulos veio (o Drive
       // deste worker local pode não responder); se vier, trocar leva ao capítulo.
