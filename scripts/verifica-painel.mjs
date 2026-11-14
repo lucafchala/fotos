@@ -67,7 +67,10 @@ async function cenario(nome, fn) {
   try {
     await fn();
   } catch (e) {
-    registra(false, `${nome}: o cenário quebrou no meio`, String(e instanceof Error ? e.message : e).split('\n')[0]);
+    // A linha do roteiro onde quebrou vai junto: "Execution context was
+    // destroyed" sozinho não diz qual dos page.evaluate morreu (#302).
+    const linha = ((e instanceof Error && e.stack) || '').split('\n').find(l => l.includes('verifica-painel.mjs')) || '';
+    registra(false, `${nome}: o cenário quebrou no meio`, String(e instanceof Error ? e.message : e).split('\n')[0] + (linha ? ` (${linha.trim().replace(/^.*verifica-painel\.mjs/, 'verifica-painel.mjs')})` : ''));
   }
 }
 
