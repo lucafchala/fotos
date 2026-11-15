@@ -18,7 +18,18 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.0] — ainda não publicada
+## [4.1.1] — ainda não publicada
+
+- **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
+  lista de pastas de envio vencia a cada 30 minutos, e a primeira pessoa
+  depois disso esperava o Drive ser percorrido inteiro (uma chamada por evento
+  e por ano/banda, uma depois da outra). Agora a lista vencida é servida na
+  hora e relida em segundo plano, como a galeria já fazia. A lista de
+  capítulos da página de envio também deixou de esperar o Drive quando vence.
+  O KV só é regravado quando a lista muda (ou a cada 24 h), não mais a cada
+  meia hora. Detalhe em `docs/ALBUM.md`, "Mandar suas fotos".
+
+## [4.1.0] — 2026-11-15
 
 Menor: função nova para o dono, e a galeria e a página do projeto mais rápidas no celular.
 

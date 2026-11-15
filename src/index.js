@@ -388,11 +388,11 @@ const worker = {
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
       if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
-      if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url);
+      if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url, ctx);
       // Envio de fotos pelo site (v4.0.0): o passe, o começo de um arquivo, as
       // partes dele e a pergunta "onde parou?". Ver handleEnvioInicia.
       if (path === '/api/envio/passe' && method === 'POST') return await handleEnvioPasse(request, env, ctx);
-      if (path === '/api/envio/inicia' && method === 'POST') return await handleEnvioInicia(request, env);
+      if (path === '/api/envio/inicia' && method === 'POST') return await handleEnvioInicia(request, env, ctx);
       if (path === '/api/envio/parte' && method === 'PUT') return await handleEnvioParte(request, env, ctx, url);
       if (path === '/api/envio/estado' && method === 'POST') return await handleEnvioEstado(request, env);
       if (path === '/api/qr' && method === 'GET') return await handleQr(request, env, url);
@@ -476,7 +476,7 @@ const worker = {
       // A página de envio (v4.0.0) vem ANTES da rota de evento: "enviar" não é
       // um evento (uma pasta com esse nome ficaria sem página).
       const enviarMatch = path.match(GALERIA_ENVIAR_RE);
-      if (enviarMatch && method === 'GET') return await handleEnvioPagina(request, env, enviarMatch[1], url, nonce);
+      if (enviarMatch && method === 'GET') return await handleEnvioPagina(request, env, enviarMatch[1], url, nonce, ctx);
       const ajudaMatch = path.match(GALERIA_AJUDA_RE);
       if (ajudaMatch && method === 'GET') return await handleAjuda(request, env, ajudaMatch[1], ajudaMatch[2] || '', nonce);
       const numerosMatch = path.match(GALERIA_NUMEROS_RE);
@@ -3976,16 +3976,25 @@ export async function handleRosto(request, env, acao) {
  * @param {Request} request
  * @param {Env} env
  * @param {URL} url
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx]
  */
-export async function handleGaleriaEnvio(request, env, url) {
+export async function handleGaleriaEnvio(request, env, url, ctx) {
   const slug = url.searchParams.get('slug') || '';
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
   if (!await podeVerGaleria(request, env, slug)) return jsonErr('Não encontrado.', 404);
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event || isRestrictedAccess(event) || !event.galeriaCapitulos) return jsonErr('Não encontrado.', 404);
-  const alvo = await alvoDaGaleria(env, event, '');
+  const alvo = await alvoDaGaleria(env, event, '', false, ctx);
   if (alvo.kind !== 'ok' || !alvo.caps) return jsonErr('O Google Drive não respondeu agora. Tente de novo em instantes.', 503);
-  const pastas = (await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos)).map(p => ({
+  /** @type {import('./drive.js').PastaDeEnvio[]} */
+  let achadas;
+  try {
+    achadas = await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos, { ctx });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return jsonErr('O Google Drive não respondeu agora. Tente de novo em instantes.', 503);
+  }
+  const pastas = achadas.map(p => ({
     evento: p.evento,
     cap: p.cap,
     rotulo: p.rotulo,
@@ -4024,16 +4033,27 @@ export async function handleGaleriaEnvio(request, env, url) {
  * @param {Request} request
  * @param {Env} env
  * @param {unknown} slug
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx]
  * @returns {Promise<{ ok: true, event: Evento, raiz: { id: string, resourceKey: string }, caps: import('./drive.js').CapitulosDrive, destinos: import('./drive.js').PastaDeEnvio[] } | { ok: false, status: 404 | 503 }>}
  */
-async function contextoDoEnvio(request, env, slug) {
+async function contextoDoEnvio(request, env, slug, ctx) {
   if (!envioLigado(env) || typeof slug !== 'string' || !validateSlug(slug)) return { ok: false, status: 404 };
   if (!await podeVerGaleria(request, env, slug)) return { ok: false, status: 404 };
   const event = (await getEvents(env)).find(e => e.slug === slug);
   if (!event || isRestrictedAccess(event) || !event.galeriaCapitulos) return { ok: false, status: 404 };
-  const alvo = await alvoDaGaleria(env, event, '');
+  // Com `ctx`, lista de capítulos e pastas de envio vencidas são servidas na
+  // hora e relidas em segundo plano (v4.2.0): sem ele, a página esperava o
+  // Drive inteiro a cada meia hora.
+  const alvo = await alvoDaGaleria(env, event, '', false, ctx);
   if (alvo.kind !== 'ok' || !alvo.caps) return { ok: false, status: 503 };
-  const destinos = await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos);
+  /** @type {import('./drive.js').PastaDeEnvio[]} */
+  let destinos;
+  try {
+    destinos = await pastasDeEnvio(env, alvo.caps, event.galeriaCreditos, { ctx });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return { ok: false, status: 503 };
+  }
   if (!destinos.length) return { ok: false, status: 404 };
   return { ok: true, event, raiz: alvo.raiz, caps: alvo.caps, destinos };
 }
@@ -4059,9 +4079,10 @@ const urlDaPasta = p => `https://drive.google.com/drive/folders/${p.id}${p.resou
  * @param {string} slug
  * @param {URL} url
  * @param {string} nonce
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx]
  */
-export async function handleEnvioPagina(request, env, slug, url, nonce) {
-  const c = await contextoDoEnvio(request, env, slug);
+export async function handleEnvioPagina(request, env, slug, url, nonce, ctx) {
+  const c = await contextoDoEnvio(request, env, slug, ctx);
   if (!c.ok) return c.status === 503 ? errorPage('503', 'O Google Drive não respondeu agora. Tente de novo em instantes.', 503) : notFound();
   const resumo = await lerResumo(c.raiz.id, env);
   /** @type {Record<string, number[]>} */
@@ -4160,7 +4181,7 @@ export async function handleEnvioPasse(request, env, ctx) {
   if (bruta && !assinatura) return jsonErr('O nome para o crédito pode ter letras, números, espaço, ponto e hífen (de 2 a 40 caracteres). Ou deixe em branco.', 400);
   const limite = await takeToken(env, ip, 'envio-passe', ENVIO_PASSE_IP_BUCKET);
   if (!limite.ok) return tooManyRequests(limite.retryAfter);
-  const c = await contextoDoEnvio(request, env, body.slug);
+  const c = await contextoDoEnvio(request, env, body.slug, ctx);
   if (!c.ok) return c.status === 503 ? erroDeEnvio('O Google Drive não respondeu agora. Tente de novo em instantes.', 'ocupado', 503) : jsonErr('Não encontrado.', 404);
   if (assinatura && !assinaturaLivre(c.event, assinatura)) return jsonErr('Esse nome já é o de um crédito do álbum. Use o seu nome, ou deixe em branco.', 400);
   if (!(await verifyTurnstile(body.turnstileToken, env))) {
@@ -4233,8 +4254,9 @@ async function somaDoDia(env, chave, by) {
  * → { sessao } (o selo), ou { duplicada: true } se a pasta já tem esse arquivo.
  * @param {Request} request
  * @param {Env} env
+ * @param {{ waitUntil?: (p: Promise<any>) => void }} [ctx]
  */
-export async function handleEnvioInicia(request, env) {
+export async function handleEnvioInicia(request, env, ctx) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const body = await readJsonBody(request);
   if (!body) return jsonErr('JSON inválido.', 400);
@@ -4257,7 +4279,7 @@ export async function handleEnvioInicia(request, env) {
   const limite = await takeToken(env, ip, 'envio', ENVIO_IP_BUCKET);
   if (!limite.ok) return tooManyRequests(limite.retryAfter);
 
-  const c = await contextoDoEnvio(request, env, slug);
+  const c = await contextoDoEnvio(request, env, slug, ctx);
   if (!c.ok) return c.status === 503 ? erroDeEnvio('O Google Drive não respondeu agora. Tentando de novo em instantes.', 'ocupado', 503) : jsonErr('Não encontrado.', 404);
   // O destino tem de estar na lista do SERVIDOR: o ID veio do navegador.
   const destino = c.destinos.find(d => d.id === body.pasta);
