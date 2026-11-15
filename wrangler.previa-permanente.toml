@@ -1,0 +1,73 @@
+# Prévia permanente — preview.fotos.lucafchala.com e preview.entrenos2026.com
+#
+# Um Worker À PARTE (`fotos-previa-permanente`), não um `[env.*]` deste
+# repositório (#166: o `[env.preview]` antigo usava o KV de produção). Ele roda
+# o mesmo código do site pela entrada src/previa-permanente.js, que só troca o
+# host do pedido e os endereços da resposta.
+#
+# Publicado pelo Cloudflare Workers Builds (Worker `fotos-previa-permanente`,
+# branch `previa-permanente`, deploy command `npm run previa:permanente`).
+#
+# Os ids de KV e D1 NÃO moram aqui: scripts/previa-permanente.mjs acha (ou
+# cria) `fotos-previa-permanente` e `fotos-consent-previa-permanente` pelo nome
+# na conta, recusa se algum deles for o de produção, e escreve uma cópia deste
+# arquivo com os ids numa pasta temporária. Os marcadores __KV_ID__ e __D1_ID__
+# abaixo são trocados lá.
+#
+# O que fica de fora, de propósito:
+#   - Cron (`[triggers]`): nenhum alerta, IndexNow ou faxina roda sozinho.
+#   - GOOGLE_OAUTH_*: o envio pelo site grava no Drive de produção do dono.
+#
+# Segredos: os mesmos PREVIA_* da prévia de PR, nas variáveis do build deste
+# Worker (Settings → Builds → Variables and secrets). O script os passa ao
+# deploy por --secrets-file; nenhum valor sai no log.
+
+name = "fotos-previa-permanente"
+main = "src/previa-permanente.js"
+compatibility_date = "2024-11-01"
+account_id = "e5869d6881e992cf4681ce85583a6ab2"
+workers_dev = true
+preview_urls = false
+
+routes = [
+  { pattern = "preview.fotos.lucafchala.com", custom_domain = true },
+  { pattern = "preview.entrenos2026.com", custom_domain = true },
+]
+
+[vars]
+AMBIENTE = "previa"
+
+[[kv_namespaces]]
+binding = "FOTOS"
+id = "__KV_ID__"
+
+[[d1_databases]]
+binding = "CONSENT_DB"
+database_name = "fotos-consent-previa-permanente"
+database_id = "__D1_ID__"
+migrations_dir = "migrations"
+
+# Bucket PRÓPRIO, nunca o `fotos-album` de produção: miniaturas e originais
+# guardados na primeira vez que alguém os pede, como em produção.
+[[r2_buckets]]
+binding = "FOTOS_R2"
+bucket_name = "fotos-previa-permanente"
+
+[[durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[durable_objects.bindings]]
+name = "RATELIMIT"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter", "RateLimiter"]
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
