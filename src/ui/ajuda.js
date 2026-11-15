@@ -6,7 +6,7 @@
 // de repetir a explicação. Cada resposta descreve o que o código faz hoje
 // (nomes de botão iguais aos da tela); mudou o comportamento, muda aqui.
 
-import { escape, fontFaceCSS, fontPreloadHTML, marcaDoAlbum } from '../utils.js';
+import { escape, fontFaceAlbumCSS, marcaDoAlbum } from '../utils.js';
 import { CORES_DO_ALBUM } from './album.js';
 import { PALETA_ALBUM as P } from '../config.js';
 
@@ -29,7 +29,7 @@ export const TEMAS_DE_AJUDA = [
       { p: 'Faltou foto minha. E agora?', r: 'A busca é aproximada: pode faltar foto e pode aparecer alguém parecido. Tente outra selfie e, para ter certeza, olhe o evento inteiro em <b>Ver todas as fotos</b>.' },
       { p: 'Chegaram fotos novas. Preciso buscar de novo?', r: 'Não. No aparelho em que você buscou, <b>Ver minhas fotos</b> confere sozinho as fotos que chegaram depois e marca as novas.' },
       { p: 'Posso fazer um cartão para os stories?', r: 'Sim. Depois da busca, toque em <b>Criar cartão para os stories</b>: o próprio celular monta uma imagem com as suas melhores fotos. Nada é enviado; ela só sai do aparelho se você compartilhar ou baixar.' },
-      { p: 'Não quero aparecer na busca.', r: 'Na página do álbum, toque em <b>Não quero aparecer na busca</b> e mande uma selfie: o seu rosto sai do índice, inclusive das fotos que chegarem depois. As fotos continuam no álbum; para tirar uma foto, veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
+      { p: 'Não quero aparecer na busca', r: 'Na página do álbum, toque em <b>Não quero aparecer na busca</b> e mande uma selfie: o seu rosto sai do índice, inclusive das fotos que chegarem depois. As fotos continuam no álbum; para tirar uma foto, veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
     ],
   },
   {
@@ -39,7 +39,7 @@ export const TEMAS_DE_AJUDA = [
     perguntas: [
       { p: 'Como baixo uma foto?', r: 'Abra a foto e toque em <b>Baixar</b>. Escolha <b>Para redes sociais</b> (mais leve, pronta para postar) ou <b>O arquivo original</b> (a qualidade total da câmera).' },
       { p: 'E várias de uma vez?', r: 'Toque em <b>Selecionar</b>, escolha as fotos e toque em <b>Baixar</b>. Para o evento inteiro, use <b>Baixar tudo</b>.' },
-      { p: 'Apareceu "Você está na fila".', r: 'Muita gente está baixando ao mesmo tempo. O site tenta de novo sozinho: deixe a página aberta.' },
+      { p: 'Apareceu "Você está na fila"', r: 'Muita gente está baixando ao mesmo tempo. O site tenta de novo sozinho: deixe a página aberta.' },
       { p: 'No iPhone, onde a foto vai parar?', r: 'Se ela for para o app Arquivos, abra a foto lá e toque em Compartilhar → <b>Salvar imagem</b> para mandá-la para o app Fotos.' },
       { p: 'Como mando uma foto para alguém?', r: 'Abra a foto e toque em <b>Compartilhar</b>. O link abre direto naquela foto, e no WhatsApp a prévia já mostra a própria foto.' },
       { p: 'Posso guardar as que gostei?', r: 'Toque na estrela (<b>Favoritar</b>) nas fotos que você gostou. Depois dá para ver só as favoritas e mandar todas num link só.' },
@@ -53,7 +53,7 @@ export const TEMAS_DE_AJUDA = [
       { p: 'Como mando as minhas fotos?', r: 'Na página do álbum, toque em <b>Mandar suas fotos</b> e siga o passo a passo. As fotos vão para a pasta da turma no Google Drive, e o álbum lê de lá.' },
       { p: 'Quanto tempo até aparecerem?', r: 'Em geral alguns minutos: o álbum confere a pasta sozinho. A busca pelo rosto passa a achar as fotos novas pouco depois. Em dias de muito envio, pode levar mais.' },
       { p: 'Posso mandar vídeos e Live Photos?', r: 'Pode. Vídeos aparecem com o botão de tocar, e Live Photos aparecem como foto.' },
-      { p: 'Mandei uma foto por engano.', r: 'Peça para tirá-la: veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
+      { p: 'Mandei uma foto por engano', r: 'Peça para tirá-la: veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
       { p: 'O que não mandar?', r: 'O álbum é da turma toda e tem menores de idade: nada que exponha ou constranja alguém. Fotos assim podem ser tiradas do álbum.' },
     ],
   },
@@ -64,7 +64,7 @@ export const TEMAS_DE_AJUDA = [
     perguntas: [
       { p: 'Como peço para tirar uma foto?', r: 'Abra a foto e toque em <b>Pedir remoção desta foto</b>. Conte o motivo: o pedido vai direto para quem cuida do álbum.' },
       { p: 'A foto some na hora?', r: 'Não: quem cuida do álbum lê o pedido e tira a foto se for o caso. Quando ela sai, sai também das cópias do site.' },
-      { p: 'Quero só sair da busca pelo rosto.', r: 'Isso é outra coisa: veja <a href="{base}/ajuda/rosto">Achar minhas fotos pelo rosto</a> → "Não quero aparecer na busca".' },
+      { p: 'Quero só sair da busca pelo rosto', r: 'Isso é outra coisa: veja <a href="{base}/ajuda/rosto">Achar minhas fotos pelo rosto</a> → "Não quero aparecer na busca".' },
       { p: 'E os meus dados pessoais?', r: 'Para pedidos sobre seus dados (acesso, correção, exclusão), escreva para <a href="mailto:privacidade@lucafchala.com">privacidade@lucafchala.com</a>. Os detalhes estão na <a href="https://fotos.lucafchala.com/privacidade">Política de Privacidade</a>.' },
     ],
   },
@@ -95,9 +95,9 @@ export const TEMAS_DE_AJUDA = [
     titulo: 'Falar com a gente',
     resumo: 'Erro no site, reclamação ou sugestão.',
     perguntas: [
-      { p: 'Achei um erro no site.', r: 'Conte pelo <a href="https://fotos.lucafchala.com/suporte">formulário de suporte</a>: o que você tentou fazer, o que aconteceu e em qual aparelho (iPhone, Android, computador).' },
-      { p: 'Tenho uma reclamação ou sugestão.', r: 'Use o mesmo <a href="https://fotos.lucafchala.com/suporte">formulário de suporte</a>. Toda mensagem é lida.' },
-      { p: 'É sobre uma foto específica.', r: 'Abra a foto e toque em <b>Pedir remoção desta foto</b>, que já leva junto qual é a foto. Veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
+      { p: 'Achei um erro no site', r: 'Conte pelo <a href="https://fotos.lucafchala.com/suporte">formulário de suporte</a>: o que você tentou fazer, o que aconteceu e em qual aparelho (iPhone, Android, computador).' },
+      { p: 'Tenho uma reclamação ou sugestão', r: 'Use o mesmo <a href="https://fotos.lucafchala.com/suporte">formulário de suporte</a>. Toda mensagem é lida.' },
+      { p: 'É sobre uma foto específica', r: 'Abra a foto e toque em <b>Pedir remoção desta foto</b>, que já leva junto qual é a foto. Veja <a href="{base}/ajuda/remover">Tirar uma foto do álbum</a>.' },
     ],
   },
 ];
@@ -114,34 +114,42 @@ export function temasDoAlbum(event) {
 const CSS = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
-body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;line-height:1.55}
-a{color:var(--sol)}
+:root{color-scheme:dark}
+body{background:var(--bg);color:var(--txt);font-family:'Open Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;line-height:1.55}
+a{color:var(--txt);text-decoration:underline;text-decoration-color:rgba(240,235,229,.4);text-underline-offset:3px}
+@media (hover:hover){a:hover{text-decoration-color:currentColor}}
+::selection{background:var(--sol);color:#141a33}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
-.aj{max-width:720px;margin:0 auto;padding:1.4rem var(--pad) 4rem}
-.aj-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9rem}
-.aj-kick{display:block;margin-top:1rem;font-size:.74rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--sol)}
-h1{font-weight:800;letter-spacing:-.02em;line-height:1.05;font-size:clamp(1.9rem,6vw,2.6rem);margin-top:.3rem;overflow-wrap:anywhere}
-.aj-sub{color:var(--txt2);margin-top:.5rem}
-.aj-busca{margin-top:1.4rem}
-.aj-rot{margin:0 0 .4rem}
-.aj-busca input{width:100%;min-height:48px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);background:var(--card);color:var(--txt);font:inherit}
-.aj-temas{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:.6rem;margin-top:1.4rem}
-.aj-temas a{display:block;height:100%;padding:.9rem 1rem;border:1px solid var(--borda);border-radius:14px;background:var(--card);color:var(--txt);text-decoration:none}
-.aj-temas a b{display:block;font-weight:700}
-.aj-temas a span{display:block;font-size:.82rem;color:var(--mudo);margin-top:.2rem}
-.aj-temas a[aria-current="page"]{border-color:var(--sol)}
-.aj-sec{margin-top:2.2rem}
-.aj-sec h2{font-size:1.25rem;font-weight:700}
-.aj-sec h2 a{color:inherit;text-decoration:none}
+.aj{max-width:720px;margin:0 auto;padding:1.5rem var(--pad) 4rem}
+.aj-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9375rem}
+.aj-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:400;color:var(--txt2)}
+h1{font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(1.875rem,6vw,2.5rem);margin-top:.5rem;overflow-wrap:anywhere;text-wrap:balance}
+h1::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
+.aj-sub{color:var(--txt2);margin-top:1rem}
+.aj-busca{margin-top:1.5rem}
+.aj-rot{margin:0 0 .5rem}
+.aj-busca .aj-kick{margin-top:0}
+.aj-busca input{width:100%;min-height:48px;padding:0 1rem;border-radius:999px;border:1px solid rgba(240,235,229,.24);background:var(--card);color:var(--txt);font:inherit;font-size:16px}
+.aj-temas{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:.75rem;margin-top:1.5rem}
+.aj-temas a{display:block;height:100%;padding:1rem;border:1px solid var(--borda);border-radius:14px;background:var(--card);color:var(--txt);text-decoration:none;transition:border-color .15s cubic-bezier(.22,1,.36,1)}
+@media (hover:hover){.aj-temas a:hover{border-color:rgba(240,235,229,.4)}}
+.aj-temas a b{display:block;font-weight:600}
+.aj-temas a span{display:block;font-size:.8125rem;color:var(--mudo);margin-top:.25rem}
+.aj-temas a[aria-current="page"]{border-color:rgba(240,235,229,.4);background:var(--card2,#1c1c1c)}
+.aj-sec{margin-top:2.5rem}
+.aj-sec h2{font-size:1.25rem;font-weight:600}
+.aj-sec h2 a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
 details{border-bottom:1px solid var(--borda)}
-summary{cursor:pointer;min-height:48px;display:flex;align-items:center;padding:.6rem 0;font-weight:600;list-style:none}
+summary{cursor:pointer;min-height:48px;display:flex;align-items:center;padding:.5rem 0;font-weight:600;list-style:none}
 summary::-webkit-details-marker{display:none}
-summary::after{content:"+";margin-left:auto;padding-left:1rem;color:var(--sol);font-weight:700}
+summary::after{content:"+";margin-left:auto;padding-left:1rem;color:var(--mudo);font-weight:400;font-size:1.25rem}
 details[open] summary::after{content:"–"}
 details div{padding:0 0 1rem;color:var(--txt2)}
+details div a,.aj-nada a,p.aj-fim a{display:inline-block;padding:.75rem 0;line-height:1.5}
 details b{color:var(--txt);font-weight:600}
-.aj-nada{margin-top:1.4rem;color:var(--mudo)}
-.aj-fim{margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--borda);color:var(--mudo);font-size:.9rem}
+.aj-nada{margin-top:1.5rem;color:var(--mudo)}
+.aj-fim{margin-top:2.5rem;padding-top:1.25rem;border-top:1px solid var(--borda);color:var(--mudo);font-size:.9rem}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
 
 // O filtro "Qual é a sua dúvida?": esconde as perguntas que não têm as
@@ -205,11 +213,11 @@ export function ajudaHTML({ event, tema, base, nonce }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="${P.bg}">
+  <meta name="color-scheme" content="dark">
   <title>${escape(tituloPagina)}</title>
   <meta name="description" content="${escape(atual ? atual.resumo : `Como usar o álbum ${titulo}: busca pelo rosto, baixar, mandar fotos, tirar uma foto e mais.`)}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
-  ${fontPreloadHTML()}
-  <style>${fontFaceCSS()}${CORES_DO_ALBUM}${CSS}</style>
+  <style>${fontFaceAlbumCSS()}${CORES_DO_ALBUM}${CSS}</style>
 </head>
 <body>
   <main class="aj">
@@ -217,7 +225,7 @@ export function ajudaHTML({ event, tema, base, nonce }) {
     <span class="aj-kick">Ajuda · ${escape(titulo)}</span>
     <h1>${escape(atual ? atual.titulo : 'Como usar o álbum')}</h1>
     <p class="aj-sub">${escape(atual ? atual.resumo : 'Toque numa dúvida para ver a resposta.')}</p>
-    ${atual ? '' : `<div class="aj-busca"><label for="aj-q" class="aj-kick aj-rot">Qual é a sua dúvida?</label><input id="aj-q" type="search" placeholder="Ex.: selfie, baixar, iPhone" autocomplete="off" enterkeyhint="search"></div>
+    ${atual ? '' : `<div class="aj-busca"><label for="aj-q" class="aj-kick aj-rot">Qual é a sua dúvida?</label><input id="aj-q" type="search" placeholder="Buscar" autocomplete="off" enterkeyhint="search"></div>
     <ul class="aj-temas">${lista}</ul>`}
     ${secoes}
     <p class="aj-nada" id="aj-nada" hidden>Nada com essas palavras. Tente outras, ou <a href="https://fotos.lucafchala.com/suporte">fale com a gente</a>.</p>

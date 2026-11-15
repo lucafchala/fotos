@@ -1,5 +1,5 @@
 import { albumEmDestaque, faixaDestaqueHTML, cartaoDestaqueHTML, popupDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
-import { escape, PERSON_LD, formatDatePT, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML, albumListado } from '../utils.js';
+import { escape, PERSON_LD, formatDateCurta, sortEvents, eventYear, sizedDriveThumb, driveSrcset, perfBootScript, footerLegalLinksHTML, FOOTER_CSS, safeUrl, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, analyticsBeaconHTML, albumListado } from '../utils.js';
 
 const SITE_URL = 'https://fotos.lucafchala.com';
 const INITIAL = 12; // cards shown before "Carregar mais"
@@ -108,16 +108,15 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         <div class="thumb${thumb && !e.comingSoon ? ' loading' : ''}"${thumb && !e.comingSoon ? ' aria-busy="true"' : ''}>
           ${e.comingSoon
             ? thumb
-              ? `${pictureHTML(base, featured ? SOON_FEATURED_WIDTHS : SOON_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, featured ? 640 : 320, `alt="${escape(e.title)}" class="thumb-blur" ${loadAttrs}`)}<div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
-              : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">em breve</span><span class="soon-hint">clique para saber mais</span>`
+              ? `${pictureHTML(base, featured ? SOON_FEATURED_WIDTHS : SOON_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, featured ? 640 : 320, `alt="${escape(e.title)}" class="thumb-blur" ${loadAttrs}`)}<div class="thumb-soon-ov">${iconClock()}</div><span class="soon-badge">Em breve</span><span class="soon-hint">Clique para saber mais</span>`
+              : `<div class="thumb-ph">${iconClock()}</div><span class="soon-badge">Em breve</span><span class="soon-hint">Clique para saber mais</span>`
             : thumb
               ? pictureHTML(base, featured ? FEATURED_WIDTHS : GRID_WIDTHS, featured ? FEATURED_SIZES : GRID_SIZES, width, `alt="${escape(e.title)}" ${loadAttrs}`)
               : `<div class="thumb-ph">${iconCamera()}</div>`}
-          ${(featured || isPinned) ? `<span class="featured-badge">Em destaque</span>` : ''}
           ${(e.driveUrlVideos || e.youtubeId) && !e.comingSoon ? `<span class="video-badge"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>Vídeos</span>` : ''}
         </div>
         <div class="info">
-          ${e.date ? `<span class="date">${escape(formatDatePT(e.date))}</span>` : ''}
+          ${(e.date || featured || isPinned) ? `<div class="meta-line">${e.date ? `<span class="date">${escape(formatDateCurta(e.date))}</span>` : ''}${(featured || isPinned) ? `<span class="featured-badge">Em destaque</span>` : ''}</div>` : ''}
           <h2>${escape(e.title)}</h2>
           ${e.category ? `<span class="cat-tag">${escape(e.category)}</span>` : ''}
         </div>
@@ -170,8 +169,8 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
   const controlsHTML = showControls
     ? `<div class="controls-wrap">
         <div class="controls" role="search">
-          <input type="search" id="search" class="search-input" placeholder="Buscar por título ou categoria…" aria-label="Buscar projetos" autocomplete="off">
-          ${presentCats.length > 0 ? `<button type="button" id="filters-btn" class="filters-btn" aria-expanded="false">Filtros ▾</button>` : ''}
+          <input type="search" id="search" class="search-input" placeholder="Buscar" aria-label="Buscar projetos" autocomplete="off">
+          ${presentCats.length > 0 ? `<button type="button" id="filters-btn" class="filters-btn" aria-expanded="false"><span class="filters-label">Filtros</span>${iconChevron()}</button>` : ''}
         </div>
         ${presentCats.length > 0 ? `<div class="chips-wrap" id="chips-wrap">${chipsHTML}</div>` : ''}
         <div class="filter-status" id="filter-status">
@@ -246,7 +245,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
       --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#999999;--text-dim:#8c8c8c;--text-ph:#808080;
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
       --cta-bg:#c0a060;--cta-text:#0a0a0a;
-      --shimmer-a:#181818;--shimmer-b:#222;
+      --shimmer-a:#181818;--shimmer-b:#222;--thumb-bg:#1a1816;--ease:cubic-bezier(.22,1,.36,1);
     }
     @media (prefers-color-scheme: light) {
       :root{
@@ -254,16 +253,16 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#66605b;--text-ph:#6b6560;
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
         --cta-bg:#8a6428;--cta-text:#faf7f3;
-        --shimmer-a:#ececec;--shimmer-b:#f5f5f5;
+        --shimmer-a:#ececec;--shimmer-b:#f5f5f5;--thumb-bg:#e8e2da;
       }
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     header{padding:2.5rem 1.5rem 1.5rem;text-align:center;position:relative}
-    .agenda-selo{display:inline-block;margin:.9rem 0 0;padding:.3rem .8rem;border:1px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.75rem;letter-spacing:.03em}
-    .logo{font-size:1rem;font-weight:300;letter-spacing:.25em;text-transform:lowercase;color:var(--text-2)}
-    .logo strong{font-weight:600;color:var(--text)}
+    .agenda-selo{display:inline-block;margin:1rem 0 0;padding:.25rem .75rem;border:1px solid var(--bg-card-border);border-radius:999px;color:var(--text-muted);font-size:.8125rem;letter-spacing:0}
+    .logo{font-size:1.125rem;font-weight:500;letter-spacing:0;line-height:1.2;color:var(--text-2)}
+    .logo strong{font-weight:inherit;color:var(--text)}
     main{max-width:1280px;margin:0 auto;padding:.5rem 1rem 5rem}
     /* Colapsa ao rolar pra baixo (toggle no script) pra liberar espaço em
        telas pequenas. max-height, não transform, porque precisa liberar o
@@ -271,36 +270,38 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0;max-height:400px;overflow:hidden;transition:max-height .25s ease,padding .25s ease}
     .controls-wrap.controls-collapsed{max-height:0;padding-top:0;padding-bottom:0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
-    .search-input{flex:1;min-width:0;max-width:340px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.7rem 1rem;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
+    .search-input{flex:1;min-width:0;max-width:340px;min-height:44px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.5rem 1rem;border-radius:10px;font-size:1rem;outline:none;transition:border-color .16s var(--ease);-webkit-appearance:none}
     .search-input::placeholder{color:var(--text-ph)}
     .search-input:focus{border-color:var(--accent)}
-    .filters-btn{flex-shrink:0;background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:8px;font-size:.78rem;font-weight:500;cursor:pointer;transition:border-color .2s,color .2s;white-space:nowrap;font-family:inherit}
+    .filters-btn{flex-shrink:0;display:inline-flex;align-items:center;gap:.5rem;min-height:44px;background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:0 1rem;border-radius:10px;font-size:.875rem;font-weight:500;letter-spacing:0;cursor:pointer;transition:border-color .16s var(--ease),color .16s var(--ease);white-space:nowrap;font-family:inherit}
+    .filters-chev{flex-shrink:0;transition:transform .2s var(--ease)}
+    .filters-btn[aria-expanded="true"] .filters-chev{transform:rotate(180deg)}
     .filters-btn:hover{border-color:var(--text-dim);color:var(--text-2)}
     .filters-btn.active{border-color:var(--accent);color:var(--accent)}
     .chips-wrap{display:none;padding-bottom:.5rem}
     .chips-wrap.open{display:block}
     .chips{display:flex;gap:.5rem;flex-wrap:wrap}
-    .chip{background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:.45rem .9rem;border-radius:20px;font-size:.72rem;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
+    .chip{display:inline-flex;align-items:center;min-height:44px;background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:0 1rem;border-radius:999px;font-family:inherit;font-size:.875rem;font-weight:500;letter-spacing:0;cursor:pointer;transition:border-color .16s var(--ease),color .16s var(--ease),background .16s var(--ease)}
     .chip:hover{border-color:var(--text-dim);color:var(--text-2)}
     .chip.active{border-color:var(--accent);color:var(--accent);background:rgba(192,160,96,.08)}
-    .filter-status{display:none;align-items:center;gap:.75rem;padding:.2rem 0 .7rem;font-size:.8rem;color:var(--text-muted)}
+    .filter-status{display:none;align-items:center;gap:.75rem;padding:0 0 .5rem;font-size:.875rem;color:var(--text-muted)}
     .filter-status.show{display:flex}
     .result-count{flex:1}
-    .clear-filters{background:none;border:none;color:var(--accent);font-size:.75rem;font-family:inherit;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
+    .clear-filters{background:none;border:none;color:var(--accent);font-size:.875rem;font-family:inherit;cursor:pointer;padding:0 .25rem;min-height:44px;text-decoration:underline;text-underline-offset:3px}
     .clear-filters:hover{color:var(--accent-hover)}
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.875rem;margin-top:.875rem}
-    @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.125rem}}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-top:1rem}
+    @media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr);gap:1.25rem}}
     @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr);gap:1.5rem}}
-    .year-head{grid-column:1/-1;font-size:.75rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);padding:1.5rem 0 .25rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
+    .year-head{grid-column:1/-1;font-size:.875rem;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--text-muted);padding:1.5rem 0 .5rem;border-bottom:1px solid var(--border-dim);margin-bottom:.25rem}
     .card.hidden,.year-head.hidden{display:none}
-    .card{display:block;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s ease,border-color .2s}
-    .card:hover{transform:translateY(-4px);border-color:var(--text-dim)}
+    .card{display:block;text-decoration:none;color:inherit;border-radius:12px;overflow:hidden;background:var(--bg-card);border:1px solid var(--bg-card-border);transition:transform .2s var(--ease),border-color .16s var(--ease)}
+    .card:hover{transform:translateY(-2px);border-color:var(--text-dim)}
     /* Em toque não existe hover: sem isto, tocar num card não devolve nada
        até a próxima página pintar. Composto, responde no mesmo quadro. */
-    .card:active{transform:scale(.985)}
+    .card:active{transform:scale(.98)}
     /* Caixa de proporção fixa (grade uniforme, não masonry). object-fit:contain
        nunca corta a foto — o espaço sobrando vira barra na cor do card. */
-    .thumb{overflow:hidden;background:var(--bg-card);position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+    .thumb{overflow:hidden;background:var(--thumb-bg);position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
     /* Esqueleto em TRÊS tempos, para não anunciar espera que ninguém sentiu:
        0-600ms   bloco chapado — a estrutura já está lá, sem movimento;
        600ms+    a varredura aparece (fade), sinalizando "isto está vindo";
@@ -313,16 +314,16 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .thumb.loading::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0,var(--shimmer-b) 50%,transparent 100%);transform:translateX(-100%);opacity:0;animation:shimmer-in .25s .6s forwards,shimmer 1.4s .6s infinite linear}
     @keyframes shimmer{to{transform:translateX(100%)}}
     @keyframes shimmer-in{to{opacity:1}}
-    @media(prefers-reduced-motion:reduce){.thumb.loading::after{animation:none}}
+    @media(prefers-reduced-motion:reduce){.thumb.loading::after{animation:none}.card:hover,.card:active,.card:hover .thumb img{transform:none}.filters-chev{transition:none}}
     /* z-index:1 põe o rótulo acima da varredura (::after, z-index auto) e
        abaixo das etiquetas de canto, que já usam 2. */
-    .thumb.loading.slow::before{content:"carregando…";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;font-size:.6rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
+    .thumb.loading.slow::before{content:"carregando…";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;font-size:.75rem;font-weight:500;letter-spacing:0;color:var(--text-dim)}
     /* Foto que não veio mostra o MESMO ícone do card sem capa. Antes daqui ela
        virava um retângulo vazio: quem não tem foto se explicava, quem perdeu a
        foto não. Em CSS, e não em marcação, para não pagar o SVG em todo card. */
     .thumb.failed::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' fill='none' stroke='%23252525' stroke-width='1.25'%3E%3Crect x='3' y='5' width='18' height='15' rx='2'/%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M9 5l1.5-2h3L15 5'/%3E%3C/svg%3E") center no-repeat}
     .thumb.loading img{opacity:0}
-    .soon-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.7);color:#c0a060;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(192,160,96,.3);backdrop-filter:blur(4px);z-index:2}
+    .soon-badge{position:absolute;top:.75rem;right:.75rem;background:rgba(10,10,10,.82);color:#f0ebe5;font-size:.75rem;font-weight:500;letter-spacing:0;line-height:1;padding:.375rem .5rem;border-radius:6px;z-index:2}
     /* Uma única regra de transition: opacity e transform em regras separadas
        faziam a segunda sobrescrever a primeira, e a foto aparecia de estalo. */
     /* O elemento picture é só um invólucro: sem carregar a caixa, o
@@ -330,48 +331,51 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
        esticaria. (Sem escrever a tag aqui: marcação dentro do style confunde
        tanto quem lê quanto os testes que varrem o HTML emitido.) */
     .thumb picture{display:block;width:100%;height:100%}
-    .thumb img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .3s ease,transform .4s ease}
-    .card:hover .thumb img{transform:scale(1.06)}
-    .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#252525}
+    .thumb img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .3s var(--ease),transform .4s var(--ease)}
+    .card:hover .thumb img{transform:scale(1.03)}
+    .thumb-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-dim)}
     .thumb-blur{width:100%;height:100%;object-fit:cover;filter:blur(8px);transform:scale(1.1);display:block}
-    .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#555}
+    .thumb-soon-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f0ebe5;filter:drop-shadow(0 1px 6px rgba(0,0,0,.45))}
     /* O relógio sozinho não sinalizava "clicável" — hover/foco pinta o ícone
        na cor de destaque e revela uma dica, pro card não parecer morto. */
     .card-soon .thumb-ph,.card-soon .thumb-soon-ov{transition:color .2s ease}
     .card-soon:hover .thumb-ph,.card-soon:hover .thumb-soon-ov,.card-soon:focus-visible .thumb-ph,.card-soon:focus-visible .thumb-soon-ov{color:var(--accent)}
-    .soon-hint{position:absolute;bottom:.5rem;left:50%;transform:translate(-50%,4px);font-size:.62rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#f0ebe5;background:rgba(0,0,0,.6);padding:.3rem .6rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;pointer-events:none;z-index:2}
+    .soon-hint{position:absolute;bottom:.75rem;left:50%;transform:translate(-50%,4px);font-size:.75rem;font-weight:500;letter-spacing:0;color:#f0ebe5;background:rgba(10,10,10,.82);padding:.375rem .75rem;border-radius:999px;opacity:0;transition:opacity .2s var(--ease),transform .2s var(--ease);white-space:nowrap;pointer-events:none;z-index:2}
     .card-soon:hover .soon-hint,.card-soon:focus-visible .soon-hint{opacity:1;transform:translate(-50%,0)}
-    .info{padding:1rem 1rem 1.125rem}
-    .date{font-size:.625rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
-    .info h2{font-size:1.05rem;font-weight:600;margin:.4rem 0 .5rem;line-height:1.3}
-    .cat-tag{display:inline-block;font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:rgba(192,160,96,.1);border:1px solid rgba(192,160,96,.2);border-radius:4px;padding:.15rem .45rem;margin-top:.4rem}
+    .info{padding:1rem 1rem 1.25rem;display:flex;flex-direction:column;align-items:flex-start;gap:.5rem}
+    .meta-line{display:flex;flex-direction:column;align-items:flex-start;gap:.125rem}
+    .date{font-size:.8125rem;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-dim)}
+    .info h2{font-size:1.0625rem;font-weight:500;margin:0;line-height:1.3}
+    .cat-tag{display:inline-block;font-size:.8125rem;font-weight:400;letter-spacing:0;color:var(--text-muted)}
     .card-featured{grid-column:1/-1}
     .card-featured .thumb{aspect-ratio:3/2}
-    .featured-badge{position:absolute;top:.5rem;left:.5rem;background:rgba(240,235,229,.12);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
+    /* Cartão fixado: sem selo sobre a foto. A marca vira texto discreto na linha
+       de meta, abaixo da data. */
+    .featured-badge{font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--accent)}
     /* Embaixo, à esquerda: em cima o "Em destaque" (esquerda) e, em card
        estreito, qualquer canto de cima colide com ele. */
-    .video-badge{position:absolute;bottom:.5rem;left:.5rem;display:inline-flex;align-items:center;gap:.3rem;background:rgba(0,0,0,.6);color:#f0ebe5;font-size:.6rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;padding:.25rem .55rem;border-radius:4px;border:1px solid rgba(240,235,229,.2);backdrop-filter:blur(4px);z-index:2}
-    .video-badge svg{width:9px;height:9px}
+    .video-badge{position:absolute;bottom:.75rem;left:.75rem;display:inline-flex;align-items:center;gap:.375rem;background:rgba(10,10,10,.82);color:#f0ebe5;font-size:.75rem;font-weight:500;letter-spacing:0;line-height:1;padding:.375rem .5rem;border-radius:6px;z-index:2}
+    .video-badge svg{width:10px;height:10px}
     /* Precisa de height definida (não só min-height): sem isso, height:100%
        da <img> não resolve, cai pra auto, e o card estica pra caber uma
        foto de retrato. */
     @media(min-width:900px){.card-featured{display:flex;flex-direction:row;height:420px}.card-featured .thumb{aspect-ratio:unset;width:60%;flex-shrink:0;height:100%}.card-featured .info{flex:1;padding:1.75rem;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.card-featured .info h2{font-size:1.35rem}}
-    .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.875rem;letter-spacing:.06em}
-    .load-more{display:block;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--border-dim);border-radius:8px;padding:.7rem 1.6rem;font-family:inherit;font-size:.78rem;font-weight:500;letter-spacing:.12em;text-transform:lowercase;cursor:pointer;transition:border-color .2s,color .2s}
+    .empty{text-align:center;color:var(--text-dim);padding:6rem 0;font-size:.9375rem;letter-spacing:0}
+    .load-more{display:block;min-height:44px;margin:2.5rem auto 0;background:transparent;color:var(--text-2);border:1px solid var(--bg-card-border);border-radius:10px;padding:0 1.5rem;font-family:inherit;font-size:.9375rem;font-weight:500;letter-spacing:0;cursor:pointer;transition:border-color .16s var(--ease),color .16s var(--ease)}
     .load-more:hover{border-color:var(--text-dim);color:var(--text)}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-dim);display:flex;align-items:center;justify-content:center;gap:1.5rem;flex-wrap:wrap}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer{text-align:center;padding:2rem 1rem 2.5rem;border-top:1px solid var(--border-dim);display:flex;flex-direction:column;align-items:center;gap:0}
+    footer a{color:var(--footer-link);font-size:.8125rem;text-decoration:none;letter-spacing:0;transition:color .2s}
+    footer > a{display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text)}
-    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:var(--text)}
-    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;order:99;margin-top:.75rem}
-    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    ${FOOTER_CSS}
+    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:5rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:12px;padding:.75rem 1rem;display:none;align-items:center;gap:1rem;font-size:.8125rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
     @media(min-width:560px){.cookie-notice{bottom:1rem}}
+    /* No desktop o aviso encosta no canto de baixo e deixa o centro livre. */
+    @media(min-width:900px){.cookie-notice{left:auto;right:1rem;margin:0;max-width:440px}}
     .cookie-notice.show{display:flex}
     .cookie-notice a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
     .cookie-notice a:hover{text-decoration:underline}
-    .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .cookie-notice button{flex-shrink:0;min-height:44px;background:var(--cta-bg);color:var(--cta-text);border:none;padding:0 1rem;border-radius:8px;font-size:.8125rem;font-weight:500;cursor:pointer;transition:opacity .16s var(--ease)}
     .cookie-notice button:hover{opacity:.85}
   </style>
   <!-- A capa só aparece quando o script tira a classe "loading" (é ele que sabe
@@ -443,7 +447,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         if (!filtersBtn) return;
         var active = activeCat !== 'all';
         filtersBtn.classList.toggle('active', active);
-        filtersBtn.textContent = active ? 'Filtros · 1 ▾' : 'Filtros ▾';
+        var fl = filtersBtn.querySelector('.filters-label'); if (fl) fl.textContent = active ? 'Filtros · 1' : 'Filtros';
         filtersBtn.setAttribute('aria-expanded', chipsWrap && chipsWrap.classList.contains('open') ? 'true' : 'false');
       }
       if (filtersBtn) filtersBtn.addEventListener('click', function() {
@@ -644,6 +648,10 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
 
 function iconCamera() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M9 5l1.5-2h3L15 5"/></svg>`;
+}
+
+function iconChevron() {
+  return `<svg class="filters-chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 }
 
 function iconClock() {

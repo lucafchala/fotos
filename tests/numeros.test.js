@@ -43,7 +43,8 @@ describe('numerosHTML', () => {
   it('números em pt-BR, links do evento, escape e nonce', () => {
     const h = numerosHTML({ event: { slug: 'x', title: 'Turma <26>' }, numeros: numerosDoAlbum(caps, resumo), base: '', nonce: 'N' });
     expect(h).toContain('<b>1.500</b><span>fotos</span>');
-    expect(h).toContain('<b>2</b><span>anos (2023 a 2026)</span>');
+    expect(h).toContain('de 2023 a 2026');
+    expect(h).toContain('<b>2</b><span>anos</span>');
     expect(h).toContain('href="/amarelinhos"');
     expect(h).toContain('&lt;Gala&gt;');
     expect(h).not.toContain('<Gala>');

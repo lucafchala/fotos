@@ -4,7 +4,7 @@
 // (drive.js, registraResumo), com as datas do dono por cima (comDatasDoDono):
 // nenhuma leitura nova do Drive, nenhum dado de visitante.
 
-import { escape, fontFaceCSS, fontPreloadHTML, marcaDoAlbum } from '../utils.js';
+import { escape, fontFaceAlbumCSS, marcaDoAlbum } from '../utils.js';
 import { CORES_DO_ALBUM, mesDoEvento } from './album.js';
 import { PALETA_ALBUM as P } from '../config.js';
 import { botaoDeAjudaHTML, BOTAO_AJUDA_CSS } from './botao-ajuda.js';
@@ -49,38 +49,49 @@ const num = n => n.toLocaleString('pt-BR');
 const CSS = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
-body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;line-height:1.5}
+:root{color-scheme:dark}
+body{background:var(--bg);color:var(--txt);font-family:'Open Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;line-height:1.5}
 a{color:inherit}
+::selection{background:var(--sol);color:#141a33}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
-.nu{max-width:760px;margin:0 auto;padding:1.4rem var(--pad) 4rem}
-.nu-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9rem}
-.nu-kick{display:block;margin-top:1rem;font-size:.74rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--sol)}
-h1{font-weight:800;letter-spacing:-.03em;line-height:.98;font-size:clamp(2.4rem,9vw,4rem);margin-top:.3rem;overflow-wrap:anywhere}
-.nu-sub{color:var(--txt2);margin-top:.6rem}
-.nu-grandes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;margin-top:2rem}
-.nu-grande{padding:1.1rem 1.2rem;border-radius:18px;background:var(--card);border:1px solid var(--borda)}
-.nu-grande b{display:block;font-size:clamp(2rem,9vw,3rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--sol)}
-.nu-grande span{display:block;margin-top:.35rem;color:var(--txt2);font-size:.9rem}
-.nu-sec{margin-top:2.6rem}
-.nu-sec h2{font-size:1.25rem;font-weight:700;margin-top:.2rem}
-.nu-sec .nu-kick{margin-top:0}
-.nu-barras{list-style:none;display:grid;gap:.7rem;margin-top:1rem}
-.nu-barras li{display:grid;grid-template-columns:4.2rem 1fr auto;align-items:center;gap:.7rem}
-.nu-barras .nu-rot{font-weight:700;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nu-barra{height:14px;border-radius:999px;background:var(--azul)}
-.nu-barras .nu-n{color:var(--txt2);font-variant-numeric:tabular-nums;font-size:.9rem}
+.nu{max-width:760px;margin:0 auto;padding:1.5rem var(--pad) 4rem}
+.nu-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9375rem}
+.nu-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:400;color:var(--txt2)}
+h1{font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(2.25rem,9vw,3.5rem);margin-top:.5rem;overflow-wrap:anywhere;text-wrap:balance}
+h1::after,.nu-sec h2::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
+.nu-sub{color:var(--txt2);margin-top:1rem}
+.nu-grandes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin-top:2rem}
+.nu-grande{padding:1rem;border-radius:16px;background:var(--card);border:1px solid var(--borda)}
+.nu-grande b{display:block;font-size:clamp(1.5rem,7vw,2rem);font-weight:600;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.nu-grande span{display:block;margin-top:.5rem;color:var(--txt2);font-size:.875rem;line-height:1.3}
+.nu-grande.nu-1{grid-column:1/-1;padding:1.5rem 1.25rem}
+.nu-grande.nu-1 b{font-size:clamp(3rem,16vw,5rem);letter-spacing:-.03em;color:var(--txt)}
+.nu-grande.nu-1 span{font-size:1rem}
+.nu-sec{position:relative;margin-top:3rem}
+.nu-sec h2{font-size:1.25rem;font-weight:600;line-height:1.3}
+.nu-sec .nu-kick{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:0}
+.nu-barras{list-style:none;display:grid;gap:.75rem;margin-top:1.5rem}
+.nu-barras li{display:grid;grid-template-columns:4.25rem 1fr auto;align-items:center;gap:.75rem}
+.nu-barras .nu-rot{font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nu-barra{height:12px;border-radius:999px;background:rgba(240,235,229,.5);transition:width .4s cubic-bezier(.22,1,.36,1)}
+.nu-barras li:last-child .nu-barra{background:var(--txt)}
+.nu-barras .nu-n{color:var(--txt2);font-variant-numeric:tabular-nums;font-size:.875rem}
 .nu-lista{list-style:none;margin-top:1rem;border-top:1px solid var(--borda)}
-.nu-lista li{display:flex;align-items:baseline;gap:.8rem;padding:.75rem 0;border-bottom:1px solid var(--borda)}
-.nu-lista .nu-pos{width:1.6rem;color:var(--sol);font-weight:800}
+.nu-lista li{display:flex;align-items:center;gap:.75rem;min-height:48px;padding:.5rem 0;border-bottom:1px solid var(--borda)}
+.nu-lista .nu-pos{width:1.5rem;color:var(--mudo);font-weight:400;font-variant-numeric:tabular-nums}
 .nu-lista a,.nu-lista .nu-nome{flex:1;min-width:0;font-weight:600;text-decoration:none;overflow-wrap:anywhere}
-.nu-lista a:hover{text-decoration:underline}
-.nu-lista .nu-n{color:var(--txt2);font-variant-numeric:tabular-nums}
-.nu-acoes{margin-top:2.6rem;display:flex;flex-wrap:wrap;gap:.6rem}
-.nu-btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 1.3rem;border-radius:999px;border:1px solid var(--sol);background:var(--sol);color:#141a33;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
-.nu-btn.nu-2{background:transparent;color:var(--sol)}
-.nu-msg{min-height:1.4em;margin-top:.6rem;color:var(--txt2);font-size:.9rem}
-.nu-nota{margin-top:2.4rem;color:var(--mudo);font-size:.82rem}
+.nu-lista a{display:flex;align-items:center;min-height:44px}
+@media (hover:hover){.nu-lista a:hover{text-decoration:underline;text-underline-offset:3px}}
+.nu-lista .nu-n{color:var(--txt2);font-variant-numeric:tabular-nums;font-size:.875rem}
+.nu-acoes{margin-top:3rem;display:flex;flex-wrap:wrap;gap:.75rem}
+.nu-btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 1.25rem;border-radius:999px;border:1px solid var(--sol);background:var(--sol);color:#141a33;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1),background-color .15s cubic-bezier(.22,1,.36,1)}
+.nu-btn:active{transform:scale(.97)}
+.nu-btn.nu-2{background:rgba(240,235,229,.08);color:var(--txt);border-color:rgba(240,235,229,.24)}
+@media (hover:hover){.nu-btn.nu-2:hover{background:rgba(240,235,229,.14)}}
+.nu-msg{min-height:1.4em;margin-top:.75rem;color:var(--txt2);font-size:.9rem}
+.nu-nota{margin-top:2rem;color:var(--mudo);font-size:.8125rem}
 .nu-fim{padding:0 var(--pad) 3rem}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
 
 const SCRIPT = `(function () {
@@ -112,7 +123,7 @@ export function numerosHTML({ event, numeros: n, base, nonce }) {
   const grandes = [
     [num(n.fotos), n.fotos === 1 ? 'foto' : 'fotos'],
     [num(n.eventos), n.eventos === 1 ? 'evento' : 'eventos'],
-    n.anos.length ? [String(n.anos.length), n.anos.length === 1 ? 'ano' : `anos (${periodo})`] : null,
+    n.anos.length ? [String(n.anos.length), n.anos.length === 1 ? 'ano' : 'anos'] : null,
     n.fotografos ? [String(n.fotografos), n.fotografos === 1 ? 'pessoa fotografou' : 'pessoas fotografaram'] : null,
   ].filter(Boolean);
   const porAno = n.anos.length > 1 ? `
@@ -140,11 +151,11 @@ export function numerosHTML({ event, numeros: n, base, nonce }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="${P.bg}">
+  <meta name="color-scheme" content="dark">
   <title>Turma em números · ${escape(titulo)}</title>
   <meta name="description" content="${escape(`${num(n.fotos)} fotos em ${num(n.eventos)} eventos${periodo ? `, de ${periodo}` : ''}.`)}">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
-  ${fontPreloadHTML()}
-  <style>${fontFaceCSS()}${CORES_DO_ALBUM}${CSS}${BOTAO_AJUDA_CSS}</style>
+  <style>${fontFaceAlbumCSS()}${CORES_DO_ALBUM}${CSS}${BOTAO_AJUDA_CSS}</style>
 </head>
 <body>
   <main class="nu">
@@ -152,7 +163,7 @@ export function numerosHTML({ event, numeros: n, base, nonce }) {
     <span class="nu-kick">${escape(titulo)}</span>
     <h1>A turma em números</h1>
     <p class="nu-sub">${n.eventos ? `Tudo o que está no álbum até agora${periodo ? `, de ${escape(periodo)}` : ''}.` : 'Os números aparecem quando os eventos tiverem fotos.'}</p>
-    <div class="nu-grandes">${grandes.map(g => `<div class="nu-grande"><b>${escape(/** @type {string[]} */ (g)[0])}</b><span>${escape(/** @type {string[]} */ (g)[1])}</span></div>`).join('')}</div>
+    <div class="nu-grandes">${grandes.map((g, i) => `<div class="nu-grande${i === 0 ? ' nu-1' : ''}"><b>${escape(/** @type {string[]} */ (g)[0])}</b><span>${escape(/** @type {string[]} */ (g)[1])}</span></div>`).join('')}</div>
     ${porAno}${maiores}${autores}
     <div class="nu-acoes">
       <a class="nu-btn" href="${escape(raiz)}">Ver o álbum</a>

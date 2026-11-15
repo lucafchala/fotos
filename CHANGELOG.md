@@ -18,6 +18,37 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [4.2.0] — ainda não publicada
+
+Menor: o fotos.lucafchala.com e o álbum Entre Nós com o visual revisado. Só
+aparência: rotas, ids, downloads, busca pelo rosto, envio e dados ficam iguais.
+Painel e páginas legais não mudam.
+
+- **fotos.lucafchala.com (início, projeto, galeria, sobre, equipamentos e
+  rodapé): polimento.** A paleta papel/preto com o marrom-dourado, a Inter e o
+  layout ficam. A data dos cards e do projeto vira a forma curta e tabular
+  ("27 out 2026", nova `formatDateCurta` em `src/utils.js`). `formatDatePT`
+  não muda, porque alimenta títulos e descrições de SEO. Rótulos passam de
+  maiúsculas espaçadas para caixa normal, e "Em destaque" sai de cima da foto
+  para a linha da data. Os emojis e o ▯ das dicas viram ícones de traço
+  (16 px, cor do texto). A busca fica só "Buscar", e "Copiado! ✓" vira
+  "Copiado". No desktop, o aviso de cookies vai para o canto. O rodapé comum
+  agora tem CSS único (`FOOTER_CSS`).
+- **Álbum Entre Nós (em breve, abertura, eventos, /numeros, /ajuda): passe
+  completo dentro da marca.**
+  - Tipografia: só Open Sans, com títulos em peso 600. A Caveat continua
+    apenas no título da recordação, como o dono escolheu.
+  - Amarelo: só no botão principal, no traço curto sob os títulos de seção
+    (no lugar das etiquetas em maiúsculas, que ficam para leitor de tela) e
+    na seleção e no foco.
+  - Abertura: a foto da turma ganha um escurecimento neutro sob o texto.
+    "Achar minhas fotos pelo rosto" fica como botão principal e "Mandar suas
+    fotos" como secundário; o resto vira uma fileira de links discretos.
+  - "Procurar nas fotos" passa para o início da linha do tempo.
+  - /numeros: um número principal (fotos) e três menores.
+  - Rodapé no preto, sem itálico. "Em breve" sem foto e sem brilho radial.
+  - Os alvos de toque dos links da ajuda chegam a 44 px.
+
 ## [4.1.1] — ainda não publicada
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A

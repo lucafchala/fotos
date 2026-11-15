@@ -25,7 +25,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, MINIATURA_DPR_DEGRAUS, fatorMiniatura, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -48,6 +48,12 @@ const TEMA_ALBUM = `
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
     }
+    :root:root body,:root:root .pswp__g-legenda,:root:root .pswp__g-legenda .g-leg-autor,:root:root .g-vid-dur,:root:root .g-rem-link,:root:root .pswp__button--g-baixar-grande{font-family:'Open Sans',sans-serif}
+    ::selection{background:var(--accent);color:var(--accent-text)}
+    :root:root .g-dono b,:root:root .g-previa b{color:var(--text-2);border-color:var(--text-dim);letter-spacing:0;text-transform:none;font-size:.75rem}
+    :root:root .g-t .g-nova{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600;background:rgba(0,0,0,.7);color:#fff}
+    :root:root .g-t .g-live,:root:root .g-t .g-oc{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600}
+    :root:root .g-t.sem-mini::after{letter-spacing:.02em}
     .g-fim{display:flex;flex-direction:column;align-items:center;padding:2.5rem var(--pad) 3rem}
     ${BOTAO_AJUDA_CSS}
     .g-fim a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-muted);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}`;
@@ -461,11 +467,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ...(marca ? { siteName: marca.siteName } : {}),
   })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
-  ${fontPreloadHTML()}
+  ${marca ? '' : fontPreloadHTML()}
   ${photoPreconnectHTML()}
   ${preloadLcp}
   <style>
-    ${fontFaceCSS()}
+    ${marca ? fontFaceAlbumCSS() : fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#666;
@@ -493,7 +499,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
-    .g-dono .g-dica-sec{flex-basis:100%;color:var(--text)}
+    .g-dono .g-dica-sec{flex-basis:100%;max-width:60ch;color:var(--text-2);font-size:.8125rem;line-height:1.5}
     .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
     .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
@@ -515,17 +521,17 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-ev{display:flex;align-items:center;min-height:44px;padding:0 .9rem;border-radius:10px;color:var(--text-2);font-size:.92rem;text-decoration:none}
     .g-ev[aria-current="page"]{background:var(--accent);color:var(--accent-text);font-weight:600}
     .g-ev-todos{color:var(--text);font-weight:600;border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;margin-bottom:.2rem}
-    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.72rem;font-weight:600;letter-spacing:.14em;color:var(--text-muted)}
+    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.75rem;font-weight:600;letter-spacing:.02em;color:var(--text-muted)}
     @media (hover:hover){.g-ev:not([aria-current]):hover{background:var(--border);color:var(--text)}.g-ev-seta:hover,.g-ev-menu>summary:hover{border-color:var(--text-muted)}}
     .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
-    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
+    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;min-width:44px;max-width:100%;color:var(--text-2);text-decoration:none}
     .g-cap-a:hover{color:var(--text);text-decoration:underline}
     .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
-    .g-autores{font-size:1.05rem;font-weight:700;color:var(--text);margin-top:.5rem;line-height:1.35}
+    .g-autores{font-size:1.0625rem;font-weight:600;color:var(--text);margin-top:.5rem;line-height:1.35}
     .g-top .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
-    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.875rem;font-weight:400;letter-spacing:0;color:var(--text-muted)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}
@@ -558,7 +564,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-sec-cab{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0 var(--pad);margin-bottom:.7rem}
     .g-sec-cab.sem-titulo{display:none}
     .g-modo-sel .g-sec-cab.sem-titulo{display:flex;justify-content:flex-end}
-    .g-sec h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
+    .g-sec h2{font-size:.9375rem;letter-spacing:0;color:var(--text-2);font-weight:600}
     .g-sec-todas{display:none;font:inherit;font-size:.8rem;font-weight:500;min-height:44px;padding:.4rem .9rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer}
     .g-modo-sel .g-sec-todas{display:inline-flex;align-items:center}
     .g-grade{padding:0 var(--pad)}
@@ -721,6 +727,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-rem-ok p.sub{font-size:.8rem;color:var(--text-muted)}
     ${HONEYPOT_CSS}
     @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
       .g-topo,.g-folha-c,.g-aviso-flut{transition:opacity .1s linear;transform:none}
       .g-topo.on{transform:none}
