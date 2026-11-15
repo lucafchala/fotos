@@ -168,6 +168,89 @@ describe('pastasDeEnvio', () => {
   });
 });
 
+describe('pastasDeEnvio vencida (v4.2.0): servida na hora, relida em segundo plano', () => {
+  const todas = ['EVA_PASTA_0001', 'EVB_PASTA_0001', 'EVC_PASTA_0001', 'EVD_PASTA_0001'];
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('passada a meia hora, a próxima visita não espera o Drive: a releitura vai para o waitUntil', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+    vi.stubGlobal('caches', fakeCaches());
+    const primeira = await pastasDeEnvio(env, capsDe(todas), CREDITOS);
+    const n = chamadas.length;
+    expect(n).toBeGreaterThan(0);
+    // Outro isolate, 2 h depois: a lista guardada está vencida.
+    limpaCacheEnvio();
+    vi.setSystemTime(new Date('2026-11-15T14:00:00Z'));
+    /** @type {Promise<any>[]} */
+    const fila = [];
+    const r = await pastasDeEnvio(env, capsDe(todas), CREDITOS, { ctx: { waitUntil: p => { fila.push(p); } } });
+    expect(r).toEqual(primeira);
+    expect(chamadas.length).toBe(n);
+    expect(fila).toHaveLength(1);
+    await Promise.all(fila);
+    expect(chamadas.length).toBe(2 * n);
+    // Relida: a seguinte é fresca, sem Drive e sem fila.
+    fila.length = 0;
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS, { ctx: { waitUntil: p => { fila.push(p); } } });
+    expect(fila).toHaveLength(0);
+    expect(chamadas.length).toBe(2 * n);
+  });
+
+  it('só o KV, sem Cache API (outro data center): a velha do KV também é servida na hora', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS);
+    const n = chamadas.length;
+    limpaCacheEnvio();
+    vi.setSystemTime(new Date('2026-11-17T12:00:00Z'));
+    /** @type {Promise<any>[]} */
+    const fila = [];
+    const r = await pastasDeEnvio(env, capsDe(todas), CREDITOS, { ctx: { waitUntil: p => { fila.push(p); } } });
+    expect(r.map(p => p.id)).toContain('ENVIO_DX_0001');
+    expect(chamadas.length).toBe(n);
+    expect(fila).toHaveLength(1);
+    await Promise.all(fila);
+  });
+
+  it('mais velha que 7 dias conta como "sem lista": lê o Drive na hora', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-01T12:00:00Z'));
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS);
+    const n = chamadas.length;
+    limpaCacheEnvio();
+    vi.setSystemTime(new Date('2026-11-09T12:00:00Z'));
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS, { ctx: { waitUntil() {} } });
+    expect(chamadas.length).toBe(2 * n);
+  });
+
+  it('KV, o recurso escasso: a releitura que acha a MESMA lista não regrava (só depois de 24 h)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.stubGlobal('caches', fakeCaches());
+    const put = vi.spyOn(env.FOTOS, 'put');
+    const conta = () => put.mock.calls.filter(c => String(c[0]).startsWith('envio:')).length;
+    vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS);
+    expect(conta()).toBe(1);
+    // Releitura (o dono no cron, ou a vencida) com a mesma estrutura: sem escrita.
+    vi.setSystemTime(new Date('2026-11-15T13:00:00Z'));
+    await pastasDeEnvio(env, capsDe(todas), CREDITOS, { atualizar: true });
+    expect(conta()).toBe(1);
+    // Uma pasta de envio nova num evento: a lista mudou, regrava.
+    ARVORE.EVC_PASTA_0001.push(pasta('ENVIO_C_00001', ENVIO));
+    try {
+      await pastasDeEnvio(env, capsDe(todas), CREDITOS, { atualizar: true });
+      expect(conta()).toBe(2);
+      // Igual, mas o que está no KV passou de 24 h: regrava para não vencer lá.
+      vi.setSystemTime(new Date('2026-11-16T14:00:00Z'));
+      await pastasDeEnvio(env, capsDe(todas), CREDITOS, { atualizar: true });
+      expect(conta()).toBe(3);
+    } finally {
+      ARVORE.EVC_PASTA_0001.pop();
+    }
+  });
+});
+
 const EVENTO = {
   id: '1', slug: 'entrenos2026', title: 'Entre Nós', accessType: 'public', galeriaCapitulos: true,
   driveUrl: `https://drive.google.com/drive/folders/${RAIZ}`, galeriaCreditos: CREDITOS,

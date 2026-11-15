@@ -314,10 +314,11 @@ const dorme = ms => new Promise(r => setTimeout(r, ms));
  *   atualizar: boolean,
  *   fonte: (temVelho: boolean) => Promise<{ dados: T, fresco: boolean } | null>,
  *   refaz: (forcar: boolean) => Promise<T>,
- * }} o
+ *   velhoMaxMs?: number,
+ * }} o `velhoMaxMs`: até quando a vencida ainda é servida (padrão GALERIA_VELHO_MAX_S)
  * @returns {Promise<T>}
  */
-async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz }) {
+async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz, velhoMaxMs = GALERIA_VELHO_MAX_S * 1000 }) {
   /** @param {boolean} forcar @returns {Promise<T>} */
   const voo = forcar => {
     const em = voos.get(kMem);
@@ -345,7 +346,7 @@ async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualiz
       }
       if (!velho || Date.parse(achada.dados.em) > Date.parse(velho.em)) velho = achada.dados;
     }
-    if (velho && Date.now() - Date.parse(velho.em) <= GALERIA_VELHO_MAX_S * 1000) {
+    if (velho && Date.now() - Date.parse(velho.em) <= velhoMaxMs) {
       // Serve a velha e deixa a memória "quase vencida": o isolate pergunta de
       // novo em GALERIA_REVERIFICA_S, não a cada visita.
       memo.set(kMem, { em: Date.now() - ttlMs + GALERIA_REVERIFICA_S * 1000, dados: velho });
@@ -1891,34 +1892,56 @@ function semOrdem(nome) {
  * @typedef {{ evento: string, cap: string, rotulo: string, id: string, rk: string }} PastaDeEnvio
  */
 
-/** @type {Map<string, { ate: number, dados: PastaDeEnvio[] }>} */
+/**
+ * O que fica guardado (memória, Cache API, KV): a lista e quando foi lida.
+ * @typedef {{ v: 2, em: string, completo: boolean, dados: PastaDeEnvio[] }} GuardadoEnvio
+ */
+/** @type {Map<string, { em: number, dados: GuardadoEnvio }>} */
 const memoriaEnvio = new Map();
 // 30 min (v3.8.0; era 6 h): uma pasta de envio nova dentro de um evento
 // aparece logo. Um evento NOVO muda a assinatura (ver abaixo) e é lido na hora.
 const ENVIO_TTL_S = 30 * 60;
+// v4.2.0: vencida a meia hora, a lista guardada continua sendo SERVIDA (e
+// relida em segundo plano) por até 7 dias. Antes, a primeira pessoa depois de
+// cada meia hora esperava o Drive inteiro — uma chamada por evento e por
+// ano/banda, em sequência: vários segundos com "Carregando os eventos". A
+// estrutura de pastas quase nunca muda, e a lista velha ainda é do servidor
+// (o destino de um envio nunca vem do navegador).
+const ENVIO_VELHO_MAX_S = 7 * 24 * 3600;
+// O KV só é regravado quando a lista MUDA ou quando o que está lá passou
+// disto: escrita no KV é o recurso escasso (1 000/dia na conta). A Cache API
+// (de graça) guarda a hora da releitura em cada data center.
+const ENVIO_KV_REGRAVA_S = 24 * 3600;
 /** @param {string} raiz @param {string} assinatura */
-const chaveEnvio = (raiz, assinatura) => `https://fotos.invalid/__galeria/envio/${raiz}/${assinatura}/v1`;
+const chaveEnvio = (raiz, assinatura) => `https://fotos.invalid/__galeria/envio/${raiz}/${assinatura}/v2`;
 
 // Teto de chamadas ao Drive numa leitura das pastas de envio: o plano grátis
 // dá 50 subrequisições por pedido, e a rota ainda lê a lista de capítulos.
 const ENVIO_MAX_CHAMADAS = 40;
-// Leitura que bateu no teto (ou com capítulo que falhou) fica pouco tempo: a
-// próxima visita tenta completar.
+// Leitura que bateu no teto (ou com capítulo que falhou) vence mais cedo: a
+// próxima visita relê (em segundo plano) para completar.
 const ENVIO_TTL_INCOMPLETO_S = 600;
+
+/** @param {unknown} x @returns {x is GuardadoEnvio} */
+const guardadoValido = x => !!x && typeof x === 'object' && /** @type {any} */ (x).v === 2 && typeof /** @type {any} */ (x).em === 'string' && Array.isArray(/** @type {any} */ (x).dados);
+/** @param {GuardadoEnvio} g */
+const envioFresco = g => Date.now() - Date.parse(g.em) < (g.completo ? ENVIO_TTL_S : ENVIO_TTL_INCOMPLETO_S) * 1000;
 
 /**
  * As pastas de envio de um álbum por capítulos: para cada capítulo, a pasta de
  * envio direto nele e/ou dentro de cada subpasta de primeiro nível (ano, banda).
  * As pastas de fotógrafo (as outras chaves dos créditos: chala, mag...) não são
  * abertas — só as que podem ser ano ou banda. Só pastas (1 chamada por
- * capítulo e por subpasta, até ENVIO_MAX_CHAMADAS); guardado 6 h na memória do
- * isolate e na Cache API — a estrutura quase nunca muda.
+ * capítulo e por subpasta, até ENVIO_MAX_CHAMADAS). Guardada na memória do
+ * isolate, na Cache API e no KV; vencida, é servida na hora e relida em
+ * segundo plano (leComRenovacao, a mesma regra da galeria).
  * @param {import('./utils.js').Env} env
  * @param {CapitulosDrive} caps
  * @param {unknown} creditos o campo de créditos do projeto
+ * @param {{ ctx?: { waitUntil?: (p: Promise<any>) => void }, atualizar?: boolean }} [opts]
  * @returns {Promise<PastaDeEnvio[]>}
  */
-export async function pastasDeEnvio(env, caps, creditos) {
+export async function pastasDeEnvio(env, caps, creditos, { ctx, atualizar = false } = {}) {
   const chaves = chavesDeEnvio(creditos);
   if (!chaves.size || !caps || !Array.isArray(caps.caps) || !caps.caps.length) return [];
   const chave = (env.GOOGLE_DRIVE_API_KEY || '').trim();
@@ -1926,85 +1949,120 @@ export async function pastasDeEnvio(env, caps, creditos) {
   // Pastas de fotógrafo: nunca têm ano ou banda dentro, não vale abrir.
   const fotografos = new Set([...parseCreditos(creditos).keys()].filter(k => k !== '*' && !chaves.has(k)));
   // A chave do cache muda quando muda a lista de capítulos (evento novo entra
-  // na hora, sem esperar as 6 h) ou as pastas nos créditos.
+  // na hora) ou as pastas nos créditos.
   const assinatura = hashCreditos([...chaves].sort().join('|') + '/' + [...fotografos].sort().join('|') + '#' + caps.caps.map(c => c.id).join(','));
   const kMem = `${caps.pasta}:${assinatura}`;
-  const mem = memoriaEnvio.get(kMem);
-  if (mem && Date.now() < mem.ate) return mem.dados;
-  const store = cacheStore();
-  if (store) {
-    try {
-      const hit = await store.match(chaveEnvio(caps.pasta, assinatura));
-      if (hit) {
-        const dados = /** @type {PastaDeEnvio[]} */ (await hit.json());
-        if (Array.isArray(dados)) { memoriaEnvio.set(kMem, { ate: Date.now() + ENVIO_TTL_INCOMPLETO_S * 1000, dados }); return dados; }
-      }
-    } catch (e) {
-      console.error('galeria: leitura do cache das pastas de envio falhou', e);
-    }
-  }
+  const kCache = chaveEnvio(caps.pasta, assinatura);
   // KV (v3.7.2): a Cache API é de cada data center, então a primeira pessoa de
   // cada lugar esperava o Drive inteiro. No KV a lista vale para todos.
-  const kKv = `envio:${caps.pasta}:${assinatura}`;
+  const kKv = `envio:${caps.pasta}:${assinatura}:v2`;
   const kv = /** @type {any} */ (env).FOTOS;
-  if (kv && typeof kv.get === 'function') {
+  const temKv = kv && typeof kv.get === 'function';
+  const store = cacheStore();
+
+  /** @returns {Promise<GuardadoEnvio | null>} */
+  const leKv = async () => {
+    if (!temKv) return null;
     try {
       const bruto = await kv.get(kKv, { cacheTtl: 300 });
-      const dados = bruto ? /** @type {PastaDeEnvio[]} */ (JSON.parse(bruto)) : null;
-      if (Array.isArray(dados)) { memoriaEnvio.set(kMem, { ate: Date.now() + ENVIO_TTL_INCOMPLETO_S * 1000, dados }); return dados; }
+      const g = bruto ? JSON.parse(bruto) : null;
+      return guardadoValido(g) ? g : null;
     } catch (e) {
       console.error('galeria: leitura das pastas de envio no KV falhou', e);
-    }
-  }
-  let chamadas = 0;
-  let completo = true;
-  const teto = planoPago(env) ? ENVIO_MAX_CHAMADAS_PAGO : ENVIO_MAX_CHAMADAS;
-  /** @param {{ id: string, rk: string }} p @returns {Promise<{ id: string, rk: string, nome: string }[] | null>} */
-  const filhas = async p => {
-    if (chamadas >= teto) { completo = false; return null; }
-    chamadas++;
-    try {
-      const pagina = await chamaDrive(chave, p, '', true);
-      return (Array.isArray(pagina.files) ? pagina.files : [])
-        .filter((/** @type {any} */ f) => f && typeof f.id === 'string' && ID_RE.test(f.id))
-        .map((/** @type {any} */ f) => ({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', nome: String(f.name || '') }));
-    } catch {
-      completo = false;
       return null;
     }
   };
-  /** @type {PastaDeEnvio[]} */
-  const dados = [];
-  // Em sequência, de propósito: o teto de subrequisições do plano grátis é 50,
-  // e um capítulo que falha não derruba os outros.
-  for (const c of caps.caps.slice(0, 30)) {
-    const nivel1 = await filhas({ id: c.id, rk: c.rk });
-    if (!nivel1) continue;
-    const direto = nivel1.find(f => chaves.has(chavePasta(f.nome)));
-    if (direto) dados.push({ evento: c.nome, cap: c.slug, rotulo: '', id: direto.id, rk: direto.rk });
-    for (const sub of nivel1) {
-      if (sub === direto || fotografos.has(chavePasta(sub.nome)) || dados.length >= 120) continue;
-      const nivel2 = await filhas(sub);
-      if (!nivel2) continue;
-      const achou = nivel2.find(f => chaves.has(chavePasta(f.nome)));
-      if (achou) dados.push({ evento: c.nome, cap: c.slug, rotulo: semOrdem(sub.nome), id: achou.id, rk: achou.rk });
+
+  /** @param {boolean} temVelho @returns {Promise<{ dados: GuardadoEnvio, fresco: boolean } | null>} */
+  const fonte = async temVelho => {
+    /** @type {GuardadoEnvio | null} */
+    let melhor = null;
+    if (store) {
+      try {
+        const hit = await store.match(kCache);
+        const g = hit ? await hit.json() : null;
+        if (guardadoValido(g)) {
+          if (envioFresco(g)) return { dados: g, fresco: true };
+          melhor = g;
+        }
+      } catch (e) {
+        console.error('galeria: leitura do cache das pastas de envio falhou', e);
+      }
     }
-  }
-  const ttl = completo ? ENVIO_TTL_S : ENVIO_TTL_INCOMPLETO_S;
-  memoriaEnvio.set(kMem, { ate: Date.now() + ttl * 1000, dados });
-  if (store) {
-    try {
-      await store.put(chaveEnvio(caps.pasta, assinatura), new Response(JSON.stringify(dados), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttl}` },
-      }));
-    } catch (e) {
-      console.error('galeria: escrita do cache das pastas de envio falhou', e);
+    // Já há lista velha (no isolate ou na Cache API): o KV não seria mais novo
+    // que ela à toa — mas pode ser, se outro data center releu e a lista mudou.
+    if (!temVelho || !melhor) {
+      const g = await leKv();
+      if (g && envioFresco(g)) return { dados: g, fresco: true };
+      if (g && (!melhor || Date.parse(g.em) > Date.parse(melhor.em))) melhor = g;
     }
-  }
-  if (kv && typeof kv.put === 'function') {
-    try { await kv.put(kKv, JSON.stringify(dados), { expirationTtl: Math.max(60, ttl) }); } catch (e) { console.error('galeria: escrita das pastas de envio no KV falhou', e); }
-  }
-  return dados;
+    return melhor ? { dados: melhor, fresco: false } : null;
+  };
+
+  const refaz = async () => {
+    let chamadas = 0;
+    let completo = true;
+    const teto = planoPago(env) ? ENVIO_MAX_CHAMADAS_PAGO : ENVIO_MAX_CHAMADAS;
+    /** @param {{ id: string, rk: string }} p @returns {Promise<{ id: string, rk: string, nome: string }[] | null>} */
+    const filhas = async p => {
+      if (chamadas >= teto) { completo = false; return null; }
+      chamadas++;
+      try {
+        const pagina = await chamaDrive(chave, p, '', true);
+        return (Array.isArray(pagina.files) ? pagina.files : [])
+          .filter((/** @type {any} */ f) => f && typeof f.id === 'string' && ID_RE.test(f.id))
+          .map((/** @type {any} */ f) => ({ id: f.id, rk: typeof f.resourceKey === 'string' ? f.resourceKey : '', nome: String(f.name || '') }));
+      } catch {
+        completo = false;
+        return null;
+      }
+    };
+    /** @type {PastaDeEnvio[]} */
+    const dados = [];
+    // Em sequência, de propósito: o teto de subrequisições do plano grátis é 50,
+    // e um capítulo que falha não derruba os outros.
+    for (const c of caps.caps.slice(0, 30)) {
+      const nivel1 = await filhas({ id: c.id, rk: c.rk });
+      if (!nivel1) continue;
+      const direto = nivel1.find(f => chaves.has(chavePasta(f.nome)));
+      if (direto) dados.push({ evento: c.nome, cap: c.slug, rotulo: '', id: direto.id, rk: direto.rk });
+      for (const sub of nivel1) {
+        if (sub === direto || fotografos.has(chavePasta(sub.nome)) || dados.length >= 120) continue;
+        const nivel2 = await filhas(sub);
+        if (!nivel2) continue;
+        const achou = nivel2.find(f => chaves.has(chavePasta(f.nome)));
+        if (achou) dados.push({ evento: c.nome, cap: c.slug, rotulo: semOrdem(sub.nome), id: achou.id, rk: achou.rk });
+      }
+    }
+    /** @type {GuardadoEnvio} */
+    const g = { v: 2, em: new Date().toISOString(), completo, dados };
+    memoriaEnvio.set(kMem, { em: Date.now() - (completo ? 0 : (ENVIO_TTL_S - ENVIO_TTL_INCOMPLETO_S) * 1000), dados: g });
+    if (store) {
+      try {
+        await store.put(kCache, new Response(JSON.stringify(g), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ENVIO_VELHO_MAX_S}` },
+        }));
+      } catch (e) {
+        console.error('galeria: escrita do cache das pastas de envio falhou', e);
+      }
+    }
+    if (temKv && typeof kv.put === 'function') {
+      // Uma leitura (barata) para poupar uma escrita (escassa): a lista igual
+      // e recente no KV fica como está.
+      const noKv = await leKv();
+      const igual = noKv && JSON.stringify(noKv.dados) === JSON.stringify(dados) && noKv.completo === completo;
+      if (!igual || Date.now() - Date.parse(noKv.em) > ENVIO_KV_REGRAVA_S * 1000) {
+        try { await kv.put(kKv, JSON.stringify(g), { expirationTtl: ENVIO_VELHO_MAX_S }); } catch (e) { console.error('galeria: escrita das pastas de envio no KV falhou', e); }
+      }
+    }
+    return g;
+  };
+
+  const g = await leComRenovacao(env, ctx, {
+    kMem, leaseChave: `e:${kMem}`, memo: memoriaEnvio, ttlMs: ENVIO_TTL_S * 1000, atualizar,
+    fonte, refaz, velhoMaxMs: ENVIO_VELHO_MAX_S * 1000,
+  });
+  return g.dados;
 }
 
 /** Só para os testes: esquece as pastas de envio guardadas no isolate. */

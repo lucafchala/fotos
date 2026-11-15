@@ -1160,6 +1160,41 @@ describe('GET /galeria/<slug>/enviar (e /enviar no domínio do álbum)', () => {
     expect(await r.text()).toContain('Mandar suas fotos');
   });
 
+  it('lista vencida (2 h depois, outro isolate): a página sai sem esperar o Drive, e a releitura vai para o waitUntil (v4.2.0)', async () => {
+    vi.stubGlobal('caches', fakeCaches());
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+      expect((await pagina(`${SITE}/galeria/entrenos2026/enviar`)).status).toBe(200);
+      await ctx.drena();
+      limpaCacheEnvio();
+      limpaCacheDrive();
+      vi.setSystemTime(new Date('2026-11-15T14:00:00Z'));
+      // Daqui em diante, toda listagem do Drive fica PENDURADA até `solta()`:
+      // se a página esperasse por ela, o teste não terminaria.
+      /** @type {(() => void)[]} */
+      const presas = [];
+      const solta = () => { for (const f of presas.splice(0)) f(); };
+      vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ input, /** @type {any} */ init) => {
+        const u = String(input && input.url ? input.url : input);
+        if (u.includes('/drive/v3/files?')) await new Promise(r => { presas.push(() => r(undefined)); });
+        return googleFalso(input, init);
+      }));
+      const r = await pagina(`${SITE}/galeria/entrenos2026/enviar`);
+      expect(r.status).toBe(200);
+      const dados = JSON.parse(/** @type {string} */ ((await r.text()).match(/<script type="application\/json" id="ev-dados"[^>]*>([^<]*)<\/script>/)?.[1]));
+      expect(dados.destinos.map((/** @type {any} */ d) => d.p)).toEqual([PASTA_A, PASTA_B25]);
+      // A releitura começou (em segundo plano) e termina quando o Drive responde.
+      expect(presas.length).toBeGreaterThan(0);
+      const fim = ctx.drena();
+      for (let i = 0; i < 50 && presas.length; i++) { solta(); await new Promise(r => setTimeout(r, 0)); }
+      solta();
+      await fim;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('Drive fora do ar (sem lista guardada): 503', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { code: 500 } }, { status: 500 })));
     expect((await pagina(`${SITE}/galeria/entrenos2026/enviar`)).status).toBe(503);
