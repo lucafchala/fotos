@@ -3,6 +3,7 @@ import { faixaDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
 import { pastaDoDrive } from '../drive.js';
+import { idDaCapa } from './album.js';
 
 // Larguras das fotos do carrossel/hero, da menor para a maior. A última é a
 // que o servidor emite no src (e o fallback de quem não entende srcset); o
@@ -10,6 +11,32 @@ import { pastaDoDrive } from '../drive.js';
 const PHOTO_WIDTHS = [800, 1200, 1600];
 
 const SITE_URL = 'https://fotos.lucafchala.com';
+
+/**
+ * Proporção da caixa da capa (#254), a partir de `capasProporcao` (medido no
+ * Drive quando o dono salva). Foto única: a dela. Carrossel: a mediana — a
+ * caixa continua FIXA entre um slide e outro (a troca de foto não pode mexer
+ * na altura da página), só que no tamanho da maioria das capas daquele
+ * evento, não num 3:2 que ninguém escolheu. Qualquer capa sem medida → null,
+ * e o CSS fica no 3:2 de sempre.
+ * @param {import('../utils.js').Evento} event
+ * @param {string[]} photos
+ * @returns {number | null}
+ */
+export function proporcaoDaCapa(event, photos) {
+  const mapa = event && typeof event.capasProporcao === 'object' && event.capasProporcao ? event.capasProporcao : null;
+  if (!mapa || !photos.length) return null;
+  const rs = [];
+  for (const u of photos) {
+    const r = mapa[idDaCapa(u)];
+    if (typeof r !== 'number' || !Number.isFinite(r) || r < 0.2 || r > 5) return null;
+    rs.push(r);
+  }
+  rs.sort((a, b) => a - b);
+  const meio = rs.length >> 1;
+  const r = rs.length % 2 ? rs[meio] : (rs[meio - 1] + rs[meio]) / 2;
+  return Math.round(r * 1000) / 1000;
+}
 
 /**
  * @param {import('../utils.js').Evento} event
@@ -49,6 +76,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // qualquer JS rodar. As seguintes são escolhidas pelo carrossel (fotoUrl, no
   // script abaixo) com a mesma escada — num Wi-Fi de evento, centenas de
   // celulares baixando 1600 px cada um é o que satura o link do local.
+  const proporcao = proporcaoDaCapa(event, photos);
   const firstSrcset = photos.length ? driveSrcset(photos[0], PHOTO_WIDTHS) : '';
   const firstSrcsetAttr = firstSrcset ? ` srcset="${escape(firstSrcset)}" sizes="100vw"` : '';
   // WebP (~30% menor que o JPEG na mesma largura) para todo navegador que o
@@ -281,9 +309,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero img{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;transition:opacity .25s ease;cursor:zoom-in}
     /* Caixa da capa (foto única e carrossel), com o tamanho reservado ANTES de
        a foto chegar: sem ela o hero nascia com altura 0 e a página inteira
-       descia quando a capa carregava — CLS 0,334 no PageSpeed (#141). O site
-       não sabe a proporção de cada capa (o evento só guarda as URLs), então a
-       caixa é 3:2, a da maioria delas, e a foto encolhe para caber INTEIRA
+       descia quando a capa carregava — CLS 0,334 no PageSpeed (#141). Desde a
+       v4.1.0 o evento guarda a proporção medida de cada capa (#254, logo
+       abaixo: proporcaoDaCapa); sem medida, a caixa é 3:2, a da maioria
+       delas. Em qualquer caso a foto encolhe para caber INTEIRA
        (contain), nunca cortada: foto de outra proporção ganha faixa escura do
        lado ou em cima, como já acontecia no desktop. Fixa, a caixa também não
        muda de altura de uma foto do carrossel para a outra — nem no modo
@@ -291,6 +320,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero-foto,.carousel{aspect-ratio:3/2;max-height:72vh}
     .hero-foto img,.carousel img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
+    ${proporcao ? `/* proporção medida no Drive (#254) */ .hero-foto,.carousel,.hero-blur-img{aspect-ratio:${proporcao}}` : ''}
     .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
     .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
     .hero-video{aspect-ratio:16/9;max-height:72vh}

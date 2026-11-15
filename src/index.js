@@ -15,7 +15,7 @@ import { docHTML } from './ui/doc.js';
 import { findDoc, LEGAL_DOCS } from './content/legal-docs.js';
 import { FONTS } from './content/fonts.js';
 import { VENDOR } from './content/vendor.js';
-import { galeriaHTML } from './ui/galeria.js';
+import { galeriaHTML, GALERIA_JS } from './ui/galeria.js';
 import { ajudaHTML } from './ui/ajuda.js';
 import { numerosHTML, numerosDoAlbum } from './ui/numeros.js';
 import { galeriaIndiceHTML } from './ui/galeria-indice.js';
@@ -25,13 +25,13 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
-import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice, comDatasDoDono, DATA_DO_EVENTO_RE } from './ui/album.js';
+import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice, comDatasDoDono, DATA_DO_EVENTO_RE, idDaCapa } from './ui/album.js';
 import { enviarHTML } from './ui/enviar.js';
 import {
   EnvioError, envioLigado, saudeDoEnvio, criaSessao, enviaParte, consultaSessao, cancelaSessao, procuraDuplicata, cabeNoDrive,
   selaSessao, abreSessao, nomeDeArquivo, tipoDoArquivo, bytesConferem, fpValido, dataModificada, limpaAssinatura, descricaoDoEnvio,
 } from './envio.js';
-import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio, chavesDeEnvio, chavePasta } from './drive.js';
+import { pastaDoDrive, listaPasta, achaFoto, achaArquivo, ehVideo, temVideo, urlLh3, urlOriginal, erroDaApi, idDriveValido, semOcultas, normalizaOcultas, normalizaPendentes, casaRedesCacheado, pastaInstagram, normalizaCreditos, DriveError, alvoDaGaleria, lerResumo, registraResumo, comPrefixoDeCapitulo, listaCapitulos, politicaDaGaleria, politicaDoInstagram, periodoValido, pastasDeEnvio, parseCreditos, planoPago, capVazio, chavesDeEnvio, chavePasta, medeCapas, normalizaProporcoes } from './drive.js';
 
 // Validade do passe da galeria própria (12 h: o dia do evento inteiro).
 const GALERIA_PASSE_SECS = 12 * 60 * 60;
@@ -336,6 +336,8 @@ const worker = {
       // Bibliotecas vendorizadas (PhotoSwipe da galeria, #235). Mesmo
       // esquema das fontes: busca exata, nome com hash, cache imutável.
       if (method === 'GET' && VENDOR_BY_PATH.has(path)) return await handleVendor(path);
+      // O script da galeria (#252): mesmo esquema, nome com hash do texto.
+      if (method === 'GET' && path === GALERIA_JS.path) return new Response(GALERIA_JS.texto, { headers: { ...dataSecurityHeaders('text/javascript; charset=utf-8', { store: true }), 'Cache-Control': 'public, max-age=31536000, immutable' } });
 
       // SEO
       if (path === '/sitemap.xml' && method === 'GET') return await handleSitemap(env);
@@ -1731,12 +1733,27 @@ async function handleCreateEvent(request, env) {
     thumbnailUrl: photos[0] || '',
     createdAt: new Date().toISOString(),
   };
+  await poeProporcoes(env, event);
 
   const erroSenha = await aplicaSenhaPrevia(body, event) || await aplicaSenhaEditora(body, event);
   if (erroSenha) return jsonErr(erroSenha, 400);
   events.push(event);
   await saveEvents(env, events);
   return jsonOk(event, 201);
+}
+
+/**
+ * Proporção das capas (#254), medida aqui porque é o único momento em que a
+ * lista de capas muda e o dono está do outro lado: uma chamada ao Drive por
+ * capa NOVA, nenhuma por visita. Campo vazio sai do registro.
+ * @param {Env} env
+ * @param {Record<string, any>} ev
+ */
+async function poeProporcoes(env, ev) {
+  const capas = Array.isArray(ev.photos) && ev.photos.length ? ev.photos : (ev.thumbnailUrl ? [ev.thumbnailUrl] : []);
+  const mapa = await medeCapas(env, capas, idDaCapa, ev.capasProporcao);
+  if (Object.keys(mapa).length) ev.capasProporcao = mapa;
+  else delete ev.capasProporcao;
 }
 
 // ---------------------------------------------------------------------------
@@ -1791,6 +1808,7 @@ async function handleUpdateEvent(request, env, path) {
     updated.slug = body.slug;
   }
 
+  await poeProporcoes(env, updated);
   events[idx] = updated;
   await saveEvents(env, events);
   // Foto ocultada pelo formulário do painel: as cópias dela saem do R2.
@@ -6592,6 +6610,8 @@ export function sanitizeRestoredEvent(ev) {
   if (out.nomesAmigaveis !== undefined) out.nomesAmigaveis = out.nomesAmigaveis === true;
   if (out.galeriaAtualizacaoAuto !== undefined) out.galeriaAtualizacaoAuto = out.galeriaAtualizacaoAuto !== false;
   if (out.galeriaPeriodo !== undefined) out.galeriaPeriodo = periodoValido(out.galeriaPeriodo);
+  // Vira CSS (aspect-ratio) na página do projeto: só ID válido e número na faixa.
+  if (out.capasProporcao !== undefined) out.capasProporcao = normalizaProporcoes(out.capasProporcao);
   return out;
 }
 

@@ -224,6 +224,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     nVideos ? (nVideos === 1 ? '1 vídeo' : `${nVideos} vídeos`) : '',
   ].filter(Boolean).join(' e ');
   const meta = listagem && total ? [dataEvento, contagem].filter(Boolean).join(' · ') : dataEvento;
+  // Só o dono vê (#319): pasta de fotógrafo fora dos Créditos vira chip.
+  const secoesDePasta = dono ? pastasQueViraramSecao(listagem) : [];
 
   // SEO (decisão do dono, 29/10/2026): título e descrição próprios de cada
   // galeria, canonical, cartão de link com a capa e JSON-LD ligado ao mesmo
@@ -338,6 +340,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="${escape(sizesPreload)}">`
     : '';
+
+  const fileiraPronta = listagem ? primeiraFileiraHTML(listagem, assina) : '';
 
   const conserto = erro ? (CONSERTOS[erro.codigo] || CONSERTOS.falha) : null;
   const avisos = [];
@@ -489,6 +493,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
+    .g-dono .g-dica-sec{flex-basis:100%;color:var(--text)}
     .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
     .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
@@ -569,6 +574,13 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     /* A primeira linha (a do LCP) aparece sem esperar o fade do "load": com
        opacidade 0 o navegador nem conta a foto como pintada. */
     .g-t img[fetchpriority="high"]{opacity:1;transition:none}
+    /* A primeira fileira que vem pronta do servidor (#253): só no celular, onde
+       a conta do servidor (ver primeiraFileiraHTML) é a mesma do script. Cada
+       miniatura cresce na proporção dela (--r), então a linha fecha justa sem
+       saber a largura da tela; o script troca tudo pela grade de verdade. */
+    .g-pre{display:none}
+    @media (max-width:430px){ .g-pre{display:block} }
+    .g-pre-linha .g-t{flex:var(--r) 1 0;aspect-ratio:var(--r);height:auto;min-width:0}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
     .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
     .g-modo-sel .g-t .g-ck{display:block}
@@ -732,6 +744,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ${listagem && event.driveUrlInstagram ? `<span id="g-n-redes">${comRedes} de ${total} com "para redes" (pasta do Instagram)</span>` : ''}
     ${listagem ? `<span id="g-n-ocultas">${ocultas.length ? `${ocultas.length} oculta${ocultas.length === 1 ? '' : 's'} para os visitantes` : 'Para ocultar uma foto dos visitantes: abra a foto e toque no olho'}</span>` : ''}
     ${dataDoEvento && capitulo ? seletorDoAno(slug, capitulo.slug, dataDoEvento) : ''}
+    ${secoesDePasta.length ? `<span class="g-dica-sec">Pastas que viraram seção: ${escape(secoesDePasta.join(', '))}. Se alguma é de fotógrafo, ponha em Créditos no painel.</span>` : ''}
   </div>${dataDoEvento && capitulo ? `<script nonce="${nonce}">${SCRIPT_ANO}</script>` : ''}` : ''}
   <header class="g-top" id="g-topo-cab">
     <div class="g-top-l">
@@ -760,7 +773,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
     ${conserto.passos.length ? `<ol>${conserto.passos.map(p => `<li>${p}</li>`).join('')}</ol>` : ''}
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
-  <main id="g-main" aria-label="Fotos"></main>
+  <main id="g-main" aria-label="Fotos">${fileiraPronta}</main>
   ${capitulo && listagem ? navCapitulos(base, capitulo, 'fim', marca ? '' : slug) : ''}
   ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
@@ -815,7 +828,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   </dialog>` : ''}
   <div class="g-aviso-flut" id="g-aviso-flut" role="status" aria-live="polite"></div>
   ${dados ? `<script type="application/json" id="g-dados" nonce="${nonce}">${jsonParaScript(dados)}</script>
-  <script nonce="${nonce}">${SCRIPT}</script>
+  <script src="${GALERIA_JS.path}" nonce="${nonce}" defer></script>
   ${navegadorEmbutidoHTML(nonce)}` : ''}
 </body>
 </html>`;
@@ -878,6 +891,91 @@ export function nomeDaSecao(s) {
   const ano = partes.map(x => /^(19|20)[0-9]{2}(?![0-9])/.exec(x)).find(Boolean);
   if (!ano) return { nome: s.nome };
   return { nome: partes.length > 1 ? partes.map(x => x.replace(/^!+\s*/, '')).join(' · ') : s.nome, ano: ano[0] };
+}
+
+// A grade justificada do script (diagrama), com os números do celular: alvo
+// de 300 px de altura e 3 px entre as fotos. A largura útil vai de 296 px
+// (tela de 320) a 404 px (tela de 430) — `100vw - 2 * max(12px, 3vw)`.
+const PRE_ALVO = 300;
+const PRE_GAP = 3;
+const PRE_W = [296, 404];
+const GIF_VAZIO = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
+/**
+ * Quantas fotos fecham a primeira linha numa largura W — a mesma conta de
+ * `diagrama` no script (proporção limitada a 0,25–5; sem medida, 1,5).
+ * @param {number[]} rs
+ * @param {number} W
+ */
+function fotosDaLinha(rs, W) {
+  let soma = 0;
+  for (let n = 1; n <= rs.length; n++) {
+    soma += rs[n - 1];
+    if (soma * PRE_ALVO + PRE_GAP * (n - 1) >= W) return n;
+  }
+  return rs.length;
+}
+
+/**
+ * A primeira fileira da grade já no HTML (#253): o LCP da galeria no celular
+ * esperava o script montar a grade para a primeira foto começar a baixar.
+ * Sai só quando a linha é a MESMA em qualquer celular (de 320 a 430 px) e não
+ * é a última da seção (a última não estica — a conta seria outra), e só com
+ * fotos (vídeo tem miniatura lenta e prioridade baixa). O `sizes` é o tamanho
+ * que o script vai calcular, com o mesmo teto de densidade (fatorMiniatura),
+ * para os dois pedirem o mesmo arquivo. Nada disso vale fora do celular: o
+ * CSS esconde (.g-pre).
+ * @param {import('../drive.js').ListagemDrive} listagem
+ * @param {(id: string) => string} assina
+ * @returns {string}
+ */
+export function primeiraFileiraHTML(listagem, assina) {
+  const sec = listagem.secoes.find(x => x.fotos.length > 0);
+  if (!sec) return '';
+  const varias = listagem.secoes.length > 1;
+  const rs = sec.fotos.slice(0, 12).map(f => f[1] > 0 && f[2] > 0 ? Math.min(Math.max(f[1] / f[2], 0.25), 5) : 1.5);
+  const [n, n2] = PRE_W.map(W => fotosDaLinha(rs, W));
+  if (n !== n2 || n >= sec.fotos.length) return '';
+  const linha = sec.fotos.slice(0, n);
+  if (linha.some(f => ehVideo(f))) return '';
+  const soma = rs.slice(0, n).reduce((a, b) => a + b, 0);
+  const util = `100vw - 2 * max(12px, 3vw) - ${PRE_GAP * (n - 1)}px`;
+  const jpeg = (/** @type {string} */ u) => u.replace(/^(\/f\/[^/?]+\/\d+)/, '$1j');
+  const itens = linha.map((f, k) => {
+    const parte = Math.round(rs[k] / soma * 1e4) / 1e4;
+    const sizes = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((${util}) * ${Math.round(parte * fatorMiniatura(g) * 1e4) / 1e4})`), `calc((${util}) * ${parte})`].join(', ');
+    const webp = GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(f[0], x, assina)} ${x}w`).join(', ');
+    const jpg = GALERIA_LARGURAS_GRADE.map(x => `${jpeg(urlFoto(f[0], x, assina))} ${x}w`).join(', ');
+    // As fontes levam `media` do celular e a <img> fica com um GIF vazio: o
+    // CSS esconde a fileira fora do celular, mas <img> escondida baixa do
+    // mesmo jeito — no desktop era a de 1600 px à toa.
+    const cel = '(max-width: 430px)';
+    return `<span class="g-t" style="--r:${Math.round(rs[k] * 1e4) / 1e4}"><picture><source media="${cel}" type="image/webp" srcset="${escape(webp)}" sizes="${escape(sizes)}"><source media="${cel}" srcset="${escape(jpg)}" sizes="${escape(sizes)}"><img src="${GIF_VAZIO}" alt="" fetchpriority="high" decoding="async"></picture></span>`;
+  }).join('');
+  const nome = varias ? (nomeDaSecao(sec).nome || 'Fotos') : '';
+  return `<section class="g-sec g-pre" id="g-pre" aria-hidden="true"><div class="g-sec-cab${varias ? '' : ' sem-titulo'}">${varias ? `<h2>${escape(nome)}</h2>` : ''}</div><div class="g-grade"><div class="g-linha g-pre-linha">${itens}</div></div></section>`;
+}
+
+/**
+ * As pastas de primeiro nível que viraram SEÇÃO numa página (v4.1.0, #319).
+ * Pasta de fotógrafo só é transparente quando está nos Créditos; uma que
+ * ficou de fora (`santa oficial`, `comissao`, criadas depois) vira um chip
+ * com o nome cru da pasta, misturado aos dos fotógrafos, e ninguém percebe
+ * até a turma ver. Ano ("2024", "2024 / Dia 1") é seção de propósito e não
+ * entra. A lista vai só para a faixa do dono, como dica: banda ou dia também
+ * são seções legítimas, e o dono decide.
+ * @param {{ secoes: { nome: string, caminho: string }[] } | null | undefined} listagem
+ * @returns {string[]}
+ */
+export function pastasQueViraramSecao(listagem) {
+  if (!listagem) return [];
+  const nomes = new Set();
+  for (const s of listagem.secoes) {
+    const primeira = String(s.caminho || '').split(' / ')[0].trim();
+    if (!primeira || /^(19|20)[0-9]{2}(?![0-9])/.test(primeira)) continue;
+    nomes.add(primeira.replace(/^!+\s*/, ''));
+  }
+  return [...nomes];
 }
 
 /**
@@ -1109,6 +1207,10 @@ const SCRIPT = `
   /** @type {{ sec: HTMLElement, grade: HTMLElement, lista: Foto[], todas: HTMLButtonElement }[]} */
   const grades = [];
   function monta() {
+    // A fileira do servidor (#253) sai: a grade de verdade entra no lugar,
+    // com as mesmas fotos e o mesmo endereço (já em cache, ou a caminho).
+    const pronta = document.getElementById('g-pre');
+    if (pronta) pronta.remove();
     const varias = D.secoes.length > 1;
     D.secoes.forEach(function (sec, s) {
       const secEl = document.createElement('section');
@@ -3121,3 +3223,21 @@ const SCRIPT = `
   });
 })();
 `;
+
+// O script vai como ARQUIVO (#252), não dentro do HTML: a página fica ~100 KB
+// menor, e quem abre a segunda galeria (ou volta amanhã) já tem o script em
+// cache. O nome leva um hash do próprio texto, calculado aqui na carga do
+// módulo — mudou o script, mudou o nome, então o cache pode ser `immutable`
+// por um ano sem nunca servir versão velha. FNV-1a de 32 bits basta: é só
+// para trocar o nome, não é segurança (o arquivo sai da própria origem, e a
+// CSP já aceita 'self'). `defer` mantém a ordem de antes: roda depois do HTML
+// inteiro, com o <script type="application/json"> dos dados já no DOM.
+export const GALERIA_JS = (() => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < SCRIPT.length; i++) {
+    h ^= SCRIPT.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const hash = h.toString(16).padStart(8, '0') + (SCRIPT.length % 256).toString(16).padStart(2, '0');
+  return { path: `/galeria.${hash}.js`, texto: SCRIPT };
+})();

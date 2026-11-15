@@ -15,7 +15,7 @@
 import { chromium } from 'playwright-core';
 import { mkdir } from 'node:fs/promises';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
-import { galeriaHTML } from '../src/ui/galeria.js';
+import { galeriaHTML, GALERIA_JS } from '../src/ui/galeria.js';
 import { GALERIA_ESTILOS } from '../src/config.js';
 import { SERVICE_WORKER } from '../src/aviso.js';
 
@@ -160,6 +160,8 @@ for (const tela of TELAS) {
         { evento: 'Festa Junina', cap: 'festa-junina', rotulo: '2025', url: 'https://drive.google.com/drive/folders/X2' },
         { evento: 'Fantasia terceirão', cap: 'fantasia-terceirao', rotulo: '', url: 'https://drive.google.com/drive/folders/X3' },
       ] }) });
+      // O script da galeria é arquivo desde a v4.1.0 (#252).
+      if (u === `https://fotos.test${GALERIA_JS.path}`) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
       if (/\.(js|css|woff2?)(\?|$)/.test(u)) return route.fulfill({ status: 200, contentType: u.endsWith('.css') ? 'text/css' : 'text/javascript', body: '' });
       return route.fulfill({ status: 204, body: '' });
     });
