@@ -38,9 +38,13 @@ Painel e páginas legais não mudam.
   completo dentro da marca.**
   - Tipografia: só Open Sans, com títulos em peso 600. A Caveat continua
     apenas no título da recordação, como o dono escolheu.
-  - Amarelo: só no botão principal, no traço curto sob os títulos de seção
-    (no lugar das etiquetas em maiúsculas, que ficam para leitor de tela) e
-    na seleção e no foco.
+  - Cores do Colégio mantidas como identidade: o amarelo sólido no botão
+    principal, no contorno do secundário, no traço curto sob os títulos de
+    seção (no lugar das etiquetas em maiúsculas, que ficam para leitor de
+    tela), na linha "Turma 2026 · Colégio Santa Cruz", nos anos e meses, nos
+    ícones, nos links da ajuda e no número principal do /numeros; o azul nas
+    barras, na linha do tempo e na linha do rodapé. Saem só as maiúsculas
+    espaçadas, o peso 800 e os degradês.
   - Abertura: a foto da turma ganha um escurecimento neutro sob o texto.
     "Achar minhas fotos pelo rosto" fica como botão principal e "Mandar suas
     fotos" como secundário; o resto vira uma fileira de links discretos.

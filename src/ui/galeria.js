@@ -531,7 +531,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
     .g-autores{font-size:1.0625rem;font-weight:600;color:var(--text);margin-top:.5rem;line-height:1.35}
     .g-top .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
-    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.875rem;font-weight:400;letter-spacing:0;color:var(--text-muted)}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.875rem;font-weight:600;letter-spacing:0;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}

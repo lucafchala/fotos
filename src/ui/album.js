@@ -652,7 +652,7 @@ a{color:inherit;text-decoration:none}
 ::selection{background:var(--sol);color:#141a33}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
 .al-tit{font-family:'Open Sans',sans-serif;font-weight:600;letter-spacing:-.025em;line-height:1.08;overflow-wrap:anywhere;text-wrap:balance}
-.al-kick{display:block;font-size:.9375rem;font-weight:400;line-height:1.4;color:var(--txt2);text-wrap:balance}
+.al-kick{display:block;font-size:.9375rem;font-weight:600;line-height:1.4;color:var(--sol);text-wrap:balance}
 .al-sec>.al-kick{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .al-meta{color:var(--mudo);font-size:.875rem;line-height:1.4;margin:.25rem 0 0}
 .al-btns{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
@@ -664,8 +664,8 @@ a{color:inherit;text-decoration:none}
 .al-env-op span{display:flex;flex-direction:column;gap:.125rem;min-width:0}
 .al-env-op b{font-size:.9375rem;font-weight:600;overflow-wrap:anywhere}
 .al-env-op small{font-size:.8125rem;color:var(--mudo)}
-.al-env-op::after{content:'›';flex:none;color:var(--mudo);font-size:1.4rem;line-height:1}
-@media (hover:hover){.al-env-op:hover{border-color:rgba(240,235,229,.4)}}
+.al-env-op::after{content:'›';flex:none;color:var(--sol);font-size:1.4rem;line-height:1}
+@media (hover:hover){.al-env-op:hover{border-color:var(--sol)}}
 .rs .al-env-raiz{margin-top:1rem;font-size:.8125rem}.al-env-raiz a{color:var(--txt2);text-decoration:underline;text-underline-offset:3px}
 .al-pol-txt .al-dica{text-align:center}
 .al-btn{display:inline-flex;align-items:center;min-height:48px;padding:0 1.25rem;border-radius:999px;font:inherit;font-weight:600;font-size:.9375rem;border:1px solid transparent;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1),background-color .15s cubic-bezier(.22,1,.36,1),border-color .15s cubic-bezier(.22,1,.36,1)}
@@ -673,8 +673,8 @@ a{color:inherit;text-decoration:none}
 .al-b1{background:var(--sol);color:#141a33}
 .al-rosto{gap:.5rem;justify-content:center}.al-rosto svg{width:1.125rem;height:1.125rem;flex:none}
 .al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(240,235,229,.08);color:var(--txt);border-color:rgba(240,235,229,.24)}
-.al-b2{background:rgba(240,235,229,.08);color:var(--txt);border-color:rgba(240,235,229,.24)}
-@media (hover:hover){.al-b2:hover{background:rgba(240,235,229,.14)}.al-b1:hover{filter:brightness(1.06)}}
+.al-b2{background:rgba(240,235,229,.06);color:var(--sol);border-color:var(--sol)}
+@media (hover:hover){.al-b2:hover{background:var(--sol);color:#141a33}.al-b1:hover{filter:brightness(1.06)}}
 .al-sec{display:block;position:relative;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}
 .al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.5rem,4vw,2.25rem);line-height:1.15;letter-spacing:-.02em;margin:0 0 1.5rem}
 .al-sec h2::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
@@ -691,13 +691,13 @@ a{color:inherit;text-decoration:none}
 .al-sair-rosto{margin:0}
 .al-sair-rosto[hidden]{display:none}
 .al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
-@media (hover:hover){.al-sair-btn:hover{color:var(--txt);text-decoration-color:currentColor}}
+@media (hover:hover){.al-sair-btn:hover{color:var(--sol);text-decoration-color:currentColor}}
 .al-mandar{gap:.5rem;justify-content:center}.al-mandar svg{width:1.125rem;height:1.125rem;flex:none}
 .al-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 1.25rem;margin-top:.5rem}
 .al-pol-txt .al-links{justify-content:center}
 .al-link{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
-@media (hover:hover){.al-link:hover{color:var(--txt);text-decoration-color:currentColor}}
-.al-link svg{width:1.125rem;height:1.125rem;flex:none;color:var(--mudo)}
+@media (hover:hover){.al-link:hover{color:var(--sol);text-decoration-color:currentColor}}
+.al-link svg{width:1.125rem;height:1.125rem;flex:none;color:var(--sol)}
 /* O display da classe vence o atributo hidden: sem esta linha, o botão de
    avisos que o script esconde (navegador de app, Safari fora da Tela de
    Início) continuava na tela, sem fazer nada (verifica:celular, v3.11.0). */
@@ -711,8 +711,8 @@ body:has(#rs-abrir:not([hidden])) .al-btns .al-ver{display:none}
 body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
 .al-anos{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0 .5rem}
 .al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.875rem;transition:border-color .15s cubic-bezier(.22,1,.36,1),color .15s cubic-bezier(.22,1,.36,1)}
-@media (hover:hover){.al-anos a:hover{border-color:rgba(240,235,229,.4);color:var(--txt)}}
-.al-ano{font-family:'Open Sans',sans-serif;font-size:.9375rem;font-weight:600;color:var(--txt2);margin:1.5rem 0 .75rem;scroll-margin-top:1rem}
+@media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}
+.al-ano{font-family:'Open Sans',sans-serif;font-size:.9375rem;font-weight:600;color:var(--sol);margin:1.5rem 0 .75rem;scroll-margin-top:1rem}
 .al-grade{list-style:none;display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))}
 .al-mini{margin-top:0}
 .al-mini img,.al-mini .al-vazio{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:var(--esqueleto)}
@@ -723,10 +723,10 @@ body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
 .al-vazio{display:block;width:100%;aspect-ratio:16/9;background:#161616 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238c8c8c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Ccircle cx='9' cy='11' r='1.5'/%3E%3Cpath d='m21 16-5-5-8 8'/%3E%3C/svg%3E") center/2rem no-repeat}
 .al-sem-foto{padding-top:clamp(3rem,10vh,6rem)}
 .al-tl{list-style:none;position:relative;display:grid;gap:1.25rem;grid-template-columns:1fr}
-.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--borda)}
+.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--azul)}
 .al-tl>li{position:relative;padding-left:2rem}
-.al-tl>li::before{content:"";position:absolute;left:0;top:.3rem;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid ${P.dim}}
-.al-mes{display:block;font-size:.8125rem;font-weight:400;color:var(--mudo);min-height:1em}
+.al-tl>li::before{content:"";position:absolute;left:0;top:.3rem;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--sol)}
+.al-mes{display:block;font-size:.8125rem;font-weight:600;color:var(--sol);min-height:1em}
 .al-card{display:block;margin-top:.5rem;border-radius:14px;overflow:hidden;background:var(--card);border:1px solid var(--borda);transition:border-color .15s cubic-bezier(.22,1,.36,1)}
 @media (hover:hover){.al-card:hover{border-color:rgba(240,235,229,.4)}}
 .al-tl img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--esqueleto)}
@@ -749,8 +749,8 @@ body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
 .al-cred span{display:block;font-family:'Open Sans',sans-serif;font-size:1rem;font-weight:400;color:var(--txt2);overflow-wrap:anywhere}
 .rs-res{max-width:72rem;margin:0 auto;padding:2.5rem var(--pad) 0}
 .rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem;font-weight:600}
-.al-fim{margin:4rem 0 0;padding:3rem var(--pad) 2.5rem;text-align:center;border-top:1px solid var(--borda)}
-.al-fim .al-kick{color:var(--mudo);font-size:.875rem}
+.al-fim{margin:4rem 0 0;padding:3rem var(--pad) 2.5rem;text-align:center;border-top:2px solid var(--azul)}
+.al-fim .al-kick{color:var(--sol);font-size:.875rem;font-weight:600}
 ${BOTAO_AJUDA_CSS}
 .al-recado{max-width:40rem;margin:0 auto 1.5rem;font-family:'Open Sans',sans-serif;font-style:normal;font-weight:400;font-size:clamp(1.125rem,3vw,1.375rem);line-height:1.5;color:var(--txt2)}
 .al-legal{margin-top:1.5rem;font-size:.8125rem;color:var(--mudo)}

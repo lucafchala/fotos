@@ -116,13 +116,13 @@ const CSS = `
 [hidden]{display:none!important}
 :root{color-scheme:dark}
 body{background:var(--bg);color:var(--txt);font-family:'Open Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;line-height:1.55}
-a{color:var(--txt);text-decoration:underline;text-decoration-color:rgba(240,235,229,.4);text-underline-offset:3px}
+a{color:var(--sol);text-decoration:underline;text-decoration-color:currentColor;text-decoration-thickness:1px;text-underline-offset:3px}
 @media (hover:hover){a:hover{text-decoration-color:currentColor}}
 ::selection{background:var(--sol);color:#141a33}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
 .aj{max-width:720px;margin:0 auto;padding:1.5rem var(--pad) 4rem}
 .aj-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9375rem}
-.aj-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:400;color:var(--txt2)}
+.aj-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:600;color:var(--sol)}
 h1{font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(1.875rem,6vw,2.5rem);margin-top:.5rem;overflow-wrap:anywhere;text-wrap:balance}
 h1::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
 .aj-sub{color:var(--txt2);margin-top:1rem}
@@ -135,14 +135,14 @@ h1::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;backg
 @media (hover:hover){.aj-temas a:hover{border-color:rgba(240,235,229,.4)}}
 .aj-temas a b{display:block;font-weight:600}
 .aj-temas a span{display:block;font-size:.8125rem;color:var(--mudo);margin-top:.25rem}
-.aj-temas a[aria-current="page"]{border-color:rgba(240,235,229,.4);background:var(--card2,#1c1c1c)}
+.aj-temas a[aria-current="page"]{border-color:var(--sol);background:var(--card2,#1c1c1c)}
 .aj-sec{margin-top:2.5rem}
 .aj-sec h2{font-size:1.25rem;font-weight:600}
 .aj-sec h2 a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
 details{border-bottom:1px solid var(--borda)}
 summary{cursor:pointer;min-height:48px;display:flex;align-items:center;padding:.5rem 0;font-weight:600;list-style:none}
 summary::-webkit-details-marker{display:none}
-summary::after{content:"+";margin-left:auto;padding-left:1rem;color:var(--mudo);font-weight:400;font-size:1.25rem}
+summary::after{content:"+";margin-left:auto;padding-left:1rem;color:var(--sol);font-weight:400;font-size:1.25rem}
 details[open] summary::after{content:"–"}
 details div{padding:0 0 1rem;color:var(--txt2)}
 details div a,.aj-nada a,p.aj-fim a{display:inline-block;padding:.75rem 0;line-height:1.5}

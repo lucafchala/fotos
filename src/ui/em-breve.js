@@ -56,12 +56,12 @@ main{max-width:34rem;animation:eb-entra .4s cubic-bezier(.22,1,.36,1) both}
 @keyframes eb-entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 ::selection{background:#f9de4b;color:#16204d}
 :focus-visible{outline:2px solid #f9de4b;outline-offset:3px}
-.k{display:block;font-size:.9375rem;font-weight:400;line-height:1.5;color:#d6dbef}
+.k{display:block;font-size:.9375rem;font-weight:600;line-height:1.5;color:#f9de4b}
 h1{font-family:'Open Sans',system-ui,sans-serif;font-weight:600;font-size:clamp(2.5rem,10vw,4.5rem);line-height:1.08;letter-spacing:-.025em;margin:.5rem 0 1rem;text-wrap:balance}
 p{font-size:clamp(1rem,2.6vw,1.125rem);line-height:1.6;color:#d6dbef}
 .l{display:block;width:3rem;height:2px;background:#f9de4b;margin:1.75rem auto 0;border-radius:2px}
 small{display:block;margin-top:1rem;font-size:.875rem;line-height:1.5;color:#c3cbe8}
-.q{margin-top:1.5rem;font-weight:600;color:#f3ede3}
+.q{margin-top:1.5rem;font-weight:600;color:#f9de4b}
 .c{display:flex;justify-content:center;gap:1rem;margin-top:.75rem;font-variant-numeric:tabular-nums}
 .c span{display:flex;flex-direction:column;align-items:center;min-width:3.5rem}
 .c b{font-size:clamp(1.75rem,7vw,2.5rem);font-weight:600;line-height:1.1}
@@ -69,11 +69,11 @@ small{display:block;margin-top:1rem;font-size:.875rem;line-height:1.5;color:#c3c
 h1{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 .pv{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;margin-top:1.5rem}
 .pv[hidden]{display:none}
-.pv input{min-height:44px;width:min(16rem,100%);padding:0 1rem;border-radius:999px;border:1px solid rgba(243,237,227,.24);background:rgba(10,14,40,.4);color:#f3ede3;font:inherit;text-align:center;transition:border-color .15s cubic-bezier(.22,1,.36,1)}
+.pv input{min-height:44px;width:min(16rem,100%);padding:0 1rem;border-radius:999px;border:1px solid #f9de4b;background:rgba(10,14,40,.4);color:#f3ede3;font:inherit;text-align:center;transition:border-color .15s cubic-bezier(.22,1,.36,1)}
 .pv input:focus{border-color:#f9de4b}
 .pv button{min-height:44px;padding:0 1.25rem;border-radius:999px;border:0;background:#f9de4b;color:#16204d;font:inherit;font-weight:600;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1)}
 .pv button:active{transform:scale(.97)}
-.pv p{flex-basis:100%;min-height:1.25em;font-size:.875rem;color:#d6dbef}
+.pv p{flex-basis:100%;min-height:1.25em;font-size:.875rem;color:#f9de4b}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition-duration:.01ms!important}}
 </style>
 </head>

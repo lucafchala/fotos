@@ -56,7 +56,7 @@ a{color:inherit}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
 .nu{max-width:760px;margin:0 auto;padding:1.5rem var(--pad) 4rem}
 .nu-volta{display:inline-flex;align-items:center;min-height:44px;color:var(--txt2);text-decoration:none;font-size:.9375rem}
-.nu-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:400;color:var(--txt2)}
+.nu-kick{display:block;margin-top:1rem;font-size:.9375rem;font-weight:600;color:var(--sol)}
 h1{font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(2.25rem,9vw,3.5rem);margin-top:.5rem;overflow-wrap:anywhere;text-wrap:balance}
 h1::after,.nu-sec h2::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
 .nu-sub{color:var(--txt2);margin-top:1rem}
@@ -65,7 +65,7 @@ h1::after,.nu-sec h2::after{content:"";display:block;width:3rem;height:2px;margi
 .nu-grande b{display:block;font-size:clamp(1.5rem,7vw,2rem);font-weight:600;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
 .nu-grande span{display:block;margin-top:.5rem;color:var(--txt2);font-size:.875rem;line-height:1.3}
 .nu-grande.nu-1{grid-column:1/-1;padding:1.5rem 1.25rem}
-.nu-grande.nu-1 b{font-size:clamp(3rem,16vw,5rem);letter-spacing:-.03em;color:var(--txt)}
+.nu-grande.nu-1 b{font-size:clamp(3rem,16vw,5rem);letter-spacing:-.03em;color:var(--sol)}
 .nu-grande.nu-1 span{font-size:1rem}
 .nu-sec{position:relative;margin-top:3rem}
 .nu-sec h2{font-size:1.25rem;font-weight:600;line-height:1.3}
@@ -73,12 +73,12 @@ h1::after,.nu-sec h2::after{content:"";display:block;width:3rem;height:2px;margi
 .nu-barras{list-style:none;display:grid;gap:.75rem;margin-top:1.5rem}
 .nu-barras li{display:grid;grid-template-columns:4.25rem 1fr auto;align-items:center;gap:.75rem}
 .nu-barras .nu-rot{font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nu-barra{height:12px;border-radius:999px;background:rgba(240,235,229,.5);transition:width .4s cubic-bezier(.22,1,.36,1)}
-.nu-barras li:last-child .nu-barra{background:var(--txt)}
+.nu-barra{height:12px;border-radius:999px;background:var(--azul);transition:width .4s cubic-bezier(.22,1,.36,1)}
+.nu-barras li:last-child .nu-barra{background:var(--sol)}
 .nu-barras .nu-n{color:var(--txt2);font-variant-numeric:tabular-nums;font-size:.875rem}
 .nu-lista{list-style:none;margin-top:1rem;border-top:1px solid var(--borda)}
 .nu-lista li{display:flex;align-items:center;gap:.75rem;min-height:48px;padding:.5rem 0;border-bottom:1px solid var(--borda)}
-.nu-lista .nu-pos{width:1.5rem;color:var(--mudo);font-weight:400;font-variant-numeric:tabular-nums}
+.nu-lista .nu-pos{width:1.5rem;color:var(--sol);font-weight:600;font-variant-numeric:tabular-nums}
 .nu-lista a,.nu-lista .nu-nome{flex:1;min-width:0;font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .nu-lista a{display:flex;align-items:center;min-height:44px}
 @media (hover:hover){.nu-lista a:hover{text-decoration:underline;text-underline-offset:3px}}
@@ -86,8 +86,8 @@ h1::after,.nu-sec h2::after{content:"";display:block;width:3rem;height:2px;margi
 .nu-acoes{margin-top:3rem;display:flex;flex-wrap:wrap;gap:.75rem}
 .nu-btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 1.25rem;border-radius:999px;border:1px solid var(--sol);background:var(--sol);color:#141a33;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1),background-color .15s cubic-bezier(.22,1,.36,1)}
 .nu-btn:active{transform:scale(.97)}
-.nu-btn.nu-2{background:rgba(240,235,229,.08);color:var(--txt);border-color:rgba(240,235,229,.24)}
-@media (hover:hover){.nu-btn.nu-2:hover{background:rgba(240,235,229,.14)}}
+.nu-btn.nu-2{background:rgba(240,235,229,.06);color:var(--sol);border-color:var(--sol)}
+@media (hover:hover){.nu-btn.nu-2:hover{background:var(--sol);color:#141a33}}
 .nu-msg{min-height:1.4em;margin-top:.75rem;color:var(--txt2);font-size:.9rem}
 .nu-nota{margin-top:2rem;color:var(--mudo);font-size:.8125rem}
 .nu-fim{padding:0 var(--pad) 3rem}
