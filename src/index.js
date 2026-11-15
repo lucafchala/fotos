@@ -1,6 +1,6 @@
 import { chaveVapid, endpointValido, inscreve, desinscreve, marcaFotosNovas, enviaPendentes, apagaInscricoes, SERVICE_WORKER } from './aviso.js';
 import { registraSaida, listaSaidas, desfazUmaSaida, geracaoDoIndice, marcaIndiceParaApagar, cancelaApagarIndice, indiceSeraApagadoEm, apagaIndiceDoAlbum, apagaIndicesVencidos } from './saidas.js';
-import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, originalNoR2, copiaOriginalParaR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
+import { lerRotaFoto, lerChaveFoto, respondeFoto, originalDoR2, originalNoR2, copiaOriginalParaR2, intervaloPedido, videoDoR2, assinadorDeFotos, assinaturaDaFotoConfere, apagaCopiasDaFoto } from './foto-rota.js';
 import { galleryHTML } from './ui/gallery.js';
 import { INDEXNOW_CAMINHO, respostaDaChave, indexNowLigado, ehPassadaDoIndexNow, avisaIndexNow } from './indexnow.js';
 import { eventHTML } from './ui/event.js';
@@ -75,7 +75,7 @@ import {
   EMAIL_CODE_VERIFY_BUCKET, EMAIL_RE, GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO, SITEMAP_PROJETOS_COM_CAPITULOS_PAGO, GALERIA_MAX_OCULTAS,
   GALERIA_REMOCAO_PEDIDOS_POR_IP_DIA, GALERIA_REMOCAO_EMAIL_POR_IP_DIA, GALERIA_REMOCAO_MOTIVOS,
   DOMINIOS_DE_ALBUM, LANCAMENTO_MAX_DIAS, BUSCA_IP_BUCKET, BUSCA_LOTE_MAX, AVISO_INSCRICAO_IP_BUCKET,
-  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, ROSTO_SAIR_POR_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
+  PREVIA_SENHA_MIN, PREVIA_COOKIE_DIAS, PREVIA_TENTATIVAS_POR_IP_HORA, PREVIA_TENTATIVAS_POR_DIA, GALERIA_ABERTURA_MAX, GALERIA_ESTILOS, GALERIA_RECADO_MAX, ROSTO_BUSCA_IP_BUCKET, ROSTO_BUSCA_GLOBAL_BUCKET, ROSTO_SAIR_POR_IP_DIA, ROSTO_SAIR_POR_DIA, esperaDaBuscaNoPico, METRICAS_DIAS_MAX, GATE_METODOS, GALERIA_BAIXAR_BUCKET, GALERIA_VIDEO_BUCKET, DOWNLOAD_RETENTATIVA_MS, DOWNLOAD_OCUPADO_MIN_S, DOWNLOAD_OCUPADO_MAX_S, ROBO_UA_RE, SUMIRAM_RETENCAO_DIAS,
   ENVIO_IP_BUCKET, ENVIO_PASSE_IP_BUCKET, ENVIO_PARTE_IP_BUCKET, ENVIO_TETO_ARQUIVOS_DIA, ENVIO_TETO_MB_DIA, ENVIO_PASSE_TTL_SECS,
   ENVIO_MAX_BYTES, ENVIO_PARTE_MAX_BYTES, ENVIO_PARTE_MULTIPLO, ENVIO_DECLARACAO,
   PALETA_ALBUM,
@@ -239,6 +239,10 @@ const GALERIA_AJUDA_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/ajuda(?:\/([a-z]+))?
 // "Turma em números" (v3.9.1), também antes do capítulo.
 const GALERIA_NUMEROS_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/numeros$/;
 const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
+// O vídeo tocado no próprio site (v4.2.0): o mesmo id e as mesmas checagens
+// do download, mas com Range e sem anexo nem contagem.
+const GALERIA_VIDEO_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/video\/([A-Za-z0-9_-]{10,200})$/;
+const GALERIA_CAP_VIDEO_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/video\/([A-Za-z0-9_-]{10,200})$/;
 // Sitemap de imagens de UMA galeria. Na raiz, e não em /galeria/<slug>/…: um
 // sitemap só vale para URLs no mesmo diretório ou abaixo dele (sitemaps.org,
 // "Sitemap file location"), e a página da galeria fica fora de /galeria/<slug>/.
@@ -473,6 +477,10 @@ const worker = {
       if (baixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, baixarMatch[1], baixarMatch[2], url, ctx);
       const capBaixarMatch = path.match(GALERIA_CAP_BAIXAR_RE);
       if (capBaixarMatch && method === 'GET') return await handleGaleriaBaixar(request, env, capBaixarMatch[1], capBaixarMatch[3], url, ctx, capBaixarMatch[2]);
+      const videoMatch = path.match(GALERIA_VIDEO_RE);
+      if (videoMatch && (method === 'GET' || method === 'HEAD')) return await handleGaleriaVideo(request, env, videoMatch[1], videoMatch[2], ctx);
+      const capVideoMatch = path.match(GALERIA_CAP_VIDEO_RE);
+      if (capVideoMatch && (method === 'GET' || method === 'HEAD')) return await handleGaleriaVideo(request, env, capVideoMatch[1], capVideoMatch[3], ctx, capVideoMatch[2]);
       // A página de envio (v4.0.0) vem ANTES da rota de evento: "enviar" não é
       // um evento (uma pasta com esse nome ficaria sem página).
       const enviarMatch = path.match(GALERIA_ENVIAR_RE);
@@ -5939,6 +5947,168 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
   // Primeiro download deste arquivo com o R2 ligado: a cópia vai para lá.
   if (!doR2 && env.FOTOS_R2 && ctx) ctx.waitUntil(copiaOriginalParaR2(env, alvoFoto[0], alvo, headers, Number(tamanho) || 0, tipo));
   return new Response(up.body, { status: 200, headers: h });
+}
+
+/**
+ * O vídeo da galeria tocado no próprio site (v4.2.0), no player estilo reels:
+ * um `<video>` comum no lugar do iframe do Drive. Mesmas checagens do
+ * download (galeria visível, id na pasta DESTE projeto/capítulo, oculta é
+ * 404, limite por IP antes do Drive), mais:
+ *  - só vídeo que é item da galeria (o vídeo do Live Photo não toca aqui);
+ *  - `Range` repassado (206 + `Content-Range`), para o player pular e o
+ *    iPhone, que só toca com Range, funcionar;
+ *  - sem `Content-Disposition` de anexo e sem contar como download;
+ *  - o primeiro play (do byte 0) copia o vídeo para o R2, como o primeiro
+ *    download — os seguintes saem de lá, sem o Google.
+ * Qualquer erro aqui faz o player da página cair no iframe do Drive, que
+ * continua liberado na CSP das páginas com vídeo.
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug]
+ */
+export async function handleGaleriaVideo(request, env, slug, fileId, ctx, capSlug = '') {
+  const res = await videoDaGaleria(request, env, slug, fileId, ctx, capSlug);
+  res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (request.method === 'HEAD') return new Response(null, { status: res.status, headers: res.headers });
+  return res;
+}
+
+/**
+ * @param {Request} request
+ * @param {Env} env
+ * @param {string} slug
+ * @param {string} fileId
+ * @param {ExecutionContext} [ctx]
+ * @param {string} [capSlug]
+ */
+async function videoDaGaleria(request, env, slug, fileId, ctx, capSlug = '') {
+  if (!await podeVerGaleria(request, env, slug)) return notFound();
+  if (!idDriveValido(fileId)) return notFound();
+  const event = (await getEvents(env)).find(e => e.slug === slug);
+  if (!event || !pastaDoDrive(event.driveUrl)) return notFound();
+  if (!!event.galeriaCapitulos !== !!capSlug) return notFound();
+  const intervalo = intervaloPedido(request.headers.get('Range'));
+  if (intervalo === 'invalido') return foraDoArquivo(0);
+
+  const dono = await verifySession(env, request);
+  if (!dono) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const limite = await takeToken(env, ip, 'galeria-video', GALERIA_VIDEO_BUCKET);
+    if (!limite.ok) return tooManyRequests(limite.retryAfter);
+  }
+
+  /** @type {import('./drive.js').ListagemDrive} */
+  let listagem;
+  const alvoLista = await alvoDaGaleria(env, event, capSlug, false, ctx);
+  if (alvoLista.kind === 'nao') return notFound();
+  if (alvoLista.kind === 'erro') return alvoLista.codigo === 'limite' || alvoLista.codigo === 'carregando' ? erroDriveNoDownload(request, new DriveError(alvoLista.codigo, alvoLista.mensagem)) : erroDownload(request, alvoLista.mensagem, 502);
+  if (!alvoLista.pasta) return notFound();
+  try {
+    listagem = await listaPasta(env, alvoLista.pasta, { ctx, ...opcoesDaLista(event, alvoLista.maxChamadas, alvoLista.capitulo) });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    return erroDriveNoDownload(request, e);
+  }
+  const achado = achaArquivo(listagem, fileId);
+  if (!achado || achado.live || !ehVideo(achado.foto)) return notFound();
+  const video = achado.foto;
+  if (!dono && normalizaOcultas(event.fotosOcultas).includes(video[0])) return notFound();
+
+  const doR2 = await videoDoR2(env, video[0], intervalo);
+  if (doR2 === 'fora') return foraDoArquivo(Number(video[4]) || 0);
+  if (doR2) return respostaDeVideo(doR2.body, doR2.tipo, doR2.total, doR2.fatia);
+
+  /** @type {Record<string, string>} */
+  const headers = {};
+  const alvo = urlOriginal(video[0], (env.GOOGLE_DRIVE_API_KEY || '').trim());
+  const rk = listagem.rk && listagem.rk[video[0]];
+  if (rk) headers['X-Goog-Drive-Resource-Keys'] = `${video[0]}/${rk}`;
+  // O Range que vai ao Google é o que ESTE código montou a partir do
+  // intervalo lido, nunca o cabeçalho cru do visitante.
+  const range = !intervalo ? '' : 'suffix' in intervalo ? `bytes=-${intervalo.suffix}` : `bytes=${intervalo.offset}-${intervalo.length === undefined ? '' : intervalo.offset + intervalo.length - 1}`;
+  const busca = async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      return await fetch(alvo, { headers: range ? { ...headers, Range: range } : headers, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  /** @type {Response} */
+  let up;
+  try {
+    up = await busca();
+  } catch {
+    return erroDownload(request, 'O Google não respondeu a tempo. Tente de novo.', 504);
+  }
+  if (up.status === 416) {
+    try { await up.body?.cancel(); } catch { /* sem corpo útil */ }
+    return foraDoArquivo(Number(video[4]) || 0);
+  }
+  if (!up.ok) {
+    const falha = await erroDaApi(up);
+    if (falha.codigo === 'limite') return downloadOcupado(request, 'Muita gente vendo este vídeo agora. Tente de novo em alguns minutos.');
+    return erroDownload(request, falha.message, up.status === 404 ? 404 : 502);
+  }
+  const tipo = (up.headers.get('Content-Type') || 'application/octet-stream').split(';')[0].trim();
+  const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
+  h.set('Cache-Control', 'private, no-transform, max-age=3600');
+  h.set('Accept-Ranges', 'bytes');
+  for (const k of ['Content-Length', 'Content-Range']) {
+    const v = up.headers.get(k);
+    if (v) h.set(k, v);
+  }
+  // Primeiro play (do começo do arquivo), sem cópia no R2: a cópia vai para
+  // lá, como no primeiro download. Pulo para o meio não copia (não dispara
+  // várias cópias do mesmo vídeo).
+  // O Safari abre com "bytes=0-1" (só para ver se o servidor aceita Range)
+  // e logo pede o resto: a sonda de 2 bytes não dispara cópia.
+  const doComeco = !intervalo || ('offset' in intervalo && intervalo.offset === 0 && (intervalo.length === undefined || intervalo.length > 2));
+  const total = totalDoArquivo(up) || Number(video[4]) || 0;
+  if (doComeco && env.FOTOS_R2 && ctx) ctx.waitUntil(copiaOriginalParaR2(env, video[0], alvo, headers, total, tipo));
+  return new Response(up.body, { status: up.status === 206 ? 206 : 200, headers: h });
+}
+
+/**
+ * Tamanho total do arquivo pela resposta do Google: o "/total" do
+ * `Content-Range` (206) ou o `Content-Length` (200).
+ * @param {Response} up
+ */
+function totalDoArquivo(up) {
+  const cr = up.headers.get('Content-Range') || '';
+  const m = /\/(\d+)$/.exec(cr);
+  if (m) return Number(m[1]);
+  return up.status === 200 ? Number(up.headers.get('Content-Length')) || 0 : 0;
+}
+
+/**
+ * @param {ReadableStream} body
+ * @param {string} tipo
+ * @param {number} total
+ * @param {{ inicio: number, fim: number } | null} fatia
+ */
+function respostaDeVideo(body, tipo, total, fatia) {
+  const h = new Headers(dataSecurityHeaders(tipo, { store: true }));
+  h.set('Cache-Control', 'private, no-transform, max-age=3600');
+  h.set('Accept-Ranges', 'bytes');
+  if (fatia) {
+    h.set('Content-Range', `bytes ${fatia.inicio}-${fatia.fim}/${total}`);
+    h.set('Content-Length', String(fatia.fim - fatia.inicio + 1));
+    return new Response(body, { status: 206, headers: h });
+  }
+  if (total) h.set('Content-Length', String(total));
+  return new Response(body, { status: 200, headers: h });
+}
+
+/** 416: o trecho pedido não existe no arquivo. @param {number} total */
+function foraDoArquivo(total) {
+  const h = new Headers(dataSecurityHeaders('text/plain; charset=utf-8'));
+  if (total) h.set('Content-Range', `bytes */${total}`);
+  return new Response(null, { status: 416, headers: h });
 }
 
 /**

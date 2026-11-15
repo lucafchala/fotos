@@ -100,7 +100,7 @@ export function generateNonce() {
 // todo <style> das páginas morreria.
 /**
  * @param {string} nonce
- * @param {{ driveFrame?: boolean }} [opcoes] `driveFrame`: a página abre o player do Drive (galeria com vídeo)
+ * @param {{ driveFrame?: boolean }} [opcoes] `driveFrame`: galeria com vídeo — libera o `<video>` da própria origem e, como reserva, o player do Drive
  */
 export function contentSecurityPolicy(nonce, { driveFrame = false } = {}) {
   // Sem nonce (páginas de erro, sem script) a fonte é omitida em vez de virar
@@ -127,7 +127,10 @@ export function contentSecurityPolicy(nonce, { driveFrame = false } = {}) {
     // Nada abaixo é usado pelo site: negar explicitamente evita que um dia um
     // <object>/<embed> injetado tenha para onde ir.
     "object-src 'none'",
-    "media-src 'none'",
+    // O player de vídeo da galeria (v4.2.0) é um <video> servido pela
+    // própria origem (/galeria/.../video/<id>): só as páginas com vídeo
+    // ganham 'self'; o resto do site continua sem mídia nenhuma.
+    driveFrame ? "media-src 'self'" : "media-src 'none'",
     "worker-src 'self'",
     "manifest-src 'self'",
     "frame-ancestors 'none'",

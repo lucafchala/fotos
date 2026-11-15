@@ -284,6 +284,76 @@ export async function originalDoR2(env, id) {
 }
 
 /**
+ * O intervalo de um pedido `Range` (v4.2.0, vídeo tocado no site). Só UM
+ * intervalo de bytes — o que o `<video>` pede: `bytes=a-b`, `bytes=a-` ou
+ * `bytes=-n`. Sem cabeçalho, `null` (o arquivo inteiro); vários intervalos ou
+ * forma estranha, `'invalido'` (416).
+ * @param {string | null} cabecalho
+ * @returns {null | 'invalido' | { offset: number, length?: number } | { suffix: number }}
+ */
+export function intervaloPedido(cabecalho) {
+  if (cabecalho === null || cabecalho === undefined) return null;
+  const m = /^bytes=(\d{0,15})-(\d{0,15})$/.exec(String(cabecalho).trim());
+  if (!m || (!m[1] && !m[2])) return 'invalido';
+  if (!m[1]) {
+    const n = Number(m[2]);
+    return n > 0 ? { suffix: n } : 'invalido';
+  }
+  const a = Number(m[1]);
+  if (!m[2]) return { offset: a };
+  const b = Number(m[2]);
+  return b >= a ? { offset: a, length: b - a + 1 } : 'invalido';
+}
+
+/**
+ * Onde o intervalo cai num arquivo de `total` bytes: primeiro e último byte
+ * (inclusive). `null` quando não cabe (416).
+ * @param {{ offset: number, length?: number } | { suffix: number }} intervalo
+ * @param {number} total
+ * @returns {{ inicio: number, fim: number } | null}
+ */
+export function fatiaDoTotal(intervalo, total) {
+  if (!(total > 0)) return null;
+  if ('suffix' in intervalo) return { inicio: Math.max(0, total - intervalo.suffix), fim: total - 1 };
+  if (intervalo.offset >= total) return null;
+  const fim = intervalo.length === undefined ? total - 1 : Math.min(total - 1, intervalo.offset + intervalo.length - 1);
+  return { inicio: intervalo.offset, fim };
+}
+
+/**
+ * O vídeo que já está no R2 (a cópia do primeiro download ou do primeiro
+ * play), com o intervalo pedido. `null` quando não está lá ou o R2 falhou —
+ * aí o vídeo sai do Drive, como antes.
+ * @param {{ FOTOS_R2?: R2Bucket }} env
+ * @param {string} id
+ * @param {null | { offset: number, length?: number } | { suffix: number }} intervalo
+ * @returns {Promise<{ body: ReadableStream, total: number, tipo: string, fatia: { inicio: number, fim: number } | null } | 'fora' | null>}
+ */
+export async function videoDoR2(env, id, intervalo) {
+  if (!env.FOTOS_R2) return null;
+  try {
+    // Sem intervalo, um get comum. Com intervalo, o head diz o tamanho antes:
+    // pedir ao R2 um trecho que não existe é erro, e aqui vira 416.
+    if (!intervalo) {
+      const o = await env.FOTOS_R2.get(`o/${id}`);
+      if (!o || !o.body) return null;
+      return { body: o.body, total: Number(o.size) || 0, tipo: (o.httpMetadata && o.httpMetadata.contentType) || 'application/octet-stream', fatia: null };
+    }
+    const h = await env.FOTOS_R2.head(`o/${id}`);
+    if (!h) return null;
+    const total = Number(h.size) || 0;
+    const fatia = fatiaDoTotal(intervalo, total);
+    if (!fatia) return 'fora';
+    const o = await env.FOTOS_R2.get(`o/${id}`, { range: { offset: fatia.inicio, length: fatia.fim - fatia.inicio + 1 } });
+    if (!o || !o.body) return null;
+    return { body: o.body, total, tipo: (h.httpMetadata && h.httpMetadata.contentType) || 'application/octet-stream', fatia };
+  } catch (e) {
+    console.error('video: R2 falhou, vai ao Drive', e);
+    return null;
+  }
+}
+
+/**
  * O original já está no R2? Para a sonda "pronto?" (`p=1`) do download, que
  * só quer saber se o arquivo sai: um `head` (sem corpo) no lugar de ir ao
  * Drive. No pico é a diferença entre zero e uma chamada ao Google por foto

@@ -667,6 +667,12 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .pswp{--pswp-bg:#000}
     .pswp__g-legenda{position:absolute;left:0;right:0;bottom:0;padding:1.6rem 1rem calc(.9rem + env(safe-area-inset-bottom));text-align:center;font:500 13px/1.4 'Inter',sans-serif;color:#e8e3dd;background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none;transition:opacity .25s}
     .pswp:not(.pswp--ui-visible) .pswp__g-legenda{opacity:0}
+    /* O CSS do PhotoSwipe põe pointer-events:auto em .pswp__hide-on-close com a
+       barra visível: a legenda (que ocupa o rodapé) engoliria os toques nos
+       controles do vídeo. Só o "Pedir remoção" dentro dela é clicável. */
+    .pswp--ui-visible .pswp__g-legenda{pointer-events:none}
+    /* No vídeo, a legenda sobe acima da barra, do tempo e do botão de som. */
+    .g-eh-video .pswp__g-legenda{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
     .g-vid{position:relative;background:#000;overflow:hidden}
     .g-vid img{width:100%;height:100%;object-fit:contain;display:block}
     .g-vid iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
@@ -674,6 +680,25 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-vid-play::before{content:"";margin-left:6px;border-left:24px solid #fff;border-top:15px solid transparent;border-bottom:15px solid transparent}
     .g-vid-dur{position:absolute;left:10px;bottom:10px;padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums}
     .g-vid.sem-mini{background:#161616}
+    .g-reel .g-vid-tela{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:block;cursor:pointer}
+    .g-vid-ico{position:absolute;left:50%;top:50%;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;background:rgba(0,0,0,.45);pointer-events:none;opacity:0;transform:scale(.9);transition:opacity .18s ease,transform .18s ease}
+    .g-vid-ico::before{content:"";position:absolute;left:33px;top:24px;border-left:28px solid #fff;border-top:18px solid transparent;border-bottom:18px solid transparent}
+    .g-reel.pausado .g-vid-ico{opacity:1;transform:none}
+    .g-reel.pisca:not(.pausado) .g-vid-ico{animation:g-vid-some .5s ease forwards}
+    .g-reel.pisca:not(.pausado) .g-vid-ico::before{left:28px;top:26px;width:8px;height:32px;border:0;background:#fff;box-shadow:20px 0 0 #fff}
+    @keyframes g-vid-some{from{opacity:1;transform:none}to{opacity:0;transform:scale(1.15)}}
+    .g-reel.espera::after{content:"";position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:g-gira .8s linear infinite;pointer-events:none}
+    @keyframes g-gira{to{transform:rotate(360deg)}}
+    .g-vid-som{position:absolute;right:12px;bottom:calc(30px + env(safe-area-inset-bottom));width:44px;height:44px;border-radius:50%;border:0;padding:0;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;display:grid;place-items:center}
+    .g-vid-som::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:var(--g-som) center/contain no-repeat;mask:var(--g-som) center/contain no-repeat}
+    .g-vid-som{--g-som:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z'/%3E%3C/svg%3E")}
+    .g-vid-som.mudo{--g-som:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4z'/%3E%3C/svg%3E")}
+    .g-vid-som:focus-visible,.g-vid-barra:focus-visible{outline:2px solid #fff;outline-offset:2px}
+    .g-vid-barra{position:absolute;left:0;right:0;bottom:env(safe-area-inset-bottom);height:24px;cursor:pointer;touch-action:none;display:flex;align-items:flex-end}
+    .g-vid-barra::before{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.3)}
+    .g-vid-prog{position:relative;display:block;width:100%;height:3px;background:#fff;transform-origin:0 50%;transform:scaleX(0)}
+    .g-reel.arrasta .g-vid-barra::before,.g-reel.arrasta .g-vid-prog,.g-vid-barra:hover .g-vid-prog,.g-vid-barra:hover::before{height:6px}
+    .g-vid-resta{position:absolute;left:12px;bottom:calc(36px + env(safe-area-inset-bottom));padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums;pointer-events:none}
     .g-eh-video .pswp__button--zoom{display:none}
     .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
@@ -722,6 +747,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ${HONEYPOT_CSS}
     @media (prefers-reduced-motion: reduce){
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
+      .g-vid-ico{transition:none}
+      .g-reel.pisca:not(.pausado) .g-vid-ico{animation:none;opacity:0}
+      .g-reel.espera::after{animation-duration:2.4s}
       .g-topo,.g-folha-c,.g-aviso-flut{transition:opacity .1s linear;transform:none}
       .g-topo.on{transform:none}
       .g-aviso-flut{transform:translateX(-50%)}
@@ -1885,15 +1913,25 @@ const SCRIPT = `
   /** @type {Promise<any> | null} */
   let carregandoLb = null;
 
-  // ---- Vídeo no visualizador (item 1f): fachada, como o vídeo do YouTube ----
-  // Nada do Google carrega antes do toque: o slide mostra a miniatura (lh3, a
-  // mesma origem das fotos) e um botão de play. SÓ o toque coloca o iframe do
-  // player do Drive (/file/d/ID/preview) no lugar, sem autoplay e com tela
-  // cheia como única permissão. Sair do slide devolve a fachada (o vídeo para).
+  // ---- Vídeo no visualizador: player estilo reels (v4.2.0) ----
+  // Um <video> comum servido pela própria origem (/galeria/.../video/<id>,
+  // com Range): ocupa o slide, começa a tocar MUDO quando o slide fica ativo,
+  // toque pausa/continua (ícone grande que some), botão de som redondo (a
+  // escolha vale para a sessão), barra fina arrastável e o tempo que falta.
+  // O src só entra no primeiro play: os slides vizinhos pré-carregados mostram
+  // o pôster (a miniatura lh3 de sempre) sem baixar nada do vídeo.
+  // Se o <video> falhar (formato que o navegador não toca, erro do Google),
+  // o slide cai no player do Drive, como antes: fachada + iframe no toque.
   const ID_DRIVE_RE = /^[A-Za-z0-9_-]{10,200}$/;
+  let somLigado = false;
+  try { somLigado = sessionStorage.getItem('g-som') === '1'; } catch (e) { /* sem storage: mudo */ }
+  function urlVideo(f) {
+    return '/galeria/' + encodeURIComponent(D.slug) + (D.cap ? '/' + encodeURIComponent(D.cap) : '') + '/video/' + f.id;
+  }
   function mostraFachada(box, f) {
+    if (box.gPlayer) { box.gPlayer.destroi(); box.gPlayer = null; }
     box.replaceChildren();
-    box.classList.remove('sem-mini');
+    box.classList.remove('sem-mini', 'g-reel');
     const img = document.createElement('img');
     img.alt = f.alt;
     img.decoding = 'async';
@@ -1903,7 +1941,7 @@ const SCRIPT = `
     b.type = 'button';
     b.className = 'g-vid-play';
     b.setAttribute('aria-label', 'Tocar o vídeo ' + semExt(f.nome));
-    b.addEventListener('click', function (ev) { ev.stopPropagation(); tocaVideo(box, f); });
+    b.addEventListener('click', function (ev) { ev.stopPropagation(); tocaNoDrive(box, f); });
     box.appendChild(img);
     box.appendChild(b);
     if (f.dur > 0) {
@@ -1913,7 +1951,7 @@ const SCRIPT = `
       box.appendChild(d);
     }
   }
-  function tocaVideo(box, f) {
+  function tocaNoDrive(box, f) {
     if (!ID_DRIVE_RE.test(f.id)) return;
     const fr = document.createElement('iframe');
     fr.src = 'https://drive.google.com/file/d/' + f.id + '/preview';
@@ -1924,11 +1962,186 @@ const SCRIPT = `
     box.replaceChildren(fr);
     fr.focus();
   }
+  // Os controles não deixam o PhotoSwipe começar um arrasto (troca de slide)
+  // nem tratar o toque como "mostrar/esconder a barra".
+  function isolaDoPswp(el) {
+    ['pointerdown', 'pointerup', 'mousedown', 'touchstart'].forEach(function (t) {
+      el.addEventListener(t, function (ev) { ev.stopPropagation(); });
+    });
+  }
+  function montaPlayer(box, f) {
+    box.replaceChildren();
+    box.classList.add('g-reel');
+    const v = document.createElement('video');
+    v.className = 'g-vid-tela';
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.muted = !somLigado;
+    v.loop = true;
+    v.preload = 'none';
+    v.poster = lh3(f.id, 1280);
+    v.setAttribute('aria-label', 'Vídeo ' + semExt(f.nome));
+    v.disableRemotePlayback = true;
+    const ico = document.createElement('span');
+    ico.className = 'g-vid-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    const som = document.createElement('button');
+    som.type = 'button';
+    som.className = 'g-vid-som';
+    const barra = document.createElement('div');
+    barra.className = 'g-vid-barra';
+    barra.tabIndex = 0;
+    barra.setAttribute('role', 'slider');
+    barra.setAttribute('aria-label', 'Posição do vídeo');
+    barra.setAttribute('aria-valuemin', '0');
+    const prog = document.createElement('span');
+    prog.className = 'g-vid-prog';
+    barra.appendChild(prog);
+    const resta = document.createElement('span');
+    resta.className = 'g-vid-resta';
+    resta.setAttribute('aria-hidden', 'true');
+    box.append(v, ico, som, barra, resta);
+    isolaDoPswp(som);
+    isolaDoPswp(barra);
+
+    let ativo = false;
+    let caiu = false;
+    const dur = function () { return isFinite(v.duration) && v.duration > 0 ? v.duration : (f.dur || 0); };
+    function pintaSom() {
+      som.classList.toggle('mudo', v.muted);
+      som.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
+      som.setAttribute('aria-label', v.muted ? 'Ligar o som' : 'Desligar o som');
+    }
+    function pintaTempo() {
+      const d = dur();
+      const t = Math.min(v.currentTime || 0, d || 0);
+      prog.style.transform = 'scaleX(' + (d ? t / d : 0) + ')';
+      resta.textContent = d ? '-' + fmtDur(d - t) : '';
+      barra.setAttribute('aria-valuemax', String(Math.round(d)));
+      barra.setAttribute('aria-valuenow', String(Math.round(t)));
+      barra.setAttribute('aria-valuetext', fmtDur(t) + ' de ' + fmtDur(d));
+    }
+    function pintaPausa() { box.classList.toggle('pausado', v.paused); }
+    function toca() {
+      if (caiu) return;
+      if (!v.getAttribute('src')) { v.preload = 'auto'; v.src = urlVideo(f); }
+      const p = v.play();
+      // Autoplay com som bloqueado (o navegador exige um toque): tenta mudo.
+      if (p && p.catch) {
+        p.catch(function (err) {
+          if (err && err.name === 'NotAllowedError' && !v.muted) { v.muted = true; pintaSom(); v.play().catch(function () { pintaPausa(); }); } else pintaPausa();
+        });
+      }
+    }
+    function pausa() { if (!v.paused) v.pause(); }
+    function alterna(ev) {
+      if (v.paused) toca(); else pausa();
+      box.classList.remove('pisca');
+      if (!reduz()) { void box.offsetWidth; box.classList.add('pisca'); }
+      if (ev) ev.preventDefault();
+    }
+    function cai() {
+      if (caiu) return;
+      caiu = true;
+      const aindaAtivo = ativo;
+      mostraFachada(box, f);
+      // O player do Drive só entra num toque (sem autoplay de terceiro).
+      if (aindaAtivo) { const b = box.querySelector('.g-vid-play'); if (b) b.focus({ preventScroll: true }); }
+    }
+    v.addEventListener('error', cai);
+    v.addEventListener('play', pintaPausa);
+    v.addEventListener('pause', pintaPausa);
+    v.addEventListener('waiting', function () { box.classList.add('espera'); });
+    ['playing', 'canplay', 'seeked'].forEach(function (t) { v.addEventListener(t, function () { box.classList.remove('espera'); }); });
+    v.addEventListener('timeupdate', pintaTempo);
+    v.addEventListener('loadedmetadata', pintaTempo);
+    v.addEventListener('volumechange', pintaSom);
+
+    // Mouse: o clique nativo no vídeo (o PhotoSwipe não trata clique fora de
+    // .pswp__img). Toque: o tapAction (tratado em preparaLightbox), para não
+    // alternar duas vezes. Arrasto de mais de 10 px não é clique.
+    let ini = null;
+    v.addEventListener('pointerdown', function (ev) { ini = { x: ev.clientX, y: ev.clientY, mouse: ev.pointerType === 'mouse' }; });
+    v.addEventListener('click', function (ev) {
+      const s = ini;
+      ini = null;
+      if (!s || !s.mouse) return;
+      if (Math.abs(ev.clientX - s.x) > 10 || Math.abs(ev.clientY - s.y) > 10) return;
+      alterna(ev);
+    });
+
+    som.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      v.muted = !v.muted;
+      somLigado = !v.muted;
+      try { sessionStorage.setItem('g-som', somLigado ? '1' : '0'); } catch (e) { /* sem storage */ }
+      if (v.paused && ativo) toca();
+    });
+
+    function vaiPara(clientX) {
+      const r = barra.getBoundingClientRect();
+      const d = dur();
+      if (!d || !r.width) return;
+      const x = Math.min(Math.max(clientX - r.left, 0), r.width);
+      v.currentTime = (x / r.width) * d;
+      pintaTempo();
+    }
+    let arrastando = false;
+    barra.addEventListener('pointerdown', function (ev) {
+      arrastando = true;
+      box.classList.add('arrasta');
+      try { barra.setPointerCapture(ev.pointerId); } catch (e) { /* sem captura */ }
+      vaiPara(ev.clientX);
+    });
+    barra.addEventListener('pointermove', function (ev) { if (arrastando) vaiPara(ev.clientX); });
+    const solta = function () { arrastando = false; box.classList.remove('arrasta'); };
+    barra.addEventListener('pointerup', solta);
+    barra.addEventListener('pointercancel', solta);
+    barra.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    // Teclado na barra: setas andam 5 s, Home/End vão às pontas. As teclas
+    // não sobem para o PhotoSwipe (que trocaria de slide com as setas).
+    barra.addEventListener('keydown', function (ev) {
+      const d = dur();
+      let alvo = null;
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') alvo = v.currentTime + 5;
+      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') alvo = v.currentTime - 5;
+      else if (ev.key === 'Home') alvo = 0;
+      else if (ev.key === 'End') alvo = d;
+      if (alvo === null || !d) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      v.currentTime = Math.min(Math.max(alvo, 0), d);
+      pintaTempo();
+    });
+
+    pintaSom();
+    pintaTempo();
+    pintaPausa();
+    return {
+      ativa: function () { ativo = true; toca(); },
+      desativa: function () { ativo = false; pausa(); },
+      alterna: alterna,
+      contem: function (el) { return !!el && (el === v || el === box || (box.contains(el) && !som.contains(el) && !barra.contains(el))); },
+      destroi: function () {
+        ativo = false;
+        pausa();
+        v.removeAttribute('src');
+        try { v.load(); } catch (e) { /* já solto */ }
+      },
+    };
+  }
   function montaVideo(f) {
     const box = document.createElement('div');
     box.className = 'pswp__content g-vid';
-    mostraFachada(box, f);
+    if (typeof HTMLVideoElement === 'undefined' || !ID_DRIVE_RE.test(f.id)) mostraFachada(box, f);
+    else box.gPlayer = montaPlayer(box, f);
     return box;
+  }
+  // O player do slide atual (ou null).
+  function playerAtual() {
+    const pswp = lightbox && lightbox.pswp;
+    const c = pswp && pswp.currSlide && pswp.currSlide.content;
+    return c && c.element && c.element.gPlayer ? c.element.gPlayer : null;
   }
 
   function dadosSlide(f) {
@@ -2031,10 +2244,38 @@ const SCRIPT = `
           e.content.element = montaVideo(dados.foto);
         }
       });
+      // Slide ativo toca; ao sair, pausa (o player do Drive, se entrou, some
+      // e a fachada volta). Ao destruir o slide, o vídeo solta a conexão.
+      lightbox.on('contentActivate', function (e) {
+        const el = e.content.element;
+        if (el && el.gPlayer) el.gPlayer.ativa();
+      });
       lightbox.on('contentDeactivate', function (e) {
         const dados = e.content.data;
         const el = e.content.element;
-        if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
+        if (el && el.gPlayer) el.gPlayer.desativa();
+        else if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
+      });
+      lightbox.on('contentDestroy', function (e) {
+        const el = e.content.element;
+        if (el && el.gPlayer) { el.gPlayer.destroi(); el.gPlayer = null; }
+      });
+      // Toque no vídeo = pausa/continua (no lugar de esconder a barra).
+      lightbox.on('tapAction', function (e) {
+        const p = playerAtual();
+        const alvo = e.originalEvent && e.originalEvent.target;
+        if (p && p.contem(alvo)) { e.preventDefault(); p.alterna(); }
+      });
+      // Espaço pausa/continua o vídeo do slide (fora de um botão focado).
+      lightbox.on('keydown', function (e) {
+        const ev = e.originalEvent;
+        const p = playerAtual();
+        if (!p || !ev || (ev.key !== ' ' && ev.key !== 'k')) return;
+        const foco = document.activeElement;
+        if (foco && (foco.tagName === 'BUTTON' || foco.getAttribute('role') === 'slider')) return;
+        e.preventDefault();
+        ev.preventDefault();
+        p.alterna();
       });
       lightbox.on('uiRegister', registraUi);
       // Link direto para a foto aberta (?foto=código, v3.9.0): copiar a barra de endereço
@@ -2064,6 +2305,8 @@ const SCRIPT = `
         marcaTipoDoSlide();
       });
       lightbox.on('close', function () {
+        const p = playerAtual();
+        if (p) p.desativa();
         // Fechou pela interface (×, Esc, arrastar): tira a entrada que a
         // abertura pôs. Fechou pelo voltar: ela já saiu.
         if (noTopo('foto')) history.back();

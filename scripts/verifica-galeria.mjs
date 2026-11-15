@@ -15,7 +15,7 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event, HTMLAnchorElement */
+/* global document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -157,6 +157,40 @@ const TURNSTILE_FALSO = `(function(){
 })();`;
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+
+// Um vídeo de verdade (WebM VP8, 2,5 s, retrato) gravado pelo próprio Chromium
+// a partir de um canvas: o player é testado tocando, pausando e avançando um
+// arquivo real, sem depender de ffmpeg nem de arquivo binário no repositório.
+const VIDEO_WEBM = await (async () => {
+  const p = await browser.newPage();
+  try {
+    const b64 = await p.evaluate(async () => {
+      const c = document.createElement('canvas');
+      c.width = 180; c.height = 320;
+      const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+      let i = 0;
+      const t = setInterval(() => { g.fillStyle = `hsl(${(i++ * 25) % 360},70%,50%)`; g.fillRect(0, 0, 180, 320); }, 50);
+      const rec = new MediaRecorder(c.captureStream(20), { mimeType: 'video/webm;codecs=vp8' });
+      /** @type {Blob[]} */
+      const partes = [];
+      rec.ondataavailable = e => partes.push(e.data);
+      rec.start();
+      await new Promise(r => setTimeout(r, 2500));
+      rec.stop();
+      await new Promise(r => { rec.onstop = r; });
+      clearInterval(t);
+      const bytes = new Uint8Array(await new Blob(partes).arrayBuffer());
+      let bin = '';
+      for (const x of bytes) bin += String.fromCharCode(x);
+      return btoa(bin);
+    });
+    return Buffer.from(b64, 'base64');
+  } catch {
+    return null;
+  } finally {
+    await p.close();
+  }
+})();
 // O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
 await provaOVigia(browser, registra);
 
@@ -228,6 +262,8 @@ async function abre(o = {}) {
     turnstile: 0,
     // Pedidos ao player do Drive (item 1f): só depois do toque no play.
     drive: /** @type {string[]} */ ([]),
+    // Pedidos à rota de vídeo do próprio site (v4.2.0), com o Range de cada um.
+    video: /** @type {{ id: string, range: string }[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
   /** @type {Set<string>} */
@@ -274,6 +310,21 @@ async function abre(o = {}) {
     if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
+    // O vídeo tocado no site (v4.2.0): um WebM de verdade, com Range como o
+    // servidor. `videoFalha`: a rota responde 502 (o player cai no Drive).
+    const vm = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/video\/([A-Za-z0-9_-]+)$/);
+    if (vm) {
+      const range = (await r.allHeaders()).range || '';
+      estado.video.push({ id: vm[1], range });
+      if (o.videoFalha || !VIDEO_WEBM) return route.fulfill({ status: 502, body: '' });
+      const total = VIDEO_WEBM.length;
+      const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!m) return route.fulfill({ status: 200, headers: { 'Content-Type': 'video/webm', 'Accept-Ranges': 'bytes', 'Content-Length': String(total) }, body: VIDEO_WEBM });
+      const a = Number(m[1]);
+      const z = m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+      if (a >= total) return route.fulfill({ status: 416, headers: { 'Content-Range': `bytes */${total}` }, body: '' });
+      return route.fulfill({ status: 206, headers: { 'Content-Type': 'video/webm', 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${a}-${z}/${total}`, 'Content-Length': String(z - a + 1) }, body: VIDEO_WEBM.subarray(a, z + 1) });
+    }
     const b = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
@@ -1506,9 +1557,10 @@ await cenario('Índice: N novas desde a última visita', async () => {
 
 // ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
 // O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
-// foto com selo "LIVE". No visualizador o vídeo abre como FACHADA (miniatura +
-// botão de play, nada do Google carrega); só o toque no play coloca o iframe do
-// player do Drive. O CSP libera o frame do Drive só nesta página.
+// foto com selo "LIVE". No visualizador (v4.2.0) o vídeo abre no player estilo
+// reels: <video> da própria origem, tocando mudo, toque pausa, botão de som,
+// barra arrastável. Nada do Google carrega. Se o <video> falhar, cai na
+// FACHADA (miniatura + play) e só o toque no play põe o iframe do Drive.
 const MIDIA_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
   ['MIDIAFOTO_000001', 4032, 3024, 'IMG_0100.HEIC', 3_000_000, 0, 20261105143000, ['MIDIALIVE_000001', 'IMG_0100.MOV', 2_000_000]],
   ['MIDIAVIDEO_00001', 1920, 1080, 'passeio.mp4', 90_000_000, 0, 0, 75],
@@ -1530,81 +1582,186 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { 
       live: [...document.querySelectorAll('.g-t .g-live')].map(e => (e.textContent || '').trim()),
       rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label')),
       iframes: document.querySelectorAll('iframe').length,
+      videos: document.querySelectorAll('video').length,
       lateral: document.scrollingElement.scrollWidth > window.innerWidth,
     }));
     registra(grade.n === 3 && grade.play.length === 1 && grade.play[0] === '1:15' && grade.live.length === 1 && grade.live[0] === 'LIVE',
       `Vídeo ${nome}: a grade mostra o selo de play com a duração (1:15) e o selo LIVE na foto`, grade);
     registra(/^Vídeo passeio/.test(grade.rotulos[1] || '') && /^Live Photo IMG_0100/.test(grade.rotulos[0] || '') && /^Foto IMG_0101/.test(grade.rotulos[2] || ''),
       `Vídeo ${nome}: o rótulo de cada tile diz se é vídeo, Live Photo ou foto`, grade.rotulos);
-    registra(grade.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: antes do toque nenhum iframe e nenhum pedido ao Google Drive`, { iframes: grade.iframes, drive: estado.drive });
+    registra(grade.iframes === 0 && grade.videos === 0 && estado.drive.length === 0 && estado.video.length === 0,
+      `Vídeo ${nome}: antes de abrir, nenhum player, nenhum pedido de vídeo nem ao Google Drive`, { ...grade, drive: estado.drive, video: estado.video });
     registra(!grade.lateral, `Vídeo ${nome}: sem rolagem lateral`);
 
-    // Abre o vídeo: fachada, ainda sem iframe nem pedido ao Drive.
+    // Abre o vídeo: o player toca sozinho, mudo, pela rota do próprio site.
     if (toque) await page.locator('.g-t').nth(1).tap(); else await page.locator('.g-t').nth(1).click();
     await page.waitForSelector('.pswp--open', { timeout: 5000 });
-    await espera(page, 1000);
-    const fachada = await page.evaluate(() => {
-      const box = document.querySelector('.pswp__item[aria-hidden="false"] .g-vid') || document.querySelector('.pswp .g-vid');
-      const b = box && box.querySelector('.g-vid-play');
-      const r = b ? b.getBoundingClientRect() : null;
+    await page.waitForFunction(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused && v.currentTime > 0; }, null, { timeout: 6000 }).catch(() => {});
+    const player = await page.evaluate(() => {
+      const box = document.querySelector('.pswp .g-reel');
+      const v = /** @type {HTMLVideoElement|null} */ (box && box.querySelector('video'));
+      const som = box && box.querySelector('.g-vid-som');
+      const barra = box && box.querySelector('.g-vid-barra');
+      const rs = som ? som.getBoundingClientRect() : null;
+      const rv = v ? v.getBoundingClientRect() : null;
       return {
-        tem: !!box, botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', dur: box && box.querySelector('.g-vid-dur') ? (box.querySelector('.g-vid-dur').textContent || '') : '',
-        alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, iframes: document.querySelectorAll('iframe').length,
+        tem: !!v, tocando: !!v && !v.paused, mudo: !!v && v.muted, inline: !!v && v.hasAttribute('playsinline'), loop: !!v && v.loop,
+        poster: v ? v.getAttribute('poster') : '', src: v ? v.getAttribute('src') : '', controls: !!v && v.controls,
+        som: som ? { rotulo: som.getAttribute('aria-label'), pressed: som.getAttribute('aria-pressed'), alvo: rs ? Math.round(Math.min(rs.width, rs.height)) : 0 } : null,
+        barra: barra ? { role: barra.getAttribute('role'), texto: barra.getAttribute('aria-valuetext'), foco: /** @type {HTMLElement} */ (barra).tabIndex } : null,
+        resta: (box && box.querySelector('.g-vid-resta') || { textContent: '' }).textContent,
+        enche: rv ? Math.round(rv.width) >= Math.round(window.innerWidth * 0.95) || Math.round(rv.height) >= Math.round(window.innerHeight * 0.6) : false,
+        iframes: document.querySelectorAll('iframe').length,
         legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent,
       };
     });
-    registra(fachada.tem && fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo) && fachada.dur === '1:15' && fachada.alvo >= 44,
-      `Vídeo ${nome}: o visualizador abre a fachada (miniatura, botão Tocar com 44 px e duração)`, fachada);
-    registra(fachada.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: a fachada não carrega nada do Google`, { iframes: fachada.iframes, drive: estado.drive });
-    registra(/passeio/.test(fachada.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, fachada.legenda);
+    registra(player.tem && player.tocando && player.mudo && player.inline && player.loop && !player.controls,
+      `Vídeo ${nome}: o slide do vídeo toca sozinho, mudo, inline e em loop, sem os controles do navegador`, player);
+    registra(/\/galeria\/formatura\/video\/MIDIAVIDEO_00001$/.test(player.src || '') && /\/f\/MIDIAVIDEO_00001\/1280/.test(player.poster || ''),
+      `Vídeo ${nome}: o vídeo vem da rota do próprio site e o pôster é a miniatura`, { src: player.src, poster: player.poster });
+    registra(estado.video.length > 0 && estado.video.every(x => x.id === 'MIDIAVIDEO_00001') && estado.video.some(x => /^bytes=0-/.test(x.range)),
+      `Vídeo ${nome}: o navegador pede o vídeo com Range (é o que deixa pular e tocar no iPhone)`, estado.video);
+    registra(player.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: nada do Google Drive (nem iframe)`, { iframes: player.iframes, drive: estado.drive });
+    registra(!!player.som && player.som.rotulo === 'Ligar o som' && player.som.pressed === 'false' && player.som.alvo >= 44,
+      `Vídeo ${nome}: botão de som redondo de 44 px, rotulado, começando mudo`, player.som);
+    registra(!!player.barra && player.barra.role === 'slider' && player.barra.foco === 0 && / de 1:15$| de 0:0[0-9]$/.test(player.barra.texto || '') && /^-\d+:\d\d$/.test(player.resta || ''),
+      `Vídeo ${nome}: barra de progresso acessível (slider) e o tempo que falta`, { barra: player.barra, resta: player.resta });
+    registra(player.enche, `Vídeo ${nome}: o vídeo ocupa o slide`, player);
+    registra(/passeio/.test(player.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, player.legenda);
 
-    // O toque no play coloca o iframe do player, sem violar o CSP.
-    if (toque) await page.locator('.g-vid-play').first().tap(); else await page.locator('.g-vid-play').first().click();
-    await espera(page, 900);
-    const tocando = await page.evaluate(() => {
-      const f = document.querySelector('.pswp iframe');
-      return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow'), sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy') } : null;
+    // Toque/clique no vídeo pausa (ícone de play aparece); de novo, continua.
+    const naTela = page.locator('.pswp .g-reel video');
+    const toca = async () => { if (toque) await naTela.tap({ position: { x: 60, y: 120 } }); else await naTela.click({ position: { x: 60, y: 120 } }); };
+    await toca();
+    await espera(page, toque ? 700 : 400);
+    const pausado = await page.evaluate(() => ({ p: !!(/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused, cls: !!document.querySelector('.pswp .g-reel.pausado'), barraUi: document.querySelector('.pswp')?.classList.contains('pswp--ui-visible') }));
+    registra(pausado.p && pausado.cls && pausado.barraUi, `Vídeo ${nome}: tocar no vídeo pausa e mostra o ícone de play (sem esconder a barra do visualizador)`, pausado);
+    await toca();
+    await espera(page, toque ? 700 : 400);
+    const voltou = await page.evaluate(() => !(/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused);
+    registra(voltou, `Vídeo ${nome}: tocar de novo continua`, voltou);
+
+    // Som: liga, vale para a sessão, e o toque no botão não pausa o vídeo.
+    const cobre = await page.evaluate(() => {
+      const b = document.querySelector('.pswp .g-vid-som');
+      if (!b) return 'sem botão';
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'livre' : (el ? el.className || el.tagName : 'nada') + ' ' + JSON.stringify(r);
     });
-    registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen',
-      `Vídeo ${nome}: o toque no play põe o player do Drive (/preview, só tela cheia)`, tocando);
-    registra(estado.drive.some(x => x === '/file/d/MIDIAVIDEO_00001/preview'), `Vídeo ${nome}: só agora o Drive é chamado`, estado.drive);
+    registra(cobre === 'livre', `Vídeo ${nome}: nada cobre o botão de som`, cobre);
+    if (process.env.VERIFICA_PRINTS) await page.screenshot({ path: join(process.env.VERIFICA_PRINTS, `video-${nome.replace(/\W+/g, '-')}.png`) });
+    const cobreBarra = await page.evaluate(() => {
+      const b = document.querySelector('.pswp .g-vid-barra');
+      if (!b) return 'sem barra';
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width * 0.8, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'livre' : (el ? el.className || el.tagName : 'nada');
+    });
+    registra(cobreBarra === 'livre', `Vídeo ${nome}: nada cobre a barra de progresso`, cobreBarra);
+    if (toque) await page.locator('.pswp .g-vid-som').tap(); else await page.locator('.pswp .g-vid-som').click();
+    await espera(page, 300);
+    const som = await page.evaluate(() => {
+      const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'));
+      const b = /** @type {HTMLElement} */ (document.querySelector('.pswp .g-vid-som'));
+      return { mudo: v.muted, tocando: !v.paused, rotulo: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), guardado: sessionStorage.getItem('g-som'), aberto: !!document.querySelector('.pswp--open') };
+    });
+    registra(!som.mudo && som.tocando && som.rotulo === 'Desligar o som' && som.pressed === 'true' && som.guardado === '1' && som.aberto,
+      `Vídeo ${nome}: o botão liga o som (lembrado na sessão) sem pausar nem fechar`, som);
 
-    // Sair do slide devolve a fachada (o vídeo para de tocar).
-    // (Com o foco dentro do player o teclado é do player: troca pelos botões.)
+    // Barra: arrastar/tocar nela pula; as setas no teclado andam o vídeo e NÃO trocam de slide.
+    await page.evaluate(() => { const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video')); v.pause(); v.currentTime = 0; });
+    await espera(page, 200);
+    const bb = await page.locator('.pswp .g-vid-barra').boundingBox();
+    if (bb) {
+      if (toque) await page.touchscreen.tap(bb.x + bb.width * 0.8, bb.y + bb.height / 2); else await page.mouse.click(bb.x + bb.width * 0.8, bb.y + bb.height / 2);
+    }
+    await espera(page, 400);
+    const pulo = await page.evaluate(() => {
+      const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'));
+      return { t: v.currentTime, pausado: v.paused, aberto: !!document.querySelector('.pswp--open'), legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent };
+    });
+    registra(pulo.aberto && pulo.pausado && pulo.t > 0.3 && /passeio/.test(pulo.legenda || ''), `Vídeo ${nome}: tocar na barra pula o vídeo (parado) sem trocar de slide`, pulo);
+    await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).play());
+    if (!toque) {
+      await page.locator('.pswp .g-vid-barra').focus();
+      const antes = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).currentTime);
+      await page.keyboard.press('Home');
+      await espera(page, 200);
+      const depoisHome = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).currentTime);
+      await page.keyboard.press('ArrowRight');
+      await espera(page, 300);
+      const teclado = await page.evaluate(() => ({ legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent, now: (document.querySelector('.pswp .g-vid-barra') || { getAttribute: () => '' }).getAttribute('aria-valuenow') }));
+      registra(depoisHome < antes + 0.01 && /passeio/.test(teclado.legenda || ''), `Vídeo ${nome}: Home/setas na barra mexem no vídeo e não trocam de slide`, { antes, depoisHome, teclado });
+      // Espaço (foco fora dos controles) pausa.
+      await page.locator('.pswp').evaluate(el => /** @type {HTMLElement} */ (el).focus());
+      await page.keyboard.press(' ');
+      await espera(page, 300);
+      const espaco = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused);
+      registra(espaco, `Vídeo ${nome}: a barra de espaço pausa`, espaco);
+      await page.keyboard.press(' ');
+      await espera(page, 300);
+    }
+
+    // Sair do slide pausa o vídeo.
     if (toque) {
-      // No toque o PhotoSwipe esconde as setas (a troca é o arrastar): fecha e
-      // reabre o vídeo — o player não pode voltar sozinho.
       await page.locator('.pswp__button--close').tap();
       await espera(page, 700);
-      await page.locator('.g-t').nth(1).tap();
-      await page.waitForSelector('.pswp--open', { timeout: 5000 });
-      await espera(page, 900);
+      const fechado = await page.evaluate(() => [...document.querySelectorAll('video')].every(v => v.paused));
+      registra(fechado, `Vídeo ${nome}: fechar o visualizador para o vídeo`, fechado);
     } else {
-      await page.locator('.pswp__button--arrow--prev').click();
-      await espera(page, 800);
       await page.locator('.pswp__button--arrow--next').click();
-      await espera(page, 800);
+      await espera(page, 700);
+      const fora = await page.evaluate(() => [...document.querySelectorAll('.pswp video')].every(v => v.paused));
+      registra(fora, `Vídeo ${nome}: trocar de slide pausa o vídeo`, fora);
+      await page.locator('.pswp__button--arrow--prev').click();
+      await page.waitForFunction(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused; }, null, { timeout: 4000 }).catch(() => {});
+      const denovo = await page.evaluate(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused && !v.muted; });
+      registra(denovo, `Vídeo ${nome}: voltar ao slide retoma o vídeo, com o som que a pessoa escolheu`, denovo);
+      await page.locator('.pswp__button--close').click();
+      await espera(page, 600);
     }
-    const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
-    registra(volta.iframes === 0 && volta.botao, `Vídeo ${nome}: sair do slide e voltar traz a fachada de novo (o vídeo parou)`, volta);
-
-    // Live Photo: o download oferece a foto E o vídeo do Live.
-    if (toque) await page.locator('.pswp__button--close').tap(); else await page.locator('.pswp__button--close').click();
-    await espera(page, 600);
     registra(estado.erros.length === 0 && estado.csp.length === 0, `Vídeo ${nome}: sem erro de JS nem violação de CSP`, [...estado.erros, ...estado.csp]);
     await ctx.close();
   });
 }
-await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
-  // Prova de que a liberação do frame do Drive é mesmo o que faz o player
-  // funcionar: sem ela (página sem vídeo no servidor) o navegador bloqueia.
+await cenario('Vídeo: a rota falha e o slide cai no player do Drive', async () => {
+  const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: true, videoFalha: true });
+  await page.locator('.g-t').nth(1).click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await page.waitForSelector('.pswp .g-vid-play', { timeout: 5000 }).catch(() => {});
+  const fachada = await page.evaluate(() => {
+    const b = document.querySelector('.pswp .g-vid-play');
+    const r = b ? b.getBoundingClientRect() : null;
+    return { botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, videos: document.querySelectorAll('.pswp video').length, iframes: document.querySelectorAll('iframe').length };
+  });
+  registra(fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo || '') && fachada.alvo >= 44 && fachada.videos === 0 && fachada.iframes === 0 && estado.drive.length === 0,
+    'Vídeo com falha: a fachada (miniatura + play de 44 px) entra no lugar, ainda sem nada do Google', { fachada, drive: estado.drive });
+  await page.locator('.g-vid-play').first().click();
+  await espera(page, 900);
+  const tocando = await page.evaluate(() => { const f = document.querySelector('.pswp iframe'); return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow') } : null; });
+  registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen' && estado.drive.includes('/file/d/MIDIAVIDEO_00001/preview'),
+    'Vídeo com falha: o toque no play põe o player do Drive', { tocando, drive: estado.drive });
+  await page.locator('.pswp__button--arrow--prev').click();
+  await espera(page, 700);
+  await page.locator('.pswp__button--arrow--next').click();
+  await espera(page, 700);
+  const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
+  registra(volta.iframes === 0 && volta.botao, 'Vídeo com falha: sair do slide e voltar traz a fachada (o iframe saiu)', volta);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Vídeo com falha: sem erro de JS nem violação de CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Vídeo: sem a liberação na CSP nada de vídeo sai', async () => {
+  // Prova de que media-src/frame-src das páginas com vídeo são o que faz os
+  // players funcionarem: sem elas, o <video> e o frame do Drive são barrados.
   const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: false });
   await page.locator('.g-t').nth(1).click();
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await page.waitForSelector('.pswp .g-vid-play', { timeout: 5000 }).catch(() => {});
+  await page.locator('.g-vid-play').first().click().catch(() => {});
   await espera(page, 800);
-  await page.locator('.g-vid-play').first().click();
-  await espera(page, 800);
-  registra(estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0, 'Vídeo: sem a liberação no CSP o frame do Drive é barrado (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive });
+  registra(estado.csp.some(x => /media/i.test(x)) && estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0 && estado.video.length === 0,
+    'Vídeo: sem a liberação na CSP o <video> e o frame do Drive são barrados (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive, video: estado.video });
   await ctx.close();
 });
 

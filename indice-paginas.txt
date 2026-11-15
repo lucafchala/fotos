@@ -1,0 +1,22 @@
+ÍNDICE DAS PÁGINAS
+
+DOMÍNIO DO ÁLBUM (entrenos2026.com)
+/                       Página principal do álbum (hoje: "em breve")
+/<evento>               Fotos de um evento
+/<evento>?foto=...      Abre direto numa foto, com prévia no WhatsApp
+/ajuda                  Dúvidas, com busca (3.9.0)
+/ajuda/<tema>           Um tema: rosto, baixar, enviar, remover, navegar, apoiar ou contato (3.9.0)
+/numeros                A turma em números (3.9.1)
+/entrar  /sair          Login da editora
+
+SITE PRINCIPAL (fotos.lucafchala.com)
+/                       Portfólio com todos os projetos
+/<projeto>              Página de um projeto
+/galeria/<projeto>      Galeria do projeto
+/galeria/<projeto>/<evento>   Um evento da galeria
+/sobre                  Sobre você
+/equipamentos           Seus equipamentos
+/suporte                Formulário de contato
+/privacidade  /termos   Política de privacidade e termos de uso
+/legal                  Central de transparência (LGPD)
+/dashboard              Seu painel
