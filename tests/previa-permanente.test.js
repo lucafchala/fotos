@@ -90,6 +90,10 @@ describe('prévia permanente: configuração', () => {
     expect(MODELO).toMatch(/database_id = "__D1_ID__"/);
   });
 
+  it('não abre o workers.dev, que o Access não cobre', () => {
+    expect(MODELO).toMatch(/^workers_dev = false$/m);
+  });
+
   it('responde nos dois domínios de prévia', () => {
     expect(MODELO).toContain('{ pattern = "preview.fotos.lucafchala.com", custom_domain = true }');
     expect(MODELO).toContain('{ pattern = "preview.entrenos2026.com", custom_domain = true }');

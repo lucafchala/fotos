@@ -26,7 +26,10 @@ name = "fotos-previa-permanente"
 main = "src/previa-permanente.js"
 compatibility_date = "2024-11-01"
 account_id = "e5869d6881e992cf4681ce85583a6ab2"
-workers_dev = true
+# Sem workers.dev: o Access (Zero Trust) só cobre os domínios próprios, e o
+# endereço workers.dev ficaria aberto com os links reais do backup restaurado
+# (docs/RELEASE.md, "Cloudflare Access").
+workers_dev = false
 preview_urls = false
 
 routes = [
