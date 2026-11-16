@@ -15,7 +15,7 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval */
+/* global document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval, location */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -239,6 +239,7 @@ async function abre(o = {}) {
           // `recusaShare`: o sistema recusa entregar os arquivos (erro que não é
           // cancelamento nem falta de toque) — o caso do fallback para "Arquivos".
           if (recusaShare) { const e = new Error('recusou'); e.name = 'DataError'; throw e; }
+          if (d.url) /** @type {any} */ (window).__compartilhados.push({ url: d.url, files: (d.files || []).length });
           for (const f of (d.files || [])) {
             const b = new Uint8Array(await f.arrayBuffer());
             let bin = '';
@@ -796,17 +797,35 @@ await cenario('iPhone sem compartilhar arquivos', async () => {
   await ctx.close();
 });
 
-// Compartilhar uma foto, no iPhone: o arquivo é buscado só para ler (c=0), sem
-// somar em "Fotos baixadas".
-await cenario('Compartilhar não conta como download', async () => {
+// Compartilhar uma foto (v4.2.0): manda o LINK da foto (?foto=), nunca o
+// arquivo — nenhum pedido a /baixar/, nada conta como download. Sem o menu do
+// sistema, o link vai para a área de transferência.
+await cenario('Compartilhar manda o link, não a foto', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
   await page.locator('.g-t').first().tap();
   await page.waitForSelector('.pswp--open');
   await espera(page, 900);
+  const endereco = await page.evaluate(() => location.href);
   await page.locator('.pswp__button--g-compartilhar').tap();
   await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
-  registra(estado.pedidos.join(',') === 'RAIZFOTO_000000?v=redes&c=0', 'Compartilhar: lê o arquivo do Instagram com c=0 (o servidor não conta como download)', estado.pedidos);
+  const c = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
+  registra(c.length === 1 && c[0].files === 0 && c[0].url === endereco && /[?]foto=/.test(c[0].url), 'Compartilhar: o menu do sistema recebe só o link da foto aberta (?foto=), sem arquivo', { c, endereco });
+  registra(estado.pedidos.length === 0 && estado.downloads.length === 0, 'Compartilhar: nenhum pedido de download sai', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Compartilhar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Compartilhar sem menu do sistema copia o link', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 1440, height: 900 } });
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://fotos.test' });
+  await page.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); });
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').click();
+  await page.waitForFunction(() => /Link copiado/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  const r = await page.evaluate(async () => ({ aviso: document.getElementById('g-aviso-flut')?.textContent || '', copiado: await navigator.clipboard.readText(), aqui: location.href }));
+  registra(/Link copiado/.test(r.aviso) && r.copiado === r.aqui && /[?]foto=/.test(r.copiado), 'Compartilhar no computador: copia o link da foto e avisa', r);
+  registra(estado.pedidos.length === 0, 'Compartilhar no computador: nenhum download', estado.pedidos);
   await ctx.close();
 });
 
@@ -835,7 +854,7 @@ await cenario('iPhone recusa o Salvar no Fotos', async () => {
   await ctx.close();
 });
 
-// 429 do limite por IP: Compartilhar mostra a espera e não repete a cada toque;
+// 429 do limite por IP: Compartilhar (só o link) não é afetado;
 // "Salvar no Fotos" entra na fila (contagem no botão, Cancelar) e só uma
 // tentativa por vez sai desta aba.
 await cenario('Limite por IP no download (429)', async () => {
@@ -843,11 +862,10 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.g-t').first().tap();
   await page.waitForSelector('.pswp--open');
   await espera(page, 900);
+  // Compartilhar manda só o link: funciona mesmo com o limite esgotado.
   await page.locator('.pswp__button--g-compartilhar').tap();
-  await page.waitForFunction(() => /Muita gente baixando/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 8000 });
-  const aviso = (await page.locator('#g-aviso-flut').textContent()) || '';
-  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(aviso), 'Limite: o Compartilhar mostra a espera que o servidor mandou', aviso);
-  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
+  registra(estado.pedidos.length === 0, 'Limite: o Compartilhar (só o link) funciona com o limite esgotado, sem pedir nada', estado.pedidos);
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
   const salvar = page.locator('.g-ver-a').first().locator('.g-btn').first();
@@ -863,12 +881,12 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
   await espera(page, 1500);
   registra(/Já há downloads na fila/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Limite: com a fila andando, "Baixar arquivo" não abre outra tentativa', await page.locator('#g-folha-msg').textContent());
-  registra(estado.pedidos.length === 2 && baixados.length === 0, 'Limite: só saíram o Compartilhar e a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
+  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: só saiu a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
   registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
   await page.locator('[data-acao="cancela-fila"]').tap();
   await espera(page, 1500);
   registra(await page.locator('[data-acao="cancela-fila"]').count() === 0, 'Limite: Cancelar encerra a fila e some', '');
-  registra(estado.pedidos.length === 2, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
+  registra(estado.pedidos.length === 1, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });

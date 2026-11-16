@@ -2955,41 +2955,14 @@ const SCRIPT = `
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
-  // Compartilhar a foto aberta (botão Compartilhar do visualizador): o arquivo
-  // da pasta do Instagram, quando a foto tem e o aparelho aceita; senão o link
-  // direto; senão copia o link. Não é download — é o menu de compartilhar, que
-  // quem toca em "Compartilhar" pediu.
-  /** @type {Map<string, File>} */
-  const arquivosProntos = new Map();
-  const podeArquivo = aceitaArquivoDeTeste();
-  // Compartilhar não entra na fila (a pessoa está olhando a foto, não baixando
-  // um lote): se o servidor mandou esperar, diz quanto e não repete o pedido
-  // a cada toque até o prazo passar.
-  let compartilharAte = 0;
+  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.2.0):
+  // manda o LINK da foto (?foto=código), nunca o arquivo. O link abre direto
+  // nela, com a prévia (imagem e título) no WhatsApp; o arquivo continua em
+  // Baixar. Sem o menu do sistema, copia o link. Nada é baixado do servidor:
+  // não gasta o limite de downloads nem espera o Google.
   async function compartilhaFoto(f) {
     const link = location.origin + enderecoDaFoto(f.id);
-    if (Date.now() < compartilharAte) {
-      avisa('Muita gente baixando agora. Tente de novo em ' + Math.ceil((compartilharAte - Date.now()) / 1000) + ' s.');
-      return;
-    }
     try {
-      if (podeArquivo && f.redes) {
-        let arq = arquivosProntos.get(f.id);
-        if (!arq) {
-          avisa('Preparando a foto…');
-          arq = await buscaArquivo(f, 'redes', true);
-          arquivosProntos.set(f.id, arq);
-        }
-        try {
-          await navigator.share({ files: [arq] });
-        } catch (e) {
-          // O iPhone só deixa compartilhar logo depois do toque: a foto já está
-          // pronta, então o toque seguinte compartilha na hora.
-          if (e && e.name === 'NotAllowedError') { avisa('Foto pronta: toque em Compartilhar de novo'); return; }
-          throw e;
-        }
-        return;
-      }
       if (typeof navigator.share === 'function') {
         await navigator.share({ title: document.title, url: link });
         return;
@@ -2998,12 +2971,12 @@ const SCRIPT = `
       avisa('Link copiado');
     } catch (e) {
       if (e && e.name === 'AbortError') return;
-      if (e && e.espera) {
-        compartilharAte = Date.now() + e.espera * 1000;
-        avisa('Muita gente baixando agora. Tente de novo em ' + e.espera + ' s.');
-        return;
+      try {
+        await navigator.clipboard.writeText(link);
+        avisa('Link copiado');
+      } catch (e2) {
+        avisa('Não foi possível compartilhar. Copie o endereço da página.');
       }
-      avisa(e && e.name === 'Error' && e.message ? e.message : 'Não foi possível compartilhar. Use Baixar.');
     }
   }
 
