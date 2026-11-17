@@ -18,6 +18,24 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [4.1.6] — ainda não publicada
+
+Política de Privacidade: o que a "busca nas fotos" faz. **Texto jurídico para
+o dono revisar antes do merge.**
+
+- **Seção nova, 3.3 "Busca nas fotos e moderação".** Desde a 3.7, nos álbuns
+  com "Procurar nas fotos", cada foto pública é lida uma vez pela Amazon
+  Rekognition (palavras, coisas e cenas, checagem de conteúdo impróprio). O
+  ROPA (seção 14) e o RIPD (R10) já diziam isso; a Política, que é o que a
+  pessoa lê, dizia só que a Amazon "compara a selfie". Agora conta o que é
+  lido, o que fica guardado, que não envolve rosto, que a moderação só avisa
+  o responsável, por quanto tempo e a base legal. A lista de operadores
+  (seção 4) e "Decisões automatizadas" (4.2) foram ajustadas.
+- **O botão da busca pelo rosto com o nome da tela**: "Achar minhas fotos
+  pelo rosto" (a Política dizia "Procurar meu rosto").
+- **ROPA, seção 14:** a finalidade ainda dizia que a moderação escondia a
+  foto sozinha; desde a 3.8.12 ela só avisa o controlador.
+
 ## [4.1.1] — ainda não publicada
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
