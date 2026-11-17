@@ -864,12 +864,18 @@ HEIC/HEIF, PNG...) e a miniatura vem do `lh3` do Google. **Não verificado
 contra o Google**: se o `lh3` não servir miniatura para HEIC/RAW ou vídeo, a
 grade mostra o quadrado vazio; a rota de download entrega os bytes originais de
 qualquer forma. Arquivo com tipo `application/octet-stream` (alguns HEIC/RAW
-enviados por apps) não entra na lista. No visualizador o vídeo abre como
+enviados por apps) não entra na lista. **Desde a 4.3.0** o vídeo toca no
+próprio visualizador, num `<video>` servido por
+`/galeria/<slug>[/<capítulo>]/video/<id>`, com `Range`. A rota tem as mesmas
+checagens do download e um limite por IP próprio (`GALERIA_VIDEO_BUCKET`), e
+o primeiro play copia o vídeo para o R2. A CSP ganha `media-src 'self'` só nas
+páginas com vídeo. Se a rota falhar, o slide cai no caminho antigo, a
 **fachada** (miniatura + "Tocar"): **nada do Google carrega antes do toque**;
 o toque põe o iframe `drive.google.com/.../preview`, e a CSP libera
-`frame-src drive.google.com` SÓ em página que tem vídeo. Para a Privacidade o
+`frame-src drive.google.com` SÓ em página que tem vídeo. Para a Privacidade, o
 Google passa a ser terceiro nessa hora (ROPA §11, `transferencia-internacional`
-§5.1, cookies). Download de vídeo: fluxo, bytes originais, conta em "Fotos
+§5.1, cookies). Os documentos legais ainda descrevem o player do Drive como o
+caminho normal: rever no #327. Download de vídeo: fluxo, bytes originais, conta em "Fotos
 baixadas" (*tamanho máximo*); "para redes" não existe para vídeo; sitemap e
 `og:image` ignoram vídeo.
 

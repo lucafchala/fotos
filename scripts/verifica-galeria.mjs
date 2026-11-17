@@ -15,7 +15,7 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval, location */
+/* global MutationObserver, document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval, location */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -215,6 +215,24 @@ async function abre(o = {}) {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
     });
   }
+  if (o.conexao) {
+    // A rede que o Chrome anuncia (navigator.connection.effectiveType).
+    await page.addInitScript(tipo => {
+      Object.defineProperty(navigator, 'connection', { value: { effectiveType: tipo, addEventListener() {} } });
+    }, o.conexao);
+  }
+  if (o.vigiaRede) {
+    // O histórico do modo rede ruim (#g-main[data-rede]).
+    await page.addInitScript(() => {
+      /** @type {any} */ (window).__rede = [];
+      document.addEventListener('DOMContentLoaded', () => {
+        const m = document.getElementById('g-main');
+        if (!m) return;
+        /** @type {any} */ (window).__rede.push(m.dataset.rede || '');
+        new MutationObserver(() => /** @type {any} */ (window).__rede.push(m.dataset.rede || '')).observe(m, { attributes: true, attributeFilter: ['data-rede'] });
+      });
+    });
+  }
   if (o.semStorage) {
     await page.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('bloqueado'); } }); });
   }
@@ -282,6 +300,9 @@ async function abre(o = {}) {
       estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3], site: !!fotoSite, k: u.searchParams.get('k') || '' });
       // `falhaFotos: N`: os N primeiros pedidos de foto falham (a rajada do lançamento).
       if (o.falhaFotos && estado.lh3.length <= o.falhaFotos) return route.fulfill({ status: 502, body: '' });
+      // `atrasoFoto(n)`: espera (ms) antes de responder o n-ésimo pedido de foto (rede ruim).
+      const atraso = o.atrasoFoto ? o.atrasoFoto(estado.lh3.length) : 0;
+      if (atraso) await new Promise(r => setTimeout(r, atraso));
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
@@ -532,6 +553,70 @@ await cenario('Miniatura que falha tenta de novo', async () => {
   // R2 (AQUECE_LARGURAS): aquecer a largura errada é o mesmo que não aquecer.
   const pedidasNaGrade = [...new Set(estado.lh3.map(x => x.w))].sort((x, y) => x - y);
   registra(pedidasNaGrade.every(w => AQUECE_LARGURAS.includes(w)), 'iPhone: toda largura pedida na grade está entre as aquecidas no R2', { pedidas: pedidasNaGrade, aquecidas: AQUECE_LARGURAS });
+  await ctx.close();
+});
+
+// ---- 1c. Rede muito ruim (v4.3.0) --------------------------------------------
+// A tela aparece primeiro, com 1 pixel físico por pixel da tela; depois, com
+// a tela pronta e o dedo parado, as da tela sobem para a densidade cheia.
+/** As miniaturas da grade na tela: id, largura pedida agora e a do quadradinho. */
+const miniaturasNaTela = (/** @type {import('playwright-core').Page} */ page) => page.evaluate(() => [...document.querySelectorAll('.g-grade .g-t img')].map(i => {
+  const img = /** @type {HTMLImageElement} */ (i);
+  const r = img.getBoundingClientRect();
+  const m = img.currentSrc.match(/\/f\/([A-Za-z0-9_-]+)\/(\d+)/);
+  return { id: m ? m[1] : '', w: m ? Number(m[2]) : 0, css: r.width, naTela: r.bottom > 0 && r.top < window.innerHeight && r.width > 0 };
+}).filter(x => x.naTela && x.id));
+await cenario('Rede muito ruim: 2G', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, conexao: '2g', atrasoFoto: () => 300 });
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade .g-t img')].filter(i => /** @type {HTMLImageElement} */ (i).getBoundingClientRect().top < window.innerHeight).every(i => i.classList.contains('ok')), null, { timeout: 15000 }).catch(() => {});
+  const modo = await page.evaluate(() => document.getElementById('g-main')?.dataset.rede || '');
+  registra(modo === 'conexao', '2G: a página entra no modo rede ruim', { modo });
+  // A primeira largura pedida por foto (fora a pré-carga da primeira) é a de 1 pixel por pixel da tela.
+  const tela = await miniaturasNaTela(page);
+  const primeiro = new Map();
+  for (const x of estado.lh3) if (!primeiro.has(x.id)) primeiro.set(x.id, x.w);
+  const baixas = tela.slice(1).filter(x => primeiro.get(x.id) === degrau(GALERIA_LARGURAS_GRADE, x.css));
+  registra(tela.length >= 3 && baixas.length === tela.length - 1, '2G: a tela pede primeiro a versão baixa (1 pixel por pixel da tela)', { tela: tela.length, baixas: baixas.length, exemplo: tela.slice(1, 3).map(x => ({ css: Math.round(x.css), pedida: primeiro.get(x.id) })) });
+  // Com a tela pronta e o dedo parado, sobem para a densidade cheia (2 por vez).
+  const cheia = (/** @type {{ w: number, css: number }} */ x) => x.w === degrau(GALERIA_LARGURAS_GRADE, x.css * 3);
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade .g-t img')].length > 0, null, { timeout: 2000 });
+  const fim = Date.now() + 12000;
+  let depois = await miniaturasNaTela(page);
+  while (Date.now() < fim && !depois.every(cheia)) { await espera(page, 300); depois = await miniaturasNaTela(page); }
+  registra(depois.length >= 3 && depois.every(cheia), '2G: depois de carregar, as da tela sobem para a densidade cheia', { subiram: depois.filter(cheia).length, de: depois.length });
+  // Visualizador: abre baixo (1 pixel por pixel da tela) e sobe quando assenta.
+  const antesDoToque = estado.lh3.length;
+  const alvo = tela[1];
+  await page.locator('.g-grade .g-t').nth(1).tap();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  const escada = [...GALERIA_LARGURAS.filter(x => x < 6000), 6000];
+  const subiu = await esperaLargura(page, 1600, 8000);
+  const doSlide = estado.lh3.slice(antesDoToque).filter(x => x.id === alvo.id).map(x => x.w);
+  registra(doSlide[0] === degrau(escada, 390), '2G: o visualizador abre com a versão baixa', { pedidas: doSlide });
+  registra(subiu.w === degrau(escada, subiu.exibida * 3), '2G: e sobe para a resolução cheia com a foto assentada', { pedida: subiu.w, exibida: Math.round(subiu.exibida), pedidas: doSlide });
+  const vizinhas = new Set(estado.lh3.slice(antesDoToque).filter(x => x.id !== alvo.id && GALERIA_LARGURAS.includes(x.w) && x.w > 480).map(x => x.id));
+  registra(vizinhas.size === 0, '2G: as vizinhas não sobem (só a foto aberta)', [...vizinhas]);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, '2G: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Rede muito ruim: medida', async () => {
+  // As 10 primeiras fotos levam 6,5 s; depois a rede melhora.
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, vigiaRede: true, atrasoFoto: n => n <= 10 ? 6500 : 60 });
+  await page.waitForFunction(() => /** @type {any} */ (window).__rede.includes('medida'), null, { timeout: 20000 }).catch(() => {});
+  const entrou = await page.evaluate(() => /** @type {any} */ (window).__rede.slice());
+  registra(entrou.includes('medida'), 'Medida: miniaturas da tela levando mais de 6 s ligam o modo rede ruim', entrou);
+  // A próxima tela pede baixo; as subidas rápidas tiram a página do modo.
+  await page.evaluate(() => window.scrollBy(0, window.innerHeight * 1.5));
+  await page.waitForFunction(() => /** @type {any} */ (window).__rede.slice(-1)[0] === '', null, { timeout: 15000 }).catch(() => {});
+  const hist = await page.evaluate(() => /** @type {any} */ (window).__rede.slice());
+  const tela = await miniaturasNaTela(page);
+  // A tela seguinte pode ter sido pedida (baixa) como margem, antes da rolagem.
+  const primeiro = new Map();
+  for (const x of estado.lh3) if (!primeiro.has(x.id)) primeiro.set(x.id, x.w);
+  const baixa = tela.filter(x => primeiro.get(x.id) === degrau(GALERIA_LARGURAS_GRADE, x.css) && x.w > primeiro.get(x.id));
+  registra(baixa.length > 0, 'Medida: a tela seguinte veio baixa e subiu depois', { baixasQueSubiram: baixa.length, tela: tela.length });
+  registra(hist[hist.length - 1] === '', 'Medida: com a rede de volta (subidas rápidas), a página sai do modo', hist);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Medida: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 

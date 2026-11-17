@@ -339,12 +339,23 @@ Cobre:
 
 - **grade por aparelho** — desktop 1440@1, Retina 1440@2, iPhone 390@3,
   Android 360@2 e Pixel 412@2,625: linhas justificadas (cada uma fecha na
-  largura, ±2 px), miniatura com pixels suficientes (largura × DPR efetivo, com o teto de 2× da 4.0.1), carga
-  preguiçosa, WebP, sem rolagem lateral; tema escuro;
+  largura, ±2 px), miniatura na densidade cheia da tela (largura × DPR real,
+  sem o modo leve, desde a 4.3.0), carga preguiçosa, WebP, sem rolagem
+  lateral; tema escuro;
+- **rede muito ruim** (4.3.0, cenários "Rede muito ruim: 2G" e "…: medida")
+  — com o Chrome anunciando 2G, ou com as primeiras miniaturas levando 6,5 s,
+  a página entra no modo (`#g-main[data-rede]`), a tela pede primeiro a
+  versão de 1 pixel por pixel da tela, e depois as da tela sobem para a
+  densidade cheia. O visualizador abre baixo e sobe com a foto parada, sem
+  subir as vizinhas. Com a rede de volta, as subidas rápidas tiram a página
+  do modo;
 - **visualizador** — abre na menor largura da escada que cobre a foto exibida
   em pixels físicos; o zoom sobe a resolução por degraus até o original
-  (desktop: roda; iPhone: duplo toque); setas, Esc, link direto `#foto=`;
-  o **voltar** fecha a camada de cima (folha, depois foto) e fica na galeria;
+  (desktop: roda; iPhone: duplo toque), e no zoom pede a resolução máxima
+  que a tela ampliada pede; setas, Esc, link direto `#foto=`; o **voltar**
+  fecha a camada de cima (folha, depois foto) e fica na galeria;
+  "Compartilhar" manda o link da foto (`?foto=`), não o arquivo, e sem menu
+  do sistema copia o link;
 - **downloads** (arquivo exato, sem alteração) — a folha oferece "para redes"
   só nas fotos que têm arquivo na pasta do Instagram (a sem par oferece só
   "tamanho máximo") e mostra o **nome e o peso do arquivo** que sairá; no
@@ -356,15 +367,17 @@ Cobre:
   comum, botões com 44 px ou mais; sem `canShare` de arquivos, só "Baixar
   arquivo". O nome exato no cabeçalho e a passagem dos bytes pelo servidor
   estão em `tests/galeria.test.js`;
-- **seleção** — marca, sobrevive a recarregar, e com uma foto sem versão do
-  Instagram a folha diz "2 de 3 fotos têm esta versão" e baixa só essas em
-  "para redes" (as três em "tamanho máximo"); no iPhone, "Salvar 2 fotos no
-  Fotos" entrega os dois arquivos exatos numa só folha do sistema; o leitor de
-  tela ouve "selecionada";
-- **cabeçalho e favoritas** — chips por seção (com contagem, a atual marcada,
-  tocar leva até a seção), coração que favorita sem abrir a foto e guarda só no
-  aparelho, filtro "Favoritas", "Baixar tudo", "Selecionar todas" por seção,
-  Shift+clique para intervalo e "voltar ao topo" (foco no título);
+- **favoritas** (4.3.0: o coração é a única marca) — não há botão
+  "Selecionar", barra de seleção nem ✓; o coração da miniatura marca sem
+  abrir a foto, e o leitor de tela ouve "favorita"; com o filtro ligado, o
+  topo oferece "Baixar" e "Compartilhar". Com uma foto sem versão do
+  Instagram, a folha diz "2 de 3 fotos têm esta versão" e baixa só essas em
+  "para redes" (as três em "tamanho máximo"); no iPhone, uma só folha do
+  sistema com os arquivos exatos. A seleção antiga do aparelho entra nas
+  favoritas, sem repetir, e a chave antiga sai;
+- **cabeçalho** — chips por seção (com contagem, a atual marcada, tocar leva
+  até a seção), filtro "Favoritas", "Baixar tudo" e "voltar ao topo" (foco
+  no título);
 - **ocultar do dono** — logado, o botão do olho grava e alterna: a foto
   oculta aparece apagada, com o selo "Oculta", a faixa do dono conta
   quantas estão ocultas, no celular (360 px) a barra do visualizador cabe
@@ -377,11 +390,14 @@ Cobre:
   por e-mail"), a foto **continua** na grade (o pedido não a esconde) e o
   visualizador segue, recusa 403, Turnstile bloqueado, 360 px, tema escuro e
   o dono sem link;
-- **vídeos e Live Photos** (item 1f) — selo de play com a duração e selo LIVE
-  na grade; no visualizador o vídeo abre como fachada (miniatura + "Tocar"),
-  **nenhum iframe do Google antes do toque**; o toque põe o player do Drive e
-  sair do slide devolve a fachada; com a CSP sem `driveFrame` o player é
-  barrado (a CSP libera `drive.google.com` só em página com vídeo);
+- **vídeos e Live Photos** (item 1f; tocado no site desde a 4.3.0) — selo de
+  play com a duração e selo LIVE na grade; nada de vídeo nem do Google antes
+  de abrir. No visualizador o vídeo toca pela rota do site (mudo, em loop,
+  inline, sem controles nativos, ocupando o slide), sem nada do Drive; o
+  toque pausa e continua, a barra de espaço pausa, fechar ou trocar de slide
+  pausa, e voltar retoma com o som que a pessoa escolheu. Se a rota falha, o
+  slide cai na fachada do player do Drive; sem a liberação na CSP, nada de
+  vídeo sai;
 - **fotos novas** (item j) — com a última visita guardada no `localStorage`,
   só o que chegou depois ganha a marca "nova" (e ", nova" no rótulo), o chip
   "Só as novas" mostra a contagem e filtra, a primeira visita não marca nada
@@ -389,7 +405,11 @@ Cobre:
 - **centenas de fotos** — 800 fotos: todas as miniaturas na grade, só as da
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
-  (o roteiro reprova se a carga preguiçosa virar ansiosa);
+  (o roteiro reprova se a carga preguiçosa virar ansiosa). Com a grade
+  virtual (4.3.0), confere também que menos da metade das fotos fica no DOM,
+  no começo e no fim, e que a última foto está lá. `MEDE_GRADE=1` acrescenta
+  os cenários "Medida N" (300, 1.300 e 3.000 fotos, CPU 4×), que não
+  reprovam: imprimem o tempo até a grade, as tarefas longas e os elementos;
 - **carga da página** — `fetchpriority=high` só na primeira linha (a do
   LCP); `eager` só o que cai na primeira tela, o resto `lazy`; miniatura no
   menor degrau que cobre largura × DPR (degraus de 100 px até 800); o CSS do
@@ -404,7 +424,11 @@ Cobre:
   na galeria", seleção, a página de erro) confere que nenhuma mensagem de CSP
   foi ao console.
 
-152 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade). O PhotoSwipe (visualizador) roda sob a CSP estrita
+152 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade); 403 em
+17/11/2026, na 4.3.0. O axe espera a folha de download terminar de entrar:
+medido no meio da transição, o contraste saía misturado com o fundo.
+`SO_CENARIO=<trecho> npm run verifica:galeria` roda só os cenários com o
+trecho no nome. O PhotoSwipe (visualizador) roda sob a CSP estrita
 sem nenhuma mensagem de violação. O zoom máximo do visualizador ("pede o
 ORIGINAL") oscilou uma vez em dez com a máquina carregada; rode os roteiros
 um de cada vez.

@@ -79,28 +79,66 @@ depois do #323 (4.2.0, visual); se ele entrar antes, nada muda aqui.
   Medido e deixado para depois: o HTML com 3.000 fotos tem 282 KB (111 KB em
   brotli), 232 KB deles são os dados embutidos; o `JSON.parse` custa ~7 ms.
   Compactar o formato mexe no servidor e no cache por pouco ganho no celular.
-- **Qualidade máxima que a tela permite, sempre** (pedido do dono). A grade
-  abre na densidade cheia do aparelho: o teto de 2× das miniaturas
-  (`MINIATURA_DPR_TETO`) virou o "modo leve", que o script só liga se o
-  aparelho travar (três tarefas longas de 150 ms ou mais em 10 s, ou 4 das
-  últimas 6 miniaturas da tela levando mais de 2,5 s); aí vale para as
-  próximas, e as já baixadas ficam. A pré-carga da primeira foto e a primeira
-  fileira servida pelo servidor também pedem a densidade cheia (sem o fator
-  por `min-resolution`). No visualizador, o zoom pede a resolução que a tela
-  ampliada mostra, em pixels físicos, sem teto.
-- **Rolagem rápida: a tela primeiro.** Fora da primeira tela, a miniatura não
-  pede o arquivo sozinha. Um segundo vigia (margem zero) sabe quais blocos
-  estão NA tela, e só eles pedem já, com prioridade alta; os da margem pedem
-  quando a tela inteira saiu do esqueleto. Bloco que esvazia cancela a
-  miniatura que ainda não chegou e a põe numa lista de "passadas" (no máximo
-  150), baixadas em segundo plano, 4 por vez e a mais perto primeiro, só com
-  o dedo parado. No arremesso (acima de 6.000 px/s) nem a tela pede. Antes, o
-  navegador seguia baixando as miniaturas que o dedo já tinha passado, na
-  frente das que se via (~3,9 s para a tela aparecer depois de rolar até o
-  fim).
-- `verifica:galeria` espera a folha de download terminar de entrar antes do
-  axe: medido no meio da transição, o contraste saía misturado com o fundo
-  (4,36 no CI) e o check falhava às vezes.
+- **Qualidade máxima que a tela permite, sempre** (pedido do dono). As miniaturas da grade
+  passaram a abrir na densidade cheia da tela (o DPR real). Antes havia um
+  teto de 2× (`MINIATURA_DPR_TETO`, 14/11/2026) para o LCP no 4G lento. O
+  teto virou o "modo leve" e só liga se o aparelho travar: três tarefas
+  longas (150 ms ou mais) em 10 s depois da abertura (só no Chrome/Android,
+  o Safari não tem "longtask"), ou 4 das últimas 6 miniaturas pedidas para
+  a tela levando mais de 2,5 s. Vale para as próximas miniaturas; as já
+  baixadas ficam. A página marca `data-leve` no `#g-main` ("cpu" ou "rede").
+  A pré-carga do LCP e a primeira fileira do servidor pedem também a
+  densidade cheia (sem os degraus de `min-resolution`): continua um pedido
+  só para a primeira foto.
+  No visualizador nada mudou: já não tinha teto, e o zoom (duplo toque,
+  pinça e botão) sobe o degrau até o original. O teste agora confere que,
+  ampliada, a foto pede a resolução máxima que a tela ampliada pede.
+  Exemplo medido num celular 412 px @2,625: o quadradinho de 387 px pede o
+  arquivo de 1.200 px; com a rede travando (3 s por foto), o modo leve liga
+  e as próximas pedem 800.
+- **Rolagem rápida até o fim: a tela sai do esqueleto primeiro.** Antes, o
+  navegador continuava baixando as miniaturas pelas quais o dedo já tinha
+  passado, na frente das que estavam na tela. Agora, fora da primeira tela
+  da página, só os blocos que estão NA tela pedem as miniaturas (com
+  prioridade alta); os da margem do vigia pedem quando a tela inteira saiu
+  do esqueleto. No arremesso (acima de 6.000 px/s) nem a tela pede, porque
+  ela some no próximo quadro. Bloco que esvazia cancela a miniatura que
+  ainda não chegou. Ela vai, com as que o dedo passou sem pedir, para as
+  "passadas", baixadas em segundo plano (4 por vez, a mais perto primeiro)
+  com o dedo parado e a tela pronta. Só as 150 mais recentes, o mesmo que o
+  navegador já baixava sozinho antes, para um arremesso até o fim de 3.000
+  fotos não virar centenas de MB.
+  Números (3.000 fotos, CPU 4×, rede lenta simulada com 6 respostas ao mesmo
+  tempo de 250 ms cada; tempo do dedo parar até todas as fotos da tela
+  saírem do esqueleto, antes → depois): rolando a 10.000 px/s até 25.000
+  px, 3,96 s → 0,83 s; a 6.000 px/s até 15.000 px, 1,43 s → 0,88 s; a
+  3.000 px/s até 8.000 px, 76 → 98 ms (igual). As 154 que passaram são
+  baixadas depois, como antes.
+  A abertura não mudou (maior trava com 3.000 fotos: mínimo 126 ms nas duas
+  versões).
+- **Rede muito ruim: a tela primeiro, numa versão baixa, que sobe depois**
+  (pedido do dono). A página entra no modo quando o Chrome anuncia 2G
+  (`navigator.connection.effectiveType`) ou quando 3 das últimas 6 miniaturas
+  da tela levaram mais de 6 s (`#g-main[data-rede]`: "conexao" ou "medida").
+  No modo, as próximas miniaturas pedem 1 pixel físico por pixel da tela (no
+  iPhone 390@3, 200 a 300 px em vez de 500 a 700). Quando a tela inteira
+  está pronta e o dedo para, as da tela sobem para a densidade de antes (a
+  cheia, ou a do modo leve), 2 por vez e antes das passadas. Enquanto a maior
+  chega, a baixa fica à vista: o navegador só troca quando ela termina. Se
+  aparecer um buraco na tela, as subidas em voo são canceladas e voltam para
+  a baixa, que está em cache. Subida que demora mais de 8 s ou falha pausa
+  as subidas por 30 s. Três subidas seguidas em menos de 1,5 s tiram a página
+  do modo, se ele veio da medida. As passadas baixam 2 por vez, e não 4.
+  No visualizador, a foto abre com 1 pixel por pixel da tela (480 px no
+  celular) e sobe para a resolução cheia depois de 700 ms parada nela, ou na
+  hora, se a pessoa ampliar. As vizinhas seguem baixas, e a pré-carga é só da
+  seguinte.
+- `verifica:galeria`: dois cenários novos, "Rede muito ruim: 2G" e "Rede muito
+  ruim: medida" (11 checagens: baixa primeiro, subida, visualizador, vizinhas,
+  saída do modo). O roteiro também passou a esperar a folha de download
+  terminar de entrar antes do axe: medido no meio da transição, o contraste
+  saía misturado com o fundo (4,36 no CI) e o check falhava às vezes.
+  `SO_CENARIO=<trecho>` roda só os cenários com o trecho no nome.
 - O "zerar" da prévia passou a zerar também o limite do vídeo.
 
 ## [4.1.1] — 2026-11-15

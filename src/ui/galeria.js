@@ -1267,6 +1267,7 @@ const SCRIPT = `
     this.autor = f[7] || 0; this.cauda = f[8] || ''; this.s = s; this.i = i;
     this.estimada = !(f[1] > 0 && f[2] > 0); this.video = ehVid; this.dur = ehVid ? extra : 0;
     this.live = live; this.nova = nova; this._el = null; this._img = null; this._passada = false; this._t = 0;
+    this._w = 0; this._fator = 0; this._fatorAntes = 0; this._baixa = false; this._subindo = 0;
   }
   const FOTO_PROTO = FotoObj.prototype;
   Object.defineProperties(FOTO_PROTO, {
@@ -1325,6 +1326,8 @@ const SCRIPT = `
     img.addEventListener('error', function () {
       // Cancelada ao esvaziar o bloco (ver esvazia): não é falha.
       if (!img.getAttribute('src')) return;
+      // A maior (rede ruim) falhou: volta para a baixa, que está em cache.
+      if (foto._subindo) { desceDeVolta(foto); subirDepois = performance.now() + 30000; return; }
       var n = Number(img.getAttribute('data-t') || 0);
       if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); agendaFila(); return; }
       img.setAttribute('data-t', String(n + 1));
@@ -1398,7 +1401,9 @@ const SCRIPT = `
     cheios.delete(el);
     cadaFotoDoBloco(el, function (f) {
       const img = f._img;
+      if (f._subindo) desceDeVolta(f);
       if (!img || img.classList.contains('ok') || f._passada) return;
+      f._fator = 0;
       if (img.getAttribute('srcset')) {
         img.removeAttribute('srcset');
         img.removeAttribute('src');
@@ -1440,6 +1445,8 @@ const SCRIPT = `
   const passadas = [];
   /** @type {Foto[]} */
   let emVoo = [];
+  /** @type {Foto[]} */
+  let subindo = [];
   let filaMarcada = 0;
   let ultimaRolagem = 0;
   const vigiaTela = vigiaBlocos ? new IntersectionObserver(function (es) {
@@ -1484,15 +1491,30 @@ const SCRIPT = `
         if (!pronta(f)) falta++;
       });
     });
-    if (falta) return;
+    // Rede ruim: buraco na tela vem antes de qualquer subida de resolução.
+    if (falta) { subindo.slice().forEach(desceDeVolta); return; }
     cheios.forEach(function (el) {
       if (!blocosNaTela.has(el)) cadaFotoDoBloco(el, function (f) { if (!f.img.srcset) poeSrc(f); });
     });
-    // As passadas, só com o dedo parado (senão a próxima tela espera por elas).
+    // As subidas e as passadas, só com o dedo parado (senão a próxima tela
+    // espera por elas). As subidas (da tela) antes das passadas.
     emVoo = emVoo.filter(function (f) { return !pronta(f) && !!f.img.getAttribute('src'); });
-    if (!passadas.length) return;
+    subindo = subindo.filter(function (f) {
+      if (f._subindo && performance.now() - f._subindo > 15000) { desceDeVolta(f); subirDepois = performance.now() + 30000; }
+      return !!f._subindo;
+    });
+    /** @type {Foto[]} */
+    const aSubir = [];
+    if (performance.now() >= subirDepois) {
+      blocosNaTela.forEach(function (el) {
+        cadaFotoDoBloco(el, function (f) { if (f._baixa && !f._subindo && pronta(f) && f._img && f._img.isConnected) aSubir.push(f); });
+      });
+    }
+    if (!passadas.length && !aSubir.length) return;
     if (performance.now() - ultimaRolagem < 400) { setTimeout(agendaFila, 450); return; }
-    while (emVoo.length < 4 && passadas.length) {
+    while (subindo.length < 2 && aSubir.length) sobe(/** @type {Foto} */ (aSubir.shift()));
+    if (subindo.length) return;
+    while (emVoo.length < (redeRuim ? 2 : 4) && passadas.length) {
       const f = /** @type {Foto} */ (passadas.pop());
       if (!f._passada || f.img.srcset) continue;
       f.img.loading = 'eager';
@@ -1666,9 +1688,83 @@ const SCRIPT = `
   let fatorDpr = 1;
   /** @param {string} motivo */
   function ficaLeve(motivo) {
-    if (fatorDpr === fatorLeve || fatorLeve === 1) return;
-    fatorDpr = fatorLeve;
+    if (main.dataset.leve || fatorLeve === 1) return;
     main.dataset.leve = motivo;
+    if (!redeRuim) fatorDpr = fatorLeve;
+  }
+  // v4.3.0: rede MUITO ruim (2G, ou 3 das últimas 6 miniaturas da tela
+  // levando mais de 6 s). A tela aparece primeiro: as próximas miniaturas
+  // pedem 1 pixel físico por pixel da tela (fatorMinimo), e só depois, com a
+  // tela inteira pronta e o dedo parado, as da tela sobem para a densidade de
+  // antes (cheia, ou a do modo leve), 2 por vez. A foto baixa continua à vista
+  // enquanto a maior chega (o navegador só troca quando ela termina). Buraco
+  // na tela cancela as subidas em voo. Subida que leva mais de 8 s (ou falha)
+  // pausa as subidas por 30 s; 3 subidas seguidas em menos de 1,5 s tiram a
+  // página do modo (a rede melhorou).
+  const fatorMinimo = (function () {
+    const dpr = window.devicePixelRatio || 1;
+    return dpr > 1 ? Math.round(1e4 / dpr) / 1e4 : 1;
+  })();
+  let redeRuim = false;
+  let subirDepois = 0;
+  let subidasRapidas = 0;
+  /** @param {string} motivo */
+  function entraRedeRuim(motivo) {
+    if (redeRuim) return;
+    redeRuim = true;
+    main.dataset.rede = motivo;
+    fatorDpr = Math.min(fatorDpr, fatorMinimo);
+    subidasRapidas = 0;
+  }
+  function saiDaRedeRuim() {
+    if (!redeRuim) return;
+    redeRuim = false;
+    delete main.dataset.rede;
+    fatorDpr = main.dataset.leve ? fatorLeve : 1;
+  }
+  const fatorSubida = function () { return main.dataset.leve ? fatorLeve : 1; };
+  // Largura que o navegador escolhe no srcset da grade para um fator.
+  /** @param {Foto} f @param {number} k */
+  const larguraNaGrade = function (f, k) {
+    const precisa = f._w * k * (window.devicePixelRatio || 1);
+    for (let i = 0; i < D.grade.length; i++) if (D.grade[i] >= precisa) return D.grade[i];
+    return D.grade[D.grade.length - 1];
+  };
+  /** @param {Foto} f */
+  function sobe(f) {
+    f._baixa = false;
+    const alvo = fatorSubida();
+    if (larguraNaGrade(f, alvo) <= larguraNaGrade(f, f._fator)) return;
+    f._fatorAntes = f._fator;
+    f._fator = alvo;
+    f._subindo = performance.now();
+    subindo.push(f);
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  // Volta para a baixa (já em cache): o navegador larga o pedido da maior.
+  /** @param {Foto} f */
+  function desceDeVolta(f) {
+    if (!f._subindo) return;
+    f._subindo = 0;
+    f._fator = f._fatorAntes;
+    f._baixa = true;
+    subindo = subindo.filter(function (x) { return x !== f; });
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  /** @param {number} ms */
+  function mediuSubida(ms) {
+    if (ms > 8000) { subirDepois = performance.now() + 30000; subidasRapidas = 0; return; }
+    subidasRapidas = ms < 1500 ? subidasRapidas + 1 : 0;
+    if (subidasRapidas >= 3 && main.dataset.rede === 'medida') saiDaRedeRuim();
+  }
+  const conexao = /** @type {any} */ (navigator).connection;
+  const conexaoRuim = function () { return !!conexao && /^(slow-)?2g$/.test(String(conexao.effectiveType || '')); };
+  if (conexaoRuim()) entraRedeRuim('conexao');
+  if (conexao && conexao.addEventListener) {
+    conexao.addEventListener('change', function () {
+      if (conexaoRuim()) entraRedeRuim('conexao');
+      else if (main.dataset.rede === 'conexao') { saiDaRedeRuim(); agendaFila(); }
+    });
   }
   // Travando (1): três tarefas longas (150 ms ou mais) em 10 s, depois da
   // abertura. Só no Chrome/Android: o Safari não tem "longtask".
@@ -1688,13 +1784,19 @@ const SCRIPT = `
   // mais de 2,5 s (rede que não dá conta da densidade cheia).
   /** @type {boolean[]} */
   const lentas = [];
+  /** @type {boolean[]} */
+  const lentissimas = [];
   /** @param {Foto} f */
   function mediuTela(f) {
     if (!f._t) return;
-    lentas.push(performance.now() - f._t > 2500);
+    const ms = performance.now() - f._t;
+    lentas.push(ms > 2500);
+    lentissimas.push(ms > 6000);
     f._t = 0;
     if (lentas.length > 6) lentas.shift();
-    if (lentas.filter(Boolean).length >= 4) ficaLeve('rede');
+    if (lentissimas.length > 6) lentissimas.shift();
+    if (lentissimas.filter(Boolean).length >= 3) entraRedeRuim('medida');
+    else if (lentas.filter(Boolean).length >= 4) ficaLeve('rede');
   }
   function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
@@ -1719,11 +1821,22 @@ const SCRIPT = `
       if (perto || !vigiaTela) poeSrc(f);
       else agendaFila();
     }
-    f.img.sizes = (fatorDpr === 1 ? w : Math.round(w * fatorDpr * 100) / 100) + 'px';
+    f._w = w;
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  // O fator fica na foto quando ela pede o arquivo: mudar de modo vale para
+  // as próximas, e a grade se refazendo não troca a que já veio.
+  /** @param {Foto} f */
+  function tamanhoNaGrade(f) {
+    const k = f._fator || fatorDpr;
+    return (k === 1 ? f._w : Math.round(f._w * k * 100) / 100) + 'px';
   }
   function poeSrc(f) {
     if (f.img.srcset) return;
     f._passada = false;
+    f._fator = fatorDpr;
+    f._baixa = redeRuim && fatorDpr < fatorSubida();
+    if (f._w) f.img.sizes = tamanhoNaGrade(f);
     f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
     f.img.src = lh3(f.id, 400);
   }
@@ -1736,6 +1849,12 @@ const SCRIPT = `
 
   function carregou(f) {
     f.img.classList.add('ok');
+    if (f._subindo) {
+      const ms = performance.now() - f._subindo;
+      f._subindo = 0;
+      subindo = subindo.filter(function (x) { return x !== f; });
+      mediuSubida(ms);
+    }
     mediuTela(f);
     agendaFila();
     // Sem dimensões no Drive (alguns HEIC/RAW): a miniatura dá a proporção, e a
@@ -2388,9 +2507,27 @@ const SCRIPT = `
     const maior = f.w || LONGO_ESTIMADO;
     const larguras = D.larguras.filter(function (x) { return x < maior; });
     larguras.push(maior);
+    /** @param {number[]} ls */
+    const conjunto = function (ls) { return ls.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', '); };
+    // Rede muito ruim (v4.3.0): a foto abre com 1 pixel físico por pixel da
+    // tela e sobe para a resolução cheia quando assenta (sobeNoVisualizador).
+    if (redeRuim) {
+      const teto = larguras.find(function (x) { return x >= window.innerWidth; }) || maior;
+      const baixas = larguras.filter(function (x) { return x <= teto; });
+      return {
+        src: lh3(f.id, teto),
+        srcset: conjunto(baixas),
+        gCheio: baixas.length < larguras.length ? conjunto(larguras) : '',
+        width: f.w || LONGO_ESTIMADO,
+        height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
+        msrc: f.img.currentSrc || undefined,
+        alt: f.alt,
+        element: f.el,
+      };
+    }
     return {
       src: lh3(f.id, Math.min(maior, 1600)),
-      srcset: larguras.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', '),
+      srcset: conjunto(larguras),
       width: f.w || LONGO_ESTIMADO,
       height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
       msrc: f.img.currentSrc || undefined,
@@ -2437,6 +2574,26 @@ const SCRIPT = `
     pswp.element.classList.toggle('g-eh-video', !!(f && f.video));
   }
 
+  // A subida da foto aberta com a rede ruim: o srcset cheio no lugar do
+  // baixo. O PhotoSwipe já pôs o "sizes" da largura exibida, então o
+  // navegador pede a cheia e troca só quando ela chega.
+  /** @param {any} c */
+  function sobeNoVisualizador(c) {
+    const d = c && c.data;
+    if (!d || !d.gCheio || !c.element) return;
+    d.srcset = d.gCheio;
+    d.gCheio = '';
+    c.element.srcset = d.srcset;
+  }
+  // Só a foto que ficou na tela (700 ms): as vizinhas seguem baixas.
+  /** @param {any} c */
+  function agendaSubidaLb(c) {
+    if (!c || !c.data || !c.data.gCheio) return;
+    setTimeout(function () {
+      const pswp = lightbox && lightbox.pswp;
+      if (pswp && pswp.currSlide && pswp.currSlide.content === c) sobeNoVisualizador(c);
+    }, 700);
+  }
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
@@ -2527,7 +2684,17 @@ const SCRIPT = `
           else { recalculaVistas(); agendaDiagrama(); }
         }
       });
+      lightbox.on('loadComplete', function (e) {
+        if (e.slide && e.slide.isActive) agendaSubidaLb(e.content);
+      });
+      // Ampliou: a cheia na hora (quem amplia quer o detalhe).
+      lightbox.on('zoomPanUpdate', function (e) {
+        const sl = e.slide;
+        if (sl && sl.content && sl.content.data && sl.content.data.gCheio && sl.currZoomLevel > sl.zoomLevels.initial * 1.01) sobeNoVisualizador(sl.content);
+      });
       lightbox.on('change', function () {
+        const atual = lightbox.pswp.currSlide && lightbox.pswp.currSlide.content;
+        if (atual && atual.element && atual.element.complete && atual.element.naturalWidth > 0) agendaSubidaLb(atual);
         const f = vistas[lightbox.pswp.currIndex];
         if (f) garanteNaGrade(f);
         if (f && noTopo('foto')) history.replaceState(history.state, '', enderecoDaFoto(f.id));
@@ -2740,7 +2907,11 @@ const SCRIPT = `
   function abre(i) {
     const f = vistas[Math.max(0, i)];
     if (f) garanteNaGrade(f);
-    preparaLightbox().then(function (lb) { lb.loadAndOpen(Math.max(0, i)); }).catch(function () {
+    preparaLightbox().then(function (lb) {
+      // Rede ruim: a vizinha seguinte só, para não disputar com a aberta.
+      lb.options.preload = redeRuim ? [0, 1] : [1, 2];
+      lb.loadAndOpen(Math.max(0, i));
+    }).catch(function () {
       avisa('O visualizador não carregou. Recarregue a página.');
     });
   }
