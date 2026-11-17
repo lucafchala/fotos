@@ -18,6 +18,20 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [4.1.5] — ainda não publicada
+
+Acessibilidade nas páginas legais (`/privacidade`, `/termos` e `/legal`).
+
+- **Link no meio do texto agora é sublinhado.** Ele se distinguia do texto
+  só pela cor, com contraste de 1,7 para 1 entre os dois (na `/legal`, 1,08);
+  quem não enxerga bem a cor não via o link. O axe acusava 7 links em
+  `/termos`, 15 em `/privacidade` e 2 em `/legal`; agora, nenhum. Os cartões
+  e botões continuam como eram.
+- **"Voltar" e os links do rodapé com 44 px de altura** (tinham 15), o
+  mínimo para acertar com o dedo.
+- **A tabela "Seus dados, em resumo" da `/legal` recebe foco.** No celular ela
+  rola para o lado, e quem usa teclado não conseguia rolar.
+
 ## [4.1.1] — ainda não publicada
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
