@@ -29,7 +29,7 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 
 | | |
 | --- | --- |
-| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas e arquivos baixados dos álbuns, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. A localização do bucket é escolhida na criação dele, no painel da Cloudflare: **o controlador deve conferir qual é** e anotar aqui. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
+| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas e arquivos baixados dos álbuns, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. O bucket (`fotos-album`, criado em 08/11/2026) fica no **leste da América do Norte** (região ENAM da Cloudflare), conferido no painel em 17/11/2026. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
 | **Sede** | Estados Unidos (Cloudflare, Inc.) |
 | **Papel** | Operador |
 | **Dados** | Todo o tráfego do site; log de consentimento (D1); pedidos de remoção, contadores e sessões (KV); sinais anti-robô (Turnstile); métrica agregada |

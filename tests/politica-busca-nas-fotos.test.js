@@ -31,4 +31,11 @@ describe('Política: busca nas fotos', () => {
     expect(h).toContain('“Procurar nas fotos”');
     expect(fonte('ajuda.js')).toContain('<b>Procurar nas fotos</b>');
   });
+
+  it('diz onde ficam as cópias das fotos na Cloudflare (R2 em ENAM)', () => {
+    expect(h).toContain('ficam num armazenamento no leste da América do Norte');
+    const transf = readFileSync(new URL('../docs/legal/transferencia-internacional.md', import.meta.url), 'utf8');
+    expect(transf).not.toContain('deve conferir qual é');
+    expect(transf).toContain('região ENAM');
+  });
 });

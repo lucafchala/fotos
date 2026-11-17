@@ -6,7 +6,7 @@ tratamento que realizar.
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV, Cloudflare D1 e Durable Objects (contadores e limites). Desde a v2.0 há também um **ambiente de prévia** com armazenamento próprio (seção 10).
-- **Última revisão:** 2026-11-16 (finalidade da busca nas fotos: a moderação só avisa; antes, 2026-11-14: buscadores, IndexNow e treino de IA nos álbuns públicos)
+- **Última revisão:** 2026-11-17 (R2 no leste da América do Norte; finalidade da busca nas fotos: a moderação só avisa; antes, 2026-11-14: buscadores, IndexNow e treino de IA nos álbuns públicos)
 - **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `src/snapshot.js` e `src/sumiram.js` (cópia da lista e fotos apagadas, seção 11), `migrations/` (esquema do D1).
 
 ---
@@ -270,7 +270,7 @@ Código em `src/envio.js` (o caminho até o Drive) e `src/ui/enviar.js` (a pági
 | Operador | O que recebe | Onde | Detalhe |
 | --- | --- | --- | --- |
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
-| Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
+| Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics; cópias das fotos no R2 | EUA / global (edge); R2 no leste da América do Norte (ENAM) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 | Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |

@@ -39,7 +39,7 @@ export function privacyHTML() {
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s;min-height:44px}
     .back:hover{color:var(--text-2)}
     .back svg{width:14px;height:14px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
@@ -53,10 +53,13 @@ export function privacyHTML() {
     strong{color:var(--text-strong);font-weight:600}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
+    /* 4.1.5: no meio do texto, link sublinhado (a cor sozinha dava 1,7:1 com o texto ao lado). */
+    :is(p,li,td,dd) a:not([class]){text-decoration:underline;text-underline-offset:.15em;text-decoration-thickness:1px}
+    :is(p,li,td,dd) a:not([class]):hover{text-decoration-thickness:2px}
     .intro{font-size:.92rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
     .note{font-size:.82rem;color:var(--text-dim);line-height:1.6;border-left:2px solid var(--border-dim);padding-left:1rem;margin:1rem 0}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair);display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s;display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text-2)}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
     .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
@@ -73,7 +76,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 16 de novembro de 2026</p>
+    <p class="updated">Atualizada em 17 de novembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -152,7 +155,7 @@ export function privacyHTML() {
     <p>Os dados não são vendidos nem usados para publicidade.</p>
 
     <h2>4.1. Transferência internacional de dados</h2>
-    <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil.</p>
+    <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil. As cópias das fotos que o site guarda na Cloudflare ficam num armazenamento no leste da América do Norte.</p>
     <p>Essa transferência se apoia no <strong>art. 33, inciso II, alíneas “a” e “b”, da LGPD</strong>: cada um desses fornecedores oferece garantias por meio de cláusulas contratuais específicas de proteção de dados (<em>Data Processing Agreements</em>), que incorporam as cláusulas-padrão internacionais e obrigam o fornecedor a um nível de proteção compatível com a lei brasileira.</p>
     <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
 
