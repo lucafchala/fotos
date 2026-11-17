@@ -357,8 +357,26 @@ async function abre(o = {}) {
     }
     return route.fulfill({ status: 204, body: '' });
   });
+  if (o.cpu) {
+    // Celular lento: o Chromium roda o JS `o.cpu` vezes mais devagar.
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: o.cpu });
+    if (process.env.MEDE_PERFIL) {
+      await cdp.send('Performance.enable');
+      await cdp.send('Profiler.enable');
+      await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+      await cdp.send('Profiler.start');
+      /** @type {any} */ (page).__cdp = cdp;
+    }
+  }
+  if (o.medeTarefas) {
+    await page.addInitScript(() => {
+      /** @type {any} */ (window).__longas = [];
+      new window.PerformanceObserver(l => { for (const e of l.getEntries()) /** @type {any} */ (window).__longas.push([Math.round(e.startTime), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: true });
+    });
+  }
   await page.goto(o.url || 'https://fotos.test/galeria/formatura');
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(o.esperaAbrir ?? 900);
   return { ctx, page, estado };
 }
 
@@ -398,7 +416,10 @@ async function esperaLargura(page, minimo, ms = 4000) {
  * @param {string} nome
  * @param {() => Promise<void>} fn
  */
+// SO_CENARIO=<trecho do nome>: roda só os cenários cujo nome tem o trecho.
+const SO_CENARIO = process.env.SO_CENARIO || '';
 async function cenario(nome, fn) {
+  if (SO_CENARIO && !nome.includes(SO_CENARIO)) return;
   try {
     await fn();
   } catch (e) {
@@ -436,7 +457,8 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));
-      const alts = [...document.querySelectorAll('.g-t img')].map(im => /** @type {HTMLImageElement} */ (im).alt);
+      // A grade é virtual (v4.3.0): só os blocos perto da tela têm miniaturas.
+      const alts = [...document.querySelectorAll('.g-t')].map(t => [Number(/** @type {HTMLElement} */ (t).dataset.i), /** @type {HTMLImageElement} */ (t.querySelector('img')).alt]);
       // Desempenho da carga: o que é "eager"/prioritário e onde está.
       const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-t img')]);
       const topoDe = (/** @type {HTMLElement} */ el) => el.getBoundingClientRect().top + window.scrollY;
@@ -449,7 +471,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         coracaoCss: getComputedStyle(/** @type {Element} */ (document.querySelector('.g-fav')), '::before').backgroundImage.includes('svg'),
         svgPorFoto: document.querySelectorAll('.g-t svg').length,
       };
-      return { util, desvio, tiles, nan, alts, carga, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
+      return { util, desvio, tiles, nan, alts, carga, total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0), naTela: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
   });
   // SEO e leitor de tela: o alt diz o evento e a posição, não o nome do arquivo.
   const altEsperado = (/** @type {number} */ i) => `Formatura 2026 — foto ${i + 1} de ${TODAS.length}`;
@@ -474,8 +496,9 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
     const daPrimeira = estado.lh3.filter(x => x.id === TODAS[0][0]);
     registra(daPrimeira.length === 1, `${nome}: pré-carga da primeira foto = a miniatura que a página usa (1 pedido só)`, daPrimeira);
   }
-  registra(g.alts.length === TODAS.length && g.alts.every((a, i) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
+  registra(g.alts.length > 0 && g.alts.every(([i, a]) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
   registra(g.total === TODAS.length, `${nome}: todas as ${TODAS.length} fotos na grade`, g.total);
+  registra(g.naTela > 0 && g.naTela < TODAS.length, `${nome}: grade virtual (só os blocos perto da tela têm miniaturas)`, g.naTela);
   registra(g.desvio >= 0 && g.desvio <= 2, `${nome}: linhas justificadas (cada linha fecha na largura, ±2 px)`, { desvio: g.desvio });
   registra(!g.nan && !g.rolagemLateral, `${nome}: nenhuma largura inválida, sem rolagem lateral`, { nan: g.nan, lateral: g.rolagemLateral });
   const fisicoOk = g.tiles.filter(t => t.ok).every(t => t.w >= Math.min(degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01), GALERIA_LARGURAS_GRADE.at(-1)));
@@ -625,7 +648,7 @@ await cenario('Link direto', async () => {
   registra(legenda === 'Foto de Luca F. Chalafesta-5 · Festa', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
   await page.evaluate(() => history.back());
   await espera(page, 700);
-  registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
+  registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0))) === TODAS.length,
     'Link direto: voltar fecha a foto e fica na galeria (não sai do site)', page.url());
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Link direto: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
@@ -1165,8 +1188,20 @@ await cenario('Centenas de fotos', async () => {
   const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
   const pagina = await paginaAssinada({ event: EVENTO, listagem, erro: null, nonce: NONCE });
   const { ctx, page, estado } = await abre({ pagina, viewport: { width: 1440, height: 900 } });
-  const miniaturas = await page.locator('.g-t').count();
+  const miniaturas = await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0));
   registra(miniaturas === N, `${N} fotos: todas as miniaturas existem na grade`, miniaturas);
+  // Grade virtual: rolar até o fim traz a última foto, e o começo sai do DOM.
+  const fimDaGrade = await page.evaluate(async () => {
+    const noDom0 = document.querySelectorAll('.g-t').length;
+    window.scrollTo(0, document.scrollingElement.scrollHeight);
+    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => window.requestAnimationFrame(() => window.requestAnimationFrame(r)));
+    const is = [...document.querySelectorAll('.g-t')].map(t => Number(/** @type {HTMLElement} */ (t).dataset.i));
+    window.scrollTo(0, 0);
+    return { noDom0, noDomFim: is.length, ultima: Math.max(...is), primeira: Math.min(...is) };
+  });
+  registra(fimDaGrade.noDom0 < N / 2 && fimDaGrade.ultima === N - 1 && fimDaGrade.primeira > 0 && fimDaGrade.noDomFim < N / 2,
+    `${N} fotos: grade virtual (no DOM só o que está perto; no fim, a última foto está lá)`, fimDaGrade);
   registra(estado.lh3.length <= 80, `${N} fotos: só as da tela (e um pouco mais) são pedidas ao carregar`, estado.lh3.length);
   const custo = await page.evaluate(() => {
     const t0 = performance.now();
@@ -1183,6 +1218,51 @@ await cenario('Centenas de fotos', async () => {
   registra(estado.erros.length === 0 && estado.csp.length === 0, `${N} fotos: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
+
+// ---- 6c'. Medida (só com MEDE_GRADE=1): o custo da grade num celular lento --
+// Não reprova nada: imprime o tempo até a grade existir, as tarefas longas e o
+// número de elementos, para decidir otimizações com número na mão.
+if (process.env.MEDE_GRADE) {
+  for (const N of (process.env.MEDE_GRADE_N || '300,1300,3000').split(',').map(Number)) {
+    await cenario(`Medida ${N}`, async () => {
+      const muitas = Array.from({ length: N }, (_, i) => {
+        const [w, h] = FORMATOS[i % FORMATOS.length];
+        return /** @type {[string, number, number, string, number]} */ ([pid('MEDEFOTO', i), w, h, `m-${i + 1}.jpg`, 9_000_000]);
+      });
+      for (const f of muitas) POR_ID.set(f[0], f);
+      const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
+      const pagina = await paginaAssinada({ event: EVENTO, listagem, erro: null, nonce: NONCE });
+      const { ctx, page } = await abre({ pagina, viewport: { width: 412, height: 915 }, dpr: 2.625, toque: true, ua: UA_IPHONE, cpu: 4, medeTarefas: true, esperaAbrir: 0, ...(process.env.MEDE_URL ? { url: process.env.MEDE_URL } : {}) });
+      await page.waitForFunction(n => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0) === n, N, { timeout: 60000 });
+      await page.waitForTimeout(2500);
+      if (/** @type {any} */ (page).__cdp) {
+        const { profile } = await /** @type {any} */ (page).__cdp.send('Profiler.stop');
+        const self = new Map();
+        const dt = profile.timeDeltas; const porNo = new Map(profile.nodes.map((/** @type {any} */ n) => [n.id, n]));
+        profile.samples.forEach((/** @type {number} */ id, /** @type {number} */ i) => { const n = porNo.get(id); const k = (n.callFrame.functionName || '(anon)') + ':' + n.callFrame.lineNumber; self.set(k, (self.get(k) || 0) + (dt[i] || 0) / 1000); });
+        const { metrics } = await /** @type {any} */ (page).__cdp.send('Performance.getMetrics');
+        const m = Object.fromEntries(metrics.map((/** @type {any} */ x) => [x.name, x.value]));
+        console.log(`METRICAS N=${N}`, ['TaskDuration', 'ScriptDuration', 'RecalcStyleDuration', 'LayoutDuration', 'RecalcStyleCount', 'LayoutCount', 'Nodes'].map(k => k + '=' + (k.endsWith('Duration') ? Math.round(m[k] * 1000) + 'ms' : m[k])).join('  '));
+        console.log(`PERFIL N=${N}`, [...self].sort((x, y) => y[1] - x[1]).slice(0, 18).map(([k, v]) => k + '=' + Math.round(v)).join('  '));
+      }
+      console.log(`MARCAS N=${N}`, await page.evaluate(() => { const m = performance.getEntriesByType('mark'); const nav = /** @type {any} */ (performance.getEntriesByType('navigation')[0]); return 'html=' + Math.round(nav.responseEnd) + ' dcl=' + Math.round(nav.domContentLoadedEventStart) + ' ' + m.map((x, i) => x.name + '=' + Math.round(x.startTime) + (i ? '(+' + Math.round(x.startTime - m[i - 1].startTime) + ')' : '')).join(' '); }));
+      const abrir = await page.evaluate(() => {
+        const l = /** @type {any} */ (window).__longas;
+        return { grade: Math.round(performance.now()), nos: document.getElementsByTagName('*').length, longas: l.length, somaLongas: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => t + x[1], 0), maior: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => Math.max(t, x[1]), 0), lista: l.slice(0, 8) };
+      });
+      await page.evaluate(() => { /** @type {any} */ (window).__longas = []; });
+      for (let y = 0; y <= 20000; y += 1500) { await page.evaluate(v => window.scrollTo(0, v), y); await page.waitForTimeout(120); }
+      await page.waitForTimeout(800);
+      const rolar = await page.evaluate(() => { const l = /** @type {any} */ (window).__longas; return { longas: l.length, soma: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => t + x[1], 0), maior: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => Math.max(t, x[1]), 0) }; });
+      const t0 = Date.now();
+      await page.locator('.g-t').nth(2).tap();
+      await page.waitForSelector('.pswp--open');
+      const toque = Date.now() - t0;
+      console.log(`MEDIDA N=${N}`, JSON.stringify({ abrir, rolar, toqueAteAbrirMs: toque }));
+      await ctx.close();
+    });
+  }
+}
 
 // ---- 6d. Ocultar dos visitantes (só o dono) ---------------------------------
 await cenario('Ocultar', async () => {
@@ -1244,7 +1324,7 @@ await cenario('Ocultar', async () => {
 await cenario('Pedir remoção', async () => {
   const PAG = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' });
   const { ctx, page, estado } = await abre({ pagina: PAG });
-  const total0 = await page.locator('.g-t').count();
+  const total0 = await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0));
   const ALVO = raiz[0][0];
   const SEGUINTE = raiz[1][0];
   await page.locator('.g-t').first().click();
@@ -1322,7 +1402,7 @@ await cenario('Pedir remoção', async () => {
   const aposEnvio = await page.evaluate(([a, b]) => ({
     alvoNaGrade: document.querySelectorAll('.g-t[href="?foto=' + a + '"]').length,
     seguinteNaGrade: document.querySelectorAll('.g-t[href="?foto=' + b + '"]').length,
-    total: document.querySelectorAll('.g-t').length,
+    total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0),
     indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
   }), [ALVO, SEGUINTE]);
   registra(aposEnvio.alvoNaGrade === 1 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 && aposEnvio.indices,
@@ -1352,7 +1432,7 @@ await cenario('Pedir remoção', async () => {
   const recusa = await rec.page.evaluate(() => ({
     erro: document.getElementById('g-rem-erro')?.textContent || '',
     formVisivel: !(/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
-    fotos: document.querySelectorAll('.g-t').length,
+    fotos: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0),
     habilitado: !(/** @type {HTMLButtonElement} */ (document.getElementById('g-rem-enviar'))).disabled,
   }));
   registra(recusa.erro.includes('Verificação') && recusa.formVisivel && recusa.fotos === total0 && recusa.habilitado,
@@ -1370,7 +1450,7 @@ await cenario('Pedir remoção', async () => {
   await teto.page.fill('#g-rem-email', 'ana@example.com');
   await teto.page.locator('#g-rem-enviar').click();
   await espera(teto.page, 600);
-  const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: document.querySelectorAll('.g-t').length }));
+  const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0) }));
   registra(semOcultar.fotos === total0 && !semOcultar.txt.includes('saiu da galeria') && semOcultar.txt.includes('analisar'),
     'Pedir remoção: a foto continua na galeria e o texto só diz que será analisado', semOcultar);
   await teto.ctx.close();

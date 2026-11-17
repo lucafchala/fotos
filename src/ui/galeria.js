@@ -563,10 +563,9 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-sec h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
-    /* v3.9.4: linha fora da tela não passa por layout nem pintura (a altura já
-       vem fixa no style). A contenção corta o que vaza da linha: o foco da
-       miniatura fica por dentro. */
-    .g-linha{content-visibility:auto;contain-intrinsic-size:auto 300px}
+    /* v4.3.0: a grade é feita de blocos de altura fixa; só os perto da tela
+       têm miniaturas dentro (ver enche/esvazia). */
+    .g-bloco{contain:layout style}
     .g-t:focus-visible{outline-offset:-3px}
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
@@ -1098,6 +1097,7 @@ const SCRIPT = `
   // Dentre elas, as escondidas A PEDIDO de um visitante e ainda sem decisão.
   const pendentes = new Set(D.pendentes || []);
   function pintaOculta(f) {
+    if (!f._el) return;
     const oc = f.el.classList.toggle('oculta', ocultas.has(f.id));
     const pend = oc && pendentes.has(f.id);
     f.el.classList.toggle('pendente', pend);
@@ -1245,66 +1245,81 @@ const SCRIPT = `
         const ehVid = typeof extra === 'number';
         const live = Array.isArray(extra) ? { id: extra[0], nome: extra[1], bytes: extra[2] } : null;
         const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
-        const a = document.createElement('a');
-        a.className = 'g-t' + (ehVid ? ' g-video' : '') + (nova ? ' nova' : '');
-        a.href = '?foto=' + codigoDe(f[0]);
-        a.dataset.i = String(i);
-        a.dataset.ext = extDoNome(f[3]).toUpperCase();
-        a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]) + (nova ? ', nova' : ''));
-        const img = document.createElement('img');
-        img.alt = altDe(i, ehVid);
-        img.decoding = 'async';
-        // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
-        // cai na primeira tela (ver dimensiona).
-        img.loading = 'lazy';
-        const fv = document.createElement('span');
-        fv.className = 'g-fav';
-        fv.setAttribute('aria-hidden', 'true');
-        fv.title = 'Favoritar (tecla F)';
-        a.appendChild(img);
-        a.appendChild(fv);
-        if (ehVid || live) {
-          const sel = document.createElement('span');
-          sel.className = ehVid ? 'g-play' : 'g-live';
-          sel.setAttribute('aria-hidden', 'true');
-          sel.textContent = ehVid ? (extra > 0 ? fmtDur(extra) : '') : 'LIVE';
-          a.appendChild(sel);
-        }
-        if (nova) {
-          const nv = document.createElement('span');
-          nv.className = 'g-nova';
-          nv.setAttribute('aria-hidden', 'true');
-          nv.textContent = 'nova';
-          a.appendChild(nv);
-        }
-        if (D.dono) {
-          const oc = document.createElement('span');
-          oc.className = 'g-oc';
-          oc.textContent = 'Oculta';
-          a.appendChild(oc);
-        }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova };
-        if (D.dono) pintaOculta(foto);
-        img.addEventListener('load', function () { carregou(foto); });
-        // Miniatura que falhou (o site ou o Google recusou na rajada do
-        // lançamento) tenta de novo, com espera crescente e sorteada, antes de
-        // virar o quadro vazio: a falha não fica em cache, então pedir de novo
-        // resolve. Sem isto, só recarregar a página trazia a foto.
-        img.addEventListener('error', function () {
-          var n = Number(img.getAttribute('data-t') || 0);
-          if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); return; }
-          img.setAttribute('data-t', String(n + 1));
-          setTimeout(function () {
-            var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
-            if (conjunto) { img.removeAttribute('srcset'); img.setAttribute('srcset', conjunto); }
-            if (unica) { img.removeAttribute('src'); img.setAttribute('src', unica); }
-          }, (n + 1) * 2000 + Math.random() * 2000);
-        });
+        const foto = Object.create(FOTO_PROTO);
+        Object.assign(foto, { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, i: i, alt: altDe(i, ehVid), estimada: !(f[1] > 0 && f[2] > 0), video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova, _el: null, _img: null });
         fotos.push(foto);
         lista.push(foto);
       });
       grades.push({ sec: secEl, grade: grade, lista: lista });
+    });
+  }
+
+  // v4.3.0: o quadradinho (o <a> com a <img>) só nasce quando a foto chega
+  // perto da tela (ver enche) ou quando alguém pede f.el / f.img (visualizador,
+  // folha de download). Criar os mil e tantos de uma vez na abertura custava
+  // ~0,25 s no celular, e cada um ainda pesava no estilo e na pintura.
+  const FOTO_PROTO = {
+    get el() { if (!this._el) criaEl(this); return this._el; },
+    get img() { if (!this._el) criaEl(this); return this._img; },
+  };
+  function criaEl(foto) {
+    const i = foto.i;
+    const a = document.createElement('a');
+    a.className = 'g-t' + (foto.video ? ' g-video' : '') + (foto.nova ? ' nova' : '');
+    a.href = '?foto=' + codigoDe(foto.id);
+    a.dataset.i = String(i);
+    a.dataset.ext = extDoNome(foto.nome).toUpperCase();
+    const img = document.createElement('img');
+    img.alt = foto.alt;
+    img.decoding = 'async';
+    // Preguiçosa por padrão; a diagramação torna "eager" só o que cai na
+    // primeira tela (ver dimensiona).
+    img.loading = 'lazy';
+    const fv = document.createElement('span');
+    fv.className = 'g-fav';
+    fv.setAttribute('aria-hidden', 'true');
+    fv.title = 'Favoritar (tecla F)';
+    a.appendChild(img);
+    a.appendChild(fv);
+    if (foto.video || foto.live) {
+      const sel = document.createElement('span');
+      sel.className = foto.video ? 'g-play' : 'g-live';
+      sel.setAttribute('aria-hidden', 'true');
+      sel.textContent = foto.video ? (foto.dur > 0 ? fmtDur(foto.dur) : '') : 'LIVE';
+      a.appendChild(sel);
+    }
+    if (foto.nova) {
+      const nv = document.createElement('span');
+      nv.className = 'g-nova';
+      nv.setAttribute('aria-hidden', 'true');
+      nv.textContent = 'nova';
+      a.appendChild(nv);
+    }
+    if (D.dono) {
+      const oc = document.createElement('span');
+      oc.className = 'g-oc';
+      oc.textContent = 'Oculta';
+      a.appendChild(oc);
+    }
+    foto._el = a;
+    foto._img = img;
+    pintaFav(foto);
+    if (D.dono) pintaOculta(foto);
+    img.addEventListener('load', function () { carregou(foto); });
+    // Miniatura que falhou (o site ou o Google recusou na rajada do
+    // lançamento) tenta de novo, com espera crescente e sorteada, antes de
+    // virar o quadro vazio: a falha não fica em cache, então pedir de novo
+    // resolve. Sem isto, só recarregar a página trazia a foto.
+    img.addEventListener('error', function () {
+      var n = Number(img.getAttribute('data-t') || 0);
+      if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); return; }
+      img.setAttribute('data-t', String(n + 1));
+      setTimeout(function () {
+        var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
+        if (conjunto) { img.removeAttribute('srcset'); img.setAttribute('srcset', conjunto); }
+        if (unica) { img.removeAttribute('src'); img.setAttribute('src', unica); }
+      }, (n + 1) * 2000 + Math.random() * 2000);
     });
   }
 
@@ -1326,12 +1341,84 @@ const SCRIPT = `
     grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
+  // v4.3.0: a grade vira blocos de linhas com altura fixa. Só os blocos perto
+  // da tela têm as miniaturas dentro (enche); os outros são caixas vazias da
+  // mesma altura, então a rolagem e a barra lateral não mudam. Um vigia só,
+  // olhando dezenas de blocos (não milhares de fotos), enche e esvazia.
+  const ALTURA_BLOCO = 800;
+  /** @type {Map<Element, {linhas: {h: number, topo: number, primeira: boolean, itens: {f: Foto, w: number}[]}[], gap: number, cheio: boolean}>} */
+  const blocos = new Map();
+  /** @type {WeakMap<Foto, Element>} */
+  const blocoDaFoto = new WeakMap();
+  const vigiaBlocos = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) enche(e.target);
+      else esvazia(e.target);
+    });
+  }, { rootMargin: '1000px 0px' }) : null;
+  function enche(el) {
+    const b = blocos.get(el);
+    if (!b || b.cheio) return;
+    b.cheio = true;
+    const frag = document.createDocumentFragment();
+    b.linhas.forEach(function (l) {
+      const row = document.createElement('div');
+      row.className = 'g-linha';
+      row.style.height = l.h + 'px';
+      l.itens.forEach(function (it) {
+        const a = it.f.el;
+        a.style.width = it.w + 'px';
+        dimensiona(it.f, it.w, l.topo, l.primeira);
+        row.appendChild(a);
+      });
+      frag.appendChild(row);
+    });
+    el.replaceChildren(frag);
+  }
+  function esvazia(el) {
+    const b = blocos.get(el);
+    if (!b || !b.cheio) return;
+    // Quem tem o foco (teclado) ou está no visualizador fica.
+    if (el.contains(document.activeElement) || vendo) return;
+    b.cheio = false;
+    el.replaceChildren();
+  }
+  // O visualizador e o foco precisam do quadradinho no lugar (a animação de
+  // abrir e fechar parte dele).
+  function garanteNaGrade(f) {
+    const el = blocoDaFoto.get(f);
+    if (el) enche(el);
+  }
+
   function diagrama(g, W, alvo, gap, pos) {
     if (pos && D.secoes.length > 1) pos.y += 48;
+    g.grade.querySelectorAll('.g-bloco').forEach(function (el) {
+      if (vigiaBlocos) vigiaBlocos.unobserve(el);
+      blocos.delete(el);
+    });
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
     const frag = document.createDocumentFragment();
+    /** @type {{h: number, topo: number, primeira: boolean, itens: {f: Foto, w: number}[]}[]} */
+    let linhasBloco = [];
+    let alturaBloco = 0;
+    /** @type {Element[]} */
+    const novos = [];
+    const fechaBloco = function () {
+      if (!linhasBloco.length) return;
+      const el = document.createElement('div');
+      el.className = 'g-bloco';
+      el.style.height = alturaBloco + 'px';
+      // Quantas fotos o bloco tem, cheio ou não (leitura de testes e depuração).
+      el.dataset.n = String(linhasBloco.reduce(function (n, l) { return n + l.itens.length; }, 0));
+      blocos.set(el, { linhas: linhasBloco, gap: gap, cheio: false });
+      linhasBloco.forEach(function (l) { l.itens.forEach(function (it) { blocoDaFoto.set(it.f, el); }); });
+      frag.appendChild(el);
+      novos.push(el);
+      linhasBloco = [];
+      alturaBloco = 0;
+    };
     let linha = [];
     let soma = 0;
     let altura = 0;
@@ -1341,23 +1428,18 @@ const SCRIPT = `
       const naoEstica = ultima && h > alvo * 1.15;
       if (naoEstica) h = alvo;
       h = Math.max(40, Math.floor(h));
-      const row = document.createElement('div');
-      row.className = 'g-linha';
-      row.style.height = h + 'px';
       let usado = 0;
-      const topo = pos ? pos.y : Infinity;
-      const primeira = !!pos && pos.primeira;
-      linha.forEach(function (f, k) {
+      const itens = linha.map(function (f, k) {
         let w = Math.floor(proporcao(f) * h);
         if (k === linha.length - 1 && !naoEstica) w = Math.max(20, livre - usado);
         usado += w;
-        f.el.style.width = w + 'px';
-        dimensiona(f, w, topo, primeira);
-        row.appendChild(f.el);
+        return { f: f, w: w };
       });
-      frag.appendChild(row);
+      linhasBloco.push({ h: h, topo: pos ? pos.y : Infinity, primeira: !!pos && pos.primeira, itens: itens });
+      alturaBloco += h + gap;
       altura += h + gap;
       if (pos) { pos.y += h + gap; pos.primeira = false; }
+      if (alturaBloco >= ALTURA_BLOCO) fechaBloco();
       linha = [];
       soma = 0;
     };
@@ -1367,18 +1449,17 @@ const SCRIPT = `
       if (soma * alvo + gap * (linha.length - 1) >= W) fecha(false);
     });
     if (linha.length) fecha(true);
+    fechaBloco();
     g.grade.replaceChildren(frag);
     g.sec.style.containIntrinsicSize = 'auto ' + Math.ceil(altura + 60) + 'px';
+    // O que cai na primeira tela enche já (sem esperar o vigia): é o LCP.
+    novos.forEach(function (el) {
+      const b = blocos.get(el);
+      if (!vigiaBlocos || (b && b.linhas[0].topo < window.scrollY + window.innerHeight * 1.25)) enche(el);
+      if (vigiaBlocos) vigiaBlocos.observe(el);
+    });
   }
 
-  const vigia = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (es) {
-    es.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      vigia.unobserve(e.target);
-      const f = fotos[Number(e.target.dataset.i)];
-      if (f) poeSrc(f);
-    });
-  }, { rootMargin: '1500px 0px' }) : null;
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
   // Teto de densidade das miniaturas (MINIATURA_DPR_TETO, config.js): o
@@ -1408,8 +1489,8 @@ const SCRIPT = `
       // v3.9.4: só a primeira tela ganha o srcset já. O resto ganha quando
       // chega perto (ver poeSrc): montar as ~13 URLs de cada uma das mil e
       // tantas miniaturas na abertura travava o celular por meio segundo.
-      if (perto || !vigia) poeSrc(f);
-      else if (!f.vigiada) { f.vigiada = true; vigia.observe(f.el); }
+      // v4.3.0: o bloco só enche perto da tela, então o srcset entra já.
+      poeSrc(f);
     }
     f.img.sizes = (fatorDpr === 1 ? w : Math.round(w * fatorDpr * 100) / 100) + 'px';
   }
@@ -1516,6 +1597,7 @@ const SCRIPT = `
   }
   function salvaFav() { gravaLista(CHAVE_FAV, fav); }
   function pintaFav(f) {
+    if (!f._el) return;
     const gosto = fav.has(f.id);
     f.el.classList.toggle('fav', gosto);
     // O coração é só visual (aria-hidden): o leitor de tela ouve o estado no nome.
@@ -2217,6 +2299,7 @@ const SCRIPT = `
       });
       lightbox.on('change', function () {
         const f = vistas[lightbox.pswp.currIndex];
+        if (f) garanteNaGrade(f);
         if (f && noTopo('foto')) history.replaceState(history.state, '', enderecoDaFoto(f.id));
         marcaTipoDoSlide();
       });
@@ -2227,7 +2310,7 @@ const SCRIPT = `
         // abertura pôs. Fechou pelo voltar: ela já saiu.
         if (noTopo('foto')) history.back();
         const f = lightbox.pswp ? vistas[lightbox.pswp.currIndex] : null;
-        if (f) f.el.focus({ preventScroll: true });
+        if (f) { garanteNaGrade(f); f.el.focus({ preventScroll: true }); }
       });
       lightbox.init();
       return lightbox;
@@ -2425,6 +2508,8 @@ const SCRIPT = `
   }
 
   function abre(i) {
+    const f = vistas[Math.max(0, i)];
+    if (f) garanteNaGrade(f);
     preparaLightbox().then(function (lb) { lb.loadAndOpen(Math.max(0, i)); }).catch(function () {
       avisa('O visualizador não carregou. Recarregue a página.');
     });

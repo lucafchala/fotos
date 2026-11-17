@@ -45,6 +45,16 @@ depois do #323 (4.2.0, visual); se ele entrar antes, nada muda aqui.
 - **Compartilhar, no visualizador, manda o link da foto** (`?foto=`), não o
   arquivo: abre direto nela, com a prévia no WhatsApp, e não gasta o limite
   de downloads. O arquivo continua em *Baixar*.
+- **Grade virtual: a galeria grande abre e rola sem travar o celular.** As
+  linhas viram blocos de altura fixa (~800 px); só os blocos perto da tela
+  têm miniaturas dentro, e um vigia só (dezenas de blocos, não milhares de
+  fotos) enche e esvazia. A miniatura (o `<a>` com a `<img>`) só é criada
+  quando chega perto ou quando o visualizador/download pede. Bloco com o
+  foco do teclado ou com a foto do visualizador não esvazia. Celular lento
+  (CPU 4×), 1.300 fotos: de ~6.300 para ~390 elementos na página, maior
+  trava ao abrir de 0,55–1,05 s para 0,23 s, travas ao rolar de 1,4 s para
+  0,05 s. Com 3.000 fotos: 14 mil → ~710 elementos, 0,9–1,9 s → 0,37 s ao
+  abrir, 2,3 s → 0,2 s ao rolar.
 - O "zerar" da prévia passou a zerar também o limite do vídeo.
 
 ## [4.1.1] — 2026-11-15
