@@ -1,4 +1,4 @@
-// 4.1.7: na página de suporte, todo alvo de toque tem 44 px de altura (eram
+// 4.1.6: na página de suporte, todo alvo de toque tem 44 px de altura (eram
 // 15 a 43) e o texto passa no contraste mínimo de 4,5:1 — o botão do WhatsApp
 // no tema claro dava 4,36 e a linha "ou envie uma mensagem", 1,4 a 1,5.
 // Relatório da revisão de 16/11/2026, achados A5 e A6.

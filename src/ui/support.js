@@ -80,7 +80,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     form{display:flex;flex-direction:column;gap:1rem}
     label{font-size:.8rem;font-weight:500;color:var(--footer-link);letter-spacing:.04em;display:block;margin-bottom:.3rem}
     input,textarea{width:100%;background:var(--bg-input);border:1px solid var(--border-dim);border-radius:8px;color:var(--text);font-family:inherit;font-size:.875rem;padding:.75rem 1rem;outline:none;transition:border-color .2s;resize:none}
-    /* 4.1.7: campo e botão com 44 px de altura, o mínimo de alvo de toque desta base. */
+    /* 4.1.6: campo e botão com 44 px de altura, o mínimo de alvo de toque desta base. */
     input[type=text],input[type=email]{min-height:44px}
     input::placeholder,textarea::placeholder{color:var(--text-ph)}
     input:focus,textarea:focus{border-color:var(--text-dim-2)}
