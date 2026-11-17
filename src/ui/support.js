@@ -44,32 +44,32 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#aa5555;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
       --btn-border:#2a2a2a; --btn-text:#888; --btn-border-hover:#555; --btn-text-hover:#ccc; --btn-bg-hover:#111;
-      --divider-text:#2a2a2a; --divider-line:#1a1a1a;
+      --divider-text:#8c8c8c; --divider-line:#1a1a1a;
     }
     @media (prefers-color-scheme: light) {
       :root{
         --bg-page:#f0ece8; --text:#1a1715; --text-2:#4a4744; --text-muted:#6b6460; --text-dim:#66605b; --text-dim-2:#6b6560;
         --border-dim:#ddd9d4; --border-hair:#e5e1db; --footer-link:#6b6460; --accent:#8a6428;
         --bg-input:#fff; --text-ph:#6b6560; --cta-bg:#8a6428; --cta-text:#faf7f3;
-        --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
+        --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#276b2c; --ok-border-hover:#8fc491; --ok-text-hover:#1b5e20; --ok-bg-hover:#eaf6ea;
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#b3261e;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17; --warn-text-strong:#5c4310;
         --btn-border:#ddd9d4; --btn-text:#6b6460; --btn-border-hover:#b8b2ab; --btn-text-hover:#332d28; --btn-bg-hover:#fff;
-        --divider-text:#c8c2ba; --divider-line:#ddd9d4;
+        --divider-text:#66605b; --divider-line:#ddd9d4;
       }
     }
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     ${HONEYPOT_CSS}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s;min-height:44px}
     .back:hover{color:var(--text-2)}
     .back svg{width:14px;height:14px}
     main{max-width:520px;margin:0 auto;padding:2rem 1.5rem 6rem}
     h1{font-size:1.4rem;font-weight:600;margin-bottom:.4rem}
     .subtitle{font-size:.85rem;color:var(--text-dim);margin-bottom:2rem;line-height:1.6}
     .contact-row{display:flex;gap:.75rem;margin-bottom:2.5rem;flex-wrap:wrap}
-    .contact-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.2rem;border-radius:8px;font-size:.82rem;font-weight:500;text-decoration:none;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;border:1px solid}
+    .contact-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.2rem;border-radius:8px;font-size:.82rem;font-weight:500;text-decoration:none;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;border:1px solid;min-height:44px}
     .btn-whatsapp{border-color:var(--ok-border);color:var(--ok-text)}
     .btn-whatsapp:hover{border-color:var(--ok-border-hover);color:var(--ok-text-hover);background:var(--ok-bg-hover)}
     .btn-email{border-color:var(--btn-border);color:var(--btn-text)}
@@ -80,10 +80,12 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     form{display:flex;flex-direction:column;gap:1rem}
     label{font-size:.8rem;font-weight:500;color:var(--footer-link);letter-spacing:.04em;display:block;margin-bottom:.3rem}
     input,textarea{width:100%;background:var(--bg-input);border:1px solid var(--border-dim);border-radius:8px;color:var(--text);font-family:inherit;font-size:.875rem;padding:.75rem 1rem;outline:none;transition:border-color .2s;resize:none}
+    /* 4.1.7: campo e botão com 44 px de altura, o mínimo de alvo de toque desta base. */
+    input[type=text],input[type=email]{min-height:44px}
     input::placeholder,textarea::placeholder{color:var(--text-ph)}
     input:focus,textarea:focus{border-color:var(--text-dim-2)}
     textarea{min-height:120px}
-    .submit-btn{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start}
+    .submit-btn{background:var(--cta-bg);color:var(--cta-text);border:none;border-radius:8px;padding:.8rem 1.5rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:opacity .18s;align-self:flex-start;min-height:44px}
     .submit-btn:hover:not(:disabled){opacity:.88}
     /* O botão nasce desabilitado até o Turnstile passar. Com fundo e cor próprios,
        o navegador não o acinzenta sozinho: parecia ativo e não fazia nada. */
@@ -96,7 +98,7 @@ export function supportHTML(sent = false, error = '', values = {}, nonce = '', f
     .noscript-banner{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);padding:.85rem 1rem;border-radius:8px;font-size:.8rem;line-height:1.55;margin-bottom:1.75rem}
     .noscript-banner strong{color:var(--warn-text-strong)}
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair)}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s;display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text-2)}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.5rem}
     .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
