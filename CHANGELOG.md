@@ -39,7 +39,7 @@ Correção: a galeria de um evento do álbum não pula mais depois de aparecer.
   já ocupa uma tela inteira até a grade ficar pronta. Detalhe das duas
   partes em `docs/REFERENCIA.md`, "Faixa de chips no servidor".
 
-## [4.1.1] — ainda não publicada
+## [4.1.1] — 2026-11-15
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
   lista de pastas de envio vencia a cada 30 minutos, e a primeira pessoa
