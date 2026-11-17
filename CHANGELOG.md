@@ -18,7 +18,36 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.1] — ainda não publicada
+## [4.3.0] — ainda não publicada
+
+Menor: função nova (vídeo tocado no site) e uma marca a menos na galeria. Vem
+depois do #323 (4.2.0, visual); se ele entrar antes, nada muda aqui.
+
+- **Só o coração: a "Seleção" (✓) se juntou às favoritas.** Eram duas marcas
+  na mesma miniatura para a mesma ideia ("as fotos de que gostei"), e quem
+  chegava não sabia qual tocar. Saíram o botão *Selecionar*, a barra de
+  seleção, o ✓ de cada miniatura, o *Selecionar todas* por seção, o
+  Shift+clique e o botão de seleção do visualizador. Com o filtro
+  *Favoritas* ligado, o topo oferece **Baixar** (a mesma folha que a seleção
+  usava) e **Compartilhar** (o link `#sel=` de antes). Quem tinha fotos na
+  seleção antiga as encontra nas favoritas: a chave `galeria:sel:<slug>` do
+  aparelho é juntada a `galeria:fav:<slug>` uma vez e apagada. A ajuda e as
+  dicas da página do evento passaram a falar do coração. Cada miniatura tem
+  um elemento a menos.
+- **Vídeo tocado no próprio site, estilo reels.** No visualizador, o vídeo
+  abre num `<video>` (começa mudo, toque pausa, som lembrado na visita,
+  barra de progresso, espaço pausa) servido por
+  `/galeria/<slug>[/<capítulo>]/video/<id>`, com `Range` (206/416) para pular
+  e para o iPhone. Mesmas checagens do download, limite por IP num balde
+  próprio (`GALERIA_VIDEO_BUCKET`), não conta como download, e o primeiro
+  play copia o vídeo para o R2. Se algo falhar, cai no player do Drive de
+  antes. A CSP ganha `media-src 'self'` só nas páginas com vídeo.
+- **Compartilhar, no visualizador, manda o link da foto** (`?foto=`), não o
+  arquivo: abre direto nela, com a prévia no WhatsApp, e não gasta o limite
+  de downloads. O arquivo continua em *Baixar*.
+- O "zerar" da prévia passou a zerar também o limite do vídeo.
+
+## [4.1.1] — 2026-11-15
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
   lista de pastas de envio vencia a cada 30 minutos, e a primeira pessoa

@@ -239,7 +239,7 @@ const GALERIA_AJUDA_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/ajuda(?:\/([a-z]+))?
 // "Turma em números" (v3.9.1), também antes do capítulo.
 const GALERIA_NUMEROS_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/numeros$/;
 const GALERIA_CAP_BAIXAR_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/baixar\/([A-Za-z0-9_-]{10,200})$/;
-// O vídeo tocado no próprio site (v4.2.0): o mesmo id e as mesmas checagens
+// O vídeo tocado no próprio site (v4.3.0): o mesmo id e as mesmas checagens
 // do download, mas com Range e sem anexo nem contagem.
 const GALERIA_VIDEO_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/video\/([A-Za-z0-9_-]{10,200})$/;
 const GALERIA_CAP_VIDEO_RE = /^\/galeria\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)\/video\/([A-Za-z0-9_-]{10,200})$/;
@@ -5950,7 +5950,7 @@ async function baixaDaGaleria(request, env, slug, fileId, url, ctx, capSlug = ''
 }
 
 /**
- * O vídeo da galeria tocado no próprio site (v4.2.0), no player estilo reels:
+ * O vídeo da galeria tocado no próprio site (v4.3.0), no player estilo reels:
  * um `<video>` comum no lugar do iframe do Drive. Mesmas checagens do
  * download (galeria visível, id na pasta DESTE projeto/capítulo, oculta é
  * 404, limite por IP antes do Drive), mais:

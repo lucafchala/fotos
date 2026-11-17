@@ -1,4 +1,4 @@
-// O vídeo tocado no próprio site (v4.2.0, rota /galeria/<slug>/video/<id>).
+// O vídeo tocado no próprio site (v4.3.0, rota /galeria/<slug>/video/<id>).
 // O que estes testes prendem:
 //  1. Os cabeçalhos Range que a rota aceita (um trecho só; o resto é 416).
 //  2. As mesmas portas do download: id fora da pasta, oculto, foto ou vídeo

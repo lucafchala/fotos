@@ -17,7 +17,9 @@
 //    só aparece nas fotos que têm par lá). Android e computador: download
 //    comum. iPhone/iPad: "Salvar no Fotos" (a folha do sistema com o arquivo,
 //    um toque até o app Fotos) e "Baixar arquivo" (vai para o app Arquivos);
-//  - seleção de várias fotos, lembrada no aparelho, e link direto para cada
+//  - favoritas (o coração), lembradas no aparelho, que se baixam ou viram
+//    link juntas (v4.3.0: o antigo modo "Selecionar" foi juntado a elas), e
+//    link direto para cada
 //    foto (?foto=código; o #foto= antigo também abre).
 //
 // As fotos vêm do lh3 do Google (sem chave). Os downloads passam pelo proxy
@@ -540,6 +542,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-chip small{font-size:.75rem;color:var(--text-muted);font-variant-numeric:tabular-nums}
     .g-chip[aria-current="true"],.g-chip[aria-pressed="true"]{background:var(--text);border-color:var(--text);color:var(--bg-page)}
     .g-chip[aria-current="true"] small,.g-chip[aria-pressed="true"] small{color:inherit;opacity:.75}
+    .g-chip-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     @media (hover:hover){ .g-btn:hover,.g-chip:hover{border-color:var(--text-dim)} }
     .g-previa{margin:.9rem var(--pad) 0;font-size:.78rem;color:var(--text-muted);display:flex;gap:.5rem;align-items:center}
     .g-previa b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
@@ -557,10 +560,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-sec[hidden]{display:none}
     .g-sec-cab{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0 var(--pad);margin-bottom:.7rem}
     .g-sec-cab.sem-titulo{display:none}
-    .g-modo-sel .g-sec-cab.sem-titulo{display:flex;justify-content:flex-end}
     .g-sec h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
-    .g-sec-todas{display:none;font:inherit;font-size:.8rem;font-weight:500;min-height:44px;padding:.4rem .9rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer}
-    .g-modo-sel .g-sec-todas{display:inline-flex;align-items:center}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
     /* v3.9.4: linha fora da tela não passa por layout nem pintura (a altura já
@@ -582,22 +582,16 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     @media (max-width:430px){ .g-pre{display:block} }
     .g-pre-linha .g-t{flex:var(--r) 1 0;aspect-ratio:var(--r);height:auto;min-width:0}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
-    .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-    .g-modo-sel .g-t .g-ck{display:block}
     .g-fav{position:absolute;left:0;bottom:0;width:44px;height:44px;display:grid;place-items:center;color:#fff;opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .12s cubic-bezier(.23,1,.32,1)}
     /* O coração é um fundo em CSS, não um <svg> por miniatura: com centenas de
        fotos, eram dois elementos e um innerHTML a mais por foto na carga. */
     .g-fav::before{content:"";width:22px;height:22px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/contain no-repeat;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
     .g-t.fav .g-fav{opacity:1}
     .g-t.fav .g-fav::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='%23ff6b86' stroke='%23ff6b86' stroke-width='2'/%3E%3C/svg%3E")}
-    .g-modo-sel .g-fav{display:none}
     @media (hover:hover){
       .g-t:hover .g-fav,.g-t:focus-visible .g-fav{opacity:1;pointer-events:auto}
       .g-fav:active{transform:scale(.9)}
     }
-    .g-t.sel .g-ck{display:block;background:var(--accent);border-color:var(--accent)}
-    .g-t.sel .g-ck::after{content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;border:solid var(--accent-text);border-width:0 2px 2px 0;transform:rotate(45deg)}
-    .g-t.sel img{opacity:.78}
     .g-t.oculta img.ok{opacity:.3}
     /* Item 1f: vídeo (play + duração) e Live Photo (LIVE) no canto de baixo à
        direita; miniatura que não carregou (HEIC/RAW sem prévia, vídeo ainda
@@ -612,14 +606,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t.sem-mini::after{content:attr(data-ext);position:absolute;inset:0;display:grid;place-items:center;color:var(--text-muted);font-size:.8rem;font-weight:600;letter-spacing:.12em}
     .g-t .g-oc{position:absolute;left:6px;top:6px;padding:.15rem .45rem;border-radius:4px;background:rgba(0,0,0,.7);color:#fff;font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:none}
     .g-t.oculta .g-oc{display:block}
-    .g-barra{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem .5rem 1rem;border-radius:999px;background:var(--bg-card-2);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:.85rem;max-width:calc(100vw - 24px)}
-    .g-barra[hidden]{display:none}
     .g-topo{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.3);opacity:0;visibility:hidden;transform:translateY(8px);pointer-events:none;transition:opacity .15s ease-out,transform .15s var(--sai),visibility 0s .15s}
     .g-topo.on{opacity:1;visibility:visible;transform:none;pointer-events:auto;transition-delay:0s}
     .g-topo:active{transform:scale(.95)}
-    .g-com-barra .g-topo{bottom:calc(84px + env(safe-area-inset-bottom))}
     .g-vendo .g-topo{display:none}
-    .g-barra .g-btn{padding:.45rem .8rem}
     .g-bug{padding:.5rem;min-width:44px}
     /* Celular: o Compartilhar vira só ícone (o aria-label diz o que é), para os
        quatro botões caberem numa linha só e as fotos subirem na tela. */
@@ -629,8 +619,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     }
     .g-voltar{display:inline-flex;align-items:center;gap:.25rem;min-height:44px;font-size:.85rem;color:var(--text-muted);text-decoration:none;margin-bottom:.15rem}
     @media (hover:hover){ .g-voltar:hover{color:var(--text)} }
-    .g-barra .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
-    #g-barra-n{white-space:nowrap;margin-right:.25rem}
     /* Folha de download: por cima do visualizador (o PhotoSwipe usa z-index 100000). */
     .g-folha{position:fixed;inset:0;z-index:100010;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);opacity:1;transition:opacity .2s var(--sai),display .2s allow-discrete,overlay .2s allow-discrete}
     .g-folha[hidden]{display:none;opacity:0;transition-duration:.14s}
@@ -663,7 +651,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-folha-rod a{font-size:.78rem;color:var(--text-muted)}
     .g-aviso-flut{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:100020;background:#111;color:#f0ebe5;font-size:.82rem;padding:.55rem .9rem;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s var(--sai),transform .2s var(--sai)}
     .g-aviso-flut.on{opacity:1;transform:translateX(-50%)}
-    /* Visualizador: legenda e o botão de seleção ligado. */
+    /* Visualizador: legenda. */
     .pswp{--pswp-bg:#000}
     .pswp__g-legenda{position:absolute;left:0;right:0;bottom:0;padding:1.6rem 1rem calc(.9rem + env(safe-area-inset-bottom));text-align:center;font:500 13px/1.4 'Inter',sans-serif;color:#e8e3dd;background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none;transition:opacity .25s}
     .pswp:not(.pswp--ui-visible) .pswp__g-legenda{opacity:0}
@@ -700,7 +688,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-reel.arrasta .g-vid-barra::before,.g-reel.arrasta .g-vid-prog,.g-vid-barra:hover .g-vid-prog,.g-vid-barra:hover::before{height:6px}
     .g-vid-resta{position:absolute;left:12px;bottom:calc(36px + env(safe-area-inset-bottom));padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums;pointer-events:none}
     .g-eh-video .pswp__button--zoom{display:none}
-    .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
     .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
     .pswp__button--g-capa.on .pswp__icn{fill:#f9de4b}
@@ -785,7 +772,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         ${nomesDosAutores.length && total ? `<p class="g-autores"><span class="g-autores-k">Fotos de</span> ${escape(listaComE(nomesDosAutores))}</p>` : ''}
       </div>
       <div class="g-acoes">
-        ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn g-prim" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="compartilhar" aria-label="Compartilhar a página do projeto"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar</span></button>' : ''}
 ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
@@ -806,12 +792,6 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
-  <div class="g-barra" id="g-barra" hidden>
-    <span id="g-barra-n" aria-live="polite">0 selecionadas</span>
-    <button type="button" class="g-btn g-prim" data-acao="baixar-sel">Baixar</button>
-    <button type="button" class="g-btn" data-acao="limpar-sel">Limpar</button>
-    <button type="button" class="g-btn" data-acao="fim-sel">Concluir</button>
-  </div>
   <div class="g-folha" id="g-folha" hidden role="dialog" aria-modal="true" aria-labelledby="g-folha-t">
     <div class="g-folha-c">
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
@@ -1232,7 +1212,7 @@ const SCRIPT = `
   }
 
   // ---- Grade justificada ----
-  /** @type {{ sec: HTMLElement, grade: HTMLElement, lista: Foto[], todas: HTMLButtonElement }[]} */
+  /** @type {{ sec: HTMLElement, grade: HTMLElement, lista: Foto[], }[]} */
   const grades = [];
   function monta() {
     // A fileira do servidor (#253) sai: a grade de verdade entra no lugar,
@@ -1250,13 +1230,6 @@ const SCRIPT = `
         h2.textContent = sec.nome || 'Fotos';
         cab.appendChild(h2);
       }
-      const todas = document.createElement('button');
-      todas.type = 'button';
-      todas.className = 'g-sec-todas';
-      todas.dataset.acao = 'sel-secao';
-      todas.dataset.sec = String(s);
-      todas.textContent = 'Selecionar todas';
-      cab.appendChild(todas);
       secEl.appendChild(cab);
       const grade = document.createElement('div');
       grade.className = 'g-grade';
@@ -1284,15 +1257,11 @@ const SCRIPT = `
         // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
         // cai na primeira tela (ver dimensiona).
         img.loading = 'lazy';
-        const ck = document.createElement('span');
-        ck.className = 'g-ck';
-        ck.setAttribute('aria-hidden', 'true');
         const fv = document.createElement('span');
         fv.className = 'g-fav';
         fv.setAttribute('aria-hidden', 'true');
         fv.title = 'Favoritar (tecla F)';
         a.appendChild(img);
-        a.appendChild(ck);
         a.appendChild(fv);
         if (ehVid || live) {
           const sel = document.createElement('span');
@@ -1335,7 +1304,7 @@ const SCRIPT = `
         fotos.push(foto);
         lista.push(foto);
       });
-      grades.push({ sec: secEl, grade: grade, lista: lista, todas: todas });
+      grades.push({ sec: secEl, grade: grade, lista: lista });
     });
   }
 
@@ -1468,10 +1437,12 @@ const SCRIPT = `
     }
   }
 
-  // ---- Seleção e favoritas ----
-  // As duas listas ficam só neste aparelho (localStorage), e a página tem de
-  // funcionar com o armazenamento bloqueado.
-  const CHAVE_SEL = 'galeria:sel:' + D.slug;
+  // ---- Favoritas ----
+  // Ficam só neste aparelho (localStorage), e a página tem de funcionar com o
+  // armazenamento bloqueado. Até a 4.1 havia também a "seleção" (✓), uma
+  // segunda marca que confundia; na 4.3.0 ela se juntou às favoritas: o
+  // coração é a única marca, e as favoritas se baixam e se compartilham.
+  const CHAVE_SEL_ANTIGA = 'galeria:sel:' + D.slug;
   const CHAVE_FAV = 'galeria:fav:' + D.slug;
   function leLista(chave) {
     try {
@@ -1484,10 +1455,15 @@ const SCRIPT = `
     try { localStorage.setItem(chave, JSON.stringify(Array.from(conjunto))); } catch (e) { /* idem */ }
   }
   /** @type {Set<string>} */
-  let sel = leLista(CHAVE_SEL);
-  /** @type {Set<string>} */
   const fav = leLista(CHAVE_FAV);
-  let modoSel = false;
+  // A seleção antiga (até a 4.1) vira favorita uma vez, e a chave sai.
+  (function () {
+    const antiga = leLista(CHAVE_SEL_ANTIGA);
+    if (!antiga.size) return;
+    antiga.forEach(function (id) { fav.add(id); });
+    gravaLista(CHAVE_FAV, fav);
+    try { localStorage.removeItem(CHAVE_SEL_ANTIGA); } catch (e) { /* sem armazenamento */ }
+  })();
   let filtroFav = false;
   let filtroNovas = false;
   // Seleção que chegou por link (#sel=id.id.id, #213): a galeria abre só com
@@ -1503,13 +1479,8 @@ const SCRIPT = `
   /** @type {HTMLButtonElement | null} */
   let chipFav = null;
 
-  /** @type {Foto | null} */
-  let ultimoSel = null;
   /** As fotos na ordem em que aparecem agora (todas, ou só as favoritas). */
   let vistas = fotos;
-  const barra = document.getElementById('g-barra');
-  const barraN = document.getElementById('g-barra-n');
-  const botaoSel = document.getElementById('g-sel');
 
   // Filtro por fotógrafo (-1 = todos): combina com as favoritas e com o link.
   let filtroAutor = -1;
@@ -1543,69 +1514,12 @@ const SCRIPT = `
     const fn = filtroAtivo();
     vistas = fn ? fotos.filter(fn) : fotos;
   }
-  function salvaSel() { gravaLista(CHAVE_SEL, sel); }
   function salvaFav() { gravaLista(CHAVE_FAV, fav); }
-  function pintaSel(f) {
-    const on = sel.has(f.id);
+  function pintaFav(f) {
     const gosto = fav.has(f.id);
-    f.el.classList.toggle('sel', on);
     f.el.classList.toggle('fav', gosto);
-    // O check e o coração são só visuais (aria-hidden): o leitor de tela ouve
-    // o estado no nome.
-    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (f.nova ? ', nova' : '') + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
-  }
-  function atualizaBarra() {
-    if (!barra || !barraN) return;
-    const n = sel.size;
-    barra.hidden = !(modoSel || n > 0);
-    document.body.classList.toggle('g-com-barra', !barra.hidden);
-    barraN.textContent = n === 1 ? '1 selecionada' : n + ' selecionadas';
-    grades.forEach(function (g) {
-      const l = visiveisDe(g);
-      g.todas.textContent = l.length && l.every(function (f) { return sel.has(f.id); }) ? 'Desmarcar todas' : 'Selecionar todas';
-    });
-  }
-  function alternaSel(f) {
-    if (sel.has(f.id)) sel.delete(f.id); else sel.add(f.id);
-    ultimoSel = f;
-    pintaSel(f);
-    salvaSel();
-    atualizaBarra();
-  }
-  // Shift+clique: do último marcado até este (na ordem que se vê).
-  function selecionaIntervalo(f) {
-    const a = ultimoSel ? vistas.indexOf(ultimoSel) : -1;
-    const b = vistas.indexOf(f);
-    if (a < 0 || b < 0) { alternaSel(f); return; }
-    for (let k = Math.min(a, b); k <= Math.max(a, b); k++) {
-      sel.add(vistas[k].id);
-      pintaSel(vistas[k]);
-    }
-    ultimoSel = f;
-    salvaSel();
-    atualizaBarra();
-  }
-  function selecionaSecao(k) {
-    const g = grades[k];
-    if (!g) return;
-    const lista = visiveisDe(g);
-    const todas = lista.every(function (f) { return sel.has(f.id); });
-    lista.forEach(function (f) {
-      if (todas) sel.delete(f.id); else sel.add(f.id);
-      pintaSel(f);
-    });
-    salvaSel();
-    atualizaBarra();
-    avisa(todas ? 'Seleção desta seção removida' : lista.length + (lista.length === 1 ? ' foto selecionada' : ' fotos selecionadas'));
-  }
-  function ligaModoSel(liga) {
-    modoSel = liga;
-    document.body.classList.toggle('g-modo-sel', liga);
-    if (botaoSel) {
-      botaoSel.setAttribute('aria-pressed', String(liga));
-      botaoSel.textContent = liga ? 'Selecionando' : 'Selecionar';
-    }
-    atualizaBarra();
+    // O coração é só visual (aria-hidden): o leitor de tela ouve o estado no nome.
+    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (f.nova ? ', nova' : '') + (gosto ? ', favorita' : ''));
   }
 
   /** @returns {boolean} se a foto ficou favorita */
@@ -1613,7 +1527,7 @@ const SCRIPT = `
     const era = fav.has(f.id);
     if (era) fav.delete(f.id); else fav.add(f.id);
     salvaFav();
-    pintaSel(f);
+    pintaFav(f);
     atualizaChips();
     avisa(era ? 'Removida das favoritas' : 'Favorita guardada, só neste aparelho');
     // Com o visualizador aberto a lista não muda debaixo dele: refaz ao fechar.
@@ -1666,7 +1580,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
   }
   /** Guarda as fotos do link nas favoritas deste aparelho. */
@@ -1675,7 +1588,7 @@ const SCRIPT = `
     let novas = 0;
     filtroLink.forEach(function (id) { if (!fav.has(id)) { fav.add(id); novas++; } });
     salvaFav();
-    fotos.forEach(pintaSel);
+    fotos.forEach(pintaFav);
     montaChips();
     avisa(novas ? novas + (novas === 1 ? ' foto guardada nas favoritas' : ' fotos guardadas nas favoritas') : 'Já estavam nas suas favoritas');
   }
@@ -1686,7 +1599,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-autor"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-autor"]') : null;
@@ -1701,7 +1613,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-sec"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-sec"]') : null;
@@ -1715,7 +1626,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-novas"]') : null;
@@ -1730,7 +1640,6 @@ const SCRIPT = `
     document.body.classList.toggle('g-so-fav', liga);
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco && chipFav) chipFav.focus({ preventScroll: true });
   }
@@ -1844,13 +1753,21 @@ const SCRIPT = `
       b.title = 'Fica só neste aparelho';
       chips.appendChild(b);
       chipFav = b;
+      // Com o filtro ligado, o que se faz com elas: baixar (o que era o
+      // "Baixar" da seleção) e mandar o link.
       if (filtroFav && fav.size) {
+        const d = document.createElement('button');
+        d.type = 'button';
+        d.className = 'g-chip g-chip-prim';
+        d.dataset.acao = 'baixar-fav';
+        d.textContent = 'Baixar';
+        chips.appendChild(d);
         const c = document.createElement('button');
         c.type = 'button';
         c.className = 'g-chip';
         c.dataset.acao = 'compartilhar-fav';
         c.title = 'Um link que abre a galeria só com estas fotos';
-        c.textContent = 'Compartilhar as favoritas';
+        c.textContent = 'Compartilhar';
         chips.appendChild(c);
       }
     }
@@ -1913,7 +1830,7 @@ const SCRIPT = `
   /** @type {Promise<any> | null} */
   let carregandoLb = null;
 
-  // ---- Vídeo no visualizador: player estilo reels (v4.2.0) ----
+  // ---- Vídeo no visualizador: player estilo reels (v4.3.0) ----
   // Um <video> comum servido pela própria origem (/galeria/.../video/<id>,
   // com Range): ocupa o slide, começa a tocar MUDO quando o slide fica ativo,
   // toque pausa/continua (ícone grande que some), botão de som redondo (a
@@ -2176,7 +2093,6 @@ const SCRIPT = `
   const ICONE_CORACAO_PSWP = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 27.500 14.300 26C8.600 20.900 5 17.700 5 13.600 5 10.400 7.500 8 10.600 8c1.800 0 3.500.8 4.600 2.100l.8.9.8-.9C18 8.800 19.700 8 21.500 8 24.500 8 27 10.400 27 13.600c0 4.100-3.600 7.300-9.300 12.400z"/></svg>';
   const ICONE_COMPARTILHAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 5l6 6-1.400 1.400L17 8.800V20h-2V8.800l-3.600 3.600L10 11zM8 15h4v2h-2v9h12v-9h-2v-2h4v13H8z"/></svg>';
   const ICONE_OCULTAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 9c-5.500 0-9.300 4.400-10.500 7 1.200 2.600 5 7 10.500 7s9.300-4.400 10.500-7C25.300 13.400 21.500 9 16 9zm0 11.500a4.500 4.500 0 1 1 0-9 4.500 4.500 0 0 1 0 9zM6.400 5 5 6.400 25.600 27 27 25.600z"/></svg>';
-  const ICONE_SEL = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 6a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.5 14.6-4.6-4.6 1.4-1.4 3.2 3.2 6.6-6.6 1.4 1.4z"/></svg>';
 
   // ---- Voltar fecha a camada de cima, como num app ----
   // O visualizador e a folha de download empilham UMA entrada cada no
@@ -2383,27 +2299,6 @@ const SCRIPT = `
         if (!f) return;
         alternaFav(f);
         sincronizaFavUi();
-      },
-    });
-    pswp.ui.registerElement({
-      name: 'g-sel', order: 8, isButton: true, title: 'Selecionar esta foto', html: ICONE_SEL,
-      onInit: function (el, p) {
-        const sync = function () {
-          const f = vistas[p.currIndex];
-          const on = !!f && sel.has(f.id);
-          el.classList.toggle('on', on);
-          el.setAttribute('aria-pressed', String(on));
-        };
-        p.on('change', sync);
-        sync();
-      },
-      onClick: function (_e, el, p) {
-        const f = vistas[p.currIndex];
-        if (!f) return;
-        alternaSel(f);
-        el.classList.toggle('on', sel.has(f.id));
-        el.setAttribute('aria-pressed', String(sel.has(f.id)));
-        avisa(sel.has(f.id) ? 'Adicionada à seleção' : 'Removida da seleção');
       },
     });
     pswp.ui.registerElement({
@@ -2955,7 +2850,7 @@ const SCRIPT = `
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
-  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.2.0):
+  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.3.0):
   // manda o LINK da foto (?foto=código), nunca o arquivo. O link abre direto
   // nela, com a prévia (imagem e título) no WhatsApp; o arquivo continua em
   // Baixar. Sem o menu do sistema, copia o link. Nada é baixado do servidor:
@@ -3333,10 +3228,8 @@ const SCRIPT = `
     const f = fotos[Number(a.dataset.i)];
     if (!f) return;
     if (alvo.closest('.g-fav')) { e.preventDefault(); alternaFav(f); return; }
-    if (modoSel && e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); selecionaIntervalo(f); return; }
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; // nova aba: o ?foto= abre lá
     e.preventDefault();
-    if (modoSel) { alternaSel(f); return; }
     abre(vistas.indexOf(f));
   });
   // F favorita a foto em foco na grade (o coração só aparece ao passar o mouse).
@@ -3355,15 +3248,12 @@ const SCRIPT = `
     if (acao === 'fechar-folha') fechaFolha();
     else if (acao === 'fechar-rem') fechaRemocao();
     else if (acao === 'pedir-remocao') abreRemocao(lightbox && lightbox.pswp ? vistas[lightbox.pswp.currIndex] : null);
-    else if (acao === 'limpar-sel') { sel.clear(); ultimoSel = null; fotos.forEach(pintaSel); salvaSel(); atualizaBarra(); }
-    else if (acao === 'fim-sel') ligaModoSel(false);
-    else if (acao === 'baixar-sel') {
-      const lista = fotos.filter(function (f) { return sel.has(f.id); });
-      if (lista.length) abreFolha(lista); else avisa('Nenhuma foto selecionada');
+    else if (acao === 'baixar-fav') {
+      const lista = favoritas();
+      if (lista.length) abreFolha(lista); else avisa('Marque fotos com o coração primeiro');
     }
     else if (acao === 'baixar-tudo') abreFolhaTudo();
     else if (acao === 'compartilhar') compartilhaPagina();
-    else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
     else if (acao === 'filtro-novas') ligaFiltroNovas(!filtroNovas);
@@ -3378,7 +3268,6 @@ const SCRIPT = `
       if (h1) h1.focus({ preventScroll: true });
     }
   });
-  if (botaoSel) botaoSel.addEventListener('click', function () { ligaModoSel(!modoSel); });
   // Com a folha aberta, Esc e as setas são dela — não do visualizador por baixo.
   window.addEventListener('keydown', function (e) {
     if (!folha || folha.hidden) return;
@@ -3402,12 +3291,10 @@ const SCRIPT = `
   // ---- Início ----
   detectaWebp(function () {
     monta();
-    fotos.forEach(pintaSel);
-    sel.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) sel.delete(id); });
+    fotos.forEach(pintaFav);
     fav.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) fav.delete(id); });
     const doLink = leSelecaoDoLink();
     if (filtroSec >= 0) recalculaVistas();
-    atualizaBarra();
     montaChips();
     diagramaTudo();
     observaSecoes();

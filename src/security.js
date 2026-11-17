@@ -127,7 +127,7 @@ export function contentSecurityPolicy(nonce, { driveFrame = false } = {}) {
     // Nada abaixo é usado pelo site: negar explicitamente evita que um dia um
     // <object>/<embed> injetado tenha para onde ir.
     "object-src 'none'",
-    // O player de vídeo da galeria (v4.2.0) é um <video> servido pela
+    // O player de vídeo da galeria (v4.3.0) é um <video> servido pela
     // própria origem (/galeria/.../video/<id>): só as páginas com vídeo
     // ganham 'self'; o resto do site continua sem mídia nenhuma.
     driveFrame ? "media-src 'self'" : "media-src 'none'",

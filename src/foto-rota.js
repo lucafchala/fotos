@@ -284,7 +284,7 @@ export async function originalDoR2(env, id) {
 }
 
 /**
- * O intervalo de um pedido `Range` (v4.2.0, vídeo tocado no site). Só UM
+ * O intervalo de um pedido `Range` (v4.3.0, vídeo tocado no site). Só UM
  * intervalo de bytes — o que o `<video>` pede: `bytes=a-b`, `bytes=a-` ou
  * `bytes=-n`. Sem cabeçalho, `null` (o arquivo inteiro); vários intervalos ou
  * forma estranha, `'invalido'` (416).

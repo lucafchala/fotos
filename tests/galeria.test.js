@@ -814,14 +814,15 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
     expect(cab?.[0]).not.toContain('← Painel');
   });
 
-  it('as ações do convidado são "Selecionar" e "Baixar tudo"', () => {
+  it('a ação do convidado é "Baixar tudo"; não há mais "Selecionar" (v4.3.0: juntou-se às favoritas)', () => {
     const html = render(fotos37);
-    expect(html).toMatch(/<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar<\/button>/);
+    expect(html).not.toContain('id="g-sel"');
+    expect(html).not.toContain('id="g-barra"');
     // v3.8.0: "Baixar tudo" é o botão de destaque (g-prim).
     expect(html).toMatch(/<button type="button" class="g-btn g-prim" data-acao="baixar-tudo">Baixar tudo<\/button>/);
   });
 
-  it('a pasta sem fotos não mostra Selecionar nem Baixar tudo', () => {
+  it('a pasta sem fotos não mostra Baixar tudo', () => {
     const html = render([], 0);
     expect(html).not.toContain('data-acao="baixar-tudo"');
     expect(html).not.toContain('id="g-sel"');

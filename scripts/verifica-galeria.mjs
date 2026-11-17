@@ -263,7 +263,7 @@ async function abre(o = {}) {
     turnstile: 0,
     // Pedidos ao player do Drive (item 1f): só depois do toque no play.
     drive: /** @type {string[]} */ ([]),
-    // Pedidos à rota de vídeo do próprio site (v4.2.0), com o Range de cada um.
+    // Pedidos à rota de vídeo do próprio site (v4.3.0), com o Range de cada um.
     video: /** @type {{ id: string, range: string }[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
@@ -311,7 +311,7 @@ async function abre(o = {}) {
     if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
-    // O vídeo tocado no site (v4.2.0): um WebM de verdade, com Range como o
+    // O vídeo tocado no site (v4.3.0): um WebM de verdade, com Range como o
     // servidor. `videoFalha`: a rota responde 502 (o player cai no Drive).
     const vm = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/video\/([A-Za-z0-9_-]+)$/);
     if (vm) {
@@ -797,7 +797,7 @@ await cenario('iPhone sem compartilhar arquivos', async () => {
   await ctx.close();
 });
 
-// Compartilhar uma foto (v4.2.0): manda o LINK da foto (?foto=), nunca o
+// Compartilhar uma foto (v4.3.0): manda o LINK da foto (?foto=), nunca o
 // arquivo — nenhum pedido a /baixar/, nada conta como download. Sem o menu do
 // sistema, o link vai para a área de transferência.
 await cenario('Compartilhar manda o link, não a foto', async () => {
@@ -1001,26 +1001,33 @@ await cenario('iPad', async () => {
   await ctx.close();
 });
 
-// ---- 6. Seleção ------------------------------------------------------------
+// ---- 6. Favoritas: a única marca (v4.3.0 juntou a antiga "Seleção") ----------
 // Três fotos marcadas, UMA sem versão do Instagram (a 6ª, índice 5).
-await cenario('Seleção', async () => {
+await cenario('Favoritas: baixar', async () => {
   const { ctx, page, estado } = await abre({});
-  await page.locator('#g-sel').click();
-  for (const i of [0, 3, 5]) await page.locator('.g-t').nth(i).click();
-  registra((await page.locator('#g-barra-n').textContent()) === '3 selecionadas', 'Seleção: marca três fotos', await page.locator('#g-barra-n').textContent());
-  const nomes = await page.locator('.g-t.sel').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
-  registra(nomes.join('|') === 'Foto 001, selecionada|Foto 004, selecionada|Foto 006, selecionada', 'Seleção: o leitor de tela ouve "selecionada" no nome da foto', nomes);
-  registra((await page.locator('.pswp--open').count()) === 0, 'Seleção: no modo seleção, tocar marca em vez de abrir', '');
+  registra(await page.locator('#g-sel, #g-barra, .g-ck, [data-acao="sel-secao"]').count() === 0,
+    'Favoritas: não há mais botão "Selecionar", barra de seleção nem ✓ na miniatura', '');
+  for (const i of [0, 3, 5]) {
+    await page.locator('.g-t').nth(i).hover();
+    await page.locator('.g-t').nth(i).locator('.g-fav').click();
+  }
+  const nomes = await page.locator('.g-t.fav').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
+  registra(nomes.join('|') === 'Foto 001, favorita|Foto 004, favorita|Foto 006, favorita', 'Favoritas: o leitor de tela ouve "favorita" no nome da foto', nomes);
+  registra((await page.locator('.pswp--open').count()) === 0, 'Favoritas: o coração da miniatura marca sem abrir a foto', '');
+  registra(await page.locator('[data-acao="baixar-fav"]').count() === 0, 'Favoritas: "Baixar" só aparece com o filtro de favoritas ligado', '');
   await page.reload();
   await espera(page, 900);
-  registra((await page.locator('#g-barra-n').textContent()) === '3 selecionadas' && (await page.locator('.g-t.sel').count()) === 3, 'Seleção: sobrevive a recarregar a página', '');
-  await page.locator('[data-acao="baixar-sel"]').click();
+  await page.locator('.g-chip[data-acao="filtro-fav"]').click();
+  await espera(page, 400);
+  const acoes = await page.locator('.g-chip[data-acao="baixar-fav"], .g-chip[data-acao="compartilhar-fav"]').allTextContents();
+  registra(acoes.join('|') === 'Baixar|Compartilhar', 'Favoritas: com o filtro ligado, o topo oferece Baixar e Compartilhar', acoes);
+  await page.locator('[data-acao="baixar-fav"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
-  registra((await page.locator('#g-folha-t').textContent()) === 'Baixar 3 fotos', 'Seleção: a folha baixa as três', await page.locator('#g-folha-t').textContent());
+  registra((await page.locator('#g-folha-t').textContent()) === 'Baixar 3 fotos', 'Favoritas: a folha baixa as três', await page.locator('#g-folha-t').textContent());
   const detalhes = await page.locator('.g-op span').allTextContents();
-  registra(/^2 de 3 fotos têm esta versão \(as outras ficam de fora\)/.test(detalhes[0] || ''), 'Seleção: "para redes" diz quantas das fotos têm a versão', detalhes[0]);
-  registra(/^Os arquivos originais, sem alteração/.test(detalhes[1] || ''), 'Seleção: "tamanho máximo" cobre as três', detalhes[1]);
-  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'selecao-desktop.png') });
+  registra(/^2 de 3 fotos têm esta versão \(as outras ficam de fora\)/.test(detalhes[0] || ''), 'Favoritas: "para redes" diz quantas das fotos têm a versão', detalhes[0]);
+  registra(/^Os arquivos originais, sem alteração/.test(detalhes[1] || ''), 'Favoritas: "tamanho máximo" cobre as três', detalhes[1]);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'favoritas-desktop.png') });
   /** @type {string[]} */
   const pedidos = [];
   page.on('download', d => { const u = new URL(d.url()); pedidos.push(u.pathname.split('/').pop() + u.search); });
@@ -1029,35 +1036,63 @@ await cenario('Seleção', async () => {
   // Ordenados: o Chromium pode avisar os downloads fora da ordem em que a página
   // os pede (no #278, 06/11/2026, chegaram 0, 5, 3). O que vale é um por foto.
   registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes',
-    'Seleção: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
-  await page.locator('[data-acao="baixar-sel"]').click();
+    'Favoritas: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
+  await page.locator('[data-acao="baixar-fav"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
   pedidos.length = 0;
   await page.locator('.g-op').nth(1).click();
   await espera(page, 3200);
   registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=max,RAIZFOTO_000003?v=max,RAIZFOTO_000005?v=max',
-    'Seleção: "tamanho máximo" baixa as três, um download por foto', pedidos);
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+    'Favoritas: "tamanho máximo" baixa as três, um download por foto', pedidos);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Favoritas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
-// Seleção no iPhone: "Salvar N fotos no Fotos" com os arquivos exatos de cada uma.
-await cenario('Seleção no iPhone', async () => {
+// Quem tinha fotos na seleção antiga (até a 4.1) as encontra nas favoritas.
+await cenario('Seleção antiga vira favorita', async () => {
+  const { ctx, page, estado } = await abre({});
+  await page.evaluate(() => {
+    localStorage.setItem('galeria:sel:formatura', JSON.stringify(['RAIZFOTO_000002', 'RAIZFOTO_000007']));
+    localStorage.setItem('galeria:fav:formatura', JSON.stringify(['RAIZFOTO_000007', 'RAIZFOTO_000009']));
+  });
+  await page.reload();
+  await espera(page, 900);
+  const fav = await page.evaluate(() => JSON.parse(localStorage.getItem('galeria:fav:formatura') || '[]').sort().join(','));
+  const sel = await page.evaluate(() => localStorage.getItem('galeria:sel:formatura'));
+  registra(fav === 'RAIZFOTO_000002,RAIZFOTO_000007,RAIZFOTO_000009' && sel === null && (await page.locator('.g-t.fav').count()) === 3,
+    'Seleção antiga: entra nas favoritas (sem repetir) e a chave antiga sai', { fav, sel });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção antiga: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Favoritas no iPhone: o coração da foto aberta, depois Favoritas → Baixar:
+// "Salvar N fotos no Fotos" com os arquivos exatos de cada uma.
+await cenario('Favoritas no iPhone', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
-  await page.locator('#g-sel').tap();
-  for (const i of [0, 1, 5]) await page.locator('.g-t').nth(i).tap();
-  await page.locator('[data-acao="baixar-sel"]').tap();
+  for (const i of [0, 1, 5]) {
+    await page.locator('.g-t').nth(i).tap();
+    await page.waitForSelector('.pswp--open');
+    await espera(page, 500);
+    await page.locator('.pswp__button--g-fav').tap();
+    await page.locator('.pswp__button--close').tap();
+    await page.waitForSelector('.pswp--open', { state: 'detached' });
+    await espera(page, 300);
+  }
+  await page.locator('.g-chip[data-acao="filtro-fav"]').tap();
+  await espera(page, 400);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'favoritas-iphone.png') });
+  await page.locator('[data-acao="baixar-fav"]').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
   const rotulos = await page.locator('.g-ver-a').first().locator('.g-btn').allTextContents();
-  registra(rotulos.join('|') === 'Salvar 2 fotos no Fotos|Baixar arquivo', 'Seleção no iPhone: o botão diz quantas fotos vão para o Fotos (as que têm a versão)', rotulos);
+  registra(rotulos.join('|') === 'Salvar 2 fotos no Fotos|Baixar arquivo', 'Favoritas no iPhone: o botão diz quantas fotos vão para o Fotos (as que têm a versão)', rotulos);
   await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
   await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 2, null, { timeout: 8000 });
   const comp = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
   registra(comp.length === 2 && comp[0].nome === '001.JPG' && comp[1].nome === '002.jpg'
     && comp[0].b64 === b64(conteudo('RAIZFOTO_000000', 'redes')) && comp[1].b64 === b64(conteudo('RAIZFOTO_000001', 'redes')),
-  'Seleção no iPhone: uma só folha do sistema, com os arquivos exatos (nome e bytes) das duas fotos', comp.map(( /** @type {any} */ c) => c.nome));
-  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes,RAIZFOTO_000001:redes', 'Seleção no iPhone: só as fotos com a versão são pedidas', estado.downloads);
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção no iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  'Favoritas no iPhone: uma só folha do sistema, com os arquivos exatos (nome e bytes) das duas fotos', comp.map(( /** @type {any} */ c) => c.nome));
+  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes,RAIZFOTO_000001:redes', 'Favoritas no iPhone: só as fotos com a versão são pedidas', estado.downloads);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Favoritas no iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -1105,16 +1140,6 @@ await cenario('Cabeçalho e favoritas', async () => {
     '"Baixar tudo": oferece todas pelo site e as favoritas, sem Drive', { titulo, ops });
   await page.keyboard.press('Escape');
   await espera(page, 400);
-
-  // Seleção: "Selecionar todas" por seção e Shift+clique para intervalo.
-  await page.locator('#g-sel').click();
-  await page.locator('[data-acao="sel-secao"][data-sec="0"]').click();
-  registra(await page.locator('.g-t.sel').count() === 24, '"Selecionar todas" marca a seção inteira', await page.locator('.g-t.sel').count());
-  await page.locator('[data-acao="limpar-sel"]').click();
-  await page.locator('.g-t').nth(2).click();
-  await page.locator('.g-t').nth(6).click({ modifiers: ['Shift'] });
-  registra(await page.locator('.g-t.sel').count() === 5, 'Shift+clique seleciona o intervalo', await page.locator('.g-t.sel').count());
-  await page.locator('[data-acao="fim-sel"]').click();
 
   // Voltar ao topo: some no topo, aparece rolando, volta e leva o foco ao título.
   registra(!(await page.locator('#g-topo').evaluate(e => e.classList.contains('on'))), 'Voltar ao topo: escondido no começo da página', '');
@@ -1575,7 +1600,7 @@ await cenario('Índice: N novas desde a última visita', async () => {
 
 // ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
 // O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
-// foto com selo "LIVE". No visualizador (v4.2.0) o vídeo abre no player estilo
+// foto com selo "LIVE". No visualizador (v4.3.0) o vídeo abre no player estilo
 // reels: <video> da própria origem, tocando mudo, toque pausa, botão de som,
 // barra arrastável. Nada do Google carrega. Se o <video> falhar, cai na
 // FACHADA (miniatura + play) e só o toque no play põe o iframe do Drive.
