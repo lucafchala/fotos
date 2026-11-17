@@ -552,6 +552,8 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-erro code{font-size:.8rem;background:var(--bg-card);padding:.1rem .35rem;border-radius:4px;color:var(--text)}
     .g-erro a{color:var(--text)}
     main{padding:1.25rem 0 6rem}
+    /* 4.1.2: até o script montar a grade, ela ocupa ao menos uma tela; senão a navegação do fim e o rodapé aparecem na primeira tela e são empurrados para baixo. */
+    .g-reserva{min-height:100vh;min-height:100svh}
     .g-sec{margin-bottom:2rem;content-visibility:auto;contain-intrinsic-size:auto 900px}
     .g-sec{scroll-margin-top:calc(var(--topo) + 8px)}
     .g-sec[hidden]{display:none}
@@ -763,7 +765,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
       </div>
     </div>
-    ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
+    ${listagem ? chipsProntosHTML(listagem, autores) : ''}
   </header>
   ${capitulo && capitulo.eventos && capitulo.eventos.length > 1 ? faixaDeEventos(base, capitulo) : capitulo ? navCapitulos(base, capitulo, 'topo') : ''}
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
@@ -773,7 +775,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
     ${conserto.passos.length ? `<ol>${conserto.passos.map(p => `<li>${p}</li>`).join('')}</ol>` : ''}
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
-  <main id="g-main" aria-label="Fotos">${fileiraPronta}</main>
+  <main id="g-main" aria-label="Fotos"${listagem && listagem.total >= GRADE_RESERVA_MIN ? ' class="g-reserva"' : ''}>${fileiraPronta}</main>
   ${capitulo && listagem ? navCapitulos(base, capitulo, 'fim', marca ? '' : slug) : ''}
   ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
@@ -797,7 +799,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
       <form id="g-rem-f" novalidate>
         <p class="g-folha-t" id="g-rem-t">Pedir remoção desta foto</p>
         <div class="g-rem-foto"><img id="g-rem-img" alt="" width="72" height="72"><span id="g-rem-nome"></span></div>
-        <p class="g-rem-aviso">Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.</p>
+        <p class="g-rem-aviso">O fotógrafo analisa cada pedido e responde no e-mail que você deixar aqui. A foto continua no álbum enquanto isso.</p>
         <label for="g-rem-motivo">Motivo</label>
         <select id="g-rem-motivo" required>
           <option value="" disabled selected>Escolha um motivo</option>
@@ -954,6 +956,58 @@ export function primeiraFileiraHTML(listagem, assina) {
   }).join('');
   const nome = varias ? (nomeDaSecao(sec).nome || 'Fotos') : '';
   return `<section class="g-sec g-pre" id="g-pre" aria-hidden="true"><div class="g-sec-cab${varias ? '' : ' sem-titulo'}">${varias ? `<h2>${escape(nome)}</h2>` : ''}</div><div class="g-grade"><div class="g-linha g-pre-linha">${itens}</div></div></section>`;
+}
+
+/**
+ * A partir de quantas fotos a grade sempre passa de uma tela (390 px: ~3 por
+ * fileira de ~130 px; 1.440 px: ~6 por fileira de ~250 px). Com isso ou mais,
+ * o `<main>` sai com `.g-reserva` (uma tela de altura) até o script montar a
+ * grade, e a navegação do fim e o rodapé não aparecem para depois sumir
+ * (4.1.2). Abaixo disso a grade pode ser mais baixa que a tela, e a reserva
+ * faria o rodapé subir: aí fica como era.
+ */
+export const GRADE_RESERVA_MIN = 40;
+
+/**
+ * A faixa de chips já no HTML (4.1.2). Ela saía vazia e escondida, e o script
+ * a abria segundos depois da primeira pintura: o cabeçalho crescia 55 px e a
+ * grade inteira descia com a pessoa já olhando (CLS de 0,75 a 0,81 num evento
+ * do álbum, em 3G lento). Aqui saem os chips que o servidor conhece, seções
+ * (ou anos) e fotógrafos, com a MESMA marcação que `montaChips` produz sem
+ * filtro ligado; o script troca pelos dele, na mesma altura. Quem confere que
+ * os dois dizem a mesma coisa é o navegador (verifica:galeria): a regra mora
+ * em dois lugares, e só um teste segura as duas cópias juntas.
+ * "Favoritas" e "Só as novas" dependem do aparelho: só o script sabe. Numa
+ * página em que só elas existem, a faixa continua abrindo depois.
+ * @param {import('../drive.js').ListagemDrive} listagem
+ * @param {string[]} autores
+ * @returns {string}
+ */
+export function chipsProntosHTML(listagem, autores) {
+  const secoes = listagem.secoes.map(s => ({ ...nomeDaSecao(s), n: s.fotos.length }));
+  const total = secoes.reduce((t, s) => t + s.n, 0);
+  const chip = (/** @type {string} */ nome, /** @type {number} */ n, /** @type {string} */ attrs) =>
+    `<button type="button" class="g-chip"${attrs}>${escape(nome)}<small>${n}</small></button>`;
+  /** @type {string[]} */
+  const partes = [];
+  // O ano de cada seção: o do caminho ou, sem ele, o do começo do nome.
+  const anos = secoes.map(s => String(s.ano || (/^(19|20)[0-9][0-9](?![0-9])/.exec(String(s.nome || '').trim()) || [''])[0]));
+  const anosLista = anos.filter((a, i) => a && anos.indexOf(a) === i);
+  if (secoes.length > 1 && anos.every(Boolean) && anosLista.length > 1) {
+    const cadaAno = anosLista.map((ano, k) => chip(ano, secoes.reduce((t, s, i) => t + (anos[i] === ano ? s.n : 0), 0), ` data-acao="filtro-sec" data-sec="${k}" aria-pressed="false"`));
+    partes.push(`<span class="g-chips-grupo g-chips-anos" role="group" aria-label="Ano">${chip('Todos os anos', total, ' data-acao="filtro-sec" data-sec="-1" aria-pressed="true"')}${cadaAno.join('')}</span>`);
+  } else if (secoes.length > 1) {
+    secoes.forEach((s, k) => partes.push(chip(s.nome || 'Fotos', s.n, ` data-acao="ir-sec" data-sec="${k}"${k ? '' : ' aria-current="true"'}`)));
+  }
+  // Fotógrafos: só com foto de mais de um na página.
+  /** @type {Map<number, number>} */
+  const porAutor = new Map();
+  for (const s of listagem.secoes) for (const f of s.fotos) porAutor.set(f[5] || 0, (porAutor.get(f[5] || 0) || 0) + 1);
+  if (porAutor.size > 1) {
+    const cadaAutor = [...porAutor.keys()].sort((a, b) => a - b).map(k => chip(autores[k] || 'Fotos', porAutor.get(k) || 0, ` data-acao="filtro-autor" data-aut="${k}" aria-pressed="false"`));
+    partes.push(`<span class="g-chips-grupo" role="group" aria-label="Fotógrafo">${chip('Todos', total, ' data-acao="filtro-autor" data-aut="-1" aria-pressed="true"')}${cadaAutor.join('')}</span>`);
+  }
+  return `<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas"${partes.length ? '' : ' hidden'}>${partes.join('')}</nav>`;
 }
 
 /**
@@ -3194,6 +3248,7 @@ const SCRIPT = `
     atualizaBarra();
     montaChips();
     diagramaTudo();
+    if (main) main.classList.remove('g-reserva');
     observaSecoes();
     if (doLink === 0) {
       avisa('As fotos deste link não estão mais nesta galeria');

@@ -336,7 +336,7 @@ describe('o pedido não muda o que o visitante vê', () => {
     expect(v).toContain('"remocao":{"token":"');
     expect(v).toContain('id="g-rem"');
     expect(v).toContain('name="company_website"');
-    expect(v).toContain('O fotógrafo vai analisar');
+    expect(v).toContain('O fotógrafo analisa cada pedido');
     expect(v).not.toMatch(/sai da galeria na hora|em até 2 min(utos)?, enquanto/i);
     const d = await (await dono('/galeria/formatura')).text();
     expect(d).not.toContain('id="g-rem"');
