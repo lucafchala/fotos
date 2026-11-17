@@ -91,12 +91,15 @@ export function legalHTML() {
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s;min-height:44px}
     .back:hover{color:var(--text-2)}
     .back svg{width:14px;height:14px}
     main{max-width:860px;margin:0 auto;padding:1.5rem 1.5rem 6rem}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
+    /* 4.1.5: no meio do texto, link sublinhado (a cor sozinha dava 1,7:1 com o texto ao lado). */
+    :is(p,li,td,dd) a:not([class]){text-decoration:underline;text-underline-offset:.15em;text-decoration-thickness:1px}
+    :is(p,li,td,dd) a:not([class]):hover{text-decoration-thickness:2px}
 
     /* Hero */
     .eyebrow{display:inline-flex;align-items:center;gap:.5rem;font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem}
@@ -127,6 +130,7 @@ export function legalHTML() {
 
     /* Tabela */
     .table-wrap{overflow-x:auto;border:1px solid var(--card-border);border-radius:12px;background:var(--card-bg)}
+    .table-wrap:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:560px}
     th{text-align:left;font-weight:600;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);padding:.85rem 1rem;border-bottom:1px solid var(--card-border);white-space:nowrap}
     td{padding:.85rem 1rem;border-bottom:1px solid var(--border-hair);color:var(--text-2);line-height:1.5;vertical-align:top}
@@ -160,7 +164,7 @@ export function legalHTML() {
     .note{font-size:.8rem;color:var(--text-dim);line-height:1.65;border-left:2px solid var(--border-dim);padding-left:1rem;margin-top:1.25rem;max-width:64ch}
 
     footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair);display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;margin-top:4rem}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s;display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text-2)}
     .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
     .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
@@ -252,7 +256,7 @@ export function legalHTML() {
     <section>
       <h2>Seus dados, em resumo</h2>
       <p class="section-lead">A versão curta da política de privacidade. A completa está em <a href="/privacidade">/privacidade</a>.</p>
-      <div class="table-wrap">
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Seus dados, em resumo (role para o lado)">
         <table>
           <thead>
             <tr><th>Dado</th><th>Para quê</th><th>Quanto tempo</th></tr>

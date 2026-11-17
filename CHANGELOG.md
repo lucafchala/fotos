@@ -18,7 +18,7 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.7] — ainda não publicada
+## [4.1.6] — ainda não publicada
 
 Acessibilidade na página de suporte (`/suporte`).
 
@@ -32,7 +32,68 @@ Acessibilidade na página de suporte (`/suporte`).
   invisível; agora tem 5,9 e 5,3. O axe não acusa mais nada na página.
 - `tests/suporte-alvos.test.js` prende os 44 px e o contraste dos dois temas.
 
-## [4.1.1] — ainda não publicada
+## [4.1.5] — 2026-11-17
+
+Acessibilidade nas páginas legais (`/privacidade`, `/termos` e `/legal`).
+
+- **Link no meio do texto agora é sublinhado.** Ele se distinguia do texto
+  só pela cor, com contraste de 1,7 para 1 entre os dois (na `/legal`, 1,08);
+  quem não enxerga bem a cor não via o link. O axe acusava 7 links em
+  `/termos`, 15 em `/privacidade` e 2 em `/legal`; agora, nenhum. Os cartões
+  e botões continuam como eram.
+- **"Voltar" e os links do rodapé com 44 px de altura** (tinham 15), o
+  mínimo para acertar com o dedo.
+- **A tabela "Seus dados, em resumo" da `/legal` recebe foco.** No celular ela
+  rola para o lado, e quem usa teclado não conseguia rolar.
+
+## [4.1.4] — 2026-11-17
+
+Correção de texto no pedido de remoção de uma foto.
+
+- **O formulário não diz mais "Recebemos o pedido" antes do envio.** Ao abrir
+  "Pedir remoção", a primeira frase já era "Recebemos o pedido. O fotógrafo
+  vai analisar…", antes de a pessoa escolher o motivo ou deixar o e-mail; quem
+  lia só isso podia fechar achando que tinha pedido. Agora o formulário
+  explica o que vai acontecer ("O fotógrafo analisa cada pedido e responde no
+  e-mail que você deixar aqui. A foto continua no álbum enquanto isso.") e o
+  "Recebemos o pedido" fica só na confirmação, depois de enviado, como já era.
+
+## [4.1.3] — 2026-11-17
+
+Correção: a página de erro dá para ler.
+
+- **404, 500 e "o Drive não respondeu" legíveis.** A página de erro era um
+  bloco quase preto com o número em cinza-escuro (contraste 1,13 para 1; o
+  mínimo é 4,5), a frase em 2,9 e os dois links em 3,6, com 19 px de altura.
+  Agora ela segue o tema do aparelho (claro ou escuro), tudo passa de 4,5, os
+  links são sublinhados e têm 44 px. O texto ficou neutro, porque a mesma
+  página sai no domínio do álbum: "Voltar ao início" (era "Voltar para a
+  galeria") e "Falar com o suporte"; o título da aba é "Erro 404" em vez de
+  "404 · fotos". A página não é indexada. Código em `src/ui/erro.js`, teste
+  em `tests/pagina-erro.test.js`.
+
+## [4.1.2] — 2026-11-17
+
+Correção: a galeria de um evento do álbum não pula mais depois de aparecer.
+
+- **A faixa de filtros da galeria já vem na página.** A faixa com as seções e
+  os fotógrafos saía vazia e escondida, e só abria quando o script terminava
+  de carregar. Numa conexão lenta isso era segundos depois de as fotos já
+  estarem na tela: o cabeçalho crescia 55 px e a grade inteira descia, com a
+  pessoa já olhando ou tocando. Agora o servidor manda a faixa pronta, com os
+  mesmos botões que o script monta, e nada muda de lugar. Medido num evento
+  de 1.300 fotos, com CPU 4× mais lenta e 3G lento: o CLS foi de
+  0,813 para 0,002 (o limite bom é 0,1). Vale para toda
+  página com mais de uma seção ou mais de um fotógrafo; a galeria simples já
+  não pulava. Os filtros que dependem do aparelho ("Favoritas" e "Só as
+  novas") continuam vindo do script.
+- **A grade guarda o lugar dela.** Antes de o script montar a grade, a
+  navegação do fim da página e o rodapé apareciam na primeira tela e eram
+  empurrados para baixo logo depois. Com 40 fotos ou mais, a área das fotos
+  já ocupa uma tela inteira até a grade ficar pronta. Detalhe das duas
+  partes em `docs/REFERENCIA.md`, "Faixa de chips no servidor".
+
+## [4.1.1] — 2026-11-15
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
   lista de pastas de envio vencia a cada 30 minutos, e a primeira pessoa
@@ -108,15 +169,15 @@ Desempenho do álbum (pedido do dono: "extremamente lento" ao entrar nos eventos
 - **Mais larguras aquecidas no R2**: 300, 600 e 1000, além das do iPhone (o Android pede 600 na grade; o computador, 300 e 1000). O indexador guarda com que lista aqueceu (`quentesLarguras`) e, quando ela muda, reaquece tudo uma vez (as larguras que já estavam no R2 saem de lá, sem Google).
 - **Console sem erros do Turnstile nem aviso de `web-share`**: `connect-src` aceita `data:` (o teste que o Turnstile faz no navegador), o widget pode pedir picture-in-picture, e a diretiva `web-share` sai do Permissions-Policy (o Chrome não a reconhece; o padrão dela já é `self`).
 
-## [3.9.2] — ainda não publicada
+## [3.9.2] — 2026-11-17
 
 - **O fundo do álbum fica igual ao do fotos.lucafchala.com** (pedido do dono): o preto neutro de lá (`#0a0a0a`, cartões `#141414`, bordas `#262626`), no lugar do azul-marinho da 3.9.0. As cores do Colégio Santa Cruz ficam nos detalhes: o amarelo sólido nos destaques e o azul nas linhas da linha do tempo, nas barras dos números e no brilho do rodapé. Tudo em `PALETA_ALBUM` (`src/config.js`).
 
-## [3.9.1] — ainda não publicada
+## [3.9.1] — 2026-11-17
 
 - **"A turma em números"**: `entrenos2026.com/numeros` (`/galeria/<slug>/numeros` no site), a retrospectiva do álbum para compartilhar. Total de fotos, de eventos, de anos e de quem fotografou; fotos por ano (em barras); os 5 eventos com mais fotos; quem mais fotografou. Sai do resumo que o álbum já guarda (com o ano escolhido pelo dono por cima), sem dado de visitante. Mesmo portão da galeria (antes do lançamento, só com a prévia). A página do álbum ganha o link *Turma em números* (com 2 eventos ou mais). `numeros` vira nome reservado.
 
-## [3.9.0] — ainda não publicada
+## [3.9.0] — 2026-11-17
 
 O que deixa o álbum mais fácil de usar e de compartilhar.
 
@@ -126,26 +187,26 @@ O que deixa o álbum mais fácil de usar e de compartilhar.
 - **As cores do álbum saem do azul do Colégio Santa Cruz** (`#243580`): o fundo, os cartões e as bordas são esse azul bem escuro, em vez do quase-preto quente que puxava para o marrom; as linhas da linha do tempo são azuis (o degradê amarelo → azul ficava oliva/marrom no meio). O amarelo só entra sólido, nos destaques. As cores moram num lugar só, `PALETA_ALBUM` em `src/config.js` (antes repetidas em cinco).
 - **Páginas de ajuda**: `entrenos2026.com/ajuda` e `/ajuda/<tema>` (rosto, baixar, enviar, remover, navegar, apoiar, contato), com o campo *Qual é a sua dúvida?* que filtra as perguntas. Mesmo portão da galeria: antes do lançamento, só quem tem a prévia vê. A página do álbum ganha o link *Dúvidas?*, e a janela da busca pelo rosto, *Como funciona e dicas*. `ajuda` vira nome reservado (não pode ser nome de projeto).
 
-## [3.8.13] — ainda não publicada
+## [3.8.13] — 2026-11-17
 
 - **A Amazon aprovou a cota maior da busca pelo rosto** em São Paulo: 20 buscas por selfie por segundo (o padrão era 5; pedimos 10) e 25 para a busca pelas sementes. O site passa a usar esses números: no pico, quem cai na fila espera menos (de 2 a 4 s, antes de 2 a 8 s).
 
-## [3.8.12] — ainda não publicada
+## [3.8.12] — 2026-11-17
 
 - **A moderação automática não esconde mais nenhuma foto.** A Amazon continua marcando foto possivelmente imprópria, e o dono continua recebendo o e-mail com o link de cada uma (as da turma destacadas). A foto fica no álbum até o dono decidir e tocar em "Ocultar" no visualizador. Antes, foto da turma marcada saía do álbum sozinha. As que já tinham sido escondidas assim continuam ocultas: o dono mostra de novo no visualizador, se quiser.
 
-## [3.8.11] — ainda não publicada
+## [3.8.11] — 2026-11-17
 
 O primeiro minuto do lançamento: mil celulares abrindo a mesma página.
 
 - **As miniaturas já estão no R2 antes do lançamento.** O indexador, que passa por toda foto do álbum (inclusive com ele ainda fechado), pede ao site as miniaturas nas larguras que o iPhone pede na grade (`AQUECE_LARGURAS`, medidas no navegador), devagar, e a cópia fica no R2. Antes, a primeira visita a cada miniatura ia ao Google, e numa rajada cada pedido que chegava antes de a cópia existir ia também: o Google recusa, e a foto ficava em branco. As fotos que a turma mandar ao longo do ano são aquecidas na execução que as indexa. Para isso a rota das fotos aceita o indexador (com o token dele e o endereço assinado) no álbum fechado.
 - **Miniatura que falha tenta de novo** (duas vezes, com espera crescente e sorteada) antes de virar o quadro vazio. Antes, só recarregar a página trazia a foto.
 
-## [3.8.10] — ainda não publicada
+## [3.8.10] — 2026-11-17
 
 - **Teto de fotos por dia no indexador** (`ROSTO_FOTOS_POR_DIA`, 2.000 por álbum). A pasta do álbum recebe fotos por link aberto durante um ano; sem teto, alguém despejando arquivos fazia o indexador pagar por todos (mais de mil dólares num dia, no pior caso). Agora o pior dia custa cerca de US$ 8 por álbum; o que passar fica para o dia seguinte, e o log diz. Para a primeira indexação de um álbum grande, a variável `ROSTO_MAX_DIA` do workflow sobe o teto.
 
-## [3.8.9] — ainda não publicada
+## [3.8.9] — 2026-11-17
 
 Privacidade: o que a revisão de novembro de 2026 achou entre o que o site promete e o que o código faz (achados 5, 6, 7, 8, 11 e 12).
 
@@ -157,7 +218,7 @@ Privacidade: o que a revisão de novembro de 2026 achou entre o que o site prome
 - **Documentos legais corrigidos:** a LIA dizia que não há tratamento biométrico; o ROPA, que o site não hospeda fotos, que nada fica no aparelho e que o indexador roda a cada 30 min; o RIPD, que só o dono busca antes do lançamento. A política de retenção ganhou o índice de rostos, as cópias no R2 e as inscrições de aviso; a transferência internacional, o R2. A página de Privacidade diz o que mudou (os Termos não mudaram: `TERMS_VERSION` fica).
 - Depois do merge, o dono confere: onde fica o bucket do R2 (anotar em `docs/legal/transferencia-internacional.md`) e se a AWS aprovou o usuário do Worker para `rekognition:DeleteCollection` (ver `docs/ROSTO.md`).
 
-## [3.8.8] — ainda não publicada
+## [3.8.8] — 2026-11-17
 
 Os bloqueios do lançamento, da revisão completa de novembro de 2026.
 
@@ -168,17 +229,17 @@ Os bloqueios do lançamento, da revisão completa de novembro de 2026.
 - **O indexador da busca não expõe mais o álbum.** O repositório é público, e os logs do GitHub Actions também: o indexador imprimia o nome de cada evento e, nas falhas, o identificador da foto. Agora só imprime contagens. O estado dele (a lista de fotos já processadas) saiu do cache do Actions e mora no site, protegido pelo token do indexador.
 - **Uma falha passageira do Google não apaga mais o índice de rostos.** Se uma página do álbum viesse sem a lista de fotos, o indexador entendia que as fotos tinham saído: apagava os rostos e, na execução seguinte, pagava para indexar tudo de novo. Agora uma leitura incompleta não apaga nada.
 
-## [3.8.7] — ainda não publicada
+## [3.8.7] — 2026-11-17
 
 - **Passar as fotos no celular:** em "minhas fotos" em tela cheia, o iPhone cancelava o gesto sobre a imagem e parecia que só havia uma foto. Agora o deslizar vem dos eventos de toque, a imagem não pode ser arrastada e as setas ‹ › aparecem também no celular.
 - **Zoom nas fotos em tela cheia** ("minhas fotos" e a busca): pinça com dois dedos, toque duplo (amplia no ponto tocado e volta), arrastar a foto ampliada; no computador, clique duplo e rodinha. Ampliada, a foto carrega em resolução maior.
 - **Abertura mais limpa** (vale para os três estilos): um botão principal ("Achar minhas fotos pelo rosto", ou "Ver todas as fotos" sem a busca), o botão **Mandar suas fotos** (com contorno, ícone de envio) logo abaixo dele, o "Não quero aparecer" e uma linha de links discretos: Ver os eventos · Avisar quando chegar foto nova. A busca por palavra fica só com o campo ("Procurar nas fotos"); as sugestões e a dica de envio saíram da abertura.
 
-## [3.8.6] — ainda não publicada
+## [3.8.6] — 2026-11-17
 
 - **Minhas fotos e a busca viram galeria:** tocar numa foto do resultado abre em tela cheia; dá para passar por todas as fotos do resultado, de todos os eventos (deslizar, setas, teclado), com "Ver no evento" e "Baixar" em cada uma. Voltar (botão do celular) fecha a foto e fica no resultado. Botão "Tela cheia" onde o navegador deixa (`SCRIPT_VISOR`, sem biblioteca, sem innerHTML).
 
-## [3.8.5] — ainda não publicada
+## [3.8.5] — 2026-11-17
 
 Eventos separados por data do jeito certo e o "Não quero aparecer" à vista.
 
@@ -187,7 +248,7 @@ Eventos separados por data do jeito certo e o "Não quero aparecer" à vista.
 - **Busca pelo rosto (decisão do dono, 08/11):** a busca inclui todos os rostos do álbum; o "Não quero aparecer na busca pelo rosto" fica na abertura, logo abaixo dos botões, e abre a janela já no modo de sair.
 - Teste de CPU (`galeria-pico`): o teto absoluto de 10 ms era do plano grátis; vira 25 ms (a razão continua a régua).
 
-## [3.8.4] — ainda não publicada
+## [3.8.4] — 2026-11-17
 
 Aviso de fotos novas no celular, sem serviço pago.
 
@@ -198,7 +259,7 @@ Aviso de fotos novas no celular, sem serviço pago.
 - Política de privacidade (seção 3.2) e registro de operações (seção 16): consentimento, sem nome nem e-mail, retenção até desligar.
 - Painel, gráfico de acessos: no celular, a dica podia cobrir o ponto da galeria (a conta de onde pô-la só via visitas e Drive, e o "vão" entre o ponto mais alto e o mais baixo podia ter o do meio dentro). Aparecia só em alguns dias, conforme os números.
 
-## [3.8.3] — ainda não publicada
+## [3.8.3] — 2026-11-17
 
 Site mais rápido e fluido, links curtos, "minhas fotos" que se atualiza sozinho, e-mail dentro do plano grátis e o R2 pronto para ligar.
 
@@ -221,7 +282,7 @@ Site mais rápido e fluido, links curtos, "minhas fotos" que se atualiza sozinho
 ### R2 (pronto, desligado até o bucket existir)
 - Com o binding `FOTOS_R2`: a miniatura e o original vão para o R2 na primeira vez que alguém os pede, e daí em diante saem de lá, sem chamar o Google. Original acima de 512 MB (vídeo longo) fica no Drive. Sem o binding, nada muda.
 
-## [3.8.2] — ainda não publicada
+## [3.8.2] — 2026-11-17
 
 Abertura do álbum mais clara, eventos fáceis de achar, busca pelo rosto mais generosa e o PiauiFut com os anos certos.
 
@@ -241,7 +302,7 @@ Abertura do álbum mais clara, eventos fáceis de achar, busca pelo rosto mais g
 - O link da política saiu de dentro do "Concordo": tocar no meio da frase marca a caixa, não abre a política.
 - Busca até 70% de semelhança (`ROSTO_LIMIAR_BUSCA`); de 70 a 80% a foto vai para **Talvez seja você**, no fim. Sementes: até 4, a partir de 95%. Quem sai da busca tem apagado todo rosto a partir de 65% (era 75%), sempre abaixo da régua da busca.
 
-## [3.8.1] — ainda não publicada
+## [3.8.1] — 2026-11-17
 
 A Mag com acesso próprio ao álbum, o painel mais fácil e um manual de uso.
 
@@ -270,7 +331,7 @@ A Mag com acesso próprio ao álbum, o painel mais fácil e um manual de uso.
 - **Pastas com vídeo:** as miniaturas dos vídeos (que o Google demora para
   gerar) vêm depois das fotos e não seguram a primeira tela.
 
-## [3.8.0] — ainda não publicada
+## [3.8.0] — 2026-11-17
 
 Fotos que sumiam voltam, a busca pelo rosto por evento, a foto aberta com o
 "Baixar" em destaque e o site lembrando de cada pessoa.
@@ -364,7 +425,7 @@ resultado.
 - **A mensagem de erro da busca pelo rosto sumia na hora** ("Não achei um rosto
   nessa foto"): a janela a apagava ao voltar ao estado inicial.
 
-## [3.7.4] — ainda não publicada
+## [3.7.4] — 2026-11-17
 
 O álbum conferido no celular, num navegador de verdade, em 5 telas (iPhone
 SE, Android, iPhone, iPhone Max e deitado).
@@ -390,7 +451,7 @@ SE, Android, iPhone, iPhone Max e deitado).
   11 px; confere que as janelas "Mandar suas fotos" e "Procurar meu rosto"
   cabem na tela. A página "em breve" fica de fora de propósito.
 
-## [3.7.3] — ainda não publicada
+## [3.7.3] — 2026-11-17
 
 Busca pelo rosto mais generosa ("na dúvida, mostrar") e o álbum aquecido
 para o lançamento.
@@ -496,7 +557,7 @@ com busca pelo rosto e atalhos prontos da busca.
 - **Respiro no topo** da primeira tela do álbum quando ainda não há fotos de
   capa.
 
-## [3.7.0] — ainda não publicada
+## [3.7.0] — 2026-11-17
 
 Busca nas fotos por texto e por coisas, moderação automática, prévia do álbum
 com senha (o easter egg) e a página do projeto levando à galeria.
@@ -543,7 +604,7 @@ com senha (o easter egg) e a página do projeto levando à galeria.
   (`docs/ROSTO.md`).
 - **LGPD:** ROPA, seções 14 e 15; RIPD, R10.
 
-## [3.6.0] — ainda não publicada
+## [3.6.0] — 2026-11-17
 
 Fotos de outra pasta por atalho do Drive, e pastas grandes inteiras com o
 Workers Paid.
@@ -567,7 +628,7 @@ Workers Paid.
   - Fica `"gratis"` até a assinatura: no plano grátis, os tetos maiores
     estourariam o limite de 50 subrequisições.
 
-## [3.5.0] — ainda não publicada
+## [3.5.0] — 2026-11-17
 
 Lançar o álbum com um clique, ou com dia e hora marcados. Até lá, nada dele é
 público.
@@ -606,7 +667,7 @@ público.
 - A data marcada não aparece em nenhuma página nem API pública, a não ser com
   a contagem ligada.
 
-## [3.4.0] — ainda não publicada
+## [3.4.0] — 2026-11-17
 
 "Mandar suas fotos" leva cada pessoa direto à pasta certa do Drive.
 
@@ -649,7 +710,7 @@ público.
 Sem JavaScript, ou se a lista não carregar, o botão continua abrindo a pasta
 do álbum.
 
-## [3.3.1] — ainda não publicada
+## [3.3.1] — 2026-11-17
 
 Documentos de LGPD atualizados para a busca pelo rosto e o Pix. Nada muda no
 funcionamento do site.
@@ -663,7 +724,7 @@ funcionamento do site.
   como operadora) e a seção 13 (Pix: o site não trata dado de quem doa). A
   Amazon entra no resumo das transferências.
 
-## [3.3.0] — ainda não publicada
+## [3.3.0] — 2026-11-17
 
 Função nova, sem nada para o dono fazer: a **apresentação do álbum**. Um projeto
 com "Texto de abertura" ganha uma página especial no índice da galeria por
@@ -740,7 +801,7 @@ capítulos; os outros seguem iguais.
 - Com menos de 3 fotos de capa escolhidas, a abertura ficava sem mosaico.
   Agora as capas dos eventos completam.
 
-## [3.2.0] — ainda não publicada
+## [3.2.0] — 2026-11-17
 
 Função nova, **desligada até o dono ligar**: a busca pelo rosto. Nada muda no
 site sem as chaves da AWS no Worker; com elas, só nos projetos marcados. Passo a
