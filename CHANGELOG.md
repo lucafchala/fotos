@@ -18,6 +18,20 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
+## [4.1.3] — ainda não publicada
+
+Correção: a página de erro dá para ler.
+
+- **404, 500 e "o Drive não respondeu" legíveis.** A página de erro era um
+  bloco quase preto com o número em cinza-escuro (contraste 1,13 para 1; o
+  mínimo é 4,5), a frase em 2,9 e os dois links em 3,6, com 19 px de altura.
+  Agora ela segue o tema do aparelho (claro ou escuro), tudo passa de 4,5, os
+  links são sublinhados e têm 44 px. O texto ficou neutro, porque a mesma
+  página sai no domínio do álbum: "Voltar ao início" (era "Voltar para a
+  galeria") e "Falar com o suporte"; o título da aba é "Erro 404" em vez de
+  "404 · fotos". A página não é indexada. Código em `src/ui/erro.js`, teste
+  em `tests/pagina-erro.test.js`.
+
 ## [4.1.1] — ainda não publicada
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
