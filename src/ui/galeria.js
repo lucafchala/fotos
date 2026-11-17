@@ -1246,8 +1246,7 @@ const SCRIPT = `
         const live = Array.isArray(extra) ? { id: extra[0], nome: extra[1], bytes: extra[2] } : null;
         const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
         /** @type {Foto} */
-        const foto = Object.create(FOTO_PROTO);
-        Object.assign(foto, { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, i: i, alt: altDe(i, ehVid), estimada: !(f[1] > 0 && f[2] > 0), video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova, _el: null, _img: null });
+        const foto = /** @type {Foto} */ (/** @type {unknown} */ (new FotoObj(f, s, i, ehVid, extra, live, nova)));
         fotos.push(foto);
         lista.push(foto);
       });
@@ -1259,10 +1258,23 @@ const SCRIPT = `
   // perto da tela (ver enche) ou quando alguém pede f.el / f.img (visualizador,
   // folha de download). Criar os mil e tantos de uma vez na abertura custava
   // ~0,25 s no celular, e cada um ainda pesava no estilo e na pintura.
-  const FOTO_PROTO = {
-    get el() { if (!this._el) criaEl(this); return this._el; },
-    get img() { if (!this._el) criaEl(this); return this._img; },
-  };
+  // v4.3.0: um construtor (e não Object.create + Object.assign com um objeto
+  // de passagem por foto) e o alt calculado só quando alguém pede: com 3.000
+  // fotos, eram ~40 ms da abertura no celular.
+  /** @this {any} */
+  function FotoObj(f, s, i, ehVid, extra, live, nova) {
+    this.id = f[0]; this.w = f[1]; this.h = f[2]; this.nome = f[3]; this.bytes = f[4];
+    this.redes = f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null;
+    this.autor = f[7] || 0; this.cauda = f[8] || ''; this.s = s; this.i = i;
+    this.estimada = !(f[1] > 0 && f[2] > 0); this.video = ehVid; this.dur = ehVid ? extra : 0;
+    this.live = live; this.nova = nova; this._el = null; this._img = null;
+  }
+  const FOTO_PROTO = FotoObj.prototype;
+  Object.defineProperties(FOTO_PROTO, {
+    el: { get: function () { if (!this._el) criaEl(this); return this._el; } },
+    img: { get: function () { if (!this._el) criaEl(this); return this._img; } },
+    alt: { get: function () { return altDe(this.i, this.video); } },
+  });
   function criaEl(foto) {
     const i = foto.i;
     const a = document.createElement('a');
@@ -1386,8 +1398,71 @@ const SCRIPT = `
   // O visualizador e o foco precisam do quadradinho no lugar (a animação de
   // abrir e fechar parte dele).
   function garanteNaGrade(f) {
+    // A foto pode estar num bloco que ainda não nasceu (ver completa).
+    const antes = blocoDaFoto.get(f);
+    if (aCompletar.length && !(antes && antes.isConnected)) completaTudo(null);
     const el = blocoDaFoto.get(f);
     if (el) enche(el);
+  }
+
+  // v4.3.0: a abertura só cria os blocos das primeiras telas. O resto fica
+  // num calço com a mesma altura (e o mesmo data-n), trocado pelos blocos de
+  // verdade no tempo ocioso: com 3.000 fotos, criar e vigiar os ~750 blocos de
+  // uma vez era a maior parte da tarefa longa de abrir no celular.
+  // Safari não tem requestIdleCallback: um quadro de ~12 ms depois de 50 ms.
+  const quandoOcioso = window.requestIdleCallback || function (fn) {
+    return setTimeout(function () {
+      const t = performance.now();
+      fn({ didTimeout: false, timeRemaining: function () { return Math.max(0, 12 - (performance.now() - t)); } });
+    }, 50);
+  };
+  /** @type {{calco: Element, resto: {linhas: any[], h: number, n: number}[], gap: number}[]} */
+  let aCompletar = [];
+  let ociosoMarcado = false;
+  function criaBloco(d, gap) {
+    const el = document.createElement('div');
+    el.className = 'g-bloco';
+    el.style.height = d.h + 'px';
+    // Quantas fotos o bloco tem, cheio ou não (leitura de testes e depuração).
+    el.dataset.n = String(d.n);
+    blocos.set(el, { linhas: d.linhas, gap: gap, cheio: false });
+    d.linhas.forEach(function (l) { l.itens.forEach(function (it) { blocoDaFoto.set(it.f, el); }); });
+    if (vigiaBlocos) vigiaBlocos.observe(el);
+    return el;
+  }
+  // Põe os blocos de verdade antes do calço, que encolhe na mesma medida (a
+  // página não muda de altura). Sem prazo, vai até o fim (garanteNaGrade).
+  /** @param {IdleDeadline | null} prazo */
+  function completa(p, prazo) {
+    if (!p.calco.isConnected) { p.resto = []; return; }
+    const frag = document.createDocumentFragment();
+    let h = 0, n = 0;
+    // Pelo menos um por vez: o ocioso que vence pelo timeout chega sem tempo.
+    while (p.resto.length && (!prazo || !n || prazo.timeRemaining() > 3)) {
+      const d = p.resto.shift();
+      frag.appendChild(criaBloco(d, p.gap));
+      h += d.h;
+      n += d.n;
+    }
+    p.calco.before(frag);
+    if (!p.resto.length) { p.calco.remove(); return; }
+    p.calco.style.height = (parseFloat(p.calco.style.height) - h) + 'px';
+    p.calco.dataset.n = String(Number(p.calco.dataset.n) - n);
+  }
+  /** @param {IdleDeadline | null} prazo */
+  function completaTudo(prazo) {
+    let feito = false;
+    while (aCompletar.length && (!prazo || !feito || prazo.timeRemaining() > 3)) {
+      feito = true;
+      completa(aCompletar[0], prazo);
+      if (!aCompletar[0].resto.length) aCompletar.shift();
+    }
+    if (aCompletar.length) agendaResto();
+  }
+  function agendaResto() {
+    if (ociosoMarcado) return;
+    ociosoMarcado = true;
+    quandoOcioso(function (prazo) { ociosoMarcado = false; completaTudo(prazo); }, { timeout: 1500 });
   }
 
   function diagrama(g, W, alvo, gap, pos) {
@@ -1396,28 +1471,22 @@ const SCRIPT = `
       if (vigiaBlocos) vigiaBlocos.unobserve(el);
       blocos.delete(el);
     });
+    aCompletar = aCompletar.filter(function (p) { return !g.grade.contains(p.calco); });
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
-    const frag = document.createDocumentFragment();
     /** @type {{h: number, topo: number, primeira: boolean, itens: {f: Foto, w: number}[]}[]} */
     let linhasBloco = [];
     let alturaBloco = 0;
-    /** @type {Element[]} */
-    const novos = [];
+    let nBloco = 0;
+    /** @type {{linhas: any[], h: number, n: number}[]} */
+    const descr = [];
     const fechaBloco = function () {
       if (!linhasBloco.length) return;
-      const el = document.createElement('div');
-      el.className = 'g-bloco';
-      el.style.height = alturaBloco + 'px';
-      // Quantas fotos o bloco tem, cheio ou não (leitura de testes e depuração).
-      el.dataset.n = String(linhasBloco.reduce(function (n, l) { return n + l.itens.length; }, 0));
-      blocos.set(el, { linhas: linhasBloco, gap: gap, cheio: false });
-      linhasBloco.forEach(function (l) { l.itens.forEach(function (it) { blocoDaFoto.set(it.f, el); }); });
-      frag.appendChild(el);
-      novos.push(el);
+      descr.push({ linhas: linhasBloco, h: alturaBloco, n: nBloco });
       linhasBloco = [];
       alturaBloco = 0;
+      nBloco = 0;
     };
     let linha = [];
     let soma = 0;
@@ -1437,6 +1506,7 @@ const SCRIPT = `
       });
       linhasBloco.push({ h: h, topo: pos ? pos.y : Infinity, primeira: !!pos && pos.primeira, itens: itens });
       alturaBloco += h + gap;
+      nBloco += itens.length;
       altura += h + gap;
       if (pos) { pos.y += h + gap; pos.primeira = false; }
       if (alturaBloco >= ALTURA_BLOCO) fechaBloco();
@@ -1450,13 +1520,30 @@ const SCRIPT = `
     });
     if (linha.length) fecha(true);
     fechaBloco();
+    // Já: os blocos até duas telas abaixo da atual (o vigia olha 1.000 px além).
+    const ate = window.scrollY + window.innerHeight * 2 + 1000;
+    let k = 0;
+    while (k < descr.length && (k === 0 || descr[k].linhas[0].topo < ate)) k++;
+    const frag = document.createDocumentFragment();
+    /** @type {Element[]} */
+    const novos = [];
+    for (let j = 0; j < k; j++) { const el = criaBloco(descr[j], gap); frag.appendChild(el); novos.push(el); }
+    if (k < descr.length) {
+      const resto = descr.slice(k);
+      const calco = document.createElement('div');
+      calco.className = 'g-bloco';
+      calco.style.height = resto.reduce(function (s, d) { return s + d.h; }, 0) + 'px';
+      calco.dataset.n = String(resto.reduce(function (s, d) { return s + d.n; }, 0));
+      frag.appendChild(calco);
+      aCompletar.push({ calco: calco, resto: resto, gap: gap });
+      agendaResto();
+    }
     g.grade.replaceChildren(frag);
     g.sec.style.containIntrinsicSize = 'auto ' + Math.ceil(altura + 60) + 'px';
     // O que cai na primeira tela enche já (sem esperar o vigia): é o LCP.
     novos.forEach(function (el) {
       const b = blocos.get(el);
       if (!vigiaBlocos || (b && b.linhas[0].topo < window.scrollY + window.innerHeight * 1.25)) enche(el);
-      if (vigiaBlocos) vigiaBlocos.observe(el);
     });
   }
 
@@ -3407,7 +3494,8 @@ const SCRIPT = `
     }
     // Aquece o visualizador no tempo ocioso: o primeiro toque abre na hora.
     const ocioso = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1200); };
-    ocioso(function () { preparaLightbox().catch(function () {}); });
+    // v4.3.0: e o núcleo (pswpModule) também, que antes só vinha no toque.
+    ocioso(function () { preparaLightbox().then(function () { return import(D.core); }).catch(function () {}); });
   });
 })();
 `;

@@ -55,6 +55,30 @@ depois do #323 (4.2.0, visual); se ele entrar antes, nada muda aqui.
   trava ao abrir de 0,55–1,05 s para 0,23 s, travas ao rolar de 1,4 s para
   0,05 s. Com 3.000 fotos: 14 mil → ~710 elementos, 0,9–1,9 s → 0,37 s ao
   abrir, 2,3 s → 0,2 s ao rolar.
+- **Grade virtual, segunda volta: a abertura ficou mais curta.** A abertura
+  agora só cria os blocos das primeiras telas (até duas telas abaixo, mais a
+  margem de 1.000 px do vigia). O resto fica num calço com a mesma altura e o
+  mesmo `data-n`, trocado pelos blocos de verdade em fatias no tempo ocioso
+  (`requestIdleCallback`; no Safari, que não tem, um `setTimeout` com fatia de
+  ~12 ms). Se o visualizador, o foco ou um link pedirem uma foto ainda no
+  calço, o bloco nasce na hora. Cada foto virou um objeto de um construtor
+  (antes `Object.create` + `Object.assign` com um objeto de passagem), e o
+  `alt` (`<evento> — foto i de n`) é calculado só quando alguém pede:
+  `monta()` caiu de ~41 ms para ~14 ms com 3.000 fotos (CPU 4×). O núcleo do
+  PhotoSwipe também é importado no tempo ocioso (antes só o lightbox); do
+  toque ao visualizador aberto: ~125 → ~105 ms.
+  Números (celular simulado, CPU 4×, maior trava ao abrir, duas rodadas na
+  mesma máquina, antes → depois): 300 fotos 78/94 → 87/74 ms (igual, dentro
+  do ruído); 1.300 fotos 142/178 → 107/115 ms; 3.000 fotos 205/176 →
+  130/128 ms. LCP com 3.000 fotos: ~580 → ~470 ms. Elementos na página e
+  travas ao rolar não mudaram.
+  Testado e descartado nesta volta: pré-encher na direção da rolagem. Medido
+  rolando a 4.000 e 10.000 px/s: a versão anterior e a nova mostram bloco
+  vazio em 0 e em 1 a 4 de ~57 quadros, iguais; os quadros perdidos vêm da
+  pintura, não do vigia.
+  Medido e deixado para depois: o HTML com 3.000 fotos tem 282 KB (111 KB em
+  brotli), 232 KB deles são os dados embutidos; o `JSON.parse` custa ~7 ms.
+  Compactar o formato mexe no servidor e no cache por pouco ganho no celular.
 - O "zerar" da prévia passou a zerar também o limite do vídeo.
 
 ## [4.1.1] — 2026-11-15
