@@ -53,13 +53,16 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # `npm audit` cobre o que o Dependabot já vigia, mas falha o build em vez
-      # de abrir um PR que pode ficar semanas sem revisão. O piso é `high`: o
-      # projeto só tem dependências de desenvolvimento (wrangler, eslint,
-      # vitest) e nenhuma delas roda em produção, então falhar em `moderate`
-      # geraria ruído que acabaria sendo silenciado — e um gate silenciado não
-      # protege ninguém.
-      - name: npm audit (high+)
-        run: npm audit --audit-level=high
+      # de abrir um PR que pode ficar semanas sem revisão. A regra (detalhes em
+      # scripts/audita-dependencias.mjs):
+      #   - o que vai ao ar (`--omit=dev`): moderado ou acima reprova;
+      #   - ferramenta de dev, alto ou crítico: reprova se o advisory já tem
+      #     versão corrigida; sem conserto publicado, vira aviso no resumo e
+      #     volta a reprovar sozinho quando o conserto sair. Sem lista de exceções.
+      - name: npm audit (produção moderado+, dev alto+ com conserto)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/audita-dependencias.mjs
 
   dependency-review:
     name: Revisão de dependências (PR)
