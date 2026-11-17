@@ -29,7 +29,7 @@ Correção: a galeria de um evento do álbum não pula mais depois de aparecer.
   pessoa já olhando ou tocando. Agora o servidor manda a faixa pronta, com os
   mesmos botões que o script monta, e nada muda de lugar. Medido num evento
   de 1.300 fotos, com CPU 4× mais lenta e 3G lento: o CLS foi de
-  CLS_ANTES_1300 para CLS_DEPOIS_1300 (o limite bom é 0,1). Vale para toda
+  0,813 para 0,002 (o limite bom é 0,1). Vale para toda
   página com mais de uma seção ou mais de um fotógrafo; a galeria simples já
   não pulava. Os filtros que dependem do aparelho ("Favoritas" e "Só as
   novas") continuam vindo do script.
