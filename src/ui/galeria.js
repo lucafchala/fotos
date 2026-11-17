@@ -797,7 +797,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
       <form id="g-rem-f" novalidate>
         <p class="g-folha-t" id="g-rem-t">Pedir remoção desta foto</p>
         <div class="g-rem-foto"><img id="g-rem-img" alt="" width="72" height="72"><span id="g-rem-nome"></span></div>
-        <p class="g-rem-aviso">Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.</p>
+        <p class="g-rem-aviso">O fotógrafo analisa cada pedido e responde no e-mail que você deixar aqui. A foto continua no álbum enquanto isso.</p>
         <label for="g-rem-motivo">Motivo</label>
         <select id="g-rem-motivo" required>
           <option value="" disabled selected>Escolha um motivo</option>
