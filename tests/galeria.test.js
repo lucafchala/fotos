@@ -1310,16 +1310,15 @@ describe('desempenho da carga da galeria', () => {
     expect([...MINIATURA_DPR_DEGRAUS].sort((a, b) => b - a)).toEqual(MINIATURA_DPR_DEGRAUS);
   });
 
-  it('pré-carga do LCP e script da grade usam a MESMA escada de densidade (senão a foto do LCP baixa duas vezes)', async () => {
+  it('pré-carga do LCP na densidade cheia (a da grade ao abrir); a escada do modo leve vai nos dados (4.3.0)', async () => {
     const { fatorMiniatura, MINIATURA_DPR_DEGRAUS } = await import('../src/config.js');
     const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
     const sizes = (html.match(/imagesizes="([^"]+)"/) || [])[1];
     expect(sizes).toBeTruthy();
-    const degraus = [...sizes.replace(/&#39;|&amp;/g, '').matchAll(/\(min-resolution: ([\d.]+)dppx\) calc\(\(100vw - 2 \* max\(12px, 3vw\)\) \* ([\d.]+)\)/g)].map(m => [Number(m[1]), Number(m[2])]);
-    expect(degraus).toEqual(MINIATURA_DPR_DEGRAUS.map(g => [g, fatorMiniatura(g)]));
-    expect(sizes.endsWith('calc(100vw - 2 * max(12px, 3vw))')).toBe(true);
+    // Sem fator por min-resolution: o navegador escolhe pelo DPR real, como a <img>.
+    expect(sizes).toBe('calc(100vw - 2 * max(12px, 3vw))');
     const dados = JSON.parse((html.match(/<script type="application\/json" id="g-dados"[^>]*>([^<]+)<\/script>/) || [])[1]);
-    expect(dados.dpr).toEqual(degraus);
+    expect(dados.dpr).toEqual(MINIATURA_DPR_DEGRAUS.map(g => [g, fatorMiniatura(g)]));
   });
 
   it('o CSS do visualizador não vai no <head> (bloquearia a pintura): vai nos dados, para entrar com ele', () => {

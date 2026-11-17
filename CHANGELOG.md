@@ -79,6 +79,28 @@ depois do #323 (4.2.0, visual); se ele entrar antes, nada muda aqui.
   Medido e deixado para depois: o HTML com 3.000 fotos tem 282 KB (111 KB em
   brotli), 232 KB deles são os dados embutidos; o `JSON.parse` custa ~7 ms.
   Compactar o formato mexe no servidor e no cache por pouco ganho no celular.
+- **Qualidade máxima que a tela permite, sempre** (pedido do dono). A grade
+  abre na densidade cheia do aparelho: o teto de 2× das miniaturas
+  (`MINIATURA_DPR_TETO`) virou o "modo leve", que o script só liga se o
+  aparelho travar (três tarefas longas de 150 ms ou mais em 10 s, ou 4 das
+  últimas 6 miniaturas da tela levando mais de 2,5 s); aí vale para as
+  próximas, e as já baixadas ficam. A pré-carga da primeira foto e a primeira
+  fileira servida pelo servidor também pedem a densidade cheia (sem o fator
+  por `min-resolution`). No visualizador, o zoom pede a resolução que a tela
+  ampliada mostra, em pixels físicos, sem teto.
+- **Rolagem rápida: a tela primeiro.** Fora da primeira tela, a miniatura não
+  pede o arquivo sozinha. Um segundo vigia (margem zero) sabe quais blocos
+  estão NA tela, e só eles pedem já, com prioridade alta; os da margem pedem
+  quando a tela inteira saiu do esqueleto. Bloco que esvazia cancela a
+  miniatura que ainda não chegou e a põe numa lista de "passadas" (no máximo
+  150), baixadas em segundo plano, 4 por vez e a mais perto primeiro, só com
+  o dedo parado. No arremesso (acima de 6.000 px/s) nem a tela pede. Antes, o
+  navegador seguia baixando as miniaturas que o dedo já tinha passado, na
+  frente das que se via (~3,9 s para a tela aparecer depois de rolar até o
+  fim).
+- `verifica:galeria` espera a folha de download terminar de entrar antes do
+  axe: medido no meio da transição, o contraste saía misturado com o fundo
+  (4,36 no CI) e o check falhava às vezes.
 - O "zerar" da prévia passou a zerar também o limite do vídeo.
 
 ## [4.1.1] — 2026-11-15

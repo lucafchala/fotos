@@ -332,12 +332,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
   // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
-  // O teto de densidade das miniaturas (MINIATURA_DPR_TETO) entra aqui por
-  // `min-resolution`, degrau a degrau, com o mesmo fator que o script da grade
-  // calcula com o DPR de verdade (fatorMiniatura): os dois escolhem o mesmo
-  // arquivo, e a pré-carga é a própria foto que a <img> pede.
-  const larguraLinha = 'calc(100vw - 2 * max(12px, 3vw))';
-  const sizesPreload = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((100vw - 2 * max(12px, 3vw)) * ${fatorMiniatura(g)})`), larguraLinha].join(', ');
+  // v4.3.0: a grade abre na densidade CHEIA da tela (o teto de 2× só entra
+  // se o aparelho travar, depois da primeira tela): a pré-carga pede a largura
+  // da linha × o DPR real, o mesmo arquivo que a <img> do script pede.
+  const sizesPreload = 'calc(100vw - 2 * max(12px, 3vw))';
   const lcp = todasFotos[0];
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="${escape(sizesPreload)}">`
@@ -929,8 +927,8 @@ function fotosDaLinha(rs, W) {
  * Sai só quando a linha é a MESMA em qualquer celular (de 320 a 430 px) e não
  * é a última da seção (a última não estica — a conta seria outra), e só com
  * fotos (vídeo tem miniatura lenta e prioridade baixa). O `sizes` é o tamanho
- * que o script vai calcular, com o mesmo teto de densidade (fatorMiniatura),
- * para os dois pedirem o mesmo arquivo. Nada disso vale fora do celular: o
+ * que o script vai calcular (densidade cheia desde a v4.3.0), para os dois
+ * pedirem o mesmo arquivo. Nada disso vale fora do celular: o
  * CSS esconde (.g-pre).
  * @param {import('../drive.js').ListagemDrive} listagem
  * @param {(id: string) => string} assina
@@ -950,7 +948,8 @@ export function primeiraFileiraHTML(listagem, assina) {
   const jpeg = (/** @type {string} */ u) => u.replace(/^(\/f\/[^/?]+\/\d+)/, '$1j');
   const itens = linha.map((f, k) => {
     const parte = Math.round(rs[k] / soma * 1e4) / 1e4;
-    const sizes = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((${util}) * ${Math.round(parte * fatorMiniatura(g) * 1e4) / 1e4})`), `calc((${util}) * ${parte})`].join(', ');
+    // v4.3.0: densidade cheia, como a grade ao abrir (o modo leve vem depois).
+    const sizes = `calc((${util}) * ${parte})`;
     const webp = GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(f[0], x, assina)} ${x}w`).join(', ');
     const jpg = GALERIA_LARGURAS_GRADE.map(x => `${jpeg(urlFoto(f[0], x, assina))} ${x}w`).join(', ');
     // As fontes levam `media` do celular e a <img> fica com um GIF vazio: o
@@ -1267,7 +1266,7 @@ const SCRIPT = `
     this.redes = f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null;
     this.autor = f[7] || 0; this.cauda = f[8] || ''; this.s = s; this.i = i;
     this.estimada = !(f[1] > 0 && f[2] > 0); this.video = ehVid; this.dur = ehVid ? extra : 0;
-    this.live = live; this.nova = nova; this._el = null; this._img = null;
+    this.live = live; this.nova = nova; this._el = null; this._img = null; this._passada = false; this._t = 0;
   }
   const FOTO_PROTO = FotoObj.prototype;
   Object.defineProperties(FOTO_PROTO, {
@@ -1324,8 +1323,10 @@ const SCRIPT = `
     // virar o quadro vazio: a falha não fica em cache, então pedir de novo
     // resolve. Sem isto, só recarregar a página trazia a foto.
     img.addEventListener('error', function () {
+      // Cancelada ao esvaziar o bloco (ver esvazia): não é falha.
+      if (!img.getAttribute('src')) return;
       var n = Number(img.getAttribute('data-t') || 0);
-      if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); return; }
+      if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); agendaFila(); return; }
       img.setAttribute('data-t', String(n + 1));
       setTimeout(function () {
         var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
@@ -1372,6 +1373,7 @@ const SCRIPT = `
     const b = blocos.get(el);
     if (!b || b.cheio) return;
     b.cheio = true;
+    cheios.add(el);
     const frag = document.createDocumentFragment();
     b.linhas.forEach(function (l) {
       const row = document.createElement('div');
@@ -1393,6 +1395,21 @@ const SCRIPT = `
     // Quem tem o foco (teclado) ou está no visualizador fica.
     if (el.contains(document.activeElement) || vendo) return;
     b.cheio = false;
+    cheios.delete(el);
+    cadaFotoDoBloco(el, function (f) {
+      const img = f._img;
+      if (!img || img.classList.contains('ok') || f._passada) return;
+      if (img.getAttribute('srcset')) {
+        img.removeAttribute('srcset');
+        img.removeAttribute('src');
+        img.removeAttribute('fetchpriority');
+      }
+      f._passada = true;
+      passadas.push(f);
+      // Só as 150 mais recentes (o que o navegador já baixava sozinho antes):
+      // um arremesso até o fim de 3.000 fotos não vira 500 MB de dados.
+      if (passadas.length > 150) /** @type {Foto} */ (passadas.shift())._passada = false;
+    });
     el.replaceChildren();
   }
   // O visualizador e o foco precisam do quadradinho no lugar (a animação de
@@ -1403,6 +1420,86 @@ const SCRIPT = `
     if (aCompletar.length && !(antes && antes.isConnected)) completaTudo(null);
     const el = blocoDaFoto.get(f);
     if (el) enche(el);
+  }
+
+  // v4.3.0: rolagem rápida, a tela primeiro. Fora da primeira tela da página,
+  // a miniatura não pede o arquivo sozinha: um segundo vigia (margem zero)
+  // sabe quais blocos estão NA tela, e só eles pedem já, com prioridade alta.
+  // Os da margem do vigia grande pedem quando a tela inteira saiu do
+  // esqueleto. Bloco que esvazia cancela a miniatura que ainda não chegou (o
+  // navegador continuava baixando as que o dedo já tinha passado, na frente
+  // das que se vê: ~3,9 s para a tela aparecer depois de rolar até o fim); ela
+  // vai para "passadas" (também as que o dedo passou sem pedir), baixadas em
+  // segundo plano (4 por vez, a mais perto primeiro) com a rolagem parada e a
+  // tela pronta. No arremesso (acima de 6.000 px/s) nem a tela pede.
+  /** @type {Set<Element>} */
+  const blocosNaTela = new Set();
+  /** @type {Set<Element>} */
+  const cheios = new Set();
+  /** @type {Foto[]} */
+  const passadas = [];
+  /** @type {Foto[]} */
+  let emVoo = [];
+  let filaMarcada = 0;
+  let ultimaRolagem = 0;
+  const vigiaTela = vigiaBlocos ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) blocosNaTela.add(e.target);
+      else blocosNaTela.delete(e.target);
+    });
+    agendaFila();
+  }) : null;
+  // Velocidade da rolagem (px/s, suavizada): no arremesso a tela de agora some
+  // no próximo quadro, então não vale pedir as miniaturas dela.
+  let velocidade = 0;
+  let yAnt = window.scrollY;
+  window.addEventListener('scroll', function () {
+    const t = performance.now();
+    const dt = Math.max(8, t - ultimaRolagem);
+    velocidade = dt > 200 ? 0 : velocidade * 0.5 + Math.abs(window.scrollY - yAnt) / dt * 500;
+    yAnt = window.scrollY;
+    ultimaRolagem = t;
+  }, { passive: true });
+  function agendaFila() {
+    if (!filaMarcada) filaMarcada = requestAnimationFrame(function () { filaMarcada = 0; anda(); });
+  }
+  /** @param {Element} el @param {(f: Foto) => void} fn */
+  function cadaFotoDoBloco(el, fn) {
+    const b = blocos.get(el);
+    if (b) b.linhas.forEach(function (l) { l.itens.forEach(function (it) { fn(it.f); }); });
+  }
+  const pronta = function (f) { return !f._img || f._img.classList.contains('ok'); };
+  function anda() {
+    if (velocidade > 6000 && performance.now() - ultimaRolagem < 150) { setTimeout(agendaFila, 120); return; }
+    let falta = 0;
+    blocosNaTela.forEach(function (el) {
+      enche(el);
+      cadaFotoDoBloco(el, function (f) {
+        if (!f.img.srcset) {
+          f.img.loading = 'eager';
+          if (!f.video) f.img.setAttribute('fetchpriority', 'high');
+          f._t = performance.now();
+          poeSrc(f);
+        }
+        if (!pronta(f)) falta++;
+      });
+    });
+    if (falta) return;
+    cheios.forEach(function (el) {
+      if (!blocosNaTela.has(el)) cadaFotoDoBloco(el, function (f) { if (!f.img.srcset) poeSrc(f); });
+    });
+    // As passadas, só com o dedo parado (senão a próxima tela espera por elas).
+    emVoo = emVoo.filter(function (f) { return !pronta(f) && !!f.img.getAttribute('src'); });
+    if (!passadas.length) return;
+    if (performance.now() - ultimaRolagem < 400) { setTimeout(agendaFila, 450); return; }
+    while (emVoo.length < 4 && passadas.length) {
+      const f = /** @type {Foto} */ (passadas.pop());
+      if (!f._passada || f.img.srcset) continue;
+      f.img.loading = 'eager';
+      f.img.setAttribute('fetchpriority', 'low');
+      poeSrc(f);
+      emVoo.push(f);
+    }
   }
 
   // v4.3.0: a abertura só cria os blocos das primeiras telas. O resto fica
@@ -1428,6 +1525,7 @@ const SCRIPT = `
     blocos.set(el, { linhas: d.linhas, gap: gap, cheio: false });
     d.linhas.forEach(function (l) { l.itens.forEach(function (it) { blocoDaFoto.set(it.f, el); }); });
     if (vigiaBlocos) vigiaBlocos.observe(el);
+    if (vigiaTela) vigiaTela.observe(el);
     return el;
   }
   // Põe os blocos de verdade antes do calço, que encolhe na mesma medida (a
@@ -1469,6 +1567,9 @@ const SCRIPT = `
     if (pos && D.secoes.length > 1) pos.y += 48;
     g.grade.querySelectorAll('.g-bloco').forEach(function (el) {
       if (vigiaBlocos) vigiaBlocos.unobserve(el);
+      if (vigiaTela) vigiaTela.unobserve(el);
+      blocosNaTela.delete(el);
+      cheios.delete(el);
       blocos.delete(el);
     });
     aCompletar = aCompletar.filter(function (p) { return !g.grade.contains(p.calco); });
@@ -1553,12 +1654,48 @@ const SCRIPT = `
   // "sizes" encolhe pelo fator do degrau do DPR, e o navegador escolhe a
   // miniatura como se a tela fosse no máximo 2×. A escada vem do servidor
   // (D.dpr) para ser a MESMA da pré-carga do LCP.
-  const fatorDpr = (function () {
+  // v4.3.0: qualidade máxima que a tela permite, sempre; o teto só volta se
+  // o aparelho travar (ficaLeve): tarefas longas seguidas ou miniaturas da
+  // tela demorando. Vale para as próximas miniaturas; as já baixadas ficam.
+  const fatorLeve = (function () {
     const dpr = window.devicePixelRatio || 1;
     const escada = DX.dpr || [];
     for (let i = 0; i < escada.length; i++) if (dpr >= escada[i][0]) return escada[i][1];
     return 1;
   })();
+  let fatorDpr = 1;
+  /** @param {string} motivo */
+  function ficaLeve(motivo) {
+    if (fatorDpr === fatorLeve || fatorLeve === 1) return;
+    fatorDpr = fatorLeve;
+    main.dataset.leve = motivo;
+  }
+  // Travando (1): três tarefas longas (150 ms ou mais) em 10 s, depois da
+  // abertura. Só no Chrome/Android: o Safari não tem "longtask".
+  try {
+    /** @type {number[]} */
+    const longas = [];
+    new PerformanceObserver(function (l) {
+      l.getEntries().forEach(function (e) {
+        if (e.startTime < 4000 || e.duration < 150) return;
+        longas.push(e.startTime);
+        while (longas[0] < e.startTime - 10000) longas.shift();
+        if (longas.length >= 3) ficaLeve('cpu');
+      });
+    }).observe({ type: 'longtask' });
+  } catch (e) { /* sem longtask */ }
+  // Travando (2): das últimas 6 miniaturas pedidas para a tela, 4 levaram
+  // mais de 2,5 s (rede que não dá conta da densidade cheia).
+  /** @type {boolean[]} */
+  const lentas = [];
+  /** @param {Foto} f */
+  function mediuTela(f) {
+    if (!f._t) return;
+    lentas.push(performance.now() - f._t > 2500);
+    f._t = 0;
+    if (lentas.length > 6) lentas.shift();
+    if (lentas.filter(Boolean).length >= 4) ficaLeve('rede');
+  }
   function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
       // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
@@ -1576,13 +1713,17 @@ const SCRIPT = `
       // v3.9.4: só a primeira tela ganha o srcset já. O resto ganha quando
       // chega perto (ver poeSrc): montar as ~13 URLs de cada uma das mil e
       // tantas miniaturas na abertura travava o celular por meio segundo.
-      // v4.3.0: o bloco só enche perto da tela, então o srcset entra já.
-      poeSrc(f);
+      // v4.3.0: o bloco só enche perto da tela, então o srcset entra já
+      // no topo da página; no resto, quem decide a ordem é a fila (anda).
+      if (perto) f._t = performance.now();
+      if (perto || !vigiaTela) poeSrc(f);
+      else agendaFila();
     }
     f.img.sizes = (fatorDpr === 1 ? w : Math.round(w * fatorDpr * 100) / 100) + 'px';
   }
   function poeSrc(f) {
     if (f.img.srcset) return;
+    f._passada = false;
     f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
     f.img.src = lh3(f.id, 400);
   }
@@ -1595,6 +1736,8 @@ const SCRIPT = `
 
   function carregou(f) {
     f.img.classList.add('ok');
+    mediuTela(f);
+    agendaFila();
     // Sem dimensões no Drive (alguns HEIC/RAW): a miniatura dá a proporção, e a
     // grade se refaz uma vez. O tamanho real fica estimado até o visualizador.
     if (f.estimada && f.img.naturalWidth && !f.w) {

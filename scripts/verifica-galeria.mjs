@@ -471,7 +471,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         coracaoCss: getComputedStyle(/** @type {Element} */ (document.querySelector('.g-fav')), '::before').backgroundImage.includes('svg'),
         svgPorFoto: document.querySelectorAll('.g-t svg').length,
       };
-      return { util, desvio, tiles, nan, alts, carga, total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0), naTela: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
+      return { util, desvio, tiles, nan, alts, carga, total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0), naTela: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth, leve: document.getElementById('g-main')?.dataset.leve || '' };
   });
   // SEO e leitor de tela: o alt diz o evento e a posição, não o nome do arquivo.
   const altEsperado = (/** @type {number} */ i) => `Formatura 2026 — foto ${i + 1} de ${TODAS.length}`;
@@ -484,12 +484,12 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
   registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
   registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
-  // Teto de densidade (MINIATURA_DPR_TETO): a grade escolhe como se o DPR
-  // fosse o degrau × fator — 2 num celular 2,625× ou 3×; abaixo disso, o real.
-  const dprEf = dpr * fatorMiniatura(dpr);
+  // v4.3.0: densidade cheia (o DPR real); o teto (MINIATURA_DPR_TETO) só
+  // entra no modo leve, quando o aparelho trava (main[data-leve]).
+  const dprEf = g.leve ? dpr * fatorMiniatura(dpr) : dpr;
   const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01));
   registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais; DPR efetivo ${dprEf.toFixed(2)})`, g.tiles.slice(0, 4));
-  registra(dpr <= MINIATURA_DPR_TETO ? dprEf === dpr : dprEf <= MINIATURA_DPR_TETO + 0.25, `${nome}: teto de densidade das miniaturas (DPR ${dpr} → ${dprEf.toFixed(2)})`, dprEf);
+  registra(!g.leve && dprEf === dpr, `${nome}: miniaturas na densidade cheia da tela (DPR ${dpr}), sem modo leve`, { dprEf, leve: g.leve, teto: MINIATURA_DPR_TETO });
   // A pré-carga do LCP (celular até 430 px) pede o MESMO arquivo que a <img>:
   // uma requisição só da primeira foto, sem desperdício.
   if (viewport.width <= 430) {
@@ -634,6 +634,10 @@ await cenario('Visualizador no iPhone', async () => {
   await page.touchscreen.tap(cx, cy);
   const zoom = await esperaLargura(page, ini.w + 1, 6000);
   registra(zoom.w > ini.w, 'iPhone: duplo toque amplia e pede resolução maior', { antes: ini.w, depois: zoom.w });
+  // v4.3.0: e a maior que a tela ampliada pede (pixels FÍSICOS), sem teto.
+  await espera(page, 900);
+  const ampliada = await esperaLargura(page, degrau(escada, (await larguraAtualDoVisualizador(page)).exibida * 3), 6000);
+  registra(ampliada.w === degrau(escada, ampliada.exibida * 3), 'iPhone: no zoom, a resolução máxima que a tela ampliada pede', { pedida: ampliada.w, exibida: Math.round(ampliada.exibida) });
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'visualizador-iphone.png') });
   await ctx.close();
@@ -674,6 +678,13 @@ await cenario('Link direto', async () => {
 // da rota), então aqui se confere a URL pedida — foto e versão — e que a página
 // NÃO deu nome ao arquivo nem chamou o compartilhamento; o nome e os bytes
 // (Content-Disposition e passagem direta do Drive) estão em tests/galeria.test.js.
+// A folha entra com transição (opacidade e posição, 0,2 s): o axe medido no
+// meio dela lê cores misturadas com o fundo (contraste 4,36 no CI, run
+// 44073828414). Espera as animações da folha acabarem antes de medir.
+const folhaAssentada = (/** @type {import('playwright-core').Page} */ page) => page.waitForFunction(() => {
+  const f = document.getElementById('g-folha');
+  return !!f && f.getAnimations({ subtree: true }).every(a => a.playState !== 'running');
+}, null, { timeout: 3000 });
 const urlDe = (/** @type {import('playwright-core').Download} */ d) => { const u = new URL(d.url()); return u.pathname + u.search; };
 for (const [nome, opcoes] of /** @type {const} */ ([
   ['Computador', {}],
@@ -688,6 +699,7 @@ for (const [nome, opcoes] of /** @type {const} */ ([
     await espera(page, 800);
     await clica(page.locator('.pswp__button--g-baixar'));
     await page.waitForSelector('#g-folha:not([hidden])');
+    await folhaAssentada(page);
     await verificaAxe(page, registra, `${nome}: folha de download aberta sobre o visualizador`);
     const opsSem = await page.locator('.g-op strong').allTextContents();
     registra(opsSem.join('|') === 'Tamanho máximo', `${nome}: foto SEM versão do Instagram não oferece "para redes"`, opsSem);
@@ -739,6 +751,7 @@ await cenario('iPhone', async () => {
   await espera(page, 900);
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
+  await folhaAssentada(page);
   await verificaAxe(page, registra, 'iPhone: folha de download aberta sobre o visualizador');
   const blocos = await page.locator('.g-ver-t strong').allTextContents();
   registra(blocos.join('|') === 'Para redes sociais|Tamanho máximo', 'iPhone: a folha tem um bloco para "para redes" e outro para "tamanho máximo"', blocos);

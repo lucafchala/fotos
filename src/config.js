@@ -494,6 +494,10 @@ export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 500, 600, 700, 800, 1000, 
 // teto em 2× ele pede a de 800–1000 (119–172 KB, de 30 a 50% a menos), e a
 // diferença não aparece num quadradinho desse tamanho. A foto aberta no
 // visualizador NÃO tem teto: lá vale a tela inteira, e o zoom sobe o degrau.
+// v4.3.0: a grade passou a abrir na densidade CHEIA (pedido do dono:
+// qualidade máxima que a tela permite). Este teto virou o "modo leve", que o
+// script da grade só liga se o aparelho travar (tarefas longas seguidas ou
+// miniaturas da tela demorando); a pré-carga do LCP é sempre a cheia.
 //
 // Os degraus existem por causa da pré-carga do LCP: o servidor não sabe o DPR,
 // então diz o fator por `(min-resolution: Xdppx)` no `imagesizes`, e o script
