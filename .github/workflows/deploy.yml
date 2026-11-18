@@ -136,6 +136,21 @@ jobs:
       # primeira passaria — a segunda iria parar no $GITHUB_OUTPUT.
       UUID_RE: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     steps:
+      # Primeiro passo, antes de checkout, npm ci, lint e testes: um
+      # `version_id` digitado errado num rollback reprova em segundos, não
+      # depois de quase um minuto de testes (achado no ensaio de 17/11/2026).
+      # A mesma regra roda de novo em "Resolver o ID da versão", que é quem
+      # usa o valor.
+      - name: Conferir o version_id digitado
+        if: ${{ inputs.version_id != '' }}
+        env:
+          VERSION_ID_MANUAL: ${{ inputs.version_id }}
+        run: |
+          if ! [[ "$VERSION_ID_MANUAL" =~ ${UUID_RE:?} ]]; then
+            echo "::error::version_id não é um ID de versão (UUID como 0e65efc8-c701-47b1-9b50-21108d826fce). Copie o ID do resumo de um deploy anterior ou de 'wrangler versions list'."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Histórico completo: a tag de release no fim precisa enxergar as
