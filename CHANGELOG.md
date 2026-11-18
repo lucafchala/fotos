@@ -18,7 +18,21 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.5] — ainda não publicada
+## [4.1.6] — ainda não publicada
+
+Acessibilidade na página de suporte (`/suporte`).
+
+- **Alvos de toque com 44 px.** "Voltar" e os links do rodapé tinham 15 px de
+  altura; os botões de WhatsApp e e-mail, 39; os campos de nome e e-mail, 43;
+  "Enviar mensagem", 42. Agora todos têm 44. A caixa de consentimento continua
+  com 16 px: o alvo dela é o rótulo inteiro, que ocupa várias linhas.
+- **Contraste.** O botão do WhatsApp no tema claro tinha 4,36:1 (o mínimo é
+  4,5) e agora tem 5,54; a mesma cor deixa a mensagem de "enviada" com 5,85.
+  A linha "ou envie uma mensagem" tinha 1,4:1 no escuro e 1,5:1 no claro, quase
+  invisível; agora tem 5,9 e 5,3. O axe não acusa mais nada na página.
+- `tests/suporte-alvos.test.js` prende os 44 px e o contraste dos dois temas.
+
+## [4.1.5] — 2026-11-17
 
 Acessibilidade nas páginas legais (`/privacidade`, `/termos` e `/legal`).
 
