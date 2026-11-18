@@ -17,6 +17,11 @@ updates:
           - "vitest"
           - "@vitest/*"
           - "@cloudflare/vitest-pool-workers"
+      # O resto num PR só por semana, em vez de um por pacote (o grupo de
+      # cima vem antes: o vitest e a família não caem aqui).
+      ferramentas:
+        patterns:
+          - "*"
     ignore:
       # O vitest 5 ainda não é instalável aqui: o @cloudflare/vitest-pool-workers
       # mais novo (0.22.0, set/2026) exige vitest ^4.1.0. Apague este bloco
@@ -32,3 +37,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # As actions estão fixadas por SHA (com a versão em comentário); o
+    # Dependabot troca o SHA e o comentário juntos, num PR por semana.
+    groups:
+      actions:
+        patterns:
+          - "*"

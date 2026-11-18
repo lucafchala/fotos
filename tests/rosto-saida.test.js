@@ -196,6 +196,15 @@ describe('1. o indexador: a saída vale para as fotos que chegam depois', () => 
   const noIndice = (/** @type {string} */ pessoa) => /** @type {any[]} */ (aws.rostos(C.principal)).filter(f => f.pessoa === pessoa).map(f => f.ext).sort();
   const sai = (/** @type {string} */ letra) => sairDaBusca(CRED, SLUG, selfie(letra), { fetch: /** @type {any} */ ((/** @type {any} */ i, /** @type {any} */ init) => Promise.resolve(aws.atende(i, init))) });
 
+  it('ROSTO_LEITURAS escolhe quais leituras da busca nas fotos rodam (cada uma é paga)', async () => {
+    vi.stubEnv('ROSTO_DESCREVER', '');
+    vi.stubEnv('ROSTO_LEITURAS', 'texto, moderacao');
+    await indexa();
+    expect(aws.ops('DetectText').length).toBeGreaterThan(0);
+    expect(aws.ops('DetectModerationLabels').length).toBe(aws.ops('DetectText').length);
+    expect(aws.ops('DetectLabels')).toEqual([]);
+  });
+
   it('fotos novas de quem saiu não ficam no índice: nem de frente num grupo, nem de lado', async () => {
     await indexa();
     expect(noIndice('ana')).toEqual([`${CAP}:${F(1)}`]);

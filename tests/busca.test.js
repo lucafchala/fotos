@@ -12,7 +12,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { normaliza, descreveFoto, termosDaBusca, itemDaBusca, ROTULOS_PT } from '../src/busca.js';
 import { SCRIPT_BUSCA, buscaHTML } from '../src/ui/indice-comum.js';
 import { autoresDaTurma, normalizeEventFields } from '../src/index.js';
-import { fotosDaPagina } from '../scripts/rosto-indexa.mjs';
+import { fotosDaPagina, leiturasDaBusca } from '../scripts/rosto-indexa.mjs';
 import { withDurableObjects } from './helpers/do.js';
 import { d1Sqlite } from './helpers/d1.js';
 
@@ -250,5 +250,21 @@ describe('atalhos prontos da busca (v3.7.1)', () => {
     expect(c).toEqual(expect.arrayContaining(['jogo', 'comida', 'futebol', 'pizza']));
     for (const t of ['jogo', 'comida', 'palco', 'bola']) expect(buscaHTML()).toContain(`<button type="button" data-bf="${t}">${t}</button>`);
     expect(SCRIPT_BUSCA).toContain("closest('[data-bf]')");
+  });
+});
+
+describe('leiturasDaBusca (ROSTO_LEITURAS)', () => {
+  const lista = (/** @type {string|undefined} */ v) => [...leiturasDaBusca(v)];
+  it('vazia ou ausente: as três leituras', () => {
+    expect(lista(undefined)).toEqual(['texto', 'coisas', 'moderacao']);
+    expect(lista('')).toEqual(['texto', 'coisas', 'moderacao']);
+  });
+  it('só as pedidas, sem diferenciar maiúscula e espaço', () => {
+    expect(lista('texto')).toEqual(['texto']);
+    expect(lista(' Texto , MODERACAO ')).toEqual(['texto', 'moderacao']);
+  });
+  it('nome errado é ignorado; só nomes errados não desligam a moderação', () => {
+    expect(lista('texto,palavras')).toEqual(['texto']);
+    expect(lista('moderação')).toEqual(['texto', 'coisas', 'moderacao']);
   });
 });
