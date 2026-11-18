@@ -644,7 +644,7 @@ fotos/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: lint, tipos e testes → migrações D1 → versão sem tráfego → promoção → smoke em produção (reverte se reprovar) → tag
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
-│       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
+│       └── security.yml    ← CI: npm audit (scripts/audita-dependencias.mjs), dependency-review e invariantes de segurança
 ├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto
 ├── vendor/
 │   └── photoswipe/         ← PhotoSwipe 5.4.4 (MIT) byte a byte do npm + LICENSE; versão e integridade no README.md de lá
@@ -1803,6 +1803,7 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 - **PT-BR** em todo conteúdo, mensagens de erro e comentários.
 - **Sem dependências runtime**. As dev deps são ferramentas: `wrangler`, `vitest` (+ `@vitest/coverage-v8` e `@cloudflare/vitest-pool-workers`), `eslint` (+ `@eslint/js`), `typescript` e `@cloudflare/workers-types` (só para o `npm run typecheck`).
 - **`overrides` do `package.json`** (`sharp`, `undici`): fixam uma dependência *transitiva* quando a que a puxa a prende numa versão com aviso de segurança. `undici` (`^7.29.1`, 2026-10): `miniflare`, puxado pelo `wrangler` e pelo `@cloudflare/vitest-pool-workers`, fixa `undici@7.29.0` exato, e o `npm audit --audit-level=high` do `security.yml` reprovava os PRs. **Remova o override quando o `miniflare` publicado já trouxer `undici` ≥ 7.29.1** (confira com `npm ls undici` sem ele); override esquecido esconde aviso novo do mesmo pacote.
+- **Gate de dependências (`scripts/audita-dependencias.mjs`, job "Dependências"):** o que vai ao ar (`npm audit --omit=dev`) reprova a partir de moderado. Nas ferramentas de desenvolvimento, alto ou crítico reprova quando o advisory tem versão corrigida no GitHub (`first_patched_version`); sem conserto publicado, vira aviso no resumo do job e volta a reprovar sozinho quando o conserto sair. Não há lista de exceções. Consulta ao GitHub que falha conta como "tem conserto" (falha fechada). `tests/audita-dependencias.test.js` prende a regra e que `src/` não importa pacote do npm. Origem: GHSA-fc5q-39xc-vjpf (picomatch <= 4.0.7, puxada pelo vitest), sem versão corrigida, reprovava todo PR em nov/2026.
 - **Sem TypeScript**, sem build, sem JSX. Template strings + `escape()`.
 - **`escape()`** (em `utils.js`) é o único mecanismo de escape de **HTML**. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
 - **`safeUrl()`** é coisa diferente e **não substitui** o `escape()`: é allowlist de *esquema* (deixa passar só `https:`, promove `http:`, mata `javascript:`/`data:`), e não escapa aspas — `https://x/" onload="…` passa inteiro por ela. Num atributo HTML use as duas, `escape(safeUrl(v))`; numa atribuição de propriedade no cliente (`el.href = v`) o `safeUrl()` basta, porque não há HTML sendo parseado. Nenhuma das duas sozinha cobre os dois ataques — ver `SECURITY.md`, seção *Invariants for contributors*.
