@@ -100,6 +100,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     const cls = [
       'card',
       featured ? 'card-featured' : '',
+      (featured || isPinned) ? 'card-destaque' : '',
       e.comingSoon ? 'card-soon' : '',
       hidden ? 'hidden' : '',
     ].filter(Boolean).join(' ');
@@ -270,7 +271,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .controls-wrap{position:sticky;top:0;z-index:10;background:var(--bg-wrap);padding:.75rem 0 0;max-height:400px;overflow:hidden;transition:max-height .25s ease,padding .25s ease}
     .controls-wrap.controls-collapsed{max-height:0;padding-top:0;padding-bottom:0}
     .controls{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding-bottom:.75rem}
-    .search-input{flex:1;min-width:0;max-width:340px;min-height:44px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.5rem 1rem;border-radius:10px;font-size:1rem;outline:none;transition:border-color .16s var(--ease);-webkit-appearance:none}
+    .search-input{flex:1;min-width:0;max-width:340px;min-height:44px;background:var(--bg-input);border:1px solid var(--bg-card-border);color:var(--text);padding:.5rem 1rem;border-radius:10px;font-family:inherit;font-size:1rem;outline:none;transition:border-color .16s var(--ease);-webkit-appearance:none}
     .search-input::placeholder{color:var(--text-ph)}
     .search-input:focus{border-color:var(--accent)}
     .filters-btn{flex-shrink:0;display:inline-flex;align-items:center;gap:.5rem;min-height:44px;background:var(--bg-card);border:1px solid var(--bg-card-border);color:var(--text-muted);padding:0 1rem;border-radius:10px;font-size:.875rem;font-weight:500;letter-spacing:0;cursor:pointer;transition:border-color .16s var(--ease),color .16s var(--ease);white-space:nowrap;font-family:inherit}
@@ -351,6 +352,10 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .card-featured .thumb{aspect-ratio:3/2}
     /* Cartão fixado: sem selo sobre a foto. A marca vira texto discreto na linha
        de meta, abaixo da data. */
+    /* Card em destaque: borda e fundo levemente dourados, além do texto
+       "Em destaque" (pedido do dono na escolha do design, 18/11/2026). */
+    .card-destaque{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--bg-card))}
+    .card-destaque:hover{border-color:var(--accent-hover)}
     .featured-badge{font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--accent)}
     /* Embaixo, à esquerda: em cima o "Em destaque" (esquerda) e, em card
        estreito, qualquer canto de cima colide com ele. */

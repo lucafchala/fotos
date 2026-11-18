@@ -27,7 +27,7 @@ Painel e páginas legais não mudam.
 - **fotos.lucafchala.com (início, projeto, galeria, sobre, equipamentos e
   rodapé): polimento.** A paleta papel/preto com o marrom-dourado, a Inter e o
   layout ficam. A data dos cards e do projeto vira a forma curta e tabular
-  ("27 out 2026", nova `formatDateCurta` em `src/utils.js`). `formatDatePT`
+  ("27 Out 2026", nova `formatDateCurta` em `src/utils.js`). `formatDatePT`
   não muda, porque alimenta títulos e descrições de SEO. Rótulos passam de
   maiúsculas espaçadas para caixa normal, e "Em destaque" sai de cima da foto
   para a linha da data. Os emojis e o ▯ das dicas viram ícones de traço
@@ -52,6 +52,15 @@ Painel e páginas legais não mudam.
   - /numeros: um número principal (fotos) e três menores.
   - Rodapé no preto, sem itálico. "Em breve" sem foto e sem brilho radial.
   - Os alvos de toque dos links da ajuda chegam a 44 px.
+- **Escolhas do dono, item por item (18/11/2026):**
+  - a data curta leva o mês com inicial maiúscula ("27 Out 2026");
+  - o card em destaque ganha borda e fundo levemente dourados, além do texto
+    "Em destaque";
+  - o campo "Buscar" do início usa a fonte da página (antes caía na fonte
+    padrão do navegador, mais achatada);
+  - o botão do WhatsApp continua verde;
+  - o título e a contagem do "Em breve" continuam grandes, em peso 800, com o
+    kicker e os rótulos em maiúsculas espaçadas.
 
 ## [4.1.1] — ainda não publicada
 

@@ -83,8 +83,8 @@ export function aboutHTML(agenda = '', nonce = '') {
     .cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.25rem}
     .cta-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1rem;border-radius:10px;font-size:.875rem;font-weight:500;text-decoration:none;letter-spacing:0;transition:border-color .16s var(--ease),color .16s var(--ease),background .16s var(--ease);white-space:nowrap;border:1px solid}
     .cta-btn:hover{text-decoration:none}
-    .btn-whatsapp{border-color:var(--btn-border);color:var(--btn-text)}
-    .btn-whatsapp:hover{border-color:var(--btn-border-hover);color:var(--btn-text-hover);background:var(--btn-bg-hover)}
+    .btn-whatsapp{border-color:var(--ok-border);color:var(--ok-text)}
+    .btn-whatsapp:hover{border-color:var(--ok-border-hover);color:var(--ok-text-hover);background:var(--ok-bg-hover)}
     .btn-default{border-color:var(--btn-border);color:var(--btn-text)}
     .btn-default:hover{border-color:var(--btn-border-hover);color:var(--btn-text-hover);background:var(--btn-bg-hover)}
     .cta-btn svg{width:16px;height:16px;flex-shrink:0}
