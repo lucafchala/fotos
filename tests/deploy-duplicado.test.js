@@ -183,6 +183,15 @@ describe('deploy.yml e a conferência de push repetido', () => {
     return m[1];
   };
 
+  it('um version_id inválido reprova no primeiro passo do deploy, antes de lint e testes', () => {
+    const passos = job('deploy').split('\n    steps:\n')[1];
+    const primeiro = passos.split(/\n(?= {6}- )/).filter((p) => p.trim().startsWith('- '))[0];
+    expect(primeiro).toContain('name: Conferir o version_id digitado');
+    expect(primeiro).toContain('VERSION_ID_MANUAL: ${{ inputs.version_id }}');
+    expect(primeiro).toContain('=~ ${UUID_RE:?}');
+    expect(primeiro).toContain('exit 1');
+  });
+
   it('o arquivo que o script consulta é este workflow', () => {
     expect(existsSync(new URL(`../.github/workflows/${WORKFLOW}`, import.meta.url))).toBe(true);
   });
