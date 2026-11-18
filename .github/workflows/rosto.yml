@@ -38,10 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       # O estado (fotos já vistas, inclusive as sem rosto) NÃO fica mais no
@@ -64,4 +64,7 @@ jobs:
           # src/config.js). A variável do repositório sobe o teto para a primeira
           # indexação de um álbum grande; vazia, vale o padrão.
           ROSTO_MAX_DIA: ${{ vars.ROSTO_MAX_DIA }}
+          # Quais leituras da busca nas fotos rodam em cada foto nova
+          # (texto, coisas, moderacao; ver leiturasDaBusca). Vazia, as três.
+          ROSTO_LEITURAS: ${{ vars.ROSTO_LEITURAS }}
         run: node scripts/rosto-indexa.mjs

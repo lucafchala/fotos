@@ -320,6 +320,26 @@ async function rostosIndexados(cred, colecao) {
 // O intervalo entre o começo de uma foto e o da seguinte: com PARALELAS fotos
 // ao mesmo tempo, cada operação fica em no máximo 4 por segundo (a cota padrão
 // é 5/s). ROSTO_PASSO_MS existe para os testes.
+/**
+ * Quais leituras da "busca nas fotos" o indexador faz em cada foto nova.
+ * Cada uma é uma chamada paga ao Rekognition (US$ 0,0013 em São Paulo, 11/2026):
+ * - `texto` (DetectText): palavras visíveis, como número de camisa e faixa;
+ * - `coisas` (DetectLabels): objetos e cenas, como "bolo" e "palco";
+ * - `moderacao` (DetectModerationLabels): esconde da galeria a foto imprópria
+ *   que a turma mandar.
+ * Vem da variável ROSTO_LEITURAS ("texto,moderacao"); vazia, as três. Nome
+ * desconhecido é ignorado, e uma lista só de nomes desconhecidos vale como
+ * vazia, para um erro de digitação não desligar a moderação sem ninguém ver.
+ * @param {string|undefined} valor
+ * @returns {Set<'texto'|'coisas'|'moderacao'>}
+ */
+export function leiturasDaBusca(valor) {
+  const todas = /** @type {const} */ (['texto', 'coisas', 'moderacao']);
+  const pedidas = String(valor || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const validas = todas.filter(l => pedidas.includes(l));
+  return new Set(validas.length ? validas : todas);
+}
+
 const PASSO_MS = Number.isFinite(Number(process.env.ROSTO_PASSO_MS)) && process.env.ROSTO_PASSO_MS !== undefined && process.env.ROSTO_PASSO_MS !== '' ? Number(process.env.ROSTO_PASSO_MS) : 250;
 const PARALELAS = 4;
 
@@ -341,8 +361,10 @@ export async function principal() {
   const limiteMs = (Number(process.env.ROSTO_MAX_MINUTOS) || 35) * 60000;
   const acabouOTempo = () => Date.now() - inicio > limiteMs;
   // Busca nas fotos (v3.7): texto, coisas e moderação, uma vez por foto.
-  // ROSTO_DESCREVER=0 desliga (só rostos).
-  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!token;
+  // ROSTO_DESCREVER=0 desliga as três (só rostos); ROSTO_LEITURAS escolhe
+  // quais rodam (ver leiturasDaBusca).
+  const leituras = leiturasDaBusca(process.env.ROSTO_LEITURAS);
+  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!token && leituras.size > 0;
   if (!slugs.length) { console.log('ROSTO_SLUGS vazio: nada a fazer.'); return; }
   if (!seco && (!cred.chave || !cred.segredo)) throw new ErroDoIndexador('faltam AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY');
   // No Actions o estado não pode ficar em arquivo (nem em cache): ver o topo.
@@ -446,9 +468,9 @@ export async function principal() {
         const imagem = { Bytes: base64(bytes) };
         const [res, texto, rotulos, moderacao] = await Promise.all([
           !faltaRosto(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: QUALIDADE, DetectionAttributes: [] }),
-          descrever && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
-          descrever && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
-          descrever && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,
+          descrever && leituras.has('texto') && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
+          descrever && leituras.has('coisas') && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
+          descrever && leituras.has('moderacao') && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,
         ]);
         if (res) { rostos += (res.FaceRecords || []).length; vistas.add(k); }
         if (texto || rotulos || moderacao) {
