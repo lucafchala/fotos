@@ -64,4 +64,7 @@ jobs:
           # src/config.js). A variável do repositório sobe o teto para a primeira
           # indexação de um álbum grande; vazia, vale o padrão.
           ROSTO_MAX_DIA: ${{ vars.ROSTO_MAX_DIA }}
+          # Quais leituras da busca nas fotos rodam em cada foto nova
+          # (texto, coisas, moderacao; ver leiturasDaBusca). Vazia, as três.
+          ROSTO_LEITURAS: ${{ vars.ROSTO_LEITURAS }}
         run: node scripts/rosto-indexa.mjs

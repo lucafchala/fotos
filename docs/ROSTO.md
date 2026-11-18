@@ -182,7 +182,7 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 | `DetectLabels` | As "coisas" e cenas (≥ 75%), em inglês e em português (`ROTULOS_PT`); as genéricas ("person", "face") ficam de fora | Buscar "palco", "bolo", "bola", "fantasia" |
 | `DetectModerationLabels` | Os rótulos de moderação (≥ 80%) das categorias de `BUSCA_MODERACAO_ESCONDE` (nudez, gestos obscenos, álcool, drogas, violência...). "Roupa de banho" e "jogos de azar" ficam de fora | Avisar o dono de foto imprópria (ele decide se oculta) |
 
-**Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras.
+**Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras. A variável do repositório `ROSTO_LEITURAS` escolhe quais rodam em cada foto nova: `texto`, `coisas` e `moderacao`, separadas por vírgula (vazia, as três). Cada leitura custa US$ 0,0013 por foto em São Paulo; o que já foi lido continua na busca.
 
 **A busca.** Com **Busca nas fotos (texto e coisas)** marcada no projeto, o álbum ganha o campo "Procurar nas fotos" (`GET /api/busca`).
 - Acha fotos com **todos** os termos, por **palavra inteira**: "10" não acha "100".
