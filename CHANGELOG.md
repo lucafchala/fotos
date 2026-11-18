@@ -18,7 +18,28 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.1] — ainda não publicada
+## [4.1.2] — ainda não publicada
+
+Correção: a galeria de um evento do álbum não pula mais depois de aparecer.
+
+- **A faixa de filtros da galeria já vem na página.** A faixa com as seções e
+  os fotógrafos saía vazia e escondida, e só abria quando o script terminava
+  de carregar. Numa conexão lenta isso era segundos depois de as fotos já
+  estarem na tela: o cabeçalho crescia 55 px e a grade inteira descia, com a
+  pessoa já olhando ou tocando. Agora o servidor manda a faixa pronta, com os
+  mesmos botões que o script monta, e nada muda de lugar. Medido num evento
+  de 1.300 fotos, com CPU 4× mais lenta e 3G lento: o CLS foi de
+  0,813 para 0,002 (o limite bom é 0,1). Vale para toda
+  página com mais de uma seção ou mais de um fotógrafo; a galeria simples já
+  não pulava. Os filtros que dependem do aparelho ("Favoritas" e "Só as
+  novas") continuam vindo do script.
+- **A grade guarda o lugar dela.** Antes de o script montar a grade, a
+  navegação do fim da página e o rodapé apareciam na primeira tela e eram
+  empurrados para baixo logo depois. Com 40 fotos ou mais, a área das fotos
+  já ocupa uma tela inteira até a grade ficar pronta. Detalhe das duas
+  partes em `docs/REFERENCIA.md`, "Faixa de chips no servidor".
+
+## [4.1.1] — 2026-11-15
 
 - **"Mandar suas fotos" não espera mais o Drive para mostrar os eventos.** A
   lista de pastas de envio vencia a cada 30 minutos, e a primeira pessoa

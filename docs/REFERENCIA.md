@@ -1934,6 +1934,31 @@ fica escondida e nada baixa. O script tira a fileira (`#g-pre`) ao montar a
 grade. `tests/galeria-script.test.js` e `tests/galeria-fileira.test.js`
 fixam os dois; os roteiros `verifica:*` servem o arquivo do script.
 
+**Faixa de chips no servidor (4.1.2).** A faixa `#g-chips` saía do servidor
+vazia e com `hidden`; `montaChips()` a abria quando o script rodava. Em rede
+lenta o script chega segundos depois da primeira pintura, e a faixa (55 px no
+celular) empurrava a grade inteira: CLS de 0,75 a 0,81 nas páginas de evento
+do álbum, que sempre têm mais de um fotógrafo. Agora `chipsProntosHTML`
+(`src/ui/galeria.js`) escreve no HTML os chips que o servidor conhece, seções
+(ou anos) e fotógrafos, com a mesma marcação que `montaChips()` produz sem
+filtro ligado. O script continua montando a faixa dele por cima, na mesma
+altura. A regra de quais chips existem mora, portanto, em dois lugares (o
+script não importa módulos): quem segura as duas cópias juntas é o roteiro
+`verifica:galeria`, bloco "Chips do servidor", que compara o HTML do servidor
+com o que o script monta em três páginas (seções, fotógrafos, anos) e a
+altura do cabeçalho antes e depois do script. Mudou um, mude o outro; o
+roteiro reprova se divergirem. "Favoritas", "Só as novas" e a seleção
+recebida por link dependem do aparelho e seguem só no script; numa galeria
+simples em que só elas existem, a faixa ainda abre depois.
+`tests/galeria-chips.test.js` fixa o que o servidor decide.
+A segunda parte do pulo era o fim da página: sem grade, a navegação de
+capítulos do fim (`.g-cap-fim`) e o rodapé ficavam na primeira tela e o script
+os empurrava para fora dela (mais 0,11 de CLS). Com `GRADE_RESERVA_MIN` (40)
+fotos ou mais, o `<main>` sai com `.g-reserva` (`min-height:100svh`), e o
+script tira a classe logo depois de `diagramaTudo()`. Abaixo de 40 a grade
+pode ser mais baixa que a tela e a reserva faria o rodapé subir; ali fica
+como era.
+
 **Teto de densidade (14/11/2026, 4.0.1).** Em produção, na ecp125, com Pixel 7
 emulado (DPR 2,625, 4G lento, CPU 4×), o LCP da galeria era 5,3 s: a grade
 pedia a miniatura de 1200 px (237 KB) para um quadradinho de ~390 px. Com o
