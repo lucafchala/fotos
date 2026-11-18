@@ -18,7 +18,19 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.3] — ainda não publicada
+## [4.1.4] — ainda não publicada
+
+Correção de texto no pedido de remoção de uma foto.
+
+- **O formulário não diz mais "Recebemos o pedido" antes do envio.** Ao abrir
+  "Pedir remoção", a primeira frase já era "Recebemos o pedido. O fotógrafo
+  vai analisar…", antes de a pessoa escolher o motivo ou deixar o e-mail; quem
+  lia só isso podia fechar achando que tinha pedido. Agora o formulário
+  explica o que vai acontecer ("O fotógrafo analisa cada pedido e responde no
+  e-mail que você deixar aqui. A foto continua no álbum enquanto isso.") e o
+  "Recebemos o pedido" fica só na confirmação, depois de enviado, como já era.
+
+## [4.1.3] — 2026-11-17
 
 Correção: a página de erro dá para ler.
 
