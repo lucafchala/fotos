@@ -15,6 +15,7 @@
 import { chromium } from 'playwright-core';
 import { mkdir } from 'node:fs/promises';
 import { galeriaIndiceHTML } from '../src/ui/galeria-indice.js';
+import { galleryHTML } from '../src/ui/gallery.js';
 import { galeriaHTML, GALERIA_JS } from '../src/ui/galeria.js';
 import { GALERIA_ESTILOS } from '../src/config.js';
 import { SERVICE_WORKER } from '../src/aviso.js';
@@ -510,6 +511,36 @@ for (const tela of TELAS) {
     registra(!erros.length, `${rotulo}: sem erro de JS`, erros);
     await ctx.close();
   }
+}
+
+// ---- Página inicial: chegar ao fim carrega mais eventos sozinho (v4.5.0) ----
+{
+  const eventos = Array.from({ length: 40 }, (_, i) => ({ id: String(i + 1), slug: `ev-${i + 1}`, title: `Evento ${i + 1}`, date: `2025-${String((i % 12) + 1).padStart(2, '0')}-10`, category: 'Shows', accessType: 'public', visible: true, driveUrl: `https://drive.google.com/drive/folders/PASTA_TESTE_${String(i).padStart(4, '0')}` }));
+  const inicio = galleryHTML(eventos, '', '');
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  /** @type {string[]} */
+  const erros = [];
+  page.on('pageerror', e => erros.push(String(e).slice(0, 160)));
+  await page.route('**/*', route => {
+    const u = route.request().url();
+    if (u === 'https://fotos.test/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: inicio });
+    if (/\.(png|jpe?g|webp|svg)(\?|$)|googleusercontent/.test(u)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    return route.fulfill({ status: 204, body: '' });
+  });
+  await page.goto('https://fotos.test/');
+  const visiveis = () => page.evaluate(() => document.querySelectorAll('.card[data-card]:not(.hidden)').length);
+  const antes = await visiveis();
+  for (let i = 0; i < 10 && (await visiveis()) < 40; i++) { await page.mouse.wheel(0, 4000); await page.waitForTimeout(250); }
+  const depois = await visiveis();
+  registra(antes === 12 && depois === 40, 'Início: rolar até o fim carrega mais eventos sozinho (12 → 40)', { antes, depois });
+  registra(!(await page.locator('#load-more').isVisible()), 'Início: com tudo à mostra, o "Carregar mais" some', '');
+  await page.fill('#search', 'Evento 3');
+  await page.waitForTimeout(150);
+  const busca = await visiveis();
+  registra(busca === 11, 'Início: a busca segue filtrando (11 com "Evento 3")', busca);
+  registra(!erros.length, 'Início: sem erro de JS', erros);
+  await ctx.close();
 }
 
 await browser.close();

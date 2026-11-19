@@ -525,6 +525,24 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         shown = BATCH; apply(); updateFiltersBtn();
       });
       if (loadMoreBtn) loadMoreBtn.addEventListener('click', function(){ shown += BATCH; apply(); });
+      // Carrega mais sozinho ao chegar perto do fim da lista (v4.5.0): quando o
+      // botão "Carregar mais" fica a 600 px da tela, ele é "clicado". O botão
+      // continua lá para quem navega pelo teclado e para navegador sem
+      // IntersectionObserver. Escondido (busca ou filtro ativo, ou tudo já à
+      // mostra), o observador não dispara: elemento com display:none não cruza.
+      if (loadMoreBtn && 'IntersectionObserver' in window) {
+        var autoMais = new IntersectionObserver(function(entradas){
+          for (var i = 0; i < entradas.length; i++) {
+            if (!entradas[i].isIntersecting || isFiltering() || shown >= batchCards.length) continue;
+            shown += BATCH; apply();
+            // Ainda visível depois de carregar (tela alta, poucos cards): o
+            // observador não avisa de novo sem mudança, então reobserva.
+            autoMais.unobserve(loadMoreBtn);
+            if (shown < batchCards.length) autoMais.observe(loadMoreBtn);
+          }
+        }, { rootMargin: '0px 0px 600px 0px' });
+        autoMais.observe(loadMoreBtn);
+      }
       if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', function(){
         if (searchEl) searchEl.value = '';
         activeCat = 'all';
