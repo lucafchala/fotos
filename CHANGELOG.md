@@ -18,7 +18,21 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.7.0] — ainda não publicada
+## [4.8.0] — ainda não publicada
+
+Menor: download sem perguntar quando não há o que escolher (pedido do dono,
+19/11/2026).
+
+- **Foto com uma versão só baixa direto.** Sem a versão de redes (o tamanho
+  máximo é o original e sempre existe), "Baixar" no visualizador não abre a
+  folha: o arquivo sai na hora e o aviso "Download iniciado" aparece embaixo.
+  Se o Google estiver segurando (fila), a folha abre com a contagem e o
+  Cancelar, como antes.
+- Continua com a folha: foto com as duas versões, Live Photo (o vídeo é uma
+  segunda opção), várias fotos de uma vez, e o iPhone (é na folha que se
+  escolhe entre "Salvar no Fotos" e "Baixar arquivo").
+
+## [4.7.0] — 2026-11-19
 
 Menor: janela da galeria, igual para projetos públicos e de família
 (pedido do dono, 19/11/2026).

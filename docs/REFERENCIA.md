@@ -1917,6 +1917,11 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   fotos / 80 MB (a folha do iOS segura tudo na memória da aba); se o sistema
   recusar os arquivos (`canShare`), cai sozinho no "Baixar arquivo". Ser iOS é a
   única checagem de plataforma da página (RETOMADA §5.13).
+- **Sem escolha, sem folha** (4.8.0): uma foto só, sem versão de redes, sem
+  Live Photo e fora do iPhone (`semEscolha()`) baixa direto por `baixaDireto()`:
+  aviso "Download iniciado", sonda, `<a download>`. Se a sonda disser que o
+  Google está segurando (429/503), abre a folha (`abreFolha(lista, true)`) e
+  começa a fila por ela, com contagem e Cancelar. Erro vira aviso embaixo.
 - **Favoritas** (o coração; lembradas no `localStorage` do aparelho): desde
   a 4.4.0, é a única marca, e a antiga "Seleção" (✓) foi juntada a elas. Com o
   filtro ligado, "Baixar" usa a mesma folha de download, uma foto por vez

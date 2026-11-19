@@ -784,19 +784,14 @@ for (const [nome, opcoes] of /** @type {const} */ ([
     await clica(page.locator('.g-t').nth(2));
     await page.waitForSelector('.pswp--open');
     await espera(page, 800);
-    await clica(page.locator('.pswp__button--g-baixar'));
-    await page.waitForSelector('#g-folha:not([hidden])');
-    await folhaAssentada(page);
-    await verificaAxe(page, registra, `${nome}: folha de download aberta sobre o visualizador`);
-    const opsSem = await page.locator('.g-op strong').allTextContents();
-    registra(opsSem.join('|') === 'Tamanho máximo', `${nome}: foto SEM versão do Instagram não oferece "para redes"`, opsSem);
-    const detalheMax = await page.locator('.g-op span').first().textContent();
-    // 15.002.000 bytes = "15 MB", em unidades decimais como o celular mostra.
-    registra(/^O arquivo original · 003\.jpg · 4000 × 4000 px · 15 MB$/.test(detalheMax || ''), `${nome}: "tamanho máximo" mostra o nome exato, as dimensões e o peso do original`, detalheMax);
-    registra((await page.locator('.g-btn').filter({ hasText: /Salvar/ }).count()) === 0, `${nome}: sem botão "Salvar no Fotos" (isso é só do iPhone)`, '');
-    await page.keyboard.press('Escape');
-    await espera(page, 400);
-    registra(await page.locator('#g-folha').isHidden() && (await page.locator('.pswp--open').count()) === 1, `${nome}: Esc fecha a folha e mantém o visualizador`, '');
+    // 4.8.0: uma versão só (sem a de redes) não tem o que escolher. Baixa
+    // direto, sem a folha, e avisa embaixo.
+    const [d0] = await Promise.all([page.waitForEvent('download'), clica(page.locator('.pswp__button--g-baixar'))]);
+    registra(urlDe(d0) === '/galeria/formatura/baixar/RAIZFOTO_000002?v=max', `${nome}: foto SEM versão do Instagram baixa o original direto`, d0.url());
+    registra(await page.locator('#g-folha').isHidden(), `${nome}: foto com uma versão só não abre a folha de download`, '');
+    registra(/Download iniciado/.test((await page.locator('.g-aviso-flut').textContent()) || ''), `${nome}: o aviso "Download iniciado" aparece embaixo`, await page.locator('.g-aviso-flut').textContent());
+    registra((await page.locator('.pswp--open').count()) === 1, `${nome}: o visualizador continua aberto depois do download direto`, '');
+    await espera(page, 1200);
 
     // Foto 2 (índice 1): tem as duas versões, com o mesmo nome nas duas.
     await page.evaluate(() => history.back());
@@ -806,6 +801,9 @@ for (const [nome, opcoes] of /** @type {const} */ ([
     await espera(page, 800);
     await clica(page.locator('.pswp__button--g-baixar'));
     await page.waitForSelector('#g-folha:not([hidden])');
+    await folhaAssentada(page);
+    await verificaAxe(page, registra, `${nome}: folha de download aberta sobre o visualizador`);
+    registra((await page.locator('.g-btn').filter({ hasText: /Salvar/ }).count()) === 0, `${nome}: sem botão "Salvar no Fotos" (isso é só do iPhone)`, '');
     const ops = await page.locator('.g-op strong').allTextContents();
     registra(ops.join('|') === 'Para redes sociais|Tamanho máximo', `${nome}: a folha oferece "para redes" e "tamanho máximo"`, ops);
     const detalheRedes = await page.locator('.g-op span').first().textContent();
@@ -1706,9 +1704,13 @@ for (const [nome, viewport, dpr] of /** @type {const} */ ([['iPhone 390', { widt
     const legenda = await page.evaluate(() => ({ txt: (document.querySelector('.g-leg-autor') || {}).textContent || '', todo: (document.querySelector('.pswp__custom-caption, .g-legenda') || document.body).textContent || '' }));
     registra(legenda.txt === 'Foto de Ana Souza', `${nome}: a legenda do visualizador credita a fotógrafa da foto`, legenda.txt);
     await page.locator('.pswp__button--g-baixar').tap();
-    await page.waitForSelector('#g-folha:not([hidden])');
-    await page.locator('.g-op').last().tap();
+    // No iPhone a folha abre (Salvar no Fotos ou arquivo); fora dele, a foto
+    // sem versão de redes baixa direto (4.8.0).
     await espera(page, 600);
+    if (await page.locator('#g-folha').isVisible()) {
+      await page.locator('.g-op, .g-ver .g-btn').last().tap();
+      await espera(page, 600);
+    }
     const links = await page.evaluate(() => /** @type {any} */ (window).__links);
     const idAna = LISTAGEM_CAP.secoes[0].fotos[1][0];
     const esperado = nomeAmigavel(/** @type {any} */ (LISTAGEM_CAP), { titulo: 'Formatura 2026', capitulo: 'Cerimônia' }, idAna, 'x.jpg');
