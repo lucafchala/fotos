@@ -81,6 +81,18 @@ WORKERS_PLANO = "pago"
 # confirmamos que [previews.vars] não herda [vars]). Testes e o Worker local
 # não têm a variável.
 INDEXNOW = "ligado"
+# Pré-cópia dos originais para o R2 (v4.9.0, src/precopia.js): o cron copia o
+# álbum inteiro antes do lançamento, para o download nem chegar ao Google (a
+# conta do Drive é pessoal e trava com muita gente baixando, #233). Slugs
+# separados por vírgula. Custo: ~US$ 0,015/GB/mês (10 GB grátis). Na prévia
+# não faz nada (ela não tem R2).
+R2_PRECOPIA_SLUGS = "entrenos2026"
+# Teto do bucket do R2, em GB (v4.9.0, src/r2-limite.js). A Cloudflare não
+# para o R2 sozinha, então o site para: com o teto cheio, nada mais grava (a
+# pré-cópia para em 95%) e as fotos que faltam saem do Google, como antes.
+# Custo máximo de armazenamento: (teto - 10 GB grátis) x US$ 0,015/mês;
+# 100 GB = US$ 1,35/mês. Em 90%, o self-test do healthz avisa.
+R2_LIMITE_GB = "100"
 
 [[kv_namespaces]]
 binding = "FOTOS"

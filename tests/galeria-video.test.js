@@ -9,6 +9,7 @@
 //  5. (O balde de limite próprio está em galeria-video-limite.test.js.)
 //  6. A CSP: media-src 'self' só em página com vídeo.
 
+import { limpaMemoDoR2 } from '../src/r2-limite.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index.js';
 import { limpaCacheDrive } from '../src/drive.js';
@@ -231,6 +232,9 @@ describe('a rota de vídeo', () => {
 describe('o vídeo e o R2', () => {
   beforeEach(async () => {
     env.FOTOS_R2 = r2Falso();
+    // O teto do R2 (src/r2-limite.js) falha fechado: sem medição, nada grava.
+    await env.FOTOS.put('r2:uso', JSON.stringify({ bytes: 0, objetos: 0, em: Date.now() }));
+    limpaMemoDoR2();
     await saveEvents(env, [evento()]);
   });
 

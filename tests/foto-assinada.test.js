@@ -15,6 +15,7 @@
 //  4. álbum fechado ao público (a regra única, albumAbertoAoPublico): 404,
 //     menos para quem a galeria também deixa entrar;
 //  5. o navegador guarda por horas, não dias.
+import { limpaMemoDoR2 } from '../src/r2-limite.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker, { aplicaSenhaPrevia } from '../src/index.js';
 import { saveEvents, degradedHealth } from '../src/utils.js';
@@ -87,12 +88,14 @@ beforeEach(async () => {
     return new Response('nao esperado', { status: 599 });
   }));
   env = withDurableObjects({
-    FOTOS: fakeKV({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }) }),
+    // O teto do R2 (src/r2-limite.js) falha fechado: sem medição, nada grava.
+    FOTOS: fakeKV({ [`admin_session:${TOKEN}`]: JSON.stringify({ createdAt: Date.now() }), 'r2:uso': JSON.stringify({ bytes: 0, objetos: 0, em: Date.now() }) }),
     GOOGLE_DRIVE_API_KEY: 'AIzaChaveDeTeste123',
     SIGNING_SECRET: SEGREDO,
     FOTOS_R2: r2,
   });
   await saveEvents(env, [structuredClone(EVENTO)]);
+  limpaMemoDoR2();
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 

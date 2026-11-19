@@ -5,7 +5,8 @@
 //  2. as páginas no domínio montam os links curtos; no fotos, os de sempre;
 //  3. /f/<id>/<largura>: largura arredondada para a lista, cache na frente,
 //     R2 primeiro quando existir, Google depois; erro do Google não vira cache.
-import { describe, it, expect, vi } from 'vitest';
+import { limpaMemoDoR2 } from '../src/r2-limite.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { rotaDoDominioDeAlbum } from '../src/index.js';
 import { baseDaGaleria, enderecoDoEvento } from '../src/utils.js';
 import { lerRotaFoto, respondeFoto, larguraServida, urlFoto } from '../src/foto-rota.js';
@@ -121,6 +122,9 @@ describe('fotos pelo próprio site (/f/)', () => {
 });
 
 describe('R2 (v3.8.3): cópia na primeira vez, leitura depois', () => {
+  // O teto do R2 (src/r2-limite.js) falha fechado: sem medição, nada grava.
+  const comUso = () => ({ get: async (/** @type {string} */ k) => (k === 'r2:uso' ? JSON.stringify({ bytes: 0, objetos: 0, em: Date.now() }) : null) });
+  beforeEach(() => limpaMemoDoR2());
   it('miniatura que veio do Google também vai para o R2', async () => {
     const put = vi.fn(async () => ({}));
     /** @type {Promise<any>[]} */
@@ -128,7 +132,7 @@ describe('R2 (v3.8.3): cópia na primeira vez, leitura depois', () => {
     const ctx = { waitUntil(/** @type {Promise<any>} */ p) { pendentes.push(p); } };
     const f = vi.fn(async () => new Response('IMG', { headers: { 'Content-Type': 'image/webp' } }));
     const alvo = /** @type {any} */ (lerRotaFoto(`/f/${ID}/480`));
-    const r = await respondeFoto(new Request(`https://x.test/f/${ID}/480`), { FOTOS_R2: { get: async () => null, put } }, ctx, alvo, { fetch: /** @type {any} */ (f), cache: null });
+    const r = await respondeFoto(new Request(`https://x.test/f/${ID}/480`), { FOTOS: comUso(), FOTOS_R2: { get: async () => null, put } }, ctx, alvo, { fetch: /** @type {any} */ (f), cache: null });
     expect(await r.text()).toBe('IMG');
     await Promise.all(pendentes);
     expect(put).toHaveBeenCalledWith(`w/${ID}/480.webp`, expect.any(ArrayBuffer), { httpMetadata: { contentType: 'image/webp' } });
@@ -137,7 +141,7 @@ describe('R2 (v3.8.3): cópia na primeira vez, leitura depois', () => {
   it('original: lê do R2 se houver; copia do Drive direto para o R2 (sem passar pela memória); vídeo enorme fica no Drive', async () => {
     const { originalDoR2, copiaOriginalParaR2, R2_ORIGINAL_MAX } = await import('../src/foto-rota.js');
     expect(await originalDoR2({}, ID)).toBeNull();
-    const env = { FOTOS_R2: { get: vi.fn(async (/** @type {string} */ k) => (k === `o/${ID}` ? { body: 'B', size: 5, httpMetadata: { contentType: 'image/jpeg' } } : null)), put: vi.fn(async () => ({})) } };
+    const env = { FOTOS: comUso(), FOTOS_R2: { get: vi.fn(async (/** @type {string} */ k) => (k === `o/${ID}` ? { body: 'B', size: 5, httpMetadata: { contentType: 'image/jpeg' } } : null)), put: vi.fn(async () => ({})) } };
     expect(await originalDoR2(env, ID)).toEqual({ body: 'B', size: 5, tipo: 'image/jpeg' });
     const corpo = new Response('ORIGINAL').body;
     const f = vi.fn(async () => new Response(corpo, { headers: { 'Content-Length': '8' } }));

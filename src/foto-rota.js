@@ -27,6 +27,7 @@
 // pode barrar 300 pessoas atrás do mesmo Wi-Fi). O que limita o abuso: a
 // assinatura, só larguras de uma lista fechada (cache finito por foto) e só
 // imagem como resposta.
+import { r2TemEspaco } from './r2-limite.js';
 import { idDriveValido } from './drive.js';
 import { assinaCurta, confereCurta } from './security.js';
 
@@ -257,8 +258,9 @@ export async function respondeFoto(request, env, ctx, alvo, deps = {}) {
   // mais chamado para ela, nem em outro data center.
   if (env.FOTOS_R2) {
     const copia = publica.clone();
+    // Só dentro do teto do bucket (src/r2-limite.js); fora dele, nada grava.
     ctx.waitUntil(copia.arrayBuffer()
-      .then(b => env.FOTOS_R2.put(`w/${alvo.id}/${alvo.w}.${alvo.jpeg ? 'jpg' : 'webp'}`, b, { httpMetadata: { contentType: tipo } }))
+      .then(async b => (await r2TemEspaco(env, b.byteLength)) ? env.FOTOS_R2.put(`w/${alvo.id}/${alvo.w}.${alvo.jpeg ? 'jpg' : 'webp'}`, b, { httpMetadata: { contentType: tipo } }) : null)
       .catch((/** @type {unknown} */ e) => console.error('foto: cópia no R2 falhou', e)));
   }
   return res;
@@ -387,6 +389,8 @@ export async function originalNoR2(env, id) {
  */
 export async function copiaOriginalParaR2(env, id, url, headers, tamanho, tipo, f = fetch) {
   if (!env.FOTOS_R2 || !(tamanho > 0) || tamanho > R2_ORIGINAL_MAX) return false;
+  // O teto do bucket (src/r2-limite.js): cheio, o original segue no Google.
+  if (!(await r2TemEspaco(env, tamanho))) return false;
   try {
     const r = await f(url, { headers });
     if (!r.ok || !r.body) return false;

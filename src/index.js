@@ -26,6 +26,8 @@ import { nomeAmigavel } from './nomes.js';
 import { avisaAutor } from './avisoautor.js';
 import { qrLinhas } from './qr.js';
 import { aqueceAlbuns } from './aquece.js';
+import { precopiaAlbuns, andamentoDaPrecopia } from './precopia.js';
+import { resumoDoR2 } from './r2-limite.js';
 import { ordemDaLinha, mesDoEvento, idsDeFotoDoIndice, comDatasDoDono, DATA_DO_EVENTO_RE, idDaCapa } from './ui/album.js';
 import { enviarHTML } from './ui/enviar.js';
 import {
@@ -524,6 +526,9 @@ const worker = {
     // Aquecer o álbum que vai ser lançado (v3.7.3, src/aquece.js): a cada
     // execução, no máximo um álbum e um teto de chamadas ao Drive.
     ctx.waitUntil(getEvents(env).then(evs => aqueceAlbuns(env, evs)).catch(e => console.error('aquece falhou', e)));
+    // Pré-cópia dos originais para o R2 (v4.9.0, src/precopia.js): o álbum
+    // inteiro copiado antes do lançamento, para o download nem chegar ao Google.
+    ctx.waitUntil(getEvents(env).then(evs => precopiaAlbuns(env, evs)).catch(e => console.error('precopia falhou', e)));
     // Aviso de fotos novas no celular (v3.8.4): o que estiver pendente, em lotes.
     ctx.waitUntil(avisosDoCron(env).catch(e => console.error('aviso falhou', e)));
     // IndexNow (v3.11.0): avisa Bing e cia. do que entrou ou saiu do site.
@@ -3478,8 +3483,19 @@ async function medirSaude(env) {
     // fica "incerto": desconhecido não é ok, e também não é falha
   }
 
+  // A pré-cópia para o R2 (v4.9.0, src/precopia.js): só números somados.
+  const precopia = await andamentoDaPrecopia(env).catch(() => null);
+  // O teto do R2 (src/r2-limite.js). Chegando a 90%, vira problema do
+  // self-test (o alerta de sempre); cheio, as cópias param e o site segue
+  // servindo do Google.
+  const r2 = await resumoDoR2(env).catch(() => null);
+  if (r2 && r2.usoGb >= r2.limiteGb * 0.9 && selftest.problems.length < MAX_SELFTEST_PROBLEMS) {
+    selftest.problems.push(`R2 em ${r2.usoGb} GB de ${r2.limiteGb} GB (teto R2_LIMITE_GB)${r2.cheio ? ': cheio, cópias paradas' : ''}`);
+    selftest.ok = false;
+  }
+
   const ok = kv && events !== null;
-  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio };
+  return { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio, precopia, r2 };
 }
 
 /**
@@ -3491,7 +3507,7 @@ async function medirSaude(env) {
  * @param {'hit'|'miss'} cache
  */
 function healthzResposta(request, env, medicao, cache) {
-  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio } = medicao;
+  const { ok, kv, events, d1, kvLatencyMs, d1LatencyMs, cron, selftest, envio, precopia, r2 } = medicao;
   // Resto do payload vem de dados já carregados + bindings de env — zero
   // leitura extra de KV. `config` só expõe booleanos, nunca os valores.
   const res = jsonOk({
@@ -3504,6 +3520,8 @@ function healthzResposta(request, env, medicao, cache) {
     d1LatencyMs,
     cron,
     selftest,
+    precopia,
+    r2,
     config: {
       resend: !!env.RESEND_API_KEY,
       turnstile: !!env.TURNSTILE_SECRET_KEY,
