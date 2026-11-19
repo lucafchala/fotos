@@ -14,6 +14,9 @@ e sem etapa de build.
 
 ### Para quem visita
 
+- **Página inicial.** Os eventos em cartões, com busca e filtro de categoria.
+  Ao chegar ao fim da lista, os próximos 12 entram sozinhos (4.5.0); o botão
+  "Carregar mais" continua para quem navega pelo teclado.
 - **Página do projeto.** Capa em carrossel, descrição, data, créditos e o botão
   "Ver e baixar as fotos". O Google Drive fica como opção secundária, para quem
   prefere abrir a pasta.

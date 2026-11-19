@@ -540,6 +540,11 @@ pelo menu; "Fechar" esconde; no Safari, nunca aparece. O que ele **não** prova:
 o navegador do Instagram de verdade (o user agent é trocado num Chromium), nem
 que o `intent://` abre o Chrome num Android real.
 
+Desde a 4.5.0, também a **página inicial** (cenário "Início"): `galleryHTML()`
+com 40 eventos num celular de 390 px. Rolar até o fim mostra os 40 (começa
+com 12), o "Carregar mais" some com tudo à mostra, a busca "Evento 3" ainda
+filtra (11) e não há erro de JS.
+
 ### Prévia de PR — `npm run verifica:previa`
 
 Roteiro da faixa "PRÉVIA" e do menu **Testes** (`src/previa.js`), contra o
