@@ -29,7 +29,13 @@ a conta do Drive é pessoal e trava com muita gente baixando).
   R2 e nem chega ao Google, que é quem dava "muitos usuários baixaram este
   arquivo". Foto oculta fica de fora. Custa perto de US$ 1 por mês para um
   álbum de 60 GB (src/precopia.js; docs/REFERENCIA.md, "Pré-cópia para o R2").
-- **`/api/healthz`:** campo novo `precopia`, com o andamento em números.
+- **Teto de custo do R2.** Nenhuma gravação no bucket passa de
+  `R2_LIMITE_GB` (hoje 100 GB, no máximo US$ 1,35 por mês de armazenamento),
+  medido pelo cron a cada hora. Sem medição, nada grava. Teto cheio: as fotos
+  que faltam saem do Google, como antes. Em 90%, o self-test avisa
+  (src/r2-limite.js).
+- **`/api/healthz`:** campos novos `precopia` (andamento) e `r2` (uso e teto),
+  em números.
 
 ## [4.8.0] — 2026-11-19
 

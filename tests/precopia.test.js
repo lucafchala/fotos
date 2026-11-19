@@ -5,10 +5,13 @@
 //  2. o que já está no R2 não é baixado de novo;
 //  3. orçamento por execução e progresso no KV: o resto vai na próxima;
 //  4. "limite" do Google para a execução na hora;
-//  5. sem R2 (a prévia) ou sem álbum configurado, nada.
+//  5. sem R2 (a prévia) ou sem álbum configurado, nada;
+//  6. o teto do bucket (src/r2-limite.js): medido pelo cron, falha fechado,
+//     a pré-cópia para antes dele e as outras gravações também.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { precopiaAlbuns, andamentoDaPrecopia, arquivosDaListagem, slugsDaPrecopia, PRECOPIA_POR_VEZ, PRECOPIA_A_CADA_MS } from '../src/precopia.js';
 import { limpaCacheDrive, limpaCacheCapitulos } from '../src/drive.js';
+import { limpaMemoDoR2, limiteDoR2, r2TemEspaco, resumoDoR2, R2_MEDIR_A_CADA_MS } from '../src/r2-limite.js';
 
 const FOLDER = 'application/vnd.google-apps.folder';
 const pasta = (/** @type {string} */ id, /** @type {string} */ name) => ({ id, name, mimeType: FOLDER });
@@ -43,12 +46,12 @@ function r2() {
   return {
     m,
     async list(/** @type {any} */ op) {
-      const todas = [...m.keys()].filter(k => k.startsWith(op.prefix)).sort();
+      const todas = [...m.keys()].filter(k => k.startsWith(op.prefix || '')).sort();
       const ini = op.cursor ? Number(op.cursor) : 0;
       const lim = op.limit || 1000;
       const fatia = todas.slice(ini, ini + lim);
       const truncated = ini + lim < todas.length;
-      return { objects: fatia.map(key => ({ key })), truncated, cursor: truncated ? String(ini + lim) : undefined };
+      return { objects: fatia.map(key => ({ key, size: String(m.get(key)).split('|').pop()?.length || 0 })), truncated, cursor: truncated ? String(ini + lim) : undefined };
     },
     async put(/** @type {string} */ k, /** @type {any} */ corpo, /** @type {any} */ op) {
       const t = typeof corpo === 'string' ? corpo : await new Response(corpo).text();
@@ -60,6 +63,7 @@ function r2() {
 const ambiente = extra => ({ FOTOS: kv(), FOTOS_R2: r2(), GOOGLE_DRIVE_API_KEY: 'CHAVE', WORKERS_PLANO: 'pago', R2_PRECOPIA_SLUGS: 'entrenos2026', ...extra });
 
 beforeEach(() => {
+  limpaMemoDoR2();
   limpaCacheDrive();
   limpaCacheCapitulos();
   baixados = [];
@@ -156,5 +160,50 @@ describe('pré-cópia para o R2', () => {
       { id: 'FOTO_LIVE_0001', bytes: 500, rk: 'RK1' },
       { id: 'VIDEO_LIVE_001', bytes: 900, rk: '' },
     ]);
+  });
+});
+
+const GB = 1024 * 1024 * 1024;
+describe('teto do R2', () => {
+  it('o limite vem de R2_LIMITE_GB (1 a 1000), senão 100 GB', () => {
+    expect(limiteDoR2({})).toBe(100 * GB);
+    expect(limiteDoR2({ R2_LIMITE_GB: '40' })).toBe(40 * GB);
+    expect(limiteDoR2({ R2_LIMITE_GB: '0' })).toBe(100 * GB);
+    expect(limiteDoR2({ R2_LIMITE_GB: 'muito' })).toBe(100 * GB);
+    expect(limiteDoR2({ R2_LIMITE_GB: '5000' })).toBe(100 * GB);
+  });
+
+  it('falha fechado: sem medição, nada grava; o cron mede e libera', async () => {
+    const env = ambiente({ R2_PRECOPIA_SLUGS: '' });
+    await env.FOTOS_R2.put('w/X/480.webp', '12345');
+    expect(await r2TemEspaco(env, 1)).toBe(false);
+    await precopiaAlbuns(env, [ALBUM], { agora: AGORA });
+    const uso = JSON.parse(env.FOTOS.m.get('r2:uso'));
+    expect(uso).toMatchObject({ bytes: 5, objetos: 1, em: AGORA });
+    limpaMemoDoR2();
+    expect(await r2TemEspaco(env, 1)).toBe(true);
+    expect(await r2TemEspaco(env, 100 * GB)).toBe(false);
+  });
+
+  it('a pré-cópia para antes do teto e soma o que gravou na medição', async () => {
+    const env = ambiente({ R2_LIMITE_GB: '1' });
+    const inicio = Math.floor(GB * 0.95) - 250;
+    await env.FOTOS.put('r2:uso', JSON.stringify({ bytes: inicio, objetos: 9, em: AGORA }));
+    const r = await precopiaAlbuns(env, [ALBUM], { agora: AGORA });
+    // A pasta do Instagram (1 arquivo, 100 bytes) cabe; o lote do capítulo (200), não.
+    expect(r).toMatchObject({ copiados: 1, parou: 'teto-r2', completo: false });
+    expect(JSON.parse(env.FOTOS.m.get('r2:uso'))).toMatchObject({ bytes: inicio + 100, objetos: 10 });
+  });
+
+  it('no teto, a pré-cópia nem começa; medição velha é refeita', async () => {
+    const env = ambiente({ R2_LIMITE_GB: '1' });
+    await env.FOTOS.put('r2:uso', JSON.stringify({ bytes: GB, objetos: 1, em: AGORA }));
+    expect(await precopiaAlbuns(env, [ALBUM], { agora: AGORA })).toBeNull();
+    expect(baixados).toEqual([]);
+    expect(await resumoDoR2(env)).toMatchObject({ usoGb: 1, limiteGb: 1, cheio: true });
+    // Uma hora depois o cron mede de novo: o bucket (vazio) libera.
+    limpaMemoDoR2();
+    const r = await precopiaAlbuns(env, [ALBUM], { agora: AGORA + R2_MEDIR_A_CADA_MS });
+    expect(r).toMatchObject({ copiados: 4, completo: true });
   });
 });

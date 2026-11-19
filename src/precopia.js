@@ -23,17 +23,23 @@
 // progresso fica no KV (`precopia:<slug>`). Com o álbum inteiro copiado, o
 // ciclo recomeça a cada PRECOPIA_A_CADA_MS, para pegar as fotos novas. Se o
 // Google disser "limite", a execução para na hora e tenta de novo na próxima.
+//
+// Teto (src/r2-limite.js): a pré-cópia para em PRECOPIA_FRACAO_DO_TETO do
+// `R2_LIMITE_GB`, deixando a folga para as miniaturas e as cópias do primeiro
+// download. Cheio, nem começa.
 
 import { alvoDaGaleria, listaPasta, pastaInstagram, politicaDoInstagram, planoPago, normalizaOcultas, urlOriginal, erroDaApi, idDriveValido, DriveError } from './drive.js';
 import { opcoesDaLista } from './sumiram.js';
 import { R2_ORIGINAL_MAX } from './foto-rota.js';
 import { GALERIA_MAX_CHAMADAS_IG, GALERIA_MAX_CHAMADAS_IG_PAGO } from './config.js';
+import { usoAtualizado, gravaUsoDoR2, limiteDoR2 } from './r2-limite.js';
 
 export const PRECOPIA_POR_VEZ = 30;
 export const PRECOPIA_PARALELO = 4;
 export const PRECOPIA_BYTES_POR_VEZ = 3 * 1024 * 1024 * 1024;
 export const PRECOPIA_A_CADA_MS = 6 * 3600 * 1000;
 const PRECOPIA_PRAZO_MS = 120 * 1000;
+export const PRECOPIA_FRACAO_DO_TETO = 0.95;
 
 /**
  * Os álbuns a pré-copiar: `R2_PRECOPIA_SLUGS`, separados por vírgula.
@@ -159,11 +165,13 @@ async function fontesDoAlbum(env, evento) {
  * @param {any} env
  * @param {any} evento
  * @param {{ inicio: number, feitas: string[], copiados: number, completo: boolean, em?: number, noR2?: number }} estado (alterado)
- * @param {{ fetch?: typeof fetch, agora?: number }} [op]
+ * @param {{ fetch?: typeof fetch, agora?: number, uso?: import('./r2-limite.js').UsoR2 }} [op]
  */
 export async function precopiaUm(env, evento, estado, op = {}) {
   const f = op.fetch || fetch;
   const t0 = Date.now();
+  const uso = op.uso || await usoAtualizado(env, op.agora);
+  const teto = limiteDoR2(env) * PRECOPIA_FRACAO_DO_TETO;
   const ocultas = new Set(normalizaOcultas(evento.fotosOcultas));
   const noR2 = await originaisNoR2(env.FOTOS_R2);
   const fontes = await fontesDoAlbum(env, evento);
@@ -192,6 +200,8 @@ export async function precopiaUm(env, evento, estado, op = {}) {
     while (i < pendentes.length && !parou) {
       if (copiados >= PRECOPIA_POR_VEZ || bytes >= PRECOPIA_BYTES_POR_VEZ || Date.now() - t0 > PRECOPIA_PRAZO_MS) { parou = 'orcamento'; break; }
       const lote = pendentes.slice(i, i + Math.min(PRECOPIA_PARALELO, PRECOPIA_POR_VEZ - copiados));
+      // O teto do bucket vale antes de baixar: o lote inteiro tem de caber.
+      if (uso.bytes + bytes + lote.reduce((t, a) => t + a.bytes, 0) > teto) { parou = 'teto-r2'; break; }
       i += lote.length;
       const rs = await Promise.all(lote.map(a => copiaUm(env, a, f)));
       rs.forEach((r, k) => {
@@ -205,6 +215,8 @@ export async function precopiaUm(env, evento, estado, op = {}) {
     // (não por limite) não prende a fonte para sempre: volta no próximo ciclo.
     if (!parou && (resto === 0 || falhou)) estado.feitas.push(fonte.chave);
   }
+  // O que esta execução gravou entra na conta até a próxima medição.
+  if (copiados) await gravaUsoDoR2(env, { bytes: uso.bytes + bytes, objetos: uso.objetos + copiados, em: uso.em });
   estado.copiados = (Number(estado.copiados) || 0) + copiados;
   estado.completo = !parou && fontes.every(x => estado.feitas.includes(x.chave));
   estado.em = op.agora || Date.now();
@@ -222,6 +234,20 @@ export async function precopiaUm(env, evento, estado, op = {}) {
 export async function precopiaAlbuns(env, eventos, op = {}) {
   if (!env || !env.FOTOS_R2 || !env.FOTOS || !Array.isArray(eventos)) return null;
   const agora = op.agora || Date.now();
+  // A medição do bucket roda mesmo sem álbum na lista: é ela que libera a
+  // cópia do primeiro download e as miniaturas (o teto falha fechado).
+  /** @type {import('./r2-limite.js').UsoR2} */
+  let uso;
+  try {
+    uso = await usoAtualizado(env, agora);
+  } catch (e) {
+    console.error('precopia: medição do R2 falhou', e);
+    return null;
+  }
+  if (uso.bytes >= limiteDoR2(env) * PRECOPIA_FRACAO_DO_TETO) {
+    console.log(`precopia: R2 no teto (${Math.round(uso.bytes / 1073741824)} GB), nada a copiar`);
+    return null;
+  }
   for (const slug of slugsDaPrecopia(env)) {
     const evento = eventos.find(e => e && e.slug === slug);
     if (!evento || !evento.driveUrl) continue;
@@ -231,7 +257,7 @@ export async function precopiaAlbuns(env, eventos, op = {}) {
     try { estado = JSON.parse((await env.FOTOS.get(chave)) || 'null'); } catch { estado = null; }
     if (estado && estado.completo && agora - (Number(estado.inicio) || 0) < PRECOPIA_A_CADA_MS) continue;
     if (!estado || !Array.isArray(estado.feitas) || estado.completo) estado = { inicio: agora, feitas: [], copiados: 0, completo: false };
-    const r = await precopiaUm(env, evento, estado, { ...op, agora });
+    const r = await precopiaUm(env, evento, estado, { ...op, agora, uso });
     await env.FOTOS.put(chave, JSON.stringify(estado), { expirationTtl: 30 * 86400 });
     console.log(`precopia: ${slug} +${r.copiados} arquivos (${Math.round(r.bytes / 1048576)} MB), ${r.feitas}/${r.fontes} pastas${r.completo ? ', pronto' : ''}${r.parou ? `, parou (${r.parou})` : ''}`);
     return { slug, ...r };

@@ -2176,6 +2176,23 @@ O download (`baixaDaGaleria`) não mudou: ele já procura no R2 antes do Google.
   `copiados`, `noR2`), só números. Sem R2 (a prévia), `null` e nada roda.
 - Ocultar ou remover uma foto continua apagando a cópia (`apagaCopiasDaFoto`).
 
+**Teto de custo (`src/r2-limite.js`).** A Cloudflare não para o R2 sozinha
+(só manda aviso de cobrança), então o teto mora no código: nenhuma gravação no
+bucket passa de `R2_LIMITE_GB` (wrangler.toml, hoje 100; aceita 1 a 1000).
+Vale para a pré-cópia, para a cópia do original no primeiro download e para as
+miniaturas.
+- O cron soma o tamanho de todos os objetos do bucket a cada hora e grava em
+  `r2:uso` no KV; entre medições, a pré-cópia soma o que gravou. Quem grava lê
+  esse número (memória do isolate por 1 min).
+- **Falha fechada:** sem medição (ou com o KV fora), nada grava.
+- A pré-cópia para em 95% do teto, deixando folga para as miniaturas.
+- Teto cheio: o site continua igual, e o que não está no R2 sai do Google.
+- Em 90%, o self-test do healthz avisa (o alerta de sempre). O campo `r2` do
+  healthz traz `usoGb`, `limiteGb`, `objetos`, `medidoEm` e `cheio`.
+- Custo máximo de armazenamento: (teto − 10 GB grátis) × US$ 0,015 por mês;
+  com 100 GB, US$ 1,35. As gravações (classe A) ficam presas ao número de
+  arquivos; as leituras (classe B) ao limite de downloads por IP.
+
 ### Custo
 
 A listagem fica 10 min (`GALERIA_LISTA_TTL_S`) na memória do isolate e na Cache
