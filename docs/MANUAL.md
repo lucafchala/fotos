@@ -101,10 +101,10 @@ Os créditos ficam no campo **Créditos por pasta** (bloco Fotos e Drive), uma l
 1. No bloco **Álbum Entre Nós**, marque **Busca pelo rosto** e/ou **Busca nas fotos (texto e coisas)**.
 2. As duas só funcionam em álbum **público** e dependem do indexador (o programa que lê as fotos). Ele roda sozinho; o passo a passo técnico está em `docs/ROSTO.md`.
 3. **Busca pelo rosto:** o visitante tira uma selfie e vê as fotos em que provavelmente aparece. Ele pode pedir para sair da busca.
-4. **Busca nas fotos:** o campo **Procurar nas fotos** acha número de camisa, palavra de faixa ou coisas (palco, bolo, bola).
+4. **Busca nas fotos:** o campo **Procurar nas fotos** acha coisas (palco, bolo, bola). Número de camisa e palavra de faixa só nas fotos lidas antes de 18/11/2026: desde então, para economizar, o indexador não lê o texto das fotos novas.
 5. Antes do lançamento, só você (ou quem tem a prévia) testa.
 6. Antes de abrir a busca pelo rosto para a turma, avise a turma e os responsáveis. Se ainda não avisou, desmarque antes da hora do lançamento.
-7. A moderação roda junto: foto da turma com conteúdo impróprio é escondida e você recebe um e-mail.
+7. **Moderação desligada desde 18/11/2026** (para economizar): foto imprópria nova não gera e-mail nem é escondida. Confira as fotos novas no álbum e use **Ocultar** no visualizador. Para religar, veja `ROSTO_LEITURAS` em `docs/ROSTO.md`.
 
 ### Como marcar o lançamento ou lançar agora
 

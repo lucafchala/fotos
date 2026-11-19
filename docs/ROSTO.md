@@ -78,7 +78,7 @@ Worker e a opção estar marcada no projeto.
 
 6. **Pedir mais vazão:** em Service Quotas → Amazon Rekognition (São Paulo), peça 20 por segundo para "SearchFacesByImage" e "SearchFaces". É grátis e leva alguns dias. A cota padrão é 5 por segundo; enquanto isso, a página espera e tenta de novo sozinha quando lota. **Feito em nov/2026:** a AWS aprovou 20 (SearchFacesByImage) e 25 (SearchFaces), já em `ROSTO_AWS_TPS`.
 
-7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva quatro chamadas (rosto, texto, coisas, moderação) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
+7. **Montar o índice:** Actions → rosto → Run workflow. Com a busca nas fotos ligada, cada foto leva até quatro chamadas (rosto, texto, coisas, moderação; em produção, só rosto e coisas, ver `ROSTO_LEITURAS` abaixo) e o álbum de 2.364 fotos pede mais de uma execução: cada uma para de pegar foto nova aos 35 minutos (`ROSTO_MAX_MINUTOS`), grava o que fez e a próxima (a cada 10 minutos, ou Run workflow de novo) continua de onde parou. Depois, o workflow roda sozinho a cada 10 minutos (desde a 3.7.2) e pega as fotos novas.
 
 8. **Ligar no projeto:** no painel, edite o projeto e marque **Busca pelo rosto**. O botão **Procurar meu rosto** aparece no índice da galeria.
 
@@ -185,6 +185,8 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 
 **Como chega ao site.** O indexador manda o resultado em lotes de 90 para `POST /api/busca/indexar`, com o mesmo `ROSTO_INDEXADOR_TOKEN`, e o site grava na tabela `busca_foto` do D1 (migração `0005`). A foto que sai do álbum sai da busca na mesma execução. Sem o token, o indexador só faz os rostos. `ROSTO_DESCREVER=0` desliga as três leituras. A variável do repositório `ROSTO_LEITURAS` escolhe quais rodam em cada foto nova: `texto`, `coisas` e `moderacao`, separadas por vírgula (vazia, as três). Cada leitura custa US$ 0,0013 por foto em São Paulo; o que já foi lido continua na busca.
 
+**Em produção, desde 18/11/2026: `ROSTO_LEITURAS=coisas`** (decisão do dono, para baixar o custo da AWS). Cada foto nova leva só duas chamadas: rosto (`IndexFaces`) e coisas (`DetectLabels`). Texto e moderação **não rodam**: a busca não acha mais palavras de fotos novas, e foto imprópria nova não gera aviso; a revisão é no olho, no painel. Junto, `ROSTO_MAX_DIA=300` limita as chamadas por dia. Para voltar a moderação: incluir `moderacao` na variável.
+
 **A busca.** Com **Busca nas fotos (texto e coisas)** marcada no projeto, o álbum ganha o campo "Procurar nas fotos" (`GET /api/busca`).
 - Acha fotos com **todos** os termos, por **palavra inteira**: "10" não acha "100".
 - Deixa as ocultas de fora.
@@ -192,7 +194,7 @@ Além dos rostos, o indexador pede à Rekognition, **uma vez por foto**, três l
 - É **só uma consulta ao D1**: nenhuma chamada à Amazon por visita.
 - Tem o mesmo portão da busca pelo rosto: álbum público, e antes do lançamento só o dono (ou quem tem a senha de prévia).
 
-**A moderação.** Roda sempre que o indexador passa, mesmo com a busca desligada.
+**A moderação.** Roda sempre que o indexador passa, mesmo com a busca desligada, **se `moderacao` estiver em `ROSTO_LEITURAS`** (em produção, desde 18/11/2026, não está; ver acima).
 - **Nada é escondido sozinho** (desde a 3.8.12). Foto com marca **nova** continua no álbum, e o dono recebe um e-mail com o link de cada uma; ele decide e toca em "Ocultar" no visualizador.
 - O e-mail destaca as fotos **da turma** (autor da linha `*` dos créditos ou de uma pasta com `!`), que são as que pedem atenção primeiro. As de fotógrafo credenciado vêm marcadas como "fotógrafo".
 - **Uma foto só é avisada uma vez.** O indexador não manda de novo uma foto que já foi marcada.
